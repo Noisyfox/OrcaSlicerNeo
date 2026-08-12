@@ -26,6 +26,7 @@
 #include <map>
 #include <memory>
 #include <type_traits>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -393,6 +394,107 @@ public:
 private:
   std::deque<T, Alloc> queue_;
 };
+
+// ---------------- parallel_pipeline (serial stand-in) ----------------
+// oneTBB-2021 pipeline API as used by GCode.cpp: stages are built with
+// make_filter<In, Out>(filter_mode, functor) and chained with `&`; the first
+// stage (Input = void) is the generator: it receives a tbb::flow_control& and
+// returns items until it calls fc.stop(). Serially we run the generator until
+// it stops, feeding each item through the remaining stages in order.
+class flow_control {
+public:
+    void stop() { m_stopped = true; }
+    bool is_stopped() const { return m_stopped; }
+private:
+    bool m_stopped = false;
+};
+
+enum class filter_mode { parallel, serial_in_order, serial_out_of_order };
+
+template <typename Input, typename Output, typename Functor>
+class filter {
+public:
+    using input_type  = Input;
+    using output_type = Output;
+
+    filter(filter_mode, Functor f) : m_functor(std::move(f)) {}
+
+    template <typename... Args>
+    Output operator()(Args&&... args) const {
+        return m_functor(std::forward<Args>(args)...);
+    }
+
+private:
+    Functor m_functor;
+};
+
+template <typename Input, typename Output, typename Functor>
+filter<Input, Output, Functor> make_filter(filter_mode mode, Functor f) {
+    return filter<Input, Output, Functor>(mode, std::move(f));
+}
+
+// Chained stages. `filters` is public so operator& can splice chains.
+template <typename... Filters>
+class filter_chain {
+public:
+    using tuple_t = std::tuple<Filters...>;
+    explicit filter_chain(Filters... fs) : filters(std::move(fs)...) {}
+    template <std::size_t I>
+    auto& stage() { return std::get<I>(filters); }
+    tuple_t filters;
+};
+
+template <typename F1, typename F2>
+auto operator&(const F1& f1, const F2& f2) {
+    return filter_chain<F1, F2>(f1, f2);
+}
+
+template <typename... Fs, typename Fn>
+auto operator&(filter_chain<Fs...> chain, Fn f) {
+    return std::apply(
+        [&](auto&&... fs) {
+            return filter_chain<Fs..., Fn>(std::forward<Fs>(fs)..., std::move(f));
+        },
+        std::move(chain).filters);
+}
+
+namespace detail {
+// Feed one item through stages [I, N) of a chain. The last stage may output void.
+template <std::size_t I, typename Chain, typename T>
+void feed(Chain& chain, T&& item) {
+    auto& stage = chain.template stage<I>();
+    using stage_t = std::decay_t<decltype(stage)>;
+    using out_t   = typename stage_t::output_type;
+    if constexpr (std::is_void_v<out_t>) {
+        stage(std::forward<T>(item));
+    } else {
+        auto next = stage(std::forward<T>(item));
+        if constexpr (I + 1 < std::tuple_size_v<typename Chain::tuple_t>)
+            feed<I + 1>(chain, std::move(next));
+    }
+}
+}  // namespace detail
+
+template <typename... Fs>
+void parallel_pipeline(std::size_t /*token_count*/, filter_chain<Fs...> chain) {
+    auto& generator = chain.template stage<0>();
+    using gen_t = std::decay_t<decltype(generator)>;
+    static_assert(std::is_void_v<typename gen_t::input_type>,
+                  "first pipeline stage must be a generator (void input)");
+    flow_control fc;
+    while (!fc.is_stopped()) {
+        auto item = generator(fc);
+        if (fc.is_stopped()) break;
+        if constexpr (sizeof...(Fs) > 1)
+            detail::feed<1>(chain, std::move(item));
+    }
+}
+
+// A bare single-stage pipeline.
+template <typename Input, typename Output, typename Functor>
+void parallel_pipeline(std::size_t tokens, const filter<Input, Output, Functor>& f) {
+    parallel_pipeline(tokens, filter_chain<filter<Input, Output, Functor>>(f));
+}
 
 }  // namespace tbb
 
