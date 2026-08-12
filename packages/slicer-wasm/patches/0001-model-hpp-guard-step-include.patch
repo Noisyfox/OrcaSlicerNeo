@@ -1,0 +1,20 @@
+diff --git a/src/libslic3r/Model.hpp b/src/libslic3r/Model.hpp
+index d8697adb..01bf34ea 100644
+--- a/src/libslic3r/Model.hpp
++++ b/src/libslic3r/Model.hpp
+@@ -23,7 +23,15 @@
+ //BBS: add bbs 3mf
+ #include "Format/bbs_3mf.hpp"
+ //BBS: add step
++#ifdef SLIC3R_WASM_NO_OCCT
++// WASM spike: STEP import (OCCT) dropped; forward-declare the types Model.hpp needs.
++#include <functional>
++namespace Slic3r { class Step;
++using ImportStepProgressFn = std::function<void(int,int,int,bool&)>;
++using StepIsUtf8Fn = std::function<void(bool)>; }
++#else
+ #include "Format/STEP.hpp"
++#endif
+ //BBS: add stl
+ #include "Format/STL.hpp"
+ #include "Format/OBJ.hpp"
