@@ -11,6 +11,7 @@ namespace {
 
 using u32 = std::uint32_t;
 using u8  = std::uint8_t;
+using u64 = std::uint64_t;
 
 inline u32 rotl(u32 x, int c) { return (x << c) | (x >> (32 - c)); }
 
@@ -91,12 +92,13 @@ int MD5_Update(MD5_CTX* ctx, const void* data, size_t len) {
     u32 t = (old >> 3) & 0x3f;  // bytes already buffered
     if (t) {
         u32 want = 64 - t;
+        unsigned char* buf = reinterpret_cast<unsigned char*>(ctx->data);
         if (len < want) {
-            std::memcpy(ctx->data + (t >> 2), p, len);
+            std::memcpy(buf + t, p, len);
             ctx->num = t + u32(len);
             return 1;
         }
-        std::memcpy(ctx->data + (t >> 2), p, want);
+        std::memcpy(buf + t, p, want);
         u32 s[4] = {ctx->A, ctx->B, ctx->C, ctx->D};
         u8 block[64];
         std::memcpy(block, ctx->data, 64);

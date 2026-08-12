@@ -46,9 +46,11 @@ int main(int argc, char** argv) {
     // ---- Build and run the print ----
     Print print;
     print.apply(model, config);
-    const std::string validation_error = print.validate();
-    if (!validation_error.empty()) {
-      std::fprintf(stderr, "validate: %s\n", validation_error.c_str());
+    // validate() returns a StringObjectException (error string + object it
+    // refers to) at the pinned SHA; use its .string member for the message.
+    const StringObjectException validation_error = print.validate();
+    if (!validation_error.string.empty()) {
+      std::fprintf(stderr, "validate: %s\n", validation_error.string.c_str());
       return 1;
     }
     print.process();
