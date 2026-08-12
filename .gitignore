@@ -1,1 +1,8 @@
 .worktrees/
+node_modules/
+dist/
+out/
+*.local
+.DS_Store
+packages/slicer-wasm/.work/
+packages/slicer-wasm/out/
