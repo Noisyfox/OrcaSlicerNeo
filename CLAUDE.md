@@ -7,6 +7,7 @@
 | Path | What it is |
 |---|---|
 | `doc/2026-08-12-electron-gui-rewrite-design.md` | **Approved design — read before coding.** Architecture, bridge API table, decisions, risks |
+| `doc/high_level_dev_plan.md` / `spec/Grand Plan.md` | Roadmap + milestone checklist (keep in sync with work) |
 | `packages/slicer-wasm/cpp/` | git submodule → `Noisyfox/OrcaSlicer` (C++ source, pinned SHA). Treat as read-only except via `patches/` |
 | `packages/slicer-wasm/src/bridge.cpp` | extern "C" bridge API (the C++↔JS seam) |
 | `packages/slicer-wasm/src/client/` | typed JS client + worker glue (the only JS that touches the WASM module) |

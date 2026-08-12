@@ -20,6 +20,8 @@
 - Read `doc/2026-08-12-electron-gui-rewrite-design.md` **before any coding** —
   it is the approved design for the current milestone (v1 vertical slice:
   load STL/3MF → configure → slice → 3D preview → export G-code).
+- Read `doc/high_level_dev_plan.md` for the roadmap and `spec/Grand Plan.md`
+  for the milestone checklist; keep both in sync with delivered work.
 - Read `project_structure_and_guidelines.md` for structure and engineering
   constraints.
 - Read `doc/` for dated engineering docs; create task-specific notes there.
