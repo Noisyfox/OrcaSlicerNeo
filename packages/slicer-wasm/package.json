@@ -1,0 +1,13 @@
+{
+  "name": "slicer-wasm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "WASM libslic3r module: Emscripten build scaffold + bridge + typed JS client",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
