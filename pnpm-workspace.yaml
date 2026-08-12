@@ -1,3 +1,9 @@
 packages:
   - "apps/*"
   - "packages/*"
+
+# pnpm 10 blocks dependency postinstall scripts by default; electron (binary
+# download) and esbuild need theirs allowed.
+onlyBuiltDependencies:
+  - electron
+  - esbuild
