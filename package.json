@@ -7,6 +7,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "dev": "pnpm --filter desktop dev",
+    "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "build:wasm": "bash packages/slicer-wasm/build.sh",
     "smoke": "node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json"
