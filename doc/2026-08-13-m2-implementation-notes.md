@@ -81,8 +81,10 @@ the JS side copies the bytes out (`HEAPU8.slice`) into fresh typed arrays and
 | `index_ptr` / `index_count` | number | Uint32Array triangle index triples |
 | `layer_ptr` / `layer_count` | number | Uint32Array layer_id per TRIANGLE (count = triangle count) |
 
-The slice-result JSON also carries `{"ok", "objects", "layers",
-"unrecognized_keys"}` stats and the `palette` array. Contract tests:
+The slice call (`orc_slice`) returns `{"ok", "unrecognized_keys"}` (the
+dropped-key report); the slice-result JSON carries `{"ok", "objects",
+"layers", "toolpath", "mesh"}` with the feature palette nested as
+`toolpath.features`. Contract tests:
 `src/client/client.test.ts` (10 tests) + `src/client/worker.test.ts` (4).
 
 ## Worker protocol
@@ -133,7 +135,7 @@ superseded — it returns the toolpath + sliced-mesh buffers).
 | `orc_slice(config_json)` | config JSON | `{"ok", "unrecognized_keys"}` (progress via callback) |
 | `orc_set_instance_offset(obj, inst, x, y, z)` | ints + doubles | `{"ok"}` |
 | `orc_get_model_mesh()` | — | `{"ok", "objects":[{object_idx, vertex_ptr, vertex_count, index_ptr, index_count, offset}]}` |
-| `orc_get_slice_result()` | — | `{"ok", "objects", "layers", "toolpath":{...}, "mesh":{...}, "features": palette}` |
+| `orc_get_slice_result()` | — | `{"ok", "objects", "layers", "toolpath":{... incl. "features": palette}, "mesh":{...}}` |
 | `orc_export_gcode()` | — | `{"ok", "path": "/out.gcode"}` (bytes via `FS.readFile`) |
 | `orc_cancel()` | — | `{"ok"}` (state reset: `cancel()` + `restart()`) |
 
