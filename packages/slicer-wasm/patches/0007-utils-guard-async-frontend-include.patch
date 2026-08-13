@@ -1,5 +1,5 @@
 diff --git a/src/libslic3r/utils.cpp b/src/libslic3r/utils.cpp
-index 5f429f076a..d2fcadb319 100644
+index 5f429f076a..b4170b3917 100644
 --- a/src/libslic3r/utils.cpp
 +++ b/src/libslic3r/utils.cpp
 @@ -51,7 +51,9 @@
@@ -46,7 +46,7 @@ index 5f429f076a..d2fcadb319 100644
  #ifdef __APPLE__
  	//currently on old macos, the boost::log::add_file_log will crash
  	//TODO: need to be fixed
-@@ -424,22 +433,29 @@ void set_log_path_and_level(const std::string& file, unsigned int level)
+@@ -424,22 +433,33 @@ void set_log_path_and_level(const std::string& file, unsigned int level)
  	set_logging_level(level);
  
  	return;
@@ -72,6 +72,10 @@ index 5f429f076a..d2fcadb319 100644
      if (g_log_sink)
          return g_log_sink->locked_backend()->get_current_file_name();
      return {};
++#else
++    // Logging is compiled out on Emscripten; still return a valid empty path
++    // so the function has a well-defined return on all platforms.
++    return {};
 +#endif
  }
  
