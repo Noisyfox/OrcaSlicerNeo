@@ -141,7 +141,65 @@ embed_presets() {
   mkdir -p "$dst"
   cp "$src/BBL.json" "$dst/"
   cp -a "$src/BBL" "$dst/"
-  log "Embedded curated presets from $src/BBL into $dst"
+  # BBL/filament/ also vendors third-party filament collections (COEX,
+  # Polymaker, eSUN, ...) that inherit from their own — un-embedded — vendor
+  # dirs. load_vendor_configs_from_json parses the index entries listed in
+  # BBL.json's filament_list and THROWS on the first parse error, aborting the
+  # whole BBL vendor load (observed: "can not find inherits COEX PCTG PRIME
+  # @base" / parse error on the missing file). Keep only self-contained
+  # entries: drop third-party subdir entries AND top-level entries whose
+  # inherits chain resolves to a file that is not itself kept (fixpoint —
+  # e.g. "PolyLite ABS @BBL H2DP" inherits Polymaker's "PolyLite ABS @base").
+  # Machine/process lists are self-contained at this SHA; the fixpoint below
+  # is generic and covers them too if that ever changes.
+  find "$dst/BBL/filament" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
+  local py="$(command -v python || command -v python3 || true)"
+  [ -n "$py" ] || die "python not found (needed to filter BBL.json for the embed)"
+  local json_path="$dst/BBL.json"
+  if command -v cygpath >/dev/null 2>&1; then json_path="$(cygpath -w "$dst/BBL.json")"; fi
+  "$py" - "$json_path" <<'PYEOF' || die "failed to filter BBL.json"
+import json, os, sys
+
+path = sys.argv[1]          # BBL.json inside the embed dir
+vendor = os.path.join(os.path.dirname(path), 'BBL')
+
+def inherits_values(d, out):
+    if isinstance(d, dict):
+        for k, v in d.items():
+            if k == 'inherits' and isinstance(v, str):
+                out.add(v)
+            else:
+                inherits_values(v, out)
+    elif isinstance(d, list):
+        for v in d:
+            inherits_values(v, out)
+
+with open(path, encoding='utf-8') as f:
+    j = json.load(f)
+
+for key, subdir in (('filament_list', 'filament'),
+                    ('machine_list', 'machine'),
+                    ('process_list', 'process')):
+    entries = [e for e in j.get(key, []) if e.get('sub_path', '').count('/') == 1]
+    def stem(e): return e['sub_path'].rsplit('/', 1)[-1][:-len('.json')]
+    kept = {stem(e): e for e in entries}
+    changed = True
+    while changed:                      # fixpoint: drop entries whose inherits
+        changed = False                 # chain leaves the kept set
+        for name, e in list(kept.items()):
+            p = os.path.join(vendor, subdir, name + '.json')
+            if not os.path.exists(p):
+                del kept[name]; changed = True; continue
+            iv = set()
+            inherits_values(json.load(open(p, encoding='utf-8')), iv)
+            if any(t not in kept for t in iv):
+                del kept[name]; changed = True
+    j[key] = [e for e in entries if stem(e) in kept]
+
+with open(path, 'w', encoding='utf-8') as f:
+    json.dump(j, f, ensure_ascii=False)
+PYEOF
+  log "Embedded curated presets from $src/BBL into $dst (third-party filament entries dropped)"
 }
 embed_presets
 

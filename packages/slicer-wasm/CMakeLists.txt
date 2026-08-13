@@ -295,7 +295,13 @@ target_link_options(orca_slice PRIVATE
   -sEXIT_RUNTIME=0
   -sINVOKE_RUN=0
   -sFORCE_FILESYSTEM=1
-  -sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,cwrap,UTF8ToString
+  # HEAPU8: the bridge's binary-buffer contract (design §Bridge API: bytes
+  # cross via _malloc/_free + HEAPU8 views) requires the JS side to see the
+  # heap view; the bridge smoke stages model bytes through it.
+  # addFunction/removeFunction: the progress-callback handoff (orc_
+  # set_progress_callback takes a JS function via the wasm function table;
+  # ALLOW_TABLE_GROWTH above makes dynamic allocation safe).
+  -sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,cwrap,UTF8ToString,HEAPU8,addFunction,removeFunction
   # _main must be exported too: callMain is only generated when main is
   # kept (Emscripten 6 drops it otherwise, breaking Module.callMain).
   -sEXPORTED_FUNCTIONS=_main,_malloc,_free
