@@ -68,6 +68,19 @@
 
 ### Milestone 2 — Electron Vertical Slice (design Phases C–E)
 
+> **Status: delivered 2026-08-13.** Typed JS client + heap marshaling + Web
+> Worker protocol (request/response/progress) with mock-module unit tests
+> (14 slicer-wasm + 5 desktop, all green); Electron shell with native
+> dialogs/file IO and COOP/COEP session headers; settings UI rendered from
+> `orc_get_option_metadata()`; R3F viewport (bed, model mesh from WASM
+> buffers, orbit/select, drag-move); slice orchestration with progress and
+> binary result buffers (toolpath + per-feature sliced mesh); layer scrubber;
+> G-code export through the native save dialog. Real-module verification
+> (WASM rebuild + `bridge-smoke.mjs` + `run-slice.mjs`) is deferred — the
+> delivery machine has no emsdk; the binary-buffer bridge is unit-tested
+> against the mock and carries an explicit verify step on an emsdk machine.
+> See `doc/2026-08-13-m2-implementation-notes.md`.
+
 **Epic 2.1: `slicer-wasm` JS client**
 - `packages/slicer-wasm/src/client/`: promise-based typed API (`loadModel`,
   `getPresets`, `getOptionMetadata`, `slice(config, onProgress)`,

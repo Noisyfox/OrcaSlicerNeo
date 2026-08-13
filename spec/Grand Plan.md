@@ -34,18 +34,18 @@ retires the last remaining risk before any UI work.
 
 ## Milestone 2: Electron Vertical Slice (design Phases C–E)
 
-> [!info] Target: **TBD**
+> [!info] Target: **2026-08-13** (delivered)
 
 The v1 user flow works end to end: load STL/3MF → configure → slice →
 3D preview (sliced mesh + toolpath + layer slider) → export G-code.
 
-- [ ] `slicer-wasm` JS client + Web Worker glue + mock-module unit tests
-- [ ] Electron shell: main/preload/renderer, native dialogs, COOP/COEP session
-- [ ] Settings UI rendered from option metadata (no duplicated schema)
-- [ ] 3D viewport (react-three-fiber): bed, models, orbit/select, basic move
-- [ ] Slice orchestration: config JSON → progress → result buffers
-- [ ] Preview: per-feature sliced mesh + toolpath lines + layer scrubber
-- [ ] Export G-code through native save dialog
+- [x] `slicer-wasm` JS client + Web Worker glue + mock-module unit tests
+- [x] Electron shell: main/preload/renderer, native dialogs, COOP/COEP session
+- [x] Settings UI rendered from option metadata (no duplicated schema)
+- [x] 3D viewport (react-three-fiber): bed, models, orbit/select, basic move
+- [x] Slice orchestration: config JSON → progress → result buffers
+- [x] Preview: per-feature sliced mesh + toolpath lines + layer scrubber
+- [x] Export G-code through native save dialog
 
 ## Milestone 3: Packaging & Hardening (design Phase F)
 
