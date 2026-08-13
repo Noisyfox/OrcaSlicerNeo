@@ -48,7 +48,7 @@ orca-slicer-neo/
 │       ├── src/                  # bridge.cpp (extern "C") + slice_main.cpp (CLI)
 │       ├── src/client/           # typed JS client + Web Worker glue
 │       ├── harness/              # Node smoke runner + mock-module self-test
-│       ├── fixtures/             # cube.stl generator, starter config.ini
+│       ├── fixtures/             # cube.stl generator, starter config.json
 │       ├── build.sh              # emsdk env → patches → shim gen → emcmake → artifacts
 │       └── build-boost-wasm64.sh # Emscripten Boost 1.84 build
 ├── doc/                          # dated engineering docs (YYYY-MM-DD-topic.md)

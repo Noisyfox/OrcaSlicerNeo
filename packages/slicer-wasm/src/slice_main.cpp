@@ -5,7 +5,7 @@
 // libslic3r's public API, avoiding OrcaSlicer's GUI-entangled CLI. Driven from
 // Node (harness/run-slice.mjs) through Emscripten MEMFS + callMain.
 //
-// Usage:  orca_slice <model.stl> <config.ini> <out.gcode>
+// Usage:  orca_slice <model.stl> <config.json> <out.gcode>
 //
 // The libslic3r API is version-sensitive across the Slic3r/Prusa/Orca lineage;
 // this targets the pinned ORCA_REF and is the expected place to adjust call
@@ -22,7 +22,7 @@ using namespace Slic3r;
 
 int main(int argc, char** argv) {
   if (argc < 4) {
-    std::fprintf(stderr, "usage: orca_slice <model.stl> <config.ini> <out.gcode>\n");
+    std::fprintf(stderr, "usage: orca_slice <model.stl> <config.json> <out.gcode>\n");
     return 2;
   }
   const std::string model_path = argv[1];
@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
   const std::string out_path = argv[3];
 
   try {
-    // ---- Load print configuration from an OrcaSlicer/PrusaSlicer .ini ----
+    // ---- Load print configuration from a .json config file ----
     // Start from the full default config: libslic3r expects the config map to
     // contain every option (optptr() returns nullptr for missing keys, and
     // some code paths dereference that). Real OrcaSlicer always slices with a

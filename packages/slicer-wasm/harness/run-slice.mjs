@@ -79,7 +79,7 @@ async function main() {
   const { module, stl, config, out = '/out.gcode' } = opts;
   if (!module || !stl || !config) {
     console.error(
-      'usage: node run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.ini'
+      'usage: node run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.json'
     );
     process.exit(2);
   }

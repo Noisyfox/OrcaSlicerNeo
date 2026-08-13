@@ -9,7 +9,7 @@
     "dev": "pnpm --filter desktop dev",
     "typecheck": "pnpm -r typecheck",
     "build:wasm": "bash packages/slicer-wasm/build.sh",
-    "smoke": "node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.ini"
+    "smoke": "node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json"
   },
   "volta": { "node": "22.14.0", "pnpm": "10.0.0" }
 }

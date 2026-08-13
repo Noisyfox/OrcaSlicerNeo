@@ -27,7 +27,7 @@ proved feasibility and contains reusable machinery:
 ## Build commands (once scaffolded)
 
 - WASM: `bash packages/slicer-wasm/build.sh` (needs emsdk on PATH; ~50 GB disk for the dep build)
-- Node smoke: `node packages/slicer-wasm/harness/run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.ini`
+- Node smoke: `node packages/slicer-wasm/harness/run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.json`
 - App dev: `pnpm --filter desktop dev` (electron-vite)
 - e2e: `pnpm --filter desktop test:e2e` (Playwright Electron)
 

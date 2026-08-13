@@ -184,7 +184,7 @@ The spike's one-shot CLI driver stays for harness parity (node smoke tests, fixt
 ## Testing & Verification
 
 - **Node smoke** (no Electron): spike harness pattern — stage `fixtures/cube.stl` +
-  `config.ini` into MEMFS, run `slice_main` via `callMain`, assert exit 0 + `G1` moves;
+  `config.json` into MEMFS, run `slice_main` via `callMain`, assert exit 0 + `G1` moves;
   the module's `ENVIRONMENT=web,worker,node` makes this work unchanged.
 - **Unit** (`vitest`): bridge client + stores against a mock Emscripten module (spike's
   `harness/mock-module.mjs` pattern — runs without emsdk).

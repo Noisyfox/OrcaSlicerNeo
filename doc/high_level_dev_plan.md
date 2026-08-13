@@ -55,7 +55,7 @@
 - Resources: curated preset subset via `--embed-file`.
 
 **Epic 1.6: Node smoke harness**
-- Spike's `harness/` pattern: stage `fixtures/cube.stl` + `config.ini` into MEMFS,
+- Spike's `harness/` pattern: stage `fixtures/cube.stl` + `config.json` into MEMFS,
   `callMain`, assert exit 0 + `G1` moves. GO criterion: output consistent with
   desktop OrcaSlicer for the same model/profile.
 

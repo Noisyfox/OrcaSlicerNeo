@@ -170,4 +170,4 @@ cp -f "$BUILD_DIR"/orca_slice.js  "$OUT_DIR"/ 2>/dev/null || true
 cp -f "$BUILD_DIR"/orca_slice.wasm "$OUT_DIR"/ 2>/dev/null || true
 log "Done. Artifacts in $OUT_DIR/"
 log "Smoke test: node harness/run-slice.mjs --module out/orca_slice.js \\
-     --stl fixtures/cube.stl --config fixtures/config.ini"
+     --stl fixtures/cube.stl --config fixtures/config.json"
