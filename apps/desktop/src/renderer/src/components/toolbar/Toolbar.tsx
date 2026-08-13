@@ -1,4 +1,5 @@
 // apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx
+import { useState } from 'react';
 import { FolderOpen, Slice, Download } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -11,6 +12,7 @@ export function Toolbar() {
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const busy = status === 'slicing';
+  const [exporting, setExporting] = useState(false);
 
   async function openModel() {
     useSettingsStore.getState().setModelLoaded(false);
@@ -57,6 +59,27 @@ export function Toolbar() {
     }
   }
 
+  async function exportGcode() {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const res = await slicerClient.exportGcode();
+      if (!res.ok) throw new Error(res.error ?? 'export failed');
+      const { path } = await window.orca.saveFileDialog('output.gcode', [
+        { name: 'G-code', extensions: ['gcode'] },
+      ]);
+      if (!path) return; // canceled — nothing to do
+      await window.orca.writeFile(path, res.bytes.buffer.slice(
+        res.bytes.byteOffset,
+        res.bytes.byteOffset + res.bytes.byteLength,
+      ) as ArrayBuffer);
+    } catch (err) {
+      setError(`export: ${String(err)}`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <>
       <Button size="sm" variant="secondary" onClick={openModel}>
@@ -65,8 +88,8 @@ export function Toolbar() {
       <Button size="sm" variant="secondary" onClick={slice} disabled={busy || !modelLoaded}>
         <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
       </Button>
-      <Button size="sm" variant="default" disabled={busy || !modelLoaded} title="Export G-code">
-        <Download className="h-4 w-4" /> Export
+      <Button size="sm" variant="default" disabled={busy || exporting || status !== 'done'} onClick={exportGcode} title="Export G-code">
+        <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
       </Button>
     </>
   );
