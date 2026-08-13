@@ -10,25 +10,27 @@ details and status live in [`doc/high_level_dev_plan.md`](../doc/high_level_dev_
 - [x] Design doc approved and committed (`doc/2026-08-12-electron-gui-rewrite-design.md`)
 - [x] Root docs (README / AGENTS / CLAUDE / project_structure_and_guidelines)
 - [x] Grand plan + high-level dev plan
-- [ ] Repo scaffold: pnpm workspaces, `packages/slicer-wasm/` + `apps/desktop/`
+- [x] Repo scaffold: pnpm workspaces, `packages/slicer-wasm/` + `apps/desktop/`
       skeletons, C++ submodule pinned to a SHA
 
 ## Milestone 1: WASM Core (design Phase B)
 
-> [!info] Target: **TBD**
+> [!info] Target: **2026-08-13** (delivered)
 
 The C++ slicing core compiles to WASM and slices a fixture end to end. This
 retires the last remaining risk before any UI work.
 
-- [ ] Submodule pinned; patches applied (`Model.hpp` STEP guard, clang tweaks,
-      `distance_to_squared`) maintained as `.patch` files
-- [ ] Serial TBB shim incl. `parallel_pipeline` stand-in
-- [ ] Boost 1.84 wasm64 build (`build-boost-wasm64.sh`)
-- [ ] Scaffold CMake: `GLOB_RECURSE` + `DROP_PATTERNS` + `stubs/`, 3MF re-added
-- [ ] `bridge.cpp` extern "C" API: `orc_init` / `orc_get_presets` /
+- [x] Submodule pinned; patches applied (`Model.hpp` STEP guard, clang tweaks,
+      `distance_to_squared`) maintained as `.patch` files — 0001, 0003–0007
+      shipped (0002 skipped: `distance_to_squared` was fixed upstream between
+      the spike's SHA and the b97ca3c0ac pin)
+- [x] Serial TBB shim incl. `parallel_pipeline` stand-in
+- [x] Boost 1.84 wasm64 build (`build-boost-wasm64.sh`)
+- [x] Scaffold CMake: `GLOB_RECURSE` + `DROP_PATTERNS` + `stubs/`, 3MF re-added
+- [x] `bridge.cpp` extern "C" API: `orc_init` / `orc_get_presets` /
       `orc_get_option_metadata` / `orc_load_model` / `orc_slice` /
       `orc_get_slice_result` / `orc_export_gcode` / `orc_cancel`
-- [ ] Node smoke green: `cube.stl` → valid G-code (spike GO criterion)
+- [x] Node smoke green: `cube.stl` → valid G-code (spike GO criterion)
 
 ## Milestone 2: Electron Vertical Slice (design Phases C–E)
 

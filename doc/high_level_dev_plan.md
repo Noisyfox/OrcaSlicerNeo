@@ -18,6 +18,13 @@
 
 ### Milestone 1 — WASM Core (design Phase B)
 
+> **Status: delivered 2026-08-13.** Submodule pinned b97ca3c0ac (patches 0001,
+> 0003–0007 applied — 0002 skipped: `distance_to_squared` fixed upstream);
+> serial TBB shim incl. `parallel_pipeline` stand-in; Boost 1.84 wasm64 (12
+> static archives); scaffold CMake with 3MF re-added; 8-function extern "C"
+> bridge API; Node smoke green — see
+> `doc/2026-08-12-wasm-build-notes.md`.
+
 **Epic 1.1: C++ submodule + patches**
 - Add `packages/slicer-wasm/cpp/` as a submodule → `Noisyfox/OrcaSlicer`, pinned
   to a commit SHA (initially the fork's current master HEAD; spike-proven
