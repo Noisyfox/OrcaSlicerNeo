@@ -24,6 +24,12 @@
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Utils.hpp"
 
+#include "bridge_buffers.hpp"
+// Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/; the brief's
+// PrintObject.hpp does not exist (class PrintObject is in Print.hpp, already
+// included above).
+#include "libslic3r/GCode/GCodeProcessor.hpp"
+
 #include "nlohmann/json.hpp"
 
 using namespace Slic3r;
@@ -295,15 +301,132 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     }
 }
 
-// JSON stats for v1; the binary toolpath + sliced-mesh buffers land in
-// Milestone 2 (Epic 2.4) where the JS client drives their layout.
+// ---- new: model triangle mesh + instance offset ----
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int instance_idx, double x, double y, double z) {
+    try {
+        auto& model = state().model;
+        if (object_idx < 0 || object_idx >= static_cast<int>(model.objects.size()))
+            return error_json("object index out of range");
+        auto& obj = model.objects[static_cast<size_t>(object_idx)];
+        if (instance_idx < 0 || instance_idx >= static_cast<int>(obj->instances.size()))
+            return error_json("instance index out of range");
+        // Drift surface: ModelInstance::set_offset(Vec3d) — confirm at SHA.
+        obj->instances[static_cast<size_t>(instance_idx)]->set_offset(Slic3r::Vec3d(x, y, z));
+        return dup_json(json{{"ok", true}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
+    try {
+        auto& model = state().model;
+        json arr = json::array();
+        for (size_t oi = 0; oi < model.objects.size(); ++oi) {
+            const auto& obj = model.objects[oi];
+            const auto& its = obj->mesh().its;
+            MallocBuffer vbuf;
+            MallocBuffer ibuf;
+            for (const auto& v : its.vertices) {
+                vbuf.appendF32(v.x());
+                vbuf.appendF32(v.y());
+                vbuf.appendF32(v.z());
+            }
+            for (const auto& tri : its.indices) {
+                ibuf.appendU32(static_cast<std::uint32_t>(tri[0]));
+                ibuf.appendU32(static_cast<std::uint32_t>(tri[1]));
+                ibuf.appendU32(static_cast<std::uint32_t>(tri[2]));
+            }
+            // Instance 0's offset (v1: one instance per object).
+            Slic3r::Vec3d off(0, 0, 0);
+            if (!obj->instances.empty()) off = obj->instances.front()->get_offset();
+            const std::uint32_t vptr = reinterpret_cast<std::uint32_t>(vbuf.data);
+            const std::uint32_t iptr = reinterpret_cast<std::uint32_t>(ibuf.data);
+            vbuf.release();
+            ibuf.release();
+            arr.push_back(json{
+                {"object_idx", oi},
+                {"vertex_ptr", vptr},
+                {"vertex_count", its.vertices.size()},
+                {"index_ptr", iptr},
+                {"index_count", its.indices.size() * 3},
+                {"offset", {off.x(), off.y(), off.z()}},
+            });
+        }
+        return dup_json(json{{"ok", true}, {"objects", std::move(arr)}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    }
+}
+
+// Binary toolpath + sliced mesh + stats. Contract mirrors the Task 1
+// mock; JS reads the heap buffers and _free()s the pointers.
 EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     try {
-        // Drift at the pinned SHA: Print::objects is the accessor
-        // objects() (Print.hpp:968), not a data member — call it.
-        json out{{"ok", true}, {"objects", state().print.objects().size()}};
-        if (!state().print.objects().empty())
-            out["layers"] = state().print.objects().front()->layers().size();
+        auto& print = state().print;
+        if (print.objects().empty())
+            return dup_json(json{{"ok", true}, {"objects", 0}, {"layers", 0},
+                                 {"toolpath", json{{"vertex_ptr", 0}, {"vertex_count", 0},
+                                                   {"layer_ptr", 0}, {"layer_count", 0},
+                                                   {"feature_ptr", 0}, {"feature_count", 0},
+                                                   {"features", json::array()}}},
+                                 {"mesh", json{{"vertex_ptr", 0}, {"vertex_count", 0},
+                                               {"index_ptr", 0}, {"index_count", 0},
+                                               {"layer_ptr", 0}, {"layer_count", 0}}}}.dump());
+
+        // The toolpath comes from post-processing the exported gcode
+        // (GCodeProcessor::process_file — the GUI's own mechanism). Export
+        // happens here so getSliceResult is self-contained; the client's
+        // exportGcode() later reads the same /out.gcode via FS. Drift
+        // surface: process_file/get_result signatures (Step 1).
+        print.export_gcode("/out.gcode", nullptr, nullptr);
+
+        const size_t layers = print.objects().front()->layers().size();
+        Slic3r::GCodeProcessorResult gcode_result;
+        {
+            Slic3r::GCodeProcessor processor;
+            processor.process_file("/out.gcode");
+            gcode_result = processor.get_result();
+        }
+        auto tp = bridge::build_toolpath(gcode_result);
+        auto mesh = bridge::build_sliced_mesh(print);
+
+        // Feature palette (local id → name/color). build_toolpath assigns
+        // ids 0..N-1 in order of first use; the features buffer holds those
+        // ids, so this list lines up 1:1.
+        json features = json::array();
+        for (const auto& [role, info] : tp.palette_used) {
+            (void)role;
+            features.push_back({{"id", static_cast<int>(features.size())},
+                                {"name", info.name},
+                                {"color", {info.color[0], info.color[1], info.color[2]}}});
+        }
+
+        const std::uint32_t tvptr = reinterpret_cast<std::uint32_t>(tp.positions.data);
+        const std::uint32_t tlptr = reinterpret_cast<std::uint32_t>(tp.layers.data);
+        const std::uint32_t tfptr = reinterpret_cast<std::uint32_t>(tp.features.data);
+        const std::uint32_t mvptr = reinterpret_cast<std::uint32_t>(mesh.positions.data);
+        const std::uint32_t miptr = reinterpret_cast<std::uint32_t>(mesh.indices.data);
+        const std::uint32_t mlptr = reinterpret_cast<std::uint32_t>(mesh.layer_ids.data);
+        const size_t n_verts = tp.positions.size / 12;
+        const size_t m_verts = mesh.positions.size / 12;
+        const size_t m_tris  = mesh.indices.size / 12;
+        tp.positions.release(); tp.layers.release(); tp.features.release();
+        mesh.positions.release(); mesh.indices.release(); mesh.layer_ids.release();
+
+        json out{{"ok", true}, {"objects", print.objects().size()}, {"layers", layers}};
+        out["toolpath"] = {
+            {"vertex_ptr", tvptr}, {"vertex_count", n_verts},
+            {"layer_ptr", tlptr}, {"layer_count", n_verts},
+            {"feature_ptr", tfptr}, {"feature_count", n_verts},
+            {"features", std::move(features)},
+        };
+        out["mesh"] = {
+            {"vertex_ptr", mvptr}, {"vertex_count", m_verts},
+            {"index_ptr", miptr}, {"index_count", m_tris * 3},
+            {"layer_ptr", mlptr}, {"layer_count", m_tris},
+        };
         return dup_json(out.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());

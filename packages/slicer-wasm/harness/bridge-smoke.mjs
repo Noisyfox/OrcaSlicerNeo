@@ -132,6 +132,51 @@ const result = callJson('orc_get_slice_result', [], []);
 check('orc_get_slice_result layers > 0', result.ok === true && result.layers > 0,
       JSON.stringify(result));
 
+// 7b. binary slice-result buffers (M2 contract)
+const res2 = callJson('orc_get_slice_result', [], []);
+check('slice result has toolpath buffers', res2.ok === true
+      && res2.toolpath && res2.toolpath.vertex_count > 0,
+      JSON.stringify(res2).slice(0, 200));
+if (res2.toolpath && res2.toolpath.vertex_count > 0) {
+  const n = res2.toolpath.vertex_count;
+  const pos = Module.HEAPF32.slice(Number(res2.toolpath.vertex_ptr) / 4, Number(res2.toolpath.vertex_ptr) / 4 + n * 3);
+  const layers = Module.HEAPU32.slice(Number(res2.toolpath.layer_ptr) / 4, Number(res2.toolpath.layer_ptr) / 4 + n);
+  const feats = Module.HEAPU32.slice(Number(res2.toolpath.feature_ptr) / 4, Number(res2.toolpath.feature_ptr) / 4 + n);
+  check('toolpath positions finite', pos.every((v) => Number.isFinite(v)));
+  check('toolpath layers ascending within range', layers.every((l) => l >= 0 && l < res2.layers));
+  check('toolpath features in palette', feats.every((f) => Number.isInteger(f) && f >= 0));
+  Module._free(Number(res2.toolpath.vertex_ptr));
+  Module._free(Number(res2.toolpath.layer_ptr));
+  Module._free(Number(res2.toolpath.feature_ptr));
+}
+if (res2.mesh && res2.mesh.vertex_count > 0) {
+  const mi = Module.HEAPU32.slice(Number(res2.mesh.index_ptr) / 4, Number(res2.mesh.index_ptr) / 4 + res2.mesh.index_count);
+  check('mesh indices < vertex_count', mi.every((i) => i < res2.mesh.vertex_count));
+  Module._free(Number(res2.mesh.vertex_ptr));
+  Module._free(Number(res2.mesh.index_ptr));
+  Module._free(Number(res2.mesh.layer_ptr));
+}
+
+// 7c. model mesh buffers (M2 contract)
+const mm = callJson('orc_get_model_mesh', [], []);
+check('orc_get_model_mesh ok', mm.ok === true && mm.objects?.length === 1, JSON.stringify(mm).slice(0, 200));
+if (mm.objects?.length === 1) {
+  const o = mm.objects[0];
+  check('model mesh has cube geometry', o.vertex_count === 8 && o.index_count === 36,
+        `verts=${o.vertex_count} idx=${o.index_count}`);
+  Module._free(Number(o.vertex_ptr));
+  Module._free(Number(o.index_ptr));
+}
+
+// 7d. instance offset round-trip
+const off = callJson('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
+                     [0, 0, 10, 20, 0]);
+check('orc_set_instance_offset ok', off.ok === true, JSON.stringify(off));
+const mm2 = callJson('orc_get_model_mesh', [], []);
+check('offset applied', mm2.ok === true && mm2.objects[0].offset[0] === 10, JSON.stringify(mm2.objects[0]?.offset));
+Module._free(Number(mm2.objects[0].vertex_ptr));
+Module._free(Number(mm2.objects[0].index_ptr));
+
 // 8. export gcode (MEMFS) + validate
 const exported = callJson('orc_export_gcode', [], []);
 check('orc_export_gcode ok', exported.ok === true, JSON.stringify(exported));
