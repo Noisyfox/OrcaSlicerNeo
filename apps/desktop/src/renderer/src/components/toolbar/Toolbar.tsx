@@ -9,9 +9,12 @@ export function Toolbar() {
   const status = useSlicerStore((s) => s.status);
   const setSlicerStatus = useSlicerStore((s) => s.setStatus);
   const setError = useSlicerStore((s) => s.setError);
+  const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const busy = status === 'slicing';
 
   async function openModel() {
+    useSettingsStore.getState().setModelLoaded(false);
+    useSettingsStore.getState().setSelectedObject(null);
     const { path } = await window.orca.openFileDialog([
       { name: 'Models', extensions: ['stl', '3mf'] },
       { name: 'All files', extensions: ['*'] },
@@ -23,6 +26,7 @@ export function Toolbar() {
       const r = await slicerClient.loadModel(new Uint8Array(buf), ext);
       if (!r.ok) throw new Error(r.error ?? 'load failed');
       useSettingsStore.getState().setValue('modelPath', path);
+      useSettingsStore.getState().setModelLoaded(true);
       setError(null);
     } catch (err) {
       setError(String(err));
@@ -58,10 +62,10 @@ export function Toolbar() {
       <Button size="sm" variant="secondary" onClick={openModel}>
         <FolderOpen className="h-4 w-4" /> Open
       </Button>
-      <Button size="sm" variant="secondary" onClick={slice} disabled={busy}>
+      <Button size="sm" variant="secondary" onClick={slice} disabled={busy || !modelLoaded}>
         <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
       </Button>
-      <Button size="sm" variant="default" disabled={busy} title="Export G-code">
+      <Button size="sm" variant="default" disabled={busy || !modelLoaded} title="Export G-code">
         <Download className="h-4 w-4" /> Export
       </Button>
     </>
