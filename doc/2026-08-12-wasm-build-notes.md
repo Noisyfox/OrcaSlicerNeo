@@ -35,10 +35,17 @@ These are mandatory for a rebuild on a fresh machine.
   export EMSDK_NODE=/d/emsdk/node/24.19.0_64bit/bin/node.exe
   export PATH="/d/emsdk/upstream/emscripten:/d/emsdk/upstream/bin:/d/emsdk/node/24.19.0_64bit/bin:<repo>/packages/slicer-wasm/.work/toolchain-shims:$PATH"
   ```
-  cmake/ninja also come from emsdk dirs — add them when not already on PATH:
+  cmake/ninja are **not** under emsdk: the emsdk `cmake/4.2.0-rc3_64bit`
+  package dir is empty and there is no ninja under `D:/emsdk`. On the
+  delivery machine they come from separate installs — the build's own
+  `.work/build/CMakeCache.txt` records the real tools:
   ```bash
-  export PATH="/d/emsdk/cmake-4.2.0-rc3-64bit/bin:/d/emsdk/ninja-1.13.2-64bit:$PATH"
+  export PATH="/d/tools/cmake-4.4.2-windows-x86_64/bin:/c/Users/timem/AppData/Local/Microsoft/WinGet/Links:$PATH"
   ```
+  (`D:/tools/cmake-4.4.2-windows-x86_64/bin/cmake.exe` — cmake 4.4.2; and
+  WinGet's `ninja.exe` 1.13.2 in the WinGet Links dir.) On other machines,
+  install via `emsdk install cmake ninja` or use any cmake ≥ 3.25 + ninja,
+  then point the PATH line at wherever they live.
 - **Bare-name PE toolchain shims in `packages/slicer-wasm/.work/toolchain-shims/`**
   (`em++`, `emar`, `emranlib`). b2 GLOB-matches the bare `em++` name with no
   `.exe` fallback, so Windows needs these shims that forward to the real
