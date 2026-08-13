@@ -1,4 +1,12 @@
-// The typed JS client + Web Worker glue land in Milestone 2 (Epic 2.1).
-// This module is where the promise-based bridge API (loadModel, getPresets,
-// getOptionMetadata, slice, getSliceResult, exportGcode, cancel) will live.
-export const CLIENT_VERSION = '0.0.0-m0';
+// packages/slicer-wasm/src/client/index.ts
+export { createClient } from './client';
+export type {
+  SlicerClient, OrcaModule, OrcaModuleFactory,
+  InitResult, PresetList, OptionMetadata, OptionMeta,
+  LoadModelResult, ModelMeshResult, ModelObjectBuffer,
+  SliceResultStatus, ClientSliceResult, ClientToolpath,
+  ClientSlicedMesh, ToolpathFeature, ExportGcodeResult, CancelResult,
+} from './types';
+export { createMockModule } from './testing/mock-module';
+export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';
+export const CLIENT_VERSION = '0.1.0-m2';
