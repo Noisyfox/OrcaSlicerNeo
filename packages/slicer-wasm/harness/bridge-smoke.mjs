@@ -173,9 +173,14 @@ const off = callJson('orc_set_instance_offset', ['number', 'number', 'number', '
                      [0, 0, 10, 20, 0]);
 check('orc_set_instance_offset ok', off.ok === true, JSON.stringify(off));
 const mm2 = callJson('orc_get_model_mesh', [], []);
-check('offset applied', mm2.ok === true && mm2.objects[0].offset[0] === 10, JSON.stringify(mm2.objects[0]?.offset));
-Module._free(Number(mm2.objects[0].vertex_ptr));
-Module._free(Number(mm2.objects[0].index_ptr));
+// Guard the object access so a failed check reports a check() failure
+// instead of throwing a TypeError on an undefined objects[0].
+check('offset applied', mm2.ok === true && mm2.objects?.[0]?.offset?.[0] === 10,
+      JSON.stringify(mm2.objects?.[0]?.offset));
+if (mm2.objects?.length === 1) {
+  Module._free(Number(mm2.objects[0].vertex_ptr));
+  Module._free(Number(mm2.objects[0].index_ptr));
+}
 
 // 8. export gcode (MEMFS) + validate
 const exported = callJson('orc_export_gcode', [], []);

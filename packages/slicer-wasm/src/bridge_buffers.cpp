@@ -12,13 +12,11 @@
 // Slicer.hpp) and ExPolygon::triangulate_self()/triangles do NOT exist
 // here — the per-layer triangulator is triangulate_expolygons_3d
 // (Tesselate.hpp), the same cap tesselation the missing Prusa API used.
-// PrintObject is defined in Print.hpp (no PrintObject.hpp at this SHA).
+// PrintObject is defined in Print.hpp (no PrintObject.hpp at this SHA);
+// Layer::lslices / print_z need the complete Layer type (Layer.hpp).
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/Tesselate.hpp"
-// Layer::slices (SurfaceCollection) / Layer::print_z — the brief's
-// per-layer loop uses the complete Layer type (Layer.hpp -> Surface
-// Collection.hpp -> Surface.hpp -> ExPolygon.hpp).
 #include "libslic3r/Layer.hpp"
 
 #include <map>
@@ -29,9 +27,6 @@ namespace bridge {
 using Slic3r::ExtrusionRole;
 using Slic3r::GCodeProcessorResult;
 using Slic3r::Print;
-
-// Feature palette (id = ExtrusionRole value, name/color for the client).
-struct FeatureInfo { std::string name; unsigned char color[3]; };
 
 const std::map<ExtrusionRole, FeatureInfo>& feature_palette() {
     static const std::map<ExtrusionRole, FeatureInfo> palette = {
@@ -52,16 +47,6 @@ const std::map<ExtrusionRole, FeatureInfo>& feature_palette() {
     return palette;
 }
 
-struct ToolpathBuffers {
-    MallocBuffer positions;   // Float32 xyz per vertex
-    MallocBuffer layers;      // Uint32 layer_id per vertex
-    MallocBuffer features;    // Uint32 palette index per vertex
-    // Local palette: index into this vector == the id recorded in
-    // `features`. Kept local (0..N-1) so the JSON feature list in
-    // orc_get_slice_result lines up with the buffer values 1:1.
-    std::vector<std::pair<ExtrusionRole, FeatureInfo>> palette_used;
-};
-
 ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
     ToolpathBuffers out;
     const auto& palette = feature_palette();
@@ -75,7 +60,8 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
         out.positions.appendF32(static_cast<float>(mv.position.x()));
         out.positions.appendF32(static_cast<float>(mv.position.y()));
         out.positions.appendF32(static_cast<float>(mv.position.z()));
-        out.layers.appendU32(static_cast<std::uint32_t>(mv.layer_id < 0 ? 0 : mv.layer_id));
+        // MoveVertex::layer_id is unsigned at the pinned SHA — no < 0 case.
+        out.layers.appendU32(static_cast<std::uint32_t>(mv.layer_id));
         auto fid = feature_ids.find(mv.extrusion_role);
         if (fid == feature_ids.end()) {
             fid = feature_ids.emplace(mv.extrusion_role, static_cast<std::uint32_t>(out.palette_used.size())).first;
@@ -85,12 +71,6 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
     }
     return out;
 }
-
-struct MeshBuffers {
-    MallocBuffer positions;   // Float32 xyz per vertex
-    MallocBuffer indices;     // Uint32 index triples
-    MallocBuffer layer_ids;   // Uint32 per TRIANGLE
-};
 
 MeshBuffers build_sliced_mesh(const Print& print) {
     MeshBuffers out;
@@ -102,24 +82,22 @@ MeshBuffers build_sliced_mesh(const Print& print) {
 
     std::uint32_t vertex_base = 0;
     for (size_t li = 0; li < layers.size(); ++li) {
-        const auto& slices = layers[li]->slices;
         const double z = layers[li]->print_z;
 
         // Per-layer triangulation, exactly like the GUI's preview: tesselate
-        // each layer's slice polygons (contour + holes) flat at z. Drift at
-        // the pinned SHA: SlicesToTriangleMeshParams does not exist (only
-        // slices_to_mesh, a full-stack wall+cap builder with no per-triangle
-        // layer info) and ExPolygon has no triangulate_self()/triangles —
-        // triangulate_expolygons_3d is the per-layer cap tesselation the
-        // missing Prusa API itself used, and its Vec3d triangle soup (3
-        // vertices per triangle) feeds the emit loop below 1:1 (the brief's
-        // documented raw-soup fallback).
-        Slic3r::ExPolygons expolys;
-        expolys.reserve(slices.size());
-        for (const auto& surf : slices)
-            expolys.push_back(surf.expolygon);
+        // the layer's merged slice geometry flat at z. Drift at the pinned
+        // SHA: Layer has no `slices` member (that is per-region,
+        // LayerRegion::slices, Layer.hpp:45) — Layer::lslices (Layer.hpp:
+        // 157) is the layer's merged ExPolygons (all regions combined), the
+        // direct input for triangulate_expolygons_3d. SlicesToTriangleMesh
+        // Params does not exist (only slices_to_mesh, a full-stack wall+cap
+        // builder with no per-triangle layer info) and ExPolygon has no
+        // triangulate_self()/triangles — triangulate_expolygons_3d is the
+        // per-layer cap tesselation the missing Prusa API itself used, and
+        // its Vec3d triangle soup (3 vertices per triangle) feeds the emit
+        // loop below 1:1 (the brief's documented raw-soup fallback).
         const std::vector<Slic3r::Vec3d> soup =
-            Slic3r::triangulate_expolygons_3d(expolys, z, Slic3r::NORMALS_UP);
+            Slic3r::triangulate_expolygons_3d(layers[li]->lslices, z, Slic3r::NORMALS_UP);
 
         // Emit per-triangle vertices, global indices, and layer ids.
         const size_t tris = soup.size() / 3;

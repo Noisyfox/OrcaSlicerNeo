@@ -10,7 +10,20 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <map>
+#include <string>
+#include <utility>
 #include <vector>
+
+// ExtrusionRole keys the feature palette; the layout structs below are
+// consumed by bridge.cpp (tp.palette_used, auto tp/mesh), so they live
+// in this header, not only in bridge_buffers.cpp.
+#include "libslic3r/ExtrusionEntity.hpp"
+
+namespace Slic3r {
+struct GCodeProcessorResult;
+class Print;
+}
 
 // A buffer that owns malloc'd memory. By default the storage lives
 // until release() or destruction; the bridge transfers ownership to
@@ -53,3 +66,31 @@ struct MallocBuffer {
     // Hand the storage to JS (bridge fills the pointer/size fields).
     void release() { data = nullptr; size = 0; }
 };
+
+// ---- bridge-facing layout + assembly API (defined in bridge_buffers.cpp) ----
+namespace bridge {
+
+// Feature palette entry (id = ExtrusionRole value, name/color for the client).
+struct FeatureInfo { std::string name; unsigned char color[3]; };
+
+struct ToolpathBuffers {
+    MallocBuffer positions;   // Float32 xyz per vertex
+    MallocBuffer layers;      // Uint32 layer_id per vertex
+    MallocBuffer features;    // Uint32 palette index per vertex
+    // Local palette: index into this vector == the id recorded in
+    // `features`. Kept local (0..N-1) so the JSON feature list in
+    // orc_get_slice_result lines up with the buffer values 1:1.
+    std::vector<std::pair<ExtrusionRole, FeatureInfo>> palette_used;
+};
+
+struct MeshBuffers {
+    MallocBuffer positions;   // Float32 xyz per vertex
+    MallocBuffer indices;     // Uint32 index triples
+    MallocBuffer layer_ids;   // Uint32 per TRIANGLE
+};
+
+const std::map<ExtrusionRole, FeatureInfo>& feature_palette();
+ToolpathBuffers build_toolpath(const Slic3r::GCodeProcessorResult& result);
+MeshBuffers build_sliced_mesh(const Slic3r::Print& print);
+
+}  // namespace bridge
