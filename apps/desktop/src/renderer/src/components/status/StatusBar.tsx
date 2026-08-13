@@ -1,4 +1,33 @@
-// Placeholder — Task 6 implements the status bar (slicer store status + progress).
+// apps/desktop/src/renderer/src/components/status/StatusBar.tsx
+import { useSlicerStore } from '../../stores/useSlicerStore';
+import { Progress } from '../ui/progress';
+
 export function StatusBar() {
-  return <div>StatusBar</div>;
+  const status = useSlicerStore((s) => s.status);
+  const progress = useSlicerStore((s) => s.progress);
+  const layers = useSlicerStore((s) => s.layers);
+  const error = useSlicerStore((s) => s.error);
+
+  return (
+    <div className="flex w-full items-center gap-3">
+      <span className="shrink-0">{statusText(status)}</span>
+      {status === 'slicing' && (
+        <Progress value={progress} className="w-40" />
+      )}
+      {status === 'done' && layers > 0 && (
+        <span>{layers} layers</span>
+      )}
+      {error && <span className="text-destructive truncate">{error}</span>}
+    </div>
+  );
+}
+
+function statusText(s: string): string {
+  switch (s) {
+    case 'idle': return 'Ready';
+    case 'slicing': return 'Slicing…';
+    case 'done': return 'Sliced';
+    case 'error': return 'Error';
+    default: return s;
+  }
 }
