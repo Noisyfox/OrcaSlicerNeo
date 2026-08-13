@@ -13,5 +13,5 @@
       "@slicer/testing": ["../../packages/slicer-wasm/src/client/testing/mock-module.ts"]
     }
   },
-  "include": ["src/renderer/**/*"]
+  "include": ["src/renderer/**/*", "src/shared/**/*"]
 }
