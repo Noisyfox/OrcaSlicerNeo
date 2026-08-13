@@ -15,6 +15,10 @@ export function Toolbar() {
   const [exporting, setExporting] = useState(false);
 
   async function openModel() {
+    // Any load attempt (success, failure, or dialog cancel) invalidates the
+    // slice result — reset status so Export is gated until the new model is
+    // re-sliced (stale-export fix, review finding 1).
+    setSlicerStatus('idle');
     useSettingsStore.getState().setModelLoaded(false);
     useSettingsStore.getState().setSelectedObject(null);
     const { path } = await window.orca.openFileDialog([
@@ -88,7 +92,7 @@ export function Toolbar() {
       <Button size="sm" variant="secondary" onClick={slice} disabled={busy || !modelLoaded}>
         <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
       </Button>
-      <Button size="sm" variant="default" disabled={busy || exporting || status !== 'done'} onClick={exportGcode} title="Export G-code">
+      <Button size="sm" variant="default" disabled={busy || exporting || !modelLoaded || status !== 'done'} onClick={exportGcode} title="Export G-code">
         <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
       </Button>
     </>
