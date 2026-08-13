@@ -28,29 +28,27 @@ machine on 2026-08-13; smoke both harnesses before declaring a rebuild green.
 
 These are mandatory for a rebuild on a fresh machine.
 
-- **emsdk 6.0.6 at `D:\emsdk`.** `emsdk_env.sh` does **not** work in Git Bash
-  (no `.emsdk` config); export manually instead:
-  ```bash
-  export EMSDK=/d/emsdk
-  export EMSDK_NODE=/d/emsdk/node/24.19.0_64bit/bin/node.exe
-  export PATH="/d/emsdk/upstream/emscripten:/d/emsdk/upstream/bin:/d/emsdk/node/24.19.0_64bit/bin:<repo>/packages/slicer-wasm/.work/toolchain-shims:$PATH"
-  ```
-  cmake/ninja are **not** under emsdk: the emsdk `cmake/4.2.0-rc3_64bit`
-  package dir is empty and there is no ninja under `D:/emsdk`. On the
-  delivery machine they come from separate installs — the build's own
-  `.work/build/CMakeCache.txt` records the real tools:
-  ```bash
-  export PATH="/d/tools/cmake-4.4.2-windows-x86_64/bin:/c/Users/timem/AppData/Local/Microsoft/WinGet/Links:$PATH"
-  ```
-  (`D:/tools/cmake-4.4.2-windows-x86_64/bin/cmake.exe` — cmake 4.4.2; and
-  WinGet's `ninja.exe` 1.13.2 in the WinGet Links dir.) On other machines,
-  install via `emsdk install cmake ninja` or use any cmake ≥ 3.25 + ninja,
-  then point the PATH line at wherever they live.
+- **emsdk 6.0.6 on PATH** — `emcc`/`emcmake`/`em++` must resolve in Git Bash
+  (the build's prerequisite checks use `command -v`). `emsdk_env.sh` does
+  **not** work in Git Bash (no `.emsdk` config), so activate the SDK at the
+  system level instead: `emsdk activate 6.0.6` from a Windows shell, then add
+  the emsdk `upstream/emscripten`, `upstream/bin` and Node `bin` dirs to the
+  user PATH (or source `emsdk_env.bat` per shell). No per-shell exports are
+  needed.
+- **cmake ≥ 3.25 and ninja on PATH.** They are not provided by emsdk 6.0.6
+  (the bundled `cmake/4.2.0-rc3_64bit` package dir is empty and no ninja
+  ships), so install separately — your package manager, or
+  `emsdk install cmake ninja` where those packages exist (the delivery machine
+  uses cmake 4.4.2 and ninja 1.13.2 from the system PATH).
 - **Bare-name PE toolchain shims in `packages/slicer-wasm/.work/toolchain-shims/`**
   (`em++`, `emar`, `emranlib`). b2 GLOB-matches the bare `em++` name with no
   `.exe` fallback, so Windows needs these shims that forward to the real
   emscripten binaries. Recreate on new machines; pinned to emsdk 6.0.6.
-  (`.work/` is gitignored — the shims do not ship with the repo.)
+  (`.work/` is gitignored — the shims do not ship with the repo.) Add the shim
+  dir to PATH for the Boost build step:
+  ```bash
+  export PATH="<repo>/packages/slicer-wasm/.work/toolchain-shims:$PATH"
+  ```
 - **`C:/Users/<user>/site-config.jam`** (b2 user config) must contain:
   ```
   project site-config : requirements <address-model>64 <target-os>linux ;
@@ -72,7 +70,7 @@ These are mandatory for a rebuild on a fresh machine.
 
 ## Build commands
 
-From the repo root (after the exports above):
+From the repo root (with the prerequisites above on PATH):
 
 ```bash
 bash packages/slicer-wasm/build.sh
