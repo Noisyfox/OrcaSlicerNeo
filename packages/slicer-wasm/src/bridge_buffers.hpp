@@ -70,6 +70,12 @@ struct MallocBuffer {
 // ---- bridge-facing layout + assembly API (defined in bridge_buffers.cpp) ----
 namespace bridge {
 
+// The header must be self-compiling: no using-directive from any TU is in
+// effect when this header is parsed (bridge.cpp's `using namespace Slic3r;`
+// and bridge_buffers.cpp's `using Slic3r::ExtrusionRole;` both come after
+// the include), so import the palette key explicitly here.
+using Slic3r::ExtrusionRole;
+
 // Feature palette entry (id = ExtrusionRole value, name/color for the client).
 struct FeatureInfo { std::string name; unsigned char color[3]; };
 
