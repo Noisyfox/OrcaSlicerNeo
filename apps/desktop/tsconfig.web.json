@@ -7,7 +7,11 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "paths": {
+      "@slicer/client": ["../../packages/slicer-wasm/src/client/index.ts"],
+      "@slicer/testing": ["../../packages/slicer-wasm/src/client/testing/mock-module.ts"]
+    }
   },
   "include": ["src/renderer/**/*"]
 }
