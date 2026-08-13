@@ -1,17 +1,31 @@
 diff --git a/src/libslic3r/Model.hpp b/src/libslic3r/Model.hpp
-index d8697adb..01bf34ea 100644
+index 2d46bc4cdf..da04e7a947 100644
 --- a/src/libslic3r/Model.hpp
 +++ b/src/libslic3r/Model.hpp
-@@ -23,7 +23,15 @@
+@@ -23,7 +23,29 @@
  //BBS: add bbs 3mf
  #include "Format/bbs_3mf.hpp"
  //BBS: add step
 +#ifdef SLIC3R_WASM_NO_OCCT
-+// WASM spike: STEP import (OCCT) dropped; forward-declare the types Model.hpp needs.
++// WASM build: STEP import (OCCT) is dropped. Model.cpp's read_from_step still
++// needs a complete Step type to compile, so provide a stub class. The inline
++// no-ops are never exercised at runtime (read_from_step has no kept callers in
++// the WASM slice — the GUI is not compiled).
 +#include <functional>
-+namespace Slic3r { class Step;
++#include <string>
++namespace Slic3r {
 +using ImportStepProgressFn = std::function<void(int,int,int,bool&)>;
-+using StepIsUtf8Fn = std::function<void(bool)>; }
++using StepIsUtf8Fn = std::function<void(bool)>;
++class Step {
++public:
++    enum class Step_Status { LOAD_SUCCESS, LOAD_ERROR, CANCEL, MESH_SUCCESS, MESH_ERROR };
++    Step(const std::string &path, ImportStepProgressFn stepFn = nullptr, StepIsUtf8Fn isUtf8Fn = nullptr) {}
++    Step_Status load() { return Step_Status::LOAD_ERROR; }
++    Step_Status mesh(Model * /*model*/, bool & /*is_cancel*/, bool /*isSplitCompound*/,
++                     double /*linear_deflection*/ = 0.003,
++                     double /*angle_deflection*/ = 0.5) { return Step_Status::LOAD_ERROR; }
++};
++}  // namespace Slic3r
 +#else
  #include "Format/STEP.hpp"
 +#endif

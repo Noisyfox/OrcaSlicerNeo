@@ -28,6 +28,7 @@
 #include <type_traits>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -363,6 +364,15 @@ template <typename Key, typename T, typename Hash = std::hash<Key>,
           typename Alloc = std::allocator<std::pair<const Key, T>>>
 class concurrent_unordered_map : public std::unordered_map<Key, T, Hash, Eq, Alloc> {
   using base = std::unordered_map<Key, T, Hash, Eq, Alloc>;
+
+public:
+  using base::base;
+};
+
+template <typename Key, typename Hash = std::hash<Key>,
+          typename Eq = std::equal_to<Key>, typename Alloc = std::allocator<Key>>
+class concurrent_unordered_set : public std::unordered_set<Key, Hash, Eq, Alloc> {
+  using base = std::unordered_set<Key, Hash, Eq, Alloc>;
 
 public:
   using base::base;

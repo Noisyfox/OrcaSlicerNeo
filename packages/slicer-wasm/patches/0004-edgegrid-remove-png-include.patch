@@ -1,0 +1,13 @@
+diff --git a/src/libslic3r/EdgeGrid.cpp b/src/libslic3r/EdgeGrid.cpp
+index 93bf7d48ec..a4aac8ef43 100644
+--- a/src/libslic3r/EdgeGrid.cpp
++++ b/src/libslic3r/EdgeGrid.cpp
+@@ -3,8 +3,6 @@
+ #include <float.h>
+ #include <unordered_map>
+ 
+-#include <png.h>
+-
+ #include "libslic3r.h"
+ #include "ClipperUtils.hpp"
+ #include "EdgeGrid.hpp"

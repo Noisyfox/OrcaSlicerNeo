@@ -46,21 +46,41 @@ TBB_HEADERS=(
   spin_mutex mutex spin_rw_mutex queuing_mutex task_group task_arena
   global_control task_scheduler_init concurrent_vector tick_count
   scalable_allocator cache_aligned_allocator tbb_allocator partitioner
-  version concurrent_unordered_map concurrent_map concurrent_queue
-  parallel_pipeline
+  version concurrent_unordered_map concurrent_unordered_set concurrent_map
+  concurrent_queue parallel_pipeline
 )
 
 generate_shim() {
   log "Generating serial TBB shim headers in $SHIM_INCLUDE/tbb"
   mkdir -p "$SHIM_INCLUDE/tbb" "$SHIM_INCLUDE/oneapi/tbb"
   local rel="$PKG_DIR/shim/_serial.hpp"
+  # Copy the serial header next to the forwarding headers so they can include
+  # it by bare relative name — the MSYS absolute path (e.g. /d/projects/...)
+  # does not resolve on the Windows clang driver and broke every TU.
+  cp "$rel" "$SHIM_INCLUDE/_serial.hpp"
   for name in "${TBB_HEADERS[@]}"; do
-    printf '#pragma once\n#include "%s"\n' "$rel" > "$SHIM_INCLUDE/tbb/${name}.h"
-    printf '#pragma once\n#include "%s"\n' "$rel" > "$SHIM_INCLUDE/oneapi/tbb/${name}.h"
+    printf '#pragma once\n#include "_serial.hpp"\n' > "$SHIM_INCLUDE/tbb/${name}.h"
+    printf '#pragma once\n#include "_serial.hpp"\n' > "$SHIM_INCLUDE/oneapi/tbb/${name}.h"
   done
-  printf '#pragma once\n#include "%s"\n' "$rel" > "$SHIM_INCLUDE/tbb/tbb.h"
-  printf '#pragma once\n#include "%s"\n' "$rel" > "$SHIM_INCLUDE/oneapi/tbb.h"
-  log "Shim headers written."
+  printf '#pragma once\n#include "_serial.hpp"\n' > "$SHIM_INCLUDE/tbb/tbb.h"
+  printf '#pragma once\n#include "_serial.hpp"\n' > "$SHIM_INCLUDE/oneapi/tbb.h"
+  # Serial boost::thread stand-in (Boost.Thread has no Emscripten backend).
+  # libslic3r references it from dead-but-compiled code (Print, GCodeSender,
+  # Thread, ProjectTask, PrintConfig, MultiMaterialSegmentation,
+  # TriangleMeshSlicer). Same forwarding pattern as the TBB shim.
+  mkdir -p "$SHIM_INCLUDE/boost/thread"
+  cp "$PKG_DIR/shim/boost-thread.hpp" "$SHIM_INCLUDE/boost-thread.hpp"
+  printf '#pragma once\n#include "../boost-thread.hpp"\n' > "$SHIM_INCLUDE/boost/thread.hpp"
+  printf '#pragma once\n#include "../../boost-thread.hpp"\n' > "$SHIM_INCLUDE/boost/thread/mutex.hpp"
+  printf '#pragma once\n#include "../../boost-thread.hpp"\n' > "$SHIM_INCLUDE/boost/thread/lock_guard.hpp"
+  # libnoise stand-in (FuzzySkin.cpp includes <libnoise/noise.h>).
+  mkdir -p "$SHIM_INCLUDE/libnoise"
+  cp "$PKG_DIR/shim/libnoise/noise.h" "$SHIM_INCLUDE/libnoise/noise.h"
+  # libjpeg stand-in (GCode/Thumbnails.cpp includes <jpeglib.h>/<jerror.h>;
+  # stubs/jpeg-stub.cpp provides the no-op implementations).
+  cp "$PKG_DIR/shim/jpeglib.h" "$SHIM_INCLUDE/jpeglib.h"
+  cp "$PKG_DIR/shim/jerror.h" "$SHIM_INCLUDE/jerror.h"
+  log "Shim headers written (TBB + boost::thread + libnoise + libjpeg)."
 }
 
 if [[ "${1:-}" == "--shim-only" ]]; then

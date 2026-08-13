@@ -85,13 +85,18 @@ async function main() {
   }
 
   const factory = (await import(pathToFileURL(module).href)).default;
+  // The BBS fork of libslic3r only loads .json configs (load_from_ini was
+  // removed); stage the config under its real basename so is_json_file()
+  // picks it up. e.g. --config fixtures/config.json -> /config.json.
+  const configName = config.split(/[\\/]/).pop();
+  const configPath = `/${configName}`;
   const result = await runSlice({
     createModule: factory,
     stagedFiles: {
       '/model.stl': await readFile(stl),
-      '/config.ini': await readFile(config),
+      [configPath]: await readFile(config),
     },
-    mainArgs: ['/model.stl', '/config.ini', out],
+    mainArgs: ['/model.stl', configPath, out],
     outputPath: out,
     onLog: (line) => console.error(`[wasm] ${line}`),
   });

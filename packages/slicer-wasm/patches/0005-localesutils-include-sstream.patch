@@ -1,0 +1,13 @@
+diff --git a/src/libslic3r/LocalesUtils.cpp b/src/libslic3r/LocalesUtils.cpp
+index d321072335..dfea7e1ed3 100644
+--- a/src/libslic3r/LocalesUtils.cpp
++++ b/src/libslic3r/LocalesUtils.cpp
+@@ -3,6 +3,8 @@
+ #ifdef _WIN32
+     #include <charconv>
+ #endif
++#include <sstream>
++
+ #include <stdexcept>
+ 
+ #include <fast_float/fast_float.h>

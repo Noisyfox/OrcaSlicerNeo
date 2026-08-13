@@ -31,7 +31,11 @@ int main(int argc, char** argv) {
 
   try {
     // ---- Load print configuration from an OrcaSlicer/PrusaSlicer .ini ----
-    DynamicPrintConfig config;
+    // Start from the full default config: libslic3r expects the config map to
+    // contain every option (optptr() returns nullptr for missing keys, and
+    // some code paths dereference that). Real OrcaSlicer always slices with a
+    // complete config assembled from presets.
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
     config.load(config_path, ForwardCompatibilitySubstitutionRule::Enable);
     config.normalize_fdm();
 

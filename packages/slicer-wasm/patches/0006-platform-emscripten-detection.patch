@@ -1,0 +1,15 @@
+diff --git a/src/libslic3r/Platform.cpp b/src/libslic3r/Platform.cpp
+index d2ca27fa96..97a37f875c 100644
+--- a/src/libslic3r/Platform.cpp
++++ b/src/libslic3r/Platform.cpp
+@@ -82,6 +82,10 @@ void detect_platform()
+ 			::fclose(f);
+ 		}
+ 	}
++#elif defined(__EMSCRIPTEN__)
++    BOOST_LOG_TRIVIAL(info) << "Platform: Emscripten";
++    s_platform         = Platform::Linux;
++    s_platform_flavor  = PlatformFlavor::GenericLinux;
+ #elif defined(__OpenBSD__)
+     BOOST_LOG_TRIVIAL(info) << "Platform: OpenBSD";
+ 	s_platform 		  = Platform::BSDUnix;
