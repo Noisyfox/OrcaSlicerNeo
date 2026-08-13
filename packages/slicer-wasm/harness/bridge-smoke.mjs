@@ -84,24 +84,38 @@ const cb = Module.addFunction((percent, text) => {
 }, 'vij');
 Module.ccall('orc_set_progress_callback', null, ['pointer'], [cb]);
 
-// 6. slice (config mirroring fixtures/config.ini, as JSON)
+// 6. slice config — every key below uses the option names valid at the
+// pinned SHA (pre-rename names like temperature/perimeters/bed_shape/
+// start_gcode are silently dropped by libslic3r's handle_legacy catch-all —
+// see Fix round 2). Ground truth is the module's own metadata fetched above;
+// the assertion loop right below the object verifies each key exists.
 const configJson = {
   // Drift at the pinned SHA: the layer-G-code option is layer_change_gcode
   // (not layer_gcode); relative-E marlin requires the "G92 E0" reset here or
   // Print::validate rejects the config (fixtures/config.json uses the same).
   layer_change_gcode: 'G92 E0',
-  layer_height: 0.2, first_layer_height: 0.2, nozzle_diameter: 0.4,
-  filament_diameter: 1.75, temperature: 210, first_layer_temperature: 215,
-  bed_temperature: 60, first_layer_bed_temperature: 60,
-  bed_shape: '0x0,220x0,220x220,0x220',
-  perimeters: 2, top_solid_layers: 3, bottom_solid_layers: 3,
-  fill_density: '15%', sparse_infill_pattern: 'grid',
-  perimeter_speed: 60, infill_speed: 80, travel_speed: 150,
+  layer_height: 0.2, initial_layer_print_height: 0.2,
+  nozzle_diameter: 0.4, filament_diameter: 1.75,
+  nozzle_temperature: 210, nozzle_temperature_initial_layer: 215,
+  hot_plate_temp_initial_layer: 60,
+  printable_area: '0x0,220x0,220x220,0x220',
+  wall_loops: 2, top_shell_layers: 3, bottom_shell_layers: 3,
+  sparse_infill_density: '15%', sparse_infill_pattern: 'grid',
+  outer_wall_speed: 60, sparse_infill_speed: 80, travel_speed: 150,
   gcode_flavor: 'marlin',
-  start_gcode: 'G28\\nG1 Z5 F5000', end_gcode: 'M104 S0\\nM140 S0\\nG28 X0\\nM84',
+  // Multi-line values keep the escaped-\n form; the JSON arrives double-
+  // escaped and orc_slice's unescape path restores the real newlines.
+  machine_start_gcode: 'G28\\nG1 Z5 F5000',
+  machine_end_gcode: 'M104 S0\\nM140 S0\\nG28 X0\\nM84',
 };
+for (const k of Object.keys(configJson))
+  check(`config key ${k} exists`, k in meta, `type=${meta[k]?.type}`);
 const sliced = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
-check('orc_slice ok', sliced.ok === true, JSON.stringify(sliced));
+// Fix round 2: unrecognized_keys is always present on success (empty when the
+// config is valid) — a non-empty array means the client sent dropped keys.
+check('orc_slice ok', sliced.ok === true
+      && Array.isArray(sliced.unrecognized_keys) && sliced.unrecognized_keys.length === 0,
+      JSON.stringify(sliced));
 check('progress fired', progressCalls > 0, `calls=${progressCalls}`);
 check('progress text arrives', progressText.length > 0, `text="${progressText.slice(0, 40)}"`);
 // Fix round 1: the bridge's g_progress is a raw fn ptr with no orc_* clear
@@ -142,9 +156,17 @@ const reloaded = callJson('orc_load_model', ['pointer', 'number', 'string'],
                           [dataPtr2, stl2.length, 'stl']);
 Module._free(dataPtr2);
 check('reload after removeFunction ok', reloaded.ok === true, JSON.stringify(reloaded));
+// Fix round 2 (honest test): 'temperature' is the pre-rename name (now
+// nozzle_temperature) and is dropped by handle_legacy at the pinned SHA —
+// orc_slice must surface it in unrecognized_keys instead of silently
+// ignoring it. The real config (check 6) stays clean and asserts the
+// empty case.
 const resliced = callJson('orc_slice', ['string'],
-                          [JSON.stringify({ ...configJson, layer_height: 0.25 })]);
+                          [JSON.stringify({ ...configJson, layer_height: 0.25, temperature: 210 })]);
 check('re-slice after removeFunction ok', resliced.ok === true, JSON.stringify(resliced));
+check('unknown key reported', Array.isArray(resliced.unrecognized_keys)
+      && resliced.unrecognized_keys.includes('temperature'),
+      `unrecognized_keys=${JSON.stringify(resliced.unrecognized_keys)}`);
 const result2 = callJson('orc_get_slice_result', [], []);
 check('re-slice actually re-ran', result2.ok === true && result2.layers > 0 && result2.layers !== result.layers,
       `layers=${result2.layers} (first slice: ${result.layers})`);

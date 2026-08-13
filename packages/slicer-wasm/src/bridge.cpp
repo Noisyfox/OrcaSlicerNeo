@@ -203,6 +203,18 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         // applied on top, then normalized exactly like slice_main.cpp:30.
         DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
         const json cfg = json::parse(config_json ? config_json : "");
+        // Fix round 2: thread ONE substitution context through every key so
+        // keys that are unknown at the pinned SHA are surfaced instead of
+        // silently dropped. ConfigBase::set_deserialize_nothrow (Config.cpp:
+        // 580-593) calls handle_legacy(), which CLEARS keys it does not know
+        // and records the source key in ConfigSubstitutionContext::
+        // unrecogized_keys (Config.hpp:266 — the pinned source's spelling)
+        // before returning true; the old set_deserialize_strict threw the
+        // context away, so the smoke's pre-rename keys (temperature,
+        // perimeters, bed_shape, ...) vanished without a trace and the slice
+        // ran on defaults while reporting {"ok":true}. Disable keeps the
+        // strict no-substitution semantics of the previous code.
+        ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
         for (auto it = cfg.begin(); it != cfg.end(); ++it) {
             const std::string& key = it.key();
             std::string value;
@@ -231,10 +243,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
             } else {
                 value = it.value().dump();
             }
-            // Drift at the pinned SHA: no 3-arg set_deserialize(key, value,
-            // rule); set_deserialize_strict(key, value) (Config.hpp:2771)
-            // applies exactly the Disable rule the brief's call used.
-            config.set_deserialize_strict(key, value);
+            // Fix round 2: per-key set_deserialize with the shared context.
+            // This is the same strict-no-substitution behavior the old
+            // set_deserialize_strict had (Config.hpp:2771 builds an internal
+            // {Disable} context), but it does NOT throw the context away —
+            // handle_legacy (Config.cpp:586-590) records every dropped key in
+            // substitutions.unrecogized_keys, which we surface below.
+            config.set_deserialize(key, value, substitutions);
         }
         config.normalize_fdm();
 
@@ -253,7 +268,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         });
         state().print.process();
         state().print.set_status_default();
-        return dup_json(json{{"ok", true}}.dump());
+        // Fix round 2: additive success field — always present, empty when the
+        // config is clean. M2 clients (config UI) rely on this to warn about
+        // keys the pinned libslic3r dropped (handle_legacy's catch-all).
+        json dropped = json::array();
+        for (const std::string& k : substitutions.unrecogized_keys)
+            dropped.push_back(k);
+        return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
