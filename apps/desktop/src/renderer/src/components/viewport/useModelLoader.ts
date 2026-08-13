@@ -31,7 +31,13 @@ export function useModelLoader(): LoadedObject[] {
           geometry.computeVertexNormals();
           return { buffer: buf, geometry };
         });
-        if (!disposed) setObjects(loaded);
+        if (disposed) {
+          // The load finished after unmount/change — nothing consumes these
+          // geometries; dispose them instead of leaking (review Minor 1).
+          loaded.forEach((o) => o.geometry.dispose());
+        } else {
+          setObjects(loaded);
+        }
       } catch (err) {
         console.error('model load failed:', err);
       }
