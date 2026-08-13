@@ -256,6 +256,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
+    } catch (...) {
+        // Fix round 1: a canceled print (orc_cancel → PrintBase::cancel sets
+        // CANCELED_BY_USER; only restart() clears it) makes the NEXT process()
+        // abort — but the thrown type escaped the std::exception catch and
+        // surfaced as an uncatchable CppException, killing the module (same
+        // defect class as the stale progress callback). Emscripten -fexceptions
+        // surfaces some C++ throws (and JS exceptions from imports) through a
+        // non-std::exception path; a catch-all here keeps the API contract
+        // "a call either returns JSON or the module stays alive".
+        std::string msg = "unknown exception";
+        try { throw; }
+        catch (const std::string& s) { msg = s; }
+        catch (const char* s) { msg = s ? s : "null"; }
+        catch (...) {}
+        return error_json(msg);
     }
 }
 
@@ -287,6 +302,16 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
 EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
     try {
         state().print.cancel();
+        // Fix round 1: the bridge is strictly synchronous — JS cannot reenter
+        // wasm while orc_slice is running, so a cancel can never interrupt an
+        // in-flight slice. A surviving CANCELED_BY_USER flag (only restart()
+        // clears it, PrintBase.hpp) makes the NEXT orc_slice's process()
+        // throw CanceledException, which on Emscripten's -fexceptions runtime
+        // surfaces as an uncatchable CppException that kills the module
+        // (observed deterministically; the throw is caught and rethrown by
+        // libslic3r internals, and the rethrow carries poisoned EH state).
+        // So for v1, cancel is a state reset: it must never poison the module.
+        state().print.restart();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());

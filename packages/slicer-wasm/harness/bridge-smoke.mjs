@@ -75,8 +75,12 @@ check('orc_load_model ok', loaded.ok === true && loaded.objects > 0, JSON.string
 // signature is 'vij' (a 'vii' entry mismatches the call site and the
 // call_indirect traps with "null function or function signature mismatch").
 let progressCalls = 0;
+let progressText = '';
 const cb = Module.addFunction((percent, text) => {
   progressCalls++;
+  // wasm64: the text pointer arrives as a BigInt — UTF8ToString(text) would
+  // throw; Number() gives the heap address (Fix round 1).
+  progressText = Module.UTF8ToString(Number(text));
 }, 'vij');
 Module.ccall('orc_set_progress_callback', null, ['pointer'], [cb]);
 
@@ -99,6 +103,14 @@ const configJson = {
 const sliced = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
 check('orc_slice ok', sliced.ok === true, JSON.stringify(sliced));
 check('progress fired', progressCalls > 0, `calls=${progressCalls}`);
+check('progress text arrives', progressText.length > 0, `text="${progressText.slice(0, 40)}"`);
+// Fix round 1: the bridge's g_progress is a raw fn ptr with no orc_* clear
+// path — removeFunction nulls the wasm table slot but g_progress would still
+// hold the stale index, and a re-slice that re-runs process() would call_indirect
+// the nulled slot and trap (a wasm trap is NOT catchable by the C++ try/catch —
+// the module dies). Clear it via the API first (the status lambda guards
+// if (g_progress), so nullptr just disables the callback).
+Module.ccall('orc_set_progress_callback', null, ['pointer'], [0]);
 Module.removeFunction(cb);
 
 // 7. slice result stats
@@ -115,5 +127,26 @@ check('gcode valid', gcode.ok, JSON.stringify(gcode));
 // 9. cancel is safe
 const cancelled = callJson('orc_cancel', [], []);
 check('orc_cancel ok', cancelled.ok === true, JSON.stringify(cancelled));
+
+// Fix-round-1 repro: re-slice after removeFunction. A stale g_progress used to
+// trap inside the status lambda during process() ("null function or function
+// signature mismatch"). A re-slice with the SAME model/config short-circuits
+// (apply/process no-op, no callbacks) — which is how the bug used to hide — so
+// load the model again (fresh Model => apply sees changes => process re-runs)
+// AND change layer_height so the layer count provably differs from the first
+// slice, proving the re-slice actually re-sliced instead of short-circuiting.
+const stl2 = await readFile(stlPath);
+const dataPtr2 = Number(Module._malloc(stl2.length));
+Module.HEAPU8.set(stl2, dataPtr2);
+const reloaded = callJson('orc_load_model', ['pointer', 'number', 'string'],
+                          [dataPtr2, stl2.length, 'stl']);
+Module._free(dataPtr2);
+check('reload after removeFunction ok', reloaded.ok === true, JSON.stringify(reloaded));
+const resliced = callJson('orc_slice', ['string'],
+                          [JSON.stringify({ ...configJson, layer_height: 0.25 })]);
+check('re-slice after removeFunction ok', resliced.ok === true, JSON.stringify(resliced));
+const result2 = callJson('orc_get_slice_result', [], []);
+check('re-slice actually re-ran', result2.ok === true && result2.layers > 0 && result2.layers !== result.layers,
+      `layers=${result2.layers} (first slice: ${result.layers})`);
 
 process.exit(failures === 0 ? 0 : 1);
