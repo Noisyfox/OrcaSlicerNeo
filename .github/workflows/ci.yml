@@ -1,0 +1,168 @@
+# .github/workflows/ci.yml — M3 CI matrix (Grand Plan M3, high-level plan Epic 3.2).
+#
+# Jobs:
+#   wasm       build the ONE module (emsdk 6.0.4, per the design doc's risk
+#              table) + run both harnesses (run-slice smoke, bridge-smoke) —
+#              this is the first real execution of the M2-deferred WASM build
+#              and binary-buffer bridge verification. Artifact: orca_slice.{js,wasm,data}.
+#   unit       vitest + typecheck + electron-vite build (all packages)
+#   e2e-mock   Playwright full v1 flow against the mock-built app (no emsdk)
+#   e2e-real   Playwright full v1 flow against the REAL module (staged artifact)
+#   package    electron-builder matrix → all six targets, same wasm artifact
+#
+# WASM build notes (AGENTS.md "WASM Build Workflow"): missing <tbb/X.h> →
+# add to TBB_HEADERS; undefined symbol → DROP_PATTERNS or stubs; API drift →
+# bridge signatures. First runs will iterate; fixes land in this repo and CI
+# re-runs. Hosted runners have ~14 GB disk; the dep cache below makes the
+# ~50 GB-class boost build a first-run-only cost.
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22.14.0" # Volta-pinned
+
+jobs:
+  wasm:
+    name: WASM build + smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0 # version header reads `git describe` on the submodule
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: jaxvanyang/setup-emsdk@v1
+        with:
+          version: "6.0.4" # spike-validated (design doc risk table)
+      - name: Cache deps (Eigen/Boost sources + wasm64 archives + cereal)
+        uses: actions/cache@v4
+        with:
+          path: packages/slicer-wasm/.work/deps
+          key: wasm-deps-${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh') }}-${{ hashFiles('packages/slicer-wasm/build.sh') }}
+          restore-keys: |
+            wasm-deps-${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh') }}-
+      - name: Fetch deps (Eigen/Boost/cereal)
+        run: bash packages/slicer-wasm/fetch-deps.sh
+      - name: Build Boost 1.84 wasm64 archives
+        run: bash packages/slicer-wasm/build-boost-wasm64.sh
+      - name: Configure + build the module (preload-file bundle included)
+        run: bash packages/slicer-wasm/build.sh
+      - name: Smoke — slice cube.stl end to end
+        run: node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json
+      - name: Bridge smoke — binary-buffer contract (M2 deferred verification)
+        run: node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/orca_slice.js packages/slicer-wasm/fixtures/cube.stl
+      - name: Upload the one module (all six packages + e2e-real use it)
+        uses: actions/upload-artifact@v4
+        with:
+          name: orca-slice
+          path: |
+            packages/slicer-wasm/out/orca_slice.js
+            packages/slicer-wasm/out/orca_slice.wasm
+            packages/slicer-wasm/out/orca_slice.data
+          retention-days: 7
+
+  unit:
+    name: Unit + typecheck + app build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r test
+      - run: pnpm -r typecheck
+      - run: pnpm --filter desktop build
+
+  e2e-mock:
+    name: e2e (mock module)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: e2e — full v1 flow (mock-built app)
+        run: xvfb-run -a pnpm --filter desktop test:e2e
+
+  e2e-real:
+    name: e2e (real module)
+    needs: wasm
+    runs-on: ubuntu-latest
+    env:
+      ORCA_E2E_REAL: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: orca-slice
+          path: packages/slicer-wasm/out
+      - run: node scripts/stage-wasm.mjs
+      - name: e2e — full v1 flow (real module, asserts G1 moves in exported gcode)
+        run: xvfb-run -a pnpm --filter desktop test:e2e:real
+
+  package:
+    name: Package (${{ matrix.name }})
+    needs: wasm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: win x64 + arm64 (NSIS)
+            os: windows-latest
+            args: --win
+          - name: linux x64 + arm64 (AppImage)
+            os: ubuntu-latest
+            args: --linux
+          - name: mac x64 (DMG)
+            os: macos-13
+            args: --mac --x64
+          - name: mac arm64 (DMG)
+            os: macos-14
+            args: --mac --arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: orca-slice
+          path: packages/slicer-wasm/out
+      - run: node scripts/stage-wasm.mjs
+      - name: electron-builder (${{ matrix.name }})
+        run: pnpm --filter desktop package -- ${{ matrix.args }}
+      - name: Upload installer(s)
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.name }}
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.dmg
+          if-no-files-found: error
+          retention-days: 14
