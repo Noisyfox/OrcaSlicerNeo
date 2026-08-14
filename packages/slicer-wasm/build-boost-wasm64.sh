@@ -15,8 +15,23 @@ BD="$SPIKE_DIR/.work/deps/boost-1.84.0"
 command -v em++ >/dev/null 2>&1 || { echo "Activate emsdk first"; exit 1; }
 
 cd "$BD"
-cat > user-config-wasm.jam <<'EOF'
-using clang : emscripten : em++ : <archiver>emar <ranlib>emranlib ;
+# b2 on Windows cannot resolve the bare 'em++' toolset name: its
+# check-tool GLOB over the MSYS-converted PATH misses the emsdk launchers,
+# so the toolset init dies with "provided command 'em++' not found" even
+# though the shell resolves it. Pass absolute Windows-style paths instead
+# (path.exists branch of check-tool, which also matches .exe launchers).
+# On Linux/Mac `command -v` already yields an absolute path — cygpath only
+# exists (and is only needed) under MSYS.
+emxx="$(command -v em++)"
+emar="$(command -v emar)"
+emranlib="$(command -v emranlib)"
+if command -v cygpath >/dev/null 2>&1; then
+  emxx="$(cygpath -m "$emxx")"
+  emar="$(cygpath -m "$emar")"
+  emranlib="$(cygpath -m "$emranlib")"
+fi
+cat > user-config-wasm.jam <<EOF
+using clang : emscripten : "$emxx" : <archiver>"$emar" <ranlib>"$emranlib" ;
 EOF
 
 # locale uses the std backend (no ICU/iconv on wasm). runtime-link=static keeps
@@ -26,10 +41,11 @@ EOF
   --with-date_time --with-iostreams --with-log --with-locale \
   --with-program_options --with-regex --with-nowide \
   boost.locale.icu=off boost.locale.iconv=off boost.locale.posix=off boost.locale.std=on \
+  address-model=64 \
   link=static threading=multi runtime-link=static variant=release \
   cxxflags="-sMEMORY64 -pthread -std=c++17 -Wno-unused -Wno-deprecated-declarations" \
   cflags="-sMEMORY64 -pthread" \
-  --stagedir=stage-wasm64 -j4 stage
+  --stagedir=stage-wasm64 -j"${BOOST_JOBS:-4}" stage
 
 echo "=== wasm64 Boost archives in $BD/stage-wasm64/lib ==="
 ls -1 "$BD/stage-wasm64/lib"/*.a | xargs -n1 basename

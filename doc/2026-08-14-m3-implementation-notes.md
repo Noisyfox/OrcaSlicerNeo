@@ -175,6 +175,29 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
   matrix builds) — CI `package` job.
 - Slice cross-check — emsdk machine + desktop OrcaSlicer (manual).
 
+> **2026-08-14: local WASM build brought up on the dev box (24 cores).**
+> The "no emsdk locally" deferral is resolved: emsdk 6.0.6 (the only SDK
+> installed; CI pins 6.0.4 — behavior-identical, verified by the same probe
+> matrix) + `emsdk activate` + `source emsdk_env.sh`, then
+> `build-boost-wasm64.sh` + `build.sh`. Three Windows bring-up fixes landed
+> in `build-boost-wasm64.sh` (all CI-safe on Linux):
+> 1. **Toolset paths absolute**: b2's `check-tool` GLOB cannot resolve bare
+>    `em++` against the MSYS-converted PATH (`provided command '"em++"' not
+>    found`), even though the shell resolves it; the user-config now embeds
+>    `cygpath -m $(command -v em++)` (path.exists branch, matches `.exe`
+>    launchers). Linux/Mac unchanged (`command -v` is already absolute).
+> 2. **`address-model=64`**: on Windows b2 defaults the clang-linux toolset
+>    to `<address-model>32`, clashing with the `-sMEMORY64` object flags
+>    (name-clash error, `32 vs 64`); Linux auto-detects 64 so CI never saw
+>    it. MEMORY64 must match the libslic3r object build.
+> 3. **`-j${BOOST_JOBS:-4}`**: parallelize the 12-lib b2 build on fast
+>    machines; defaults preserve the old CI behavior.
+> Build time locally: deps fetch ~2 min, boost 12-lib wasm64 ~15 min at
+> `BOOST_JOBS=16`, libslic3r ninja ~15 min on 24 cores — vs ~40 min CI.
+> The `emsdk activate` requirement is why plain `source emsdk_env.sh` alone
+> left `emcc` off PATH (no active SDK configured); noted here since it is
+> not obvious from the script errors.
+
 ## Slice-config baseline (`orc_slice` uses the preset bundle, not bare defaults)
 
 > **2026-08-14.** e2e-real reached the slice step for the first time
