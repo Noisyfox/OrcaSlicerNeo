@@ -4,8 +4,23 @@
 // Verifies run-slice.mjs staging + validation logic against the mock module.
 // Run: node harness/selftest.mjs
 import assert from 'node:assert/strict';
-import { runSlice, validateGcode } from './run-slice.mjs';
+import { buildSliceArgs, runSlice, validateGcode } from './run-slice.mjs';
 import createMockModule from './mock-module.mjs';
+
+// Regression: the CLI passes mainArgs straight to callMain, and the C++ side
+// can only open files inside its own virtual FS. A HOST path (e.g.
+// "packages/slicer-wasm/fixtures/config.json") makes config.load() read an
+// empty stream and die with "parse error ... unexpected end of input" —
+// exactly what burned CI run 5. Every mainArgs entry must be a /-rooted
+// MEMFS path, and the staged config path must be what argv gets.
+const inv = buildSliceArgs('C:/repo/fixtures/cube.stl', 'C:/repo/fixtures/config.json');
+for (const arg of inv.mainArgs) {
+  assert.ok(arg.startsWith('/') && !arg.includes('\\'),
+    `mainArgs must be MEMFS paths, got: ${arg}`);
+}
+assert.equal(inv.mainArgs[1], '/config.json');
+assert.equal(inv.configMemfsPath, '/config.json');
+assert.equal(inv.stlMemfsPath, '/model.stl');
 
 const result = await runSlice({
   createModule: createMockModule,

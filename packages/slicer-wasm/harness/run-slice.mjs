@@ -52,6 +52,20 @@ export async function runSlice({ createModule, stagedFiles, mainArgs, outputPath
   return { exitCode, output, logs };
 }
 
+// Derives the MEMFS invocation from host fixture paths. main() and the
+// self-test share this so a regression that passes a HOST path into mainArgs
+// (the C++ side can never open it inside its virtual FS — config.load() gets
+// an empty stream and dies with "parse error ... unexpected end of input")
+// fails the self-test instead of the next 40-minute CI cycle.
+export function buildSliceArgs(stlPath, configPath, out = '/out.gcode') {
+  const configName = configPath.split(/[\\/]/).pop();
+  return {
+    stlMemfsPath: '/model.stl',
+    configMemfsPath: `/${configName}`,
+    mainArgs: ['/model.stl', `/${configName}`, out],
+  };
+}
+
 // Loads the module factory with the process anchored to the module's own
 // directory. Emscripten's Node runtime resolves the preload-file bundle
 // (.data) as a bare CWD-relative path (scriptDirectory is empty in the
@@ -125,15 +139,14 @@ async function main() {
   // The BBS fork of libslic3r only loads .json configs (load_from_ini was
   // removed); stage the config under its real basename so is_json_file()
   // picks it up. e.g. --config fixtures/config.json -> /config.json.
-  const configName = configPath.split(/[\\/]/).pop();
-  const memfsConfigPath = `/${configName}`;
+  const inv = buildSliceArgs(stlPath, configPath, out);
   const result = await runSlice({
     createModule: factory,
     stagedFiles: {
-      '/model.stl': await readFile(stlPath),
-      [memfsConfigPath]: await readFile(configPath),
+      [inv.stlMemfsPath]: await readFile(stlPath),
+      [inv.configMemfsPath]: await readFile(configPath),
     },
-    mainArgs: ['/model.stl', configPath, out],
+    mainArgs: inv.mainArgs,
     outputPath: out,
     onLog: (line) => console.error(`[wasm] ${line}`),
   });
