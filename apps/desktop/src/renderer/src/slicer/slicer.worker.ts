@@ -13,7 +13,16 @@ const useMock = import.meta.env.VITE_USE_MOCK === '1';
 const factory: OrcaModuleFactory = useMock
   ? async () => createMockModule()
   : async () => {
-      const wasmUrl = '/wasm/orca_slice.js';
+      // dev: Vite serves the renderer public/ dir at '/' — the staged module
+      // lives at public/wasm/orca_slice.js. prod: the page is file://…/index.html
+      // and absolute paths hit the filesystem root; the worker chunk sits in
+      // out/renderer/assets/, so the relative specifier '../wasm/orca_slice.js'
+      // resolves against the chunk URL → out/renderer/wasm/orca_slice.js.
+      // (Emscripten loads orca_slice.wasm/.data relative to the module script,
+      // which is that same dir — no locateFile override needed.)
+      const wasmUrl = import.meta.env.PROD
+        ? '../wasm/orca_slice.js'
+        : '/wasm/orca_slice.js';
       const mod = (await import(/* @vite-ignore */ wasmUrl)) as {
         default: (opts?: { noInitialRun?: boolean }) => OrcaModule;
       };
