@@ -3,7 +3,7 @@
 // (ORCA_E2E_REAL=1, CI e2e-real job): expects real extruder moves (G1).
 // The ORCA_E2E env contract replaces native dialogs in main (see
 // apps/desktop/src/main/index.ts) — Playwright cannot drive them.
-import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
+import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -11,6 +11,31 @@ import { join, resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 const REAL = process.env.ORCA_E2E_REAL === '1';
+
+/** Captures renderer console/pageerror/crash/navigation evidence; dump() is
+ *  called only on failure so CI logs carry the renderer's story when red. */
+function attachRendererDiagnostics(page: Page) {
+  const consoleMessages: string[] = [];
+  const pageErrors: string[] = [];
+  const navigations: string[] = [];
+  let crashed = false;
+  page.on('console', (msg) => consoleMessages.push(`[${msg.type()}] ${msg.text()}`));
+  page.on('pageerror', (err) => pageErrors.push(String(err)));
+  page.on('crash', () => { crashed = true; });
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) navigations.push(frame.url());
+  });
+  return {
+    dump(): void {
+      console.log('--- renderer diagnostics (test failed) ---');
+      console.log(`crashed: ${crashed}`);
+      console.log(`main-frame navigations: ${navigations.join(' -> ') || '(none)'}`);
+      console.log(`url at failure: ${page.url()}`);
+      console.log(`console (${consoleMessages.length}):\n${consoleMessages.join('\n') || '(none)'}`);
+      console.log(`pageerrors (${pageErrors.length}):\n${pageErrors.join('\n') || '(none)'}`);
+    },
+  };
+}
 
 interface LaunchResult {
   app: ElectronApplication;
@@ -41,7 +66,9 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
   const { app, exportPath } = await launchApp();
   try {
     const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
     await page.setViewportSize({ width: 1280, height: 800 });
+    try {
 
     // App ready: settings panel rendered from bridge metadata (mock presets).
     await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
@@ -71,6 +98,10 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
       expect(gcode).not.toContain('; mock gcode');
     } else {
       expect(gcode).toContain('; mock gcode (unit-test fixture)');
+    }
+    } catch (err) {
+      diag.dump();
+      throw err;
     }
   } finally {
     await app.close();
