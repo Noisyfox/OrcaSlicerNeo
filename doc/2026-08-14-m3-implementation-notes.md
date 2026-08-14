@@ -40,8 +40,12 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
   module base URL → `/wasm/orca_slice.js` (origin preserved). The chunk is
   emitted as an IIFE (Vite default `worker.format`) but constructed
   `{type:'module'}` — valid; base-URL resolution is format-independent.
-  Emscripten loads `.wasm`/`.data` relative to the module script — same
-  dir, no `locateFile` override.
+  Emscripten loads `.wasm`/`.data` from its scriptDirectory, which inside a
+  worker derives from the WORKER script's URL (`assets/`), not the imported
+  module's — the factory must pass `locateFile` → `../wasm/` (prod) /
+  `/wasm/` (dev). Without it the packaged probe 404s on
+  `assets/orca_slice.data` (the harness never hits this: Node resolves
+  from the module itself).
 - `asarUnpack: out/renderer/wasm/**` — the ~70 MB `.data` preload bundle is
   read on app start; unpacking skips asar decompression. Main's fs reads are
   asar-aware either way — with the http origin the served files come from
@@ -168,4 +172,28 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
 - Six-target packaging (win x64 verified locally; arm64 + linux + mac are
   matrix builds) — CI `package` job.
 - Slice cross-check — emsdk machine + desktop OrcaSlicer (manual).
+
+## Slice-config baseline (`orc_slice` uses the preset bundle, not bare defaults)
+
+> **2026-08-14.** e2e-real reached the slice step for the first time
+> (locateFile fix above) and failed at `validate()` with:
+> *"Relative extruder addressing requires resetting the extruder position at
+> each layer … Add `"G92 E0"` to layer_gcode."* Root cause: `orc_slice`
+> started from `DynamicPrintConfig::full_print_config()` — bare defaults are
+> **not** a validatable baseline at the pinned SHA. The default Marlin
+> flavor with OrcaSlicer's default `use_relative_e_distances=1` requires
+> `G92 E0` in the layer-change gcode (Print.cpp:1746), which only printer
+> presets supply (`before_layer_change_gcode`). Real OrcaSlicer never slices
+> on defaults: the GUI assembles the config from the selected
+> print/filament/printer presets. The harness never surfaced this because
+> `fixtures/config.json` sets `layer_change_gcode: "G92 E0"` explicitly.
+>
+> Fix (bridge.cpp `orc_slice`): the baseline is now
+> `state().presets.full_config()` — `PresetBundle::full_fff_config`, the
+> GUI's own mechanism (defaults → edited print preset → default filament →
+> edited printer preset → project config). The client's JSON keys still
+> override on top, and unrecognized-key surfacing is unchanged. This fixes
+> any minimal-config client (the app sends `{}` plus user tweaks), not just
+> the app; `slice_main.cpp` keeps `full_print_config()` + `config.load`
+> for harness parity. Needs a WASM rebuild (CI `wasm` job) to take effect.
 - Manual GUI pass on a packaged installer (`package:win` → install → run).

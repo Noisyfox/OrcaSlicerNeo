@@ -202,12 +202,19 @@ EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) { g_progress
 
 EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     try {
-        // Start from the FULL default config (same discipline as slice_main:
-        // libslic3r expects the option map to contain every key — optptr()
-        // returns nullptr for missing ones and Print::apply's normalize paths
-        // dereference that, crashing on a null object). The JSON keys are
-        // applied on top, then normalized exactly like slice_main.cpp:30.
-        DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+        // Start from the GUI's own baseline: real OrcaSlicer never slices on
+        // bare full_print_config() defaults — it assembles the config from
+        // the selected print/filament/printer presets (PresetBundle::
+        // full_config, the mechanism slice_main.cpp's comment references).
+        // Bare defaults are NOT validatable: default Marlin flavor with
+        // use_relative_e_distances=1 requires "G92 E0" in the layer-change
+        // gcode (Print.cpp:1746), which only printer presets supply — the
+        // app's minimal config {} therefore failed validate() with exactly
+        // that message. full_config() yields the complete option map the
+        // same discipline expects (optptr() returns nullptr for missing keys
+        // and Print::apply's normalize paths dereference that). The JSON
+        // keys are applied on top, then normalized like slice_main.cpp:30.
+        DynamicPrintConfig config = state().presets.full_config();
         const json cfg = json::parse(config_json ? config_json : "");
         // Fix round 2: thread ONE substitution context through every key so
         // keys that are unknown at the pinned SHA are surfaced instead of

@@ -18,6 +18,7 @@ function attachRendererDiagnostics(page: Page) {
   const consoleMessages: string[] = [];
   const pageErrors: string[] = [];
   const navigations: string[] = [];
+  const workerMessages: string[] = [];
   let crashed = false;
   page.on('console', (msg) => consoleMessages.push(`[${msg.type()}] ${msg.text()}`));
   page.on('pageerror', (err) => pageErrors.push(String(err)));
@@ -25,14 +26,31 @@ function attachRendererDiagnostics(page: Page) {
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navigations.push(frame.url());
   });
+  // The WASM module's C++ prints (libslic3r logging, exception text) land on
+  // the WORKER console, which Playwright does NOT route to page.on('console')
+  // — capture both the ones spawned later and any already running.
+  for (const w of page.workers()) {
+    w.on('console', (msg) => workerMessages.push(`[${msg.type()}] ${msg.text()}`));
+  }
+  page.on('worker', (worker) => {
+    worker.on('console', (msg) => workerMessages.push(`[${msg.type()}] ${msg.text()}`));
+  });
   return {
-    dump(): void {
+    async dump(): Promise<void> {
       console.log('--- renderer diagnostics (test failed) ---');
       console.log(`crashed: ${crashed}`);
       console.log(`main-frame navigations: ${navigations.join(' -> ') || '(none)'}`);
       console.log(`url at failure: ${page.url()}`);
       console.log(`console (${consoleMessages.length}):\n${consoleMessages.join('\n') || '(none)'}`);
+      console.log(`worker console (${workerMessages.length}):\n${workerMessages.join('\n') || '(none)'}`);
       console.log(`pageerrors (${pageErrors.length}):\n${pageErrors.join('\n') || '(none)'}`);
+      // The slice error message lives in the status bar's destructive span
+      // (StatusBar.tsx); the status span alone only says "Error".
+      await page
+        .locator('.text-destructive')
+        .allTextContents()
+        .then((t) => console.log(`destructive spans: ${t.join(' | ') || '(none)'}`))
+        .catch(() => console.log('destructive spans: (locator failed)'));
     },
   };
 }
@@ -106,7 +124,7 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
       expect(gcode).toContain('; mock gcode (unit-test fixture)');
     }
     } catch (err) {
-      diag.dump();
+      await diag.dump();
       throw err;
     }
   } finally {

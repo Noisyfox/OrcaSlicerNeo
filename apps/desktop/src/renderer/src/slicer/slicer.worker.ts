@@ -25,10 +25,17 @@ const factory: OrcaModuleFactory = useMock
       const wasmUrl = import.meta.env.PROD
         ? '../wasm/orca_slice.js'
         : '/wasm/orca_slice.js';
+      // Emscripten's scriptDirectory inside a worker derives from the
+      // WORKER script's URL (assets/), not the imported module's — so
+      // .wasm/.data fetches 404 unless locateFile points at wasm/ (the
+      // harness never hits this: Node resolves from the module itself).
+      const locateFile = import.meta.env.PROD
+        ? (path: string) => `../wasm/${path}`
+        : (path: string) => `/wasm/${path}`;
       const mod = (await import(/* @vite-ignore */ wasmUrl)) as {
-        default: (opts?: { noInitialRun?: boolean }) => OrcaModule;
+        default: (opts?: { noInitialRun?: boolean; locateFile?: (path: string) => string }) => OrcaModule;
       };
-      return mod.default({ noInitialRun: true });
+      return mod.default({ noInitialRun: true, locateFile });
     };
 
 startWorker(factory);
