@@ -14,12 +14,14 @@ const factory: OrcaModuleFactory = useMock
   ? async () => createMockModule()
   : async () => {
       // dev: Vite serves the renderer public/ dir at '/' — the staged module
-      // lives at public/wasm/orca_slice.js. prod: the page is file://…/index.html
-      // and absolute paths hit the filesystem root; the worker chunk sits in
-      // out/renderer/assets/, so the relative specifier '../wasm/orca_slice.js'
-      // resolves against the chunk URL → out/renderer/wasm/orca_slice.js.
-      // (Emscripten loads orca_slice.wasm/.data relative to the module script,
-      // which is that same dir — no locateFile override needed.)
+      // lives at public/wasm/orca_slice.js. prod: main serves out/renderer
+      // over http://127.0.0.1:<port> (doc/2026-08-14-http-origin-for-workers
+      // .md — the app:// scheme died with out-of-process workers), and the
+      // worker chunk sits in out/renderer/assets/, so the relative specifier
+      // '../wasm/orca_slice.js' resolves against the chunk URL →
+      // /wasm/orca_slice.js. (Emscripten loads orca_slice.wasm/.data relative
+      // to the module script, which is that same dir — no locateFile
+      // override needed.)
       const wasmUrl = import.meta.env.PROD
         ? '../wasm/orca_slice.js'
         : '/wasm/orca_slice.js';

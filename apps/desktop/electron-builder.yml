@@ -10,8 +10,9 @@ directories:
 files:
   - out/**
   - "!out/**/*.map"
-# Binary assets (wasm + preloaded data) load via fetch() in the renderer's
-# file:// context — fetch() cannot read inside asar, so unpack them.
+# The .data preload bundle is ~70 MB and read on app start; unpacking skips
+# asar decompression. (Main serves out/renderer over http; its fs reads are
+# asar-aware either way — unpacking is a load-time win, not a requirement.)
 asarUnpack:
   - out/renderer/wasm/**
 win:

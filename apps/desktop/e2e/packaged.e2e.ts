@@ -1,6 +1,7 @@
 // apps/desktop/e2e/packaged.e2e.ts — probes the REAL wasm URL path in the
-// PACKAGED app: verifies T2's relative worker URL, the app:// renderer
-// protocol (file:// cannot spawn workers), and that the worker loads its
+// PACKAGED app: verifies T2's relative worker URL, the loopback-http
+// renderer origin (main serves out/renderer — file:// and custom schemes
+// cannot spawn out-of-process workers), and that the worker loads its
 // module (presets rendered) without renderer errors.
 //
 // Requires (run in order; public/wasm is gitignored so this never ships):
@@ -30,7 +31,7 @@ test('packaged app loads the wasm module from the unpacked renderer', async () =
     const page = await app.firstWindow();
     page.on('pageerror', (err) => rendererErrors.push(String(err)));
     // The stub module's getPresets answers — the worker's dynamic import of
-    // ../wasm/orca_slice.js succeeded over the app:// protocol.
+    // ../wasm/orca_slice.js succeeded over the loopback http origin.
     await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
     expect(rendererErrors).toEqual([]);
   } finally {

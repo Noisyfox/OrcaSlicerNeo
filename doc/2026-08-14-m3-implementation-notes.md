@@ -8,36 +8,44 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
 
 ## Packaged-app asset pipeline
 
-- **Runtime model.** Prod main (`apps/desktop/src/main/index.ts`) serves the
-  renderer over the privileged `app://` custom protocol, not `file://`
-  (Chromium hard-blocks worker scripts from file:// — opaque origin).
-  `registerSchemesAsPrivileged` declares `app` with
-  standard/secure/supportFetchAPI/corsEnabled at module top; inside
-  `whenReady`, `protocol.handle('app', …)` serves `out/renderer`: the URL is
-  decoded, the `/bundle` prefix stripped, the result joined onto the renderer
-  root, and a `startsWith` guard rejects anything outside it. The response
-  MIME table includes `text/javascript`, `application/wasm`, and
-  `application/octet-stream` for `.data`. Prod loads
-  `app://bundle/index.html`; dev keeps the `ELECTRON_RENDERER_URL` branch.
-- **Electron 32+ dedicated-worker regression.** `app.commandLine.appendSwitch
-  ('disable-features', 'PlzDedicatedWorker')` at module top works around
-  dedicated workers failing to load from custom schemes (and file://) on
-  Electron 32+ — script served, worker never runs (electron#43556, #47374).
-  The flag is removed in Electron 36; the repo pins electron 34.5.8.
+> **2026-08-14: the renderer origin changed from `app://` to loopback http.**
+> Out-of-process dedicated workers (the only kind since the
+> `PlzDedicatedWorker` flag was removed in Electron 36) cannot fetch their
+> scripts from custom schemes (electron#38774), and the wasm64 module forces
+> Electron ≥ 35. Prod main now serves `out/renderer` over
+> `http://127.0.0.1:<ephemeral port>` (Host-validated, path-guarded).
+> See `doc/2026-08-14-http-origin-for-workers.md` for the full story,
+> evidence, and security posture. The rest of this section is the M3-era
+> record of the scheme that preceded it.
+
+- **Runtime model (M3-era).** Prod main served the renderer over the
+  privileged `app://` custom protocol, not `file://` (Chromium hard-blocks
+  worker scripts from file:// — opaque origin). `registerSchemesAsPrivileged`
+  declared `app` with standard/secure/supportFetchAPI/corsEnabled at module
+  top; inside `whenReady`, `protocol.handle('app', …)` served
+  `out/renderer`. Prod loaded `app://bundle/index.html`; dev keeps the
+  `ELECTRON_RENDERER_URL` branch. **Superseded 2026-08-14** — the scheme,
+  the `protocol` import, and `registerSchemesAsPrivileged` are gone from
+  main.
+- **Electron 32+ dedicated-worker regression (M3-era).**
+  `app.commandLine.appendSwitch('disable-features', 'PlzDedicatedWorker')`
+  worked around dedicated workers failing to load from custom schemes (and
+  file://) — script served, worker never runs (electron#43556, #47374). The
+  flag is removed in Electron 36; the appendSwitch is gone from main and the
+  workaround is dead (see the http-origin note for the replacement).
 - Worker factory URL (`slicer.worker.ts`): `import.meta.env.PROD ?
   '../wasm/orca_slice.js' : '/wasm/orca_slice.js'`. Dev: Vite serves the
   renderer `public/` dir at `/`. Prod: the worker chunk lives in
   `out/renderer/assets/`, and the relative specifier resolves against its
-  module base URL → `app://bundle/wasm/orca_slice.js` (origin preserved).
-  The chunk is emitted as an IIFE (Vite default `worker.format`) but
-  constructed `{type:'module'}` — valid; base-URL resolution is
-  format-independent. Emscripten loads `.wasm`/`.data` relative to the
-  module script — same dir, no `locateFile` override.
-- `asarUnpack: out/renderer/wasm/**` — the renderer fetches the wasm/data
-  binaries over `app://`; `fetch()` cannot read inside asar. The app://
-  handler is asar-aware (Electron's fs reads inside app.asar and
-  transparently follows `asar.unpacked`), so the unpacked copy is served
-  without special-casing.
+  module base URL → `/wasm/orca_slice.js` (origin preserved). The chunk is
+  emitted as an IIFE (Vite default `worker.format`) but constructed
+  `{type:'module'}` — valid; base-URL resolution is format-independent.
+  Emscripten loads `.wasm`/`.data` relative to the module script — same
+  dir, no `locateFile` override.
+- `asarUnpack: out/renderer/wasm/**` — the ~70 MB `.data` preload bundle is
+  read on app start; unpacking skips asar decompression. Main's fs reads are
+  asar-aware either way — with the http origin the served files come from
+  inside app.asar transparently.
 - `scripts/stage-wasm.mjs` stages `orca_slice.{js,wasm,data}` into
   `apps/desktop/src/renderer/public/wasm/` (gitignored) → `out/renderer/wasm/`
   at build. Packaging runs stage:wasm first; CI downloads the one artifact.
