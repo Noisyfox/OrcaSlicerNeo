@@ -26,7 +26,10 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: "22.14.0" # Volta-pinned
+  # Must be >= 24: emsdk 6.0.4's MEMORY64 glue hard-requires node v24.0.0
+  # (table64 binaries fail to instantiate on older V8 — "invalid table
+  # elements limits flags"). Volta-pinned in root package.json.
+  NODE_VERSION: "24.19.0"
 
 jobs:
   wasm:
