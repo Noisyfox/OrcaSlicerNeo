@@ -15,7 +15,7 @@ import { resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const EXE = process.platform === 'win32'
   ? resolve(DESKTOP_ROOT, 'release/win-unpacked/OrcaSlicerNeo.exe')
-  : resolve(DESKTOP_ROOT, 'release/linux-unpacked/orcaslicerne');
+  : resolve(DESKTOP_ROOT, 'release/linux-unpacked/OrcaSlicerNeo');
 // darwin: release/mac/OrcaSlicerNeo.app/Contents/MacOS/OrcaSlicerNeo
 
 test('packaged app loads the wasm module from the unpacked renderer', async () => {
