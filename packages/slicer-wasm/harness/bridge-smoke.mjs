@@ -72,6 +72,21 @@ const loaded = callJson('orc_load_model', ['pointer', 'number', 'string'],
 Module._free(dataPtr);
 check('orc_load_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringify(loaded));
 
+// Copy [ptr, ptr+len) out of the heap and free it — mirrors the client's
+// heap.ts readBytes contract. wasm64: the module exports ONLY HEAPU8
+// (EXPORTED_RUNTIME_METHODS), so Module.HEAPF32/HEAPU32 are undefined — the
+// float/uint views must be derived from the exported byte view (verified
+// fresh after memory growth; toolpath buffers routinely land past the 64MB
+// initial heap). readBytes must run BEFORE any other bridge call, since the
+// copy happens on the live heap.
+function readBytes(Module, ptr, len) {
+  try {
+    return Module.HEAPU8.slice(ptr, ptr + len);
+  } finally {
+    Module._free(ptr);
+  }
+}
+
 // 5. progress callback (wasm function table, ALLOW_TABLE_GROWTH)
 // wasm64: the bridge's progress_fn is void(*)(int, const char*) = (i32, i64)
 // in wasm signatures — the pointer param must be 'j', so the addFunction
@@ -142,21 +157,17 @@ check('slice result has toolpath buffers', res2.ok === true
       JSON.stringify(res2).slice(0, 200));
 if (res2.toolpath && res2.toolpath.vertex_count > 0) {
   const n = res2.toolpath.vertex_count;
-  const pos = Module.HEAPF32.slice(Number(res2.toolpath.vertex_ptr) / 4, Number(res2.toolpath.vertex_ptr) / 4 + n * 3);
-  const layers = Module.HEAPU32.slice(Number(res2.toolpath.layer_ptr) / 4, Number(res2.toolpath.layer_ptr) / 4 + n);
-  const feats = Module.HEAPU32.slice(Number(res2.toolpath.feature_ptr) / 4, Number(res2.toolpath.feature_ptr) / 4 + n);
+  const pos = new Float32Array(readBytes(Module, Number(res2.toolpath.vertex_ptr), n * 3 * 4).buffer);
+  const layers = new Uint32Array(readBytes(Module, Number(res2.toolpath.layer_ptr), n * 4).buffer);
+  const feats = new Uint32Array(readBytes(Module, Number(res2.toolpath.feature_ptr), n * 4).buffer);
   check('toolpath positions finite', pos.every((v) => Number.isFinite(v)));
   check('toolpath layers ascending within range', layers.every((l) => l >= 0 && l < res2.layers));
   check('toolpath features in palette', feats.every((f) => Number.isInteger(f) && f >= 0));
-  Module._free(Number(res2.toolpath.vertex_ptr));
-  Module._free(Number(res2.toolpath.layer_ptr));
-  Module._free(Number(res2.toolpath.feature_ptr));
 }
 if (res2.mesh && res2.mesh.vertex_count > 0) {
-  const mi = Module.HEAPU32.slice(Number(res2.mesh.index_ptr) / 4, Number(res2.mesh.index_ptr) / 4 + res2.mesh.index_count);
+  const mi = new Uint32Array(readBytes(Module, Number(res2.mesh.index_ptr), res2.mesh.index_count * 4).buffer);
   check('mesh indices < vertex_count', mi.every((i) => i < res2.mesh.vertex_count));
   Module._free(Number(res2.mesh.vertex_ptr));
-  Module._free(Number(res2.mesh.index_ptr));
   Module._free(Number(res2.mesh.layer_ptr));
 }
 
