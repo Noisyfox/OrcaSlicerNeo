@@ -138,7 +138,7 @@ jobs:
             os: ubuntu-latest
             args: --linux
           - name: mac x64 (DMG)
-            os: macos-13
+            os: macos-14 # macos-13 runners retired (2026); electron-builder downloads the x64 Electron dist
             args: --mac --x64
           - name: mac arm64 (DMG)
             os: macos-14

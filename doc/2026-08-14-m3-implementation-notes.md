@@ -108,12 +108,14 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
   `ORCA_E2E_REAL=1`.
 - `package` matrix (no arm runners; electron-builder downloads the arm64
   Electron dist): windows-latest → `--win` (x64+arm64 NSIS), ubuntu-latest →
-  `--linux` (x64+arm64 AppImage), macos-13 → `--mac --x64`, macos-14 →
-  `--mac --arm64`. All six bundle the same staged artifact; installers
-  uploaded (retention 14 d), unsigned. The windows job emits THREE
-  artifacts: electron-builder 26.15.3 eagerly cross-builds x64 + arm64 plus
-  a combined multi-arch `-win.exe`; the upload glob `release/*.exe` covers
-  all three.
+  `--linux` (x64+arm64 AppImage), macos-14 → `--mac --x64` (2026-08-14:
+  macos-13 runners were retired — the x64 DMG now builds on the arm64
+  macos-14 runner; electron-builder downloads the x64 Electron dist, same
+  cross-build the win job already does), macos-14 → `--mac --arm64`. All
+  six bundle the same staged artifact; installers uploaded (retention
+  14 d), unsigned. The windows job emits THREE artifacts: electron-builder
+  26.15.3 eagerly cross-builds x64 + arm64 plus a combined multi-arch
+  `-win.exe`; the upload glob `release/*.exe` covers all three.
 - Env hygiene: CI must NOT set `WASM_PROFILES_DIR` — the default full
   profiles tree is exactly what CI validates (the override exists for
   lighter local builds only). `ORCA_E2E_REAL=1` is set only on the
