@@ -217,4 +217,34 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
 > and PrusaSlicer's commented-out auto-select. `full_config()` then yields a
 > real machine config and `{}` validates. Needs a WASM rebuild (CI `wasm`
 > job) to take effect.
+>
+> **2026-08-14 (third round).** The orc_init selection alone was still
+> insufficient: run-12 (built WITH the fix) failed e2e-real with the same
+> validate() error. Ground-truth probe (MEMFS gcode header, one-off
+> `probe-gcode.mjs`): the final config was EXACTLY bare
+> `FullPrintConfig::defaults()` — `G28 ; home all axes`, `M83`, filament
+> density 1.24, no printer_model — the selected printer preset contributed
+> NOTHING, despite every static check (find_preset_internal, is_visible,
+> canonical name, begin() range) saying select_preset_by_name should land
+> on "Afinia H+1(HS) 0.4 nozzle" (klipper + `G92 E0`). Why the selection
+> does not take effect is unresolved by static reading; the module cannot
+> be rebuilt faster than CI, so round 3 ships BOTH:
+> (1) **Deterministic invariant fix** (bridge.cpp `orc_slice`, after
+> `normalize_fdm`): if the final config is Marlin flavor +
+> `use_relative_e_distances=1` + no `G92 E0` in before/layer_change_gcode,
+> inject the standard `";BEFORE_LAYER_CHANGE\n;[layer_z]\nG92 E0\n"` into
+> `before_layer_change_gcode`. This only fires for configs that otherwise
+> fail validate() outright — explicit client values that satisfy the
+> invariant (klipper, rel-e=0, their own G92 E0) are untouched — so
+> `orc_slice({})` slices regardless of selection state. Documented
+> deviation: the pinned SHA's validate() (Print.cpp:1746) is stricter than
+> the WASM's un-curated default selection can always satisfy; the bridge
+> contract "a slice request must slice" wins.
+> (2) **`orc_dump_state()` diagnostic** (bridge.cpp; diagnostic only, not
+> part of the client API contract): selected idx/name/is_default for
+> prints/filaments/printers plus the full_config() keys gcode_flavor,
+> use_relative_e_distances, before/layer_change_gcode, bed_shape,
+> printer_model, machine_start_gcode, filament_density — turning the
+> selection-mystery into data for the next iteration. Uses `optptr`/`size`
+> guards throughout so a diagnostic can never crash the module.
 - Manual GUI pass on a packaged installer (`package:win` → install → run).

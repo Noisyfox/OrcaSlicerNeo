@@ -283,6 +283,30 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
             config.set_deserialize(key, value, substitutions);
         }
         config.normalize_fdm();
+        // Fix round 3: validate() invariant guarantee. A Marlin flavor with
+        // use_relative_e_distances=1 requires "G92 E0" in the layer-change
+        // gcode (Print.cpp:1746); real OrcaSlicer machine presets carry it in
+        // before_layer_change_gcode, but the WASM's un-curated default
+        // selection may leave the baseline without it (see orc_init).
+        // Inject the standard reset so ANY selection validates — the bridge
+        // contract is "a slice request must slice", and this only fires for
+        // configs that otherwise fail validate() outright. Explicit client
+        // values that satisfy the invariant (klipper, rel-e=0, or their own
+        // G92 E0) are untouched.
+        {
+            const auto* flavor = config.option<ConfigOptionEnum<GCodeFlavor>>("gcode_flavor");
+            const bool marlin = flavor &&
+                (flavor->value == gcfMarlinFirmware || flavor->value == gcfMarlinLegacy);
+            if (marlin && config.opt_bool("use_relative_e_distances")) {
+                const auto* before_opt = config.option<ConfigOptionString>("before_layer_change_gcode");
+                const auto* layer_opt  = config.option<ConfigOptionString>("layer_change_gcode");
+                const std::string before = before_opt ? before_opt->value : std::string();
+                const std::string layer  = layer_opt ? layer_opt->value : std::string();
+                if (before.find("G92 E0") == std::string::npos &&
+                    layer.find("G92 E0") == std::string::npos)
+                    config.set("before_layer_change_gcode", ";BEFORE_LAYER_CHANGE\n;[layer_z]\nG92 E0\n");
+            }
+        }
 
         state().print.apply(state().model, config);
         // Drift at the pinned SHA: validate() returns StringObjectException
@@ -487,6 +511,50 @@ EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
         // So for v1, cancel is a state reset: it must never poison the module.
         state().print.restart();
         return dup_json(json{{"ok", true}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    }
+}
+
+// Diagnostic: what preset (if any) is selected in each collection, and what
+// the orc_slice baseline full_config() resolves to. M3 troubleshooting — the
+// validation fix rounds turned on the question "does the selection land?";
+// this turns it into data. Not part of the client API contract; JS may call
+// it via the module directly.
+EMSCRIPTEN_KEEPALIVE const char* orc_dump_state() {
+    try {
+        auto& presets = state().presets;
+        auto sel = [](const PresetCollection& coll) {
+            // Drift at the pinned SHA: the const get_selected_preset()
+            // (Preset.hpp:637) does NOT bounds-guard like the non-const
+            // overload — check the index before dereferencing.
+            json j = json::object();
+            const size_t idx = coll.get_selected_idx();
+            j["idx"] = idx;
+            if (idx < coll.size()) {
+                const Preset& p = coll.get_selected_preset();
+                j["name"] = p.name;
+                j["is_default"] = p.is_default;
+            } else {
+                j["name"] = nullptr;
+                j["is_default"] = true;
+            }
+            return j;
+        };
+        json j{{"ok", true},
+               {"prints",    sel(presets.prints)},
+               {"filaments", sel(presets.filaments)},
+               {"printers",  sel(presets.printers)}};
+        // The exact baseline orc_slice slices with.
+        const DynamicPrintConfig& cfg = presets.full_config();
+        json full = json::object();
+        for (const char* key : {"gcode_flavor", "use_relative_e_distances",
+                                "before_layer_change_gcode", "layer_change_gcode",
+                                "bed_shape", "printer_model", "machine_start_gcode",
+                                "filament_density"})
+            if (const ConfigOption* opt = cfg.optptr(key)) full[key] = opt->serialize();
+        j["full_config"] = std::move(full);
+        return dup_json(j.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     }
