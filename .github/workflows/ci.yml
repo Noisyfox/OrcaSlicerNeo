@@ -36,11 +36,11 @@ jobs:
     name: WASM build + smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-depth: 0 # version header reads `git describe` on the submodule
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
       - uses: emscripten-core/setup-emsdk@v15 # official action; jaxvanyang/setup-emsdk repo no longer resolves
@@ -77,9 +77,9 @@ jobs:
     name: Unit + typecheck + app build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # installs pnpm@10.0.0 from root packageManager field
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # installs pnpm@10.0.0 from root packageManager field
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -92,9 +92,9 @@ jobs:
     name: e2e (mock module)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # installs pnpm@10.0.0 from root packageManager field
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # installs pnpm@10.0.0 from root packageManager field
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -109,9 +109,9 @@ jobs:
     env:
       ORCA_E2E_REAL: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # installs pnpm@10.0.0 from root packageManager field
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # installs pnpm@10.0.0 from root packageManager field
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -145,9 +145,9 @@ jobs:
             args: --mac --arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # installs pnpm@10.0.0 from root packageManager field
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6 # installs pnpm@10.0.0 from root packageManager field
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
