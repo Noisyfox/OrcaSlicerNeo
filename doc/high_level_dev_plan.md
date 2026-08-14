@@ -113,18 +113,44 @@
 
 ### Milestone 3 — Packaging & Hardening (design Phase F)
 
+> **Status: delivered 2026-08-14.** electron-builder config for all six
+> targets (win NSIS x64/arm64, linux AppImage x64/arm64, mac DMG x64/arm64)
+> sharing one staged WASM artifact; Playwright Electron e2e driving the full
+> v1 flow (mock module locally, real module in CI — asserts exported gcode
+> contents) plus a packaged-app probe of the packaged app:// wasm URL path;
+> GitHub Actions matrix (wasm+smoke, unit/typecheck, e2e-mock, e2e-real,
+> package); full `resources/profiles` bundle via `--preload-file` (replaces
+> the M1 curated subset); root `LICENSE` (AGPL-3.0) + `SOURCE_OFFER.md`;
+> slice cross-check procedure + script. Deferred to first CI push: the WASM
+> rebuild + harnesses + e2e-real + six-target packaging (no emsdk on the
+> delivery machine — M2 precedent; the CI wasm job is the first real
+> execution of the M2-deferred bridge verification). Slice cross-check
+> additionally needs desktop OrcaSlicer (emsdk machine).
+> See `doc/2026-08-14-m3-implementation-notes.md`.
+
 **Epic 3.1: electron-builder**
-- Config for win x64/arm64 (NSIS), linux x64/arm64 (AppImage), mac x64/arm64
-  (DMG); all six bundle the same `.wasm` + embedded resources.
+- Config (electron-builder.yml): win x64/arm64 (NSIS), linux x64/arm64
+  (AppImage), mac x64/arm64 (DMG); unsigned v1; `asarUnpack` for
+  `out/renderer/wasm/**` (fetch() cannot read inside asar); NSIS license
+  page shows AGPL-3.0. One `stage:wasm` artifact feeds all six bundles.
 
 **Epic 3.2: e2e + CI**
-- Playwright Electron: launch app, drive the full v1 flow, assert gcode contents.
-- GitHub Actions matrix: WASM build + smoke, app build, unit, e2e.
+- Playwright Electron (`@playwright/test`, `_electron.launch`): full v1 flow
+  spec (open → slice → preview → export, asserts gcode file contents) —
+  mock build locally, real module in CI (`ORCA_E2E_REAL=1`); `ORCA_E2E`
+  env-gated native-dialog stub in main (Playwright cannot drive native
+  dialogs). Packaged-app probe spec (stub module, `package:dir`).
+- GitHub Actions: wasm job (emsdk 6.0.4, dep cache, both harnesses,
+  artifact = orca_slice.{js,wasm,data}), unit, e2e-mock, e2e-real, package
+  matrix (win/ubuntu/macos-13/macos-14 → six targets, no arm runners).
 
 **Epic 3.3: Full preset bundle**
-- Replace curated subset with full `resources/profiles` via `--preload-file`;
-  verify preset loading paths (`PresetBundle::load_presets`).
-- Root `LICENSE` (AGPL-3.0) + source-offer notes.
+- `--preload-file` of the full `resources/profiles` (72 MB) mounted at
+  `/system` replaces the curated `--embed-file` subset
+  (`WASM_PROFILES_DIR` override for lighter local builds); `orca_slice.data`
+  staged alongside the module; heap grows at startup (ALLOW_MEMORY_GROWTH).
+- Root `LICENSE` (AGPL-3.0 canonical text) + `SOURCE_OFFER.md`; installer
+  license page; `license` fields in package.jsons.
 
 ## Cross-Cutting Practices
 

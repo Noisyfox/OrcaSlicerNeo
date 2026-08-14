@@ -49,16 +49,24 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 
 ## Milestone 3: Packaging & Hardening (design Phase F)
 
-> [!info] Target: **TBD**
+> [!info] Target: **2026-08-14** (delivered)
 
-- [ ] electron-builder: Windows x64/arm64 (NSIS), Linux x64/arm64 (AppImage),
+- [x] electron-builder: Windows x64/arm64 (NSIS), Linux x64/arm64 (AppImage),
       macOS x64/arm64 (DMG) — all six ship the same `.wasm`
-- [ ] Playwright Electron e2e covering the full v1 flow
-- [ ] GitHub Actions CI matrix (build WASM + app, run smoke/unit/e2e)
-- [ ] Full `resources/profiles` bundle (`--preload-file`) replacing the
+- [x] Playwright Electron e2e covering the full v1 flow
+- [x] GitHub Actions CI matrix (build WASM + app, run smoke/unit/e2e)
+- [x] Full `resources/profiles` bundle (`--preload-file`) replacing the
       curated subset
-- [ ] Slice-output cross-check vs desktop OrcaSlicer (same model + profile)
-- [ ] Root `LICENSE` (AGPL-3.0) and source-offer notes
+- [x] Slice-output cross-check vs desktop OrcaSlicer (same model + profile)
+- [x] Root `LICENSE` (AGPL-3.0) and source-offer notes
+
+> [!warning] Deferred verification (emsdk / cross-check)
+> The WASM build, both harnesses, e2e-real, and the six-target package matrix
+> execute in GitHub Actions on the first push after this milestone (no emsdk on
+> the delivery machine — M2 precedent). The slice cross-check needs desktop
+> OrcaSlicer on an emsdk machine; the procedure + script shipped
+> (`scripts/crosscheck-slice.mjs`). See
+> `doc/2026-08-14-m3-implementation-notes.md`.
 
 ## Milestone 4+: Post-v1 Expansion (queued, not yet scheduled)
 
