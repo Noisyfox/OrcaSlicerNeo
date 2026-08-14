@@ -36,12 +36,16 @@ EOF
 
 # locale uses the std backend (no ICU/iconv on wasm). runtime-link=static keeps
 # everything self-contained. MEMORY64 must match the libslic3r object build.
+# target-os=linux: b2 infers the TARGET os from the HOST — on Windows that
+# means threadapi=win32 + -DBOOST_USE_WINDOWS_H, which cannot compile under
+# the emscripten toolset (no windows.h/process.h). wasm64 is a POSIX target
+# (emscripten pthreads), so force the POSIX profile explicitly.
 ./b2 -q --user-config=user-config-wasm.jam toolset=clang-emscripten \
   --with-system --with-filesystem --with-thread --with-atomic --with-chrono \
   --with-date_time --with-iostreams --with-log --with-locale \
   --with-program_options --with-regex --with-nowide \
   boost.locale.icu=off boost.locale.iconv=off boost.locale.posix=off boost.locale.std=on \
-  address-model=64 \
+  address-model=64 target-os=linux \
   link=static threading=multi runtime-link=static variant=release \
   cxxflags="-sMEMORY64 -pthread -std=c++17 -Wno-unused -Wno-deprecated-declarations" \
   cflags="-sMEMORY64 -pthread" \

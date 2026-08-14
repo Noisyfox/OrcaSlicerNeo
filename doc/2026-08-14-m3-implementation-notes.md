@@ -190,7 +190,14 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
 >    to `<address-model>32`, clashing with the `-sMEMORY64` object flags
 >    (name-clash error, `32 vs 64`); Linux auto-detects 64 so CI never saw
 >    it. MEMORY64 must match the libslic3r object build.
-> 3. **`-j${BOOST_JOBS:-4}`**: parallelize the 12-lib b2 build on fast
+> 3. **`target-os=linux`**: b2 infers the TARGET os from the HOST — on a
+>    Windows host that means `threadapi=win32`, `-DBOOST_THREAD_WIN32` and
+>    `-DBOOST_USE_WINDOWS_H`, which cannot compile under the emscripten
+>    toolset (`windows.h`/`process.h` not found, boost.atomic
+>    `wait_on_address` + boost.thread win32 sources fail). wasm64 is a
+>    POSIX target (emscripten pthreads), so the POSIX profile is forced
+>    explicitly; Linux hosts already default to it.
+> 4. **`-j${BOOST_JOBS:-4}`**: parallelize the 12-lib b2 build on fast
 >    machines; defaults preserve the old CI behavior.
 > Build time locally: deps fetch ~2 min, boost 12-lib wasm64 ~15 min at
 > `BOOST_JOBS=16`, libslic3r ninja ~15 min on 24 cores — vs ~40 min CI.
