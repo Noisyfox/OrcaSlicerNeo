@@ -129,15 +129,32 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init() {
         // then reduces to bare FullPrintConfig::defaults(): Marlin flavor
         // + use_relative_e_distances=1 + no "G92 E0", which validate()
         // rejects (Print.cpp:1746) and the app's minimal {} slice config
-        // hit. Mirror the GUI's fallback when the selected printer
-        // disappears (reset_project_embedded_presets:
-        // select_preset(first_visible_idx())): pick the first real preset
-        // (begin() skips the generated defaults) as the default selection
-        // until the app's preset-selection UI lands.
-        if (state().presets.printers.get_selected_preset().is_default) {
-            auto it = state().presets.printers.begin();
-            if (it != state().presets.printers.end())
-                state().presets.printers.select_preset_by_name(it->name, true);
+        // hit. Pick the first visible real preset as the default selection
+        // (the GUI's reset_project_embedded_presets does the same via
+        // select_preset(first_visible_idx()); we skip the Orca-only
+        // ORCA_FILAMENT_LIBRARY vendor filter, which would exclude every
+        // vendor printer and fall back to the default again).
+        // Round 4: selection by LINEAR SCAN with a hand-counted index.
+        // Round 2's select_preset_by_name(begin()->name, true) never landed
+        // — orc_dump_state proved the selection stays on the generated
+        // default even though every link of that call is source-correct
+        // (sorted range, bare canonical names, visible Afinia). The
+        // divergence is believed to be find_preset_internal's binary search
+        // (lower_bound_by_predicate with std::distance/advance over the
+        // std::deque) misbehaving under wasm64 MEMORY64 — plain increment
+        // iteration is the one operation proven correct in this binary
+        // (orc_get_presets prints the sorted list fine). So scan with ++
+        // from lbegin(), count the absolute index by hand, and select the
+        // first visible non-default preset by index.
+        {
+            size_t sel_idx = 0;
+            for (auto it = state().presets.printers.lbegin();
+                 it != state().presets.printers.end(); ++it, ++sel_idx) {
+                if (it->is_default || !it->is_visible)
+                    continue;
+                state().presets.printers.select_preset(sel_idx);
+                break;
+            }
         }
         return dup_json(json{{"ok", true},
                              {"prints",   state().presets.prints.size()},
@@ -545,6 +562,17 @@ EMSCRIPTEN_KEEPALIVE const char* orc_dump_state() {
                {"prints",    sel(presets.prints)},
                {"filaments", sel(presets.filaments)},
                {"printers",  sel(presets.printers)}};
+        // Round 4: what the orc_init scan saw — the leading-generated-default
+        // count (observing the private m_num_default_presets via increment
+        // iteration) and the collection sizes, so a divergence stays data.
+        {
+            size_t n_defaults = 0;
+            for (auto it = presets.printers.lbegin();
+                 it != presets.printers.end() && it->is_default; ++it)
+                ++n_defaults;
+            j["scan"] = {{"leading_defaults", n_defaults},
+                         {"printers_size", presets.printers.size()}};
+        }
         // The exact baseline orc_slice slices with.
         const DynamicPrintConfig& cfg = presets.full_config();
         json full = json::object();

@@ -249,4 +249,34 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
 > printer_model, machine_start_gcode, filament_density — turning the
 > selection-mystery into data for the next iteration. Uses `optptr`/`size`
 > guards throughout so a diagnostic can never crash the module.
+>
+> **2026-08-14 (fourth round).** The dump delivered, and the mystery
+> resolved to a build-specific divergence. `orc_dump_state` on the run-13
+> module: selection still on the generated default (`idx 0, "Default
+> Printer", is_default true`) — so round 2's `select_preset_by_name`
+> executed and the find MISSED at runtime, falling back to idx 0 (the
+> fallback loop starts at `m_default_suppressed ? m_num_default_presets :
+> 0` = 0 and the generated default is visible). Yet EVERY link of that
+> call is source-correct at the pinned SHA, re-verified one by one:
+> `begin()` skips defaults (Preset.hpp:510) and yields "Afinia H+1(HS)
+> 0.4 nozzle" (probe-verified); `sort_presets()` runs in both loader paths
+> (Preset.cpp:1826/2042) with `operator<` = plain name order; the names
+> round-trip bare through parse/canonical (kind User → bare, no prefix);
+> `find_preset_internal`'s `lower_bound_by_predicate` (libslic3r.h:233)
+> is a textbook binary search; Afinia is visible (`instantiation` ≠
+> "false", Preset.cpp:1723). Source says found; binary says miss. Working
+> hypothesis: `lower_bound_by_predicate`'s `std::distance`/`std::advance`
+> over the `std::deque` misbehave under wasm64 MEMORY64 — plain increment
+> iteration is the one operation proven correct in this binary (the
+> sorted preset list prints fine). Round 4 therefore replaces the
+> selection with a LINEAR SCAN with a hand-counted index (`lbegin()..end()`
+> by `++`, skip `is_default`, select first visible via `select_preset`),
+> i.e. the GUI's `reset_project_embedded_presets` mechanism minus the
+> Orca-only `ORCA_FILAMENT_LIBRARY` vendor filter (first_visible_idx's
+> filter would exclude every vendor printer and fall back to the default
+> again — verified Preset.cpp:3312). `orc_dump_state` gains the scan's
+> inputs (`leading_defaults`, sizes). The G92 E0 invariant stays as
+> defense-in-depth. If the linear scan lands (dump shows idx 1, klipper
+> flavor in full_config), the wasm64-binary-search hypothesis is
+> confirmed and M4 tracks it (or avoids it) knowingly.
 - Manual GUI pass on a packaged installer (`package:win` → install → run).
