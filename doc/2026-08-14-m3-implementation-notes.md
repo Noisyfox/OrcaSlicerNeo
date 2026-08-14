@@ -196,4 +196,25 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
 > any minimal-config client (the app sends `{}` plus user tweaks), not just
 > the app; `slice_main.cpp` keeps `full_print_config()` + `config.load`
 > for harness parity. Needs a WASM rebuild (CI `wasm` job) to take effect.
+>
+> **2026-08-14 (second round).** The full_config baseline alone was proven
+> insufficient: `orc_slice({})` still failed `validate()` with the same
+> error. Root cause, traced in libslic3r: with an EMPTY AppConfig (the WASM
+> has no first-run wizard) **no preset is selected at all** — the vendor
+> bundle loader never calls `select_preset` (the GUI's auto-select is
+> commented out, Preset.cpp:1829/2044; `select_preset_by_name(name, false)`
+> at the end of `load_presets` re-selects the same name = no-op). Selection
+> stays on the generated "- default -" preset (Preset.cpp:1601, ctor:
+> `select_preset(0)`), whose config is EMPTY, so `full_fff_config`
+> (PresetBundle.cpp:4016-4020: defaults → edited print → default filament →
+> edited printer → project) reduces to bare `FullPrintConfig::defaults()` —
+> Marlin + `use_relative_e_distances=1` + no `G92 E0` — the exact combo the
+> app hit. Every real machine preset (Afinia, re3D, Cubicon, …) is Klipper
+> with `G92 E0`, so they never got a chance to apply. Fix (bridge.cpp
+> `orc_init`): if the selected printer `is_default`, select the first real
+> preset (`begin()` skips generated defaults) — mirroring the GUI's fallback
+> in `reset_project_embedded_presets` (`select_preset(first_visible_idx())`)
+> and PrusaSlicer's commented-out auto-select. `full_config()` then yields a
+> real machine config and `{}` validates. Needs a WASM rebuild (CI `wasm`
+> job) to take effect.
 - Manual GUI pass on a packaged installer (`package:win` → install → run).

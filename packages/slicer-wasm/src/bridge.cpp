@@ -121,6 +121,24 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init() {
         set_data_dir("/");
         state().presets.setup_directories();
         state().presets.load_presets(state().app_config, ForwardCompatibilitySubstitutionRule::Enable);
+        // Empty AppConfig ⇒ NO preset is selected when the vendor bundles
+        // load: the bundle loader never calls select_preset (the GUI's
+        // auto-select is commented out at Preset.cpp:1829/2044; first-run
+        // selection comes from the config wizard). Selection stays on the
+        // generated "- default -", whose config is EMPTY — full_config()
+        // then reduces to bare FullPrintConfig::defaults(): Marlin flavor
+        // + use_relative_e_distances=1 + no "G92 E0", which validate()
+        // rejects (Print.cpp:1746) and the app's minimal {} slice config
+        // hit. Mirror the GUI's fallback when the selected printer
+        // disappears (reset_project_embedded_presets:
+        // select_preset(first_visible_idx())): pick the first real preset
+        // (begin() skips the generated defaults) as the default selection
+        // until the app's preset-selection UI lands.
+        if (state().presets.printers.get_selected_preset().is_default) {
+            auto it = state().presets.printers.begin();
+            if (it != state().presets.printers.end())
+                state().presets.printers.select_preset_by_name(it->name, true);
+        }
         return dup_json(json{{"ok", true},
                              {"prints",   state().presets.prints.size()},
                              {"filaments", state().presets.filaments.size()},
