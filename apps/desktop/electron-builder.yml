@@ -1,0 +1,40 @@
+# apps/desktop/electron-builder.yml — M3 packaging (design §Packaging).
+# All six targets ship the same WASM module: stage:wasm runs before packaging
+# (CI: artifact download → scripts/stage-wasm.mjs). Unsigned v1 (macOS signing
+# deferred). Config is cross-validated in CI; only Windows x64 is buildable on
+# the dev machine (NSIS), the other five targets build on the CI matrix.
+appId: com.orcaslicerne.neo
+productName: OrcaSlicerNeo
+directories:
+  output: release
+files:
+  - out/**
+  - "!out/**/*.map"
+# Binary assets (wasm + preloaded data) load via fetch() in the renderer's
+# file:// context — fetch() cannot read inside asar, so unpack them.
+asarUnpack:
+  - out/renderer/wasm/**
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  artifactName: OrcaSlicerNeo-${version}-${os}-${arch}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: OrcaSlicerNeo
+linux:
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+  category: Utility
+  artifactName: OrcaSlicerNeo-${version}-${os}-${arch}.${ext}
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  category: public.app-category.graphics-design
+  identity: null # unsigned v1 (design: "macOS signing deferred")
+  artifactName: OrcaSlicerNeo-${version}-${os}-${arch}.${ext}
+npmRebuild: false # no native node deps; everything is bundled by Vite
+publish: null

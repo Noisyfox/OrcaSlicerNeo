@@ -7,3 +7,4 @@ out/
 packages/slicer-wasm/.work/
 packages/slicer-wasm/out/
 apps/desktop/src/renderer/public/wasm/
+apps/desktop/release/
