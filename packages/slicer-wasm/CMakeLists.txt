@@ -311,6 +311,9 @@ target_link_options(orca_slice PRIVATE
   -sDISABLE_EXCEPTION_CATCHING=0
   -sALLOW_TABLE_GROWTH=1
 )
-if(DEFINED EMBED_FILE AND NOT "${EMBED_FILE}" STREQUAL "")
-  target_link_options(orca_slice PRIVATE "--embed-file=${EMBED_FILE}")
+# Full vendor preset bundle (72 MB) via preload-file: the .data file is
+# streamed into MEMFS at module start and the heap grows (ALLOW_MEMORY_GROWTH)
+# — embed-file would bloat the wasm binary instead.
+if(DEFINED PRELOAD_FILE AND NOT "${PRELOAD_FILE}" STREQUAL "")
+  target_link_options(orca_slice PRIVATE "--preload-file=${PRELOAD_FILE}")
 endif()

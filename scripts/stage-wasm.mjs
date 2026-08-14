@@ -14,7 +14,7 @@ if (!existsSync(src)) {
   process.exit(1);
 }
 await mkdir(dst, { recursive: true });
-for (const f of ['orca_slice.js', 'orca_slice.wasm']) {
+for (const f of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
   if (!existsSync(join(src, f))) {
     console.error(`missing ${f} in ${src}`);
     process.exit(1);

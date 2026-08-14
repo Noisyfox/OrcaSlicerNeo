@@ -130,78 +130,15 @@ EOF
 } > /dev/null
 log "Wrote $GEN_INCLUDE/libslic3r_version.h (SLIC3R_VERSION=$(git -C "$ORCA_SRC" describe --tags --always 2>/dev/null || echo 0.0.0))"
 
-# ---------------- Curated preset subset (for orc_init) ----------------
-# Embed one vendor (Bambu Lab) + its index. PresetBundle::load_presets reads
-# <data_dir>/system/*.json + vendor dirs (machine/process/filament). The full
-# resources/profiles bundle lands via --preload-file in Milestone 3.
-embed_presets() {
-  local src="$ORCA_SRC/resources/profiles"
-  local dst="$WORK_DIR/embed/system"
-  rm -rf "$WORK_DIR/embed"
-  mkdir -p "$dst"
-  cp "$src/BBL.json" "$dst/"
-  cp -a "$src/BBL" "$dst/"
-  # BBL/filament/ also vendors third-party filament collections (COEX,
-  # Polymaker, eSUN, ...) that inherit from their own — un-embedded — vendor
-  # dirs. load_vendor_configs_from_json parses the index entries listed in
-  # BBL.json's filament_list and THROWS on the first parse error, aborting the
-  # whole BBL vendor load (observed: "can not find inherits COEX PCTG PRIME
-  # @base" / parse error on the missing file). Keep only self-contained
-  # entries: drop third-party subdir entries AND top-level entries whose
-  # inherits chain resolves to a file that is not itself kept (fixpoint —
-  # e.g. "PolyLite ABS @BBL H2DP" inherits Polymaker's "PolyLite ABS @base").
-  # Machine/process lists are self-contained at this SHA; the fixpoint below
-  # is generic and covers them too if that ever changes.
-  find "$dst/BBL/filament" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} +
-  local py="$(command -v python || command -v python3 || true)"
-  [ -n "$py" ] || die "python not found (needed to filter BBL.json for the embed)"
-  local json_path="$dst/BBL.json"
-  if command -v cygpath >/dev/null 2>&1; then json_path="$(cygpath -w "$dst/BBL.json")"; fi
-  "$py" - "$json_path" <<'PYEOF' || die "failed to filter BBL.json"
-import json, os, sys
-
-path = sys.argv[1]          # BBL.json inside the embed dir
-vendor = os.path.join(os.path.dirname(path), 'BBL')
-
-def inherits_values(d, out):
-    if isinstance(d, dict):
-        for k, v in d.items():
-            if k == 'inherits' and isinstance(v, str):
-                out.add(v)
-            else:
-                inherits_values(v, out)
-    elif isinstance(d, list):
-        for v in d:
-            inherits_values(v, out)
-
-with open(path, encoding='utf-8') as f:
-    j = json.load(f)
-
-for key, subdir in (('filament_list', 'filament'),
-                    ('machine_list', 'machine'),
-                    ('process_list', 'process')):
-    entries = [e for e in j.get(key, []) if e.get('sub_path', '').count('/') == 1]
-    def stem(e): return e['sub_path'].rsplit('/', 1)[-1][:-len('.json')]
-    kept = {stem(e): e for e in entries}
-    changed = True
-    while changed:                      # fixpoint: drop entries whose inherits
-        changed = False                 # chain leaves the kept set
-        for name, e in list(kept.items()):
-            p = os.path.join(vendor, subdir, name + '.json')
-            if not os.path.exists(p):
-                del kept[name]; changed = True; continue
-            iv = set()
-            inherits_values(json.load(open(p, encoding='utf-8')), iv)
-            if any(t not in kept for t in iv):
-                del kept[name]; changed = True
-    j[key] = [e for e in entries if stem(e) in kept]
-
-with open(path, 'w', encoding='utf-8') as f:
-    json.dump(j, f, ensure_ascii=False)
-PYEOF
-  log "Embedded curated presets from $src/BBL into $dst (third-party filament entries dropped)"
-}
-embed_presets
+# ---------------- Full preset bundle (for orc_init) ----------------
+# M3: the full resources/profiles tree via --preload-file, mounted at /system
+# — the same location the M1 curated embed used, so PresetBundle::load_presets
+# and the harnesses are unchanged. With the full tree every third-party
+# filament inherits chain resolves, so the M1 curated fixpoint filter is gone.
+# Override WASM_PROFILES_DIR for a lighter local build (e.g. a curated dir);
+# CI and packaging always use the full tree.
+WASM_PROFILES_DIR="${WASM_PROFILES_DIR:-$ORCA_SRC/resources/profiles}"
+log "Preset bundle: $WASM_PROFILES_DIR"
 
 # ---------------- Configure + build ----------------
 log "Configuring stripped libslic3r + bridge + CLI (emcmake)"
@@ -213,7 +150,7 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DEIGEN_INCLUDE="$EIGEN_INCLUDE" \
   -DBOOST_INCLUDE="$BOOST_INCLUDE" \
   -DCEREAL_INCLUDE="$CEREAL_INCLUDE" \
-  -DEMBED_FILE="$WORK_DIR/embed/system@/system" \
+  -DPRELOAD_FILE="$WASM_PROFILES_DIR@/system" \
   || die "CMake configure failed. Fix include paths / missing deps and re-run."
 
 log "Building (emmake ninja) — expect to iterate on compile errors"
@@ -226,6 +163,7 @@ emmake ninja -C "$BUILD_DIR" orca_slice || die "Build failed. Common next steps:
 # ---------------- Collect artifacts ----------------
 cp -f "$BUILD_DIR"/orca_slice.js  "$OUT_DIR"/ 2>/dev/null || true
 cp -f "$BUILD_DIR"/orca_slice.wasm "$OUT_DIR"/ 2>/dev/null || true
+cp -f "$BUILD_DIR"/orca_slice.data "$OUT_DIR"/ 2>/dev/null || true
 log "Done. Artifacts in $OUT_DIR/"
 log "Smoke test: node harness/run-slice.mjs --module out/orca_slice.js \\
      --stl fixtures/cube.stl --config fixtures/config.json"
