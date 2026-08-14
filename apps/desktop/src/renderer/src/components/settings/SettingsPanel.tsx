@@ -36,7 +36,7 @@ export function SettingsPanel() {
     <div className="space-y-4 p-3">
       <section>
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
-        <PresetRow label="Printer" items={printers} value={values['printer'] ?? ''} onValue={(v) => setValue('printer', v)} />
+        <PresetRow label="Printer" items={printers} value={values['printer'] ?? ''} onValue={(v) => setValue('printer', v)} testId="preset-select" />
         <PresetRow label="Process" items={prints} value={values['print'] ?? ''} onValue={(v) => setValue('print', v)} />
         <PresetRow label="Filament" items={filaments} value={values['filament'] ?? ''} onValue={(v) => setValue('filament', v)} />
       </section>
@@ -50,18 +50,19 @@ export function SettingsPanel() {
   );
 }
 
-function PresetRow({ label, items, value, onValue }: {
+function PresetRow({ label, items, value, onValue, testId }: {
   label: string;
   items: string[];
   value: string;
   onValue: (v: string) => void;
+  testId?: string;
 }) {
   if (items.length === 0) return null;
   return (
     <div className="space-y-1 py-1">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <Select value={value || undefined} onValueChange={onValue}>
-        <SelectTrigger className="h-8 text-xs">
+        <SelectTrigger className="h-8 text-xs" data-testid={testId}>
           <SelectValue placeholder="— select —" />
         </SelectTrigger>
         <SelectContent>

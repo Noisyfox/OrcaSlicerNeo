@@ -9,7 +9,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 export function Viewport() {
   const setSelected = useSettingsStore((s) => s.setSelectedObject);
   return (
-    <div className="absolute inset-0">
+    <div className="absolute inset-0" data-testid="viewport">
       <Canvas
         camera={{ position: [200, 160, 200], fov: 45 }}
         dpr={[1, 2]}

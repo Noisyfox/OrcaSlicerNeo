@@ -24,6 +24,7 @@ export function LayerScrubber() {
         step={1}
         value={[layer]}
         onValueChange={(v) => setLayer(v[0])}
+        data-testid="layer-scrubber"
       />
     </div>
   );
