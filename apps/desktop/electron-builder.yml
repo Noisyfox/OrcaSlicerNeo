@@ -23,6 +23,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   shortcutName: OrcaSlicerNeo
+  license: AGPL-3.0.txt # AGPL-3.0 text shown on the NSIS license page (copy of root LICENSE in build/)
 linux:
   target:
     - target: AppImage

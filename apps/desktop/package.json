@@ -4,6 +4,7 @@
   "private": true,
   "description": "OrcaSlicerNeo desktop app (Electron)",
   "author": "OrcaSlicerNeo contributors",
+  "license": "AGPL-3.0",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
