@@ -183,9 +183,15 @@ emmake ninja -C "$BUILD_DIR" orca_slice || die "Build failed. Common next steps:
   - Boost/Eigen not found: fix *_INCLUDE paths (run fetch-deps.sh first)."
 
 # ---------------- Collect artifacts ----------------
-cp -f "$BUILD_DIR"/orca_slice.js  "$OUT_DIR"/ 2>/dev/null || true
-cp -f "$BUILD_DIR"/orca_slice.wasm "$OUT_DIR"/ 2>/dev/null || true
-cp -f "$BUILD_DIR"/orca_slice.data "$OUT_DIR"/ 2>/dev/null || true
+# Fail loudly: a missing artifact is a build defect, not a warning. The .data
+# is the --preload-file bundle (full profiles tree) — emcc emits it at link
+# time, so absence here means the link step regressed. The listing below is
+# evidence in the CI log (size tells the curated vs full-bundle case apart).
+for f in orca_slice.js orca_slice.wasm orca_slice.data; do
+  [[ -f "$BUILD_DIR/$f" ]] || die "Build did not produce $BUILD_DIR/$f — check the link step above"
+  cp -f "$BUILD_DIR/$f" "$OUT_DIR/"
+done
+ls -la "$OUT_DIR"
 log "Done. Artifacts in $OUT_DIR/"
 log "Smoke test: node harness/run-slice.mjs --module out/orca_slice.js \\
      --stl fixtures/cube.stl --config fixtures/config.json"

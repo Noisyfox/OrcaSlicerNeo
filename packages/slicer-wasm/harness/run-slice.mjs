@@ -6,8 +6,9 @@
 // validates it. The engine-agnostic runSlice() is exported so it can be tested
 // against a mock module before the real build exists (see selftest.mjs).
 import { readFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { argv } from 'node:process';
+import { argv, chdir } from 'node:process';
 
 // Runs one slice against a module factory. `stagedFiles` maps MEMFS paths to
 // Uint8Array/Buffer contents; returns the exit code and output bytes.
@@ -49,6 +50,18 @@ export async function runSlice({ createModule, stagedFiles, mainArgs, outputPath
   }
 
   return { exitCode, output, logs };
+}
+
+// Loads the module factory with the process anchored to the module's own
+// directory. Emscripten's Node runtime resolves the preload-file bundle
+// (.data) as a bare CWD-relative path (scriptDirectory is empty in the
+// dynamic-import ESM path) — without this, `open 'orca_slice.data'` fails
+// with ENOENT whenever the harness runs outside out/. Host-side paths passed
+// by callers are resolved to absolutes first, so chdir cannot break them.
+export async function loadModuleFactory(modulePath) {
+  const abs = resolve(modulePath);
+  chdir(dirname(abs));
+  return (await import(pathToFileURL(abs).href)).default;
 }
 
 // Validates a slice output buffer looks like real G-code.
@@ -104,17 +117,21 @@ async function main() {
     process.exit(2);
   }
 
-  const factory = (await import(pathToFileURL(module).href)).default;
+  // Fixture paths must be absolutized BEFORE loadModuleFactory chdirs —
+  // resolve() against the old CWD would silently join the module dir instead.
+  const stlPath = resolve(stl);
+  const configPath = resolve(config);
+  const factory = await loadModuleFactory(module);
   // The BBS fork of libslic3r only loads .json configs (load_from_ini was
   // removed); stage the config under its real basename so is_json_file()
   // picks it up. e.g. --config fixtures/config.json -> /config.json.
-  const configName = config.split(/[\\/]/).pop();
-  const configPath = `/${configName}`;
+  const configName = configPath.split(/[\\/]/).pop();
+  const memfsConfigPath = `/${configName}`;
   const result = await runSlice({
     createModule: factory,
     stagedFiles: {
-      '/model.stl': await readFile(stl),
-      [configPath]: await readFile(config),
+      '/model.stl': await readFile(stlPath),
+      [memfsConfigPath]: await readFile(configPath),
     },
     mainArgs: ['/model.stl', configPath, out],
     outputPath: out,

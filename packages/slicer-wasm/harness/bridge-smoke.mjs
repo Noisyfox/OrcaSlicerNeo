@@ -5,17 +5,20 @@
 // init -> presets -> metadata -> load model -> slice (with progress) ->
 // slice result -> export gcode -> cancel. The 3D-preview buffers are M2.
 import { readFile } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
 import { argv } from 'node:process';
-import { validateGcode } from './run-slice.mjs';
+import { loadModuleFactory, validateGcode } from './run-slice.mjs';
 
-const [modulePath, stlPath] = argv.slice(2);
-if (!modulePath || !stlPath) {
+const [moduleArg, stlArg] = argv.slice(2);
+if (!moduleArg || !stlArg) {
   console.error('usage: node bridge-smoke.mjs <out/orca_slice.js> <cube.stl>');
   process.exit(2);
 }
 
-const factory = (await import(pathToFileURL(modulePath).href)).default;
+// loadModuleFactory chdirs into the module's dir (Emscripten resolves the
+// .data preload bundle from CWD); the stl path is absolutized first.
+const stlPath = resolve(stlArg);
+const factory = await loadModuleFactory(moduleArg);
 const Module = await factory({ noInitialRun: true, print: console.error, printErr: console.error });
 
 // wasm64: pointer-bearing arguments must be typed 'pointer' — Emscripten 6's
