@@ -4,7 +4,7 @@
   "private": true,
   "description": "Next-generation OrcaSlicer GUI: Electron + React + WASM libslic3r",
   "license": "AGPL-3.0",
-  "packageManager": "pnpm@10.0.0",
+  "packageManager": "pnpm@10.34.5",
   "engines": { "node": ">=22" },
   "scripts": {
     "dev": "pnpm --filter desktop dev",
@@ -14,5 +14,5 @@
     "smoke": "node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json",
     "stage:wasm": "node scripts/stage-wasm.mjs"
   },
-  "volta": { "node": "22.14.0", "pnpm": "10.0.0" }
+  "volta": { "node": "22.14.0", "pnpm": "10.34.5" }
 }
