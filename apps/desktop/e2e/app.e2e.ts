@@ -54,8 +54,14 @@ async function launchApp(): Promise<LaunchResult> {
   // Ambient shells sometimes carry ELECTRON_RUN_AS_NODE=1, which forces
   // Electron to run as plain node (the app cannot boot) — never valid here.
   delete env.ELECTRON_RUN_AS_NODE;
+  // Headless CI Linux (xvfb): ANGLE-on-Mesa fails WebGL context creation
+  // ("BindToCurrentSequence failed", llvmpipe) and three.js throws, unmounting
+  // the React root (the Viewport error boundary keeps the app alive, but the
+  // e2e asserts the GL viewport renders). Chromium's bundled SwiftShader
+  // backend works there; Windows/macOS keep the real GPU path.
+  const glFlag = process.platform === 'linux' ? ['--use-angle=swiftshader-webgl'] : [];
   const app = await _electron.launch({
-    args: ['.'],
+    args: ['.', ...glFlag],
     cwd: DESKTOP_ROOT,
     env,
   });

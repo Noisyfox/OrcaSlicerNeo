@@ -1,4 +1,5 @@
 // apps/desktop/src/renderer/src/components/viewport/Viewport.tsx
+import { Component, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -6,30 +7,54 @@ import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
+// WebGL can be unavailable (old GPUs, VMs, headless GL stacks like Mesa
+// llvmpipe under xvfb). If context creation fails, three.js throws out of
+// the Canvas mount — with no boundary that would unmount the whole React
+// root and blank the app. Catch it here so the rest of the app (open,
+// slice, export) keeps working; the viewport degrades to a message.
+class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    if (this.state.failed) {
+      return (
+        <div className="flex h-full items-center justify-center text-sm text-slate-400">
+          3D preview unavailable — WebGL could not be initialized
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export function Viewport() {
   const setSelected = useSettingsStore((s) => s.setSelectedObject);
   return (
     <div className="absolute inset-0" data-testid="viewport">
-      <Canvas
-        camera={{ position: [200, 160, 200], fov: 45 }}
-        dpr={[1, 2]}
-        onPointerMissed={() => setSelected(null)}
-      >
-        <color attach="background" args={['#0f172a']} />
-        <Scene />
-        <OrbitControls
-          makeDefault
-          enableDamping
-          // LEFT = orbit, RIGHT = pan, MIDDLE = zoom: select-drag is handled
-          // on the mesh (ModelMesh onPointerDown), so orbit stays on left
-          // only when NOT starting on a selected object.
-          mouseButtons={{
-            LEFT: THREE.MOUSE.ROTATE,
-            MIDDLE: THREE.MOUSE.DOLLY,
-            RIGHT: THREE.MOUSE.PAN,
-          }}
-        />
-      </Canvas>
+      <ViewportErrorBoundary>
+        <Canvas
+          camera={{ position: [200, 160, 200], fov: 45 }}
+          dpr={[1, 2]}
+          onPointerMissed={() => setSelected(null)}
+        >
+          <color attach="background" args={['#0f172a']} />
+          <Scene />
+          <OrbitControls
+            makeDefault
+            enableDamping
+            // LEFT = orbit, RIGHT = pan, MIDDLE = zoom: select-drag is handled
+            // on the mesh (ModelMesh onPointerDown), so orbit stays on left
+            // only when NOT starting on a selected object.
+            mouseButtons={{
+              LEFT: THREE.MOUSE.ROTATE,
+              MIDDLE: THREE.MOUSE.DOLLY,
+              RIGHT: THREE.MOUSE.PAN,
+            }}
+          />
+        </Canvas>
+      </ViewportErrorBoundary>
       <LayerScrubber />
     </div>
   );
