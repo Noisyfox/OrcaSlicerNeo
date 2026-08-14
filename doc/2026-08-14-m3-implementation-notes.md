@@ -305,4 +305,35 @@ approved design, `spec/Grand Plan.md`, and `doc/high_level_dev_plan.md`.
 > `num_visible` + `would_pick` (the scan decision with `is_visible`
 > observed), and a new `orc_select_printer(idx)` calls `select_preset`
 > directly so its effect is isolated from the scan's gates.
+>
+> **2026-08-14 (sixth round) — the mechanism, source-confirmed and
+> verified.** The round-5 dump and probe (run 16 artifact, locally) close
+> the case:
+> - `is_visible` DOES read false for real presets — but not via the
+>   `instantiation` loader: with an empty AppConfig, `load_selections`
+>   (PresetBundle.cpp:2775, at the end of `load_presets`) calls
+>   `load_installed_printers`, which calls
+>   `Preset::set_visible_from_appconfig` (Preset.cpp:855) per preset;
+>   for TYPE_PRINTER it assigns `is_visible = app_config.get_variant(
+>   vendor->id, model, variant)` — **false for every system printer when
+>   nothing is installed**. That is the gate round 4's scan tripped on,
+>   the complete mechanism (no wasm64 binary magic anywhere).
+> - Filaments selected at 528 because the filament branch of
+>   `set_visible_from_appconfig` is skipped entirely when the AppConfig
+>   has no `filaments` section → `is_visible` stays true → the binary
+>   search found "Generic PLA @System".
+> - Probe (run 16, round-5 code): `printers idx=1 "Afinia H+1(HS) 0.4
+>   nozzle"` at init; `full_config` = klipper + `PRINT_START EXTRUDER=...
+>   BED=...`; `select_printer(0/1/1009)` all stick; sliced + exported
+>   G-code's start block follows the selection exactly (default →
+>   Marlin `G28 ; home all axes`; Afinia → `;M190 S35 ;M109 S220
+>   PRINT_START EXTRUDER=220 BED=35`; TerabotX idx 1009 → its own
+>   `M220/M221/G28/G92 E0/G1 Z0.3`). Placeholders resolve; `num_visible`
+>   reads 1 after the scan (only the scan-selected preset visible — the
+>   `set_visible_from_appconfig` signature, since `select_preset` forces
+>   its target visible). Slice validates and exports for every selection.
+>   **M3 selection fidelity: done.** M4 carry-forward: the preset-picker
+>   UI must drive installed-state via the real AppConfig/variant
+>   mechanism (not `is_visible` directly), and `instantiation:"false"`
+>   profiles become an installed/available concern.
 - Manual GUI pass on a packaged installer (`package:win` → install → run).
