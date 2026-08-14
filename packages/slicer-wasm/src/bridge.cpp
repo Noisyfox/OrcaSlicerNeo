@@ -341,8 +341,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
             // Instance 0's offset (v1: one instance per object).
             Slic3r::Vec3d off(0, 0, 0);
             if (!obj->instances.empty()) off = obj->instances.front()->get_offset();
-            const std::uint32_t vptr = reinterpret_cast<std::uint32_t>(vbuf.data);
-            const std::uint32_t iptr = reinterpret_cast<std::uint32_t>(ibuf.data);
+            // Heap pointers cross the bridge as uintptr_t — the build is
+            // wasm64 (-sMEMORY64), so a uint32_t truncation is a compile
+            // error. JS reads them as plain numbers (< 2^53; our buffers
+            // stay well under 4 GiB).
+            const std::uintptr_t vptr = reinterpret_cast<std::uintptr_t>(vbuf.data);
+            const std::uintptr_t iptr = reinterpret_cast<std::uintptr_t>(ibuf.data);
             vbuf.release();
             ibuf.release();
             arr.push_back(json{
@@ -403,12 +407,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                 {"color", {info.color[0], info.color[1], info.color[2]}}});
         }
 
-        const std::uint32_t tvptr = reinterpret_cast<std::uint32_t>(tp.positions.data);
-        const std::uint32_t tlptr = reinterpret_cast<std::uint32_t>(tp.layers.data);
-        const std::uint32_t tfptr = reinterpret_cast<std::uint32_t>(tp.features.data);
-        const std::uint32_t mvptr = reinterpret_cast<std::uint32_t>(mesh.positions.data);
-        const std::uint32_t miptr = reinterpret_cast<std::uint32_t>(mesh.indices.data);
-        const std::uint32_t mlptr = reinterpret_cast<std::uint32_t>(mesh.layer_ids.data);
+        // wasm64: heap pointers as uintptr_t (see orc_get_model_mesh).
+        const std::uintptr_t tvptr = reinterpret_cast<std::uintptr_t>(tp.positions.data);
+        const std::uintptr_t tlptr = reinterpret_cast<std::uintptr_t>(tp.layers.data);
+        const std::uintptr_t tfptr = reinterpret_cast<std::uintptr_t>(tp.features.data);
+        const std::uintptr_t mvptr = reinterpret_cast<std::uintptr_t>(mesh.positions.data);
+        const std::uintptr_t miptr = reinterpret_cast<std::uintptr_t>(mesh.indices.data);
+        const std::uintptr_t mlptr = reinterpret_cast<std::uintptr_t>(mesh.layer_ids.data);
         const size_t n_verts = tp.positions.size / 12;
         const size_t m_verts = mesh.positions.size / 12;
         const size_t m_tris  = mesh.indices.size / 12;
