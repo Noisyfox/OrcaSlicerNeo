@@ -63,6 +63,15 @@ function createWindow(): void {
 
   win.on('ready-to-show', () => win.show());
 
+  // F12 / Ctrl+Shift+I opens DevTools. autoHideMenuBar leaves no way to
+  // reach the default menu's toggle in the packaged app, and a detached
+  // window keeps the slicer layout untouched while inspecting it.
+  win.webContents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') return;
+    const ctrlShiftI = input.key === 'I' && input.control && input.shift;
+    if (input.key === 'F12' || ctrlShiftI) win.webContents.openDevTools({ mode: 'detach' });
+  });
+
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
