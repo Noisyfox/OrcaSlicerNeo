@@ -51,6 +51,14 @@ function attachRendererDiagnostics(page: Page) {
         .allTextContents()
         .then((t) => console.log(`destructive spans: ${t.join(' | ') || '(none)'}`))
         .catch(() => console.log('destructive spans: (locator failed)'));
+      // What the app actually showed at the moment of failure (e.g. the
+      // "Loading presets…" splash distinguishes a slow module init from a
+      // boot failure).
+      await page
+        .locator('body')
+        .innerText()
+        .then((t) => console.log(`body text: ${t.slice(0, 300).replace(/\n/g, ' | ')}`))
+        .catch(() => console.log('body text: (locator failed)'));
     },
   };
 }
@@ -95,7 +103,13 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
     try {
 
     // App ready: settings panel rendered from bridge metadata (mock presets).
-    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
+    // Real mode: the module fetches the ~90 MB preload bundle, instantiates
+    // wasm64 and parses the full vendor preset tree (6k+ filaments) before
+    // the first get_presets answers — that has exceeded 30 s on shared CI
+    // runners while finishing locally in ~20 s (run 10, e2e-real line 98).
+    await expect(page.getByTestId('preset-select')).toBeVisible({
+      timeout: REAL ? 120_000 : 30_000,
+    });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
 
     // Slice gated until a model is loaded.
