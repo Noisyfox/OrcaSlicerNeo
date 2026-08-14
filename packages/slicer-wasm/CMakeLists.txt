@@ -270,6 +270,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp")
   list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp")
 endif()
 add_executable(orca_slice ${ORCA_SLICE_SRC})
+# The bridge's error contract leans on C++ exceptions (nlohmann type_error,
+# std::runtime_error from the slice path) being caught inside the bridge —
+# emcc's default is -fignore-exceptions, which compiles try/catch blocks
+# OUT; a throw then unwinds into JS as an uncatchable CppException even
+# though -sDISABLE_EXCEPTION_CATCHING=0 keeps the runtime machinery alive.
+# The libslic3r/deps TUs get -fexceptions from their own targets; the
+# executable's TUs need it explicitly (the -fexceptions in
+# target_link_options below is link-time only). M4 probe section 4: the
+# nlohmann throw escaped orc_init's catches exactly because of this.
+target_compile_options(orca_slice PRIVATE -fexceptions)
 target_link_libraries(orca_slice PRIVATE slic3r_core deps_core)
 # Boost static archives (Emscripten-built wasm64, build-boost-wasm64.sh):
 # libslic3r objects reference boost::filesystem / boost::regex / boost::log
@@ -304,7 +314,9 @@ target_link_options(orca_slice PRIVATE
   # addFunction/removeFunction: the progress-callback handoff (orc_
   # set_progress_callback takes a JS function via the wasm function table;
   # ALLOW_TABLE_GROWTH above makes dynamic allocation safe).
-  -sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,cwrap,UTF8ToString,HEAPU8,addFunction,removeFunction
+  # getExceptionMessage: M4 diag — decodes a CppException's excPtr into the
+  # thrown type name (bridge probe); kept in the export list for CI probes.
+  -sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,cwrap,UTF8ToString,HEAPU8,addFunction,removeFunction,getExceptionMessage
   # _main must be exported too: callMain is only generated when main is
   # kept (Emscripten 6 drops it otherwise, breaking Module.callMain).
   -sEXPORTED_FUNCTIONS=_main,_malloc,_free
@@ -314,6 +326,16 @@ target_link_options(orca_slice PRIVATE
 # Full vendor preset bundle (72 MB) via preload-file: the .data file is
 # streamed into MEMFS at module start and the heap grows (ALLOW_MEMORY_GROWTH)
 # — embed-file would bloat the wasm binary instead.
-if(DEFINED PRELOAD_FILE AND NOT "${PRELOAD_FILE}" STREQUAL "")
-  target_link_options(orca_slice PRIVATE "--preload-file=${PRELOAD_FILE}")
+# PRELOAD_FILES is a ;-separated list of `src@/dest` mounts (profiles tree
+# at /system, resources/info at /info for nozzle_info.json); each becomes its
+# own --preload-file link option.
+foreach(_pf IN LISTS PRELOAD_FILES)
+  if(NOT "${_pf}" STREQUAL "")
+    target_link_options(orca_slice PRIVATE "--preload-file=${_pf}")
+  endif()
+endforeach()
+if(NOT PRELOAD_FILES)
+  if(DEFINED PRELOAD_FILE AND NOT "${PRELOAD_FILE}" STREQUAL "")
+    target_link_options(orca_slice PRIVATE "--preload-file=${PRELOAD_FILE}")
+  endif()
 endif()

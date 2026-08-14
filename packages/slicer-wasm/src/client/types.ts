@@ -36,8 +36,36 @@ export interface InitResult {
   error?: string;
 }
 
+export interface PresetInfo {
+  name: string;
+  /** Real set_visible_from_appconfig result (driven by the app config's
+   *  installed-state) — the picker's installed/available grouping. */
+  is_visible: boolean;
+  is_default: boolean;
+  /** vendor id, empty when the preset has no vendor profile */
+  vendor_id: string;
+  model: string;
+  variant: string;
+  /** true when this entry is the collection's current selection (the
+   *  picker's value source at boot; updated by selectPreset responses) */
+  selected: boolean;
+}
+
 export interface PresetList {
-  presets: { name: string }[];
+  presets: PresetInfo[];
+  error?: string;
+}
+
+/** The app-config JSON (fork's USE_JSON_CONFIG schema): models (installed
+ *  vendor/model/variant), presets (machine/process/filament selections),
+ *  filaments (installed filaments). The renderer persists this. */
+export type AppConfig = Record<string, unknown>;
+
+export interface SelectPresetResult {
+  ok: boolean;
+  printer: { name: string; idx: number };
+  print: { name: string; idx: number };
+  filament: { name: string; idx: number };
   error?: string;
 }
 
@@ -143,12 +171,20 @@ export interface CancelResult {
 }
 
 export interface SlicerClient {
-  init(): Promise<InitResult>;
+  /** Initialize the preset bundle. appConfig is the persisted app-config
+   *  JSON (installed printers + selections); omit for a fresh config
+   *  (bridge installs everything and picks the first non-default printer). */
+  init(appConfig?: AppConfig | null): Promise<InitResult>;
+  setAppConfig(appConfig: AppConfig): Promise<InitResult>;
+  getAppConfig(): Promise<AppConfig & { ok: boolean; error?: string }>;
   getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList>;
   getOptionMetadata(): Promise<OptionMetadata>;
   loadModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult>;
   setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number): Promise<{ ok: boolean; error?: string }>;
   getModelMesh(): Promise<ModelMeshResult>;
+  /** Select a preset by name; printer selection re-runs compatibility so
+   *  print/filament follow the active machine. Reports all three selections. */
+  selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<SelectPresetResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   getSliceResult(): Promise<ClientSliceResult>;
   exportGcode(): Promise<ExportGcodeResult>;

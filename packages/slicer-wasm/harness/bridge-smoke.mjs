@@ -41,8 +41,11 @@ function check(label, cond, detail = '') {
   if (!cond) failures++;
 }
 
-// 1. init (embedded curated presets)
-const init = callJson('orc_init', [], []);
+// 1. init (full preset bundle; fresh config = all installed)
+// wasm64: every C param needs a value — orc_init's app_config_json arg
+// gets an empty string (null-ish → fresh config), never zero args
+// (undefined → BigInt conversion TypeError in the wasm64 wrapper).
+const init = callJson('orc_init', ['string'], ['']);
 check('orc_init ok', init.ok === true, JSON.stringify(init));
 check('init has printers', init.printers > 0, `printers=${init.printers}`);
 

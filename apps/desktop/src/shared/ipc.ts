@@ -10,6 +10,8 @@ export const Ipc = {
   saveFileDialog: 'dialog:saveFile',
   readFile: 'file:read',
   writeFile: 'file:write',
+  appConfigLoad: 'appConfig:load',
+  appConfigSave: 'appConfig:save',
   windowMinimize: 'window:minimize',
   windowToggleMaximize: 'window:toggleMaximize',
   windowClose: 'window:close',
@@ -28,4 +30,11 @@ export interface OpenFileResult {
 export interface SaveFileResult {
   canceled: boolean;
   path: string | null;
+}
+
+/** Load result for the persisted app config (M4 preset management). */
+export interface AppConfigLoadResult {
+  found: boolean;
+  /** The parsed app-config JSON (fork's USE_JSON_CONFIG schema) when found. */
+  json: unknown;
 }

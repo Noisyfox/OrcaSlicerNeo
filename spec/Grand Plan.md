@@ -68,10 +68,50 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 > (`scripts/crosscheck-slice.mjs`). See
 > `doc/2026-08-14-m3-implementation-notes.md`.
 
-## Milestone 4+: Post-v1 Expansion (queued, not yet scheduled)
+## Milestone 4: Preset Management with AppConfig Fidelity
+
+> [!info] Target: **2026-08-15** (delivered)
+>
+> Design: `doc/2026-08-15-m4-preset-management-design.md`; implementation
+> notes: `doc/2026-08-15-m4-preset-management-implementation-notes.md`.
+> Carry-forward from M3: the preset picker now drives installed-state via the
+> real `AppConfig`/variant mechanism instead of `is_visible` cosmetics.
+
+- [x] Bridge: `orc_init(app_config_json)` (nullable; no-arg backward
+      compatible), `orc_set_app_config`, `orc_get_app_config`,
+      `orc_select_preset(kind, name)` (real `select_preset_by_name` path with
+      the `load_selections` compat tail + all-three write-back)
+- [x] `orc_get_presets(kind)` enriched: `is_visible` (real
+      `set_visible_from_appconfig` result), `is_default`, `selected`,
+      `vendor_id`, `model`, `variant`
+- [x] Fresh-config default: installs every shipped printer via the real
+      `set_variant` mechanism; partial `models` configs → only the listed
+      variants visible
+- [x] Electron: `appConfig:load`/`appConfig:save` IPC → `userData/
+      appconfig.json`; boot loads config → `init(json)` → enriched presets
+- [x] Picker (SettingsPanel): visible presets first, hidden ones in a dimmed
+      "Not installed" group; selection change → `selectPreset` → store sync →
+      `appConfig.save` (the UI choice reaches the slice)
+- [x] Hardening: `catch (...)` fallback on every bridge op **plus** the
+      bridge TUs compiled with `-fexceptions` — emcc's default
+      `-fignore-exceptions` compiles `try`/`catch` out entirely, so a throw
+      unwound into JS as an uncatchable `CppException` (the M4 probe's
+      section-4 crash; the flag was only in `target_link_options`, i.e.
+      link-time, never in the bridge TUs' compile commands); CSP headers
+      (prod + dev) silencing Electron's Insecure-CSP warning;
+      `nozzle_info.json` parse error eliminated (`/info` preload mount)
+- [x] Verified: probe matrix (9 sections), client + stores vitest, harnesses
+      re-run, typecheck — see implementation notes §Verification
+
+> [!note] Deferred to the "Full settings surface" slice
+> Install/uninstall UI (the picker's "Not installed" group is disabled in
+> v1 — `orc_set_app_config` is the ready path), per-vendor install APIs,
+> project save/load remains queued below.
+
+## Milestone 5+: Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
-- [ ] Full settings surface + search (from metadata); preset management
+- [ ] Full settings surface + search (from metadata)
 - [ ] Gizmos: rotate/scale/cut/measure/arrange/orient
 - [ ] Parallelism: wasmtbb + pthreads + COOP/EP (SharedArrayBuffer already
       provisioned); perf tuning for large plates

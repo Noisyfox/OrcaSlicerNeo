@@ -25,6 +25,63 @@ describe('SlicerClient bridge contract', () => {
     expect(p.presets[0]).toHaveProperty('name');
   });
 
+  it('getPresets entries carry the M4 installed/selection flags', async () => {
+    const c = makeClient();
+    const p = await c.getPresets('printer');
+    expect(p.presets[0]).toMatchObject({
+      is_visible: true,
+      is_default: false,
+      vendor_id: 'bambulab',
+      model: 'X1 Carbon',
+      variant: '0.4',
+      selected: true,
+    });
+    // the fixture's hidden entry exercises the picker's not-installed group
+    expect(p.presets.some((x) => !x.is_visible)).toBe(true);
+    // exactly one entry per kind is selected
+    for (const kind of ['printer', 'print', 'filament'] as const) {
+      const list = await c.getPresets(kind);
+      expect(list.presets.filter((x) => x.selected)).toHaveLength(1);
+    }
+  });
+
+  it('init accepts an app config JSON and getAppConfig round-trips it', async () => {
+    const c = makeClient();
+    const cfg = { models: [], presets: { machine: 'Bambu Lab P1S 0.4 nozzle' } };
+    const r = await c.init(cfg);
+    expect(r.ok).toBe(true);
+    const back = await c.getAppConfig();
+    expect(back.ok).toBe(true);
+    expect(back.presets).toEqual({ machine: 'Bambu Lab P1S 0.4 nozzle' });
+  });
+
+  it('setAppConfig re-inits with a new config', async () => {
+    const c = makeClient();
+    const r = await c.setAppConfig({ models: [], presets: {} });
+    expect(r.ok).toBe(true);
+    expect(r.printers).toBeGreaterThan(0);
+  });
+
+  it('selectPreset moves the selection and reports all three', async () => {
+    const c = makeClient();
+    const r = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');
+    expect(r.ok).toBe(true);
+    expect(r.printer.name).toBe('Bambu Lab P1S 0.4 nozzle');
+    expect(r.print.name).toBe('0.20mm Standard @BBL X1C');
+    expect(r.filament.name).toBe('Bambu PLA Basic @BBL X1C');
+    // the enriched list reflects the new selection
+    const p = await c.getPresets('printer');
+    expect(p.presets.find((x) => x.selected)?.name).toBe('Bambu Lab P1S 0.4 nozzle');
+  });
+
+  it('selectPreset rejects unknown names', async () => {
+    const c = makeClient();
+    const r = await c.selectPreset('printer', 'No Such Printer');
+    // bridge error contract: {error} without ok
+    expect(r.ok).toBeFalsy();
+    expect(r.error).toContain('not found');
+  });
+
   it('getOptionMetadata exposes typed keys', async () => {
     const c = makeClient();
     const m = await c.getOptionMetadata();

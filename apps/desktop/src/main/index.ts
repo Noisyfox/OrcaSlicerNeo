@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { extname, join, sep } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
-import { Ipc, type FileDialogFilter } from '../shared/ipc';
+import { Ipc, type FileDialogFilter, type AppConfigLoadResult } from '../shared/ipc';
 
 // The renderer origin is an in-process http server on loopback, not a custom
 // scheme. Chromium hard-blocks worker scripts from file://, and since
@@ -43,6 +43,20 @@ const MIME_BY_EXT: Record<string, string> = {
 // by the e2e launcher (playwright config / CI); never in production.
 const e2eOpenPath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_MODEL ?? null) : null;
 const e2eSavePath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_EXPORT ?? null) : null;
+
+// M4: the persisted app config (installed printers + selections) — the
+// single source of truth the bridge applies at boot. Lives in userData.
+// Under ORCA_E2E=1 the e2e launcher may supply ORCA_E2E_APPCONFIG for a
+// hermetic file; without one, persistence is disabled (fresh config every
+// run — the pre-M4 behavior, so runs never leak state into each other).
+const appConfigPath = (): string => {
+  if (process.env.ORCA_E2E === '1' && process.env.ORCA_E2E_APPCONFIG) {
+    return process.env.ORCA_E2E_APPCONFIG;
+  }
+  return join(app.getPath('userData'), 'appconfig.json');
+};
+const appConfigPersisted = (): boolean =>
+  process.env.ORCA_E2E !== '1' || Boolean(process.env.ORCA_E2E_APPCONFIG);
 
 let rendererPort = 0;
 let rendererServer: Server | null = null;
@@ -109,6 +123,25 @@ function registerIpc(): void {
     await writeFile(path, Buffer.from(bytes));
   });
 
+  ipcMain.handle(Ipc.appConfigLoad, async (): Promise<AppConfigLoadResult> => {
+    if (!appConfigPersisted()) return { found: false, json: null };
+    try {
+      const raw = await readFile(appConfigPath(), 'utf8');
+      return { found: true, json: JSON.parse(raw) };
+    } catch {
+      // ENOENT (no config yet) and corrupt JSON both mean: fresh config.
+      return { found: false, json: null };
+    }
+  });
+
+  ipcMain.handle(Ipc.appConfigSave, async (_event, json: unknown): Promise<void> => {
+    if (!appConfigPersisted()) return;
+    // Round-trip through stringify so a corrupt partial write can never be
+    // served back to the bridge; atomic-ish via tmp + rename is overkill for
+    // this file's size, a plain write is fine (single writer: the renderer).
+    await writeFile(appConfigPath(), JSON.stringify(json, null, 2), 'utf8');
+  });
+
   ipcMain.on(Ipc.windowMinimize, (event) => {
     BrowserWindow.fromWebContents(event.sender)?.minimize();
   });
@@ -172,7 +205,20 @@ function startRendererServer(): void {
     }
     try {
       const data = await readFile(filePath);
-      res.writeHead(200, { 'content-type': MIME_BY_EXT[extname(filePath)] ?? 'application/octet-stream' });
+      res.writeHead(200, {
+        'content-type': MIME_BY_EXT[extname(filePath)] ?? 'application/octet-stream',
+        // The renderer loads only same-origin assets + a same-origin module
+        // worker; the Emscripten module instantiates wasm from inside that
+        // worker (document CSP is inherited). No inline scripts in the built
+        // bundle, so 'unsafe-inline' stays out of script-src here — the Vite
+        // dev server has its own (looser) CSP for the react-refresh preamble.
+        // This also silences Electron's "Insecure Content-Security-Policy"
+        // devtools warning in the packaged app.
+        'content-security-policy':
+          "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
+          "style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+          "font-src 'self' data:; connect-src 'self'; worker-src 'self'",
+      });
       res.end(data);
     } catch {
       res.writeHead(404, { 'content-type': 'text/plain' });

@@ -1,4 +1,4 @@
-# High Level Development Plan (updated 2026-08-12)
+# High Level Development Plan (updated 2026-08-15)
 
 ## Context
 
@@ -152,6 +152,33 @@
 - Root `LICENSE` (AGPL-3.0 canonical text) + `SOURCE_OFFER.md`; installer
   license page; `license` fields in package.jsons.
 
+### Milestone 4 — Preset Management with AppConfig Fidelity
+
+> **Status: delivered 2026-08-15.** The preset picker drives installed-state
+> via the real `AppConfig`/variant mechanism (not `is_visible` cosmetics).
+> Bridge: `orc_init(app_config_json)` (nullable; no-arg backward
+> compatible), `orc_set_app_config`, `orc_get_app_config`,
+> `orc_select_preset(kind, name)` (real `select_preset_by_name` path with the
+> `load_selections` compat tail + all-three write-back); `orc_get_presets`
+> enriched (`is_visible` = real `set_visible_from_appconfig` result,
+> `is_default`, `selected`, `vendor_id`, `model`, `variant`); fresh-config
+> default installs every shipped printer via `set_variant`, partial `models`
+> configs leave only the listed variants visible. Electron: `appConfig:load`/
+> `appConfig:save` IPC → `userData/appconfig.json`, boot loads config →
+> `init(json)`, picker groups visible-first with a dimmed "Not installed"
+> group; selection change → `selectPreset` → store sync → `appConfig.save`.
+> Hardening: `catch (...)` on every bridge op + the bridge TUs compiled with
+> `-fexceptions` (emcc's default `-fignore-exceptions` compiles try/catch out
+> — the flag was link-time only, so the M4 probe's section-4 nlohmann throw
+> unwound into JS as an uncatchable `CppException` despite the handlers;
+> now caught → JSON error, module alive), CSP headers (prod + dev),
+> `nozzle_info.json` parse error eliminated (`/info` preload mount). Fresh
+> installs persist default filaments via the real `load_selections` path.
+> Verified: 9-section probe matrix (all green), client + stores vitest,
+> harnesses, typecheck. Install/uninstall UI (picker's hidden group disabled
+> in v1) + the full settings surface + search remain queued.
+> See `doc/2026-08-15-m4-preset-management-{design,implementation-notes}.md`.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module
@@ -162,7 +189,7 @@
 - **wasm64 consistency:** all objects, Boost archives, and link must agree on
   `-sMEMORY64`; fall back to wasm32 + `GCode.hpp` size_t fix only if blocked.
 - **Serial-first:** no pthreads in v1; parallelism (wasmtbb + COOP/COEP) is
-  Milestone 4.
+  Milestone 5 (queued).
 - **Docs-first:** each epic creates/updates a short sub-doc in `doc/` capturing
   decisions and testing notes; keep this plan and `spec/Grand Plan.md` in sync
   with delivered work.

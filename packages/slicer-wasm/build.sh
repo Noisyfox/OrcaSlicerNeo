@@ -160,7 +160,18 @@ log "Wrote $GEN_INCLUDE/libslic3r_version.h (SLIC3R_VERSION=$(git -C "$ORCA_SRC"
 # Override WASM_PROFILES_DIR for a lighter local build (e.g. a curated dir);
 # CI and packaging always use the full tree.
 WASM_PROFILES_DIR="${WASM_PROFILES_DIR:-$ORCA_SRC/resources/profiles}"
+INFO_DIR="$ORCA_SRC/resources/info"
 log "Preset bundle: $WASM_PROFILES_DIR"
+# file_packager runs as a native exe under emcc on Windows (Git Bash) and
+# needs Windows paths. MSYS auto-converts plain args, but SKIPS args
+# containing ';' — the list separator in -DPRELOAD_FILES — so convert
+# explicitly. cygpath only exists on MSYS/Git Bash; on Linux CI this is a
+# no-op and native paths are already correct. -m = forward-slash style
+# (F:/...), which Windows Python and CMake both accept.
+if command -v cygpath >/dev/null 2>&1; then
+  WASM_PROFILES_DIR="$(cygpath -m "$WASM_PROFILES_DIR")"
+  INFO_DIR="$(cygpath -m "$INFO_DIR")"
+fi
 
 # ---------------- Configure + build ----------------
 log "Configuring stripped libslic3r + bridge + CLI (emcmake)"
@@ -172,7 +183,7 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DEIGEN_INCLUDE="$EIGEN_INCLUDE" \
   -DBOOST_INCLUDE="$BOOST_INCLUDE" \
   -DCEREAL_INCLUDE="$CEREAL_INCLUDE" \
-  -DPRELOAD_FILE="$WASM_PROFILES_DIR@/system" \
+  -DPRELOAD_FILES="$WASM_PROFILES_DIR@/system;$INFO_DIR@/info" \
   || die "CMake configure failed. Fix include paths / missing deps and re-run."
 
 log "Building (emmake ninja) — expect to iterate on compile errors"

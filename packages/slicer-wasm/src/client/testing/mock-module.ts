@@ -100,6 +100,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'] },
     };
 
+  // ---- M4 preset fixtures (enriched bridge shape; Afinia is a hidden
+  // "not installed" entry so the picker's grouping is testable) ----
+  type PresetKind = 'printer' | 'print' | 'filament';
+  const presetFixtures: Record<PresetKind, Array<{
+    name: string; is_visible: boolean; is_default: boolean;
+    vendor_id: string; model: string; variant: string;
+  }>> = {
+    printer: [
+      { name: 'Bambu Lab X1 Carbon 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'X1 Carbon', variant: '0.4' },
+      { name: 'Bambu Lab P1S 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'P1S', variant: '0.4' },
+      { name: 'Afinia H+1(HS)', is_visible: false, is_default: false, vendor_id: 'afinia', model: 'H+1(HS)', variant: '0.4' },
+    ],
+    print: [
+      { name: '0.20mm Standard @BBL X1C', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' },
+    ],
+    filament: [
+      { name: 'Bambu PLA Basic @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '' },
+      { name: 'Bambu PLA Matte @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '' },
+    ],
+  };
+  const selected: Record<PresetKind, string> = {
+    printer: presetFixtures.printer[0].name,
+    print: presetFixtures.print[0].name,
+    filament: presetFixtures.filament[0].name,
+  };
+  // The app-config JSON the bridge stores/returns (null = fresh config).
+  let appConfig: unknown = null;
+
   const modelState = { objects: 1, instances: 1, offset: [0, 0, 0] as number[] };
   let modelLoaded = false;
   let sliced = false;
@@ -109,16 +137,54 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
-    orc_init() {
-      return { ok: true, prints: 1, filaments: 2, printers: 3 };
+    orc_init(jsonStr?: string) {
+      if (jsonStr) {
+        try {
+          appConfig = JSON.parse(jsonStr);
+        } catch {
+          return 'invalid app config JSON';
+        }
+      }
+      return {
+        ok: true,
+        prints: presetFixtures.print.length,
+        filaments: presetFixtures.filament.length,
+        printers: presetFixtures.printer.length,
+      };
+    },
+    orc_set_app_config(jsonStr: string) {
+      if (!jsonStr) return 'app config JSON required';
+      try {
+        appConfig = JSON.parse(jsonStr);
+      } catch {
+        return 'invalid app config JSON';
+      }
+      return {
+        ok: true,
+        prints: presetFixtures.print.length,
+        filaments: presetFixtures.filament.length,
+        printers: presetFixtures.printer.length,
+      };
+    },
+    orc_get_app_config() {
+      return appConfig ? { ...(appConfig as object), ok: true } : { ok: true };
     },
     orc_get_presets(kind: string) {
-      const byKind: Record<string, string[]> = {
-        printer: ['Bambu Lab X1 Carbon 0.4 nozzle', 'Bambu Lab P1S 0.4 nozzle'],
-        print: ['0.20mm Standard @BBL X1C'],
-        filament: ['Bambu PLA Basic @BBL X1C', 'Bambu PLA Matte @BBL X1C'],
+      const list = presetFixtures[kind as PresetKind] ?? [];
+      return {
+        presets: list.map((p) => ({ ...p, selected: p.name === selected[kind as PresetKind] })),
       };
-      return { presets: (byKind[kind] ?? []).map((name) => ({ name })) };
+    },
+    orc_select_preset(kind: string, name: string) {
+      const list = presetFixtures[kind as PresetKind];
+      if (!list) return `kind must be print|filament|printer`;
+      if (!list.some((p) => p.name === name)) return `preset not found: ${name}`;
+      selected[kind as PresetKind] = name;
+      const sel = (k: PresetKind) => ({
+        name: selected[k],
+        idx: presetFixtures[k].findIndex((p) => p.name === selected[k]),
+      });
+      return { ok: true, printer: sel('printer'), print: sel('print'), filament: sel('filament') };
     },
     orc_get_option_metadata() {
       const out: Record<string, { type: string; enum_values?: string[] }> = {};
@@ -247,7 +313,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   // ---- ccall dispatch with per-function signature conversion ----
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
-    orc_init: { ret: 'number', args: [] },
+    orc_init: { ret: 'number', args: ['string'] },
+    orc_set_app_config: { ret: 'number', args: ['string'] },
+    orc_get_app_config: { ret: 'number', args: [] },
+    orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_presets: { ret: 'number', args: ['string'] },
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_load_model: { ret: 'number', args: ['pointer', 'number', 'string'] },

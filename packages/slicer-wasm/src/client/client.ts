@@ -7,7 +7,8 @@
 // ----------------------------------------------------------------
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
-  InitResult, PresetList, OptionMetadata, LoadModelResult,
+  InitResult, PresetList, AppConfig, SelectPresetResult,
+  OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer,
   ClientToolpath, ClientSlicedMesh, ToolpathFeature,
@@ -44,14 +45,37 @@ export function createClient(
   }
 
   return {
-    async init(): Promise<InitResult> {
+    async init(appConfig?: AppConfig | null): Promise<InitResult> {
       const m = await module();
-      return callJson(m, 'orc_init', [], []) as InitResult;
+      // M4: the app config (installed-state + selections) is the bridge's
+      // source of truth; omitted = fresh config (bridge installs everything).
+      // wasm64: every C param must receive a value — passing an empty string
+      // for the nullable app_config_json arg, never no args (undefined → BigInt
+      // conversion TypeError in the wasm64 wrapper).
+      if (appConfig !== undefined && appConfig !== null) {
+        return callJson(m, 'orc_init', ['string'], [JSON.stringify(appConfig)]) as InitResult;
+      }
+      return callJson(m, 'orc_init', ['string'], ['']) as InitResult;
+    },
+
+    async setAppConfig(appConfig: AppConfig): Promise<InitResult> {
+      const m = await module();
+      return callJson(m, 'orc_set_app_config', ['string'], [JSON.stringify(appConfig)]) as InitResult;
+    },
+
+    async getAppConfig(): Promise<AppConfig & { ok: boolean; error?: string }> {
+      const m = await module();
+      return callJson(m, 'orc_get_app_config', [], []) as AppConfig & { ok: boolean; error?: string };
     },
 
     async getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList> {
       const m = await module();
       return callJson(m, 'orc_get_presets', ['string'], [kind]) as PresetList;
+    },
+
+    async selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<SelectPresetResult> {
+      const m = await module();
+      return callJson(m, 'orc_select_preset', ['string', 'string'], [kind, name]) as SelectPresetResult;
     },
 
     async getOptionMetadata(): Promise<OptionMetadata> {

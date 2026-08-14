@@ -4,7 +4,8 @@ export { startWorker, createWorkerClient } from './worker';
 export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
-  InitResult, PresetList, OptionMetadata, OptionMeta,
+  InitResult, PresetInfo, PresetList, AppConfig, SelectPresetResult,
+  OptionMetadata, OptionMeta,
   LoadModelResult, ModelMeshResult, ModelObjectBuffer,
   SliceResultStatus, ClientSliceResult, ClientToolpath,
   ClientSlicedMesh, ToolpathFeature, ExportGcodeResult, CancelResult,

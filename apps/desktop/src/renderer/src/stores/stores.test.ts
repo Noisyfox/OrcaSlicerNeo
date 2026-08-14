@@ -1,10 +1,24 @@
 import { describe, it, expect } from 'vitest';
 import { useSettingsStore } from './useSettingsStore';
 import { useSlicerStore } from './useSlicerStore';
+import type { PresetInfo } from '@slicer/client';
 
 // Minimal store contract tests (Task 5). Task 6 and Task 9 add their own
 // per-store test files (useSettingsStore.test.ts / useSlicerStore.test.ts);
 // this file is named stores.test.ts so it does not collide with either.
+
+function preset(name: string, opts: Partial<PresetInfo> = {}): PresetInfo {
+  return {
+    name,
+    is_visible: true,
+    is_default: false,
+    vendor_id: 'v',
+    model: 'm',
+    variant: '0.4',
+    selected: false,
+    ...opts,
+  };
+}
 
 describe('useSettingsStore', () => {
   it('starts empty and applies presets + values', () => {
@@ -13,12 +27,21 @@ describe('useSettingsStore', () => {
     expect(s.printers).toEqual([]);
     expect(s.prints).toEqual([]);
     expect(s.filaments).toEqual([]);
+    expect(s.selectedPrinter).toBe('');
     expect(s.values).toEqual({});
 
-    s.setPresets(['A1'], ['PLA'], ['Basic']);
-    expect(useSettingsStore.getState().printers).toEqual(['A1']);
-    expect(useSettingsStore.getState().prints).toEqual(['PLA']);
-    expect(useSettingsStore.getState().filaments).toEqual(['Basic']);
+    s.setPresets(
+      [preset('A1', { selected: true })],
+      [preset('PLA', { selected: true })],
+      [preset('Basic', { selected: true })],
+    );
+    expect(useSettingsStore.getState().printers).toEqual([preset('A1', { selected: true })]);
+    expect(useSettingsStore.getState().prints).toEqual([preset('PLA', { selected: true })]);
+    expect(useSettingsStore.getState().filaments).toEqual([preset('Basic', { selected: true })]);
+    // selections derive from the lists' selected flags (boot contract)
+    expect(useSettingsStore.getState().selectedPrinter).toBe('A1');
+    expect(useSettingsStore.getState().selectedPrint).toBe('PLA');
+    expect(useSettingsStore.getState().selectedFilament).toBe('Basic');
 
     s.setValue('wall_loops', '3');
     s.setValue('wall_loops', '4');
@@ -26,6 +49,14 @@ describe('useSettingsStore', () => {
 
     s.setValues({ layer_height: '0.2', wall_loops: '3' });
     expect(useSettingsStore.getState().values).toEqual({ layer_height: '0.2', wall_loops: '3' });
+  });
+
+  it('setSelections applies selectPreset responses (all three at once)', () => {
+    const s = useSettingsStore.getState();
+    s.setSelections('P1S', 'Standard', 'Matte');
+    expect(useSettingsStore.getState().selectedPrinter).toBe('P1S');
+    expect(useSettingsStore.getState().selectedPrint).toBe('Standard');
+    expect(useSettingsStore.getState().selectedFilament).toBe('Matte');
   });
 });
 

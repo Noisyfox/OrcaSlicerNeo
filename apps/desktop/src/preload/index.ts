@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { Ipc, type FileDialogFilter } from '../shared/ipc';
+import { Ipc, type FileDialogFilter, type AppConfigLoadResult } from '../shared/ipc';
 
 // The renderer's only window to native features (design §Electron App).
 // All IO goes through main; no node builtins leak into the renderer.
@@ -17,6 +17,13 @@ contextBridge.exposeInMainWorld('orca', {
 
   writeFile: (path: string, bytes: ArrayBuffer) =>
     ipcRenderer.invoke(Ipc.writeFile, path, bytes) as Promise<void>,
+
+  // M4: the persisted app-config JSON (installed printers + selections).
+  // load() → {found, json}; save(json) persists to userData/appconfig.json.
+  appConfig: {
+    load: () => ipcRenderer.invoke(Ipc.appConfigLoad) as Promise<AppConfigLoadResult>,
+    save: (json: unknown) => ipcRenderer.invoke(Ipc.appConfigSave, json) as Promise<void>,
+  },
 
   minimize: () => ipcRenderer.send(Ipc.windowMinimize),
   toggleMaximize: () => ipcRenderer.send(Ipc.windowToggleMaximize),
