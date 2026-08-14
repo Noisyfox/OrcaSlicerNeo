@@ -134,23 +134,27 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init() {
         // select_preset(first_visible_idx()); we skip the Orca-only
         // ORCA_FILAMENT_LIBRARY vendor filter, which would exclude every
         // vendor printer and fall back to the default again).
-        // Round 4: selection by LINEAR SCAN with a hand-counted index.
-        // Round 2's select_preset_by_name(begin()->name, true) never landed
-        // — orc_dump_state proved the selection stays on the generated
-        // default even though every link of that call is source-correct
-        // (sorted range, bare canonical names, visible Afinia). The
-        // divergence is believed to be find_preset_internal's binary search
-        // (lower_bound_by_predicate with std::distance/advance over the
-        // std::deque) misbehaving under wasm64 MEMORY64 — plain increment
-        // iteration is the one operation proven correct in this binary
-        // (orc_get_presets prints the sorted list fine). So scan with ++
-        // from lbegin(), count the absolute index by hand, and select the
-        // first visible non-default preset by index.
+        // Round 5: select the FIRST NON-DEFAULT printer regardless of
+        // visibility. Round 4's is_visible gate never selected anything —
+        // the dump after orc_init read idx 0 "Default Printer" while every
+        // gate is source-correct: lbegin() is m_presets.begin() with NO
+        // arithmetic (Preset.hpp:505), is_default=false is a member-init +
+        // loader-reset, Afinia carries "instantiation":"true" (so
+        // is_visible=true), and size() reads a stable 1010 (the earlier
+        // "size()=1" evidence was a probe that never called orc_init).
+        // Filaments being selected at idx 528 ("Generic PLA @System") proves
+        // find-by-name + select_preset work in this binary. The one read
+        // never observed directly is `it->is_visible` for a real preset
+        // (the dump reports it as scan.would_pick) — and visibility-gating
+        // a headless baseline is wrong anyway: the M3 slice needs A machine
+        // profile; hidden (instantiation:"false") printers are a GUI concern
+        // for M4's preset-selection UI. Scan with ++ from lbegin(), count
+        // the absolute index by hand, select the first non-default preset.
         {
             size_t sel_idx = 0;
             for (auto it = state().presets.printers.lbegin();
                  it != state().presets.printers.end(); ++it, ++sel_idx) {
-                if (it->is_default || !it->is_visible)
+                if (it->is_default)
                     continue;
                 state().presets.printers.select_preset(sel_idx);
                 break;
@@ -562,16 +566,33 @@ EMSCRIPTEN_KEEPALIVE const char* orc_dump_state() {
                {"prints",    sel(presets.prints)},
                {"filaments", sel(presets.filaments)},
                {"printers",  sel(presets.printers)}};
-        // Round 4: what the orc_init scan saw — the leading-generated-default
+        // Round 5: what the orc_init scan saw — the leading-generated-default
         // count (observing the private m_num_default_presets via increment
-        // iteration) and the collection sizes, so a divergence stays data.
+        // iteration), collection size, num_visible (count_if via increment
+        // iteration), and would_pick: the selection scan's decision, with
+        // the first non-default preset's is_default/is_visible read through
+        // the iterator. If would_pick.is_visible reads false for a real
+        // preset, that is the round-4 gate that silently skipped everything.
         {
             size_t n_defaults = 0;
             for (auto it = presets.printers.lbegin();
                  it != presets.printers.end() && it->is_default; ++it)
                 ++n_defaults;
+            json pick = json::object();
+            size_t pick_idx = 0;
+            for (auto it = presets.printers.lbegin();
+                 it != presets.printers.end(); ++it, ++pick_idx) {
+                if (it->is_default)
+                    continue;
+                pick = {{"idx", pick_idx}, {"name", it->name},
+                        {"is_default", it->is_default},
+                        {"is_visible", it->is_visible}};
+                break;
+            }
             j["scan"] = {{"leading_defaults", n_defaults},
-                         {"printers_size", presets.printers.size()}};
+                         {"printers_size", presets.printers.size()},
+                         {"num_visible", presets.printers.num_visible()},
+                         {"would_pick", pick}};
         }
         // The exact baseline orc_slice slices with.
         const DynamicPrintConfig& cfg = presets.full_config();
@@ -583,6 +604,23 @@ EMSCRIPTEN_KEEPALIVE const char* orc_dump_state() {
             if (const ConfigOption* opt = cfg.optptr(key)) full[key] = opt->serialize();
         j["full_config"] = std::move(full);
         return dup_json(j.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    }
+}
+
+// Round-5 diagnostic: call select_preset(idx) directly and report what
+// sticks — isolates the scan's gates (would_pick) from select_preset's
+// internals (m_idx_selected / m_edited_preset) in the binary.
+EMSCRIPTEN_KEEPALIVE const char* orc_select_printer(double idx) {
+    try {
+        auto& coll = state().presets.printers;
+        if (idx < 0 || idx >= double(coll.size()))
+            return error_json("idx out of range");
+        coll.select_preset(size_t(idx));
+        return dup_json(json{{"ok", true},
+                             {"idx", coll.get_selected_idx()},
+                             {"name", coll.get_selected_preset().name}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     }
