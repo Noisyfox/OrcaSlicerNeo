@@ -77,7 +77,7 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
           if (el?.closest('[data-testid=slicer-status], .text-destructive')) {
             const st = document.querySelector('[data-testid=slicer-status]');
             const spans = [...document.querySelectorAll('.text-destructive')].map((s) => s.textContent);
-            (window as unknown as Record<string, unknown>).__mut.push({
+            (window as unknown as Record<string, unknown[]>).__mut.push({
               status: st?.textContent,
               spans,
             });
