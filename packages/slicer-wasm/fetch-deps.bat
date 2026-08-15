@@ -83,6 +83,10 @@ if not exist "%DEPS%\boost-%BOOST_VER%\boost\version.hpp" (
     popd
     exit /b 1
   )
+  REM Same stale auto-generated config as build-boost-wasm64.bat guards
+  REM against - jam eats '\' escapes, so b2's python probe would run a
+  REM mangled 'C:Users' command. b2 never regenerates it.
+  if exist "%DEPS%\boost-%BOOST_VER%\project-config.jam" del "%DEPS%\boost-%BOOST_VER%\project-config.jam"
   .\b2.exe headers >nul 2>&1
   if errorlevel 1 (
     echo [deps] ERROR: b2 headers failed.

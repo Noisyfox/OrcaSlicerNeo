@@ -52,7 +52,19 @@ The Write tool (and most editors on Linux) write LF. cmd misparses LF-only
 batch files (multiline blocks get misread). All `.bat` are CRLF and pinned by
 `.gitattributes`; after any edit, verify no bare-LF lines.
 
-### 4. emsdk activation
+### 4. Stale auto-generated `project-config.jam` → `'C:Users' is not recognized`
+
+b2 auto-loads `project-config.jam` from the boost root. The bash-era
+`bootstrap.sh` generated one containing `using python : 3.12 :
+"C:\Users\noisyfox\.pyenv\..."` — **jam treats `\` as an escape in string
+literals**, so b2 parsed the path as `C:Users\noisyfox\...` and its python
+toolset init tried to *run* that as a command → `'C:Users' is not
+recognized` on every b2 invocation (non-fatal; boost builds fine without
+python, which is why the error hid under b2's noise). b2 never regenerates
+the file. Fix: both `fetch-deps.bat` and `build-boost-wasm64.bat` delete it
+defensively before running b2.
+
+### 5. emsdk activation
 
 `emsdk_env.bat` is a one-liner (`@call "%~dp0emsdk" construct_env`) with no
 `setlocal`, so the environment persists in the calling cmd process. Both
