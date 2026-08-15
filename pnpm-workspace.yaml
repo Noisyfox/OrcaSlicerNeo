@@ -9,7 +9,11 @@ packages:
 # never run it, whitelist or not. If electron-vite dev dies with
 # "Error: Electron uninstall", the binary is missing from the store entry
 # (e.g. after a peer re-resolution prunes it) — restore with
-# `cd apps/desktop/node_modules/electron && node install.js`.
+# `pnpm --filter desktop run postinstall` (desktop's postinstall script IS
+# `install-electron`, and install.js exits 0 fast when already installed).
+# Caveat: pnpm only runs a workspace's postinstall when the install actually
+# changes something, so a no-op `pnpm install` won't auto-recover — the
+# explicit run above is the reliable restore.
 allowBuilds:
   '@swc/core': true
   electron: true
