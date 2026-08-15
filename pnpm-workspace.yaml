@@ -2,6 +2,15 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# pnpm >= 10.x persists/reads `allowBuilds`; older pnpm 10.1.x used
+# `onlyBuiltDependencies` (below). Keep BOTH in sync — if electron is missing
+# from either, its postinstall (binary download) is skipped and electron-vite
+# fails with "Error: Electron uninstall".
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true
+
 # pnpm 10 blocks dependency postinstall scripts by default; electron (binary
 # download), esbuild, and electron-winstaller need theirs allowed.
 # NOTE: pnpm 10.0.0 ignores this file entirely (both package.json and
