@@ -12,7 +12,8 @@ export function Scene() {
   return (
     <>
       <ambientLight intensity={0.6} />
-      <directionalLight position={[100, 200, 150]} intensity={1.2} />
+      {/* height along Z — scene is Z-up slicer convention */}
+      <directionalLight position={[100, 150, 200]} intensity={1.2} />
       <BedPlate />
       {objects.map((o) => (
         <ModelMesh key={o.buffer.objectIdx} data={o} />

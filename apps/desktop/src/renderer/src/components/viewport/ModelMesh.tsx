@@ -7,7 +7,8 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { slicerClient } from '../../slicer/slicerClient';
 import type { LoadedObject } from './useModelLoader';
 
-const BED_Y = 0;
+// Slicer convention: Z up, X right, Y into screen — the bed plane is Z=0.
+const BED_Z = 0;
 
 export function ModelMesh({ data }: { data: LoadedObject }) {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -31,7 +32,7 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
     if (!selected) return;
     e.stopPropagation();
     const pos = meshRef.current!.position;
-    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -BED_Y);
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -BED_Z);
     const hit = new THREE.Vector3();
     const ray = e.ray as THREE.Ray;
     if (!ray.intersectPlane(plane, hit)) return;
@@ -50,7 +51,7 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
     const hit = new THREE.Vector3();
     if (!(e.ray as THREE.Ray).intersectPlane(drag.plane, hit)) return;
     const next = hit.add(drag.offset);
-    next.y = BED_Y;
+    next.z = BED_Z;
     drag.moved = true;
     meshRef.current!.position.copy(next);
   }

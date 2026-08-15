@@ -35,7 +35,12 @@ export function Viewport() {
     <div className="absolute inset-0" data-testid="viewport">
       <ViewportErrorBoundary>
         <Canvas
-          camera={{ position: [200, 160, 200], fov: 45 }}
+          // Slicer convention: Z up (blue), X right, Y into screen. OrbitControls
+          // in three r185 takes its orbit axis from camera.up, so setting it
+          // here is all the wiring needed.
+          // position in the front (+X, -Y) octant so the initial view reads
+          // the convention: X right, Y into the screen, Z up.
+          camera={{ position: [200, -200, 160], fov: 45, up: [0, 0, 1] }}
           dpr={[1, 2]}
           onPointerMissed={() => setSelected(null)}
         >
