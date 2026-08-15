@@ -26,11 +26,15 @@ proved feasibility and contains reusable machinery:
 
 ## Build commands (once scaffolded)
 
-- All-in-one driver (Windows/Git Bash): `scripts/build-windows.bat help` (cmd /
-  double-click; wraps the same commands) or `bash scripts/build-windows.sh help`
-  — subcommands `env deps boost build full quick shim smoke test dev e2e` wrap
-  every step below; `quick` is the incremental ninja loop for bridge changes.
-- WASM: `bash packages/slicer-wasm/build.sh` (needs emsdk on PATH; ~50 GB disk for the dep build)
+- All-in-one driver: `scripts/build-windows.bat help` — pure cmd, **no Git Bash**
+  (the .sh variants are for Linux/macOS/CI). Subcommands
+  `env deps boost build full quick shim smoke test dev e2e` wrap every step
+  below; `quick` is the incremental ninja loop for bridge changes. The driver
+  auto-activates emsdk (`C:\emsdk` first) and takes `-j N`, `--profiles <dir>`,
+  `--no-env`, `-v`. cmd gotchas for .bat edits (NoDefaultCurrentDirectoryInExePath,
+  paren-block escaping, CRLF): see `doc/2026-08-15-cmd-build-pipeline.md`.
+- WASM: `packages\slicer-wasm\build.bat` (cmd; `call <emsdk>\emsdk_env.bat`
+  first, or use the driver; ~50 GB disk for the dep build)
 - Node smoke: `node packages/slicer-wasm/harness/run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.json`
 - App dev: `pnpm --filter desktop dev` (electron-vite)
 - e2e: `pnpm --filter desktop test:e2e` (Playwright Electron)

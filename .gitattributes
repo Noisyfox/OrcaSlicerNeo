@@ -1,0 +1,4 @@
+# Batch files must stay CRLF: cmd's parser misbehaves on LF-only .bat
+# (multiline if-blocks get misparsed). Written by the build scripts, not
+# by hand, so pin the eol for every checkout.
+*.bat text eol=crlf

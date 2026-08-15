@@ -40,7 +40,8 @@
     build scaffold (spike-derived; see the design doc).
   - `src/`: `bridge.cpp` (extern "C" API) + `slice_main.cpp` (CLI driver).
   - `src/client/`: typed JS client + Web Worker glue.
-  - `build.sh`, `build-boost-wasm64.sh`: WASM build pipeline.
+  - `build.sh`, `build-boost-wasm64.sh`, `fetch-deps.sh` (+ `.bat` ports,
+    cmd-native, no Git Bash): WASM build pipeline.
 - `doc/`: dated engineering docs (`YYYY-MM-DD-topic.md`, repo convention).
 - `spec/`: approved specs.
 - `tools/ scripts/ tests/`: dev utilities, CI/packaging scripts, e2e tests and
@@ -50,7 +51,14 @@
 
 The WASM build is an iteration surface, not a finished pipeline. When it fails:
 
-1. Missing `<tbb/X.h>` → add `X` to `TBB_HEADERS` in `packages/slicer-wasm/build.sh`, re-run.
+> On Windows (no Git Bash), run the `.bat` ports via `scripts\build-windows.bat`;
+> the iterate loop below is identical. cmd gotchas that have cost real
+> debugging time: bare exe names fail with 9009 on machines with
+> `NoDefaultCurrentDirectoryInExePath` set (always call `.\b2.exe` etc.),
+> unescaped `)` in echo text closes `if (...)` blocks early, and .bat must be
+> CRLF. Details: `doc/2026-08-15-cmd-build-pipeline.md`.
+
+1. Missing `<tbb/X.h>` → add `X` to `TBB_HEADERS` in `packages/slicer-wasm/build.bat` (or `build.sh`), re-run.
 2. Undefined symbol from a dropped file (SLA/CGAL/OCCT) → exclude its caller via
    `DROP_PATTERNS` in `packages/slicer-wasm/CMakeLists.txt`, or add an empty stub
    in `packages/slicer-wasm/stubs/`.
