@@ -132,6 +132,33 @@ bare-name resolution.
 Also fixed in the same pass: the retry chain called `bootstrap.bat gcc`
 *bare* (would fail under the flag) — now `.\bootstrap.bat gcc`.
 
+### 8. Bare `.cmd` invocation inside a `call :label` body — "cannot find the batch label"
+
+A line inside a `call :label` subroutine that invokes another **batch file
+bare** (e.g. `pnpm --filter desktop dev`, where `pnpm` resolves to
+`pnpm.CMD`) kills the pending call frame: cmd hands the batch context to the
+inner `.cmd`, and when it ends, the return to the `call :label` position
+can no longer be resolved — cmd aborts with
+
+    The system cannot find the batch label specified - cmd_dev
+
+The failure is instant (0.1 s, nothing of the inner batch's output
+appears) and hits *every* `call :label` whose body runs a batch file bare.
+Repro chain (proved 2026-08-15): `build-windows.bat dev` → dispatch
+`call :cmd_dev` → body `pnpm --filter desktop dev` → pnpm.CMD → error.
+Swapping the first token for a non-batch (`x ...`) runs the body cleanly
+(`'x' is not recognized`); running `pnpm --filter desktop dev` directly
+(no outer batch) never shows the error. Root cause: `pnpm` is a `.CMD`
+shim (`C:\Users\noisyfox\AppData\Local\pnpm\bin\pnpm.CMD`) — the classic
+"invoke a batch from a batch without `call`" hand-over, made fatal by the
+outer `call :label` frame.
+
+Rule: **inside `call :label` subroutines, always prefix batch-file
+invocations with `call`** (`call pnpm --filter desktop dev`). Fixed in all
+three subroutines that run pnpm (`test`, `dev`, `e2e` — 6 lines total).
+Verified: `dev` launches the electron app (preload built, vite dev server
+up, app stays running); `test` runs all four pnpm suites green.
+
 ## Verification (2026-08-15, all from plain cmd)
 
 - `fetch-deps.bat` — idempotent re-run: guards skip, gen headers rewritten, exit 0.

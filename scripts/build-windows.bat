@@ -271,23 +271,23 @@ exit /b %RC%
 
 :cmd_test
 cd /d "%ROOT%"
-pnpm --filter slicer-wasm test
+call pnpm --filter slicer-wasm test
 if errorlevel 1 exit /b 1
-pnpm --filter slicer-wasm typecheck
+call pnpm --filter slicer-wasm typecheck
 if errorlevel 1 exit /b 1
-pnpm --filter desktop test
+call pnpm --filter desktop test
 if errorlevel 1 exit /b 1
-pnpm --filter desktop typecheck
+call pnpm --filter desktop typecheck
 if errorlevel 1 exit /b 1
 echo [winbuild] All tests + typechecks green.
 exit /b 0
 
 :cmd_dev
 cd /d "%ROOT%"
-pnpm --filter desktop dev
+call pnpm --filter desktop dev
 exit /b %errorlevel%
 
 :cmd_e2e
 cd /d "%ROOT%"
-pnpm --filter desktop test:e2e
+call pnpm --filter desktop test:e2e
 exit /b %errorlevel%
