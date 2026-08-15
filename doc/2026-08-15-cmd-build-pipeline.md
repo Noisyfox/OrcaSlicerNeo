@@ -6,7 +6,9 @@ Git Bash is broken on the dev machine (`bash --version` exits 255), so every
 build script that needed MSYS was unreachable. Decision: duplicate the whole
 pipeline as self-contained Windows cmd `.bat` files that work with zero bash
 dependencies. The `.sh` originals stay for Linux/macOS/CI; on Windows the
-`.bat` is the primary path.
+`.bat` is the primary path. `scripts/build-windows.sh` — the bash driver for
+the *Windows* loop only — was removed 2026-08-15 once the `.bat` port
+covered every command; nothing outside Git Bash-on-Windows referenced it.
 
 ## What was ported
 
@@ -15,7 +17,7 @@ dependencies. The `.sh` originals stay for Linux/macOS/CI; on Windows the
 | `packages/slicer-wasm/fetch-deps.bat` | `fetch-deps.sh` | curl (PATH, else System32) + `tar.exe` (bsdtar handles zip/gz) + Boost's own `bootstrap.bat`/`.\b2.exe headers` |
 | `packages/slicer-wasm/build-boost-wasm64.bat` | `build-boost-wasm64.sh` | b2 with `user-config-wasm.jam` (absolute em++/emar/emranlib paths from `where`) |
 | `packages/slicer-wasm/build.bat` | `build.sh` | patches (idempotent `git apply`), serial shim headers, version header from submodule, `emcmake` configure, `emmake ninja`, stage 3 artifacts |
-| `scripts/build-windows.bat` | `scripts/build-windows.sh` (rewritten, was a bash wrapper) | `env deps boost build full quick shim smoke test dev e2e` + `-j/--profiles/--no-env/-v`; auto-activates emsdk via `emsdk_env.bat` |
+| `scripts/build-windows.bat` | `scripts/build-windows.sh` (rewritten, was a bash wrapper; the `.sh` itself removed 2026-08-15) | `env deps boost build full quick shim smoke test dev e2e` + `-j/--profiles/--no-env/-v`; auto-activates emsdk via `emsdk_env.bat` |
 | `.gitattributes` | new | `*.bat text eol=crlf` — cmd misparses LF-only batch files |
 
 `build-windows.bat quick` is the incremental loop for bridge changes:
