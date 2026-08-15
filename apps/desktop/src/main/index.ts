@@ -67,11 +67,15 @@ function createWindow(): void {
     height: 800,
     show: false,
     autoHideMenuBar: true,
-    // Frameless on Windows/Linux: the renderer's TitleBar provides the window
-    // controls (see doc/2026-08-15-frameless-window.md). macOS keeps its
-    // native title bar for now — 'hidden' there would float the traffic
-    // lights over our custom bar, i.e. two control sets.
-    ...(process.platform !== 'darwin' ? { titleBarStyle: 'hidden' as const } : {}),
+    // Frameless everywhere — the renderer's TitleBar is the only chrome.
+    // Windows/Linux get native min/max/close via the Window Controls
+    // Overlay (see doc/2026-08-15-frameless-window.md); macOS keeps its
+    // traffic lights ('hidden' style), positioned to sit centered in the
+    // 36px custom bar (14px lights → y = (36-14)/2).
+    titleBarStyle: 'hidden',
+    ...(process.platform !== 'darwin'
+      ? { titleBarOverlay: { color: '#1a1a1a', symbolColor: '#e6e6e6', height: 36 } }
+      : { trafficLightPosition: { x: 12, y: 11 } }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -147,18 +151,6 @@ function registerIpc(): void {
     await writeFile(appConfigPath(), JSON.stringify(json, null, 2), 'utf8');
   });
 
-  ipcMain.on(Ipc.windowMinimize, (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.minimize();
-  });
-  ipcMain.on(Ipc.windowToggleMaximize, (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win) return;
-    if (win.isMaximized()) win.unmaximize();
-    else win.maximize();
-  });
-  ipcMain.on(Ipc.windowClose, (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.close();
-  });
 }
 
 function setupSessionHeaders(): void {

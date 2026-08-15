@@ -25,7 +25,8 @@ contextBridge.exposeInMainWorld('orca', {
     save: (json: unknown) => ipcRenderer.invoke(Ipc.appConfigSave, json) as Promise<void>,
   },
 
-  minimize: () => ipcRenderer.send(Ipc.windowMinimize),
-  toggleMaximize: () => ipcRenderer.send(Ipc.windowToggleMaximize),
-  close: () => ipcRenderer.send(Ipc.windowClose),
+  // Used by the renderer to clear the macOS traffic-light zone in the
+  // custom title bar (Windows/Linux WCO buttons are top-right, no CSS
+  // impact on the left-aligned brand label).
+  platform: process.platform,
 });

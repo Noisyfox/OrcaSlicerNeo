@@ -16,9 +16,7 @@ declare global {
         load(): Promise<AppConfigLoadResult>;
         save(json: unknown): Promise<void>;
       };
-      minimize(): void;
-      toggleMaximize(): void;
-      close(): void;
+      platform: string;
     };
   }
 }

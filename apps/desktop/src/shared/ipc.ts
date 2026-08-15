@@ -12,9 +12,6 @@ export const Ipc = {
   writeFile: 'file:write',
   appConfigLoad: 'appConfig:load',
   appConfigSave: 'appConfig:save',
-  windowMinimize: 'window:minimize',
-  windowToggleMaximize: 'window:toggleMaximize',
-  windowClose: 'window:close',
 } as const;
 
 export interface FileDialogFilter {
