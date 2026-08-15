@@ -3,10 +3,15 @@ packages:
   - "packages/*"
 
 # pnpm >= 10.x persists/reads `allowBuilds`; older pnpm 10.1.x used
-# `onlyBuiltDependencies` (below). Keep BOTH in sync — if electron is missing
-# from either, its postinstall (binary download) is skipped and electron-vite
-# fails with "Error: Electron uninstall".
+# `onlyBuiltDependencies` (below). Keep BOTH in sync.
+# NOTE: electron@43.4.0 has NO postinstall script (binary download is
+# `node install.js`, only exposed as the `install-electron` bin). pnpm will
+# never run it, whitelist or not. If electron-vite dev dies with
+# "Error: Electron uninstall", the binary is missing from the store entry
+# (e.g. after a peer re-resolution prunes it) — restore with
+# `cd apps/desktop/node_modules/electron && node install.js`.
 allowBuilds:
+  '@swc/core': true
   electron: true
   electron-winstaller: true
   esbuild: true
@@ -19,3 +24,4 @@ onlyBuiltDependencies:
   - electron
   - esbuild
   - electron-winstaller
+  - '@swc/core'

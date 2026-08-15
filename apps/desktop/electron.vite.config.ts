@@ -1,5 +1,5 @@
 import { defineConfig } from 'electron-vite';
-import react from '@vitejs/plugin-react';
+import react from '@vitejs/plugin-react-swc';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,8 +13,8 @@ export default defineConfig({
     server: {
       headers: {
         // Dev counterpart of the prod CSP (main/index.ts): same directives,
-        // plus 'unsafe-inline' in script-src for @vitejs/plugin-react's inline
-        // react-refresh preamble (no other inline scripts exist). Silences
+        // plus 'unsafe-inline' in script-src for @vitejs/plugin-react-swc's
+        // inline react-refresh preamble (no other inline scripts exist). Silences
         // Electron's Insecure-CSP devtools warning in `dev` mode.
         'content-security-policy':
           "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; " +
