@@ -19,12 +19,23 @@ const factory: OrcaModuleFactory = useMock
       // .md — the app:// scheme died with out-of-process workers), and the
       // worker chunk sits in out/renderer/assets/, so the relative specifier
       // '../wasm/orca_slice.js' resolves against the chunk URL →
-      // /wasm/orca_slice.js. (Emscripten loads orca_slice.wasm/.data relative
-      // to the module script, which is that same dir — no locateFile
-      // override needed.)
+      // /wasm/orca_slice.js.
+      //
+      // The dev specifier MUST be absolute (new URL + import.meta.url):
+      // vite's import-analysis rewrites every variable dynamic import into
+      // __vite__injectQuery(url, 'import') — the /* @vite-ignore */ comment
+      // only silences the "cannot be analyzed" warning, it does not prevent
+      // the rewrite. On a relative URL that appends ?import at runtime, and
+      // the public middleware forwards ?import requests to the transform
+      // pipeline, which refuses files in /public (500 ERR_LOAD_PUBLIC_URL:
+      // "should not be imported from source code"). injectQuery passes
+      // absolute URLs through untouched, so the worker imports the public
+      // file as a plain module (static 200). A literal '/wasm/...' specifier
+      // is dead too — import-analysis throws on literal imports of public
+      // JS outright.
       const wasmUrl = import.meta.env.PROD
         ? '../wasm/orca_slice.js'
-        : '/wasm/orca_slice.js';
+        : new URL('/wasm/orca_slice.js', import.meta.url).href;
       // Emscripten's scriptDirectory inside a worker derives from the
       // WORKER script's URL (assets/), not the imported module's — so
       // .wasm/.data fetches 404 unless locateFile points at wasm/ (the
