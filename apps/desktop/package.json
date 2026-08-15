@@ -7,6 +7,7 @@
   "license": "AGPL-3.0",
   "main": "out/main/index.js",
   "scripts": {
+    "predev": "node ../../scripts/stage-wasm.mjs --soft",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "test": "vitest run",

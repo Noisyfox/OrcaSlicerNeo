@@ -62,3 +62,12 @@ const wasmUrl = import.meta.env.PROD
   import resolved; a failure would surface as `setError('boot: …')`), no
   `Failed to load url` 500 in the vite log (the pre-fix error printed there).
 - `pnpm --filter desktop typecheck` green.
+
+## Staging hook (2026-08-15)
+
+`apps/desktop` has a `predev` script (`node ../../scripts/stage-wasm.mjs
+--soft`) that re-stages `packages/slicer-wasm/out/` → `public/wasm/` every
+time `dev` runs — the stage was previously manual (`pnpm stage:wasm`) and
+could silently serve a stale module. `--soft` warns and exits 0 when no
+build exists, so mock-mode UI dev (`VITE_USE_MOCK=1`) still boots on a
+fresh checkout; the explicit `pnpm stage:wasm` stays strict.
