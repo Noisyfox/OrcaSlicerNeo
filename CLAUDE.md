@@ -26,8 +26,11 @@ proved feasibility and contains reusable machinery:
 
 ## Build commands (once scaffolded)
 
-- All-in-one driver: `scripts/build-windows.bat help` — pure cmd, **no Git Bash**
-  (the .sh variants are for Linux/macOS/CI). Subcommands
+- All-in-one driver (Windows): `scripts/build-windows.bat help` — pure cmd,
+  **no Git Bash**. Same driver on macOS/Linux: `scripts/build.sh help`
+  (plain bash; uses emcc/emcmake from PATH first — e.g. Homebrew
+  emscripten — then falls back to auto-activating an emsdk install;
+  `--no-env` skips that). Subcommands
   `env deps boost build full quick shim smoke test dev e2e` wrap every step
   below; `quick` is the incremental ninja loop for bridge changes. The driver
   auto-activates emsdk (`C:\emsdk` first) and takes `-j N`, `--profiles <dir>`,
