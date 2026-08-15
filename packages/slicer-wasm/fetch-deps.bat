@@ -68,15 +68,48 @@ if not exist "%DEPS%\boost-%BOOST_VER%\boost\version.hpp" (
   )
   echo [deps] Assembling unified Boost headers ^(bootstrap.bat + b2 headers^)
   pushd "%DEPS%\boost-%BOOST_VER%"
-  call .\bootstrap.bat >nul 2>&1
+  goto :boost_bootstrap
+)
+goto :boost_bootstrap_done
+:boost_bootstrap
+REM Why explicit toolset + flag juggling: Boost 1.84's auto-detect cannot
+  REM work here. First, its engine build.bat calls guess_toolset.bat and
+  REM config_toolset.bat as BARE filenames; under
+  REM NoDefaultCurrentDirectoryInExePath=1 - CVE-2010-2729 mitigation,
+  REM machine-wide on this box - cmd skips CWD for bare names, so every
+  REM toolset attempt dies with "'guess_toolset.bat' is not recognized".
+  REM Second, even with CWD search restored, vswhere reports VS 2026+ as
+  REM 'vcunk' and config_toolset.bat has no vcunk case - "Unknown toolset:
+  REM vcunk". An EXPLICIT toolset from our own `where` probe skips the
+  REM broken auto-detect entirely. Verified 2026-08-15: bootstrap.bat msvc
+  REM with the flag cleared builds b2.exe with cl.
+  set "NDCDIEP=%NoDefaultCurrentDirectoryInExePath%"
+  set "NoDefaultCurrentDirectoryInExePath="
+  set "BT="
+  where cl >nul 2>nul
+  if not errorlevel 1 set "BT=msvc"
+  if not defined BT where g++ >nul 2>nul
+  if not defined BT if not errorlevel 1 set "BT=gcc"
+  if not defined BT where clang >nul 2>nul
+  if not defined BT if not errorlevel 1 set "BT=clang"
+  if defined BT (
+    echo [deps] Bootstrap with %BT% ^(host compiler on PATH^)
+    call .\bootstrap.bat %BT% >nul 2>&1
+  ) else (
+    call .\bootstrap.bat >nul 2>&1
+  )
   if errorlevel 1 (
-    echo [deps] bootstrap.bat failed with the default toolset - retrying with gcc
-    call bootstrap.bat gcc >nul 2>&1
+    echo [deps] bootstrap.bat failed - retrying with gcc
+    call .\bootstrap.bat gcc >nul 2>&1
   )
   if errorlevel 1 (
     echo [deps] bootstrap.bat gcc failed too - retrying with clang
-    call bootstrap.bat clang >nul 2>&1
+    call .\bootstrap.bat clang >nul 2>&1
   )
+  REM Top-level here, so %NDCDIEP% expands at execution - the code above is
+  REM reached via goto out of a paren block, where every %var% expands at
+  REM block-parse time, before NDCDIEP existed.
+  set "NoDefaultCurrentDirectoryInExePath=%NDCDIEP%"
   if not exist b2.exe (
     echo [deps] ERROR: bootstrap.bat did not produce b2.exe.
     echo   It needs MSVC ^(cl.exe^), MinGW gcc, or clang on PATH.
@@ -94,7 +127,7 @@ if not exist "%DEPS%\boost-%BOOST_VER%\boost\version.hpp" (
     exit /b 1
   )
   popd
-)
+:boost_bootstrap_done
 
 REM ---- cereal (header-only) ----
 if not exist "%DEPS%\cereal-%CEREAL_VER%\include\cereal" (

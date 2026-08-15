@@ -26,12 +26,19 @@ artifacts to `out\`.
 
 These cost the most debugging time; any future `.bat` work must respect them.
 
-### 1. `NoDefaultCurrentDirectoryInExePath=1` — bare exe names return 9009
+### 1. `NoDefaultCurrentDirectoryInExePath=1` — bare names return 9009 / "not recognized"
 
 This machine sets the env var machine-wide (CVE-2010-2729 mitigation). cmd
 **skips the current directory** when resolving a bare executable name, so
 `b2.exe` in the CWD fails with `9009: 'b2.exe' is not recognized` while
 `.\b2.exe` runs fine. Git Bash worked because MSYS resolution ignores it.
+
+The flag is wider than exes: **bare `.bat`/`.cmd` names in `call` fail the
+same way** — proven 2026-08-15 by Boost's engine `build.bat`, whose
+`call guess_toolset.bat` / `call config_toolset.bat` die with `'guess_toolset
+.bat' is not recognized` under the flag. (Clearing the env var in-process
+restores CWD search immediately — cmd re-reads it per call — and an empty
+value reads as "flag off", verified empirically; see gotcha #7.)
 
 Rule: **always invoke executables with an explicit `.\` path** (`.\b2.exe`,
 `.\bootstrap.bat`) in `.bat` files. Verify with `where`/`if exist` before use
@@ -89,6 +96,41 @@ binary.
 `%VAR:\=/%` converts native paths to the `F:/MyProject/...` form CMake stores,
 so a `.bat`-configured tree matches a Git-Bash-configured one — no rebuild
 churn on reconfigure.
+
+### 7. Boost `bootstrap.bat` cannot auto-detect the toolset — pass it explicitly
+
+First-time deps (`fetch-deps.bat` when `boost/` is missing) build `b2.exe`
+via Boost's `bootstrap.bat`, and its auto-detect is doubly broken on this
+box (root-caused + fixed 2026-08-15):
+
+1. `build.bat` calls `guess_toolset.bat` / `config_toolset.bat` as bare
+   names → dead under `NoDefaultCurrentDirectoryInExePath=1` (gotcha #1).
+2. With CWD search restored (flag cleared), vswhere finds VS 2026+/18 and
+   sets `VSUNKCOMNTOOLS` → toolset `vcunk` — but Boost 1.84's
+   `config_toolset.bat` has **no `vcunk` case** → `"Unknown toolset:
+   vcunk"`. Auto-detect is broken for VS 2026+ on *any* machine, flag or
+   not. (Repro output: `Found with vswhere ...VS\18\Enterprise` then
+   `Unknown toolset: vcunk`.)
+
+Fix in `fetch-deps.bat`: clear the flag for the bootstrap section only
+(`set "NoDefaultCurrentDirectoryInExePath="`, restore after — empty reads
+as off), then probe the host compiler with `where` (`cl` → `bootstrap.bat
+msvc`, else `g++` → `gcc`, else `clang` → `clang`) and pass it **explicitly
+** — the explicit-toolset path skips `guess_toolset.bat` entirely. Verified:
+`bootstrap.bat msvc` + flag cleared builds a working b2.exe (B2 4.10) with
+cl from the VS dev prompt. The gcc/clang retries remain for machines where
+the probe finds nothing; with no compiler at all the failure is honest
+("needs MSVC/MinGW gcc/clang on PATH").
+
+Consequence for first-time setup: run `build-windows.bat full` (or
+`fetch-deps.bat`) from a **VS developer prompt** (cl on PATH) or with
+MinGW/clang on PATH. A plain cmd with no compiler on PATH cannot bootstrap
+boost on this machine — this was masked before because the deps tree always
+pre-existed, and the bash-era `bootstrap.sh` (MSYS) didn't go through cmd's
+bare-name resolution.
+
+Also fixed in the same pass: the retry chain called `bootstrap.bat gcc`
+*bare* (would fail under the flag) — now `.\bootstrap.bat gcc`.
 
 ## Verification (2026-08-15, all from plain cmd)
 
