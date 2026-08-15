@@ -35,7 +35,7 @@ using clang : emscripten : "$emxx" : <archiver>"$emar" <ranlib>"$emranlib" ;
 EOF
 
 # locale uses the std backend (no ICU/iconv on wasm). runtime-link=static keeps
-# everything self-contained. MEMORY64 must match the libslic3r object build.
+# everything self-contained. -m64 must match the libslic3r object build.
 # target-os=linux: b2 infers the TARGET os from the HOST — on Windows that
 # means threadapi=win32 + -DBOOST_USE_WINDOWS_H, which cannot compile under
 # the emscripten toolset (no windows.h/process.h). wasm64 is a POSIX target
@@ -47,8 +47,8 @@ EOF
   boost.locale.icu=off boost.locale.iconv=off boost.locale.posix=off boost.locale.std=on \
   address-model=64 target-os=linux \
   link=static threading=multi runtime-link=static variant=release \
-  cxxflags="-sMEMORY64 -pthread -std=c++17 -Wno-unused -Wno-deprecated-declarations" \
-  cflags="-sMEMORY64 -pthread" \
+  cxxflags="-m64 -pthread -std=c++17 -Wno-unused -Wno-deprecated-declarations" \
+  cflags="-m64 -pthread" \
   --stagedir=stage-wasm64 -j"${BOOST_JOBS:-4}" stage
 
 echo "=== wasm64 Boost archives in $BD/stage-wasm64/lib ==="

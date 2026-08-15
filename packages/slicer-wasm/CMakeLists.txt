@@ -13,11 +13,12 @@ project(orca_slicer_wasm CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# wasm64 throughout: Emscripten 6 emits wasm32 objects unless -sMEMORY64 is
+# wasm64 throughout: Emscripten 6 emits wasm32 objects unless -m64 is
 # also given at COMPILE time (the link flag alone is not enough), and wasm-ld
-# refuses to mix the two. Must match the Boost archives (build-boost-wasm64.sh)
-# and the final module's -sMEMORY64 link flag.
-add_compile_options(-sMEMORY64)
+# refuses to mix the two. Must match the Boost archives (build-boost-wasm64.sh
+# / .bat) and the final module's -m64 link flag. (-m64 is the standard spelling;
+# -sMEMORY64 is deprecated and warns on every em++ invocation.)
+add_compile_options(-m64)
 
 if(NOT EMSCRIPTEN)
   message(FATAL_ERROR "Configure with emcmake (Emscripten toolchain required).")
@@ -292,7 +293,7 @@ endif()
 set_target_properties(orca_slice PROPERTIES OUTPUT_NAME "orca_slice" SUFFIX ".js")
 target_link_options(orca_slice PRIVATE
   -O3 -fexceptions
-  -sMEMORY64
+  -m64
   -sMODULARIZE=1
   -sEXPORT_ES6=1
   -sENVIRONMENT=web,worker,node

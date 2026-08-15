@@ -72,7 +72,19 @@ defensively before running b2.
 `build-windows.bat :find_emsdk` prefers `C:\emsdk` (its cache was warm for
 the last-known-good build; activating another install clears that cache).
 
-### 5. Forward-slash normalization keeps the CMake cache byte-identical
+### 5b. `-sMEMORY64` is deprecated — use `-m64`
+
+em++ 6.0.4 warns on every invocation with the old spelling: *"MEMORY64 is
+deprecated (prefer the standard -m64 or --target=wasm64 flags)"*. The
+flag must match at compile **and** link (`CMakeLists.txt`:
+`add_compile_options(-m64)` + the `target_link_options` list) **and** in
+the boost b2 `cxxflags`/`cflags` (`build-boost-wasm64.bat` / `.sh`), or
+the deprecation warning reappears on the next em++ invocation that
+carries the old flag. Verified: full rebuild with `-m64` produces zero
+MEMORY64 warnings and the smoke harnesses pass on the resulting wasm64
+binary.
+
+### 6. Forward-slash normalization keeps the CMake cache byte-identical
 
 `%VAR:\=/%` converts native paths to the `F:/MyProject/...` form CMake stores,
 so a `.bat`-configured tree matches a Git-Bash-configured one — no rebuild
