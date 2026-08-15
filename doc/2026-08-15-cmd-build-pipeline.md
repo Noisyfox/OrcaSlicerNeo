@@ -9,6 +9,10 @@ dependencies. The `.sh` originals stay for Linux/macOS/CI; on Windows the
 `.bat` is the primary path. `scripts/build-windows.sh` — the bash driver for
 the *Windows* loop only — was removed 2026-08-15 once the `.bat` port
 covered every command; nothing outside Git Bash-on-Windows referenced it.
+The driver's macOS/Linux twin is `scripts/build.sh` (plain bash, added
+2026-08-15: same `env deps boost build full quick shim smoke test dev e2e
+help` surface, emsdk auto-activation that first uses emcc/emcmake already on
+PATH — e.g. Homebrew emscripten — before falling back to an emsdk install).
 
 ## What was ported
 
@@ -17,7 +21,7 @@ covered every command; nothing outside Git Bash-on-Windows referenced it.
 | `packages/slicer-wasm/fetch-deps.bat` | `fetch-deps.sh` | curl (PATH, else System32) + `tar.exe` (bsdtar handles zip/gz) + Boost's own `bootstrap.bat`/`.\b2.exe headers` |
 | `packages/slicer-wasm/build-boost-wasm64.bat` | `build-boost-wasm64.sh` | b2 with `user-config-wasm.jam` (absolute em++/emar/emranlib paths from `where`) |
 | `packages/slicer-wasm/build.bat` | `build.sh` | patches (idempotent `git apply`), serial shim headers, version header from submodule, `emcmake` configure, `emmake ninja`, stage 3 artifacts |
-| `scripts/build-windows.bat` | `scripts/build-windows.sh` (rewritten, was a bash wrapper; the `.sh` itself removed 2026-08-15) | `env deps boost build full quick shim smoke test dev e2e` + `-j/--profiles/--no-env/-v`; auto-activates emsdk via `emsdk_env.bat` |
+| `scripts/build-windows.bat` | `scripts/build-windows.sh` (rewritten, was a bash wrapper; the `.sh` itself removed 2026-08-15, replaced on macOS/Linux by `scripts/build.sh`) | `env deps boost build full quick shim smoke test dev e2e` + `-j/--profiles/--no-env/-v`; auto-activates emsdk via `emsdk_env.bat` |
 | `.gitattributes` | new | `*.bat text eol=crlf` — cmd misparses LF-only batch files |
 
 `build-windows.bat quick` is the incremental loop for bridge changes:

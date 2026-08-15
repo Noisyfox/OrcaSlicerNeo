@@ -7,7 +7,7 @@ REM   packages\slicer-wasm\fetch-deps.bat        (deps / full)
 REM   packages\slicer-wasm\build-boost-wasm64.bat (boost / full)
 REM   packages\slicer-wasm\build.bat             (build / shim)
 REM
-REM Command surface (bash driver scripts\build-windows.sh removed 2026-08-15):
+REM Command surface (macOS/Linux twin: scripts\build.sh — plain bash):
 REM   build-windows.bat <command> [options]
 REM     e.g.  build-windows.bat help
 REM           build-windows.bat quick -j 8
