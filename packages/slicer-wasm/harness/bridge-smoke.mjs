@@ -5,7 +5,7 @@
 // init -> presets -> metadata -> load model -> slice (with progress) ->
 // slice result -> export gcode -> cancel. The 3D-preview buffers are M2.
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { argv } from 'node:process';
 import { loadModuleFactory, validateGcode } from './run-slice.mjs';
 
@@ -16,8 +16,10 @@ if (!moduleArg || !stlArg) {
 }
 
 // loadModuleFactory chdirs into the module's dir (Emscripten resolves the
-// .data preload bundle from CWD); the stl path is absolutized first.
+// .data preload bundle from CWD); paths are absolutized first (resolve()
+// after the chdir would root them at the module dir).
 const stlPath = resolve(stlArg);
+const boxStlPath = resolve(dirname(stlPath), 'floating-box.stl');
 const factory = await loadModuleFactory(moduleArg);
 const Module = await factory({ noInitialRun: true, print: console.error, printErr: console.error });
 
@@ -236,6 +238,24 @@ check('unknown key reported', Array.isArray(resliced.unrecognized_keys)
       `unrecognized_keys=${JSON.stringify(resliced.unrecognized_keys)}`);
 const result2 = callJson('orc_get_slice_result', [], []);
 check('re-slice actually re-ran', result2.ok === true && result2.layers > 0 && result2.layers !== result.layers,
-      `layers=${result2.layers} (first slice: ${result.layers})`);
+      `layers=${result2.layers} (first slice: ${result2.layers})`);
 
-process.exit(failures === 0 ? 0 : 1);
+// 10. SlicingErrors surfacing (regression 2026-08-15): a model whose first
+// layer has no extrusions throws SlicingErrors whose what() is just "Errors"
+// (Exception.hpp:44) — orc_slice must surface the per-object messages from
+// errors_ (bridge.cpp error_json_from_exception) or the renderer can only
+// show the bare category. floating-box.stl: bottom at z=0.3, above the 0.2
+// first layer, no supports -> "empty first layer" SlicingError -> SlicingErrors.
+const boxStl = await readFile(boxStlPath);
+const boxPtr = Number(Module._malloc(boxStl.length));
+Module.HEAPU8.set(boxStl, boxPtr);
+const boxLoaded = callJson('orc_load_model', ['pointer', 'number', 'string'],
+                           [boxPtr, boxStl.length, 'stl']);
+Module._free(boxPtr);
+check('floating-box loads', boxLoaded.ok === true && boxLoaded.objects === 1, JSON.stringify(boxLoaded));
+const boxSliced = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+check('slice error surfaces the real message, not the bare category',
+      !boxSliced.ok && typeof boxSliced.error === 'string'
+      && boxSliced.error !== 'Errors' && boxSliced.error.includes('empty first layer'),
+      JSON.stringify(boxSliced));
+

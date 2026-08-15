@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { slicerClient } from '../../slicer/slicerClient';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { errorText } from '../../slicer/errors';
 
 export function Toolbar() {
   const status = useSlicerStore((s) => s.status);
@@ -35,7 +36,10 @@ export function Toolbar() {
       useSettingsStore.getState().setModelLoaded(true);
       setError(null);
     } catch (err) {
-      setError(String(err));
+      // errorText unwraps "Error: <msg>" (String(err)); the status bar
+      // already prefixes "Error" (StatusBar statusText).
+      setError(errorText(err));
+      console.error('load model failed:', err);
     }
   }
 
@@ -50,16 +54,29 @@ export function Toolbar() {
       Object.entries(state.values).filter(([k]) => meta[k] !== undefined),
     );
     setSlicerStatus('slicing');
+    // A new slice clears the previous failure — the status bar must not keep
+    // showing the old error while the new slice runs (or if it succeeds).
+    setError(null);
     try {
       const r = await slicerClient.slice(values, (pct) => useSlicerStore.getState().setProgress(pct));
-      if (!r.ok) throw new Error(r.error ?? 'slice failed');
+      // A failed slice is not a thrown error: r.error is the bridge's plain
+      // message (set it directly — a `new Error(...)` + String(err) round
+      // trip would double-wrap it as "Error: <msg>"; the status bar already
+      // prefixes "Error").
+      if (!r.ok) {
+        setSlicerStatus('error');
+        setError(r.error ?? 'slice failed');
+        console.error('slice failed:', r.error);
+        return;
+      }
       if (r.unrecognized_keys.length) {
         console.warn('unrecognized keys dropped by libslic3r:', r.unrecognized_keys);
       }
       setSlicerStatus('done');
     } catch (err) {
       setSlicerStatus('error');
-      setError(String(err));
+      setError(errorText(err));
+      console.error('slice failed:', err);
     }
   }
 
@@ -78,7 +95,8 @@ export function Toolbar() {
         res.bytes.byteOffset + res.bytes.byteLength,
       ) as ArrayBuffer);
     } catch (err) {
-      setError(`export: ${String(err)}`);
+      setError(`export: ${errorText(err)}`);
+      console.error('export failed:', err);
     } finally {
       setExporting(false);
     }

@@ -18,6 +18,7 @@
 #include <utility>
 
 #include "libslic3r/AppConfig.hpp"
+#include "libslic3r/Exception.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
@@ -66,6 +67,23 @@ const char* dup_json(const std::string& s) {
 
 const char* error_json(const std::string& msg) {
     return dup_json(json{{"error", msg}}.dump());
+}
+
+// SlicingErrors' what() is just the category "Errors" (Exception.hpp:44) —
+// the real per-object messages live in its errors_ vector (GCode.cpp:
+// collect_layers_to_print aggregates per-object SlicingErrors and rethrows).
+// Returning e.what() alone made the renderer show only "Errors" with no
+// way to see what actually failed; join the underlying messages instead.
+const char* error_json_from_exception(const std::exception& e) {
+    if (const auto* se = dynamic_cast<const SlicingErrors*>(&e); se != nullptr) {
+        std::string joined;
+        for (const auto& err : se->errors_) {
+            if (!joined.empty()) joined += "\n";
+            joined += err.what();
+        }
+        if (!joined.empty()) return error_json(joined);
+    }
+    return error_json(e.what());
 }
 
 std::string option_type_name(const ConfigOptionDef& def) {
@@ -610,7 +628,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
             dropped.push_back(k);
         return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)}}.dump());
     } catch (const std::exception& e) {
-        return error_json(e.what());
+        // process() is where libslic3r throws SlicingErrors (GCode.cpp:2250);
+        // the helper surfaces the per-object messages instead of the bare
+        // category. This is the only bridge call that can throw it, so the
+        // other catches keep plain e.what().
+        return error_json_from_exception(e);
     } catch (...) {
         // Fix round 1: a canceled print (orc_cancel → PrintBase::cancel sets
         // CANCELED_BY_USER; only restart() clears it) makes the NEXT process()
