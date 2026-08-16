@@ -5,8 +5,15 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { slicerClient } from '../../slicer/slicerClient';
 import { OptionField } from './OptionField';
-import { Label } from '../ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Label } from '@/components/ui/label';
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from '@/components/ui/combobox';
 
 const PROCESS_KEYS = [
   'layer_height', 'wall_loops', 'top_shell_layers', 'bottom_shell_layers',
@@ -77,10 +84,9 @@ export function SettingsPanel() {
   );
 }
 
-// Installed (visible) presets first; the rest in a dimmed, disabled
-// "Not installed" group. The grouping comes from the bridge's REAL
-// set_visible_from_appconfig result — never client-side logic (v1 has no
-// install/uninstall UI, so the group is inert).
+// Installed (visible) presets only. Visibility comes from the bridge's REAL
+// set_visible_from_appconfig result — never client-side logic. Searchable:
+// typing in the box filters the list (case-insensitive substring).
 function PresetRow({ label, items, value, onValue, testId }: {
   label: string;
   items: PresetInfo[];
@@ -89,31 +95,30 @@ function PresetRow({ label, items, value, onValue, testId }: {
   testId?: string;
 }) {
   const installed = items.filter((p) => p.is_visible);
-  const hidden = items.filter((p) => !p.is_visible);
-  if (installed.length === 0 && hidden.length === 0) return null;
+  if (installed.length === 0) return null;
   return (
     <div className="space-y-1 py-1">
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Select value={value || undefined} onValueChange={(v) => v != null && onValue(v)}>
-        <SelectTrigger className="h-8 text-xs" data-testid={testId}>
-          <SelectValue placeholder="— select —" />
-        </SelectTrigger>
-        <SelectContent>
-          {installed.map((p) => (
-            <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
-          ))}
-          {hidden.length > 0 && (
-            <>
-              <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                Not installed
-              </div>
-              {hidden.map((p) => (
-                <SelectItem key={p.name} value={p.name} disabled>{p.name}</SelectItem>
-              ))}
-            </>
-          )}
-        </SelectContent>
-      </Select>
+      {/*
+        Filtering is items-prop driven in base-ui 1.7 — rendered children are
+        NOT auto-filtered. The List's function child becomes a Collection that
+        maps the root's filtered items, so search actually narrows the list.
+      */}
+      <Combobox
+        value={value || null}
+        onValueChange={(v) => v != null && onValue(v)}
+        items={installed.map((p) => p.name)}
+      >
+        <ComboboxInput data-testid={testId} />
+        <ComboboxContent>
+          <ComboboxList>
+            {(name) => (
+              <ComboboxItem key={name} value={name}>{name}</ComboboxItem>
+            )}
+          </ComboboxList>
+          <ComboboxEmpty>No matching presets</ComboboxEmpty>
+        </ComboboxContent>
+      </Combobox>
     </div>
   );
 }
