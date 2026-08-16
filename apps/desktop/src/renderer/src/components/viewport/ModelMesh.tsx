@@ -1,102 +1,119 @@
 // apps/desktop/src/renderer/src/components/viewport/ModelMesh.tsx
-import { useRef } from 'react';
+// One loaded object: body drag via drei DragControls (world-XY at the
+// object's current height — axisLock="z") and, when selected, the move
+// gizmo. The DragControls group is the single world-transform owner; both
+// drag systems write group.position and commit through the bridge on
+// release (see gizmo/commitPosition.ts).
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { DragControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import type { ThreeEvent } from '@react-three/fiber';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSlicerStore } from '../../stores/useSlicerStore';
 import { slicerClient } from '../../slicer/slicerClient';
 import type { LoadedObject } from './useModelLoader';
-
-// Slicer convention: Z up, X right, Y into screen — the bed plane is Z=0.
-const BED_Z = 0;
+import { MoveGizmo, type GestureState } from './gizmo/MoveGizmo';
+import { commitPosition } from './gizmo/commitPosition';
 
 export function ModelMesh({ data }: { data: LoadedObject }) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  // The makeDefault OrbitControls instance (drei sets state.controls; the
-  // RootState type is the base EventDispatcher, so narrow to what we use).
-  const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
-  // position.copy mutates the mesh imperatively — invisible to the r3f
-  // reconciler (and pointer events don't invalidate either), so demand mode
-  // needs an explicit invalidate per drag step.
+  // DragControls forwards its ref to the group it renders — the group whose
+  // position is the object's world offset.
+  const groupRef = useRef<THREE.Group>(null);
   const invalidate = useThree((s) => s.invalidate);
   const selected = useSettingsStore((s) => s.selectedObject === data.buffer.objectIdx);
   const setSelected = useSettingsStore((s) => s.setSelectedObject);
-  const setInstanceOffset = useSettingsStore((s) => s.setInstanceOffset);
-  const dragRef = useRef<{ plane: THREE.Plane; offset: THREE.Vector3; moved: boolean } | null>(null);
+  const setObjectOffset = useSettingsStore((s) => s.setObjectOffset);
+  const setError = useSlicerStore((s) => s.setError);
+  // React state drives re-renders (dragConfig.enabled / TC enabled props);
+  // the ref gives drag callbacks synchronous reads.
+  const [kind, setKind] = useState<GestureState['kind']>('none');
+  const gestureRef = useRef<GestureState>({ kind: 'none', dragStart: [0, 0, 0] });
+  // Reused scratch vector — avoid per-event allocation at pointer rate.
+  const scratch = useMemo(() => new THREE.Vector3(), []);
 
-  function select(e: ThreeEvent<MouseEvent>) {
-    e.stopPropagation();
-    setSelected(data.buffer.objectIdx);
-  }
+  // drei's DragControls group has matrixAutoUpdate: false — position writes
+  // (gizmo AND body drag) would never reach the rendered matrix. Seed the
+  // offset and let matrixAutoUpdate compose matrix from position.
+  useEffect(() => {
+    const g = groupRef.current;
+    if (!g) return;
+    g.position.set(...data.buffer.offset);
+    g.matrixAutoUpdate = true;
+    invalidate();
+  }, [data.buffer.offset, invalidate]);
 
-  // Drag-move on the bed plane (left pointer on the selected object).
-  // OrbitControls: LEFT = orbit — so drag starts only on the object itself
-  // (click-to-select then drag on it); OrbitControls keeps right-drag pan.
-  function onPointerDown(e: ThreeEvent<PointerEvent>) {
-    if (!selected) return;
-    e.stopPropagation();
-    const pos = meshRef.current!.position;
-    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -BED_Z);
-    const hit = new THREE.Vector3();
-    const ray = e.ray as THREE.Ray;
-    if (!ray.intersectPlane(plane, hit)) return;
-    dragRef.current = { plane, offset: pos.clone().sub(hit), moved: false };
-    // OrbitControls listens natively on the same canvas — r3f's
-    // stopPropagation only stops R3F event delivery, so without this the
-    // camera would rotate every frame while the model is dragged. Re-enabled
-    // in endDrag (pointerup / pointercancel).
-    if (controls) controls.enabled = false;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-  }
-
-  function onPointerMove(e: ThreeEvent<PointerEvent>) {
-    const drag = dragRef.current;
-    if (!drag) return;
-    const hit = new THREE.Vector3();
-    if (!(e.ray as THREE.Ray).intersectPlane(drag.plane, hit)) return;
-    const next = hit.add(drag.offset);
-    next.z = BED_Z;
-    drag.moved = true;
-    meshRef.current!.position.copy(next);
+  async function commit() {
+    const g = groupRef.current;
+    if (!g) return;
+    const p = g.position;
+    const ok = await commitPosition(
+      slicerClient,
+      data.buffer.objectIdx,
+      [p.x, p.y, p.z],
+      gestureRef.current.dragStart,
+      (msg) => setError(`move: ${msg}`),
+    );
+    if (!ok) g.position.set(...gestureRef.current.dragStart);
     invalidate();
   }
 
-  // Shared end of gesture — pointerup AND pointercancel both land here:
-  // restore orbit, drop the drag state, and commit the offset only if the
-  // pointer actually moved (no jitter writes mid-drag).
-  async function endDrag() {
-    if (controls) controls.enabled = true;
-    const drag = dragRef.current;
-    dragRef.current = null;
-    if (!drag?.moved) return;
-    // The instance offset is a world/scene coordinate; the mesh position is
-    // local to the group at buffer.offset, so the new offset is the original
-    // offset plus the accumulated drag delta.
-    const pos = meshRef.current!.position;
-    const wx = data.buffer.offset[0] + pos.x;
-    const wy = data.buffer.offset[1] + pos.y;
-    const wz = data.buffer.offset[2] + pos.z;
-    const res = await slicerClient.setInstanceOffset(data.buffer.objectIdx, 0, wx, wy, wz);
-    if (res.ok) setInstanceOffset([wx, wy, wz]);
-  }
-
   return (
-    <group position={[data.buffer.offset[0], data.buffer.offset[1], data.buffer.offset[2]]}>
-      <mesh
-        ref={meshRef}
-        geometry={data.geometry}
-        onClick={select}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
+    <>
+      <DragControls
+        ref={groupRef}
+        autoTransform={false}
+        axisLock="z"
+        dragConfig={{ enabled: kind !== 'gizmo' }}
+        onDragStart={() => {
+          const g = groupRef.current!;
+          gestureRef.current = { kind: 'body', dragStart: [g.position.x, g.position.y, g.position.z] };
+          setKind('body');
+        }}
+        onDrag={(localMatrix) => {
+          // Mutual exclusion guard: a gizmo-handle press also dispatches
+          // pointer events to the mesh behind it; TC's onMouseDown sets kind
+          // synchronously via the ref, but this callback can fire before the
+          // re-render lands. Only the body gesture writes positions.
+          if (gestureRef.current.kind !== 'body') return;
+          const g = groupRef.current;
+          if (!g) return;
+          // drei computed the intended world position for us (autoTransform
+          // is off) — apply it through position so matrixAutoUpdate picks it
+          // up, and mirror to the store for the move panel.
+          scratch.setFromMatrixPosition(localMatrix);
+          g.position.copy(scratch);
+          setObjectOffset(data.buffer.objectIdx, [scratch.x, scratch.y, scratch.z]);
+          invalidate();
+        }}
+        onDragEnd={() => {
+          gestureRef.current.kind = 'none';
+          setKind('none');
+          void commit();
+        }}
       >
-        <meshStandardMaterial
-          color={selected ? '#3b82f6' : '#cbd5e1'}
-          roughness={0.6}
-          metalness={0.1}
+        <mesh
+          geometry={data.geometry}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelected(data.buffer.objectIdx);
+          }}
+        >
+          <meshStandardMaterial
+            color={selected ? '#3b82f6' : '#cbd5e1'}
+            roughness={0.6}
+            metalness={0.1}
+          />
+        </mesh>
+      </DragControls>
+      {selected && groupRef.current && (
+        <MoveGizmo
+          target={groupRef.current}
+          objectIdx={data.buffer.objectIdx}
+          kind={kind}
+          setKind={setKind}
+          gestureRef={gestureRef}
         />
-      </mesh>
-    </group>
+      )}
+    </>
   );
 }
