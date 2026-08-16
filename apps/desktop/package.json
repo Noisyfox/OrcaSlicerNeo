@@ -8,7 +8,7 @@
   "main": "out/main/index.js",
   "scripts": {
     "predev": "node ../../scripts/stage-wasm.mjs --soft",
-    "dev": "electron-vite dev",
+    "dev": "electron-vite dev --noSandbox",
     "build": "electron-vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",

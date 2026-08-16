@@ -2,8 +2,31 @@ import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { extname, join, sep } from 'node:path';
+import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { Ipc, type FileDialogFilter, type AppConfigLoadResult } from '../shared/ipc';
+
+// Linux containers/VMs without a DRM/VA-API device cannot start Chromium's
+// separate GPU process; Electron aborts with "GPU process isn't usable.
+// Goodbye." after vaInitialize / CreateCommandBuffer failures. Run the GPU
+// service in-process and use Chromium's SwiftShader WebGL backend on those
+// machines so the app still launches and the 3D viewport has a software GL
+// context.
+if (
+  process.platform === 'linux' &&
+  // Dev mode always uses the Vite renderer URL. Apply the software GL path
+  // there even if /dev/dri exists but VA-API is broken; also cover packaged
+  // GPU-less Linux machines that have no /dev/dri at all.
+  (process.env.ELECTRON_RENDERER_URL || !existsSync('/dev/dri'))
+) {
+  // app.commandLine.appendSwitch('in-process-gpu');
+  app.commandLine.appendSwitch('use-angle', 'swiftshader-webgl');
+  // SwiftShader's software WebGL is treated as unsafe/blocklisted by
+  // default in current Chromium; opt in and ignore the GPU blocklist so the
+  // 3D viewport can get a WebGL2 context in GPU-less Linux environments.
+  app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+  app.commandLine.appendSwitch('ignore-gpu-blocklist');
+}
 
 // The renderer origin is an in-process http server on loopback, not a custom
 // scheme. Chromium hard-blocks worker scripts from file://, and since
@@ -84,7 +107,19 @@ function createWindow(): void {
     },
   });
 
-  win.on('ready-to-show', () => win.show());
+  // Normally `ready-to-show` is the right time to reveal the window (it
+  // avoids a white flash). In software-rendered/headless-ish Linux setups it
+  // can be missed even after the page loads, leaving the app running with no
+  // visible window — so also fall back to showing once the page finishes
+  // loading.
+  let shown = false;
+  const showWindow = () => {
+    if (shown) return;
+    shown = true;
+    win.show();
+  };
+  win.on('ready-to-show', showWindow);
+  win.webContents.on('did-finish-load', () => setTimeout(showWindow, 500));
 
   // F12 / Ctrl+Shift+I opens DevTools. autoHideMenuBar leaves no way to
   // reach the default menu's toggle in the packaged app, and a detached
