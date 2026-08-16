@@ -23,7 +23,7 @@ export function LayerScrubber() {
         max={maxLayer}
         step={1}
         value={[layer]}
-        onValueChange={(v) => setLayer(v[0])}
+        onValueChange={(v) => setLayer(Array.isArray(v) ? v[0] : v)}
         data-testid="layer-scrubber"
       />
     </div>
