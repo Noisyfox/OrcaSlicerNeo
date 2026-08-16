@@ -1,4 +1,4 @@
-# High Level Development Plan (updated 2026-08-15)
+# High Level Development Plan (updated 2026-08-16)
 
 ## Context
 
@@ -178,6 +178,18 @@
 > harnesses, typecheck. Install/uninstall UI (picker's hidden group disabled
 > in v1) + the full settings surface + search remain queued.
 > See `doc/2026-08-15-m4-preset-management-{design,implementation-notes}.md`.
+
+### Milestone 5 — Move Gizmo
+
+> **Status: delivered 2026-08-16.** Full move tool in the 3D viewport:
+> drei TransformControls gizmo (translate, world space) on selection — axis
+> arrows + plane handles, Z lift; body drag via drei DragControls
+> (axisLock z — world-XY at the object's current height) replacing the M2
+> hand-rolled pointer drag; sidebar move panel (numeric X/Y/Z, Drop to bed,
+> Reset); per-object transform state in the settings store with a shared
+> bridge commit path (commitPosition) that reverts on failure. Flip
+> buttons, snap, multi-select and multi-instance remain deferred.
+> See `doc/2026-08-16-move-gizmo-{design,implementation-notes}.md`.
 
 ## Cross-Cutting Practices
 
