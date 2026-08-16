@@ -1,15 +1,16 @@
 import * as React from 'react';
-import * as LabelPrimitive from '@radix-ui/react-label';
 import { cn } from '../../lib/utils';
 
+// Migrated off the Radix label primitive: Base UI ships no Label part, so
+// this is the native <label> (htmlFor + peer-disabled styles work as-is).
 export const Label = React.forwardRef<
-  React.ElementRef<typeof LabelPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root>
+  React.ElementRef<'label'>,
+  React.ComponentProps<'label'>
 >(({ className, ...props }, ref) => (
-  <LabelPrimitive.Root
+  <label
     ref={ref}
     className={cn('text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70', className)}
     {...props}
   />
 ));
-Label.displayName = LabelPrimitive.Root.displayName;
+Label.displayName = 'Label';
