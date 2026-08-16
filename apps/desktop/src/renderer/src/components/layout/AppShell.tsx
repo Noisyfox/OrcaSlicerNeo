@@ -94,7 +94,7 @@ export function AppShell({ settings, viewport, toolbar, status }: {
     window.addEventListener('mouseup', stop);
     window.addEventListener('pointercancel', stop);
     document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'col-resize';
+    document.body.style.cursor = 'ew-resize';
   }
 
   function handleResizePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -161,7 +161,7 @@ export function AppShell({ settings, viewport, toolbar, status }: {
           onPointerDown={handleResizePointerDown}
           onMouseDown={handleResizeMouseDown}
           onKeyDown={handleResizeKeyDown}
-          className="w-1.5 shrink-0 cursor-col-resize touch-none self-stretch rounded-full bg-clip-content px-px transition-colors hover:bg-accent/20 focus-visible:bg-accent/30 focus-visible:outline-none"
+          className="w-1.5 shrink-0 cursor-ew-resize touch-none self-stretch rounded-full bg-clip-content px-px transition-colors hover:bg-accent/20 focus-visible:bg-accent/30 focus-visible:outline-none"
         />
         <main className="relative min-w-0 flex-1 overflow-hidden rounded-lg border bg-card">{viewport}</main>
       </div>
