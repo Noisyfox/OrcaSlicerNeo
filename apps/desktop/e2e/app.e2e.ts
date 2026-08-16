@@ -127,6 +127,29 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
     await expect(page.getByTestId('layer-scrubber')).toBeVisible();
     await expect(page.getByTestId('btn-export')).toBeEnabled();
 
+    // The scrubber grabber (Base UI Thumb: div wrapper + visually-hidden
+    // input) must render as a full 16x16 knob straddling the 6px track.
+    // Regression (2026-08-16): the Base UI migration nested the Thumb inside
+    // the overflow-hidden Track, which clipped 10 of its 16px to a barely
+    // visible sliver. getBoundingClientRect ignores ancestor overflow
+    // clipping, so probe hit-testing with elementFromPoint at the thumb's
+    // vertical extremes: clipped, both hit the card overlay instead.
+    const thumbFullyVisible = await page
+      .getByTestId('layer-scrubber')
+      .evaluate((el) => {
+        const thumb = el.querySelector('input[type="range"]')?.parentElement;
+        if (!thumb) return false;
+        const r = thumb.getBoundingClientRect();
+        const cx = r.x + r.width / 2;
+        return (
+          r.width === 16 &&
+          r.height === 16 &&
+          thumb.contains(document.elementFromPoint(cx, r.y + 1)) &&
+          thumb.contains(document.elementFromPoint(cx, r.y + r.height - 1))
+        );
+      });
+    expect(thumbFullyVisible).toBe(true);
+
     // Export → file on disk with the expected gcode contents.
     await page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
