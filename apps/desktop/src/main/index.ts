@@ -269,13 +269,13 @@ app.whenReady().then(() => {
   registerIpc();
   startRendererServer(); // createWindow fires once the port is bound
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
 });
 
+// Single-window tool: closing the window quits the app on every platform,
+// macOS included (no dock persistence, no activate-recreate cycle). See
+// doc/2026-08-16-quit-on-window-close.md.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  app.quit();
 });
 
 app.on('will-quit', () => {
