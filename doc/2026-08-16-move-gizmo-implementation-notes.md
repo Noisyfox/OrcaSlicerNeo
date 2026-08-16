@@ -5,9 +5,9 @@ Date: 2026-08-16. Design: `doc/2026-08-16-move-gizmo-design.md`. Milestone:
 
 ## Status
 
-Delivered 2026-08-16 — commits `320561e..64ef977` on `feat/move-gizmo`
-(eight commits across tasks 1-7, each reviewed; this task adds the
-milestone docs and the final gate sweep).
+Delivered 2026-08-16 — commits `320561e..14f0d1e` on `feat/move-gizmo`
+(nine commits; every task gated by its own review, the branch by the
+final whole-branch review plus the fix-wave re-review).
 
 ## What shipped
 
@@ -52,15 +52,21 @@ spike-lite report plus the e2e assertions rather than a manual pass.
   must be told to stand down (`dragConfig.enabled = kind !== 'gizmo'`).
 - drei auto-disables the makeDefault `OrbitControls` for body drags — no
   manual control needed on that path.
-- three-stdlib 2.36.1's `TransformControls` dispatches only `mouseDown` /
-  `mouseUp` / `change` / `objectChange` — there is **no** `'dragging-changed'`
-  event (final-review C1: the commit originally hooked to it via the controls
-  instance ref, so gizmo drags never reached the bridge). The end-of-drag
-  commit hooks to drei 10.7.8's forwarded `onMouseUp` (controls `mouseUp`)
-  with a `kind === 'gizmo'` guard — a zero-delta handle-tap commit is
-  idempotent; body/background presses skip (body drags commit via
-  `DragControls`); a mid-gesture deselect already resets `kind` (correct
-  abort). `onMouseDown`/`onObjectChange` keep their semantics.
+- The end-of-drag commit hooks to drei 10.7.8's forwarded `onMouseUp` (the
+  controls' `mouseUp` event) with a `kind === 'gizmo'` guard — a zero-delta
+  handle-tap commit is idempotent; body/background presses skip (body drags
+  commit via `DragControls`); a mid-gesture deselect already resets `kind`
+  (correct abort). `onMouseDown`/`onObjectChange` keep their semantics.
+- History: the original design attached a `'dragging-changed'` listener via
+  the controls instance ref. That event DOES exist in three-stdlib 2.36.1 —
+  it is dispatched through the `defineProperty('dragging')` accessor
+  setter, and the type string is built dynamically, so a literal-string
+  grep misses it; it would have fired on release. The final review's
+  grep-based C1 was a false positive. The `mouseUp` hook is kept anyway:
+  it is dispatched unconditionally on handle release, independent of the
+  `dragging` setter path, and the reload round-trip e2e assertion now
+  proves the bridge write end-to-end — closing the verification gap that
+  let the false positive look real.
 - Demand rendering (`frameloop="demand"`): imperative THREE mutations need
   `invalidate()`. drei `DragControls` invalidates internally; drei
   `TransformControls` does NOT — the move tool calls `invalidate()` from

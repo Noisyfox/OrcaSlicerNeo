@@ -38,9 +38,11 @@ export function MoveGizmo({ target, objectIdx, kind, setKind, gestureRef }: {
   const setError = useSlicerStore((s) => s.setError);
   // The controls instance drei forwards through `ref` — kept only for the
   // test-only gizmoAxis getter below (e2e engage hook); nothing else reads
-  // it. three-stdlib 2.36.1's TransformControls dispatches only mouseDown /
-  // mouseUp / change / objectChange ('dragging-changed' does not exist), so
-  // the end-of-drag commit hooks to drei's forwarded onMouseUp instead.
+  // it. The end-of-drag commit hooks to drei's forwarded onMouseUp (the
+  // controls' mouseUp event, dispatched unconditionally on handle release)
+  // rather than a 'dragging-changed' listener — the commit must not depend
+  // on the dragging-property setter path, and the reload round-trip e2e
+  // proves the bridge write.
   const tcRef = useRef<React.ComponentRef<typeof TransformControls> | null>(null);
 
   // Test-only axis getter (mock/e2e builds): the e2e gizmo test polls this
