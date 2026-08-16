@@ -61,7 +61,19 @@ function SelectContent({
   sideOffset = 4,
   align = "center",
   alignOffset = 0,
-  alignItemWithTrigger = true,
+  // `alignItemWithTrigger` (the "native select" mode) is broken in Base UI
+  // 1.7.0 for short lists: SelectPopup's align effect sets
+  // `isTopPositioned` whenever the list doesn't overflow
+  // (`scrollTop=0 >= maxScrollTop-2` with `maxScrollTop=0`), and that branch
+  // collapses the positioner height to the list's natural height and pins
+  // its top at the trigger's top — the popup ends up a short strip COVERING
+  // the trigger ("shifted up"), with the viewport space below it empty
+  // ("wastes the bottom space"). Long lists take the bottom-anchored branch
+  // and fill correctly, which is why only short enums (e.g.
+  // sparse_infill_pattern in the mock) showed it. Default off → the
+  // standard anchored dropdown (same as the preset Comboboxes): hangs
+  // 4px below the trigger and tracks it on container scroll.
+  alignItemWithTrigger = false,
   ...props
 }: SelectPrimitive.Popup.Props &
   Pick<
