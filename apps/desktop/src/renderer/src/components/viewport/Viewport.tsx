@@ -35,6 +35,12 @@ export function Viewport() {
     <div className="absolute inset-0" data-testid="viewport">
       <ViewportErrorBoundary>
         <Canvas
+          // Render only when something invalidates the frame (camera change,
+          // scene data update, resize) — never render continuously. See
+          // doc/2026-08-16-demand-render-viewport.md. OrbitControls in demand
+          // mode invalidates while interacting/damping; data-driven meshes
+          // invalidate via React re-render.
+          frameloop="demand"
           // Slicer convention: Z up (blue), X right, Y into screen. OrbitControls
           // in three r185 takes its orbit axis from camera.up, so setting it
           // here is all the wiring needed.

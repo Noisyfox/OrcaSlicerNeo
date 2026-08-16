@@ -15,6 +15,10 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
   // The makeDefault OrbitControls instance (drei sets state.controls; the
   // RootState type is the base EventDispatcher, so narrow to what we use).
   const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
+  // position.copy mutates the mesh imperatively — invisible to the r3f
+  // reconciler (and pointer events don't invalidate either), so demand mode
+  // needs an explicit invalidate per drag step.
+  const invalidate = useThree((s) => s.invalidate);
   const selected = useSettingsStore((s) => s.selectedObject === data.buffer.objectIdx);
   const setSelected = useSettingsStore((s) => s.setSelectedObject);
   const setInstanceOffset = useSettingsStore((s) => s.setInstanceOffset);
@@ -54,6 +58,7 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
     next.z = BED_Z;
     drag.moved = true;
     meshRef.current!.position.copy(next);
+    invalidate();
   }
 
   // Shared end of gesture — pointerup AND pointercancel both land here:

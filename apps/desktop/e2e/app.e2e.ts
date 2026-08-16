@@ -137,6 +137,42 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
     } else {
       expect(gcode).toContain('; mock gcode (unit-test fixture)');
     }
+
+    // Layer scrubber must invalidate the demand-mode frame: scrubbing from
+    // layer 0 to the last layer changes the rendered canvas pixels (the
+    // toolpath/mesh draw range follows the layer — ToolpathLines/SlicedMesh
+    // call invalidate() after setDrawRange). Clip the screenshot to the canvas
+    // region ABOVE the scrubber overlay: the overlay is positioned over the
+    // canvas, so a plain canvas-element screenshot would include its changing
+    // label/thumb and pass even if the GL view never redrew.
+    const canvas = page.getByTestId('viewport').locator('canvas');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('viewport canvas has no bounding box');
+    const glRegion = { x: box.x, y: box.y, width: box.width, height: Math.max(0, box.height - 130) };
+    const shot = () => page.screenshot({ clip: glRegion });
+    const layer0Shot = await shot();
+    // Base UI thumb = div wrapper + native input[type=range] (visually hidden,
+    // full thumb size); the input owns keydown handling incl. Home/End.
+    await page.getByTestId('layer-scrubber').locator('input[type="range"]').focus();
+    await page.keyboard.press('End');
+    await expect
+      .poll(async () => (await shot()).equals(layer0Shot), { timeout: 10_000 })
+      .toBe(false);
+
+    // Model drag must also invalidate the demand-mode frame: the mesh must
+    // follow the cursor WHILE the pointer is held (before the offset commit
+    // on release). Pointer events don't invalidate in demand mode — only the
+    // explicit invalidate() in ModelMesh's onPointerMove does. Click first to
+    // select: drag only starts on a selected object.
+    const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    await page.mouse.click(center.x, center.y);
+    const beforeDrag = await shot();
+    await page.mouse.down();
+    await page.mouse.move(center.x + 80, center.y, { steps: 6 });
+    await expect
+      .poll(async () => (await shot()).equals(beforeDrag), { timeout: 10_000 })
+      .toBe(false);
+    await page.mouse.up();
     } catch (err) {
       await diag.dump();
       throw err;
