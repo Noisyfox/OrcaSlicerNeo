@@ -197,11 +197,11 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
       .poll(async () => (await shot()).equals(layer0Shot), { timeout: 10_000 })
       .toBe(false);
 
-    // Model drag must also invalidate the demand-mode frame: the mesh must
-    // follow the cursor WHILE the pointer is held (before the offset commit
-    // on release). Pointer events don't invalidate in demand mode — only the
-    // explicit invalidate() in ModelMesh's onPointerMove does. Click first to
-    // select: drag only starts on a selected object.
+    // Drag must invalidate the demand-mode frame while the pointer is held:
+    // with the gizmo mounted, the click at the object's center lands on the
+    // gizmo's free-move box (or the body — both invalidate mid-drag). The
+    // assertion is pixels changed before release; the commit happens on
+    // mouse.up (covered in detail by the move-gizmo test below).
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     await page.mouse.click(center.x, center.y);
     const beforeDrag = await shot();
@@ -211,6 +211,123 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
       .poll(async () => (await shot()).equals(beforeDrag), { timeout: 10_000 })
       .toBe(false);
     await page.mouse.up();
+    } catch (err) {
+      await diag.dump();
+      throw err;
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+// The move gizmo + body drag + move panel, end to end. Projection comes
+// from the __orcaE2e hook (mock/e2e builds only) so drags start exactly on
+// the X arrow's shaft; commits are asserted through the move panel's
+// numeric inputs, which mirror the store's live position.
+test('move gizmo: select, axis drag, numeric input, drop to bed, reset', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
+      await page.getByTestId('btn-open').click();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+
+      const canvas = page.getByTestId('viewport').locator('canvas');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      const glRegion = { x: box.x, y: box.y, width: box.width, height: Math.max(0, box.height - 130) };
+      const shot = () => page.screenshot({ clip: glRegion });
+      const project = (p: [number, number, number]) =>
+        page
+          .evaluate(
+            (pt) =>
+              (window as unknown as {
+                __orcaE2e?: { projectWorldToScreen(q: [number, number, number]): { x: number; y: number } | null };
+              }).__orcaE2e?.projectWorldToScreen(pt),
+            p,
+          )
+          .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
+
+      // Select the cube (mock model) — the move panel appears. The 20 mm
+      // cube spans [0,20]³ at the origin, so its centroid (10,10,10) projects
+      // a few dozen px off the canvas center; click the projected centroid,
+      // not the raw center, so the click lands on the mesh.
+      const cubeCenter = await project([10, 10, 10]);
+      if (!cubeCenter) throw new Error('cube-center projection unavailable');
+      await page.mouse.click(cubeCenter.x, cubeCenter.y);
+      await expect(page.getByTestId('move-panel')).toBeVisible();
+      await expect(page.getByTestId('move-x')).toHaveValue('0.000');
+
+      // Gizmo renders once selected: pixels near the object change.
+      const selectedShot = await shot();
+
+      // X-axis arrow drag: press on the shaft 10 mm out, drag along it
+      // (shaft extends ~30 mm at this camera distance; 10 mm is mid-shaft,
+      // past the plane handles). The gizmo translates the object by the
+      // pointer's DELTA along the axis (grab offset stays fixed), so to
+      // land on +45 mm the drag must END at the projection of world +55
+      // (55 − 10 = 45) — passing the shaft tip is fine, once grabbed the
+      // drag is pure plane math.
+      const xStart = await project([10, 0, 0]);
+      const xEnd = await project([55, 0, 0]);
+      if (!xStart || !xEnd) throw new Error('X-arrow projection unavailable');
+      // The picker must be LIVE before the grab: the gizmo's mount render
+      // (demand mode) can lag the selection commit on a slow first frame,
+      // and a missed picker degenerates into a body drag + orbit (garbage
+      // commit). Hovering the X arrow shifts its color toward white, so
+      // poll the pixels until the hover registers, then press.
+      const hoverNeutral = await shot();
+      await page.mouse.move(xStart.x, xStart.y);
+      await expect
+        .poll(async () => {
+          await page.mouse.move(xStart.x, xStart.y);
+          return (await shot()).equals(hoverNeutral);
+        }, { timeout: 10_000 })
+        .toBe(false);
+      await page.mouse.down();
+      await page.mouse.move(xEnd.x, xEnd.y, { steps: 5 });
+      // Mid-drag: the mesh follows (gizmo objectChange invalidates the
+      // demand-mode frame).
+      await expect
+        .poll(async () => (await shot()).equals(selectedShot), { timeout: 10_000 })
+        .toBe(false);
+      await page.mouse.up();
+      // Commit round-trips the bridge: the panel reflects the new X.
+      await expect(page.getByTestId('move-x')).toHaveValue('45.000', { timeout: 10_000 });
+
+      // Numeric input commits on Enter.
+      const beforeNumeric = await shot();
+      await page.getByTestId('move-x').fill('35');
+      await page.getByTestId('move-x').press('Enter');
+      await expect(page.getByTestId('move-x')).toHaveValue('35.000');
+      // The mesh must visually follow the panel commit (store→group sync).
+      await expect
+        .poll(async () => (await shot()).equals(beforeNumeric), { timeout: 10_000 })
+        .toBe(false);
+
+      // Garbage input is rejected — the input reverts to the committed value.
+      await page.getByTestId('move-y').fill('nope');
+      await page.getByTestId('move-y').press('Enter');
+      await expect(page.getByTestId('move-y')).toHaveValue('0.000');
+
+      // Lift with the Z input, then Drop to bed returns it to 0.
+      await page.getByTestId('move-z').fill('10');
+      await page.getByTestId('move-z').press('Enter');
+      await expect(page.getByTestId('move-z')).toHaveValue('10.000');
+      await page.getByTestId('move-drop-bed').click();
+      await expect(page.getByTestId('move-z')).toHaveValue('0.000');
+
+      // Reset restores the load-time position (all zeros).
+      await page.getByTestId('move-x').fill('99');
+      await page.getByTestId('move-x').press('Enter');
+      await expect(page.getByTestId('move-x')).toHaveValue('99.000');
+      await page.getByTestId('move-reset').click();
+      await expect(page.getByTestId('move-x')).toHaveValue('0.000');
+      await expect(page.getByTestId('move-y')).toHaveValue('0.000');
+      await expect(page.getByTestId('move-z')).toHaveValue('0.000');
     } catch (err) {
       await diag.dump();
       throw err;
