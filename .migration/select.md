@@ -84,3 +84,32 @@ both settings consumers matches nothing.
   value updates; placeholder shows for an empty select.
 - Close via Escape / click-outside; focus returns to the trigger.
 - Disabled items in the "Not installed" group render dimmed and unselectable.
+
+## 2026-08-16 regression + fix (commits 3076900, 7c92d22)
+
+After the migration, the project flipped `components.json` to `base-mira`
+and re-added the select from the base-mira registry (`shadcn add select`),
+which **overwrote the user's surface classes** preserved by the migration.
+Reported broken: transparent dropdown + trigger, width not matching the
+sidebar. Root causes, all in `ui/select.tsx`:
+
+- `SelectContent`/scroll buttons used `bg-popover text-popover-foreground`,
+  but the app's theme defines **no `--popover` / `--color-popover`**
+  (`index.css` maps only background/card/secondary/muted/…). Tailwind v4
+  emits nothing for the unknown utility → fully transparent popup.
+- Trigger was the registry's `w-fit bg-input/20` (20%-alpha fill over the
+  card, no shadow) — ghostly against the sidebar; pre-migration trigger was
+  `w-full bg-transparent … shadow-sm`, matching sibling `ui/input.tsx`.
+
+Fix (2026-08-16, uncommitted at the time of writing): restored the app's
+design language in the wrapper — trigger `w-full bg-transparent shadow-sm`
+(dropped `dark:bg-input/30 dark:hover:bg-input/50`), popup and scroll
+buttons `bg-card text-card-foreground`. Popup keeps `w-(--anchor-width)`,
+so it now spans the trigger/sidebar width. Typecheck green.
+
+FLAGGED for future work: `--popover`/`--popover-foreground` are still
+undefined theme-wide — any later popover-based base component
+(dropdown-menu, combobox, …) needs the same `bg-card` treatment or a new
+theme token. `cn-menu-target`/`cn-menu-translucent` (registry-only
+utilities) are still absent from the Popup — registry css, not in this
+build; harmless.
