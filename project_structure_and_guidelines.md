@@ -99,6 +99,11 @@ See the design doc §C++/WASM Build and the spike's README iterate loop. Key rul
 
 - **Stack**: React + TypeScript + Vite (electron-vite), Tailwind + shadcn/ui,
   zustand for state, react-three-fiber + drei for the 3D viewport.
+- **Imports (code style)**: UI elements follow the shadcn alias convention —
+  `@/components/ui/*` and `@/lib/utils`, never relative paths (`@` →
+  `src/renderer/src`, wired in tsconfig.web.json / electron.vite.config.ts /
+  vitest.config.ts). Business-logic imports (stores, slicer client, feature
+  components) may stay relative.
 - **Security**: `contextIsolation: true`, `nodeIntegration: false`, renderer
   talks to the OS only through the preload `contextBridge` API.
 - **Process model**: WASM runs in a renderer Web Worker; binary data transfers
