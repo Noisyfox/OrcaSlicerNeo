@@ -28,7 +28,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
     return (
       <div className="space-y-1 py-1">
         <Label className="text-xs text-muted-foreground">{label}</Label>
-        <Select value={value} onValueChange={(v) => setValue(optionKey, v)}>
+        <Select value={value} onValueChange={(v) => v != null && setValue(optionKey, v)}>
           <SelectTrigger className="h-8 text-xs">
             <SelectValue placeholder={value} />
           </SelectTrigger>

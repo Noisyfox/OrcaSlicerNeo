@@ -94,7 +94,7 @@ function PresetRow({ label, items, value, onValue, testId }: {
   return (
     <div className="space-y-1 py-1">
       <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Select value={value || undefined} onValueChange={onValue}>
+      <Select value={value || undefined} onValueChange={(v) => v != null && onValue(v)}>
         <SelectTrigger className="h-8 text-xs" data-testid={testId}>
           <SelectValue placeholder="— select —" />
         </SelectTrigger>
