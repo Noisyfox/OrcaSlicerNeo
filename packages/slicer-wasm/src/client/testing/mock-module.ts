@@ -203,12 +203,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_get_model_mesh() {
       if (!modelLoaded) return { error: 'no model loaded' };
-      // 20 mm cube (8 verts, 12 tris) at the instance offset.
+      // 20 mm cube (8 verts, 12 tris) in LOCAL coordinates — the bridge
+      // contract (bridge.cpp orc_get_model_mesh) reports the instance offset
+      // separately, and the renderer applies it as the group position. (The
+      // offset used to be baked into the vertices too, which double-offset
+      // the cube after a committed move + reload; offset 0 hid it.)
       const off = modelState.offset;
       const verts = [
         [0, 0, 0], [20, 0, 0], [20, 20, 0], [0, 20, 0],
         [0, 0, 20], [20, 0, 20], [20, 20, 20], [0, 20, 20],
-      ].map((v) => [v[0] + off[0], v[1] + off[1], v[2] + off[2]]);
+      ];
       const tris = [
         [0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7],
         [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],

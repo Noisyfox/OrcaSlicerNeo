@@ -197,11 +197,14 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
       .poll(async () => (await shot()).equals(layer0Shot), { timeout: 10_000 })
       .toBe(false);
 
-    // Model drag must also invalidate the demand-mode frame: the mesh must
-    // follow the cursor WHILE the pointer is held (before the offset commit
-    // on release). Pointer events don't invalidate in demand mode — only the
-    // explicit invalidate() in ModelMesh's onPointerMove does. Click first to
-    // select: drag only starts on a selected object.
+    // Drag must invalidate the demand-mode frame while the pointer is held:
+    // the click at the canvas center is the projection of the mock cube's
+    // corner vertex (the cube spans [0,20]³ at the origin) — a degenerate
+    // hit at best — so the held drag is usually an orbit (camera rotates,
+    // pixels change), or a gizmo free-move / body drag if the corner click
+    // did select. Either way the assertion is pixels changed before
+    // release; the move-gizmo test below covers the gizmo/body mechanics
+    // in detail.
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     await page.mouse.click(center.x, center.y);
     const beforeDrag = await shot();
@@ -211,6 +214,183 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
       .poll(async () => (await shot()).equals(beforeDrag), { timeout: 10_000 })
       .toBe(false);
     await page.mouse.up();
+    } catch (err) {
+      await diag.dump();
+      throw err;
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+// The move gizmo + body drag + move panel, end to end. Projection comes
+// from the __orcaE2e hook (mock/e2e builds only) so drags start exactly on
+// the X arrow's shaft; commits are asserted through the move panel's
+// numeric inputs (which mirror the store's live position) and, after a
+// reload, through the bridge re-seed (the round-trip proof below).
+test('move gizmo: select, axis drag, numeric input, drop to bed, reset', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
+      await page.getByTestId('btn-open').click();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+
+      const canvas = page.getByTestId('viewport').locator('canvas');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      const glRegion = { x: box.x, y: box.y, width: box.width, height: Math.max(0, box.height - 130) };
+      const shot = () => page.screenshot({ clip: glRegion });
+      const project = (p: [number, number, number]) =>
+        page
+          .evaluate(
+            (pt) =>
+              (window as unknown as {
+                __orcaE2e?: { projectWorldToScreen(q: [number, number, number]): { x: number; y: number } | null };
+              }).__orcaE2e?.projectWorldToScreen(pt),
+            p,
+          )
+          .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
+
+      // Select the cube (mock model) — the move panel appears. The 20 mm
+      // cube spans [0,20]³ at the origin, so its centroid (10,10,10) projects
+      // a few dozen px off the canvas center; click the projected centroid,
+      // not the raw center, so the click lands on the mesh.
+      const cubeCenter = await project([10, 10, 10]);
+      if (!cubeCenter) throw new Error('cube-center projection unavailable');
+      await page.mouse.click(cubeCenter.x, cubeCenter.y);
+      await expect(page.getByTestId('move-panel')).toBeVisible();
+      await expect(page.getByTestId('move-x')).toHaveValue('0.000');
+
+      // X-axis arrow drag: press on the shaft 10 mm out, drag along it
+      // (shaft extends ~30 mm at this camera distance; 10 mm is mid-shaft,
+      // past the center free-move box and the plane handles, which sit
+      // ~5 mm out). The pick point (10,0,0) lies exactly on the X axis line
+      // — on the arrow's shaft cylinder, not the cone picker's degenerate
+      // tip line — and the axis poll below makes the hit explicit. The
+      // gizmo translates the object by the pointer's DELTA along the axis
+      // (grab offset stays fixed), so to land on +45 mm the drag must END
+      // at the projection of world +55 (55 − 10 = 45) — passing the shaft
+      // tip is fine, once grabbed the drag is pure plane math.
+      const xStart = await project([10, 0, 0]);
+      const xEnd = await project([55, 0, 0]);
+      if (!xStart || !xEnd) throw new Error('X-arrow projection unavailable');
+      // Deterministic engage precondition: the TransformControls picker
+      // must be live and the hover must have picked the X arrow before the
+      // press — a missed picker degenerates into a body drag + orbit
+      // (garbage commit). MoveGizmo installs __orcaE2e.gizmoAxis (mock/e2e
+      // builds only), mirroring the controls' axis field, which pointerHover
+      // sets only when the picker's raycast hit — no render ever changes it,
+      // so 'X' here means mouse.down() grabs the X arrow. (A pixel signal
+      // would be ambiguous: the selection + gizmo-mount renders change
+      // pixels without any hover.)
+      await page.mouse.move(xStart.x, xStart.y);
+      const hasAxisGetter = await page.evaluate(
+        () =>
+          typeof (window as unknown as { __orcaE2e?: { gizmoAxis?: unknown } }).__orcaE2e?.gizmoAxis ===
+          'function',
+      );
+      if (!hasAxisGetter) {
+        throw new Error(
+          '__orcaE2e.gizmoAxis missing — the e2e build must set VITE_USE_MOCK and MoveGizmo must register the getter',
+        );
+      }
+      await expect
+        .poll(
+          () =>
+            page.evaluate(
+              () =>
+                (window as unknown as {
+                  __orcaE2e?: { gizmoAxis?: () => string | null };
+                }).__orcaE2e?.gizmoAxis?.() ?? null,
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe('X');
+      // The demand-mode frame settles after the selection + hover render:
+      // wait for two identical frames so the mid-drag baseline cannot be
+      // polluted by selection/hover residue.
+      await expect
+        .poll(
+          async () => {
+            const a = await shot();
+            const b = await shot();
+            return a.equals(b);
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      const dragBaseline = await shot();
+      await page.mouse.down();
+      await page.mouse.move(xEnd.x, xEnd.y, { steps: 5 });
+      // Mid-drag: the mesh follows (gizmo objectChange invalidates the
+      // demand-mode frame).
+      await expect
+        .poll(async () => (await shot()).equals(dragBaseline), { timeout: 10_000 })
+        .toBe(false);
+      await page.mouse.up();
+      // Commit round-trips the bridge: the panel reflects the new X.
+      await expect(page.getByTestId('move-x')).toHaveValue('45.000', { timeout: 10_000 });
+
+      // Bridge round-trip proof: the gizmo release must have called
+      // orc_set_instance_offset, not just updated the store/panel. Re-open
+      // the model — useModelLoader re-seeds positions from the bridge's
+      // getModelMesh offset (mock persists setInstanceOffset), so a
+      // live-only store update snaps the mesh back to 0 and this fails. The
+      // reloaded cube sits at [45,65]³, so its centroid projects at
+      // [55,10,10] — NOT the original [10,10,10].
+      await page.getByTestId('btn-open').click();
+      // The mesh re-mounts asynchronously after loadModel resolves (store
+      // re-seed + render); click the post-commit centroid, retrying until
+      // the move panel opens.
+      await expect
+        .poll(
+          async () => {
+            const p = await project([55, 10, 10]);
+            if (!p) return false;
+            await page.mouse.click(p.x, p.y);
+            return page.getByTestId('move-panel').isVisible();
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await expect(page.getByTestId('move-x')).toHaveValue('45.000');
+
+      // Numeric input commits on Enter.
+      const beforeNumeric = await shot();
+      await page.getByTestId('move-x').fill('35');
+      await page.getByTestId('move-x').press('Enter');
+      await expect(page.getByTestId('move-x')).toHaveValue('35.000');
+      // The mesh must visually follow the panel commit (store→group sync).
+      await expect
+        .poll(async () => (await shot()).equals(beforeNumeric), { timeout: 10_000 })
+        .toBe(false);
+
+      // Garbage input is rejected — the input reverts to the committed value.
+      await page.getByTestId('move-y').fill('nope');
+      await page.getByTestId('move-y').press('Enter');
+      await expect(page.getByTestId('move-y')).toHaveValue('0.000');
+
+      // Lift with the Z input, then Drop to bed returns it to 0.
+      await page.getByTestId('move-z').fill('10');
+      await page.getByTestId('move-z').press('Enter');
+      await expect(page.getByTestId('move-z')).toHaveValue('10.000');
+      await page.getByTestId('move-drop-bed').click();
+      await expect(page.getByTestId('move-z')).toHaveValue('0.000');
+
+      // Reset restores the load-time position — which is now the RELOADED
+      // baseline [45,0,0] (the reload above re-seeded initialPositions from
+      // the persisted bridge offset), not the original zeros.
+      await page.getByTestId('move-x').fill('99');
+      await page.getByTestId('move-x').press('Enter');
+      await expect(page.getByTestId('move-x')).toHaveValue('99.000');
+      await page.getByTestId('move-reset').click();
+      await expect(page.getByTestId('move-x')).toHaveValue('45.000');
+      await expect(page.getByTestId('move-y')).toHaveValue('0.000');
+      await expect(page.getByTestId('move-z')).toHaveValue('0.000');
     } catch (err) {
       await diag.dump();
       throw err;

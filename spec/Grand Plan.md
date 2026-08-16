@@ -108,11 +108,32 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 > v1 — `orc_set_app_config` is the ready path), per-vendor install APIs,
 > project save/load remains queued below.
 
+## Milestone 5: Move Gizmo
+
+> [!info] Target: **2026-08-16** (delivered)
+>
+> Design: `doc/2026-08-16-move-gizmo-design.md`; implementation notes:
+> `doc/2026-08-16-move-gizmo-implementation-notes.md`. The first of the
+> gizmo family (design phase E's "basic move-on-plate" is replaced by the
+> full move tool).
+
+- [x] TransformControls move gizmo on selection (axis arrows + plane
+      handles, Z-up verified, world space)
+- [x] Body drag via drei DragControls replacing the M2 hand-rolled pointer
+      drag (axisLock z — world-XY at current height)
+- [x] Mutual exclusion between gizmo and body drags (gesture ref + state)
+- [x] Move panel: numeric X/Y/Z inputs, Drop to bed, Reset (bridge commit
+      via commitPosition with store/group revert on failure)
+- [x] Per-object transform state (positions / initialPositions / objectMinZ)
+- [x] e2e: gizmo axis drag, panel inputs, drop to bed, reset; existing
+      v1-flow e2e still green
+
 ## Milestone 5+: Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)
-- [ ] Gizmos: rotate/scale/cut/measure/arrange/orient
+- [ ] Gizmos: rotate/scale/cut/measure/arrange/orient (move delivered in
+      Milestone 5)
 - [ ] Parallelism: wasmtbb + pthreads + COOP/EP (SharedArrayBuffer already
       provisioned); perf tuning for large plates
 - [ ] STEP import (OCCT Emscripten port decision)

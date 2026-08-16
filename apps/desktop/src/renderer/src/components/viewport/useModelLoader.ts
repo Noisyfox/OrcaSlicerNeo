@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { slicerClient } from '../../slicer/slicerClient';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { computeObjectMinZ, buildTransformSeeds } from './transformMath';
 import type { ModelObjectBuffer } from '@slicer/client';
 
 export interface LoadedObject {
@@ -17,6 +18,7 @@ export function useModelLoader(): LoadedObject[] {
   useEffect(() => {
     let disposed = false;
     if (!modelLoaded) {
+      useSettingsStore.getState().setObjectOffsets({}, {}, {});
       setObjects([]);
       return;
     }
@@ -36,6 +38,16 @@ export function useModelLoader(): LoadedObject[] {
           // geometries; dispose them instead of leaking (review Minor 1).
           loaded.forEach((o) => o.geometry.dispose());
         } else {
+          // Seed the move state: current offsets, the reset snapshot, and the
+          // per-object bed-contact min Z (Drop to bed).
+          const seeds = buildTransformSeeds(
+            loaded.map((o) => ({
+              objectIdx: o.buffer.objectIdx,
+              offset: o.buffer.offset as [number, number, number],
+              minZ: computeObjectMinZ(o.geometry),
+            })),
+          );
+          useSettingsStore.getState().setObjectOffsets(seeds.positions, seeds.initialPositions, seeds.objectMinZ);
           setObjects(loaded);
         }
       } catch (err) {
