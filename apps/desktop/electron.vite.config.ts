@@ -24,6 +24,8 @@ export default defineConfig({
     },
     resolve: {
       alias: {
+        '@renderer': resolve('src/renderer/src'),
+        '@': resolve('src/renderer/src'),
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       },
