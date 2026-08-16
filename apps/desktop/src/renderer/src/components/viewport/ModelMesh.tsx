@@ -20,6 +20,7 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
   // position is the object's world offset.
   const groupRef = useRef<THREE.Group>(null);
   const invalidate = useThree((s) => s.invalidate);
+  const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
   const selected = useSettingsStore((s) => s.selectedObject === data.buffer.objectIdx);
   const setSelected = useSettingsStore((s) => s.setSelectedObject);
   const setObjectOffset = useSettingsStore((s) => s.setObjectOffset);
@@ -31,16 +32,30 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
   // Reused scratch vector — avoid per-event allocation at pointer rate.
   const scratch = useMemo(() => new THREE.Vector3(), []);
 
-  // drei's DragControls group has matrixAutoUpdate: false — position writes
-  // (gizmo AND body drag) would never reach the rendered matrix. Seed the
-  // offset and let matrixAutoUpdate compose matrix from position.
+  const pos = useSettingsStore((s) => s.positions[data.buffer.objectIdx]);
+  // Seed the DragControls group's position from the store (seeded at load)
+  // and keep it in sync with committed moves (move panel, drop to bed,
+  // reset). drei set matrixAutoUpdate: false — re-enable so position writes
+  // reach the rendered matrix. Drag paths already write both the store and
+  // the group, so this is a no-op during drags.
   useEffect(() => {
     const g = groupRef.current;
     if (!g) return;
-    g.position.set(...data.buffer.offset);
     g.matrixAutoUpdate = true;
+    const p = pos ?? data.buffer.offset;
+    g.position.set(p[0], p[1], p[2]);
     invalidate();
-  }, [data.buffer.offset, invalidate]);
+  }, [pos, data.buffer.offset, invalidate]);
+
+  // Deselecting mid-gesture would leave kind='gizmo' (body drag locked out)
+  // and OrbitControls disabled — reset both.
+  useEffect(() => {
+    if (!selected) {
+      gestureRef.current.kind = 'none';
+      setKind('none');
+      if (controls) controls.enabled = true;
+    }
+  }, [selected]);
 
   async function commit() {
     const g = groupRef.current;
