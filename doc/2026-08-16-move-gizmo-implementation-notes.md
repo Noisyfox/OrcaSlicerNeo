@@ -93,10 +93,9 @@ multi-instance support (the move tool operates on instance 0 only).
 ## Files touched
 
 - `apps/desktop/src/renderer/src/components/viewport/gizmo/{MoveGizmo.tsx,
-  commitPosition.ts, commitPosition.test.ts, transformMath.ts,
-  transformMath.test.ts}` (created)
+  commitPosition.ts, commitPosition.test.ts}` (created)
 - `apps/desktop/src/renderer/src/components/viewport/{ModelMesh.tsx,
-  Scene.tsx, useModelLoader.ts}`
+  Scene.tsx, useModelLoader.ts, transformMath.ts, transformMath.test.ts}`
 - `apps/desktop/src/renderer/src/components/settings/{MovePanel.tsx,
   SettingsPanel.tsx}`
 - `apps/desktop/src/renderer/src/stores/useSettingsStore.ts` (+ test),
