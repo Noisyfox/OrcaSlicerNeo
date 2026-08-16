@@ -1,10 +1,10 @@
 // apps/desktop/src/renderer/src/components/settings/OptionField.tsx
 import type { OptionMeta } from '@slicer/client';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { Label } from '../ui/label';
-import { Input } from '../ui/input';
-import { Checkbox } from '../ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export function OptionField({ optionKey, meta }: { optionKey: string; meta: OptionMeta }) {
   const value = useSettingsStore((s) => s.values[optionKey] ?? meta.default ?? '');

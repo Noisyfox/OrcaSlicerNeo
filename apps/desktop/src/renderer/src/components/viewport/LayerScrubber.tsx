@@ -1,7 +1,7 @@
 // apps/desktop/src/renderer/src/components/viewport/LayerScrubber.tsx
 import { useSlicerStore } from '../../stores/useSlicerStore';
-import { Slider } from '../ui/slider';
-import { Label } from '../ui/label';
+import { Slider } from '@/components/ui/slider';
+import { Label } from '@/components/ui/label';
 
 export function LayerScrubber() {
   const layer = useSlicerStore((s) => s.layer);

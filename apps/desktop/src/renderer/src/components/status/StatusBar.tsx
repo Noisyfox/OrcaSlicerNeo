@@ -1,6 +1,6 @@
 // apps/desktop/src/renderer/src/components/status/StatusBar.tsx
 import { useSlicerStore } from '../../stores/useSlicerStore';
-import { Progress } from '../ui/progress';
+import { Progress } from '@/components/ui/progress';
 
 export function StatusBar() {
   const status = useSlicerStore((s) => s.status);

@@ -1,7 +1,7 @@
 // apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx
 import { useState } from 'react';
 import { FolderOpen, Slice, Download } from 'lucide-react';
-import { Button } from '../ui/button';
+import { Button } from '@/components/ui/button';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { slicerClient } from '../../slicer/slicerClient';
 import { useSettingsStore } from '../../stores/useSettingsStore';

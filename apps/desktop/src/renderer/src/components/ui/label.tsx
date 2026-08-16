@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { cn } from '../../lib/utils';
+import { cn } from '@/lib/utils';
 
 // Migrated off the Radix label primitive: Base UI ships no Label part, so
 // this is the native <label> (htmlFor + peer-disabled styles work as-is).

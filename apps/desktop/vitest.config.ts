@@ -12,6 +12,7 @@ export default defineConfig({
   resolve: {
     alias: {
       // same aliases as electron.vite.config.ts (Task 4)
+      '@': resolve('src/renderer/src'),
       '@slicer/client': resolve(clientRoot, 'index.ts'),
       '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
     },
