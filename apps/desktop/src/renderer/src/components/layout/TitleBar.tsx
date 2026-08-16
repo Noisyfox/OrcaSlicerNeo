@@ -4,7 +4,7 @@ export function TitleBar() {
   // never collide with the left-aligned label.
   const isMac = window.orca.platform === 'darwin';
   return (
-    <header className={`flex h-9 items-center border-b bg-card px-3 select-none [-webkit-app-region:drag] ${isMac ? 'pl-20' : ''}`}>
+    <header className={`flex h-9 items-center bg-background px-3 select-none [-webkit-app-region:drag] ${isMac ? 'pl-20' : ''}`}>
       <span className="text-xs font-semibold tracking-wide text-muted-foreground">OrcaSlicerNeo</span>
     </header>
   );

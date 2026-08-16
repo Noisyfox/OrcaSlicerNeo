@@ -50,30 +50,33 @@ async function launchApp() {
 // Give the sidebar real scroll headroom (the mock panel almost fits at
 // 1280×600 — max scroll ≈ 73px, which makes scroll assertions vacuous: this
 // cost a false failure) and scroll the sparse_infill_pattern row to mid-list.
+// The scroll container is the aside's inner overflow-y-auto div — the aside
+// itself is overflow-hidden so its border-radius clips the custom scrollbar
+// to the card's rounded corners (see AppShell.tsx).
 async function scrollRowToMidlist(page: Page) {
   const aside = page.locator('aside');
-  await aside.evaluate((el) => {
-    const settings = el.querySelector(':scope > div');
+  const scroller = aside.locator(':scope > div');
+  await scroller.evaluate((el) => {
     const mk = (h: number) => {
       const d = document.createElement('div');
       d.style.height = `${h}px`;
       return d;
     };
-    settings?.insertBefore(mk(700), settings.firstChild);
-    settings?.appendChild(mk(600));
+    el.insertBefore(mk(700), el.firstChild);
+    el.appendChild(mk(600));
   });
-  await aside.evaluate((el) => {
+  await scroller.evaluate((el) => {
     const label = [...el.querySelectorAll('label')].find(
       (l) => l.textContent.trim() === 'sparse_infill_pattern',
     );
     const row = label?.closest('div');
     if (!row) throw new Error('sparse_infill_pattern row not found');
-    const rowTopInAside = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
-    const target = Math.min(el.scrollHeight - el.clientHeight, Math.max(0, rowTopInAside + el.scrollTop - 300));
+    const rowTopInScroller = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
+    const target = Math.min(el.scrollHeight - el.clientHeight, Math.max(0, rowTopInScroller + el.scrollTop - 300));
     el.scrollTop = target;
   });
-  await expect.poll(async () => (await aside.evaluate((el) => el.scrollTop)) > 0).toBe(true);
-  return aside;
+  await expect.poll(async () => (await scroller.evaluate((el) => el.scrollTop)) > 0).toBe(true);
+  return { aside, scroller };
 }
 
 const sparseTrigger = (page: Page) =>
@@ -85,7 +88,7 @@ const sparseTrigger = (page: Page) =>
 test('select popup opens below the trigger and tracks it on sidebar scroll', async () => {
   const { app, page } = await launchApp();
   try {
-    const aside = await scrollRowToMidlist(page);
+    const { aside, scroller } = await scrollRowToMidlist(page);
     const trigger = sparseTrigger(page);
     const popup = page.locator('[data-slot="select-content"]');
 
@@ -102,15 +105,15 @@ test('select popup opens below the trigger and tracks it on sidebar scroll', asy
     // Scroll the sidebar while the popup is open (programmatically — the kept
     // modal backdrop swallows wheel events, see the header): the popup must
     // TRACK the trigger — the gap between trigger bottom and popup top stays
-    // ≈4px while the aside scrolls (pre-fix the align-mode popup was a fixed
-    // one-shot snapshot that detached, drifting away from the trigger by the
-    // scroll amount).
-    const before = await aside.evaluate((el) => el.scrollTop);
-    await aside.evaluate((el) => {
+    // ≈4px while the scroller scrolls (pre-fix the align-mode popup was a
+    // fixed one-shot snapshot that detached, drifting away from the trigger
+    // by the scroll amount).
+    const before = await scroller.evaluate((el) => el.scrollTop);
+    await scroller.evaluate((el) => {
       el.scrollTop = Math.min(el.scrollHeight - el.clientHeight, el.scrollTop + 120);
     });
     await expect
-      .poll(async () => await aside.evaluate((el) => el.scrollTop), { timeout: 5_000 })
+      .poll(async () => await scroller.evaluate((el) => el.scrollTop), { timeout: 5_000 })
       .toBeGreaterThan(before);
 
     await expect
