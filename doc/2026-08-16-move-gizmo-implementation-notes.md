@@ -52,11 +52,15 @@ spike-lite report plus the e2e assertions rather than a manual pass.
   must be told to stand down (`dragConfig.enabled = kind !== 'gizmo'`).
 - drei auto-disables the makeDefault `OrbitControls` for body drags — no
   manual control needed on that path.
-- `onDraggingChanged` is **not** a drei prop in 10.7.8 — drei's wrapper
-  never forwards it (the Task 5 report documents this with type + runtime
-  evidence); the listener attaches to the controls instance via drei's
-  forwarded ref (`'dragging-changed'` event). `onMouseDown`/`onMouseUp`/
-  `onObjectChange` props are supported and keep their semantics.
+- three-stdlib 2.36.1's `TransformControls` dispatches only `mouseDown` /
+  `mouseUp` / `change` / `objectChange` — there is **no** `'dragging-changed'`
+  event (final-review C1: the commit originally hooked to it via the controls
+  instance ref, so gizmo drags never reached the bridge). The end-of-drag
+  commit hooks to drei 10.7.8's forwarded `onMouseUp` (controls `mouseUp`)
+  with a `kind === 'gizmo'` guard — a zero-delta handle-tap commit is
+  idempotent; body/background presses skip (body drags commit via
+  `DragControls`); a mid-gesture deselect already resets `kind` (correct
+  abort). `onMouseDown`/`onObjectChange` keep their semantics.
 - Demand rendering (`frameloop="demand"`): imperative THREE mutations need
   `invalidate()`. drei `DragControls` invalidates internally; drei
   `TransformControls` does NOT — the move tool calls `invalidate()` from

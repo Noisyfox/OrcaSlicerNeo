@@ -55,9 +55,9 @@ export function Viewport() {
           <OrbitControls
             makeDefault
             enableDamping
-            // LEFT = orbit, RIGHT = pan, MIDDLE = zoom: select-drag is handled
-            // on the mesh (ModelMesh onPointerDown), so orbit stays on left
-            // only when NOT starting on a selected object.
+            // LEFT = orbit, RIGHT = pan, MIDDLE = zoom. Body/gizmo drags
+            // (DragControls dragConfig, MoveGizmo) disable orbit for the
+            // gesture's duration.
             mouseButtons={{
               LEFT: THREE.MOUSE.ROTATE,
               MIDDLE: THREE.MOUSE.DOLLY,

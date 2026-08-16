@@ -226,7 +226,8 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
 // The move gizmo + body drag + move panel, end to end. Projection comes
 // from the __orcaE2e hook (mock/e2e builds only) so drags start exactly on
 // the X arrow's shaft; commits are asserted through the move panel's
-// numeric inputs, which mirror the store's live position.
+// numeric inputs (which mirror the store's live position) and, after a
+// reload, through the bridge re-seed (the round-trip proof below).
 test('move gizmo: select, axis drag, numeric input, drop to bed, reset', async () => {
   const { app } = await launchApp();
   try {
@@ -334,6 +335,30 @@ test('move gizmo: select, axis drag, numeric input, drop to bed, reset', async (
       // Commit round-trips the bridge: the panel reflects the new X.
       await expect(page.getByTestId('move-x')).toHaveValue('45.000', { timeout: 10_000 });
 
+      // Bridge round-trip proof: the gizmo release must have called
+      // orc_set_instance_offset, not just updated the store/panel. Re-open
+      // the model — useModelLoader re-seeds positions from the bridge's
+      // getModelMesh offset (mock persists setInstanceOffset), so a
+      // live-only store update snaps the mesh back to 0 and this fails. The
+      // reloaded cube sits at [45,65]³, so its centroid projects at
+      // [55,10,10] — NOT the original [10,10,10].
+      await page.getByTestId('btn-open').click();
+      // The mesh re-mounts asynchronously after loadModel resolves (store
+      // re-seed + render); click the post-commit centroid, retrying until
+      // the move panel opens.
+      await expect
+        .poll(
+          async () => {
+            const p = await project([55, 10, 10]);
+            if (!p) return false;
+            await page.mouse.click(p.x, p.y);
+            return page.getByTestId('move-panel').isVisible();
+          },
+          { timeout: 15_000 },
+        )
+        .toBe(true);
+      await expect(page.getByTestId('move-x')).toHaveValue('45.000');
+
       // Numeric input commits on Enter.
       const beforeNumeric = await shot();
       await page.getByTestId('move-x').fill('35');
@@ -356,12 +381,14 @@ test('move gizmo: select, axis drag, numeric input, drop to bed, reset', async (
       await page.getByTestId('move-drop-bed').click();
       await expect(page.getByTestId('move-z')).toHaveValue('0.000');
 
-      // Reset restores the load-time position (all zeros).
+      // Reset restores the load-time position — which is now the RELOADED
+      // baseline [45,0,0] (the reload above re-seeded initialPositions from
+      // the persisted bridge offset), not the original zeros.
       await page.getByTestId('move-x').fill('99');
       await page.getByTestId('move-x').press('Enter');
       await expect(page.getByTestId('move-x')).toHaveValue('99.000');
       await page.getByTestId('move-reset').click();
-      await expect(page.getByTestId('move-x')).toHaveValue('0.000');
+      await expect(page.getByTestId('move-x')).toHaveValue('45.000');
       await expect(page.getByTestId('move-y')).toHaveValue('0.000');
       await expect(page.getByTestId('move-z')).toHaveValue('0.000');
     } catch (err) {

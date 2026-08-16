@@ -36,33 +36,12 @@ export function MoveGizmo({ target, objectIdx, kind, setKind, gestureRef }: {
   const invalidate = useThree((s) => s.invalidate);
   const setObjectOffset = useSettingsStore((s) => s.setObjectOffset);
   const setError = useSlicerStore((s) => s.setError);
-  // Whether TransformControls is mid-drag: a handle press WITHOUT movement
-  // never fires dragging-changed(false), so onMouseUp needs to distinguish
-  // "drag just ended" (already reset) from "press never became a drag".
-  const draggingRef = useRef(false);
-  // drei 10.7.8 has no onDraggingChanged prop (absent from its
-  // TransformControlsProps and never registered by the wrapper), so listen
-  // on the controls instance drei forwards through `ref` instead — the
-  // dispatched event is the same 'dragging-changed' { value } three fires.
+  // The controls instance drei forwards through `ref` — kept only for the
+  // test-only gizmoAxis getter below (e2e engage hook); nothing else reads
+  // it. three-stdlib 2.36.1's TransformControls dispatches only mouseDown /
+  // mouseUp / change / objectChange ('dragging-changed' does not exist), so
+  // the end-of-drag commit hooks to drei's forwarded onMouseUp instead.
   const tcRef = useRef<React.ComponentRef<typeof TransformControls> | null>(null);
-  useEffect(() => {
-    const tc = tcRef.current;
-    if (!tc) return;
-    // addEventListener is generic over Object3DEventMap in @types/three and
-    // 'dragging-changed' is not a member — widen for this one event.
-    const evented = tc as unknown as {
-      addEventListener(t: 'dragging-changed', l: (e: { value: boolean }) => void): void;
-      removeEventListener(t: 'dragging-changed', l: (e: { value: boolean }) => void): void;
-    };
-    const onDraggingChanged = (e: { value: boolean }) => {
-      draggingRef.current = e.value;
-      if (e.value) return; // start handled in onMouseDown
-      resetGesture();
-      void endDrag();
-    };
-    evented.addEventListener('dragging-changed', onDraggingChanged);
-    return () => evented.removeEventListener('dragging-changed', onDraggingChanged);
-  }, [controls]);
 
   // Test-only axis getter (mock/e2e builds): the e2e gizmo test polls this
   // to wait for the picker's hover hit-test (axis is set by pointerHover)
@@ -87,7 +66,6 @@ export function MoveGizmo({ target, objectIdx, kind, setKind, gestureRef }: {
     const p = target.position;
     gestureRef.current = { kind: 'gizmo', dragStart: [p.x, p.y, p.z] };
     setKind('gizmo');
-    draggingRef.current = false;
     // TransformControls does not touch OrbitControls — mirror the body-drag
     // pattern and disable orbit while the gizmo is active.
     if (controls) controls.enabled = false;
@@ -130,9 +108,14 @@ export function MoveGizmo({ target, objectIdx, kind, setKind, gestureRef }: {
       onMouseDown={startDrag}
       onObjectChange={onObjectChange}
       onMouseUp={() => {
-        // Press without movement never dragged — close the gesture so the
-        // body drag does not stay locked out (dragConfig enabled: false).
-        if (!draggingRef.current && gestureRef.current.kind === 'gizmo') resetGesture();
+        // Release: close the gesture and commit through the bridge. A tap on
+        // a gizmo handle never moved — the zero-delta commit is idempotent
+        // (accepted); body/background presses keep kind 'none'/'body' and are
+        // skipped (body drags commit via DragControls' own path; a
+        // mid-gesture deselect already reset kind — correct abort).
+        if (gestureRef.current.kind !== 'gizmo') return;
+        resetGesture();
+        void endDrag();
       }}
     />
   );

@@ -26,7 +26,9 @@ describe('commitPosition', () => {
   });
 
   it('reverts the store to revertPos and reports the error on failure', async () => {
-    useSettingsStore.getState().setObjectOffsets({ 0: [5, 5, 5] }, { 0: [5, 5, 5] }, {});
+    // Seed ≠ revertPos ([5,5,5]): if the revert were skipped, positions
+    // would stay at the seed and the assertion below would fail.
+    useSettingsStore.getState().setObjectOffsets({ 0: [1, 1, 1] }, { 0: [1, 1, 1] }, {});
     const client = makeClient(false, 'boom');
     const onError = vi.fn();
     const ok = await commitPosition(client, 0, [10, 20, 30], [5, 5, 5], onError);
