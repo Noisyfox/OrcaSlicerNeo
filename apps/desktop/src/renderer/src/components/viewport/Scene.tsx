@@ -19,16 +19,30 @@ export function Scene() {
   const size = useThree((s) => s.size);
   useEffect(() => {
     if (!(import.meta.env as { VITE_USE_MOCK?: string }).VITE_USE_MOCK) return;
+    // The container is shared with MoveGizmo (gizmoAxis), and per-key
+    // cleanup leaves a partial behind — so every key is optional here.
     const w = window as unknown as {
-      __orcaE2e?: { projectWorldToScreen(p: [number, number, number]): { x: number; y: number } | null };
+      __orcaE2e?: {
+        projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null;
+        gizmoAxis?: () => string | null;
+      };
     };
+    // Scene owns the container but shares it with MoveGizmo (gizmoAxis) —
+    // merge, and remove only our own key on cleanup, so a camera/size
+    // re-run does not drop the gizmo's registration.
     w.__orcaE2e = {
+      ...w.__orcaE2e,
       projectWorldToScreen(p) {
         const v = new THREE.Vector3(p[0], p[1], p[2]).project(camera);
         return { x: (v.x + 1) * 0.5 * size.width, y: (1 - v.y) * 0.5 * size.height };
       },
     };
-    return () => { delete w.__orcaE2e; };
+    return () => {
+      if (w.__orcaE2e) {
+        const { projectWorldToScreen: _dropped, ...rest } = w.__orcaE2e;
+        w.__orcaE2e = rest;
+      }
+    };
   }, [camera, size]);
 
   return (

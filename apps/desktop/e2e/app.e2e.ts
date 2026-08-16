@@ -198,10 +198,13 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
       .toBe(false);
 
     // Drag must invalidate the demand-mode frame while the pointer is held:
-    // with the gizmo mounted, the click at the object's center lands on the
-    // gizmo's free-move box (or the body — both invalidate mid-drag). The
-    // assertion is pixels changed before release; the commit happens on
-    // mouse.up (covered in detail by the move-gizmo test below).
+    // the click at the canvas center is the projection of the mock cube's
+    // corner vertex (the cube spans [0,20]³ at the origin) — a degenerate
+    // hit at best — so the held drag is usually an orbit (camera rotates,
+    // pixels change), or a gizmo free-move / body drag if the corner click
+    // did select. Either way the assertion is pixels changed before
+    // release; the move-gizmo test below covers the gizmo/body mechanics
+    // in detail.
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
     await page.mouse.click(center.x, center.y);
     const beforeDrag = await shot();
@@ -261,38 +264,71 @@ test('move gizmo: select, axis drag, numeric input, drop to bed, reset', async (
       await expect(page.getByTestId('move-panel')).toBeVisible();
       await expect(page.getByTestId('move-x')).toHaveValue('0.000');
 
-      // Gizmo renders once selected: pixels near the object change.
-      const selectedShot = await shot();
-
       // X-axis arrow drag: press on the shaft 10 mm out, drag along it
       // (shaft extends ~30 mm at this camera distance; 10 mm is mid-shaft,
-      // past the plane handles). The gizmo translates the object by the
-      // pointer's DELTA along the axis (grab offset stays fixed), so to
-      // land on +45 mm the drag must END at the projection of world +55
-      // (55 − 10 = 45) — passing the shaft tip is fine, once grabbed the
-      // drag is pure plane math.
+      // past the center free-move box and the plane handles, which sit
+      // ~5 mm out). The pick point (10,0,0) lies exactly on the X axis line
+      // — on the arrow's shaft cylinder, not the cone picker's degenerate
+      // tip line — and the axis poll below makes the hit explicit. The
+      // gizmo translates the object by the pointer's DELTA along the axis
+      // (grab offset stays fixed), so to land on +45 mm the drag must END
+      // at the projection of world +55 (55 − 10 = 45) — passing the shaft
+      // tip is fine, once grabbed the drag is pure plane math.
       const xStart = await project([10, 0, 0]);
       const xEnd = await project([55, 0, 0]);
       if (!xStart || !xEnd) throw new Error('X-arrow projection unavailable');
-      // The picker must be LIVE before the grab: the gizmo's mount render
-      // (demand mode) can lag the selection commit on a slow first frame,
-      // and a missed picker degenerates into a body drag + orbit (garbage
-      // commit). Hovering the X arrow shifts its color toward white, so
-      // poll the pixels until the hover registers, then press.
-      const hoverNeutral = await shot();
+      // Deterministic engage precondition: the TransformControls picker
+      // must be live and the hover must have picked the X arrow before the
+      // press — a missed picker degenerates into a body drag + orbit
+      // (garbage commit). MoveGizmo installs __orcaE2e.gizmoAxis (mock/e2e
+      // builds only), mirroring the controls' axis field, which pointerHover
+      // sets only when the picker's raycast hit — no render ever changes it,
+      // so 'X' here means mouse.down() grabs the X arrow. (A pixel signal
+      // would be ambiguous: the selection + gizmo-mount renders change
+      // pixels without any hover.)
       await page.mouse.move(xStart.x, xStart.y);
+      const hasAxisGetter = await page.evaluate(
+        () =>
+          typeof (window as unknown as { __orcaE2e?: { gizmoAxis?: unknown } }).__orcaE2e?.gizmoAxis ===
+          'function',
+      );
+      if (!hasAxisGetter) {
+        throw new Error(
+          '__orcaE2e.gizmoAxis missing — the e2e build must set VITE_USE_MOCK and MoveGizmo must register the getter',
+        );
+      }
       await expect
-        .poll(async () => {
-          await page.mouse.move(xStart.x, xStart.y);
-          return (await shot()).equals(hoverNeutral);
-        }, { timeout: 10_000 })
-        .toBe(false);
+        .poll(
+          () =>
+            page.evaluate(
+              () =>
+                (window as unknown as {
+                  __orcaE2e?: { gizmoAxis?: () => string | null };
+                }).__orcaE2e?.gizmoAxis?.() ?? null,
+            ),
+          { timeout: 10_000 },
+        )
+        .toBe('X');
+      // The demand-mode frame settles after the selection + hover render:
+      // wait for two identical frames so the mid-drag baseline cannot be
+      // polluted by selection/hover residue.
+      await expect
+        .poll(
+          async () => {
+            const a = await shot();
+            const b = await shot();
+            return a.equals(b);
+          },
+          { timeout: 10_000 },
+        )
+        .toBe(true);
+      const dragBaseline = await shot();
       await page.mouse.down();
       await page.mouse.move(xEnd.x, xEnd.y, { steps: 5 });
       // Mid-drag: the mesh follows (gizmo objectChange invalidates the
       // demand-mode frame).
       await expect
-        .poll(async () => (await shot()).equals(selectedShot), { timeout: 10_000 })
+        .poll(async () => (await shot()).equals(dragBaseline), { timeout: 10_000 })
         .toBe(false);
       await page.mouse.up();
       // Commit round-trips the bridge: the panel reflects the new X.

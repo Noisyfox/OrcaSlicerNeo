@@ -64,6 +64,25 @@ export function MoveGizmo({ target, objectIdx, kind, setKind, gestureRef }: {
     return () => evented.removeEventListener('dragging-changed', onDraggingChanged);
   }, [controls]);
 
+  // Test-only axis getter (mock/e2e builds): the e2e gizmo test polls this
+  // to wait for the picker's hover hit-test (axis is set by pointerHover)
+  // before pressing, instead of inferring engagement from pixels. No-op in
+  // production builds (VITE_USE_MOCK is unset).
+  useEffect(() => {
+    if (!(import.meta.env as { VITE_USE_MOCK?: string }).VITE_USE_MOCK) return;
+    const w = window as unknown as { __orcaE2e?: { gizmoAxis?: () => string | null } };
+    if (!w.__orcaE2e) return; // Scene owns the container and mounts first
+    // The axis field is private in three-stdlib's types — widen minimally.
+    const readAxis = () => (tcRef.current as unknown as { axis: string | null } | null)?.axis ?? null;
+    w.__orcaE2e = { ...w.__orcaE2e, gizmoAxis: readAxis };
+    return () => {
+      if (w.__orcaE2e) {
+        const { gizmoAxis: _dropped, ...rest } = w.__orcaE2e;
+        w.__orcaE2e = rest;
+      }
+    };
+  }, []);
+
   function startDrag() {
     const p = target.position;
     gestureRef.current = { kind: 'gizmo', dragStart: [p.x, p.y, p.z] };
