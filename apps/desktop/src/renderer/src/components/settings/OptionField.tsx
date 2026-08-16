@@ -11,10 +11,15 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
   const setValue = useSettingsStore((s) => s.setValue);
   const label = meta.label ?? optionKey;
 
+  // Fixed-width label column (w-32) keeps the value column vertically aligned
+  // across all rows; the value control flexes to fill the rest of the row.
+  const row = 'flex items-center gap-2 py-1';
+  const labelCls = 'w-32 shrink-0 truncate text-xs text-muted-foreground';
+
   if (meta.type === 'bool') {
     return (
-      <div className="flex items-center justify-between py-1">
-        <Label htmlFor={optionKey} className="text-xs text-muted-foreground">{label}</Label>
+      <div className={row}>
+        <Label htmlFor={optionKey} className={labelCls} title={label}>{label}</Label>
         <Checkbox
           id={optionKey}
           checked={value === '1'}
@@ -26,10 +31,10 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
 
   if (meta.type === 'enum' && meta.enum_values?.length) {
     return (
-      <div className="space-y-1 py-1">
-        <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className={row}>
+        <Label className={labelCls} title={label}>{label}</Label>
         <Select value={value} onValueChange={(v) => v != null && setValue(optionKey, v)}>
-          <SelectTrigger className="w-full">
+          <SelectTrigger className="flex-1">
             <SelectValue placeholder={value} />
           </SelectTrigger>
           <SelectContent>
@@ -42,17 +47,20 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
     );
   }
 
+  const numeric = meta.type === 'float' || meta.type === 'int';
+
   return (
-    <div className="space-y-1 py-1">
-      <Label htmlFor={optionKey} className="text-xs text-muted-foreground">{label}</Label>
+    <div className={row}>
+      <Label htmlFor={optionKey} className={labelCls} title={label}>{label}</Label>
       <Input
         id={optionKey}
         value={value}
         min={meta.min}
         max={meta.max}
-        type={['float', 'int'].includes(meta.type) ? 'number' : 'text'}
+        type={numeric ? 'number' : 'text'}
         step={meta.type === 'int' ? 1 : 'any'}
         onChange={(e) => setValue(optionKey, e.target.value)}
+        className="flex-1"
       />
     </div>
   );
