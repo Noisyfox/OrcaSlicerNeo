@@ -1,71 +1,102 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox"
+import { CheckIcon, ChevronDownIcon, XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
-import { ChevronDownIcon, CheckIcon } from "lucide-react"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group"
 
 const Combobox = ComboboxPrimitive.Root
 
-// Doesn't render its own element (base-ui 1.7: children/placeholder only).
-function ComboboxValue(props: ComboboxPrimitive.Value.Props) {
-  return <ComboboxPrimitive.Value {...props} />
+function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props) {
+  return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />
 }
 
+// Default (unrendered) trigger: a bare chevron button. The popup style passes
+// render={<Button ... />} so the trigger becomes a full select-look button.
 function ComboboxTrigger({
   className,
-  disabled = false,
+  children,
   ...props
-}: ComboboxPrimitive.Trigger.Props & { disabled?: boolean }) {
+}: ComboboxPrimitive.Trigger.Props) {
   return (
     <ComboboxPrimitive.Trigger
       data-slot="combobox-trigger"
-      className={cn(
-        "ml-auto flex size-6 shrink-0 cursor-default items-center justify-center rounded-md text-muted-foreground transition-colors outline-none hover:bg-accent/60 focus-visible:bg-accent/60 data-disabled:pointer-events-none",
-        className
-      )}
+      className={cn("[&_svg:not([class*='size-'])]:size-3.5", className)}
       {...props}
     >
-      <ChevronDownIcon className="pointer-events-none size-3.5" />
+      {children}
+      <ChevronDownIcon className="pointer-events-none size-3.5 text-muted-foreground" />
     </ComboboxPrimitive.Trigger>
   )
 }
 
-// The searchable trigger control: a select-look input that also accepts
-// typed text. The popup opens on click/focus and typing filters the items.
+function ComboboxClear({ className, ...props }: ComboboxPrimitive.Clear.Props) {
+  return (
+    <ComboboxPrimitive.Clear
+      data-slot="combobox-clear"
+      render={<InputGroupButton variant="ghost" size="icon-xs" />}
+      className={cn(className)}
+      {...props}
+    >
+      <XIcon className="pointer-events-none" />
+    </ComboboxPrimitive.Clear>
+  )
+}
+
+// Inline search field (search input + optional chevron/clear inside an
+// InputGroup). In the popup style this renders inside ComboboxContent where
+// the content's `*:data-[slot=input-group]` classes strip the chrome.
 function ComboboxInput({
   className,
+  children,
   disabled = false,
-  placeholder = "— select —",
+  showTrigger = true,
+  showClear = false,
   ...props
-}: ComboboxPrimitive.Input.Props & { placeholder?: string }) {
+}: ComboboxPrimitive.Input.Props & {
+  showTrigger?: boolean
+  showClear?: boolean
+}) {
   return (
-    <div
-      className={cn(
-        "relative flex h-8 w-full items-center rounded-md border border-input bg-transparent px-1.5 shadow-sm transition-colors has-[input:focus-visible]:border-ring has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-ring/30 has-[input:disabled]:cursor-not-allowed has-[input:disabled]:opacity-50",
-        className
-      )}
-    >
+    <InputGroup className={cn("w-auto", className)}>
       <ComboboxPrimitive.Input
-        placeholder={placeholder}
-        disabled={disabled}
-        className="h-full min-w-0 flex-1 bg-transparent px-1 text-xs/relaxed outline-none placeholder:text-muted-foreground disabled:pointer-events-none"
+        render={<InputGroupInput disabled={disabled} />}
         {...props}
       />
-      <ComboboxTrigger disabled={disabled} />
-    </div>
+      <InputGroupAddon align="inline-end">
+        {showTrigger && (
+          <InputGroupButton
+            size="icon-xs"
+            variant="ghost"
+            render={<ComboboxTrigger />}
+            data-slot="input-group-button"
+            className="group-has-data-[slot=combobox-clear]/input-group:hidden data-pressed:bg-transparent"
+            disabled={disabled}
+          />
+        )}
+        {showClear && <ComboboxClear disabled={disabled} />}
+      </InputGroupAddon>
+      {children}
+    </InputGroup>
   )
 }
 
 function ComboboxContent({
   className,
   side = "bottom",
-  sideOffset = 4,
+  sideOffset = 6,
   align = "start",
   alignOffset = 0,
+  anchor,
   ...props
 }: ComboboxPrimitive.Popup.Props &
   Pick<
     ComboboxPrimitive.Positioner.Props,
-    "align" | "alignOffset" | "side" | "sideOffset"
+    "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
   >) {
   return (
     <ComboboxPrimitive.Portal>
@@ -74,12 +105,20 @@ function ComboboxContent({
         sideOffset={sideOffset}
         align={align}
         alignOffset={alignOffset}
+        anchor={anchor}
         className="isolate z-50"
       >
         <ComboboxPrimitive.Popup
           data-slot="combobox-content"
+          data-chips={!!anchor}
           className={cn(
-            "group/combobox-content relative isolate z-50 max-h-(--available-height) w-(--anchor-width) min-w-[calc(var(--anchor-width)_+_1.75rem)] origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg bg-card text-card-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            // transition-none replaces the official `duration-100`: the
+            // positioner rewrites --available-height/--transform-origin on the
+            // popup, and with `transition-property: all` those writes spawn
+            // transitions that never advance (pending at t=0) — Base UI waits
+            // on getAnimations().finished to unmount, so the popup would stay
+            // mounted forever. The open/close motion is the animation only.
+            "group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-lg bg-card text-card-foreground shadow-md ring-1 ring-foreground/10 transition-none data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-7 *:data-[slot=input-group]:border-none *:data-[slot=input-group]:bg-input/20 *:data-[slot=input-group]:shadow-none dark:bg-card data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className
           )}
           {...props}
@@ -93,7 +132,10 @@ function ComboboxList({ className, ...props }: ComboboxPrimitive.List.Props) {
   return (
     <ComboboxPrimitive.List
       data-slot="combobox-list"
-      className={cn("scroll-my-1 p-1", className)}
+      className={cn(
+        "no-scrollbar max-h-[min(calc(--spacing(72)---spacing(9)),calc(var(--available-height)---spacing(9)))] scroll-py-1 overflow-y-auto overscroll-contain p-1 data-empty:p-0",
+        className
+      )}
       {...props}
     />
   )
@@ -108,7 +150,7 @@ function ComboboxItem({
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
       className={cn(
-        "relative flex min-h-7 w-full cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs/relaxed whitespace-nowrap outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+        "relative flex min-h-7 w-full cursor-default items-center gap-2 rounded-md px-2 py-1 text-xs/relaxed outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
         className
       )}
       {...props}
@@ -129,7 +171,7 @@ function ComboboxGroup({ className, ...props }: ComboboxPrimitive.Group.Props) {
   return (
     <ComboboxPrimitive.Group
       data-slot="combobox-group"
-      className={cn("scroll-my-1 p-1", className)}
+      className={cn(className)}
       {...props}
     />
   )
@@ -176,14 +218,15 @@ function ComboboxSeparator({
 
 export {
   Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxGroup,
   ComboboxInput,
-  ComboboxItem,
-  ComboboxLabel,
+  ComboboxContent,
   ComboboxList,
+  ComboboxItem,
+  ComboboxGroup,
+  ComboboxLabel,
+  ComboboxEmpty,
   ComboboxSeparator,
   ComboboxTrigger,
   ComboboxValue,
+  ComboboxClear,
 }

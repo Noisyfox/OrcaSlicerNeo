@@ -112,6 +112,21 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
     });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
 
+    // Preset picker (popup style, base-mira): the trigger is a button showing
+    // the current value; opening shows a searchable popup; typing filters the
+    // list; picking updates the trigger and the real bridge selection. The
+    // mock starts on the X1 Carbon — switch to the P1S to prove a change.
+    await page.getByTestId('preset-select').click();
+    await expect(page.locator('[data-slot="combobox-content"]')).toBeVisible();
+    await expect(page.locator('[data-slot="combobox-content"] input')).toBeVisible();
+    await page.locator('[data-slot="combobox-content"] input').fill('P1S');
+    await expect(page.locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')).toHaveCount(1);
+    await expect(page.locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')).toHaveText('Bambu Lab P1S 0.4 nozzle');
+    await page.locator('[data-slot="combobox-content"] [data-slot="combobox-item"]').click();
+    await expect(page.getByTestId('preset-select')).toContainText('Bambu Lab P1S 0.4 nozzle');
+    // Single-select: the popup dismisses on pick.
+    await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
+
     // Slice gated until a model is loaded.
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
     await expect(page.getByTestId('btn-export')).toBeDisabled();
@@ -128,12 +143,12 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
     await expect(page.getByTestId('btn-export')).toBeEnabled();
 
     // The scrubber grabber (Base UI Thumb: div wrapper + visually-hidden
-    // input) must render as a full 16x16 knob straddling the 6px track.
-    // Regression (2026-08-16): the Base UI migration nested the Thumb inside
-    // the overflow-hidden Track, which clipped 10 of its 16px to a barely
-    // visible sliver. getBoundingClientRect ignores ancestor overflow
-    // clipping, so probe hit-testing with elementFromPoint at the thumb's
-    // vertical extremes: clipped, both hit the card overlay instead.
+    // input) must render as a full 12x12 knob (base-mira size-3) straddling
+    // the 4px track. Regression (2026-08-16): the Base UI migration nested
+    // the Thumb inside the overflow-hidden Track, which clipped most of the
+    // knob to a barely visible sliver. getBoundingClientRect ignores ancestor
+    // overflow clipping, so probe hit-testing with elementFromPoint at the
+    // thumb's vertical extremes: clipped, both hit the card overlay instead.
     const thumbFullyVisible = await page
       .getByTestId('layer-scrubber')
       .evaluate((el) => {
@@ -142,8 +157,8 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
         const r = thumb.getBoundingClientRect();
         const cx = r.x + r.width / 2;
         return (
-          r.width === 16 &&
-          r.height === 16 &&
+          r.width === 12 &&
+          r.height === 12 &&
           thumb.contains(document.elementFromPoint(cx, r.y + 1)) &&
           thumb.contains(document.elementFromPoint(cx, r.y + r.height - 1))
         );

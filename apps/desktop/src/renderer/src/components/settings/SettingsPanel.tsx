@@ -6,6 +6,7 @@ import { useSlicerStore } from '../../stores/useSlicerStore';
 import { slicerClient } from '../../slicer/slicerClient';
 import { OptionField } from './OptionField';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import {
   Combobox,
   ComboboxContent,
@@ -13,6 +14,8 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
+  ComboboxTrigger,
+  ComboboxValue,
 } from '@/components/ui/combobox';
 
 const PROCESS_KEYS = [
@@ -86,7 +89,9 @@ export function SettingsPanel() {
 
 // Installed (visible) presets only. Visibility comes from the bridge's REAL
 // set_visible_from_appconfig result — never client-side logic. Searchable:
-// typing in the box filters the list (case-insensitive substring).
+// typing in the popup's search input filters the list (case-insensitive
+// substring) — the shadcn base-mira popup style: a button trigger showing
+// the current value, search input inside the popup.
 function PresetRow({ label, items, value, onValue, testId }: {
   label: string;
   items: PresetInfo[];
@@ -109,8 +114,21 @@ function PresetRow({ label, items, value, onValue, testId }: {
         onValueChange={(v) => v != null && onValue(v)}
         items={installed.map((p) => p.name)}
       >
-        <ComboboxInput data-testid={testId} />
+        <ComboboxTrigger
+          data-testid={testId}
+          render={
+            <Button variant="outline" className="w-full justify-between font-normal" />
+          }
+        >
+          <ComboboxValue placeholder="— select —" />
+        </ComboboxTrigger>
         <ComboboxContent>
+          {/* showTrigger={false} — official popup-style anatomy: the only
+              ComboboxTrigger is the root button. Rendering the chevron
+              trigger inside the popup overwrites the store's triggerElement
+              with an element INSIDE the popup, so the positioner anchors to
+              itself and oscillates forever (2026-08-16). */}
+          <ComboboxInput placeholder="Search presets…" showTrigger={false} />
           <ComboboxList>
             {(name) => (
               <ComboboxItem key={name} value={name}>{name}</ComboboxItem>

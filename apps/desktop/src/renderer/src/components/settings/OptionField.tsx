@@ -18,7 +18,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
         <Checkbox
           id={optionKey}
           checked={value === '1'}
-          onChange={(e) => setValue(optionKey, e.target.checked ? '1' : '0')}
+          onCheckedChange={(checked) => setValue(optionKey, checked ? '1' : '0')}
         />
       </div>
     );
@@ -29,7 +29,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
       <div className="space-y-1 py-1">
         <Label className="text-xs text-muted-foreground">{label}</Label>
         <Select value={value} onValueChange={(v) => v != null && setValue(optionKey, v)}>
-          <SelectTrigger className="h-8 text-xs">
+          <SelectTrigger className="w-full">
             <SelectValue placeholder={value} />
           </SelectTrigger>
           <SelectContent>
@@ -47,7 +47,6 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
       <Label htmlFor={optionKey} className="text-xs text-muted-foreground">{label}</Label>
       <Input
         id={optionKey}
-        className="h-8 text-xs"
         value={value}
         min={meta.min}
         max={meta.max}

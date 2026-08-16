@@ -79,8 +79,19 @@
   background: hsl(var(--card));
 }
 
+/* base-mira theme utility: hide scrollbars on in-popup lists (combobox). */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Replaces tailwindcss-animate (tw3 plugin, incompatible with tw4):
-   enter/exit animation utilities for popover/dialog transitions. */
+   enter/exit animation utilities for popover/dialog transitions. The
+   keyframes animate opacity only — animating transform would override the
+   positioner's inline transform, breaking anchoring mid-animation and
+   feeding the positioner's reposition loop (2026-08-16 popup hang). */
 @utility animate-in {
   animation: enter 0.15s ease-out;
 }
@@ -88,8 +99,8 @@
   animation: exit 0.15s ease-out;
 }
 @keyframes enter {
-  from { opacity: 0; transform: translateY(4px) scale(0.97); }
+  from { opacity: 0; }
 }
 @keyframes exit {
-  to { opacity: 0; transform: translateY(4px) scale(0.97); }
+  to { opacity: 0; }
 }
