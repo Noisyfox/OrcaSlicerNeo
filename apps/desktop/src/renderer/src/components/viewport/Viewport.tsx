@@ -72,7 +72,7 @@ export function Viewport() {
               Labels are plain X/Y/Z, so no Z-up remap is needed (unlike the
               viewcube's Y-up face names). See
               doc/2026-08-17-viewcube-gizmo.md. */}
-          <GizmoHelper alignment="bottom-left" margin={[40, 40]}>
+          <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
             <GizmoViewport />
           </GizmoHelper>
         </Canvas>
