@@ -1,7 +1,8 @@
 # Move Gizmo Design
 
 Date: 2026-08-16
-Status: Approved (brainstorming session, 2026-08-16)
+Status: Approved (brainstorming session, 2026-08-16); amended 2026-08-17 —
+body drag dropped the Z lock (see "Amendments" at the end)
 Scope: Milestone 5 — full move tool for the 3D viewport, replacing the M2
 "basic move-on-plate" drag.
 
@@ -16,9 +17,10 @@ move tool:
   arrow lifts the model off the bed for the first time.
 - **Body drag**: drei `DragControls` replaces the manual pointer handlers
   (plane math, pointer capture, manual orbit-disable, manual `invalidate`).
-  Drag on a selected object's body moves it in world-XY at its current
-  height (`axisLock="z"` — z preserved, so an object lifted by the Z arrow
-  stays lifted; today's code force-snaps z=0).
+  Drag on a selected object's body moves it freely — no axis lock; the
+  drag plane is perpendicular to the camera through the grab point, so X,
+  Y and Z all follow the pointer (amended 2026-08-17: the original
+  `axisLock="z"` world-XY plane locked Z and was dropped).
 - **Move panel**: sidebar section (visible when an object is selected) with
   numeric X/Y/Z position inputs, **Drop to bed**, and **Reset**.
 
@@ -31,7 +33,7 @@ move tool:
 | Tool model | `tool: 'move'` field in the settings store; **gizmo-on-selection**; no toolbar buttons | Reserved for rotate/scale milestones; zero UI churn now |
 | Transform ownership | The **DragControls group** is the single transform owner; both drag systems write `group.position` | One commit path, one source of truth |
 | Store shape | `positions` / `initialPositions` per-object maps **replace** the `instanceOffset` tuple (no readers today) | Panel needs the selected object's offset; survives selection changes and multi-object models |
-| Body-drag plane | `axisLock="z"` (world-XY at current height, z preserved) | Matches "move on plate"; mathematically consistent with the grab point |
+| Body-drag plane | Free — camera-facing plane, no axis lock (amended 2026-08-17; was `axisLock="z"` world-XY) | A locked plane meant dragging the body could never lift or lower an object; the free drag moves X/Y/Z with the pointer |
 | Panel location | Sidebar section in `SettingsPanel` (appears when `selectedObject != null`) | Existing layout; OrcaSlicer puts gizmo options in its own panel |
 | Deferred | Flip buttons, snap/grid, multi-select, keyboard shortcuts; instance 0 only | Flip is a scale-gizmo concern (`orc_set_instance_offset` has no scale axis); multi-instance is M5+ |
 
@@ -39,10 +41,10 @@ move tool:
 
 ```
 ModelMesh (per object)
-├─ <DragControls ref={groupRef} autoTransform={false} axisLock="z"
+├─ <DragControls ref={groupRef} autoTransform={false}
 │    onDrag={pos → groupRef.position.copy(pos) → store live}
 │    onDragStart/onDragEnd={gesture gate + commit}>
-│  └─ <mesh onClick={select}/>            ← body drag: world-XY, z preserved
+│  └─ <mesh onClick={select}/>            ← body drag: free (camera plane)
 └─ selected && <TransformControls object={groupRef.current}
      mode="translate" space="world"
      enabled={gesture !== 'body'}
@@ -189,3 +191,15 @@ picks up dynamic `dragConfig.enabled`).
   "Gizmos: rotate/scale/cut/measure/arrange/orient" line.
 - Implementation notes: `doc/2026-08-16-move-gizmo-implementation-notes.md`
   on delivery.
+
+## Amendments
+
+### 2026-08-17 — body drag no longer locks Z
+
+The body drag dropped `axisLock="z"`. With no lock, drei computes the drag
+plane perpendicular to the camera through the grab point, so dragging an
+object's body moves it freely in X, Y and Z with the pointer (the locked
+world-XY plane kept an object at its current height — it could never be
+lifted or lowered by body drag). Z lift now comes from the free drag, the
+Z arrow, and the move panel alike. Decided after the milestone merged to
+main; see the implementation notes' amendment section.

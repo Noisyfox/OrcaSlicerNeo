@@ -120,7 +120,7 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 - [x] TransformControls move gizmo on selection (axis arrows + plane
       handles, Z-up verified, world space)
 - [x] Body drag via drei DragControls replacing the M2 hand-rolled pointer
-      drag (axisLock z — world-XY at current height)
+      drag (free — camera-facing plane, no axis lock; amended 2026-08-17)
 - [x] Mutual exclusion between gizmo and body drags (gesture ref + state)
 - [x] Move panel: numeric X/Y/Z inputs, Drop to bed, Reset (bridge commit
       via commitPosition with store/group revert on failure)

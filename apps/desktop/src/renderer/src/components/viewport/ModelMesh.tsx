@@ -1,8 +1,9 @@
 // apps/desktop/src/renderer/src/components/viewport/ModelMesh.tsx
-// One loaded object: body drag via drei DragControls (world-XY at the
-// object's current height — axisLock="z") and, when selected, the move
-// gizmo. The DragControls group is the single world-transform owner; both
-// drag systems write group.position and commit through the bridge on
+// One loaded object: body drag via drei DragControls (free — no axis lock;
+// the drag plane is perpendicular to the camera through the grab point, so
+// the body moves in X, Y and Z with the pointer) and, when selected, the
+// move gizmo. The DragControls group is the single world-transform owner;
+// both drag systems write group.position and commit through the bridge on
 // release (see gizmo/commitPosition.ts).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -77,7 +78,6 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
       <DragControls
         ref={groupRef}
         autoTransform={false}
-        axisLock="z"
         dragConfig={{ enabled: kind !== 'gizmo' }}
         onDragStart={() => {
           const g = groupRef.current!;

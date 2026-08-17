@@ -7,17 +7,22 @@ Date: 2026-08-16. Design: `doc/2026-08-16-move-gizmo-design.md`. Milestone:
 
 Delivered 2026-08-16 — commits `320561e..14f0d1e` on `feat/move-gizmo`
 (nine commits; every task gated by its own review, the branch by the
-final whole-branch review plus the fix-wave re-review).
+final whole-branch review plus the fix-wave re-review). Merged to main
+2026-08-16 (merge commit).
+
+**Amendment (2026-08-17, post-merge):** the body drag no longer locks Z —
+`axisLock="z"` dropped for a free drag in the camera-facing plane. See
+"Free body drag" below.
 
 ## What shipped
 
 - **Move gizmo** on selection: drei `TransformControls` (translate, world
   space) attached to the selected object's drag group — axis arrows +
   plane handles with Z lift (`MoveGizmo.tsx`).
-- **Body drag** via drei `DragControls` (`axisLock="z"` — world-XY at the
-  object's current height) replacing the M2 hand-rolled pointer drag
-  (`ModelMesh.tsx`; the old pointer-drag machinery and `BED_Z` are
-  deleted).
+- **Body drag** via drei `DragControls` (free — camera-facing plane, no
+  axis lock; amended 2026-08-17, see "Free body drag") replacing the M2
+  hand-rolled pointer drag (`ModelMesh.tsx`; the old pointer-drag
+  machinery and `BED_Z` are deleted).
 - **Move panel**: numeric X/Y/Z inputs, Drop to bed, Reset — committed
   through the bridge via `commitPosition`, with store + group revert on
   failure.
@@ -73,6 +78,22 @@ spike-lite report plus the e2e assertions rather than a manual pass.
   `onObjectChange`.
 - The store→group subscription in `ModelMesh` means panel commits move the
   mesh visually (asserted by pixel diff in e2e).
+
+## Free body drag (2026-08-17 amendment)
+
+The approved design's body drag locked Z (`axisLock="z"` — the drag plane
+was world-XY at the object's current height, so an object lifted by the Z
+arrow stayed lifted; see the design doc's Key Decisions). After the merge,
+the lock was dropped: with no `axisLock`, drei computes the drag plane
+perpendicular to the camera through the grab point (`camera.getWorldDirection`
+negated, source-verified in the installed drei 10.7.8), so dragging a
+body moves the object freely in X, Y and Z with the pointer — an angled
+view lifts or lowers it directly. Drop to bed remains the snap-back.
+
+No test changes were needed: the e2e move-gizmo spec exercises the gizmo
+arrows, panel inputs and Drop to bed — none asserts a Z-locked body drag —
+and the unit suites never touched the drag plane. The change is
+`ModelMesh.tsx` (drop `axisLock="z"` + comment) and this doc set.
 
 ## Verification
 
