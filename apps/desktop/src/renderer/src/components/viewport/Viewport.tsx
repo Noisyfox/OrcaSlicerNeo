@@ -2,7 +2,7 @@
 import { Component, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, GizmoHelper, GizmoViewcube } from '@react-three/drei';
+import { OrbitControls, GizmoHelper, GizmoViewport } from '@react-three/drei';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -66,15 +66,14 @@ export function Viewport() {
               RIGHT: THREE.MOUSE.PAN,
             }}
           />
-          {/* Orientation viewcube, bottom-left corner. GizmoHelper renders
-              the gizmo into an orthographic overlay (Hud portal); face
-              clicks tween the main camera to look along that axis. Labels
-              are remapped to the Z-up slicer convention — drei's defaults
-              are Y-up, which would print "Front" on the top face and put
-              "Top" below the build plate. See
+          {/* Orientation gizmo (X/Y/Z axes), bottom-left corner. GizmoHelper
+              renders the gizmo into an orthographic overlay (Hud portal);
+              head clicks tween the main camera to look along that axis.
+              Labels are plain X/Y/Z, so no Z-up remap is needed (unlike the
+              viewcube's Y-up face names). See
               doc/2026-08-17-viewcube-gizmo.md. */}
           <GizmoHelper alignment="bottom-left" margin={[40, 40]}>
-            <GizmoViewcube faces={['Right', 'Left', 'Back', 'Front', 'Top', 'Bottom']} />
+            <GizmoViewport />
           </GizmoHelper>
         </Canvas>
       </ViewportErrorBoundary>
