@@ -41,12 +41,14 @@ export function Viewport() {
           // mode invalidates while interacting/damping; data-driven meshes
           // invalidate via React re-render.
           frameloop="demand"
-          // Slicer convention: Z up (blue), X right, Y into screen. OrbitControls
-          // in three r185 takes its orbit axis from camera.up, so setting it
-          // here is all the wiring needed.
+          // Slicer convention: Z up (blue), X right, Y into screen. The camera
+          // is born with up = (0,0,1) — THREE.Object3D.DefaultUp is set in
+          // main.tsx before the Canvas mounts, and fiber's default camera
+          // lookAt(0,0,0) uses this.up — so no per-camera up wiring here.
+          // OrbitControls in three r185 takes its orbit axis from camera.up.
           // position in the front (+X, -Y) octant so the initial view reads
           // the convention: X right, Y into the screen, Z up.
-          camera={{ position: [200, -200, 160], fov: 45, up: [0, 0, 1] }}
+          camera={{ position: [200, -200, 160], fov: 45 }}
           dpr={[1, 2]}
           onPointerMissed={() => setSelected(null)}
         >
