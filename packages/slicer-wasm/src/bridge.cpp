@@ -11,6 +11,8 @@
 // here — never in the submodule.
 #include <emscripten/emscripten.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -492,6 +494,30 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_model(const char* data, int len, const
         DynamicPrintConfig dummy;
         state().model = Model::read_from_file(path, &dummy, nullptr,
                                               LoadStrategy::AddDefaultInstances);
+        // The wxWidgets GUI is not compiled into the WASM build, so replicate
+        // the Plater's post-load steps for non-project files (Plater.cpp
+        // _load_files: per object center_around_origin(false) + ensure_on_bed
+        // before the objects enter the plate): center each object's mesh
+        // around the origin and rest it on the bed (min Z = 0). Without this
+        // a model keeps its raw STL coordinates and its bbox center lands
+        // wherever the file's own origin is — off the viewport origin. Like
+        // the GUI, project files (3MF/AMF) keep their stored positions and
+        // are NOT re-centered. center_around_origin shifts the volumes;
+        // ensure_on_bed carries the Z drop in the instance offset
+        // (auto_drop), which orc_get_model_mesh reports and the renderer
+        // applies as the group position.
+        {
+            std::string lower_ext = ext ? ext : "";
+            std::transform(lower_ext.begin(), lower_ext.end(), lower_ext.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            const bool is_project_file = lower_ext == "3mf" || lower_ext == "amf";
+            if (!is_project_file) {
+                for (ModelObject* o : state().model.objects) {
+                    o->center_around_origin(false);
+                    o->ensure_on_bed(false);
+                }
+            }
+        }
         // Drift at the pinned SHA: Model has no instance accessor — instances
         // live per-object (ModelObject::instances, Model.hpp:385; Model itself
         // only has the objects list, Model.hpp:1553-1560). Sum per object.
@@ -679,7 +705,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
         json arr = json::array();
         for (size_t oi = 0; oi < model.objects.size(); ++oi) {
             const auto& obj = model.objects[oi];
-            const auto& its = obj->mesh().its;
+            // LOCAL (volume-transformed, instance-untouched) vertices: the
+            // instance offset is reported separately below and the renderer
+            // applies it as the group position. Baking instance transforms
+            // here (ModelObject::mesh()) double-offsets the model after any
+            // committed move + reload — a zero offset hid it at load time
+            // (see the mock-module contract comment).
+            const auto& its = obj->raw_mesh().its;
             MallocBuffer vbuf;
             MallocBuffer ibuf;
             for (const auto& v : its.vertices) {

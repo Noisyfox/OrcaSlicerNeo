@@ -77,6 +77,43 @@ const loaded = callJson('orc_load_model', ['pointer', 'number', 'string'],
 Module._free(dataPtr);
 check('orc_load_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringify(loaded));
 
+// 4b. load-time centering (OrcaSlicer Plater behavior, replicated in the
+// bridge because the GUI is not compiled into the WASM build): non-project
+// loads center each object's mesh around the origin and rest it on the bed
+// (Plater.cpp _load_files: center_around_origin + ensure_on_bed per object).
+// cube.stl spans [0,20]^3 — after load the exported LOCAL vertices must be
+// centered (bbox center ≈ origin, i.e. [-10,10]^3) with the bed drop carried
+// by the instance offset (Z = half height, XY = 0), so the rendered world
+// min Z is 0. Regression: vertices used to keep the raw STL coordinates
+// (cube at [0,20]^3, offset 0) and the renderer showed the model wherever
+// the file's own origin was.
+{
+  const mm = callJson('orc_get_model_mesh', [], []);
+  if (mm.ok && mm.objects?.length === 1) {
+    const o = mm.objects[0];
+    const verts = new Float32Array(readBytes(Module, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
+    Module._free(Number(o.index_ptr));
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < verts.length; i += 3)
+      for (let a = 0; a < 3; a++) {
+        if (verts[i + a] < min[a]) min[a] = verts[i + a];
+        if (verts[i + a] > max[a]) max[a] = verts[i + a];
+      }
+    const center = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
+    const near = (v, e) => Math.abs(v - e) < 1e-3;
+    check('load-time centering: local bbox center at origin',
+          center.every((c) => near(c, 0)), `center=[${center}]`);
+    check('load-time centering: bed drop carried by instance offset',
+          near(o.offset[0], 0) && near(o.offset[1], 0) && near(o.offset[2], (max[2] - min[2]) / 2),
+          `offset=[${o.offset}] height=${(max[2] - min[2]).toFixed(3)}`);
+    check('load-time centering: renders resting on the bed (world min Z = 0)',
+          near(min[2] + o.offset[2], 0), `minZ=${min[2]} offsetZ=${o.offset[2]}`);
+  } else {
+    check('load-time centering: mesh available', false, JSON.stringify(mm).slice(0, 120));
+  }
+}
+
 // Copy [ptr, ptr+len) out of the heap and free it — mirrors the client's
 // heap.ts readBytes contract. wasm64: the module exports ONLY HEAPU8
 // (EXPORTED_RUNTIME_METHODS), so Module.HEAPF32/HEAPU32 are undefined — the
@@ -253,6 +290,21 @@ const boxLoaded = callJson('orc_load_model', ['pointer', 'number', 'string'],
                            [boxPtr, boxStl.length, 'stl']);
 Module._free(boxPtr);
 check('floating-box loads', boxLoaded.ok === true && boxLoaded.objects === 1, JSON.stringify(boxLoaded));
+// Load-time centering (check 4b) dropped the box onto the bed (world min Z
+// = 0) — lift it back so its bottom sits at z=0.3 like the raw fixture.
+// This keeps the check about ERROR SURFACING, not about raw coordinates
+// surviving the load: offset.z is the ensure_on_bed lift, +0.3 re-floats it.
+const boxMesh = callJson('orc_get_model_mesh', [], []);
+if (boxMesh.ok && boxMesh.objects?.[0]) {
+  Module._free(Number(boxMesh.objects[0].vertex_ptr));
+  Module._free(Number(boxMesh.objects[0].index_ptr));
+  const floatZ = boxMesh.objects[0].offset[2] + 0.3;
+  const boxLifted = callJson('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
+                             [0, 0, 0, 0, floatZ]);
+  check('floating-box re-floated', boxLifted.ok === true, JSON.stringify(boxLifted));
+} else {
+  check('floating-box mesh available', false, JSON.stringify(boxMesh).slice(0, 120));
+}
 const boxSliced = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
 check('slice error surfaces the real message, not the bare category',
       !boxSliced.ok && typeof boxSliced.error === 'string'
