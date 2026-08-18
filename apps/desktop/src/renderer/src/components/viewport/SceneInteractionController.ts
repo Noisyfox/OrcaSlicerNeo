@@ -6,6 +6,7 @@ import { instanceKeyOf, Selection, type InstanceKey } from './Selection';
 
 export type OpenGizmo = 'move' | null;
 export type PointerOwner = 'none' | 'gizmo' | 'body';
+type PointerOrigin = 'none' | 'gizmo' | 'non-gizmo';
 
 export interface DragSnapshot {
   readonly kind: Exclude<PointerOwner, 'none'>;
@@ -25,6 +26,11 @@ export class SceneInteractionController {
   private readonly listeners = new Set<() => void>();
   private openGizmo: OpenGizmo = null;
   private pointerOwner: PointerOwner = 'none';
+  // DragControls deliberately waits for a small movement threshold before it
+  // calls onDragStart. Keep the pointer-down hit result separately so a fast
+  // move from a model body onto a handle cannot change that gesture into a
+  // gizmo drag during the threshold window.
+  private pointerOrigin: PointerOrigin = 'none';
   private gizmoGrabberHovered = false;
   private gizmoGrabberHitTest: ((event: PointerEvent) => boolean) | null = null;
   private suppressPostBodyDragClick = false;
@@ -44,7 +50,7 @@ export class SceneInteractionController {
     // The initiating DragControls must stay enabled for the rest of its own
     // gesture. A gizmo remains exclusive; other body wrappers are still
     // blocked synchronously by tryBeginBodyDrag/update ownership checks.
-    return !this.gizmoGrabberHovered
+    return (this.pointerOrigin === 'non-gizmo' || !this.gizmoGrabberHovered)
       && (this.pointerOwner === 'none' || this.pointerOwner === 'body')
       && !this.selection.empty;
   }
@@ -105,9 +111,18 @@ export class SceneInteractionController {
    * target callback can begin a body gesture.
    */
   resolveGizmoPointerDown(event: PointerEvent): boolean {
+    if (event.button !== 0) return false;
     const grabbed = this.gizmoGrabberHitTest?.(event) ?? false;
+    this.pointerOrigin = grabbed ? 'gizmo' : 'non-gizmo';
     this.setGizmoGrabberHovered(grabbed);
     return grabbed;
+  }
+
+  /** Release the pointer-down arbitration latch when no gesture owns it. */
+  releasePointer(): void {
+    if (this.pointerOwner !== 'none') return;
+    this.pointerOrigin = 'none';
+    this.setGizmoGrabberHovered(false);
   }
 
   /** Clear all ephemeral scene interaction when a loaded collection is replaced. */
@@ -118,6 +133,7 @@ export class SceneInteractionController {
     this.drag = null;
     this.suppressPostBodyDragClick = false;
     this.pointerOwner = 'none';
+    this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     if (hadState) this.emit();
   }
@@ -128,13 +144,13 @@ export class SceneInteractionController {
    * returns true.
    */
   tryBeginBodyDrag(): boolean {
-    if (this.gizmoGrabberHovered || this.pointerOwner !== 'none' || this.selection.empty) return false;
+    if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty) return false;
     return this.beginDrag('body');
   }
 
   /** Called synchronously by TransformControls on a confirmed grabber press. */
   beginGizmoDrag(): boolean {
-    if (this.pointerOwner !== 'none' || this.selection.empty || this.openGizmo === null) return false;
+    if (this.pointerOrigin !== 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty || this.openGizmo === null) return false;
     return this.beginDrag('gizmo');
   }
 
@@ -152,6 +168,7 @@ export class SceneInteractionController {
     const completedKind = this.drag.kind;
     this.drag = null;
     this.pointerOwner = 'none';
+    this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     this.suppressPostBodyDragClick = completedKind === 'body';
     this.emit();
@@ -161,12 +178,14 @@ export class SceneInteractionController {
   cancelDrag(): boolean {
     if (!this.drag) {
       this.pointerOwner = 'none';
+      this.pointerOrigin = 'none';
       this.gizmoGrabberHovered = false;
       return false;
     }
     this.applySnapshotDelta(this.drag.startInstances, new THREE.Vector3());
     this.drag = null;
     this.pointerOwner = 'none';
+    this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     this.emit();
     return true;

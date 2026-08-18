@@ -153,6 +153,8 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 - [x] Drag, gizmo, move-panel, drop-to-bed, and reset operate on the complete
       selection through its aggregate pivot.
 - [x] A gizmo-grabber hit cannot begin or mutate a DragControls body drag.
+- [x] A non-gizmo press remains a body-drag gesture even if its first movement
+      reaches a gizmo grabber before DragControls crosses its threshold.
 - [x] Unit and Electron e2e coverage verify multi-instance movement, one
       gizmo, pointer arbitration, and pre-slice transform synchronization.
 

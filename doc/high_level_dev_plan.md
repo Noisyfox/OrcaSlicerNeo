@@ -201,7 +201,7 @@
 
 ### Milestone 7 — Scene-owned Multi-volume Selection
 
-> **Status: approved, implementation pending (2026-08-18).** Refactor selection,
+> **Status: implemented and verified (2026-08-18).** Refactor selection,
 > drag state, and gizmo state out of individual GLVolume meshes and into the
 > scene. A scene-owned `Selection` will contain multiple composite GL volumes;
 > body drag and the single open gizmo will act on the whole selection. The
@@ -210,7 +210,10 @@
 > preserves their shared instance transform. Ctrl/Cmd toggles instances, Shift
 > remains reserved for box selection, and gizmo grabbers strictly take pointer
 > priority over body drags. See
-> `doc/2026-08-18-scene-selection-design.md`.
+> `doc/2026-08-18-scene-selection-design.md`. Pointer origin is latched at
+> mouse-down, so moving quickly from a model body to a grabber cannot turn the
+> body gesture into a gizmo operation; see
+> `doc/2026-08-18-pointer-origin-gizmo-regression.md`.
 
 ## Cross-Cutting Practices
 

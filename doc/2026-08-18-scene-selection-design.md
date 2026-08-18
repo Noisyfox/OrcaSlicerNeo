@@ -168,7 +168,10 @@ The interaction sequence is:
 
 1. The viewport's native pointer-capture handler synchronously asks the live
    `TransformControls` picker whether a grabber is under the press, before any
-   `DragControls` target callback. `MoveGizmo` then claims
+   `DragControls` target callback, and latches that result for the whole
+   pointer press. A press that begins outside a grabber remains a body-eligible
+   press even if the cursor reaches a grabber before `DragControls` crosses its
+   movement threshold. `MoveGizmo` then claims
    `pointerOwner = 'gizmo'` on the confirmed grabber press, before recording
    the gizmo drag snapshot.
 2. Every `GLVolumeMesh` only enables / begins `DragControls` when no gizmo

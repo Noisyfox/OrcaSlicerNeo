@@ -47,6 +47,12 @@ export function Viewport({ onSceneInteractionChange }: {
         // drag before TransformControls claims its handle.
         sceneInteractionRef.current?.resolveGizmoPointerDown(event.nativeEvent);
       }}
+      onPointerUpCapture={() => {
+        sceneInteractionRef.current?.releasePointer();
+      }}
+      onPointerCancelCapture={() => {
+        sceneInteractionRef.current?.releasePointer();
+      }}
     >
       <ViewportErrorBoundary>
         <Canvas

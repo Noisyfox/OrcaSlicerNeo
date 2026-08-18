@@ -53,6 +53,8 @@ describe('SceneInteractionController', () => {
     controller.selectFromHit(volumes[2], true);
     const pivot = controller.selectionPivot()!;
 
+    controller.registerGizmoGrabberHitTest(() => true);
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
     expect(controller.beginGizmoDrag()).toBe(true);
     expect(controller.updateDragPivot(pivot.clone().add(new THREE.Vector3(3, -4, 5)))).toBe(true);
     expect(volumes.map((v) => v.instanceTransform.offset)).toEqual([
@@ -81,12 +83,27 @@ describe('SceneInteractionController', () => {
     controller.selectFromHit(volumes[0], false);
     controller.registerGizmoGrabberHitTest(() => true);
 
-    expect(controller.resolveGizmoPointerDown({} as PointerEvent)).toBe(true);
+    expect(controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent)).toBe(true);
     expect(controller.tryBeginBodyDrag()).toBe(false);
     expect(controller.owner).toBe('none');
     expect(controller.beginGizmoDrag()).toBe(true);
     expect(controller.owner).toBe('gizmo');
     expect(controller.tryBeginBodyDrag()).toBe(false);
+  });
+
+  it('keeps a body press when the cursor reaches a gizmo grabber before drag start', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.registerGizmoGrabberHitTest(() => false);
+
+    // DragControls has not crossed its movement threshold yet, so there is
+    // no active body gesture. Moving onto a handle must not reassign this
+    // already-started press to TransformControls.
+    expect(controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent)).toBe(false);
+    controller.setGizmoGrabberHovered(true);
+    expect(controller.bodyDragEnabled).toBe(true);
+    expect(controller.beginGizmoDrag()).toBe(false);
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    expect(controller.owner).toBe('body');
   });
 
   it('drops the aggregate selection to bed and resets each selected instance', () => {
