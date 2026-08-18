@@ -100,18 +100,30 @@ function SceneContents() {
 
 function SelectionMoveGizmo() {
   const sceneInteraction = useSceneInteraction();
-  const revision = useSceneInteractionVersion();
+  useSceneInteractionVersion();
+  const invalidate = useThree((s) => s.invalidate);
   const pivotRef = useRef<THREE.Group>(null);
   const [target, setTarget] = useState<THREE.Group | null>(null);
   const attachPivot = useCallback((group: THREE.Group | null) => {
     pivotRef.current = group;
     setTarget((current) => current === group ? current : group);
   }, []);
+  const syncPivot = useCallback(() => {
+    const pivot = sceneInteraction.selectionPivot();
+    const group = pivotRef.current;
+    if (!group || !pivot) return;
+    group.position.copy(pivot);
+    // TransformControls reads its attached target during pointer processing;
+    // make the pivot matrix current before the next drag event, not after a
+    // React layout pass.
+    group.updateMatrix();
+    invalidate();
+  }, [invalidate, sceneInteraction]);
 
   useLayoutEffect(() => {
-    const pivot = sceneInteraction.selectionPivot();
-    if (pivotRef.current && pivot) pivotRef.current.position.copy(pivot);
-  }, [revision, sceneInteraction]);
+    syncPivot();
+    return sceneInteraction.subscribe(syncPivot);
+  }, [sceneInteraction, syncPivot]);
 
   return (
     <>
