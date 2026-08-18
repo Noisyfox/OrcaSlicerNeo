@@ -10,6 +10,7 @@
 // (AGENTS.md): if a signature below mismatches the pinned submodule, adjust
 // here — never in the submodule.
 #include <emscripten/emscripten.h>
+#include <emscripten/threading.h>
 
 #include <algorithm>
 #include <cctype>
@@ -45,6 +46,16 @@ using nlohmann::json;
 
 namespace {
 
+#ifdef ORCA_WASM_THREADING
+// Match the pre-created Emscripten pool. This API returns the runtime's
+// navigator.hardwareConcurrency value, which is also the default pool-size
+// expression passed at link time. Keep a nonzero fallback for unusual hosts.
+int wasm_tbb_concurrency()
+{
+    return std::max(1, emscripten_num_logical_cores());
+}
+#endif
+
 // Module-global state. orc_init() (re)creates the preset bundle.
 //
 // Drift at the pinned SHA (build-system level): bridge.cpp.o is linked before
@@ -58,12 +69,14 @@ namespace {
 // constructed eagerly.
 struct BridgeState {
 #ifdef ORCA_WASM_THREADING
-    // Match the pre-created Emscripten pthread pool. Letting oneTBB request
-    // additional workers would reintroduce nested-worker startup stalls.
+    // Match the pre-created Emscripten pthread pool at runtime. This avoids a
+    // fixed compile-time cap while ensuring oneTBB never asks for more worker
+    // threads than the loader supplied.
+    const int tbb_max_concurrency = wasm_tbb_concurrency();
     tbb::global_control tbb_concurrency{
         tbb::global_control::max_allowed_parallelism,
-        ORCA_WASM_TBB_MAX_CONCURRENCY};
-    tbb::task_arena tbb_arena{ORCA_WASM_TBB_MAX_CONCURRENCY};
+        static_cast<std::size_t>(tbb_max_concurrency)};
+    tbb::task_arena tbb_arena{tbb_max_concurrency};
 #endif
     AppConfig   app_config;
     PresetBundle presets;
@@ -966,7 +979,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
 EMSCRIPTEN_KEEPALIVE const char* orc_get_threading_info() {
 #ifdef ORCA_WASM_THREADING
     return dup_json(json{{"ok", true}, {"threaded", true},
-                         {"max_concurrency", ORCA_WASM_TBB_MAX_CONCURRENCY},
+                         {"max_concurrency", state().tbb_max_concurrency},
                          {"arena_concurrency", state().tbb_arena.max_concurrency()}}.dump());
 #else
     return dup_json(json{{"ok", true}, {"threaded", false},

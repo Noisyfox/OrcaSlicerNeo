@@ -21,7 +21,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
-set(WASM_PTHREAD_POOL_SIZE 4 CACHE STRING "Pre-created Emscripten pthread workers")
+# This is a JavaScript expression emitted into the loader by Emscripten, not
+# merely an integer. navigator.hardwareConcurrency pre-creates one worker for
+# every logical core the runtime exposes.
+set(WASM_PTHREAD_POOL_SIZE "navigator.hardwareConcurrency" CACHE STRING "Pre-created Emscripten pthread workers")
 if(WASM_THREADING)
   if(NOT DEFINED TBB_ROOT OR "${TBB_ROOT}" STREQUAL "")
     message(FATAL_ERROR "TBB_ROOT must name the staged oneTBB build when WASM_THREADING=ON.")
@@ -149,7 +152,6 @@ target_compile_definitions(slic3r_core PUBLIC
 if(WASM_THREADING)
   target_compile_definitions(slic3r_core PUBLIC
     ORCA_WASM_THREADING=1
-    ORCA_WASM_TBB_MAX_CONCURRENCY=${WASM_PTHREAD_POOL_SIZE}
   )
 endif()
 # Boost.Log ABI tag: Boost.Log 2.x is a compiled library (no header-only

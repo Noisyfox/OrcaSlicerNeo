@@ -29,7 +29,10 @@ GEN_INCLUDE="$WORK_DIR/gen"                        # generated headers (libslic3
 BUILD_DIR="$WORK_DIR/build"
 OUT_DIR="$PKG_DIR/out"
 WASM_THREADING="${WASM_THREADING:-1}"
-WASM_PTHREAD_POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-4}"
+# Emscripten emits this JavaScript expression directly in the module loader.
+# It therefore pre-creates one pthread worker for every logical core exposed
+# by the browser/Node runtime, unless a caller supplies a smaller override.
+WASM_PTHREAD_POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-navigator.hardwareConcurrency}"
 WASM_TBB_COMMIT="${WASM_TBB_COMMIT:-3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3}"
 TBB_ROOT="$WORK_DIR/deps/oneTBB-$WASM_TBB_COMMIT/stage-wasm64-pthreads"
 

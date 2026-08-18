@@ -30,7 +30,9 @@ set "GEN_INCLUDE=%WORK_DIR%\gen"
 set "BUILD_DIR=%WORK_DIR%\build"
 set "OUT_DIR=%PKG_DIR%\out"
 if not defined WASM_THREADING set "WASM_THREADING=1"
-if not defined WASM_PTHREAD_POOL_SIZE set "WASM_PTHREAD_POOL_SIZE=4"
+REM This JavaScript expression is emitted directly by Emscripten and expands
+REM to every logical core the runtime exposes; callers may still override it.
+if not defined WASM_PTHREAD_POOL_SIZE set "WASM_PTHREAD_POOL_SIZE=navigator.hardwareConcurrency"
 if not defined WASM_TBB_COMMIT set "WASM_TBB_COMMIT=3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3"
 set "TBB_ROOT=%WORK_DIR%\deps\oneTBB-%WASM_TBB_COMMIT%\stage-wasm64-pthreads"
 

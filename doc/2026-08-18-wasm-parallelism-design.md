@@ -20,13 +20,14 @@ existing renderer Web Worker boundary.
   builds a static library through Emscripten and uses pthreads by default.
 - The threaded build passes `-pthread` when compiling every target and when
   linking. Emscripten requires both; this also enables `__EMSCRIPTEN_PTHREADS__`.
-- Pre-create a bounded pool of four pthread workers with
-  `-sPTHREAD_POOL_SIZE=4`. This avoids first-slice worker-start latency and the
-  event-loop scheduling hazard of nesting the WASM pthread pool under the
-  renderer's existing Web Worker. Four workers is deliberately conservative:
-  it gives useful FDM parallelism without exhaustively consuming the host.
-- Use oneTBB's `global_control(max_allowed_parallelism, 4)` in bridge startup
-  so TBB's scheduler never requests more workers than the pool contains.
+- Pre-create a pthread worker pool with
+  `-sPTHREAD_POOL_SIZE=navigator.hardwareConcurrency`. Emscripten emits this
+  expression directly into the loader, so the pool uses every logical core the
+  current runtime exposes while avoiding first-slice worker-start latency.
+- Use oneTBB's runtime `global_control(max_allowed_parallelism, cores)` and a
+  matching task arena in bridge startup, where `cores` comes from
+  `emscripten_num_logical_cores()`. This matches the loader pool without a
+  fixed build-time cap.
 - Preserve `-sALLOW_MEMORY_GROWTH=1`. Emscripten documents that heap views held
   by JavaScript must be refreshed after growth; the client already obtains a
   fresh `HEAPU8` view for each bridge call. The threaded build will use
