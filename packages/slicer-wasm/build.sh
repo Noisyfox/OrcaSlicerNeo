@@ -3,7 +3,7 @@
 # ------------ OrcaSlicerNeo: libslic3r -> WASM build ------------
 # ----------------------------------------------------------------
 # Builds the pinned C++ submodule (packages/slicer-wasm/cpp) into a single
-# Emscripten module: serial TBB shim, scaffold CMake, bridge + CLI driver.
+# Emscripten module: real oneTBB pthread runtime, scaffold CMake, bridge + CLI driver.
 # Inherited from the phase-0 spike's build.sh and adapted: no clone step (the
 # submodule IS the source pin), wasm64-first, full preset bundle embedded.
 # patches/*.patch are applied to the submodule working tree here, at build

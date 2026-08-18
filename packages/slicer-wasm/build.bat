@@ -3,7 +3,7 @@ REM ================================================================
 REM build.bat - Windows cmd port of build.sh
 REM
 REM Builds the pinned C++ submodule (packages\slicer-wasm\cpp) into a
-REM single Emscripten module: serial TBB shim, scaffold CMake, bridge
+REM single Emscripten module: real oneTBB pthread runtime, scaffold CMake, bridge
 REM + CLI driver. patches\*.patch are git-applied to the submodule
 REM working tree here, at build time - the submodule itself stays
 REM pristine (read-only, pinned SHA). No Git Bash required - pure cmd:
