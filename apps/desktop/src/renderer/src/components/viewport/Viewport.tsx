@@ -1,11 +1,20 @@
 // apps/desktop/src/renderer/src/components/viewport/Viewport.tsx
-import { Component, useCallback, useRef, type ReactNode } from 'react';
+import { Component, useCallback, useRef, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, events as createPointerEvents } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport } from '@react-three/drei';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import type { SceneInteractionController } from './SceneInteractionController';
+import { filterBuildPlateOccludedIntersections } from './buildPlatePointerOcclusion';
+
+const viewportEvents: ComponentProps<typeof Canvas>['events'] = (state) => {
+  const defaultEvents = createPointerEvents(state);
+  return {
+    ...defaultEvents,
+    filter: (intersections) => filterBuildPlateOccludedIntersections(intersections),
+  };
+};
 
 // WebGL can be unavailable (old GPUs, VMs, headless GL stacks like Mesa
 // llvmpipe under xvfb). If context creation fails, three.js throws out of
@@ -56,6 +65,7 @@ export function Viewport({ onSceneInteractionChange }: {
     >
       <ViewportErrorBoundary>
         <Canvas
+          events={viewportEvents}
           // Render only when something invalidates the frame (camera change,
           // scene data update, resize) — never render continuously. See
           // doc/2026-08-16-demand-render-viewport.md. OrbitControls in demand

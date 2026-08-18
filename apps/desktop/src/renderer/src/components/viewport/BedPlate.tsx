@@ -1,8 +1,10 @@
 // apps/desktop/src/renderer/src/components/viewport/BedPlate.tsx
 import * as THREE from 'three';
 import { Grid } from '@react-three/drei';
+import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 
 export const BED_SIZE = 220;
+const participateInPointerRaycast = () => {};
 
 export function BedPlate() {
   return (
@@ -10,7 +12,14 @@ export function BedPlate() {
       {/* Slicer convention: Z up, X right, Y into screen — the bed is the XY
           plane at Z=0, so the plane geometry needs no rotation (it is born
           in XY) and all core coordinates pass through unmodified. */}
-      <mesh position={[BED_SIZE / 2, BED_SIZE / 2, 0]}>
+      <mesh
+        position={[BED_SIZE / 2, BED_SIZE / 2, 0]}
+        userData={{ orcaRaycastRole: BUILD_PLATE_RAYCAST }}
+        // This makes the plate available to the canvas intersection filter.
+        // It has no pointer behavior of its own; the filter removes it after
+        // using its nearest hit to suppress occluded model-body hits.
+        onPointerMove={participateInPointerRaycast}
+      >
         <planeGeometry args={[BED_SIZE, BED_SIZE]} />
         <meshStandardMaterial color="#1e293b" roughness={0.9} />
       </mesh>

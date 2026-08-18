@@ -7,6 +7,7 @@ import { DragControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
 import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import type { GLVolume } from './GLVolume';
+import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
   const { offset, rotation, scale, mirror } = transform;
@@ -82,6 +83,7 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
       <group ref={volumeGroupRef}>
         <mesh
           geometry={data.geometry}
+          userData={{ orcaRaycastRole: MODEL_BODY_RAYCAST }}
           onPointerDown={(event) => {
             if (event.nativeEvent.button !== 0) return;
             // Do this before DragControls observes movement. Besides making
