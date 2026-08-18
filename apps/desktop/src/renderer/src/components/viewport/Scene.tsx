@@ -1,5 +1,5 @@
 // apps/desktop/src/renderer/src/components/viewport/Scene.tsx
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { useModelLoader } from './useModelLoader';
@@ -29,6 +29,7 @@ export function Scene() {
       __orcaE2e?: {
         projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null;
         gizmoAxis?: () => string | null;
+        pointerOwner?: () => 'none' | 'gizmo' | 'body';
       };
     };
     // Scene owns the container but shares it with MoveGizmo (gizmoAxis) —
@@ -40,14 +41,15 @@ export function Scene() {
         const v = new THREE.Vector3(p[0], p[1], p[2]).project(camera);
         return { x: (v.x + 1) * 0.5 * size.width, y: (1 - v.y) * 0.5 * size.height };
       },
+      pointerOwner: () => sceneInteraction.owner,
     };
     return () => {
       if (w.__orcaE2e) {
-        const { projectWorldToScreen: _dropped, ...rest } = w.__orcaE2e;
+        const { projectWorldToScreen: _dropped, pointerOwner: _owner, ...rest } = w.__orcaE2e;
         w.__orcaE2e = rest;
       }
     };
-  }, [camera, size]);
+  }, [camera, size, sceneInteraction]);
 
   // A loader replacement is a new scene even if it reuses the prior model's
   // composite IDs, so selection and the active gizmo must not leak across it.
@@ -76,6 +78,10 @@ function SelectionMoveGizmo() {
   const revision = useSceneInteractionVersion();
   const pivotRef = useRef<THREE.Group>(null);
   const [target, setTarget] = useState<THREE.Group | null>(null);
+  const attachPivot = useCallback((group: THREE.Group | null) => {
+    pivotRef.current = group;
+    setTarget((current) => current === group ? current : group);
+  }, []);
 
   useLayoutEffect(() => {
     const pivot = sceneInteraction.selectionPivot();
@@ -83,11 +89,9 @@ function SelectionMoveGizmo() {
   }, [revision, sceneInteraction]);
 
   return (
-    <group ref={(group) => {
-      pivotRef.current = group;
-      if (group) setTarget(group);
-    }}>
+    <>
+      <group ref={attachPivot} />
       {target && sceneInteraction.gizmo === 'move' && <MoveGizmo target={target} />}
-    </group>
+    </>
   );
 }

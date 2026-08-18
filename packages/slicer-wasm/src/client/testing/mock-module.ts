@@ -42,6 +42,8 @@ export interface MockModuleOptions {
   sliceFixture?: MockSliceFixture;
   metadataKeys?: Record<string, { type: string; enum_values?: string[] }>;
   printErr?: (msg: string) => void;
+  /** Number of separately transformable instances exposed by getModelMesh. */
+  instanceCount?: number;
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -131,7 +133,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const identityTransform = () => ({
     offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1],
   });
-  const modelState = { objects: 1, instances: 1, offset: [0, 0, 0] as number[], instanceTransform: identityTransform(), volumeTransform: identityTransform() };
+  const instanceCount = Math.max(1, Math.floor(opts.instanceCount ?? 1));
+  const instanceTransforms = Array.from({ length: instanceCount }, (_, index) => ({
+    ...identityTransform(),
+    // Keep mock instances visibly separate so selection tests can hit each
+    // one without a model fixture that depends on the native build.
+    offset: [index * 50, 0, 0],
+  }));
+  const volumeTransforms = Array.from({ length: instanceCount }, () => identityTransform());
+  const modelState = { objects: 1, instances: instanceCount };
   let modelLoaded = false;
   let sliced = false;
   let progressCallback = 0;
@@ -200,15 +210,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { ok: true, objects: modelState.objects, instances: modelState.instances };
     },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
-      if (obj !== 0 || inst !== 0) return { error: 'no such instance' };
-      modelState.offset = [x, y, z];
+      if (obj !== 0 || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
+      instanceTransforms[inst].offset = [x, y, z];
       return { ok: true };
     },
     orc_set_model_transform(obj: number, volume: number, inst: number, instanceJson: string, volumeJson: string) {
-      if (obj !== 0 || volume !== 0 || inst !== 0) return { error: 'no such composite id' };
-      modelState.instanceTransform = JSON.parse(instanceJson);
-      modelState.volumeTransform = JSON.parse(volumeJson);
-      modelState.offset = modelState.instanceTransform.offset;
+      if (obj !== 0 || volume !== 0 || inst < 0 || inst >= instanceCount) return { error: 'no such composite id' };
+      instanceTransforms[inst] = JSON.parse(instanceJson);
+      volumeTransforms[inst] = JSON.parse(volumeJson);
       return { ok: true };
     },
     orc_get_model_mesh() {
@@ -218,7 +227,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // separately, and the renderer applies it as the group position. (The
       // offset used to be baked into the vertices too, which double-offset
       // the cube after a committed move + reload; offset 0 hid it.)
-      const off = modelState.offset;
       const verts = [
         [0, 0, 0], [20, 0, 0], [20, 20, 0], [0, 20, 0],
         [0, 0, 20], [20, 0, 20], [20, 20, 20], [0, 20, 20],
@@ -228,26 +236,31 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
         [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7],
       ];
-      const vptr = malloc(verts.length * 3 * 4);
-      const iptr = malloc(tris.length * 3 * 4);
-      const vo = vptr / 4;
-      const io = iptr / 4;
-      verts.forEach((v, i) => HEAPF32.set(v, vo + i * 3));
-      tris.forEach((t, i) => HEAPU32.set(t, io + i * 3));
       return {
         ok: true,
-        objects: [{
-          object_idx: 0,
-          volume_idx: 0,
-          instance_idx: 0,
-          vertex_ptr: vptr,
-          vertex_count: verts.length,
-          index_ptr: iptr,
-          index_count: tris.length * 3,
-          offset: off,
-          instance_transform: modelState.instanceTransform,
-          volume_transform: modelState.volumeTransform,
-        }],
+        // The client frees every returned pair of heap buffers, so each
+        // composite must own distinct allocations even though the geometry
+        // itself is identical.
+        objects: instanceTransforms.map((instanceTransform, instance_idx) => {
+          const vptr = malloc(verts.length * 3 * 4);
+          const iptr = malloc(tris.length * 3 * 4);
+          const vo = vptr / 4;
+          const io = iptr / 4;
+          verts.forEach((v, i) => HEAPF32.set(v, vo + i * 3));
+          tris.forEach((t, i) => HEAPU32.set(t, io + i * 3));
+          return {
+            object_idx: 0,
+            volume_idx: 0,
+            instance_idx,
+            vertex_ptr: vptr,
+            vertex_count: verts.length,
+            index_ptr: iptr,
+            index_count: tris.length * 3,
+            offset: instanceTransform.offset,
+            instance_transform: instanceTransform,
+            volume_transform: volumeTransforms[instance_idx],
+          };
+        }),
       };
     },
     orc_set_progress_callback(ptr: number) {

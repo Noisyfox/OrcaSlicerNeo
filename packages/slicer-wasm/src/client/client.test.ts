@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { createMockModule } from './testing/mock-module';
 import { createClient } from './client';
+import type { ModelTransform } from './types';
 
 function makeClient() {
   return createClient(async () => createMockModule());
@@ -111,8 +112,8 @@ describe('SlicerClient bridge contract', () => {
   it('round-trips a CompositeID transform pair', async () => {
     const c = makeClient();
     await c.loadModel(new Uint8Array(4), 'stl');
-    const instance = { offset: [10, 20, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] } as const;
-    const volume = { offset: [1, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] } as const;
+    const instance: ModelTransform = { offset: [10, 20, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };
+    const volume: ModelTransform = { offset: [1, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };
     expect((await c.setModelTransform(0, 0, 0, instance, volume)).ok).toBe(true);
     const mesh = await c.getModelMesh();
     expect(mesh.objects[0]).toMatchObject({ objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: instance, volumeTransform: volume });
@@ -127,6 +128,19 @@ describe('SlicerClient bridge contract', () => {
     expect(mesh.objects[0].positions.byteLength).toBe(8 * 3 * 4);
     expect(mesh.objects[0].indices.byteLength).toBe(36 * 4);
     expect(mesh.objects[0].indices[0]).toBe(0);
+  });
+
+  it('mock fixture can expose independently transformable instances', async () => {
+    const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+    await c.loadModel(new Uint8Array(4), 'stl');
+    const before = await c.getModelMesh();
+    expect(before.objects).toHaveLength(2);
+    expect(before.objects[1]).toMatchObject({ instanceIdx: 1, offset: [50, 0, 0] });
+
+    await c.setInstanceOffset(0, 1, 75, 0, 0);
+    const after = await c.getModelMesh();
+    expect(after.objects[0].offset).toEqual([0, 0, 0]);
+    expect(after.objects[1].offset).toEqual([75, 0, 0]);
   });
 
   it('slice fires progress and returns unrecognized_keys', async () => {
