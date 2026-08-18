@@ -7,8 +7,10 @@ import { slicerClient } from '../../slicer/slicerClient';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { errorText } from '../../slicer/errors';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { syncModelTransforms } from './syncModelTransforms';
 
-export function Toolbar() {
+export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const status = useSlicerStore((s) => s.status);
   const setSlicerStatus = useSlicerStore((s) => s.setStatus);
   const setError = useSlicerStore((s) => s.setError);
@@ -22,8 +24,7 @@ export function Toolbar() {
     // re-sliced (stale-export fix, review finding 1).
     setSlicerStatus('idle');
     useSettingsStore.getState().setModelLoaded(false);
-    useSettingsStore.getState().setSelectedObject(null);
-    useSettingsStore.getState().setSelectedVolumeId(null);
+    sceneInteraction?.resetForModel();
     const { path } = await window.orca.openFileDialog([
       { name: 'Models', extensions: ['stl', '3mf'] },
       { name: 'All files', extensions: ['*'] },
@@ -57,16 +58,11 @@ export function Toolbar() {
     );
     // Apply all renderer-side CompositeIDs to the C++ Model at the slice
     // boundary. Interaction never waits on the worker.
-    for (const volume of glVolumeCollection.volumes) {
-      const synced = await slicerClient.setModelTransform(
-        volume.buffer.objectIdx, volume.buffer.volumeIdx, volume.buffer.instanceIdx,
-        volume.instanceTransform, volume.volumeTransform,
-      );
-      if (!synced.ok) {
-        setSlicerStatus('error');
-        setError(synced.error ?? 'model synchronization failed');
-        return;
-      }
+    const synced = await syncModelTransforms(slicerClient, glVolumeCollection.volumes);
+    if (!synced.ok) {
+      setSlicerStatus('error');
+      setError(synced.error ?? 'model synchronization failed');
+      return;
     }
     setSlicerStatus('slicing');
     // A new slice clears the previous failure — the status bar must not keep

@@ -1,6 +1,6 @@
 // apps/desktop/src/renderer/src/App.tsx (boot effect: app config load →
 // worker client init → presets ×3 → option metadata → settings store)
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { AppConfig } from '@slicer/client';
 import { AppShell } from './components/layout/AppShell';
 import { Toolbar } from './components/toolbar/Toolbar';
@@ -10,11 +10,13 @@ import { StatusBar } from './components/status/StatusBar';
 import { slicerClient } from './slicer/slicerClient';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
+import type { SceneInteractionController } from './components/viewport/SceneInteractionController';
 
 export default function App() {
   const setMetadata = useSettingsStore((s) => s.setMetadata);
   const setPresets = useSettingsStore((s) => s.setPresets);
   const setError = useSlicerStore((s) => s.setError);
+  const [sceneInteraction, setSceneInteraction] = useState<SceneInteractionController | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,9 +50,9 @@ export default function App() {
 
   return (
     <AppShell
-      toolbar={<Toolbar />}
-      settings={<SettingsPanel />}
-      viewport={<Viewport />}
+      toolbar={<Toolbar sceneInteraction={sceneInteraction} />}
+      settings={<SettingsPanel sceneInteraction={sceneInteraction} />}
+      viewport={<Viewport onSceneInteractionChange={setSceneInteraction} />}
       status={<StatusBar />}
     />
   );

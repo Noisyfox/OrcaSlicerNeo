@@ -8,6 +8,7 @@ import { OptionField } from './OptionField';
 import { MovePanel } from './MovePanel';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import {
   Combobox,
   ComboboxContent,
@@ -29,7 +30,7 @@ const PROCESS_KEYS = [
 
 type PresetKind = 'printer' | 'print' | 'filament';
 
-export function SettingsPanel() {
+export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const metadata = useSettingsStore((s) => s.metadata);
   const printers = useSettingsStore((s) => s.printers);
   const prints = useSettingsStore((s) => s.prints);
@@ -72,7 +73,7 @@ export function SettingsPanel() {
 
   return (
     <div className="space-y-4 p-3">
-      <MovePanel />
+      <MovePanel sceneInteraction={sceneInteraction} />
       <section>
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
         <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} testId="preset-select" />

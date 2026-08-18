@@ -2,7 +2,6 @@
 import { useEffect, useState } from 'react';
 import { slicerClient } from '../../slicer/slicerClient';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { computeObjectMinZ, buildTransformSeeds } from './transformMath';
 import { GLVolume, glVolumeCollection } from './GLVolume';
 
 export type LoadedObject = GLVolume;
@@ -14,7 +13,6 @@ export function useModelLoader(): LoadedObject[] {
   useEffect(() => {
     let disposed = false;
     if (!modelLoaded) {
-      useSettingsStore.getState().setObjectOffsets({}, {}, {});
       glVolumeCollection.clear();
       setObjects([]);
       return;
@@ -29,16 +27,6 @@ export function useModelLoader(): LoadedObject[] {
           // geometries; dispose them instead of leaking (review Minor 1).
           loaded.forEach((o) => o.dispose());
         } else {
-          // Seed the move state: current offsets, the reset snapshot, and the
-          // per-object bed-contact min Z (Drop to bed).
-          const seeds = buildTransformSeeds(
-            loaded.map((o) => ({
-              objectIdx: o.buffer.objectIdx,
-              offset: o.buffer.offset as [number, number, number],
-              minZ: computeObjectMinZ(o.geometry),
-            })),
-          );
-          useSettingsStore.getState().setObjectOffsets(seeds.positions, seeds.initialPositions, seeds.objectMinZ);
           glVolumeCollection.replace(loaded);
           setObjects(loaded);
         }

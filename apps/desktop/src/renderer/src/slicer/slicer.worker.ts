@@ -9,9 +9,11 @@ import type { OrcaModuleFactory, OrcaModule } from '@slicer/client';
 import { createMockModule } from '@slicer/testing';
 
 const useMock = import.meta.env.VITE_USE_MOCK === '1';
+const mockInstanceCount = Number(import.meta.env.VITE_MOCK_INSTANCE_COUNT ?? 1);
+const mockVolumeCount = Number(import.meta.env.VITE_MOCK_VOLUME_COUNT ?? 1);
 
 const factory: OrcaModuleFactory = useMock
-  ? async () => createMockModule()
+  ? async () => createMockModule({ instanceCount: mockInstanceCount, volumeCount: mockVolumeCount })
   : async () => {
       // dev: Vite serves the renderer public/ dir at '/' — the staged module
       // lives at public/wasm/orca_slice.js. prod: main serves out/renderer

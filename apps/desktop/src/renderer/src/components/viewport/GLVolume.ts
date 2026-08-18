@@ -20,9 +20,6 @@ export class GLVolume {
     this.geometry.computeVertexNormals();
   }
 
-  setInstanceOffset(offset: [number, number, number]): void {
-    this.instanceTransform.offset = [...offset] as [number, number, number];
-  }
   dispose(): void { this.geometry.dispose(); }
 }
 
