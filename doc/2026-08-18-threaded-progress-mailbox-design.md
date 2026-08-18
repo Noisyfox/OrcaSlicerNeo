@@ -33,6 +33,12 @@ The status callback only updates this mailbox. A mutex serializes concurrent
 oneTBB status writers; the sequence number brackets every update with release
 ordering. No C++ worker invokes JavaScript.
 
+`orc_slice` also publishes `0 / Preparing slice` before entering the FDM
+pipeline and `100 / Slice complete` after it returns. `libslic3r` phase
+reports are detailed but do not guarantee a final 100% value.
+The close-and-complete transition takes the same mutex as status updates, so a
+late callback from a finishing oneTBB task cannot overwrite the terminal 100%.
+
 On module initialization, the module worker sends the mailbox location and its
 `SharedArrayBuffer` to the renderer. The renderer polls it at a short interval,
 reading the sequence before and after the payload. It discards a torn/odd read
@@ -55,4 +61,3 @@ path.
 3. Run the all-core two-`3DBenchy.stl` Electron regression using `Anker M5 0.4
    nozzle` (no exclusion area), and assert progress reaches completion without
    `unwind`.
-

@@ -161,20 +161,37 @@ function readBytes(Module, ptr, len) {
   }
 }
 
-// 5. progress callback (wasm function table, ALLOW_TABLE_GROWTH)
-// wasm64: the bridge's progress_fn is void(*)(int, const char*) = (i32, i64)
-// in wasm signatures — the pointer param must be 'j', so the addFunction
-// signature is 'vij' (a 'vii' entry mismatches the call site and the
-// call_indirect traps with "null function or function signature mismatch").
+// 5. progress transport. Threaded builds publish to the shared-memory
+// mailbox: reading it from JS has no function-table callback and therefore
+// remains safe when oneTBB invokes a status update on a pthread. Keep the
+// old callback check for the serial fallback artifact.
 let progressCalls = 0;
 let progressText = '';
-const cb = Module.addFunction((percent, text) => {
-  progressCalls++;
-  // wasm64: the text pointer arrives as a BigInt — UTF8ToString(text) would
-  // throw; Number() gives the heap address (Fix round 1).
-  progressText = Module.UTF8ToString(Number(text));
-}, 'vij');
-Module.ccall('orc_set_progress_callback', null, ['pointer'], [cb]);
+let cb;
+let mailboxWords;
+let mailboxText;
+let mailboxSequence = 0;
+if (threading.threaded) {
+  const mailbox = callJson('orc_get_progress_mailbox', [], []);
+  check('threaded progress mailbox exported', mailbox.ok === true
+        && Number.isInteger(mailbox.byte_offset) && Number.isInteger(mailbox.text_capacity),
+        JSON.stringify(mailbox));
+  if (mailbox.ok && Module.HEAPU8.buffer instanceof SharedArrayBuffer) {
+    mailboxWords = new Int32Array(Module.HEAPU8.buffer, mailbox.byte_offset, 4);
+    mailboxText = new Uint8Array(Module.HEAPU8.buffer, mailbox.byte_offset + 16, mailbox.text_capacity);
+    mailboxSequence = Atomics.load(mailboxWords, 0);
+  } else {
+    check('threaded progress mailbox is shared', false, String(Module.HEAPU8.buffer.constructor?.name));
+  }
+} else {
+  // wasm64: progress_fn is void(*)(int, const char*) = (i32, i64), so the
+  // dynamically registered fallback callback needs signature 'vij'.
+  cb = Module.addFunction((percent, text) => {
+    progressCalls++;
+    progressText = Module.UTF8ToString(Number(text));
+  }, 'vij');
+  Module.ccall('orc_set_progress_callback', null, ['pointer'], [cb]);
+}
 
 // 6. slice config — every key below uses the option names valid at the
 // pinned SHA (pre-rename names like temperature/perimeters/bed_shape/
@@ -208,16 +225,23 @@ const sliced = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
 check('orc_slice ok', sliced.ok === true
       && Array.isArray(sliced.unrecognized_keys) && sliced.unrecognized_keys.length === 0,
       JSON.stringify(sliced));
-check('progress fired', progressCalls > 0, `calls=${progressCalls}`);
-check('progress text arrives', progressText.length > 0, `text="${progressText.slice(0, 40)}"`);
-// Fix round 1: the bridge's g_progress is a raw fn ptr with no orc_* clear
-// path — removeFunction nulls the wasm table slot but g_progress would still
-// hold the stale index, and a re-slice that re-runs process() would call_indirect
-// the nulled slot and trap (a wasm trap is NOT catchable by the C++ try/catch —
-// the module dies). Clear it via the API first (the status lambda guards
-// if (g_progress), so nullptr just disables the callback).
-Module.ccall('orc_set_progress_callback', null, ['pointer'], [0]);
-Module.removeFunction(cb);
+if (threading.threaded && mailboxWords && mailboxText) {
+  const sequence = Atomics.load(mailboxWords, 0);
+  const percent = Atomics.load(mailboxWords, 1);
+  const length = Atomics.load(mailboxWords, 2);
+  const text = new TextDecoder().decode(mailboxText.slice(0, length));
+  check('threaded progress mailbox completed a stable update',
+        sequence > mailboxSequence && sequence % 2 === 0 && percent === 100,
+        `before=${mailboxSequence} after=${sequence} percent=${percent}`);
+  check('threaded progress text arrives', text.length > 0, `text="${text.slice(0, 40)}"`);
+} else {
+  check('progress fired', progressCalls > 0, `calls=${progressCalls}`);
+  check('progress text arrives', progressText.length > 0, `text="${progressText.slice(0, 40)}"`);
+  // Clear the serial bridge's stored pointer before removeFunction. Otherwise
+  // a later slice would call a stale table slot and trap.
+  Module.ccall('orc_set_progress_callback', null, ['pointer'], [0]);
+  Module.removeFunction(cb);
+}
 
 // 7. slice result stats
 const result = callJson('orc_get_slice_result', [], []);
@@ -280,9 +304,9 @@ check('gcode valid', gcode.ok, JSON.stringify(gcode));
 const cancelled = callJson('orc_cancel', [], []);
 check('orc_cancel ok', cancelled.ok === true, JSON.stringify(cancelled));
 
-// Fix-round-1 repro: re-slice after removeFunction. A stale g_progress used to
-// trap inside the status lambda during process() ("null function or function
-// signature mismatch"). A re-slice with the SAME model/config short-circuits
+// Regression: re-slice after the serial fallback callback is removed. A stale
+// g_progress used to trap inside the status lambda during process() ("null
+// function or function signature mismatch"). A re-slice with the SAME model/config short-circuits
 // (apply/process no-op, no callbacks) — which is how the bug used to hide — so
 // load the model again (fresh Model => apply sees changes => process re-runs)
 // AND change layer_height so the layer count provably differs from the first
@@ -294,7 +318,7 @@ callJson('orc_clear_model', [], []);
 const reloaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
                           [dataPtr2, stl2.length, 'stl']);
 Module._free(dataPtr2);
-check('reload after removeFunction ok', reloaded.ok === true, JSON.stringify(reloaded));
+check('reload before re-slice ok', reloaded.ok === true, JSON.stringify(reloaded));
 // Fix round 2 (honest test): 'temperature' is the pre-rename name (now
 // nozzle_temperature) and is dropped by handle_legacy at the pinned SHA —
 // orc_slice must surface it in unrecognized_keys instead of silently
@@ -302,7 +326,7 @@ check('reload after removeFunction ok', reloaded.ok === true, JSON.stringify(rel
 // empty case.
 const resliced = callJson('orc_slice', ['string'],
                           [JSON.stringify({ ...configJson, layer_height: 0.25, temperature: 210 })]);
-check('re-slice after removeFunction ok', resliced.ok === true, JSON.stringify(resliced));
+check('re-slice after progress cleanup ok', resliced.ok === true, JSON.stringify(resliced));
 check('unknown key reported', Array.isArray(resliced.unrecognized_keys)
       && resliced.unrecognized_keys.includes('temperature'),
       `unrecognized_keys=${JSON.stringify(resliced.unrecognized_keys)}`);

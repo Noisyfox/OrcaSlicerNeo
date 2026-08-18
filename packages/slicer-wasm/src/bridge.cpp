@@ -617,10 +617,10 @@ static_assert(offsetof(ProgressMailbox, text) == 16);
 
 ProgressMailbox g_progress_mailbox;
 std::mutex g_progress_mailbox_mutex;
+bool g_progress_open = false;
 
-void publish_progress(int percent, std::string_view text)
+void publish_progress_locked(int percent, std::string_view text)
 {
-    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
     // The sequence brackets all non-atomic text writes. Readers retry if it
     // changes or is odd, so they never render a partially copied UTF-8 value.
     const std::uint32_t odd =
@@ -637,6 +637,35 @@ void publish_progress(int percent, std::string_view text)
     g_progress_mailbox.percent.store(clamped, std::memory_order_relaxed);
     g_progress_mailbox.text_length.store(static_cast<std::uint32_t>(len), std::memory_order_relaxed);
     g_progress_mailbox.sequence.store(odd + 1, std::memory_order_release);
+}
+
+void begin_progress()
+{
+    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+    g_progress_open = true;
+    publish_progress_locked(0, "Preparing slice");
+}
+
+void publish_slicer_progress(int percent, std::string_view text)
+{
+    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+    if (g_progress_open)
+        publish_progress_locked(percent, text);
+}
+
+void finish_progress()
+{
+    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+    // Close before the terminal write. A status callback that reaches us
+    // later must acquire this same mutex and therefore cannot overwrite 100%.
+    g_progress_open = false;
+    publish_progress_locked(100, "Slice complete");
+}
+
+void stop_progress()
+{
+    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+    g_progress_open = false;
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_get_progress_mailbox()
@@ -658,6 +687,10 @@ EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
 
 EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     try {
+        // libslic3r's internal phase reporting does not promise a final 100%
+        // notification (the current FDM path often ends at 75%). Establish
+        // stable operation boundaries for the UI around those detailed phases.
+        begin_progress();
         // Start from the GUI's own baseline: real OrcaSlicer never slices on
         // bare full_print_config() defaults — it assembles the config from
         // the selected print/filament/printer presets (PresetBundle::
@@ -757,7 +790,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         // PrintBase::SlicingStatus (PrintBase.hpp:440), not a Slic3r-top-level
         // type — qualify it (status_callback_type is PrintBase's typedef too).
         state().print.set_status_callback([&](const PrintBase::SlicingStatus& st) {
-            publish_progress(st.percent, st.text);
+            publish_slicer_progress(st.percent, st.text);
 #ifndef ORCA_WASM_THREADING
             if (g_progress) g_progress(st.percent, st.text.c_str());
 #endif
@@ -771,6 +804,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         state().print.process();
 #endif
         state().print.set_status_default();
+        finish_progress();
         // Fix round 2: additive success field — always present, empty when the
         // config is clean. M2 clients (config UI) rely on this to warn about
         // keys the pinned libslic3r dropped (handle_legacy's catch-all).
@@ -779,12 +813,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
             dropped.push_back(k);
         return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)}}.dump());
     } catch (const std::exception& e) {
+        stop_progress();
         // process() is where libslic3r throws SlicingErrors (GCode.cpp:2250);
         // the helper surfaces the per-object messages instead of the bare
         // category. This is the only bridge call that can throw it, so the
         // other catches keep plain e.what().
         return error_json_from_exception(e);
     } catch (...) {
+        stop_progress();
         // Fix round 1: a canceled print (orc_cancel → PrintBase::cancel sets
         // CANCELED_BY_USER; only restart() clears it) makes the NEXT process()
         // abort — but the thrown type escaped the std::exception catch and
