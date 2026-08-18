@@ -296,8 +296,14 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await page.getByTestId('move-reset').click();
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
 
-      // Return to one instance so the X-grabber overlaps its mesh below.
-      await page.mouse.click(cubeCenter.x, cubeCenter.y);
+      // A plain click on a selected member retains the group. Toggle the
+      // second instance explicitly to return to one instance, so the
+      // X-grabber overlaps its mesh below.
+      await expect(page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(1, true),
+      )).resolves.toBe(true);
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
 
       // The X shaft is at the first selection's pivot (10,10,10) plus

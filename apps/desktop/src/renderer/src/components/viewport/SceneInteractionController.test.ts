@@ -76,6 +76,14 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes()).toEqual(volumes);
   });
 
+  it('keeps the complete selection on a plain click of an existing member', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.selectFromHit(volumes[2], true);
+
+    expect(controller.selectFromClick(volumes[0], false)).toBe(false);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+  });
+
   it('moves every selected instance by an equal body-drag delta', () => {
     controller.selectFromHit(volumes[0], false);
     controller.selectFromHit(volumes[2], true);

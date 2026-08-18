@@ -28,6 +28,8 @@ the WASM model and the renderer collection.
 - The synthetic click emitted after either a body or move-gizmo drag is
   consumed. Releasing a group move over one selected model therefore retains
   the complete selection.
+- A plain click on an already selected model is a no-op; Ctrl/Cmd-click is
+  the explicit way to toggle an individual model from the selection.
 - Adding or clearing invalidates the slice result and selection. Cancelling a
   file dialog or a failed import leaves the scene and its current slice state
   unchanged.
