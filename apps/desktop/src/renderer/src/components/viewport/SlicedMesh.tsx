@@ -5,7 +5,13 @@ import { useThree } from '@react-three/fiber';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import type { SlicedMeshGeometry } from './useSliceResult';
 
-export function SlicedMesh({ data }: { data: SlicedMeshGeometry }) {
+export function SlicedMesh({
+  data,
+  position,
+}: {
+  data: SlicedMeshGeometry;
+  position: [number, number, number];
+}) {
   const ref = useRef<THREE.Mesh>(null);
   const layer = useSlicerStore((s) => s.layer);
   // setDrawRange mutates the geometry imperatively — invisible to the r3f
@@ -19,8 +25,10 @@ export function SlicedMesh({ data }: { data: SlicedMeshGeometry }) {
   }, [data, layer, invalidate]);
 
   return (
-    <mesh ref={ref} geometry={data.geometry} frustumCulled={false}>
-      <meshBasicMaterial color="#94a3b8" wireframe transparent opacity={0.35} depthWrite={false} />
-    </mesh>
+    <group position={position}>
+      <mesh ref={ref} geometry={data.geometry} frustumCulled={false}>
+        <meshBasicMaterial color="#94a3b8" wireframe transparent opacity={0.35} depthWrite={false} />
+      </mesh>
+    </group>
   );
 }
