@@ -125,6 +125,25 @@ The WASM build is an iteration surface, not a finished pipeline. When it fails:
    designs move to `spec/`. Follow the repo's doc conventions (dated
    `YYYY-MM-DD-topic.md`).
 
+## Required development and verification workflow
+
+1. Start work on a dedicated development branch. Before beginning a new issue,
+   commit any verified, in-scope work already in the tree; do not silently
+   bundle it with the new fix.
+2. Divide implementation into complete, independently testable pieces. Run the
+   appropriate checks and make one commit after every such piece; do not defer
+   all commits until the end of a multi-part change.
+3. Use pnpm for every workspace development, unit-test, typecheck, and
+   Electron e2e command. Do not substitute npm or yarn. The platform build
+   driver is the intentional exception for the native WASM quick build: on
+   Windows run `scripts\build-windows.bat quick` (or `scripts/build.sh quick`
+   on macOS/Linux) whenever the WASM bridge, build scaffold, or generated
+   artifacts are affected.
+4. Before handoff, run `pnpm test`, `pnpm typecheck`, the applicable quick
+   WASM build, and `pnpm --filter desktop test:e2e`. In a sandboxed execution
+   environment, run Electron e2e with the required outside-sandbox approval.
+   Report the actual result; a known intentionally skipped test must be named.
+
 ## Testing
 
 - Node smoke tests (no Electron): `packages/slicer-wasm/harness/` pattern —

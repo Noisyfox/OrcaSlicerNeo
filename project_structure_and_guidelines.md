@@ -125,6 +125,23 @@ See the design doc §C++/WASM Build and the spike's README iterate loop. Key rul
 Slice cross-check: output for `fixtures/cube.stl` must be consistent with
 desktop OrcaSlicer for the same profile (the spike's GO criterion).
 
+### Required development and verification workflow
+
+1. Work from a dedicated development branch. Before starting a new issue,
+   commit verified work already in the tree so it remains a distinct change.
+2. Keep changes in complete, independently testable units. Verify and commit
+   each unit before moving to the next one; do not combine unrelated fixes in
+   one final commit.
+3. Use `pnpm` for all workspace development, unit-test, typecheck, and
+   Electron e2e commands. Do not use npm or yarn. The native WASM quick build
+   is the deliberate exception: use `scripts\build-windows.bat quick` on
+   Windows or `scripts/build.sh quick` on macOS/Linux whenever changing the
+   WASM bridge, its build scaffold, or generated artifacts.
+4. Before handoff, run `pnpm test`, `pnpm typecheck`, the applicable quick
+   WASM build, and `pnpm --filter desktop test:e2e`. Where the execution
+   environment sandboxes Electron, obtain approval to run e2e outside that
+   sandbox. Report the results, including any known intentional skips.
+
 ---
 
 ## 7. Licensing
