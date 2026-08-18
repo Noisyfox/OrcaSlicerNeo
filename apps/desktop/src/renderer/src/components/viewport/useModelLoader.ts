@@ -28,6 +28,9 @@ export function useModelLoader(): LoadedObject[] {
           // geometries; dispose them instead of leaking (review Minor 1).
           loaded.forEach((o) => o.dispose());
         } else {
+          // replace() disposes the outgoing volumes, so the swap lands in one
+          // render — the previous scene stays visible while the fetch is in
+          // flight, instead of flashing empty on every revision bump.
           glVolumeCollection.replace(loaded);
           setObjects(loaded);
         }
@@ -37,13 +40,20 @@ export function useModelLoader(): LoadedObject[] {
     })();
     return () => {
       disposed = true;
-      // dispose geometries on unmount
+    };
+  }, [modelLoaded, modelRevision]);
+
+  // Real unmount (Canvas teardown) disposes the mounted geometries. Kept
+  // separate from the revision effect above so a reload — e.g. adding a
+  // second model — never blanks the scene.
+  useEffect(() => {
+    return () => {
       setObjects((prev) => {
         prev.forEach((o) => o.dispose());
         return [];
       });
     };
-  }, [modelLoaded, modelRevision]);
+  }, []);
 
   return objects;
 }
