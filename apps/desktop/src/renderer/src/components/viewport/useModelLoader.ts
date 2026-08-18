@@ -1,15 +1,11 @@
 // apps/desktop/src/renderer/src/components/viewport/useModelLoader.ts
 import { useEffect, useState } from 'react';
-import * as THREE from 'three';
 import { slicerClient } from '../../slicer/slicerClient';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { computeObjectMinZ, buildTransformSeeds } from './transformMath';
-import type { ModelObjectBuffer } from '@slicer/client';
+import { GLVolume, glVolumeCollection } from './GLVolume';
 
-export interface LoadedObject {
-  buffer: ModelObjectBuffer;
-  geometry: THREE.BufferGeometry;
-}
+export type LoadedObject = GLVolume;
 
 export function useModelLoader(): LoadedObject[] {
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
@@ -19,6 +15,7 @@ export function useModelLoader(): LoadedObject[] {
     let disposed = false;
     if (!modelLoaded) {
       useSettingsStore.getState().setObjectOffsets({}, {}, {});
+      glVolumeCollection.clear();
       setObjects([]);
       return;
     }
@@ -26,17 +23,11 @@ export function useModelLoader(): LoadedObject[] {
       try {
         const res = await slicerClient.getModelMesh();
         if (!res.ok) throw new Error(res.error ?? 'getModelMesh failed');
-        const loaded: LoadedObject[] = res.objects.map((buf) => {
-          const geometry = new THREE.BufferGeometry();
-          geometry.setAttribute('position', new THREE.BufferAttribute(buf.positions, 3));
-          geometry.setIndex(new THREE.BufferAttribute(buf.indices, 1));
-          geometry.computeVertexNormals();
-          return { buffer: buf, geometry };
-        });
+        const loaded: LoadedObject[] = res.objects.map((buf) => new GLVolume(buf));
         if (disposed) {
           // The load finished after unmount/change — nothing consumes these
           // geometries; dispose them instead of leaking (review Minor 1).
-          loaded.forEach((o) => o.geometry.dispose());
+          loaded.forEach((o) => o.dispose());
         } else {
           // Seed the move state: current offsets, the reset snapshot, and the
           // per-object bed-contact min Z (Drop to bed).
@@ -48,6 +39,7 @@ export function useModelLoader(): LoadedObject[] {
             })),
           );
           useSettingsStore.getState().setObjectOffsets(seeds.positions, seeds.initialPositions, seeds.objectMinZ);
+          glVolumeCollection.replace(loaded);
           setObjects(loaded);
         }
       } catch (err) {
@@ -58,7 +50,7 @@ export function useModelLoader(): LoadedObject[] {
       disposed = true;
       // dispose geometries on unmount
       setObjects((prev) => {
-        prev.forEach((o) => o.geometry.dispose());
+        prev.forEach((o) => o.dispose());
         return [];
       });
     };

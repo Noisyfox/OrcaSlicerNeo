@@ -128,7 +128,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // The app-config JSON the bridge stores/returns (null = fresh config).
   let appConfig: unknown = null;
 
-  const modelState = { objects: 1, instances: 1, offset: [0, 0, 0] as number[] };
+  const identityTransform = () => ({
+    offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1],
+  });
+  const modelState = { objects: 1, instances: 1, offset: [0, 0, 0] as number[], instanceTransform: identityTransform(), volumeTransform: identityTransform() };
   let modelLoaded = false;
   let sliced = false;
   let progressCallback = 0;
@@ -201,6 +204,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       modelState.offset = [x, y, z];
       return { ok: true };
     },
+    orc_set_model_transform(obj: number, volume: number, inst: number, instanceJson: string, volumeJson: string) {
+      if (obj !== 0 || volume !== 0 || inst !== 0) return { error: 'no such composite id' };
+      modelState.instanceTransform = JSON.parse(instanceJson);
+      modelState.volumeTransform = JSON.parse(volumeJson);
+      modelState.offset = modelState.instanceTransform.offset;
+      return { ok: true };
+    },
     orc_get_model_mesh() {
       if (!modelLoaded) return { error: 'no model loaded' };
       // 20 mm cube (8 verts, 12 tris) in LOCAL coordinates — the bridge
@@ -228,11 +238,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ok: true,
         objects: [{
           object_idx: 0,
+          volume_idx: 0,
+          instance_idx: 0,
           vertex_ptr: vptr,
           vertex_count: verts.length,
           index_ptr: iptr,
           index_count: tris.length * 3,
           offset: off,
+          instance_transform: modelState.instanceTransform,
+          volume_transform: modelState.volumeTransform,
         }],
       };
     },
@@ -325,6 +339,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_load_model: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },
+    orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
     orc_set_progress_callback: { ret: 'void', args: ['pointer'] },
     orc_slice: { ret: 'number', args: ['string'] },

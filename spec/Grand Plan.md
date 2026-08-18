@@ -122,11 +122,19 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 - [x] Body drag via drei DragControls replacing the M2 hand-rolled pointer
       drag (free — camera-facing plane, no axis lock; amended 2026-08-17)
 - [x] Mutual exclusion between gizmo and body drags (gesture ref + state)
-- [x] Move panel: numeric X/Y/Z inputs, Drop to bed, Reset (bridge commit
-      via commitPosition with store/group revert on failure)
-- [x] Per-object transform state (positions / initialPositions / objectMinZ)
+- [x] Move panel: numeric X/Y/Z inputs, Drop to bed, Reset (local GLVolume
+      state; synchronization happens before slice)
+- [x] Transform state seeded from loaded model geometry
 - [x] e2e: gizmo axis drag, panel inputs, drop to bed, reset; existing
       v1-flow e2e still green
+
+## Milestone 6: Composite GLVolume Project State
+
+- [x] Renderer GLVolume identity is `(objectIdx, volumeIdx, instanceIdx)`.
+- [x] Bridge exports one model mesh entry per CompositeID, including instance
+      and volume transforms.
+- [x] Renderer transforms synchronize to the C++ `Model` immediately before
+      slice, never during pointer interaction.
 
 ## Milestone 5+: Post-v1 Expansion (queued, not yet scheduled)
 

@@ -11,7 +11,7 @@ import type {
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer,
-  ClientToolpath, ClientSlicedMesh, ToolpathFeature,
+  ClientToolpath, ClientSlicedMesh, ToolpathFeature, ModelTransform,
 } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
@@ -101,12 +101,22 @@ export function createClient(
                       [objIdx, instIdx, x, y, z]) as { ok: boolean; error?: string };
     },
 
+    async setModelTransform(objIdx, volumeIdx, instIdx, instanceTransform, volumeTransform) {
+      const m = await module();
+      return callJson(m, 'orc_set_model_transform',
+        ['number', 'number', 'number', 'string', 'string'],
+        [objIdx, volumeIdx, instIdx, JSON.stringify(instanceTransform), JSON.stringify(volumeTransform)],
+      ) as { ok: boolean; error?: string };
+    },
+
     async getModelMesh(): Promise<ModelMeshResult> {
       const m = await module();
       const r = callJson(m, 'orc_get_model_mesh', [], []) as {
         ok: boolean; error?: string; objects?: Array<{
-          object_idx: number; vertex_ptr: number; vertex_count: number;
+          object_idx: number; volume_idx: number; instance_idx: number;
+          vertex_ptr: number; vertex_count: number;
           index_ptr: number; index_count: number; offset: number[];
+          instance_transform: ModelTransform; volume_transform: ModelTransform;
         }>;
       };
       if (!r.ok || !r.objects) return r as unknown as ModelMeshResult;
@@ -115,9 +125,13 @@ export function createClient(
         const indices = new Uint32Array(readBytes(m, Number(o.index_ptr), o.index_count * 4).buffer);
         return {
           objectIdx: o.object_idx,
+          volumeIdx: o.volume_idx,
+          instanceIdx: o.instance_idx,
           positions, vertexCount: o.vertex_count,
           indices, indexCount: o.index_count,
           offset: [o.offset[0], o.offset[1], o.offset[2]] as [number, number, number],
+          instanceTransform: o.instance_transform,
+          volumeTransform: o.volume_transform,
         };
       });
       return { ok: true, objects };

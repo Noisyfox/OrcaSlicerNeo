@@ -31,6 +31,7 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
 
 export function Viewport() {
   const setSelected = useSettingsStore((s) => s.setSelectedObject);
+  const setSelectedVolume = useSettingsStore((s) => s.setSelectedVolumeId);
   return (
     <div className="absolute inset-0" data-testid="viewport">
       <ViewportErrorBoundary>
@@ -50,7 +51,7 @@ export function Viewport() {
           // the convention: X right, Y into the screen, Z up.
           camera={{ position: [200, -200, 160], fov: 45 }}
           dpr={[1, 2]}
-          onPointerMissed={() => setSelected(null)}
+          onPointerMissed={() => { setSelected(null); setSelectedVolume(null); }}
         >
           <color attach="background" args={['#0f172a']} />
           <Scene />

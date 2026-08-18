@@ -187,10 +187,17 @@
 > (translate, world space) on selection — axis arrows + plane handles, Z
 > lift; body drag via drei DragControls (free — no axis lock) replacing
 > the M2 hand-rolled pointer drag; sidebar move panel (numeric X/Y/Z,
-> Drop to bed, Reset); per-object transform state in the settings store
-> with a shared bridge commit path (commitPosition) that reverts on
-> failure. Flip buttons, snap, multi-select and multi-instance remain
-> deferred. See `doc/2026-08-16-move-gizmo-{design,implementation-notes}.md`.
+> Drop to bed, Reset). Since Milestone 6, the controls update local
+> CompositeID GLVolume state and synchronize it only before slicing. Flip
+> buttons, snap and multi-select remain deferred. See
+> `doc/2026-08-16-move-gizmo-{design,implementation-notes}.md`.
+
+### Milestone 6 — Composite GLVolume Project State
+
+> **Status: delivered 2026-08-17.** The renderer now models the native canvas
+> identity `(objectIdx, volumeIdx, instanceIdx)` and retains transforms locally
+> until a pre-slice synchronization applies them to the WASM `Model`. See
+> `doc/2026-08-17-multi-object-glvolume-design.md`.
 
 ## Cross-Cutting Practices
 

@@ -12,30 +12,33 @@ import { Input } from '@/components/ui/input';
 import { commitPosition } from '../viewport/gizmo/commitPosition';
 import { computeDropZ, formatPosition, parseNumberInput } from '../viewport/transformMath';
 import type { Vec3 } from '../../lib/vec3';
+import { glVolumeCollection } from '../viewport/GLVolume';
 
 const AXES = ['x', 'y', 'z'] as const;
 
 export function MovePanel() {
-  const objectIdx = useSettingsStore((s) => s.selectedObject);
-  const positions = useSettingsStore((s) => s.positions);
+  const volumeId = useSettingsStore((s) => s.selectedVolumeId);
   const initialPositions = useSettingsStore((s) => s.initialPositions);
   const objectMinZ = useSettingsStore((s) => s.objectMinZ);
   const setError = useSlicerStore((s) => s.setError);
-  const current = objectIdx != null ? positions[objectIdx] : undefined;
+  const volume = glVolumeCollection.volumes.find((v) => v.id === volumeId);
+  const objectIdx = volume?.buffer.objectIdx;
+  const instanceIdx = volume?.buffer.instanceIdx;
+  const current = volume?.instanceTransform.offset;
   // Local edit drafts; reset whenever the committed position changes
   // (viewport drags, commits, selection change).
   const [draft, setDraft] = useState<[string, string, string] | null>(null);
 
   const currentKey = current?.join(',') ?? '';
-  useEffect(() => { setDraft(null); }, [objectIdx, currentKey]);
+  useEffect(() => { setDraft(null); }, [volumeId, currentKey]);
 
-  if (objectIdx == null || !current || objectMinZ[objectIdx] === undefined) return null;
+  if (objectIdx == null || instanceIdx == null || !current || objectMinZ[objectIdx] === undefined) return null;
 
   // Arrow consts (not hoisted function declarations): TS control-flow
   // narrowing from the guard above does not reach hoisted declarations, so
   // `objectIdx`/`current` would stay number|null / Vec3|undefined in them.
   const commitTo = async (pos: Vec3) => {
-    await commitPosition(slicerClient, objectIdx, pos, current, (msg) => setError(`move: ${msg}`));
+    await commitPosition(slicerClient, objectIdx, instanceIdx, pos, current, (msg) => setError(`move: ${msg}`));
     // commitPosition updates the store (pos on success, current on failure);
     // the draft resyncs through the currentKey effect either way.
   };

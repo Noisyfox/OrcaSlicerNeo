@@ -677,7 +677,32 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     }
 }
 
-// ---- new: model triangle mesh + instance offset ----
+// ---- model triangle meshes + GUI transform synchronization ----
+
+static json transform_json(const Slic3r::Geometry::Transformation& t) {
+    const auto offset = t.get_offset();
+    const auto rotation = t.get_rotation();
+    const auto scale = t.get_scaling_factor();
+    const auto mirror = t.get_mirror();
+    return {{"offset", {offset.x(), offset.y(), offset.z()}},
+            {"rotation", {rotation.x(), rotation.y(), rotation.z()}},
+            {"scale", {scale.x(), scale.y(), scale.z()}},
+            {"mirror", {mirror.x(), mirror.y(), mirror.z()}}};
+}
+
+static Slic3r::Vec3d transform_vec3(const json& transform, const char* key) {
+    const auto& v = transform.at(key);
+    if (!v.is_array() || v.size() != 3)
+        throw std::runtime_error(std::string("transform.") + key + " must be a 3-vector");
+    return Slic3r::Vec3d(v[0].get<double>(), v[1].get<double>(), v[2].get<double>());
+}
+
+static void set_transform(Slic3r::Geometry::Transformation& target, const json& transform) {
+    target.set_offset(transform_vec3(transform, "offset"));
+    target.set_rotation(transform_vec3(transform, "rotation"));
+    target.set_scaling_factor(transform_vec3(transform, "scale"));
+    target.set_mirror(transform_vec3(transform, "mirror"));
+}
 
 EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int instance_idx, double x, double y, double z) {
     try {
@@ -699,6 +724,35 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int ins
     }
 }
 
+EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
+    int object_idx, int volume_idx, int instance_idx,
+    const char* instance_transform_json, const char* volume_transform_json) {
+    try {
+        auto& model = state().model;
+        if (object_idx < 0 || object_idx >= static_cast<int>(model.objects.size()))
+            return error_json("object index out of range");
+        auto& object = model.objects[static_cast<size_t>(object_idx)];
+        if (volume_idx < 0 || volume_idx >= static_cast<int>(object->volumes.size()))
+            return error_json("volume index out of range");
+        if (instance_idx < 0 || instance_idx >= static_cast<int>(object->instances.size()))
+            return error_json("instance index out of range");
+        auto instance_transform = json::parse(instance_transform_json ? instance_transform_json : "");
+        auto volume_transform = json::parse(volume_transform_json ? volume_transform_json : "");
+        auto instance = object->instances[static_cast<size_t>(instance_idx)]->get_transformation();
+        auto volume = object->volumes[static_cast<size_t>(volume_idx)]->get_transformation();
+        set_transform(instance, instance_transform);
+        set_transform(volume, volume_transform);
+        object->instances[static_cast<size_t>(instance_idx)]->set_transformation(instance);
+        object->volumes[static_cast<size_t>(volume_idx)]->set_transformation(volume);
+        object->invalidate_bounding_box();
+        return dup_json(json{{"ok", true}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
     try {
         auto& model = state().model;
@@ -711,38 +765,32 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
             // here (ModelObject::mesh()) double-offsets the model after any
             // committed move + reload — a zero offset hid it at load time
             // (see the mock-module contract comment).
-            const auto& its = obj->raw_mesh().its;
-            MallocBuffer vbuf;
-            MallocBuffer ibuf;
-            for (const auto& v : its.vertices) {
-                vbuf.appendF32(v.x());
-                vbuf.appendF32(v.y());
-                vbuf.appendF32(v.z());
+            for (size_t vi = 0; vi < obj->volumes.size(); ++vi) {
+                const auto& its = obj->volumes[vi]->mesh().its;
+                for (size_t ii = 0; ii < obj->instances.size(); ++ii) {
+                    MallocBuffer vbuf;
+                    MallocBuffer ibuf;
+                    for (const auto& v : its.vertices) {
+                        vbuf.appendF32(v.x()); vbuf.appendF32(v.y()); vbuf.appendF32(v.z());
+                    }
+                    for (const auto& tri : its.indices) {
+                        ibuf.appendU32(static_cast<std::uint32_t>(tri[0]));
+                        ibuf.appendU32(static_cast<std::uint32_t>(tri[1]));
+                        ibuf.appendU32(static_cast<std::uint32_t>(tri[2]));
+                    }
+                    const std::uintptr_t vptr = reinterpret_cast<std::uintptr_t>(vbuf.data);
+                    const std::uintptr_t iptr = reinterpret_cast<std::uintptr_t>(ibuf.data);
+                    vbuf.release(); ibuf.release();
+                    const auto& instance = obj->instances[ii]->get_transformation();
+                    const auto& volume = obj->volumes[vi]->get_transformation();
+                    arr.push_back(json{{"object_idx", oi}, {"volume_idx", vi}, {"instance_idx", ii},
+                        {"vertex_ptr", vptr}, {"vertex_count", its.vertices.size()},
+                        {"index_ptr", iptr}, {"index_count", its.indices.size() * 3},
+                        {"offset", {instance.get_offset().x(), instance.get_offset().y(), instance.get_offset().z()}},
+                        {"instance_transform", transform_json(instance)},
+                        {"volume_transform", transform_json(volume)}});
+                }
             }
-            for (const auto& tri : its.indices) {
-                ibuf.appendU32(static_cast<std::uint32_t>(tri[0]));
-                ibuf.appendU32(static_cast<std::uint32_t>(tri[1]));
-                ibuf.appendU32(static_cast<std::uint32_t>(tri[2]));
-            }
-            // Instance 0's offset (v1: one instance per object).
-            Slic3r::Vec3d off(0, 0, 0);
-            if (!obj->instances.empty()) off = obj->instances.front()->get_offset();
-            // Heap pointers cross the bridge as uintptr_t — the build is
-            // wasm64 (-sMEMORY64), so a uint32_t truncation is a compile
-            // error. JS reads them as plain numbers (< 2^53; our buffers
-            // stay well under 4 GiB).
-            const std::uintptr_t vptr = reinterpret_cast<std::uintptr_t>(vbuf.data);
-            const std::uintptr_t iptr = reinterpret_cast<std::uintptr_t>(ibuf.data);
-            vbuf.release();
-            ibuf.release();
-            arr.push_back(json{
-                {"object_idx", oi},
-                {"vertex_ptr", vptr},
-                {"vertex_count", its.vertices.size()},
-                {"index_ptr", iptr},
-                {"index_count", its.indices.size() * 3},
-                {"offset", {off.x(), off.y(), off.z()}},
-            });
         }
         return dup_json(json{{"ok", true}, {"objects", std::move(arr)}}.dump());
     } catch (const std::exception& e) {

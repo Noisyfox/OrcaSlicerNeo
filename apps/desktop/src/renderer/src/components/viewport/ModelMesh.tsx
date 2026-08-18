@@ -1,5 +1,6 @@
 // apps/desktop/src/renderer/src/components/viewport/ModelMesh.tsx
-// One loaded object: body drag via drei DragControls (free — no axis lock;
+// One renderer GLVolume (CompositeID object/volume/instance): body drag via
+// drei DragControls (free — no axis lock;
 // the drag plane is perpendicular to the camera through the grab point, so
 // the body moves in X, Y and Z with the pointer) and, when selected, the
 // move gizmo. The DragControls group is the single world-transform owner;
@@ -12,18 +13,26 @@ import { useThree } from '@react-three/fiber';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { slicerClient } from '../../slicer/slicerClient';
-import type { LoadedObject } from './useModelLoader';
 import { MoveGizmo, type GestureState } from './gizmo/MoveGizmo';
 import { commitPosition } from './gizmo/commitPosition';
+import type { GLVolume } from './GLVolume';
 
-export function ModelMesh({ data }: { data: LoadedObject }) {
+function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
+  const { offset, rotation, scale, mirror } = transform;
+  group.position.set(...offset);
+  group.rotation.set(...rotation);
+  group.scale.set(scale[0] * mirror[0], scale[1] * mirror[1], scale[2] * mirror[2]);
+}
+
+export function GLVolumeMesh({ data }: { data: GLVolume }) {
   // DragControls forwards its ref to the group it renders — the group whose
   // position is the object's world offset.
   const groupRef = useRef<THREE.Group>(null);
+  const volumeGroupRef = useRef<THREE.Group>(null);
   const invalidate = useThree((s) => s.invalidate);
   const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
-  const selected = useSettingsStore((s) => s.selectedObject === data.buffer.objectIdx);
-  const setSelected = useSettingsStore((s) => s.setSelectedObject);
+  const selected = useSettingsStore((s) => s.selectedVolumeId === data.id);
+  const setSelected = useSettingsStore((s) => s.setSelectedVolumeId);
   const setObjectOffset = useSettingsStore((s) => s.setObjectOffset);
   const setError = useSlicerStore((s) => s.setError);
   // React state drives re-renders (dragConfig.enabled / TC enabled props);
@@ -33,20 +42,19 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
   // Reused scratch vector — avoid per-event allocation at pointer rate.
   const scratch = useMemo(() => new THREE.Vector3(), []);
 
-  const pos = useSettingsStore((s) => s.positions[data.buffer.objectIdx]);
-  // Seed the DragControls group's position from the store (seeded at load)
-  // and keep it in sync with committed moves (move panel, drop to bed,
-  // reset). drei set matrixAutoUpdate: false — re-enable so position writes
-  // reach the rendered matrix. Drag paths already write both the store and
-  // the group, so this is a no-op during drags.
+  useSettingsStore((s) => s.positions[data.buffer.objectIdx]);
+  // The nested groups model the native GLVolume's two transformation layers:
+  // instance outside, ModelVolume inside.
   useEffect(() => {
     const g = groupRef.current;
-    if (!g) return;
+    const volume = volumeGroupRef.current;
+    if (!g || !volume) return;
     g.matrixAutoUpdate = true;
-    const p = pos ?? data.buffer.offset;
-    g.position.set(p[0], p[1], p[2]);
+    volume.matrixAutoUpdate = true;
+    applyTransform(g, data.instanceTransform);
+    applyTransform(volume, data.volumeTransform);
     invalidate();
-  }, [pos, data.buffer.offset, invalidate]);
+  }, [data.instanceTransform, data.volumeTransform, invalidate]);
 
   // Deselecting mid-gesture would leave kind='gizmo' (body drag locked out)
   // and OrbitControls disabled — reset both.
@@ -65,6 +73,7 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
     const ok = await commitPosition(
       slicerClient,
       data.buffer.objectIdx,
+      data.buffer.instanceIdx,
       [p.x, p.y, p.z],
       gestureRef.current.dragStart,
       (msg) => setError(`move: ${msg}`),
@@ -106,24 +115,27 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
           void commit();
         }}
       >
-        <mesh
-          geometry={data.geometry}
-          onClick={(e) => {
-            e.stopPropagation();
-            setSelected(data.buffer.objectIdx);
-          }}
-        >
-          <meshStandardMaterial
-            color={selected ? '#3b82f6' : '#cbd5e1'}
-            roughness={0.6}
-            metalness={0.1}
-          />
-        </mesh>
+        <group ref={volumeGroupRef}>
+          <mesh
+            geometry={data.geometry}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelected(data.id);
+            }}
+          >
+            <meshStandardMaterial
+              color={selected ? '#3b82f6' : '#cbd5e1'}
+              roughness={0.6}
+              metalness={0.1}
+            />
+          </mesh>
+        </group>
       </DragControls>
       {selected && groupRef.current && (
         <MoveGizmo
           target={groupRef.current}
           objectIdx={data.buffer.objectIdx}
+          instanceIdx={data.buffer.instanceIdx}
           kind={kind}
           setKind={setKind}
           gestureRef={gestureRef}

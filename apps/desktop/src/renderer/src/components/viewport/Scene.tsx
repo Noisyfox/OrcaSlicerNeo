@@ -4,13 +4,13 @@ import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { useModelLoader } from './useModelLoader';
 import { BedPlate } from './BedPlate';
-import { ModelMesh } from './ModelMesh';
+import { GLVolumeMesh } from './ModelMesh';
 import { useSliceResult } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
 import { SlicedMesh } from './SlicedMesh';
 
 export function Scene() {
-  const objects = useModelLoader();
+  const glVolumes = useModelLoader();
   const { toolpath, mesh } = useSliceResult();
   // Test-only projection hook (mock/e2e builds): Playwright needs exact
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
@@ -51,8 +51,8 @@ export function Scene() {
       {/* height along Z — scene is Z-up slicer convention */}
       <directionalLight position={[100, 150, 200]} intensity={1.2} />
       <BedPlate />
-      {objects.map((o) => (
-        <ModelMesh key={o.buffer.objectIdx} data={o} />
+      {glVolumes.map((volume) => (
+        <GLVolumeMesh key={volume.id} data={volume} />
       ))}
       {mesh && <SlicedMesh data={mesh} />}
       {toolpath && <ToolpathLines data={toolpath} />}

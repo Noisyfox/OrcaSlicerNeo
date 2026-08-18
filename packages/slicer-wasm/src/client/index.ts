@@ -6,7 +6,7 @@ export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
   InitResult, PresetInfo, PresetList, AppConfig, SelectPresetResult,
   OptionMetadata, OptionMeta,
-  LoadModelResult, ModelMeshResult, ModelObjectBuffer,
+  LoadModelResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
   SliceResultStatus, ClientSliceResult, ClientToolpath,
   ClientSlicedMesh, ToolpathFeature, ExportGcodeResult, CancelResult,
 } from './types';

@@ -20,6 +20,7 @@ interface SettingsState {
   values: Record<string, string>;
   modelLoaded: boolean;
   selectedObject: number | null;
+  selectedVolumeId: string | null;
   /** Active viewport tool. Only 'move' exists today; rotate/scale milestones
    *  extend this field — the gizmo family renders from it. */
   tool: string;
@@ -38,6 +39,7 @@ interface SettingsState {
   setValues: (values: Record<string, string>) => void;
   setModelLoaded: (v: boolean) => void;
   setSelectedObject: (v: number | null) => void;
+  setSelectedVolumeId: (v: string | null) => void;
   setObjectOffsets: (
     positions: Record<number, Vec3>,
     initialPositions: Record<number, Vec3>,
@@ -57,6 +59,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   values: {},
   modelLoaded: false,
   selectedObject: null,
+  selectedVolumeId: null,
   tool: 'move',
   positions: {},
   initialPositions: {},
@@ -74,6 +77,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setValues: (values) => set({ values }),
   setModelLoaded: (modelLoaded) => set({ modelLoaded }),
   setSelectedObject: (selectedObject) => set({ selectedObject }),
+  setSelectedVolumeId: (selectedVolumeId) => set({ selectedVolumeId }),
   setObjectOffsets: (positions, initialPositions, objectMinZ) =>
     set({ positions, initialPositions, objectMinZ }),
   setObjectOffset: (objectIdx, pos) =>

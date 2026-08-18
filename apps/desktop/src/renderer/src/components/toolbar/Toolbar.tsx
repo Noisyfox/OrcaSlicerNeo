@@ -6,6 +6,7 @@ import { useSlicerStore } from '../../stores/useSlicerStore';
 import { slicerClient } from '../../slicer/slicerClient';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { errorText } from '../../slicer/errors';
+import { glVolumeCollection } from '../viewport/GLVolume';
 
 export function Toolbar() {
   const status = useSlicerStore((s) => s.status);
@@ -22,6 +23,7 @@ export function Toolbar() {
     setSlicerStatus('idle');
     useSettingsStore.getState().setModelLoaded(false);
     useSettingsStore.getState().setSelectedObject(null);
+    useSettingsStore.getState().setSelectedVolumeId(null);
     const { path } = await window.orca.openFileDialog([
       { name: 'Models', extensions: ['stl', '3mf'] },
       { name: 'All files', extensions: ['*'] },
@@ -53,6 +55,19 @@ export function Toolbar() {
     const values = Object.fromEntries(
       Object.entries(state.values).filter(([k]) => meta[k] !== undefined),
     );
+    // Apply all renderer-side CompositeIDs to the C++ Model at the slice
+    // boundary. Interaction never waits on the worker.
+    for (const volume of glVolumeCollection.volumes) {
+      const synced = await slicerClient.setModelTransform(
+        volume.buffer.objectIdx, volume.buffer.volumeIdx, volume.buffer.instanceIdx,
+        volume.instanceTransform, volume.volumeTransform,
+      );
+      if (!synced.ok) {
+        setSlicerStatus('error');
+        setError(synced.error ?? 'model synchronization failed');
+        return;
+      }
+    }
     setSlicerStatus('slicing');
     // A new slice clears the previous failure — the status bar must not keep
     // showing the old error while the new slice runs (or if it succeeds).

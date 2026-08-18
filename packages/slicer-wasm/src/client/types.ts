@@ -99,6 +99,8 @@ export interface LoadModelResult {
 
 export interface ModelObjectBuffer {
   objectIdx: number;
+  volumeIdx: number;
+  instanceIdx: number;
   /** Float32Array xyz per vertex, copied out of the wasm heap */
   positions: Float32Array;
   vertexCount: number;
@@ -106,6 +108,15 @@ export interface ModelObjectBuffer {
   indices: Uint32Array;
   indexCount: number;
   offset: [number, number, number];
+  instanceTransform: ModelTransform;
+  volumeTransform: ModelTransform;
+}
+
+export interface ModelTransform {
+  offset: [number, number, number];
+  rotation: [number, number, number];
+  scale: [number, number, number];
+  mirror: [number, number, number];
 }
 
 export interface ModelMeshResult {
@@ -181,6 +192,10 @@ export interface SlicerClient {
   getOptionMetadata(): Promise<OptionMetadata>;
   loadModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult>;
   setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number): Promise<{ ok: boolean; error?: string }>;
+  setModelTransform(
+    objIdx: number, volumeIdx: number, instIdx: number,
+    instanceTransform: ModelTransform, volumeTransform: ModelTransform,
+  ): Promise<{ ok: boolean; error?: string }>;
   getModelMesh(): Promise<ModelMeshResult>;
   /** Select a preset by name; printer selection re-runs compatibility so
    *  print/filament follow the active machine. Reports all three selections. */

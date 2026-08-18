@@ -24,9 +24,10 @@ export interface GestureState {
 
 type GestureKind = GestureState['kind'];
 
-export function MoveGizmo({ target, objectIdx, kind, setKind, gestureRef }: {
+export function MoveGizmo({ target, objectIdx, instanceIdx, kind, setKind, gestureRef }: {
   target: THREE.Object3D;
   objectIdx: number;
+  instanceIdx: number;
   kind: GestureKind;
   setKind: (k: GestureKind) => void;
   gestureRef: React.MutableRefObject<GestureState>;
@@ -90,6 +91,7 @@ export function MoveGizmo({ target, objectIdx, kind, setKind, gestureRef }: {
     const ok = await commitPosition(
       slicerClient,
       objectIdx,
+      instanceIdx,
       [p.x, p.y, p.z],
       gestureRef.current.dragStart,
       (msg) => setError(`move: ${msg}`),
