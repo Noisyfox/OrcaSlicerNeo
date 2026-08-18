@@ -116,16 +116,20 @@ interface SceneInteractionState {
 }
 ```
 
-`SceneInteractionController` is the single mutation API for selection and
-interaction. It emits a small version change for React rendering; GLVolume
-transforms themselves remain in `glVolumeCollection` as the renderer's local
-project state. Loading a new model clears the controller, closes the gizmo,
-and prunes any stale IDs before exposing new geometry.
+`SceneInteractionController` is constructed by `Scene` and is the single
+mutation API for selection and interaction. It emits a small version change
+for React rendering; GLVolume transforms themselves remain in
+`glVolumeCollection` as the renderer's local project state. The containing
+viewport forwards the Scene-owned controller reference to sibling toolbar and
+sidebar command components, but never constructs or retains it across a Scene
+unmount. Loading a new model clears the controller, closes the gizmo, and
+prunes any stale IDs before exposing new geometry.
 
 `useSettingsStore` no longer owns `selectedObject`, `selectedVolumeId`,
-`positions`, `initialPositions`, `objectMinZ`, or drag/gizmo state. Settings
-components read the controller through the viewport context. Slicer state,
-presets, and print-option values remain in their existing stores.
+`positions`, `initialPositions`, `objectMinZ`, or drag/gizmo state. Sidebar
+command components receive the Scene-owned controller reference through the
+viewport composition boundary. Slicer state, presets, and print-option values
+remain in their existing stores.
 
 ### One gizmo and one gesture
 
@@ -162,8 +166,11 @@ type PointerOwner = 'none' | 'gizmo' | 'body';
 
 The interaction sequence is:
 
-1. `MoveGizmo` claims `pointerOwner = 'gizmo'` synchronously on a grabber
-   press, before it records the gizmo drag snapshot.
+1. The viewport's native pointer-capture handler synchronously asks the live
+   `TransformControls` picker whether a grabber is under the press, before any
+   `DragControls` target callback. `MoveGizmo` then claims
+   `pointerOwner = 'gizmo'` on the confirmed grabber press, before recording
+   the gizmo drag snapshot.
 2. Every `GLVolumeMesh` only enables / begins `DragControls` when no gizmo
    grabber is under the pointer. Its `onDragStart` must also call
    `tryBeginBodyDrag()`; this final synchronous gate rejects the drag if the
@@ -219,19 +226,21 @@ This makes panel, body drag, and gizmo use the same group-operation path.
 ## Component boundaries after the refactor
 
 ```text
-Scene
-├─ glVolumeCollection (renderer project state; existing)
-├─ SceneInteractionController
-│  ├─ Selection (many VolumeIds, instance-expanded)
-│  ├─ openGizmo (zero or one)
-│  └─ drag snapshot (zero or one)
-├─ GLVolumeMesh × N
-│  ├─ renders selected styling via controller.selection.has(data)
-│  └─ forwards click/body-drag events to controller
-├─ MoveGizmo × 0..1
-│  └─ targets the scene selection pivot and forwards events to controller
-└─ MovePanel
-   └─ reads pivot/bounds and invokes controller group operations
+Viewport composition boundary
+├─ Scene
+│  ├─ glVolumeCollection (renderer project state; existing)
+│  ├─ SceneInteractionController
+│  │  ├─ Selection (many VolumeIds, instance-expanded)
+│  │  ├─ openGizmo (zero or one)
+│  │  └─ drag snapshot (zero or one)
+│  ├─ GLVolumeMesh × N
+│  │  ├─ renders selected styling via controller.selection.has(data)
+│  │  └─ forwards click/body-drag events to controller
+│  └─ MoveGizmo × 0..1
+│     └─ targets the scene selection pivot and forwards events to controller
+└─ MovePanel (sidebar sibling)
+   └─ receives the Scene-owned controller reference; reads pivot/bounds and
+      invokes controller group operations
 ```
 
 ## Implementation outline (not authorized until approval)
@@ -248,10 +257,11 @@ Scene
    move the sole gizmo into `Scene`.
 5. Refactor `MovePanel` to group-pivot semantics and maintain demand-mode
    invalidation after every imperative transform update.
-6. Extend unit tests for membership expansion, additive toggling, group delta,
-   bridge-synchronization consistency, reset, and drop-to-bed. Extend Electron
-   e2e coverage for selecting two instances, one gizmo only, body drag, gizmo
-   axis drag, panel move, reset, and pre-slice synchronization.
+6. Extend unit tests for membership expansion, additive toggling, both body and
+   gizmo group deltas, bridge-synchronization consistency across sibling
+   volumes, reset, and drop-to-bed. Extend Electron e2e coverage for selecting
+   two instances, one gizmo only, gizmo axis drag, panel move, reset, and
+   pre-slice synchronization.
 
 ## Confirmed design decisions
 

@@ -62,10 +62,24 @@ describe('SceneInteractionController', () => {
     expect(controller.owner).toBe('none');
   });
 
+  it('moves every selected instance by an equal body-drag delta', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.selectFromHit(volumes[2], true);
+    const pivot = controller.selectionPivot()!;
+
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    expect(controller.updateDragPivot(pivot.clone().add(new THREE.Vector3(-2, 7, 1)))).toBe(true);
+    expect(volumes.map((v) => v.instanceTransform.offset)).toEqual([
+      [-2, 7, 1], [-2, 7, 1], [18, 12, 1], [18, 12, 1],
+    ]);
+    expect(controller.endDrag()).toBe(true);
+  });
+
   it('gives a gizmo grabber priority over body dragging', () => {
     controller.selectFromHit(volumes[0], false);
-    controller.setGizmoGrabberHovered(true);
+    controller.registerGizmoGrabberHitTest(() => true);
 
+    expect(controller.resolveGizmoPointerDown({} as PointerEvent)).toBe(true);
     expect(controller.tryBeginBodyDrag()).toBe(false);
     expect(controller.owner).toBe('none');
     expect(controller.beginGizmoDrag()).toBe(true);

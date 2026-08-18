@@ -26,6 +26,7 @@ export class SceneInteractionController {
   private openGizmo: OpenGizmo = null;
   private pointerOwner: PointerOwner = 'none';
   private gizmoGrabberHovered = false;
+  private gizmoGrabberHitTest: ((event: PointerEvent) => boolean) | null = null;
   private drag: DragSnapshot | null = null;
 
   constructor(private readonly getVolumes: () => readonly GLVolume[]) {}
@@ -76,6 +77,22 @@ export class SceneInteractionController {
     if (this.gizmoGrabberHovered === hovered) return;
     this.gizmoGrabberHovered = hovered;
     this.emit();
+  }
+
+  /** Register the live TransformControls picker owned by the sole gizmo. */
+  registerGizmoGrabberHitTest(hitTest: ((event: PointerEvent) => boolean) | null): void {
+    this.gizmoGrabberHitTest = hitTest;
+  }
+
+  /**
+   * Called during the viewport's native pointer-capture phase. It rechecks
+   * the TransformControls picker synchronously, before any DragControls
+   * target callback can begin a body gesture.
+   */
+  resolveGizmoPointerDown(event: PointerEvent): boolean {
+    const grabbed = this.gizmoGrabberHitTest?.(event) ?? false;
+    this.setGizmoGrabberHovered(grabbed);
+    return grabbed;
   }
 
   /** Clear all ephemeral scene interaction when a loaded collection is replaced. */

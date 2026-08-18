@@ -9,9 +9,34 @@ import { useSliceResult } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
 import { SlicedMesh } from './SlicedMesh';
 import { MoveGizmo } from './gizmo/MoveGizmo';
-import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
+import { glVolumeCollection } from './GLVolume';
+import { SceneInteractionController } from './SceneInteractionController';
+import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 
-export function Scene() {
+export function Scene({ onControllerChange }: {
+  onControllerChange: (controller: SceneInteractionController | null) => void;
+}) {
+  // This controller is deliberately constructed by Scene, not App: selection
+  // and pointer ownership cannot outlive a canvas remount.
+  const controllerRef = useRef<SceneInteractionController | null>(null);
+  if (!controllerRef.current) {
+    controllerRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
+  }
+  const controller = controllerRef.current;
+
+  useEffect(() => {
+    onControllerChange(controller);
+    return () => onControllerChange(null);
+  }, [controller, onControllerChange]);
+
+  return (
+    <SceneInteractionProvider controller={controller}>
+      <SceneContents />
+    </SceneInteractionProvider>
+  );
+}
+
+function SceneContents() {
   const glVolumes = useModelLoader();
   const { toolpath, mesh } = useSliceResult();
   const sceneInteraction = useSceneInteraction();

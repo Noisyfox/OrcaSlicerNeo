@@ -1,11 +1,11 @@
 // apps/desktop/src/renderer/src/components/viewport/Viewport.tsx
-import { Component, type ReactNode } from 'react';
+import { Component, useCallback, useRef, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport } from '@react-three/drei';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
-import { useSceneInteraction } from './SceneInteractionContext';
+import type { SceneInteractionController } from './SceneInteractionController';
 
 // WebGL can be unavailable (old GPUs, VMs, headless GL stacks like Mesa
 // llvmpipe under xvfb). If context creation fails, three.js throws out of
@@ -29,10 +29,25 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport() {
-  const sceneInteraction = useSceneInteraction();
+export function Viewport({ onSceneInteractionChange }: {
+  onSceneInteractionChange: (controller: SceneInteractionController | null) => void;
+}) {
+  const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
+  const handleSceneInteractionChange = useCallback((controller: SceneInteractionController | null) => {
+    sceneInteractionRef.current = controller;
+    onSceneInteractionChange(controller);
+  }, [onSceneInteractionChange]);
   return (
-    <div className="absolute inset-0" data-testid="viewport">
+    <div
+      className="absolute inset-0"
+      data-testid="viewport"
+      onPointerDownCapture={(event) => {
+        // Capture runs before three/drei target handlers. Recheck the live
+        // picker here so a stale hover frame cannot start an overlapping body
+        // drag before TransformControls claims its handle.
+        sceneInteractionRef.current?.resolveGizmoPointerDown(event.nativeEvent);
+      }}
+    >
       <ViewportErrorBoundary>
         <Canvas
           // Render only when something invalidates the frame (camera change,
@@ -51,11 +66,11 @@ export function Viewport() {
           camera={{ position: [200, -200, 160], fov: 45 }}
           dpr={[1, 2]}
           onPointerMissed={() => {
-            sceneInteraction.clearSelection();
+            sceneInteractionRef.current?.clearSelection();
           }}
         >
           <color attach="background" args={['#0f172a']} />
-          <Scene />
+          <Scene onControllerChange={handleSceneInteractionChange} />
           <OrbitControls
             makeDefault
             enableDamping

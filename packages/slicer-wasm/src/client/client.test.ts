@@ -131,16 +131,21 @@ describe('SlicerClient bridge contract', () => {
   });
 
   it('mock fixture can expose independently transformable instances', async () => {
-    const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+    const c = createClient(async () => createMockModule({ instanceCount: 2, volumeCount: 2 }));
     await c.loadModel(new Uint8Array(4), 'stl');
     const before = await c.getModelMesh();
-    expect(before.objects).toHaveLength(2);
-    expect(before.objects[1]).toMatchObject({ instanceIdx: 1, offset: [50, 0, 0] });
+    expect(before.objects).toHaveLength(4);
+    expect(before.objects).toMatchObject([
+      { instanceIdx: 0, volumeIdx: 0, offset: [0, 0, 0] },
+      { instanceIdx: 0, volumeIdx: 1, offset: [0, 0, 0] },
+      { instanceIdx: 1, volumeIdx: 0, offset: [50, 0, 0] },
+      { instanceIdx: 1, volumeIdx: 1, offset: [50, 0, 0] },
+    ]);
 
     await c.setInstanceOffset(0, 1, 75, 0, 0);
     const after = await c.getModelMesh();
-    expect(after.objects[0].offset).toEqual([0, 0, 0]);
-    expect(after.objects[1].offset).toEqual([75, 0, 0]);
+    expect(after.objects.filter((o) => o.instanceIdx === 0).map((o) => o.offset)).toEqual([[0, 0, 0], [0, 0, 0]]);
+    expect(after.objects.filter((o) => o.instanceIdx === 1).map((o) => o.offset)).toEqual([[75, 0, 0], [75, 0, 0]]);
   });
 
   it('slice fires progress and returns unrecognized_keys', async () => {

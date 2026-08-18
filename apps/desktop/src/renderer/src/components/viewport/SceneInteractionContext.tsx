@@ -1,17 +1,15 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { glVolumeCollection } from './GLVolume';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { SceneInteractionController } from './SceneInteractionController';
 
 const SceneInteractionContext = createContext<SceneInteractionController | null>(null);
 
-/** Shares scene interaction with viewport children and the sidebar without a UI store. */
-export function SceneInteractionProvider({ children }: { children: ReactNode }) {
-  const controllerRef = useRef<SceneInteractionController | null>(null);
-  if (!controllerRef.current) {
-    controllerRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
-  }
+/** Shares the Scene-created controller with only its canvas descendants. */
+export function SceneInteractionProvider({ controller, children }: {
+  controller: SceneInteractionController;
+  children: ReactNode;
+}) {
   return (
-    <SceneInteractionContext.Provider value={controllerRef.current}>
+    <SceneInteractionContext.Provider value={controller}>
       {children}
     </SceneInteractionContext.Provider>
   );
@@ -24,9 +22,13 @@ export function useSceneInteraction(): SceneInteractionController {
 }
 
 /** Re-render a React consumer when the scene controller changes. */
-export function useSceneInteractionVersion(): number {
-  const controller = useSceneInteraction();
+export function useSceneInteractionVersion(controller?: SceneInteractionController): number {
+  const contextualController = useContext(SceneInteractionContext);
+  const activeController = controller ?? contextualController;
   const [version, setVersion] = useState(0);
-  useEffect(() => controller.subscribe(() => setVersion((value) => value + 1)), [controller]);
+  useEffect(
+    () => activeController?.subscribe(() => setVersion((value) => value + 1)),
+    [activeController],
+  );
   return version;
 }

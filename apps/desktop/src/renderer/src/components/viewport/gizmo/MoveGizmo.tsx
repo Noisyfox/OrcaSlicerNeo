@@ -10,7 +10,29 @@ import { useSceneInteraction } from '../SceneInteractionContext';
 export function MoveGizmo({ target }: { target: THREE.Object3D }) {
   const sceneInteraction = useSceneInteraction();
   const invalidate = useThree((s) => s.invalidate);
+  const domElement = useThree((s) => s.gl.domElement);
   const tcRef = useRef<React.ComponentRef<typeof TransformControls> | null>(null);
+
+  // The native TransformControls pointer handler repeats this picker query on
+  // pointerdown. Register the same query with the viewport capture phase so
+  // DragControls sees an up-to-date grabber result before its own callback.
+  useEffect(() => {
+    sceneInteraction.registerGizmoGrabberHitTest((event) => {
+      const controls = tcRef.current as unknown as {
+        axis: string | null;
+        pointerHover: (pointer: { x: number; y: number; button: number }) => void;
+      } | null;
+      if (!controls) return false;
+      const bounds = domElement.getBoundingClientRect();
+      controls.pointerHover({
+        x: ((event.clientX - bounds.left) / bounds.width) * 2 - 1,
+        y: -((event.clientY - bounds.top) / bounds.height) * 2 + 1,
+        button: event.button,
+      });
+      return controls.axis !== null;
+    });
+    return () => sceneInteraction.registerGizmoGrabberHitTest(null);
+  }, [domElement, sceneInteraction]);
 
   // TransformControls stores its current grabber in `axis`. This disables
   // body drag while hovering a handle; beginGizmoDrag is the synchronous,

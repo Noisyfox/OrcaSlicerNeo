@@ -44,6 +44,8 @@ export interface MockModuleOptions {
   printErr?: (msg: string) => void;
   /** Number of separately transformable instances exposed by getModelMesh. */
   instanceCount?: number;
+  /** Number of composite render volumes in each mock instance. */
+  volumeCount?: number;
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -134,13 +136,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1],
   });
   const instanceCount = Math.max(1, Math.floor(opts.instanceCount ?? 1));
+  const volumeCount = Math.max(1, Math.floor(opts.volumeCount ?? 1));
   const instanceTransforms = Array.from({ length: instanceCount }, (_, index) => ({
     ...identityTransform(),
     // Keep mock instances visibly separate so selection tests can hit each
     // one without a model fixture that depends on the native build.
     offset: [index * 50, 0, 0],
   }));
-  const volumeTransforms = Array.from({ length: instanceCount }, () => identityTransform());
+  const volumeTransforms = Array.from(
+    { length: instanceCount },
+    () => Array.from({ length: volumeCount }, () => identityTransform()),
+  );
   const modelState = { objects: 1, instances: instanceCount };
   let modelLoaded = false;
   let sliced = false;
@@ -215,9 +221,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { ok: true };
     },
     orc_set_model_transform(obj: number, volume: number, inst: number, instanceJson: string, volumeJson: string) {
-      if (obj !== 0 || volume !== 0 || inst < 0 || inst >= instanceCount) return { error: 'no such composite id' };
+      if (obj !== 0 || volume < 0 || volume >= volumeCount || inst < 0 || inst >= instanceCount) return { error: 'no such composite id' };
       instanceTransforms[inst] = JSON.parse(instanceJson);
-      volumeTransforms[inst] = JSON.parse(volumeJson);
+      volumeTransforms[inst][volume] = JSON.parse(volumeJson);
       return { ok: true };
     },
     orc_get_model_mesh() {
@@ -241,7 +247,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         // The client frees every returned pair of heap buffers, so each
         // composite must own distinct allocations even though the geometry
         // itself is identical.
-        objects: instanceTransforms.map((instanceTransform, instance_idx) => {
+        objects: instanceTransforms.flatMap((instanceTransform, instance_idx) =>
+          Array.from({ length: volumeCount }, (_, volume_idx) => {
           const vptr = malloc(verts.length * 3 * 4);
           const iptr = malloc(tris.length * 3 * 4);
           const vo = vptr / 4;
@@ -250,7 +257,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           tris.forEach((t, i) => HEAPU32.set(t, io + i * 3));
           return {
             object_idx: 0,
-            volume_idx: 0,
+            volume_idx,
             instance_idx,
             vertex_ptr: vptr,
             vertex_count: verts.length,
@@ -258,9 +265,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
             index_count: tris.length * 3,
             offset: instanceTransform.offset,
             instance_transform: instanceTransform,
-            volume_transform: volumeTransforms[instance_idx],
+            volume_transform: volumeTransforms[instance_idx][volume_idx],
           };
-        }),
+          }),
+        ),
       };
     },
     orc_set_progress_callback(ptr: number) {

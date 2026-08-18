@@ -6,14 +6,15 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { formatPosition, parseNumberInput } from '../viewport/transformMath';
-import { useSceneInteraction, useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
+import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import type { Vec3 } from '../../lib/vec3';
 
 const AXES = ['x', 'y', 'z'] as const;
 
-export function MovePanel() {
-  const sceneInteraction = useSceneInteraction();
-  const version = useSceneInteractionVersion();
+export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
+  const version = useSceneInteractionVersion(sceneInteraction ?? undefined);
+  if (!sceneInteraction) return null;
   const pivot = sceneInteraction.selectionPivot();
   const current = pivot ? pivot.toArray() as Vec3 : null;
   const [draft, setDraft] = useState<[string, string, string] | null>(null);

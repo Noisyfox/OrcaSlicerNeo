@@ -18,7 +18,7 @@ function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransfo
 export function GLVolumeMesh({ data }: { data: GLVolume }) {
   const groupRef = useRef<THREE.Group>(null);
   const volumeGroupRef = useRef<THREE.Group>(null);
-  const bodyStartRef = useRef(new THREE.Vector3());
+  const bodyDeltaRef = useRef(new THREE.Vector3());
   const invalidate = useThree((s) => s.invalidate);
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
@@ -51,17 +51,20 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
           sceneInteraction.selectFromHit(data, false);
         }
         if (!sceneInteraction.tryBeginBodyDrag()) return;
-        const group = groupRef.current;
-        if (group) bodyStartRef.current.copy(group.position);
+        bodyDeltaRef.current.set(0, 0, 0);
       }}
-      onDrag={(localMatrix) => {
+      onDrag={(_localMatrix, deltaLocalMatrix) => {
         // Final ownership guard: r3f can dispatch a mesh event after a gizmo
         // claimed the same press. autoTransform is off, so it cannot mutate.
         if (sceneInteraction.owner !== 'body') return;
         const start = sceneInteraction.activeDrag?.startPivot;
         if (!start) return;
-        scratch.setFromMatrixPosition(localMatrix).sub(bodyStartRef.current);
-        sceneInteraction.updateDragPivot(start.clone().add(scratch));
+        // Drei's delta matrix is the per-pointer-update movement it intended
+        // to apply. Accumulating it avoids relying on an imperative group
+        // matrix that deliberately remains untouched (autoTransform=false).
+        scratch.setFromMatrixPosition(deltaLocalMatrix);
+        bodyDeltaRef.current.add(scratch);
+        sceneInteraction.updateDragPivot(start.clone().add(bodyDeltaRef.current));
         invalidate();
       }}
       onDragEnd={() => {
