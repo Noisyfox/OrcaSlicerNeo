@@ -172,8 +172,10 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 - [ ] Full settings surface + search (from metadata)
 - [ ] Gizmos: rotate/scale/cut/measure/arrange/orient (move delivered in
       Milestone 5)
-- [ ] Parallelism: wasmtbb + pthreads + COOP/EP (SharedArrayBuffer already
-      provisioned); perf tuning for large plates
+- [ ] Parallelism: upstream oneTBB + pthreads + COOP/COEP (implementation in
+      progress; design + incremental verification:
+      `doc/2026-08-18-wasm-parallelism-design.md`); perf tuning for large
+      plates
 - [ ] STEP import (OCCT Emscripten port decision)
 - [ ] CGAL features: mesh boolean, hollowing, advanced cut
 - [ ] Device panel & printer connectivity (Bambu LAN/cloud, Moonraker, …)
