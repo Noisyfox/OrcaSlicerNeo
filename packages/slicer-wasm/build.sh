@@ -29,11 +29,9 @@ GEN_INCLUDE="$WORK_DIR/gen"                        # generated headers (libslic3
 BUILD_DIR="$WORK_DIR/build"
 OUT_DIR="$PKG_DIR/out"
 WASM_THREADING="${WASM_THREADING:-1}"
-# Keep nested Chromium workers within the verified four-worker budget while
-# still using every core on smaller machines. Callers can override both limits
-# for controlled profiling.
-WASM_PTHREAD_POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-Math.min(4,navigator.hardwareConcurrency)}"
-WASM_TBB_MAX_CONCURRENCY="${WASM_TBB_MAX_CONCURRENCY:-4}"
+# Emscripten evaluates this expression in the runtime and creates one pthread
+# worker per available logical core. Callers can override it for profiling.
+WASM_PTHREAD_POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-navigator.hardwareConcurrency}"
 WASM_TBB_COMMIT="${WASM_TBB_COMMIT:-3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3}"
 TBB_ROOT="$WORK_DIR/deps/oneTBB-$WASM_TBB_COMMIT/stage-wasm64-pthreads"
 
@@ -197,7 +195,6 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DCEREAL_INCLUDE="$CEREAL_INCLUDE" \
   -DWASM_THREADING="$WASM_THREADING" \
   -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
-  -DWASM_TBB_MAX_CONCURRENCY="$WASM_TBB_MAX_CONCURRENCY" \
   -DTBB_ROOT="$TBB_ROOT" \
   -DPRELOAD_FILES="$WASM_PROFILES_DIR@/system;$INFO_DIR@/info" \
   || die "CMake configure failed. Fix include paths / missing deps and re-run."

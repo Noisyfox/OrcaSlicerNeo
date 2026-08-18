@@ -48,12 +48,11 @@ namespace {
 
 #ifdef ORCA_WASM_THREADING
 // Match the pre-created Emscripten pool. This API returns the runtime's
-// navigator.hardwareConcurrency value; cap it to the loader's nested-worker
-// budget and keep a nonzero fallback for unusual hosts.
+// navigator.hardwareConcurrency value; keep a nonzero fallback for unusual
+// hosts.
 int wasm_tbb_concurrency()
 {
-    return std::min(ORCA_WASM_TBB_MAX_CONCURRENCY,
-                    std::max(1, emscripten_num_logical_cores()));
+    return std::max(1, emscripten_num_logical_cores());
 }
 #endif
 

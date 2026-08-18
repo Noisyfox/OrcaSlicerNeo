@@ -30,10 +30,9 @@ set "GEN_INCLUDE=%WORK_DIR%\gen"
 set "BUILD_DIR=%WORK_DIR%\build"
 set "OUT_DIR=%PKG_DIR%\out"
 if not defined WASM_THREADING set "WASM_THREADING=1"
-REM Nested Chromium workers use every core on smaller machines, up to the
-REM verified four-worker budget; callers may override it for profiling.
-if not defined WASM_PTHREAD_POOL_SIZE set "WASM_PTHREAD_POOL_SIZE=Math.min(4,navigator.hardwareConcurrency)"
-if not defined WASM_TBB_MAX_CONCURRENCY set "WASM_TBB_MAX_CONCURRENCY=4"
+REM Emscripten evaluates this expression in the runtime and creates one
+REM pthread worker per available logical core. Callers may override it.
+if not defined WASM_PTHREAD_POOL_SIZE set "WASM_PTHREAD_POOL_SIZE=navigator.hardwareConcurrency"
 if not defined WASM_TBB_COMMIT set "WASM_TBB_COMMIT=3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3"
 set "TBB_ROOT=%WORK_DIR%\deps\oneTBB-%WASM_TBB_COMMIT%\stage-wasm64-pthreads"
 
@@ -215,7 +214,6 @@ emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DCEREAL_INCLUDE="%CEREAL_CM%" ^
   -DWASM_THREADING=%WASM_THREADING% ^
   -DWASM_PTHREAD_POOL_SIZE=%WASM_PTHREAD_POOL_SIZE% ^
-  -DWASM_TBB_MAX_CONCURRENCY=%WASM_TBB_MAX_CONCURRENCY% ^
   -DTBB_ROOT="%TBB_CM%" ^
   -DPRELOAD_FILES="%PRELOAD_FILES%"
 if errorlevel 1 (

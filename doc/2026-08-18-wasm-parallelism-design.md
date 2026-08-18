@@ -21,15 +21,12 @@ existing renderer Web Worker boundary.
 - The threaded build passes `-pthread` when compiling every target and when
   linking. Emscripten requires both; this also enables `__EMSCRIPTEN_PTHREADS__`.
 - Pre-create a pthread worker pool with
-  `-sPTHREAD_POOL_SIZE=Math.min(4,navigator.hardwareConcurrency)`. The
-  desktop module itself is already a renderer worker; a larger nested pool
-  caused Chromium to abort a multi-object slice with `Error: unwind`. This
-  expression still uses every core on smaller machines while preserving the
-  verified four-worker budget on larger ones.
+  `-sPTHREAD_POOL_SIZE=navigator.hardwareConcurrency`, so oneTBB can use
+  every logical core the runtime exposes.
 - Use oneTBB's runtime `global_control(max_allowed_parallelism, cores)` and a
-  matching task arena in bridge startup, where `cores` is the minimum of
-  `emscripten_num_logical_cores()` and the configured four-worker budget.
-  Both build values remain explicit overrides for controlled profiling.
+  matching task arena in bridge startup, where `cores` is
+  `emscripten_num_logical_cores()` (with a nonzero fallback). The pool-size
+  build value remains an explicit override for controlled profiling.
 - Do not install the dynamic JavaScript progress callback in a threaded
   module. oneTBB can invoke the callback from a pthread whose Wasm function
   table does not track a renderer-worker `addFunction` table growth; Chromium

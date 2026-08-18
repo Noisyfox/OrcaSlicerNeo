@@ -11,7 +11,7 @@ TBB_SOURCE="$WORK_DIR/deps/oneTBB-$TBB_COMMIT"
 TBB_BUILD="$WORK_DIR/onetbb-build"
 TBB_STAGE="$WORK_DIR/deps/oneTBB-$TBB_COMMIT/stage-wasm64-pthreads"
 OUT_DIR="$PKG_DIR/out"
-POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-Math.min(4,navigator.hardwareConcurrency)}"
+POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-navigator.hardwareConcurrency}"
 
 command -v emcmake >/dev/null 2>&1 || { echo "[onetbb] Activate emsdk first" >&2; exit 1; }
 command -v em++ >/dev/null 2>&1 || { echo "[onetbb] em++ not found" >&2; exit 1; }

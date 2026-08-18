@@ -51,18 +51,17 @@ const init = callJson('orc_init', ['string'], ['']);
 check('orc_init ok', init.ok === true, JSON.stringify(init));
 check('init has printers', init.printers > 0, `printers=${init.printers}`);
 
-// The threaded wasm build must use every available core up to the safe
-// nested-worker budget. The loader evaluates navigator.hardwareConcurrency
-// at runtime, so the expected value is intentionally not baked into this test.
+// The threaded wasm build must use every logical core available at runtime.
+// The loader evaluates navigator.hardwareConcurrency dynamically, so the
+// expected value is intentionally not baked into this test.
 const threading = callJson('orc_get_threading_info', [], []);
 const runtimeCores = globalThis.navigator?.hardwareConcurrency;
-const expectedConcurrency = runtimeCores === undefined ? undefined : Math.min(4, runtimeCores);
-check('threaded build reports the safe TBB pool',
+check('threaded build reports the all-core TBB pool',
       threading.ok === true && threading.threaded === true
       && Number.isInteger(threading.max_concurrency) && threading.max_concurrency >= 1
       && threading.arena_concurrency === threading.max_concurrency
-      && (expectedConcurrency === undefined || threading.max_concurrency === expectedConcurrency),
-      `${JSON.stringify(threading)} runtimeCores=${runtimeCores} expected=${expectedConcurrency}`);
+      && (runtimeCores === undefined || threading.max_concurrency === runtimeCores),
+      `${JSON.stringify(threading)} runtimeCores=${runtimeCores}`);
 
 // 2. presets
 const printers = callJson('orc_get_presets', ['string'], ['printer']);

@@ -9,7 +9,7 @@ set "PKG_DIR=%~dp0"
 for %%i in ("%PKG_DIR%.") do set "PKG_DIR=%%~fi"
 if defined WORK_DIR (set "WORK_DIR=%WORK_DIR%") else (set "WORK_DIR=%PKG_DIR%\.work")
 if defined WASM_TBB_COMMIT (set "TBB_COMMIT=%WASM_TBB_COMMIT%") else (set "TBB_COMMIT=3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3")
-if defined WASM_PTHREAD_POOL_SIZE (set "POOL_SIZE=%WASM_PTHREAD_POOL_SIZE%") else (set "POOL_SIZE=Math.min(4,navigator.hardwareConcurrency)")
+if defined WASM_PTHREAD_POOL_SIZE (set "POOL_SIZE=%WASM_PTHREAD_POOL_SIZE%") else (set "POOL_SIZE=navigator.hardwareConcurrency")
 if defined WASM_BUILD_JOBS (set "BUILD_JOBS=%WASM_BUILD_JOBS%") else (set "BUILD_JOBS=4")
 set "TBB_SOURCE=%WORK_DIR%\deps\oneTBB-%TBB_COMMIT%"
 set "TBB_BUILD=%WORK_DIR%\onetbb-build"
