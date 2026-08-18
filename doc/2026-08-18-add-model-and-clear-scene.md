@@ -21,6 +21,10 @@ the WASM model and the renderer collection.
 - Every successful add or clear advances the renderer's model revision. This
   causes the viewport to fetch the complete, current collection; a boolean
   alone would not re-run the loader when adding a second model.
+- A completed move commits a snapshot of renderer-side transforms to WASM at
+  mouse release (or after a panel action). Add Model waits only for a pending
+  settled commit, so its reload retains every existing model position without
+  delaying persistence until another action.
 - Adding or clearing invalidates the slice result and selection. Cancelling a
   file dialog or a failed import leaves the scene and its current slice state
   unchanged.

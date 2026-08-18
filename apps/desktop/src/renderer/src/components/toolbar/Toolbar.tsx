@@ -9,6 +9,7 @@ import { errorText } from '../../slicer/errors';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms } from './syncModelTransforms';
+import { waitForSettledModelTransforms } from './persistModelTransforms';
 
 export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const status = useSlicerStore((s) => s.status);
@@ -33,6 +34,10 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
     try {
       const buf = await window.orca.readFile(path);
       const ext = path.split('.').pop() ?? 'stl';
+      // A just-finished gesture persists its settled state on release. Wait
+      // for that commit before the additive import refreshes the collection.
+      const synced = await waitForSettledModelTransforms();
+      if (!synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
       const r = await slicerClient.addModel(new Uint8Array(buf), ext);
       if (!r.ok) throw new Error(r.error ?? 'add failed');
       // Only a successful add changes the plate. A dialog cancel or parse

@@ -24,4 +24,31 @@ describe('syncModelTransforms', () => {
     expect(setModelTransform.mock.calls.map(([objectIdx, volumeIdx, instanceIdx]) => [objectIdx, volumeIdx, instanceIdx]))
       .toEqual([[0, 0, 0], [0, 1, 0], [0, 0, 1], [0, 1, 1]]);
   });
+
+  it('captures the settled transform before asynchronous bridge writes begin', async () => {
+    let resolveFirstWrite: ((result: { ok: boolean }) => void) | undefined;
+    const setModelTransform = vi.fn().mockImplementation(() => new Promise<{ ok: boolean }>((resolve) => {
+      resolveFirstWrite = resolve;
+    }));
+    const volumes = [
+      {
+        buffer: { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 },
+        instanceTransform: transform([12, 0, 0]),
+        volumeTransform: transform([0, 0, 0]),
+      },
+    ];
+
+    const sync = syncModelTransforms({ setModelTransform }, volumes);
+    volumes[0].instanceTransform.offset[0] = 99;
+    resolveFirstWrite?.({ ok: true });
+
+    await expect(sync).resolves.toEqual({ ok: true });
+    expect(setModelTransform).toHaveBeenCalledWith(
+      0,
+      0,
+      0,
+      transform([12, 0, 0]),
+      transform([0, 0, 0]),
+    );
+  });
 });

@@ -8,6 +8,7 @@ import { useThree } from '@react-three/fiber';
 import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import type { GLVolume } from './GLVolume';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
+import { persistSettledModelTransforms } from '../toolbar/persistModelTransforms';
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
   const { offset, rotation, scale, mirror } = transform;
@@ -77,7 +78,9 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
         invalidate();
       }}
       onDragEnd={() => {
-        if (sceneInteraction.owner === 'body') sceneInteraction.endDrag();
+        if (sceneInteraction.owner === 'body' && sceneInteraction.endDrag()) {
+          void persistSettledModelTransforms();
+        }
       }}
     >
       <group ref={volumeGroupRef}>

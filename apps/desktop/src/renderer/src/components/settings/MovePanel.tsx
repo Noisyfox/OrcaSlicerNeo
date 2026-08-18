@@ -9,6 +9,7 @@ import { formatPosition, parseNumberInput } from '../viewport/transformMath';
 import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import type { Vec3 } from '../../lib/vec3';
+import { persistSettledModelTransforms } from '../toolbar/persistModelTransforms';
 
 const AXES = ['x', 'y', 'z'] as const;
 
@@ -24,7 +25,9 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
   if (!sceneInteraction || !current) return null;
 
   const moveTo = (next: Vec3) => {
-    sceneInteraction.moveSelectionToPivot(new THREE.Vector3(...next));
+    if (sceneInteraction.moveSelectionToPivot(new THREE.Vector3(...next))) {
+      void persistSettledModelTransforms();
+    }
   };
 
   const submitAxis = (axis: number, text: string) => {
@@ -67,7 +70,9 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
           size="sm"
           variant="secondary"
           data-testid="move-drop-bed"
-          onClick={() => sceneInteraction.dropSelectionToBed()}
+          onClick={() => {
+            if (sceneInteraction.dropSelectionToBed()) void persistSettledModelTransforms();
+          }}
         >
           Drop to bed
         </Button>
@@ -75,7 +80,9 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
           size="sm"
           variant="secondary"
           data-testid="move-reset"
-          onClick={() => sceneInteraction.resetSelection()}
+          onClick={() => {
+            if (sceneInteraction.resetSelection()) void persistSettledModelTransforms();
+          }}
         >
           Reset
         </Button>

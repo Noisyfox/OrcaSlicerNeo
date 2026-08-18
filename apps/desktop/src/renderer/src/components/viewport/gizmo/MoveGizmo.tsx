@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { TransformControls } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useSceneInteraction } from '../SceneInteractionContext';
+import { persistSettledModelTransforms } from '../../toolbar/persistModelTransforms';
 
 export function MoveGizmo({ target }: { target: THREE.Object3D }) {
   const sceneInteraction = useSceneInteraction();
@@ -71,7 +72,9 @@ export function MoveGizmo({ target }: { target: THREE.Object3D }) {
         invalidate();
       }}
       onMouseUp={() => {
-        if (sceneInteraction.owner === 'gizmo') sceneInteraction.endDrag();
+        if (sceneInteraction.owner === 'gizmo' && sceneInteraction.endDrag()) {
+          void persistSettledModelTransforms();
+        }
       }}
     />
   );
