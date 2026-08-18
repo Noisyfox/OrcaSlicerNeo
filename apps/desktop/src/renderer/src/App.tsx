@@ -10,6 +10,7 @@ import { StatusBar } from './components/status/StatusBar';
 import { slicerClient } from './slicer/slicerClient';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
+import { SceneInteractionProvider } from './components/viewport/SceneInteractionContext';
 
 export default function App() {
   const setMetadata = useSettingsStore((s) => s.setMetadata);
@@ -47,11 +48,13 @@ export default function App() {
   }, [setMetadata, setPresets, setError]);
 
   return (
-    <AppShell
-      toolbar={<Toolbar />}
-      settings={<SettingsPanel />}
-      viewport={<Viewport />}
-      status={<StatusBar />}
-    />
+    <SceneInteractionProvider>
+      <AppShell
+        toolbar={<Toolbar />}
+        settings={<SettingsPanel />}
+        viewport={<Viewport />}
+        status={<StatusBar />}
+      />
+    </SceneInteractionProvider>
   );
 }

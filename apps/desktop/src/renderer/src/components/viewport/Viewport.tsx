@@ -6,6 +6,7 @@ import { OrbitControls, GizmoHelper, GizmoViewport } from '@react-three/drei';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSceneInteraction } from './SceneInteractionContext';
 
 // WebGL can be unavailable (old GPUs, VMs, headless GL stacks like Mesa
 // llvmpipe under xvfb). If context creation fails, three.js throws out of
@@ -30,6 +31,7 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
 }
 
 export function Viewport() {
+  const sceneInteraction = useSceneInteraction();
   const setSelected = useSettingsStore((s) => s.setSelectedObject);
   const setSelectedVolume = useSettingsStore((s) => s.setSelectedVolumeId);
   return (
@@ -51,7 +53,12 @@ export function Viewport() {
           // the convention: X right, Y into the screen, Z up.
           camera={{ position: [200, -200, 160], fov: 45 }}
           dpr={[1, 2]}
-          onPointerMissed={() => { setSelected(null); setSelectedVolume(null); }}
+          onPointerMissed={() => {
+            sceneInteraction.clearSelection();
+            // Temporary sidebar compatibility during the move-panel migration.
+            setSelected(null);
+            setSelectedVolume(null);
+          }}
         >
           <color attach="background" args={['#0f172a']} />
           <Scene />

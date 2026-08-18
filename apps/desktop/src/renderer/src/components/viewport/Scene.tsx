@@ -1,5 +1,5 @@
 // apps/desktop/src/renderer/src/components/viewport/Scene.tsx
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { useModelLoader } from './useModelLoader';
@@ -8,10 +8,14 @@ import { GLVolumeMesh } from './ModelMesh';
 import { useSliceResult } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
 import { SlicedMesh } from './SlicedMesh';
+import { MoveGizmo } from './gizmo/MoveGizmo';
+import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 
 export function Scene() {
   const glVolumes = useModelLoader();
   const { toolpath, mesh } = useSliceResult();
+  const sceneInteraction = useSceneInteraction();
+  useSceneInteractionVersion();
   // Test-only projection hook (mock/e2e builds): Playwright needs exact
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
   // No-op in production builds (VITE_USE_MOCK is unset).
@@ -45,6 +49,12 @@ export function Scene() {
     };
   }, [camera, size]);
 
+  // A loader replacement is a new scene even if it reuses the prior model's
+  // composite IDs, so selection and the active gizmo must not leak across it.
+  useEffect(() => {
+    sceneInteraction.resetForModel();
+  }, [glVolumes, sceneInteraction]);
+
   return (
     <>
       <ambientLight intensity={0.6} />
@@ -54,8 +64,30 @@ export function Scene() {
       {glVolumes.map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} />
       ))}
+      <SelectionMoveGizmo />
       {mesh && <SlicedMesh data={mesh} />}
       {toolpath && <ToolpathLines data={toolpath} />}
     </>
+  );
+}
+
+function SelectionMoveGizmo() {
+  const sceneInteraction = useSceneInteraction();
+  const revision = useSceneInteractionVersion();
+  const pivotRef = useRef<THREE.Group>(null);
+  const [target, setTarget] = useState<THREE.Group | null>(null);
+
+  useLayoutEffect(() => {
+    const pivot = sceneInteraction.selectionPivot();
+    if (pivotRef.current && pivot) pivotRef.current.position.copy(pivot);
+  }, [revision, sceneInteraction]);
+
+  return (
+    <group ref={(group) => {
+      pivotRef.current = group;
+      if (group) setTarget(group);
+    }}>
+      {target && sceneInteraction.gizmo === 'move' && <MoveGizmo target={target} />}
+    </group>
   );
 }

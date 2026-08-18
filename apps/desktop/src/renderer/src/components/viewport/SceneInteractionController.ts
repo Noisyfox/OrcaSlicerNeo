@@ -38,6 +38,9 @@ export class SceneInteractionController {
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get owner(): PointerOwner { return this.pointerOwner; }
   get activeDrag(): DragSnapshot | null { return this.drag; }
+  get bodyDragEnabled(): boolean {
+    return !this.gizmoGrabberHovered && this.pointerOwner === 'none' && !this.selection.empty;
+  }
 
   selectedVolumes(): GLVolume[] {
     return this.selection.volumes(this.getVolumes());
@@ -70,7 +73,20 @@ export class SceneInteractionController {
   }
 
   setGizmoGrabberHovered(hovered: boolean): void {
+    if (this.gizmoGrabberHovered === hovered) return;
     this.gizmoGrabberHovered = hovered;
+    this.emit();
+  }
+
+  /** Clear all ephemeral scene interaction when a loaded collection is replaced. */
+  resetForModel(): void {
+    const hadState = !this.selection.empty || this.openGizmo !== null || this.drag !== null || this.pointerOwner !== 'none';
+    this.selection.clear();
+    this.openGizmo = null;
+    this.drag = null;
+    this.pointerOwner = 'none';
+    this.gizmoGrabberHovered = false;
+    if (hadState) this.emit();
   }
 
   /**
