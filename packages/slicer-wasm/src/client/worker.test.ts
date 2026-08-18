@@ -41,6 +41,19 @@ describe('worker protocol', () => {
     expect(events.length).toBeGreaterThan(0);
   });
 
+  it('reads threaded progress from the shared-memory mailbox without addFunction', async () => {
+    const module = createMockModule({ threaded: true });
+    const channel = new Channel();
+    const workerClient = createWorkerClient(channel);
+    void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
+    await workerClient.init();
+    await workerClient.addModel(new Uint8Array(4), 'stl');
+    const events: number[] = [];
+    await workerClient.slice({}, (pct) => events.push(pct));
+    expect(events).toContain(100);
+    expect(module._functionRegistrations).toBe(0);
+  });
+
   it('returns binary slice buffers as transferable-arrayable views', async () => {
     const { workerClient } = setup();
     await workerClient.init();

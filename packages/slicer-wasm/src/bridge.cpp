@@ -10,13 +10,19 @@
 // (AGENTS.md): if a signature below mismatches the pinned submodule, adjust
 // here — never in the submodule.
 #include <emscripten/emscripten.h>
+#include <emscripten/threading.h>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cctype>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "libslic3r/AppConfig.hpp"
@@ -33,12 +39,27 @@
 // included above).
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 
+#ifdef ORCA_WASM_THREADING
+#include <tbb/global_control.h>
+#include <tbb/task_arena.h>
+#endif
+
 #include "nlohmann/json.hpp"
 
 using namespace Slic3r;
 using nlohmann::json;
 
 namespace {
+
+#ifdef ORCA_WASM_THREADING
+// Match the pre-created Emscripten pool. This API returns the runtime's
+// navigator.hardwareConcurrency value; keep a nonzero fallback for unusual
+// hosts.
+int wasm_tbb_concurrency()
+{
+    return std::max(1, emscripten_num_logical_cores());
+}
+#endif
 
 // Module-global state. orc_init() (re)creates the preset bundle.
 //
@@ -52,6 +73,16 @@ namespace {
 // run) — observed as "memory access out of bounds" at instantiation when
 // constructed eagerly.
 struct BridgeState {
+#ifdef ORCA_WASM_THREADING
+    // Match the pre-created Emscripten pthread pool at runtime. This avoids a
+    // fixed compile-time cap while ensuring oneTBB never asks for more worker
+    // threads than the loader supplied.
+    const int tbb_max_concurrency = wasm_tbb_concurrency();
+    tbb::global_control tbb_concurrency{
+        tbb::global_control::max_allowed_parallelism,
+        static_cast<std::size_t>(tbb_max_concurrency)};
+    tbb::task_arena tbb_arena{tbb_max_concurrency};
+#endif
     AppConfig   app_config;
     PresetBundle presets;
     Model       model;
@@ -562,10 +593,104 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
 using progress_fn = void (*)(int, const char*);
 progress_fn g_progress = nullptr;
 
-EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) { g_progress = cb; }
+// Threaded status transport -------------------------------------------------
+//
+// oneTBB can call Print's status callback from any pthread. Do not call a
+// JS function-table entry from there: dynamically-grown tables are not shared
+// reliably by Chromium's per-pthread Wasm instances. Instead publish the
+// latest status in this fixed shared-memory mailbox. The renderer reads it
+// directly while the module worker is blocked in orc_slice(). See
+// doc/2026-08-18-threaded-progress-mailbox-design.md.
+constexpr std::size_t k_progress_text_capacity = 512;
+struct alignas(4) ProgressMailbox {
+    std::atomic<std::uint32_t> sequence{0}; // odd while a writer owns it
+    std::atomic<std::uint32_t> percent{0};
+    std::atomic<std::uint32_t> text_length{0};
+    std::uint32_t reserved{0};
+    std::array<char, k_progress_text_capacity> text{};
+};
+static_assert(sizeof(std::atomic<std::uint32_t>) == sizeof(std::uint32_t));
+static_assert(offsetof(ProgressMailbox, sequence) == 0);
+static_assert(offsetof(ProgressMailbox, percent) == 4);
+static_assert(offsetof(ProgressMailbox, text_length) == 8);
+static_assert(offsetof(ProgressMailbox, text) == 16);
+
+ProgressMailbox g_progress_mailbox;
+std::mutex g_progress_mailbox_mutex;
+bool g_progress_open = false;
+
+void publish_progress_locked(int percent, std::string_view text)
+{
+    // The sequence brackets all non-atomic text writes. Readers retry if it
+    // changes or is odd, so they never render a partially copied UTF-8 value.
+    const std::uint32_t odd =
+        g_progress_mailbox.sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+    const auto clamped = static_cast<std::uint32_t>(std::clamp(percent, 0, 100));
+    std::size_t len = std::min(text.size(), k_progress_text_capacity - 1);
+    // If the next omitted byte is a continuation, remove the partial code
+    // point that began before the truncation boundary.
+    while (len > 0 && len < text.size() &&
+           (static_cast<unsigned char>(text[len]) & 0xc0u) == 0x80u)
+        --len;
+    std::memcpy(g_progress_mailbox.text.data(), text.data(), len);
+    g_progress_mailbox.text[len] = '\0';
+    g_progress_mailbox.percent.store(clamped, std::memory_order_relaxed);
+    g_progress_mailbox.text_length.store(static_cast<std::uint32_t>(len), std::memory_order_relaxed);
+    g_progress_mailbox.sequence.store(odd + 1, std::memory_order_release);
+}
+
+void begin_progress()
+{
+    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+    g_progress_open = true;
+    publish_progress_locked(0, "Preparing slice");
+}
+
+void publish_slicer_progress(int percent, std::string_view text)
+{
+    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+    if (g_progress_open)
+        publish_progress_locked(percent, text);
+}
+
+void finish_progress()
+{
+    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+    // Close before the terminal write. A status callback that reaches us
+    // later must acquire this same mutex and therefore cannot overwrite 100%.
+    g_progress_open = false;
+    publish_progress_locked(100, "Slice complete");
+}
+
+void stop_progress()
+{
+    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+    g_progress_open = false;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_progress_mailbox()
+{
+    return dup_json(json{{"ok", true},
+                         {"byte_offset", reinterpret_cast<std::uintptr_t>(&g_progress_mailbox)},
+                         {"text_capacity", k_progress_text_capacity}}.dump());
+}
+
+EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
+#ifdef ORCA_WASM_THREADING
+    // Deliberately ignore raw callbacks in a pthread module. The mailbox above
+    // is the only safe threaded transport, including for direct bridge users.
+    (void)cb;
+#else
+    g_progress = cb;
+#endif
+}
 
 EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     try {
+        // libslic3r's internal phase reporting does not promise a final 100%
+        // notification (the current FDM path often ends at 75%). Establish
+        // stable operation boundaries for the UI around those detailed phases.
+        begin_progress();
         // Start from the GUI's own baseline: real OrcaSlicer never slices on
         // bare full_print_config() defaults — it assembles the config from
         // the selected print/filament/printer presets (PresetBundle::
@@ -665,10 +790,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         // PrintBase::SlicingStatus (PrintBase.hpp:440), not a Slic3r-top-level
         // type — qualify it (status_callback_type is PrintBase's typedef too).
         state().print.set_status_callback([&](const PrintBase::SlicingStatus& st) {
+            publish_slicer_progress(st.percent, st.text);
+#ifndef ORCA_WASM_THREADING
             if (g_progress) g_progress(st.percent, st.text.c_str());
+#endif
         });
+#ifdef ORCA_WASM_THREADING
+        // Keep every libslic3r parallel_for inside the same fixed-size arena.
+        // This mirrors the known-good oneTBB probe and prevents oneTBB from
+        // trying to use more workers than Emscripten pre-created.
+        state().tbb_arena.execute([&] { state().print.process(); });
+#else
         state().print.process();
+#endif
         state().print.set_status_default();
+        finish_progress();
         // Fix round 2: additive success field — always present, empty when the
         // config is clean. M2 clients (config UI) rely on this to warn about
         // keys the pinned libslic3r dropped (handle_legacy's catch-all).
@@ -677,12 +813,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
             dropped.push_back(k);
         return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)}}.dump());
     } catch (const std::exception& e) {
+        stop_progress();
         // process() is where libslic3r throws SlicingErrors (GCode.cpp:2250);
         // the helper surfaces the per-object messages instead of the bare
         // category. This is the only bridge call that can throw it, so the
         // other catches keep plain e.what().
         return error_json_from_exception(e);
     } catch (...) {
+        stop_progress();
         // Fix round 1: a canceled print (orc_cancel → PrintBase::cancel sets
         // CANCELED_BY_USER; only restart() clears it) makes the NEXT process()
         // abort — but the thrown type escaped the std::exception catch and
@@ -938,6 +1076,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
         // init): never let a C++ exception cross the extern "C" seam.
         return error_json("unknown C++ exception");
     }
+}
+
+// Lightweight build/runtime diagnostic for the worker client and smoke tests.
+// It does not initialize presets or mutate the model, so it is safe to query
+// before normal bridge setup.
+EMSCRIPTEN_KEEPALIVE const char* orc_get_threading_info() {
+#ifdef ORCA_WASM_THREADING
+    return dup_json(json{{"ok", true}, {"threaded", true},
+                         {"max_concurrency", state().tbb_max_concurrency},
+                         {"arena_concurrency", state().tbb_arena.max_concurrency()}}.dump());
+#else
+    return dup_json(json{{"ok", true}, {"threaded", false},
+                         {"max_concurrency", 1}, {"arena_concurrency", 1}}.dump());
+#endif
 }
 
 // Diagnostic: what preset (if any) is selected in each collection, and what

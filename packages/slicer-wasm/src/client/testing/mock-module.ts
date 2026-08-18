@@ -36,6 +36,7 @@ export interface MockModule {
     readFile: (path: string) => Uint8Array;
   };
   _freedPointers: number[];
+  _functionRegistrations: number;
 }
 
 export interface MockModuleOptions {
@@ -46,10 +47,12 @@ export interface MockModuleOptions {
   instanceCount?: number;
   /** Number of composite render volumes in each mock instance. */
   volumeCount?: number;
+  /** Simulate the shared-memory mailbox transport used by the pthread build. */
+  threaded?: boolean;
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
-  const heap = new ArrayBuffer(HEAP_BYTES);
+  const heap = opts.threaded ? new SharedArrayBuffer(HEAP_BYTES) : new ArrayBuffer(HEAP_BYTES);
   const HEAPU8 = new Uint8Array(heap);
   const HEAPU32 = new Uint32Array(heap);
   const HEAPF32 = new Float32Array(heap);
@@ -154,6 +157,19 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let progressCallback = 0;
   const functionTable = new Map<number, (...args: unknown[]) => void>();
   let nextFunctionIndex = 1000;
+  let functionRegistrations = 0;
+  const mailboxOffset = 128;
+  const mailboxWords = new Int32Array(heap, mailboxOffset, 4);
+  const mailboxText = new Uint8Array(heap, mailboxOffset + 16, 512);
+  function publishMailboxProgress(percent: number, text: string): void {
+    const bytes = new TextEncoder().encode(text).slice(0, mailboxText.length - 1);
+    Atomics.add(mailboxWords, 0, 1);
+    mailboxText.set(bytes);
+    mailboxText[bytes.length] = 0;
+    Atomics.store(mailboxWords, 1, percent);
+    Atomics.store(mailboxWords, 2, bytes.length);
+    Atomics.add(mailboxWords, 0, 1);
+  }
 
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
@@ -285,12 +301,22 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_progress_callback(ptr: number) {
       progressCallback = ptr;
     },
+    orc_get_threading_info() {
+      return { ok: true, threaded: !!opts.threaded, max_concurrency: opts.threaded ? 4 : 1, arena_concurrency: opts.threaded ? 4 : 1 };
+    },
+    orc_get_progress_mailbox() {
+      return { ok: true, byte_offset: mailboxOffset, text_capacity: mailboxText.length };
+    },
     orc_slice(_config: string) {
       if (!modelLoaded) return { error: 'no model loaded' };
       // Drive progress 0..100 synchronously, exactly like the real bridge:
       // the callback's second arg is a const char* (malloc'd C string ptr),
       // matching the client's 'vij' wrapper which UTF8ToString()s it.
       for (let pct = 0; pct <= 100; pct += 25) {
+        if (opts.threaded) {
+          publishMailboxProgress(pct, `slice ${pct}%`);
+          continue;
+        }
         if (!progressCallback) continue;
         const bytes = new TextEncoder().encode(`slice ${pct}%`);
         const tp = malloc(bytes.length + 1);
@@ -375,6 +401,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
     orc_set_progress_callback: { ret: 'void', args: ['pointer'] },
+    orc_get_threading_info: { ret: 'number', args: [] },
+    orc_get_progress_mailbox: { ret: 'number', args: [] },
     orc_slice: { ret: 'number', args: ['string'] },
     orc_get_slice_result: { ret: 'number', args: [] },
     orc_export_gcode: { ret: 'number', args: [] },
@@ -399,6 +427,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     HEAPU32,
     HEAPF32,
     addFunction(fn: (...args: unknown[]) => void): number {
+      functionRegistrations++;
       const idx = nextFunctionIndex++;
       functionTable.set(idx, fn);
       return idx;
@@ -417,5 +446,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       },
     },
     _freedPointers: freedPointers,
+    get _functionRegistrations() { return functionRegistrations; },
   };
 }

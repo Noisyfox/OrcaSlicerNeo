@@ -169,6 +169,19 @@ describe('SlicerClient bridge contract', () => {
     expect(events).toContain(100);
   });
 
+  it('threaded client publishes progress through shared memory, never addFunction', async () => {
+    const module = createMockModule({ threaded: true });
+    const c = createClient(async () => module);
+    await c.init();
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const words = new Int32Array(module.HEAPU8.buffer, 128, 4);
+    expect(Atomics.load(words, 0)).toBeGreaterThan(0);
+    expect(Atomics.load(words, 0) % 2).toBe(0);
+    expect(Atomics.load(words, 1)).toBe(100);
+    expect(module._functionRegistrations).toBe(0);
+  });
+
   it('getSliceResult extracts toolpath + mesh buffers with layer ranges', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');

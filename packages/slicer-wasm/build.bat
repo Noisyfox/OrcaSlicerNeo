@@ -3,7 +3,7 @@ REM ================================================================
 REM build.bat - Windows cmd port of build.sh
 REM
 REM Builds the pinned C++ submodule (packages\slicer-wasm\cpp) into a
-REM single Emscripten module: serial TBB shim, scaffold CMake, bridge
+REM single Emscripten module: real oneTBB pthread runtime, scaffold CMake, bridge
 REM + CLI driver. patches\*.patch are git-applied to the submodule
 REM working tree here, at build time - the submodule itself stays
 REM pristine (read-only, pinned SHA). No Git Bash required - pure cmd:
@@ -29,6 +29,12 @@ set "SHIM_INCLUDE=%WORK_DIR%\shim-include"
 set "GEN_INCLUDE=%WORK_DIR%\gen"
 set "BUILD_DIR=%WORK_DIR%\build"
 set "OUT_DIR=%PKG_DIR%\out"
+if not defined WASM_THREADING set "WASM_THREADING=1"
+REM Emscripten evaluates this expression in the runtime and creates one
+REM pthread worker per available logical core. Callers may override it.
+if not defined WASM_PTHREAD_POOL_SIZE set "WASM_PTHREAD_POOL_SIZE=navigator.hardwareConcurrency"
+if not defined WASM_TBB_COMMIT set "WASM_TBB_COMMIT=3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3"
+set "TBB_ROOT=%WORK_DIR%\deps\oneTBB-%WASM_TBB_COMMIT%\stage-wasm64-pthreads"
 
 REM Header-only / Emscripten-built dependency include dirs (fetch-deps.bat,
 REM build-boost-wasm64.bat). Overridable for CI.
@@ -149,6 +155,11 @@ if not exist "%BOOST_INCLUDE%\boost" (
     exit /b 1
   )
 )
+if not "%WASM_THREADING%"=="0" if not exist "%TBB_ROOT%\lib\libtbb.a" (
+  echo [wasm] Building pinned oneTBB ^(wasm64 + pthreads^)
+  call "%PKG_DIR%\build-onetbb.bat"
+  if errorlevel 1 exit /b 1
+)
 
 REM ---------------- Version header (fork-derived) ----------------
 REM Replaces the static stub: version + commit hash come from the pinned
@@ -189,6 +200,7 @@ set "GEN_CM=%GEN_INCLUDE:\=/%"
 set "EIGEN_CM=%EIGEN_INCLUDE:\=/%"
 set "BOOST_CM=%BOOST_INCLUDE:\=/%"
 set "CEREAL_CM=%CEREAL_INCLUDE:\=/%"
+set "TBB_CM=%TBB_ROOT:\=/%"
 
 REM ---------------- Configure + build ----------------
 echo [wasm] Configuring stripped libslic3r + bridge + CLI (emcmake)
@@ -200,6 +212,9 @@ emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DEIGEN_INCLUDE="%EIGEN_CM%" ^
   -DBOOST_INCLUDE="%BOOST_CM%" ^
   -DCEREAL_INCLUDE="%CEREAL_CM%" ^
+  -DWASM_THREADING=%WASM_THREADING% ^
+  -DWASM_PTHREAD_POOL_SIZE=%WASM_PTHREAD_POOL_SIZE% ^
+  -DTBB_ROOT="%TBB_CM%" ^
   -DPRELOAD_FILES="%PRELOAD_FILES%"
 if errorlevel 1 (
   echo [wasm] ERROR: CMake configure failed. Fix include paths / missing deps and re-run.

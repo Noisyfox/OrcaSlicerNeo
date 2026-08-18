@@ -10,13 +10,14 @@
 //   worker → main: {type:'response', id, ok, result}
 //   worker → main: {type:'progress', percent, text}   (no id)
 // ----------------------------------------------------------------
-import type { SlicerClient, OrcaModuleFactory } from './types';
+import type { SlicerClient, OrcaModuleFactory, ProgressMailbox } from './types';
 import { createClient } from './client';
 
 export type WorkerMessage =
   | { type: 'request'; id: number; op: string; args: unknown[] }
   | { type: 'response'; id: number; ok: boolean; result: unknown; error?: string }
-  | { type: 'progress'; percent: number; text: string };
+  | { type: 'progress'; percent: number; text: string }
+  | { type: 'progress-mailbox'; mailbox: ProgressMailbox };
 
 export interface WorkerTransport {
   post(msg: WorkerMessage): void;
@@ -30,11 +31,13 @@ export function startWorker(
     (self as unknown as { onmessage: (e: MessageEvent<WorkerMessage>) => void }).onmessage = (e) => fn(e.data);
   },
 ): void {
-  // The client registers the bridge's progress callback ONCE at module init
-  // and never removeFunction's it (stale-slot trap discipline, bridge-smoke
-  // Fix round 1); its sink forwards every event here as {type:'progress'}.
+  // Serial builds forward their permanent bridge callback. Threaded builds
+  // send a SharedArrayBuffer mailbox; the renderer polls it independently
+  // while this worker is synchronously executing orc_slice().
   const client = createClient(moduleFactory, (pct, text) => {
     post({ type: 'progress', percent: pct, text });
+  }, (mailbox) => {
+    post({ type: 'progress-mailbox', mailbox });
   });
 
   onMessage(async (msg) => {
@@ -58,10 +61,50 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     reject: (e: Error) => void;
   }>();
   const progressListeners = new Set<(pct: number, text: string) => void>();
+  let mailbox: ProgressMailbox | undefined;
+  let mailboxTimer: ReturnType<typeof setInterval> | undefined;
+  let lastMailboxSequence = -1;
+  const decoder = new TextDecoder();
+
+  function emitMailboxProgress(): void {
+    if (!mailbox) return;
+    const words = new Int32Array(mailbox.buffer, mailbox.byteOffset, 4);
+    const before = Atomics.load(words, 0);
+    if ((before & 1) !== 0 || before === lastMailboxSequence) return;
+    const percent = Atomics.load(words, 1);
+    const length = Math.min(Atomics.load(words, 2), mailbox.textCapacity);
+    // Chromium intentionally rejects SharedArrayBuffer-backed views in
+    // TextDecoder. Copy this tiny (<=512 byte) status payload after the
+    // sequence read; the second sequence check below rejects a torn copy.
+    const textBytes = new Uint8Array(length);
+    textBytes.set(new Uint8Array(mailbox.buffer, mailbox.byteOffset + 16, length));
+    const text = decoder.decode(textBytes);
+    // A writer may have begun while the bytes were copied. Discard that read
+    // rather than emitting a torn status string.
+    if (before !== Atomics.load(words, 0)) return;
+    lastMailboxSequence = before;
+    for (const listener of progressListeners) listener(percent, text);
+  }
+
+  function updateMailboxPolling(): void {
+    if (progressListeners.size > 0 && mailbox && !mailboxTimer) {
+      mailboxTimer = setInterval(emitMailboxProgress, 40);
+      emitMailboxProgress();
+    } else if (progressListeners.size === 0 && mailboxTimer) {
+      clearInterval(mailboxTimer);
+      mailboxTimer = undefined;
+    }
+  }
 
   transport.onMessage((msg) => {
     if (msg.type === 'progress') {
       for (const l of progressListeners) l(msg.percent, msg.text);
+      return;
+    }
+    if (msg.type === 'progress-mailbox') {
+      mailbox = msg.mailbox;
+      lastMailboxSequence = -1;
+      updateMailboxPolling();
       return;
     }
     if (msg.type !== 'response') return;
@@ -96,7 +139,15 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
         return (config: Record<string, string>, onProgress?: (percent: number, text: string) => void) => {
           if (!onProgress) return call('slice', [config]);
           progressListeners.add(onProgress);
-          return call('slice', [config]).finally(() => progressListeners.delete(onProgress));
+          updateMailboxPolling();
+          return call('slice', [config]).finally(() => {
+            // Catch the terminal status in same-thread/mock tests too. In the
+            // real app the interval delivers intermediate statuses while the
+            // module worker is busy.
+            emitMailboxProgress();
+            progressListeners.delete(onProgress);
+            updateMailboxPolling();
+          });
         };
       }
       return (...args: unknown[]) => call(prop, args);

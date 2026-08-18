@@ -12,7 +12,7 @@ export function StatusBar() {
     <div className="flex w-full items-center gap-3">
       <span className="shrink-0" data-testid="slicer-status">{statusText(status)}</span>
       {status === 'slicing' && (
-        <Progress value={progress} className="w-40" />
+        <Progress value={progress} data-testid="slicer-progress" data-progress={progress} className="w-40" />
       )}
       {status === 'done' && layers > 0 && (
         <span>{layers} layers</span>

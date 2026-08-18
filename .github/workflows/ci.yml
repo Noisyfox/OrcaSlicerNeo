@@ -46,17 +46,21 @@ jobs:
       - uses: emscripten-core/setup-emsdk@v15 # official action; jaxvanyang/setup-emsdk repo no longer resolves
         with:
           version: "6.0.4" # spike-validated (design doc risk table); emsdk tag verified to exist
-      - name: Cache deps (Eigen/Boost sources + wasm64 archives + cereal)
+      - name: Cache deps (Eigen/Boost/oneTBB sources + wasm64 archives + cereal)
         uses: actions/cache@v6
         with:
           path: packages/slicer-wasm/.work/deps
-          key: wasm-deps-${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh') }}-${{ hashFiles('packages/slicer-wasm/build.sh') }}
+          key: wasm-deps-${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh') }}-${{ hashFiles('packages/slicer-wasm/build.sh') }}
           restore-keys: |
-            wasm-deps-${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh') }}-
+            wasm-deps-${{ hashFiles('packages/slicer-wasm/fetch-deps.sh', 'packages/slicer-wasm/build-boost-wasm64.sh', 'packages/slicer-wasm/fetch-onetbb.sh', 'packages/slicer-wasm/build-onetbb.sh') }}-
       - name: Fetch deps (Eigen/Boost/cereal)
         run: bash packages/slicer-wasm/fetch-deps.sh
       - name: Build Boost 1.84 wasm64 archives
         run: bash packages/slicer-wasm/build-boost-wasm64.sh
+      - name: Build oneTBB pthread archives + prove parallel workers
+        run: bash packages/slicer-wasm/build-onetbb.sh
+      - name: oneTBB pthread parallelism probe
+        run: node packages/slicer-wasm/harness/run-tbb-parallelism-probe.mjs packages/slicer-wasm/out/orca_tbb_probe.js
       - name: Configure + build the module (preload-file bundle included)
         run: bash packages/slicer-wasm/build.sh
       - name: Smoke — slice cube.stl end to end

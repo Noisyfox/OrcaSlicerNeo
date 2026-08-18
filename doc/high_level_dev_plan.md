@@ -235,8 +235,11 @@
   bridge-signature drift are the documented fix loops (see AGENTS.md).
 - **wasm64 consistency:** all objects, Boost archives, and link must agree on
   `-sMEMORY64`; fall back to wasm32 + `GCode.hpp` size_t fix only if blocked.
-- **Serial-first:** no pthreads in v1; parallelism (wasmtbb + COOP/COEP) is
-  Milestone 5 (queued).
+- **Parallel WASM slice:** the queued wasmtbb/pthread follow-up is now being
+  implemented as the documented, independently verified work in
+  `doc/2026-08-18-wasm-parallelism-design.md`. The default artifact will use
+  upstream oneTBB plus a bounded Emscripten pthread pool; the serial shim
+  remains an explicit fallback build.
 - **Docs-first:** each epic creates/updates a short sub-doc in `doc/` capturing
   decisions and testing notes; keep this plan and `spec/Grand Plan.md` in sync
   with delivered work.

@@ -3,7 +3,7 @@
 # ------------ OrcaSlicerNeo: libslic3r -> WASM build ------------
 # ----------------------------------------------------------------
 # Builds the pinned C++ submodule (packages/slicer-wasm/cpp) into a single
-# Emscripten module: serial TBB shim, scaffold CMake, bridge + CLI driver.
+# Emscripten module: real oneTBB pthread runtime, scaffold CMake, bridge + CLI driver.
 # Inherited from the phase-0 spike's build.sh and adapted: no clone step (the
 # submodule IS the source pin), wasm64-first, full preset bundle embedded.
 # patches/*.patch are applied to the submodule working tree here, at build
@@ -28,6 +28,12 @@ SHIM_INCLUDE="$WORK_DIR/shim-include"              # generated tbb/*.h forwardin
 GEN_INCLUDE="$WORK_DIR/gen"                        # generated headers (libslic3r_version.h, openssl/md5.h)
 BUILD_DIR="$WORK_DIR/build"
 OUT_DIR="$PKG_DIR/out"
+WASM_THREADING="${WASM_THREADING:-1}"
+# Emscripten evaluates this expression in the runtime and creates one pthread
+# worker per available logical core. Callers can override it for profiling.
+WASM_PTHREAD_POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-navigator.hardwareConcurrency}"
+WASM_TBB_COMMIT="${WASM_TBB_COMMIT:-3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3}"
+TBB_ROOT="$WORK_DIR/deps/oneTBB-$WASM_TBB_COMMIT/stage-wasm64-pthreads"
 
 # Header-only / Emscripten-built dependency include dirs (fetch-deps.sh,
 # build-boost-wasm64.sh). Overridable for CI.
@@ -128,6 +134,10 @@ if [[ ! -d "$BOOST_INCLUDE/boost" ]]; then
   log "Running fetch-deps.sh (Eigen/Boost/cereal + generated headers)"
   bash "$PKG_DIR/fetch-deps.sh" || die "fetch-deps.sh failed"
 fi
+if [[ "$WASM_THREADING" != "0" && ! -f "$TBB_ROOT/lib/libtbb.a" ]]; then
+  log "Building pinned oneTBB (wasm64 + pthreads)"
+  bash "$PKG_DIR/build-onetbb.sh"
+fi
 
 # ---------------- Version header (fork-derived) ----------------
 # Replaces the spike's static stub: version + commit hash come from the
@@ -183,6 +193,9 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DEIGEN_INCLUDE="$EIGEN_INCLUDE" \
   -DBOOST_INCLUDE="$BOOST_INCLUDE" \
   -DCEREAL_INCLUDE="$CEREAL_INCLUDE" \
+  -DWASM_THREADING="$WASM_THREADING" \
+  -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
+  -DTBB_ROOT="$TBB_ROOT" \
   -DPRELOAD_FILES="$WASM_PROFILES_DIR@/system;$INFO_DIR@/info" \
   || die "CMake configure failed. Fix include paths / missing deps and re-run."
 

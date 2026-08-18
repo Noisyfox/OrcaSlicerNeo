@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
+const PRESET_READY_TIMEOUT = REAL ? 300_000 : 30_000;
 // Floating box: bottom at z=0.3, above the 0.2 first layer, no supports —
 // deterministically throws "empty first layer" SlicingError (fixture
 // generated for the bridge-smoke regression; see packages/slicer-wasm/fixtures).
@@ -36,8 +37,8 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
   try {
     await page.setViewportSize({ width: 1280, height: 800 });
 
-    // Real module init takes 20s+ (preset tree parse).
-    await page.getByTestId('preset-select').waitFor({ timeout: 120000 });
+    // The real module parses the complete preset tree before this appears.
+    await page.getByTestId('preset-select').waitFor({ timeout: PRESET_READY_TIMEOUT });
     await page.getByTestId('btn-add-model').click();
     await page.waitForFunction(
       () => !document.querySelector('[data-testid=btn-slice]')?.hasAttribute('disabled'),
