@@ -36,12 +36,12 @@ emcmake cmake -S "%TBB_SOURCE%" -B "%TBB_BUILD%" -G Ninja ^
   -DCMAKE_EXE_LINKER_FLAGS="-m64 -pthread" ^
   -DBUILD_SHARED_LIBS=OFF ^
   -DTBB_TEST=OFF -DTBB_EXAMPLES=OFF -DTBB_STRICT=OFF ^
-  -DTBBMALLOC_BUILD=OFF -DTBBMALLOC_PROXY_BUILD=OFF ^
+  -DTBBMALLOC_BUILD=ON -DTBBMALLOC_PROXY_BUILD=OFF ^
   -DTCM_BUILD=OFF ^
   -DTBB_DISABLE_HWLOC_AUTOMATIC_SEARCH=ON ^
   -DCMAKE_INSTALL_PREFIX="%TBB_STAGE%"
 if errorlevel 1 exit /b 1
-cmake --build "%TBB_BUILD%" --target tbb --parallel %BUILD_JOBS%
+cmake --build "%TBB_BUILD%" --parallel %BUILD_JOBS%
 if errorlevel 1 exit /b 1
 cmake --install "%TBB_BUILD%"
 if errorlevel 1 exit /b 1
@@ -49,9 +49,13 @@ if not exist "%TBB_STAGE%\lib\libtbb.a" (
   echo [onetbb] ERROR: missing %TBB_STAGE%\lib\libtbb.a
   exit /b 1
 )
+if not exist "%TBB_STAGE%\lib\libtbbmalloc.a" (
+  echo [onetbb] ERROR: missing %TBB_STAGE%\lib\libtbbmalloc.a
+  exit /b 1
+)
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 echo [onetbb] Linking runtime proof ^(pthread pool: %POOL_SIZE%^)
-em++ -O3 -m64 -pthread -I"%TBB_STAGE%\include" "%PKG_DIR%\harness\tbb-parallelism-probe.cpp" "%TBB_STAGE%\lib\libtbb.a" ^
+em++ -O3 -m64 -pthread -I"%TBB_STAGE%\include" "%PKG_DIR%\harness\tbb-parallelism-probe.cpp" "%TBB_STAGE%\lib\libtbb.a" "%TBB_STAGE%\lib\libtbbmalloc.a" ^
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node ^
   -sPTHREAD_POOL_SIZE=%POOL_SIZE% -sALLOW_MEMORY_GROWTH=1 ^
   -sEXPORTED_RUNTIME_METHODS=callMain -sEXPORTED_FUNCTIONS=_main ^

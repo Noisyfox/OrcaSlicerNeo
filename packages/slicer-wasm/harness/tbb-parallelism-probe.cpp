@@ -8,9 +8,11 @@
 #include <array>
 #include <atomic>
 #include <iostream>
+#include <vector>
 
 #include <tbb/global_control.h>
 #include <tbb/parallel_for.h>
+#include <tbb/scalable_allocator.h>
 #include <tbb/task_arena.h>
 
 int main()
@@ -19,6 +21,12 @@ int main()
     constexpr int task_count = 4 * 1024 * 1024;
     std::array<std::atomic<bool>, 64> seen{};
     std::atomic<unsigned int> checksum{0};
+    // OrcaSlicer uses tbb::scalable_allocator in Point/Support types. Make
+    // this probe link libtbbmalloc as well as libtbb, rather than proving only
+    // the scheduler half of the production dependency.
+    std::vector<unsigned int, tbb::scalable_allocator<unsigned int>> allocations;
+    allocations.reserve(1024);
+    allocations.push_back(42);
 
     tbb::global_control cap(tbb::global_control::max_allowed_parallelism, requested_workers);
     tbb::task_arena arena(requested_workers);
@@ -36,6 +44,7 @@ int main()
         workers += value.load(std::memory_order_relaxed) ? 1 : 0;
     std::cout << "ORCA_TBB_WORKERS=" << workers
               << " ORCA_TBB_MAX_CONCURRENCY=" << tbb::this_task_arena::max_concurrency()
+              << " ORCA_TBB_ALLOCATION=" << allocations.front()
               << " ORCA_TBB_CHECKSUM=" << checksum.load(std::memory_order_relaxed)
               << std::endl;
     return workers >= 2 ? 0 : 2;
