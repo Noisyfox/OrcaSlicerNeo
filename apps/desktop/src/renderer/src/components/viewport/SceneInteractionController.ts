@@ -52,7 +52,10 @@ export class SceneInteractionController {
     // blocked synchronously by tryBeginBodyDrag/update ownership checks.
     return (this.pointerOrigin === 'non-gizmo' || !this.gizmoGrabberHovered)
       && (this.pointerOwner === 'none' || this.pointerOwner === 'body')
-      && !this.selection.empty;
+      // An unselected body must be able to start the same press that selects
+      // it. GLVolumeMesh selects synchronously at pointer-down, before
+      // DragControls crosses its movement threshold.
+      && this.pointerOrigin !== 'gizmo';
   }
 
   selectedVolumes(): GLVolume[] {
@@ -66,6 +69,16 @@ export class SceneInteractionController {
     this.syncGizmoToSelection();
     if (changed) this.emit();
     return changed;
+  }
+
+  /**
+   * Prepare a body press before DragControls begins its thresholded gesture.
+   * A gizmo-origin press retains strict priority even if its ray also reaches
+   * a model mesh.
+   */
+  prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean): boolean {
+    if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
+    return this.selectFromHit(hit, additive);
   }
 
   /** Preserve a multi-selection when the browser dispatches click after drag end. */

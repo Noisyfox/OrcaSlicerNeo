@@ -138,7 +138,8 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 
 ## Milestone 7: Scene-owned Multi-volume Selection
 
-> [!success] Status: **implemented and verified** (2026-08-18).
+> [!success] Status: **implemented and verified** (2026-08-18; amended:
+> pointer-down body selection).
 >
 > Design: `doc/2026-08-18-scene-selection-design.md`. The scene will own a
 > multi-volume `Selection`, the sole open gizmo, and gesture state. The

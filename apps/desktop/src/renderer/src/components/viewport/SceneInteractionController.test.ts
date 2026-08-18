@@ -79,11 +79,23 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes()).toEqual(volumes);
   });
 
+  it('selects an unselected body at pointer-down so that same press can drag it', () => {
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+
+    expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[2], volumes[3]]);
+    expect(controller.bodyDragEnabled).toBe(true);
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    expect(controller.owner).toBe('body');
+  });
+
   it('gives a gizmo grabber priority over body dragging', () => {
     controller.selectFromHit(volumes[0], false);
     controller.registerGizmoGrabberHitTest(() => true);
 
     expect(controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent)).toBe(true);
+    expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(false);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
     expect(controller.tryBeginBodyDrag()).toBe(false);
     expect(controller.owner).toBe('none');
     expect(controller.beginGizmoDrag()).toBe(true);

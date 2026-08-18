@@ -22,6 +22,7 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
   const groupRef = useRef<THREE.Group>(null);
   const volumeGroupRef = useRef<THREE.Group>(null);
   const bodyStartRef = useRef(new THREE.Vector3());
+  const selectedOnPointerDownRef = useRef(false);
   const invalidate = useThree((s) => s.invalidate);
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
@@ -58,12 +59,6 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
       axisLock="z"
       dragConfig={{ enabled: sceneInteraction.bodyDragEnabled }}
       onDragStart={(origin) => {
-        // A new body drag selects its hit's complete instance before taking a
-        // snapshot. A gizmo's synchronous claim makes this a no-op for an
-        // overlapping TransformControls grabber.
-        if (!sceneInteraction.selection.has(data) && sceneInteraction.owner === 'none') {
-          sceneInteraction.selectFromHit(data, false);
-        }
         if (!sceneInteraction.tryBeginBodyDrag()) return;
         bodyStartRef.current.copy(origin);
       }}
@@ -87,8 +82,22 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
       <group ref={volumeGroupRef}>
         <mesh
           geometry={data.geometry}
+          onPointerDown={(event) => {
+            if (event.nativeEvent.button !== 0) return;
+            // Do this before DragControls observes movement. Besides making
+            // click selection immediate, it lets this very press become a
+            // drag even when nothing had been selected beforehand.
+            selectedOnPointerDownRef.current = sceneInteraction.prepareBodyDragFromPointerDown(
+              data,
+              event.nativeEvent.ctrlKey || event.nativeEvent.metaKey,
+            );
+          }}
           onClick={(event) => {
             event.stopPropagation();
+            if (selectedOnPointerDownRef.current) {
+              selectedOnPointerDownRef.current = false;
+              return;
+            }
             if (sceneInteraction.owner !== 'none') return;
             sceneInteraction.selectFromClick(data, event.nativeEvent.ctrlKey || event.nativeEvent.metaKey);
           }}

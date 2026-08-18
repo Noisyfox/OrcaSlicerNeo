@@ -201,7 +201,8 @@
 
 ### Milestone 7 — Scene-owned Multi-volume Selection
 
-> **Status: implemented and verified (2026-08-18).** Refactor selection,
+> **Status: implemented and verified (2026-08-18; amended: pointer-down body
+> selection).** Refactor selection,
 > drag state, and gizmo state out of individual GLVolume meshes and into the
 > scene. A scene-owned `Selection` will contain multiple composite GL volumes;
 > body drag and the single open gizmo will act on the whole selection. The
