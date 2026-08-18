@@ -2,7 +2,7 @@
 import { Component, useCallback, useRef, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { Canvas, events as createPointerEvents } from '@react-three/fiber';
-import { OrbitControls, GizmoHelper, GizmoViewport } from '@react-three/drei';
+import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import type { SceneInteractionController } from './SceneInteractionController';
@@ -41,6 +41,10 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
 export function Viewport({ onSceneInteractionChange }: {
   onSceneInteractionChange: (controller: SceneInteractionController | null) => void;
 }) {
+  // Ref is only consumed as a prop target (drei Stats `parent`), never read
+  // by this component — so it can be typed without the null union, which
+  // React 19's RefObject<T> = { current: T } requires for assignability.
+  const viewportRef = useRef<HTMLDivElement>(null!);
   const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
   const handleSceneInteractionChange = useCallback((controller: SceneInteractionController | null) => {
     sceneInteractionRef.current = controller;
@@ -48,6 +52,7 @@ export function Viewport({ onSceneInteractionChange }: {
   }, [onSceneInteractionChange]);
   return (
     <div
+      ref={viewportRef}
       className="absolute inset-0"
       data-testid="viewport"
       onPointerDownCapture={(event) => {
@@ -86,6 +91,12 @@ export function Viewport({ onSceneInteractionChange }: {
           }}
         >
           <color attach="background" args={['#0f172a']} />
+          {/* Perf overlay (fps/ms/memory), top-left corner of the scene.
+              drei appends the DOM to document.body unless given a `parent`
+              ref, and stats.js pins it inline as position:fixed — so anchor
+              it to the viewport container and force absolute (the container
+              is itself an absolute-positioned box). Click a panel to switch. */}
+          <Stats parent={viewportRef} className="absolute!" />
           <Scene onControllerChange={handleSceneInteractionChange} />
           <OrbitControls
             makeDefault
