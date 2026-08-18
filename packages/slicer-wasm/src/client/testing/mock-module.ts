@@ -137,17 +137,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   });
   const instanceCount = Math.max(1, Math.floor(opts.instanceCount ?? 1));
   const volumeCount = Math.max(1, Math.floor(opts.volumeCount ?? 1));
-  const instanceTransforms = Array.from({ length: instanceCount }, (_, index) => ({
+  const createObjectTransforms = () => Array.from({ length: instanceCount }, (_, index) => ({
     ...identityTransform(),
     // Keep mock instances visibly separate so selection tests can hit each
     // one without a model fixture that depends on the native build.
     offset: [index * 50, 0, 0],
   }));
-  const volumeTransforms = Array.from(
+  const createObjectVolumeTransforms = () => Array.from(
     { length: instanceCount },
     () => Array.from({ length: volumeCount }, () => identityTransform()),
   );
-  const modelState = { objects: 1, instances: instanceCount };
+  let objectTransforms: Array<ReturnType<typeof createObjectTransforms>> = [];
+  let objectVolumeTransforms: Array<ReturnType<typeof createObjectVolumeTransforms>> = [];
   let modelLoaded = false;
   let sliced = false;
   let progressCallback = 0;
@@ -210,20 +211,30 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (const [k, v] of Object.entries(metadata)) out[k] = { ...v };
       return out;
     },
-    orc_load_model(_ptr: number, len: number, _ext: string) {
+    orc_add_model(_ptr: number, len: number, _ext: string) {
       if (len <= 0) return { error: 'no model bytes' };
       modelLoaded = true;
-      return { ok: true, objects: modelState.objects, instances: modelState.instances };
+      objectTransforms.push(createObjectTransforms());
+      objectVolumeTransforms.push(createObjectVolumeTransforms());
+      sliced = false;
+      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.length * instanceCount };
+    },
+    orc_clear_model() {
+      objectTransforms = [];
+      objectVolumeTransforms = [];
+      modelLoaded = false;
+      sliced = false;
+      return { ok: true };
     },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
-      if (obj !== 0 || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
-      instanceTransforms[inst].offset = [x, y, z];
+      if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
+      objectTransforms[obj][inst].offset = [x, y, z];
       return { ok: true };
     },
     orc_set_model_transform(obj: number, volume: number, inst: number, instanceJson: string, volumeJson: string) {
-      if (obj !== 0 || volume < 0 || volume >= volumeCount || inst < 0 || inst >= instanceCount) return { error: 'no such composite id' };
-      instanceTransforms[inst] = JSON.parse(instanceJson);
-      volumeTransforms[inst][volume] = JSON.parse(volumeJson);
+      if (obj < 0 || obj >= objectTransforms.length || volume < 0 || volume >= volumeCount || inst < 0 || inst >= instanceCount) return { error: 'no such composite id' };
+      objectTransforms[obj][inst] = JSON.parse(instanceJson);
+      objectVolumeTransforms[obj][inst][volume] = JSON.parse(volumeJson);
       return { ok: true };
     },
     orc_get_model_mesh() {
@@ -247,7 +258,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         // The client frees every returned pair of heap buffers, so each
         // composite must own distinct allocations even though the geometry
         // itself is identical.
-        objects: instanceTransforms.flatMap((instanceTransform, instance_idx) =>
+        objects: objectTransforms.flatMap((instances, object_idx) => instances.flatMap((instanceTransform, instance_idx) =>
           Array.from({ length: volumeCount }, (_, volume_idx) => {
           const vptr = malloc(verts.length * 3 * 4);
           const iptr = malloc(tris.length * 3 * 4);
@@ -256,7 +267,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           verts.forEach((v, i) => HEAPF32.set(v, vo + i * 3));
           tris.forEach((t, i) => HEAPU32.set(t, io + i * 3));
           return {
-            object_idx: 0,
+            object_idx,
             volume_idx,
             instance_idx,
             vertex_ptr: vptr,
@@ -265,9 +276,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
             index_count: tris.length * 3,
             offset: instanceTransform.offset,
             instance_transform: instanceTransform,
-            volume_transform: volumeTransforms[instance_idx][volume_idx],
+            volume_transform: objectVolumeTransforms[object_idx][instance_idx][volume_idx],
           };
-          }),
+          })),
         ),
       };
     },
@@ -319,7 +330,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       return {
         ok: true,
-        objects: modelState.objects,
+        objects: objectTransforms.length,
         layers: fixture.layers,
         toolpath: {
           vertex_ptr: vptr, vertex_count: n,
@@ -358,7 +369,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_presets: { ret: 'number', args: ['string'] },
     orc_get_option_metadata: { ret: 'number', args: [] },
-    orc_load_model: { ret: 'number', args: ['pointer', 'number', 'string'] },
+    orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string'] },
+    orc_clear_model: { ret: 'number', args: [] },
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },

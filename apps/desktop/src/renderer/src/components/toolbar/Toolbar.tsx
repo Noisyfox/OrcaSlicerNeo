@@ -1,6 +1,6 @@
 // apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx
 import { useState } from 'react';
-import { FolderOpen, Slice, Download } from 'lucide-react';
+import { FolderPlus, Slice, Download, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { slicerClient } from '../../slicer/slicerClient';
@@ -16,7 +16,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   // Boot loads all three preset lists atomically (setPresets); until they
-  // arrive (or if boot fails) Open stays disabled — a model without presets
+  // arrive (or if boot fails) Add Model stays disabled — a model without presets
   // can't be configured or sliced.
   const presetsLoaded = useSettingsStore(
     (s) => s.printers.length > 0 && s.prints.length > 0 && s.filaments.length > 0,
@@ -24,13 +24,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
   const busy = status === 'slicing';
   const [exporting, setExporting] = useState(false);
 
-  async function openModel() {
-    // Any load attempt (success, failure, or dialog cancel) invalidates the
-    // slice result — reset status so Export is gated until the new model is
-    // re-sliced (stale-export fix, review finding 1).
-    setSlicerStatus('idle');
-    useSettingsStore.getState().setModelLoaded(false);
-    sceneInteraction?.resetForModel();
+  async function addModel() {
     const { path } = await window.orca.openFileDialog([
       { name: 'Models', extensions: ['stl', '3mf'] },
       { name: 'All files', extensions: ['*'] },
@@ -39,16 +33,35 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
     try {
       const buf = await window.orca.readFile(path);
       const ext = path.split('.').pop() ?? 'stl';
-      const r = await slicerClient.loadModel(new Uint8Array(buf), ext);
-      if (!r.ok) throw new Error(r.error ?? 'load failed');
+      const r = await slicerClient.addModel(new Uint8Array(buf), ext);
+      if (!r.ok) throw new Error(r.error ?? 'add failed');
+      // Only a successful add changes the plate. A dialog cancel or parse
+      // failure must leave the existing scene and its sliced result intact.
+      setSlicerStatus('idle');
       useSettingsStore.getState().setValue('modelPath', path);
       useSettingsStore.getState().setModelLoaded(true);
+      sceneInteraction?.resetForModel();
       setError(null);
     } catch (err) {
       // errorText unwraps "Error: <msg>" (String(err)); the status bar
       // already prefixes "Error" (StatusBar statusText).
       setError(errorText(err));
-      console.error('load model failed:', err);
+      console.error('add model failed:', err);
+    }
+  }
+
+  async function clearScene() {
+    if (busy || !modelLoaded) return;
+    try {
+      const r = await slicerClient.clearModel();
+      if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
+      setSlicerStatus('idle');
+      useSettingsStore.getState().setModelLoaded(false);
+      sceneInteraction?.resetForModel();
+      setError(null);
+    } catch (err) {
+      setError(errorText(err));
+      console.error('clear scene failed:', err);
     }
   }
 
@@ -121,8 +134,11 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
 
   return (
     <>
-      <Button size="sm" variant="secondary" onClick={openModel} disabled={!presetsLoaded} data-testid="btn-open">
-        <FolderOpen className="h-4 w-4" /> Open
+      <Button size="sm" variant="secondary" onClick={addModel} disabled={!presetsLoaded} data-testid="btn-add-model">
+        <FolderPlus className="h-4 w-4" /> Add Model
+      </Button>
+      <Button size="sm" variant="secondary" onClick={clearScene} disabled={busy || !modelLoaded} data-testid="btn-clear-scene">
+        <Trash2 className="h-4 w-4" /> Clear Scene
       </Button>
       <Button size="sm" variant="secondary" onClick={slice} disabled={busy || !modelLoaded} data-testid="btn-slice">
         <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}

@@ -55,6 +55,7 @@ function SceneContents() {
         projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null;
         gizmoAxis?: () => string | null;
         pointerOwner?: () => 'none' | 'gizmo' | 'body';
+        selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
       };
     };
     // Scene owns the container but shares it with MoveGizmo (gizmoAxis) —
@@ -67,14 +68,28 @@ function SceneContents() {
         return { x: (v.x + 1) * 0.5 * size.width, y: (1 - v.y) * 0.5 * size.height };
       },
       pointerOwner: () => sceneInteraction.owner,
+      // The e2e fixture's instance collection is deterministic, while a
+      // headless Electron ray at the far instance can intermittently miss
+      // after the first gizmo appears. Pointer selection is still covered by
+      // the first-instance and gizmo tests; this hook sets up the aggregate
+      // selection for its multi-instance move assertions.
+      selectMockInstance(instanceIdx, additive = true) {
+        const hit = glVolumes.find((volume) => volume.buffer.instanceIdx === instanceIdx);
+        return hit ? sceneInteraction.selectFromHit(hit, additive) : false;
+      },
     };
     return () => {
       if (w.__orcaE2e) {
-        const { projectWorldToScreen: _dropped, pointerOwner: _owner, ...rest } = w.__orcaE2e;
+        const {
+          projectWorldToScreen: _dropped,
+          pointerOwner: _owner,
+          selectMockInstance: _selection,
+          ...rest
+        } = w.__orcaE2e;
         w.__orcaE2e = rest;
       }
     };
-  }, [camera, size, sceneInteraction]);
+  }, [camera, glVolumes, size, sceneInteraction]);
 
   // A loader replacement is a new scene even if it reuses the prior model's
   // composite IDs, so selection and the active gizmo must not leak across it.

@@ -90,18 +90,28 @@ describe('SlicerClient bridge contract', () => {
     expect(m.sparse_infill_pattern?.enum_values).toContain('grid');
   });
 
-  it('loadModel stages bytes and reports objects', async () => {
+  it('addModel stages bytes and reports objects', async () => {
     const c = makeClient();
     const bytes = new Uint8Array([1, 2, 3, 4]);
-    const r = await c.loadModel(bytes, 'stl');
+    const r = await c.addModel(bytes, 'stl');
     expect(r.ok).toBe(true);
     expect(r.objects).toBe(1);
+  });
+
+  it('addModel preserves existing objects and clearModel resets the scene', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const added = await c.addModel(new Uint8Array(4), 'stl');
+    expect(added).toMatchObject({ ok: true, objects: 2, instances: 2 });
+    expect((await c.getModelMesh()).objects).toHaveLength(2);
+    expect(await c.clearModel()).toMatchObject({ ok: true });
+    expect((await c.getModelMesh()).error).toContain('no model loaded');
   });
 
   it('setInstanceOffset round-trips x/y', async () => {
     const c = makeClient();
     const bytes = new Uint8Array([1, 2, 3, 4]);
-    await c.loadModel(bytes, 'stl');
+    await c.addModel(bytes, 'stl');
     const r = await c.setInstanceOffset(0, 0, 10, 20, 0);
     expect(r.ok).toBe(true);
     const mesh = await c.getModelMesh();
@@ -111,7 +121,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('round-trips a CompositeID transform pair', async () => {
     const c = makeClient();
-    await c.loadModel(new Uint8Array(4), 'stl');
+    await c.addModel(new Uint8Array(4), 'stl');
     const instance: ModelTransform = { offset: [10, 20, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };
     const volume: ModelTransform = { offset: [1, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] };
     expect((await c.setModelTransform(0, 0, 0, instance, volume)).ok).toBe(true);
@@ -121,7 +131,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('getModelMesh extracts vertices and indices, frees the heap', async () => {
     const c = makeClient();
-    await c.loadModel(new Uint8Array(4), 'stl');
+    await c.addModel(new Uint8Array(4), 'stl');
     const mesh = await c.getModelMesh();
     expect(mesh.objects[0].vertexCount).toBe(8);
     expect(mesh.objects[0].indexCount).toBe(36);
@@ -132,7 +142,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('mock fixture can expose independently transformable instances', async () => {
     const c = createClient(async () => createMockModule({ instanceCount: 2, volumeCount: 2 }));
-    await c.loadModel(new Uint8Array(4), 'stl');
+    await c.addModel(new Uint8Array(4), 'stl');
     const before = await c.getModelMesh();
     expect(before.objects).toHaveLength(4);
     expect(before.objects).toMatchObject([
@@ -150,7 +160,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('slice fires progress and returns unrecognized_keys', async () => {
     const c = makeClient();
-    await c.loadModel(new Uint8Array(4), 'stl');
+    await c.addModel(new Uint8Array(4), 'stl');
     const events: number[] = [];
     const r = await c.slice({ layer_height: '0.2' }, (pct) => events.push(pct));
     expect(r.ok).toBe(true);
@@ -161,7 +171,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('getSliceResult extracts toolpath + mesh buffers with layer ranges', async () => {
     const c = makeClient();
-    await c.loadModel(new Uint8Array(4), 'stl');
+    await c.addModel(new Uint8Array(4), 'stl');
     await c.slice({}, () => {});
     const r = await c.getSliceResult();
     expect(r.layers).toBe(40);

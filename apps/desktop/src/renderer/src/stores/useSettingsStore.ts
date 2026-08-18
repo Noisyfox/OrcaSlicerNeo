@@ -18,6 +18,8 @@ interface SettingsState {
   selectedFilament: string;
   values: Record<string, string>;
   modelLoaded: boolean;
+  /** Advances on every successful add or clear so repeated adds reload the viewport. */
+  modelRevision: number;
   setMetadata: (m: OptionMetadata) => void;
   setPresets: (printers: PresetInfo[], prints: PresetInfo[], filaments: PresetInfo[]) => void;
   setSelections: (printer: string, print: string, filament: string) => void;
@@ -36,6 +38,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   selectedFilament: '',
   values: {},
   modelLoaded: false,
+  modelRevision: 0,
   setMetadata: (metadata) => set({ metadata }),
   setPresets: (printers, prints, filaments) => set({
     printers, prints, filaments,
@@ -47,5 +50,5 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     set({ selectedPrinter, selectedPrint, selectedFilament }),
   setValue: (key, value) => set((s) => ({ values: { ...s.values, [key]: value } })),
   setValues: (values) => set({ values }),
-  setModelLoaded: (modelLoaded) => set({ modelLoaded }),
+  setModelLoaded: (modelLoaded) => set((s) => ({ modelLoaded, modelRevision: s.modelRevision + 1 })),
 }));

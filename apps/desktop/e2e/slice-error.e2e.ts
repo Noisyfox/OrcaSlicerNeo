@@ -38,7 +38,7 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
 
     // Real module init takes 20s+ (preset tree parse).
     await page.getByTestId('preset-select').waitFor({ timeout: 120000 });
-    await page.getByTestId('btn-open').click();
+    await page.getByTestId('btn-add-model').click();
     await page.waitForFunction(
       () => !document.querySelector('[data-testid=btn-slice]')?.hasAttribute('disabled'),
       { timeout: 30000 },

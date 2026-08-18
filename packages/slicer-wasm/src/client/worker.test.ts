@@ -34,7 +34,7 @@ describe('worker protocol', () => {
   it('loads a model and slices with progress events', async () => {
     const { workerClient } = setup();
     await workerClient.init();
-    await workerClient.loadModel(new Uint8Array(4), 'stl');
+    await workerClient.addModel(new Uint8Array(4), 'stl');
     const events: number[] = [];
     const r = await workerClient.slice({ layer_height: '0.2' }, (pct) => events.push(pct));
     expect(r.ok).toBe(true);
@@ -44,7 +44,7 @@ describe('worker protocol', () => {
   it('returns binary slice buffers as transferable-arrayable views', async () => {
     const { workerClient } = setup();
     await workerClient.init();
-    await workerClient.loadModel(new Uint8Array(4), 'stl');
+    await workerClient.addModel(new Uint8Array(4), 'stl');
     await workerClient.slice({}, () => {});
     const res = await workerClient.getSliceResult();
     expect(res.toolpath.vertexCount).toBeGreaterThan(0);

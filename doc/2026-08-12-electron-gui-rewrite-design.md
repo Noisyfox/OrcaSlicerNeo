@@ -135,7 +135,8 @@ the WASM heap (`_malloc`/`_free` + `HEAPU8` views, standard Emscripten marshalin
 | `orc_init()` | mount embedded presets, load preset collections | `PresetBundle::load_presets` |
 | `orc_get_presets(kind)` | JSON list of print/filament/machine presets | `PresetBundle` / `PresetCollection` |
 | `orc_get_option_metadata()` | JSON of `ConfigOptionDef` for all options | `PrintConfigDef` (`PrintConfig.cpp`) |
-| `orc_load_model(ptr, len, ext)` | model JSON + binary triangle buffers (instance transforms in JSON) | `Model::read_from_file` / 3mf loaders |
+| `orc_add_model(ptr, len, ext)` | append a model file to the current scene; model JSON + binary triangle buffers (instance transforms in JSON) | `Model::read_from_file` / 3mf loaders + `Model::add_object` |
+| `orc_clear_model()` | reset the current scene and stale print result | `Model` reset + `Print::clear` |
 | `orc_slice(config_json)` | apply config + run slice; progress via registered JS callback | `Print::apply`, `Print::process`, `set_status_callback` (`SlicingStatus`) |
 | `orc_get_slice_result()` | toolpath buffer (per-vertex position/color/layer) + sliced mesh buffer + JSON stats | `GCodeProcessorResult`, `SlicesToTriangleMesh` |
 | `orc_export_gcode()` | write gcode to MEMFS; JS reads bytes back | `Print::export_gcode` (thumbnail cb = nullptr) |
@@ -159,7 +160,7 @@ The spike's one-shot CLI driver stays for harness parity (node smoke tests, fixt
   window controls). COOP/COEP response headers set on the session for
   SharedArrayBuffer headroom (threads land later).
 - **WASM worker**: `packages/slicer-wasm/src/client` exposes a promise-based typed API
-  (`loadModel(bytes, ext)`, `getPresets()`, `getOptionMetadata()`, `slice(configJson,
+  (`addModel(bytes, ext)`, `clearModel()`, `getPresets()`, `getOptionMetadata()`, `slice(configJson,
   onProgress)`, `getSliceResult()`, `exportGcode()`, `cancel()`), bundled by Vite as a
   worker module. Wasm/js/data assets loaded via a custom `app://` scheme or bundled
   assets (worker-compatible).
@@ -175,7 +176,7 @@ The spike's one-shot CLI driver stays for harness parity (node smoke tests, fixt
 ## v1 User Flow (definition of done)
 
 1. Launch → worker loads WASM → `orc_init()` mounts presets.
-2. File → Open → native dialog → bytes → `loadModel` → model on bed in 3D view.
+2. Add Model → native dialog → bytes → `addModel` → model appended on the bed in 3D view; Clear Scene explicitly removes all models.
 3. Settings panel: pick printer preset, tweak a few options (metadata-driven).
 4. **Slice** → `slice(configJson)` with progress bar → sliced mesh + toolpath shown.
 5. **Export** → `exportGcode()` → MEMFS bytes → native save dialog → file on disk.

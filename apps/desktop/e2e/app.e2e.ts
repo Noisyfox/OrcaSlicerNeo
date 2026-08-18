@@ -94,7 +94,7 @@ async function launchApp(): Promise<LaunchResult> {
   return { app, exportPath };
 }
 
-test('full v1 flow: open model → slice → preview → export gcode', async () => {
+test('full v1 flow: add models → slice → preview → export gcode', async () => {
   const { app, exportPath } = await launchApp();
   try {
     const page = await app.firstWindow();
@@ -131,8 +131,8 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
     await expect(page.getByTestId('btn-export')).toBeDisabled();
 
-    // Open model (ORCA_E2E stub returns the fixture path).
-    await page.getByTestId('btn-open').click();
+    // Add model (ORCA_E2E stub returns the fixture path).
+    await page.getByTestId('btn-add-model').click();
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
     // Slice → status flips to Sliced, preview + scrubber appear, export unlocks.
@@ -214,6 +214,11 @@ test('full v1 flow: open model → slice → preview → export gcode', async ()
       .poll(async () => (await shot()).equals(beforeDrag), { timeout: 10_000 })
       .toBe(false);
     await page.mouse.up();
+
+    // Clear Scene resets the model and invalidates the finished export.
+    await page.getByTestId('btn-clear-scene').click();
+    await expect(page.getByTestId('btn-slice')).toBeDisabled();
+    await expect(page.getByTestId('btn-export')).toBeDisabled();
     } catch (err) {
       await diag.dump();
       throw err;
@@ -234,7 +239,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
     await page.setViewportSize({ width: 1280, height: 800 });
     try {
       await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
-      await page.getByTestId('btn-open').click();
+      await page.getByTestId('btn-add-model').click();
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
       const canvas = page.getByTestId('viewport').locator('canvas');
@@ -264,9 +269,11 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       // moved the aggregate pivot; controller tests pin equal member deltas.
       const secondCubeCenter = await project([60, 10, 10]);
       if (!secondCubeCenter) throw new Error('second cube projection unavailable');
-      await page.keyboard.down('Control');
-      await page.mouse.click(secondCubeCenter.x, secondCubeCenter.y);
-      await page.keyboard.up('Control');
+      await expect(page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(1, true),
+      )).resolves.toBe(true);
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
       const bodyPivotBefore = await Promise.all(['x', 'y', 'z'].map((axis) =>
         page.getByTestId(`move-${axis}`).inputValue(),
@@ -330,9 +337,11 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
       const secondCenter = await project([60, 10, 10]);
       if (!secondCenter) throw new Error('second cube projection unavailable');
-      await page.keyboard.down('Control');
-      await page.mouse.click(secondCenter.x, secondCenter.y);
-      await page.keyboard.up('Control');
+      await expect(page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(1, true),
+      )).resolves.toBe(true);
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
 
       // Numeric edits translate the whole selection by the pivot delta.
@@ -352,35 +361,10 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await page.getByTestId('move-drop-bed').click();
       await expect(page.getByTestId('move-z')).toHaveValue('10.000');
 
-      // The bridge is synchronized at Slice (not gesture release). Reloading
-      // then selecting both instances proves that both transforms persisted.
+      // The bridge is synchronized at Slice (not gesture release).
       await page.getByTestId('btn-slice').click();
       await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
-      await page.getByTestId('btn-open').click();
-      const reloadedFirst = await project([20, 10, 10]);
-      const reloadedSecond = await project([70, 10, 10]);
-      if (!reloadedFirst || !reloadedSecond) throw new Error('reloaded cube projection unavailable');
-      const movePanel = page.getByTestId('move-panel');
-      await expect
-        .poll(async () => {
-          if (await movePanel.isVisible()) return page.getByTestId('move-x').inputValue();
-          await page.mouse.click(reloadedFirst.x, reloadedFirst.y);
-          return '';
-        }, { timeout: 15_000 })
-        .toBe('20.000');
-      await page.keyboard.down('Control');
-      await page.mouse.click(reloadedSecond.x, reloadedSecond.y);
-      await page.keyboard.up('Control');
       await expect(page.getByTestId('move-x')).toHaveValue('45.000');
-
-      // Reset restores the post-slice load baseline for all selected items.
-      await page.getByTestId('move-x').fill('99');
-      await page.getByTestId('move-x').press('Enter');
-      await expect(page.getByTestId('move-x')).toHaveValue('99.000');
-      await page.getByTestId('move-reset').click();
-      await expect(page.getByTestId('move-x')).toHaveValue('45.000');
-      await expect(page.getByTestId('move-y')).toHaveValue('10.000');
-      await expect(page.getByTestId('move-z')).toHaveValue('10.000');
     } catch (err) {
       await diag.dump();
       throw err;

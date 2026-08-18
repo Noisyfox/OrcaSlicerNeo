@@ -190,7 +190,10 @@ export interface SlicerClient {
   getAppConfig(): Promise<AppConfig & { ok: boolean; error?: string }>;
   getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList>;
   getOptionMetadata(): Promise<OptionMetadata>;
-  loadModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult>;
+  /** Add a model file to the current scene without replacing existing objects. */
+  addModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult>;
+  /** Reset the complete scene in the WASM model and invalidate its Print. */
+  clearModel(): Promise<{ ok: boolean; error?: string }>;
   setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number): Promise<{ ok: boolean; error?: string }>;
   setModelTransform(
     objIdx: number, volumeIdx: number, instIdx: number,

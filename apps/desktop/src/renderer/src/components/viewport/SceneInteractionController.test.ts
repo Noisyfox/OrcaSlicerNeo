@@ -79,6 +79,21 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes()).toEqual(volumes);
   });
 
+  it('preserves a multi-selection when a body drag begins on one of its members', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.selectFromHit(volumes[2], true);
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+    const pivot = controller.selectionPivot()!;
+
+    expect(controller.prepareBodyDragFromPointerDown(volumes[0], false)).toBe(false);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    expect(controller.updateDragPivot(pivot.clone().add(new THREE.Vector3(3, 7, 1)))).toBe(true);
+    expect(volumes.map((v) => v.instanceTransform.offset)).toEqual([
+      [3, 7, 1], [3, 7, 1], [23, 12, 1], [23, 12, 1],
+    ]);
+  });
+
   it('selects an unselected body at pointer-down so that same press can drag it', () => {
     controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
 

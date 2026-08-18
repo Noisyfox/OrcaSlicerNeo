@@ -8,6 +8,7 @@ export type LoadedObject = GLVolume;
 
 export function useModelLoader(): LoadedObject[] {
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
+  const modelRevision = useSettingsStore((s) => s.modelRevision);
   const [objects, setObjects] = useState<LoadedObject[]>([]);
 
   useEffect(() => {
@@ -42,7 +43,7 @@ export function useModelLoader(): LoadedObject[] {
         return [];
       });
     };
-  }, [modelLoaded]);
+  }, [modelLoaded, modelRevision]);
 
   return objects;
 }

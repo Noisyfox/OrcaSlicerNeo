@@ -72,10 +72,10 @@ check('metadata has sparse_infill_pattern enum', Array.isArray(meta.sparse_infil
 const stl = await readFile(stlPath);
 const dataPtr = Number(Module._malloc(stl.length));
 Module.HEAPU8.set(stl, dataPtr);
-const loaded = callJson('orc_load_model', ['pointer', 'number', 'string'],
+const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
                         [dataPtr, stl.length, 'stl']);
 Module._free(dataPtr);
-check('orc_load_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringify(loaded));
+check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringify(loaded));
 
 // 4b. load-time centering (OrcaSlicer Plater behavior, replicated in the
 // bridge because the GUI is not compiled into the WASM build): non-project
@@ -113,6 +113,26 @@ check('orc_load_model ok', loaded.ok === true && loaded.objects > 0, JSON.string
     check('load-time centering: mesh available', false, JSON.stringify(mm).slice(0, 120));
   }
 }
+
+// Add Model must append to the live scene; Clear Scene is the only operation
+// that resets it. Restore a single cube afterwards so the existing slice and
+// centering checks below continue to exercise the one-object fixture.
+const secondPtr = Number(Module._malloc(stl.length));
+Module.HEAPU8.set(stl, secondPtr);
+const appended = callJson('orc_add_model', ['pointer', 'number', 'string'],
+                          [secondPtr, stl.length, 'stl']);
+Module._free(secondPtr);
+check('orc_add_model preserves existing objects', appended.ok === true && appended.objects === 2,
+      JSON.stringify(appended));
+const cleared = callJson('orc_clear_model', [], []);
+check('orc_clear_model resets the scene', cleared.ok === true, JSON.stringify(cleared));
+const restoredPtr = Number(Module._malloc(stl.length));
+Module.HEAPU8.set(stl, restoredPtr);
+const restored = callJson('orc_add_model', ['pointer', 'number', 'string'],
+                          [restoredPtr, stl.length, 'stl']);
+Module._free(restoredPtr);
+check('orc_add_model restores one object after clear', restored.ok === true && restored.objects === 1,
+      JSON.stringify(restored));
 
 // Copy [ptr, ptr+len) out of the heap and free it — mirrors the client's
 // heap.ts readBytes contract. wasm64: the module exports ONLY HEAPU8
@@ -258,7 +278,8 @@ check('orc_cancel ok', cancelled.ok === true, JSON.stringify(cancelled));
 const stl2 = await readFile(stlPath);
 const dataPtr2 = Number(Module._malloc(stl2.length));
 Module.HEAPU8.set(stl2, dataPtr2);
-const reloaded = callJson('orc_load_model', ['pointer', 'number', 'string'],
+callJson('orc_clear_model', [], []);
+const reloaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
                           [dataPtr2, stl2.length, 'stl']);
 Module._free(dataPtr2);
 check('reload after removeFunction ok', reloaded.ok === true, JSON.stringify(reloaded));
@@ -286,7 +307,8 @@ check('re-slice actually re-ran', result2.ok === true && result2.layers > 0 && r
 const boxStl = await readFile(boxStlPath);
 const boxPtr = Number(Module._malloc(boxStl.length));
 Module.HEAPU8.set(boxStl, boxPtr);
-const boxLoaded = callJson('orc_load_model', ['pointer', 'number', 'string'],
+callJson('orc_clear_model', [], []);
+const boxLoaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
                            [boxPtr, boxStl.length, 'stl']);
 Module._free(boxPtr);
 check('floating-box loads', boxLoaded.ok === true && boxLoaded.objects === 1, JSON.stringify(boxLoaded));

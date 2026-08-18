@@ -54,7 +54,8 @@
 
 **Epic 1.5: Bridge API (`src/bridge.cpp`)**
 - extern "C", JSON-in/JSON-out, synchronous on the worker thread. Functions:
-  `orc_init`, `orc_get_presets`, `orc_get_option_metadata`, `orc_load_model`,
+  `orc_init`, `orc_get_presets`, `orc_get_option_metadata`, `orc_add_model`,
+  `orc_clear_model`,
   `orc_slice` (progress via registered JS callback from `set_status_callback`),
   `orc_get_slice_result` (toolpath + sliced mesh + stats), `orc_export_gcode`
   (MEMFS), `orc_cancel`.
@@ -82,7 +83,8 @@
 > See `doc/2026-08-13-m2-implementation-notes.md`.
 
 **Epic 2.1: `slicer-wasm` JS client**
-- `packages/slicer-wasm/src/client/`: promise-based typed API (`loadModel`,
+- `packages/slicer-wasm/src/client/`: promise-based typed API (`addModel`,
+  `clearModel`,
   `getPresets`, `getOptionMetadata`, `slice(config, onProgress)`,
   `getSliceResult`, `exportGcode`, `cancel`), heap marshaling helpers
   (`_malloc`/`_free` + `HEAPU8`), transferable ArrayBuffer output.
@@ -215,6 +217,14 @@
 > mouse-down, so moving quickly from a model body to a grabber cannot turn the
 > body gesture into a gizmo operation; see
 > `doc/2026-08-18-pointer-origin-gizmo-regression.md`.
+
+### Milestone 8 — Add Model and Clear Scene
+
+> **Status: delivered 2026-08-18.** The toolbar's former replacement-style
+> **Open** action is now **Add Model**. Files are appended to the bridge's
+> current `Model`, while **Clear Scene** explicitly resets the model, print
+> result, renderer collection, and selection. See
+> `doc/2026-08-18-add-model-and-clear-scene.md`.
 
 ## Cross-Cutting Practices
 

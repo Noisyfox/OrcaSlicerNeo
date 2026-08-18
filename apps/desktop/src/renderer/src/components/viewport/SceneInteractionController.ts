@@ -78,6 +78,11 @@ export class SceneInteractionController {
    */
   prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean): boolean {
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
+    // A drag that starts on a member of an existing multi-selection must move
+    // the complete group. Return false so a plain click can still collapse
+    // the selection in its later click handler; DragControls suppresses that
+    // click after a completed drag.
+    if (!additive && this.selection.has(hit)) return false;
     return this.selectFromHit(hit, additive);
   }
 

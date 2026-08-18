@@ -481,7 +481,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_option_metadata() {
 
 // Model bytes arrive in the WASM heap (JS: _malloc + HEAPU8 + _free).
 // Stage them to a MEMFS file so the format loaders can open a real path.
-EMSCRIPTEN_KEEPALIVE const char* orc_load_model(const char* data, int len, const char* ext) {
+EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const char* ext) {
     try {
         if (!data || len <= 0) return error_json("no model bytes");
         const std::string path =
@@ -492,8 +492,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_model(const char* data, int len, const
         std::fclose(f);
 
         DynamicPrintConfig dummy;
-        state().model = Model::read_from_file(path, &dummy, nullptr,
-                                              LoadStrategy::AddDefaultInstances);
+        Model imported = Model::read_from_file(path, &dummy, nullptr,
+                                               LoadStrategy::AddDefaultInstances);
         // The wxWidgets GUI is not compiled into the WASM build, so replicate
         // the Plater's post-load steps for non-project files (Plater.cpp
         // _load_files: per object center_around_origin(false) + ensure_on_bed
@@ -512,12 +512,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_model(const char* data, int len, const
                            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             const bool is_project_file = lower_ext == "3mf" || lower_ext == "amf";
             if (!is_project_file) {
-                for (ModelObject* o : state().model.objects) {
+                for (ModelObject* o : imported.objects) {
                     o->center_around_origin(false);
                     o->ensure_on_bed(false);
                 }
             }
         }
+        // Preserve the current scene: only after parsing and preparing the
+        // complete incoming file succeeds do we copy its objects into the
+        // live Model. Model::add_object clones the object and rebinds it to
+        // the destination model, so the temporary can be destroyed safely.
+        for (const ModelObject* o : imported.objects)
+            state().model.add_object(*o);
+        // A model mutation makes any existing Print/G-code result stale.
+        state().print.clear();
         // Drift at the pinned SHA: Model has no instance accessor — instances
         // live per-object (ModelObject::instances, Model.hpp:385; Model itself
         // only has the objects list, Model.hpp:1553-1560). Sum per object.
@@ -532,6 +540,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_model(const char* data, int len, const
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Explicit scene reset for the renderer's Clear Scene action. Resetting the
+// model rather than merely hiding meshes guarantees that the next slice and
+// export operate on an empty plate.
+EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
+    try {
+        state().print.clear();
+        state().model = Model{};
+        return dup_json(json{{"ok", true}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
         return error_json("unknown C++ exception");
     }
 }

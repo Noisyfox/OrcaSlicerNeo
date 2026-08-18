@@ -83,15 +83,20 @@ export function createClient(
       return callJson(m, 'orc_get_option_metadata', [], []) as OptionMetadata;
     },
 
-    async loadModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult> {
+    async addModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult> {
       const m = await module();
       const ptr = writeBytes(m, bytes);
       try {
-        return callJson(m, 'orc_load_model', ['pointer', 'number', 'string'],
+        return callJson(m, 'orc_add_model', ['pointer', 'number', 'string'],
                         [ptr, bytes.length, ext]) as LoadModelResult;
       } finally {
         m._free(ptr);
       }
+    },
+
+    async clearModel(): Promise<{ ok: boolean; error?: string }> {
+      const m = await module();
+      return callJson(m, 'orc_clear_model', [], []) as { ok: boolean; error?: string };
     },
 
     async setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number) {

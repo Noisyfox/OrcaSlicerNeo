@@ -28,7 +28,7 @@ retires the last remaining risk before any UI work.
 - [x] Boost 1.84 wasm64 build (`build-boost-wasm64.sh`)
 - [x] Scaffold CMake: `GLOB_RECURSE` + `DROP_PATTERNS` + `stubs/`, 3MF re-added
 - [x] `bridge.cpp` extern "C" API: `orc_init` / `orc_get_presets` /
-      `orc_get_option_metadata` / `orc_load_model` / `orc_slice` /
+      `orc_get_option_metadata` / `orc_add_model` / `orc_clear_model` / `orc_slice` /
       `orc_get_slice_result` / `orc_export_gcode` / `orc_cancel`
 - [x] Node smoke green: `cube.stl` → valid G-code (spike GO criterion)
 
@@ -158,6 +158,13 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
       reaches a gizmo grabber before DragControls crosses its threshold.
 - [x] Unit and Electron e2e coverage verify multi-instance movement, one
       gizmo, pointer arbitration, and pre-slice transform synchronization.
+
+## Milestone 8: Add Model and Clear Scene
+
+- [x] Toolbar model import is labeled **Add Model** and appends files to the
+      current scene.
+- [x] **Clear Scene** explicitly resets the WASM model, slicer result,
+      renderer collection, and selection.
 
 ## Milestone 5+: Post-v1 Expansion (queued, not yet scheduled)
 

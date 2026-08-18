@@ -16,4 +16,12 @@ describe('useSettingsStore', () => {
     expect('positions' in s).toBe(false);
     expect('objectMinZ' in s).toBe(false);
   });
+
+  it('advances the model revision for every successful scene change', () => {
+    const before = useSettingsStore.getState().modelRevision;
+    useSettingsStore.getState().setModelLoaded(true);
+    useSettingsStore.getState().setModelLoaded(true);
+    useSettingsStore.getState().setModelLoaded(false);
+    expect(useSettingsStore.getState().modelRevision).toBe(before + 3);
+  });
 });
