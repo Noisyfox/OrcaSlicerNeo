@@ -166,6 +166,13 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 - [x] **Clear Scene** explicitly resets the WASM model, slicer result,
       renderer collection, and selection.
 
+## Viewport Interaction Performance Follow-up
+
+- [x] The React Three Fiber event layer skips raycasting during camera, body,
+      and gizmo drags, keeping orbit performance independent of dense model
+      geometry under the cursor. See
+      `doc/2026-08-18-disable-raycasting-during-drag.md`.
+
 ## Milestone 5+: Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)

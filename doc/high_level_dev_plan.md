@@ -226,6 +226,13 @@
 > result, renderer collection, and selection. See
 > `doc/2026-08-18-add-model-and-clear-scene.md`.
 
+### Viewport Interaction Performance Follow-up
+
+> **Status: delivered 2026-08-18.** The React Three Fiber event layer now
+> disables raycasting for active camera, body, and gizmo drags. This prevents
+> dense model geometry from lowering orbit frame rate only while the pointer
+> is over the model. See `doc/2026-08-18-disable-raycasting-during-drag.md`.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

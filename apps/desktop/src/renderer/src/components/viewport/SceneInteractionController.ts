@@ -45,6 +45,7 @@ export class SceneInteractionController {
 
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get owner(): PointerOwner { return this.pointerOwner; }
+  get pointerStartsOnGizmo(): boolean { return this.pointerOrigin === 'gizmo'; }
   get activeDrag(): DragSnapshot | null { return this.drag; }
   get bodyDragEnabled(): boolean {
     // The initiating DragControls must stay enabled for the rest of its own

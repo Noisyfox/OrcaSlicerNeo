@@ -89,6 +89,14 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
           userData={{ orcaRaycastRole: MODEL_BODY_RAYCAST }}
           onPointerDown={(event) => {
             if (event.nativeEvent.button !== 0) return;
+            if (!sceneInteraction.pointerStartsOnGizmo) {
+              // R3F's canvas listener is registered before OrbitControls.
+              // DragControls has a movement threshold, so prevent the camera
+              // control from seeing this body press and rotating before the
+              // body gesture claims it. A gizmo-origin press must still reach
+              // TransformControls, which has priority over body dragging.
+              event.nativeEvent.stopImmediatePropagation();
+            }
             // Do this before DragControls observes movement. Besides making
             // click selection immediate, it lets this very press become a
             // drag even when nothing had been selected beforehand.

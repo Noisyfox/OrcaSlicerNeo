@@ -1,12 +1,13 @@
 // apps/desktop/src/renderer/src/components/viewport/Viewport.tsx
-import { Component, useCallback, useRef, type ComponentProps, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useRef, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
-import { Canvas, events as createPointerEvents } from '@react-three/fiber';
+import { Canvas, events as createPointerEvents, type RootState } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import type { SceneInteractionController } from './SceneInteractionController';
 import { filterBuildPlateOccludedIntersections } from './buildPlatePointerOcclusion';
+import { isViewportRaycastingEnabled } from './viewportRaycasting';
 
 const viewportEvents: ComponentProps<typeof Canvas>['events'] = (state) => {
   const defaultEvents = createPointerEvents(state);
@@ -46,10 +47,33 @@ export function Viewport({ onSceneInteractionChange }: {
   // React 19's RefObject<T> = { current: T } requires for assignability.
   const viewportRef = useRef<HTMLDivElement>(null!);
   const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
+  const sceneStateRef = useRef<RootState | null>(null);
+  const cameraGestureActiveRef = useRef(false);
+  const unsubscribeSceneInteractionRef = useRef<(() => void) | null>(null);
+  const updateRaycastingEnabled = useCallback(() => {
+    sceneStateRef.current?.setEvents({
+      enabled: isViewportRaycastingEnabled(
+        cameraGestureActiveRef.current,
+        sceneInteractionRef.current?.owner ?? 'none',
+      ),
+    });
+  }, []);
   const handleSceneInteractionChange = useCallback((controller: SceneInteractionController | null) => {
+    unsubscribeSceneInteractionRef.current?.();
+    unsubscribeSceneInteractionRef.current = null;
     sceneInteractionRef.current = controller;
+    if (controller) {
+      unsubscribeSceneInteractionRef.current = controller.subscribe(updateRaycastingEnabled);
+    }
+    updateRaycastingEnabled();
     onSceneInteractionChange(controller);
-  }, [onSceneInteractionChange]);
+  }, [onSceneInteractionChange, updateRaycastingEnabled]);
+  useEffect(() => () => unsubscribeSceneInteractionRef.current?.(), []);
+
+  const setCameraGestureActive = useCallback((active: boolean) => {
+    cameraGestureActiveRef.current = active;
+    updateRaycastingEnabled();
+  }, [updateRaycastingEnabled]);
   return (
     <div
       ref={viewportRef}
@@ -62,9 +86,13 @@ export function Viewport({ onSceneInteractionChange }: {
         sceneInteractionRef.current?.resolveGizmoPointerDown(event.nativeEvent);
       }}
       onPointerUpCapture={() => {
+        // OrbitControls normally emits `end`, but reset here as well so a
+        // released or cancelled pointer can never leave picking disabled.
+        setCameraGestureActive(false);
         sceneInteractionRef.current?.releasePointer();
       }}
       onPointerCancelCapture={() => {
+        setCameraGestureActive(false);
         sceneInteractionRef.current?.releasePointer();
       }}
     >
@@ -86,6 +114,10 @@ export function Viewport({ onSceneInteractionChange }: {
           // the convention: X right, Y into the screen, Z up.
           camera={{ position: [200, -200, 160], fov: 45 }}
           dpr={[1, 2]}
+          onCreated={(state) => {
+            sceneStateRef.current = state;
+            updateRaycastingEnabled();
+          }}
           onPointerMissed={() => {
             sceneInteractionRef.current?.clearSelection();
           }}
@@ -109,6 +141,11 @@ export function Viewport({ onSceneInteractionChange }: {
               MIDDLE: THREE.MOUSE.DOLLY,
               RIGHT: THREE.MOUSE.PAN,
             }}
+            // R3F's event manager tests every interactive mesh before it
+            // dispatches a pointer event. Disable that layer for the whole
+            // camera gesture so orbiting over a dense mesh remains smooth.
+            onStart={() => setCameraGestureActive(true)}
+            onEnd={() => setCameraGestureActive(false)}
           />
           {/* Orientation gizmo (X/Y/Z axes), bottom-left corner. GizmoHelper
               renders the gizmo into an orthographic overlay (Hud portal);

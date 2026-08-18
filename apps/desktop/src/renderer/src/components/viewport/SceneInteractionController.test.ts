@@ -129,6 +129,7 @@ describe('SceneInteractionController', () => {
     controller.registerGizmoGrabberHitTest(() => true);
 
     expect(controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent)).toBe(true);
+    expect(controller.pointerStartsOnGizmo).toBe(true);
     expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(false);
     expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
     expect(controller.tryBeginBodyDrag()).toBe(false);
