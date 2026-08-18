@@ -15,6 +15,12 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
   const setSlicerStatus = useSlicerStore((s) => s.setStatus);
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
+  // Boot loads all three preset lists atomically (setPresets); until they
+  // arrive (or if boot fails) Open stays disabled — a model without presets
+  // can't be configured or sliced.
+  const presetsLoaded = useSettingsStore(
+    (s) => s.printers.length > 0 && s.prints.length > 0 && s.filaments.length > 0,
+  );
   const busy = status === 'slicing';
   const [exporting, setExporting] = useState(false);
 
@@ -115,7 +121,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
 
   return (
     <>
-      <Button size="sm" variant="secondary" onClick={openModel} data-testid="btn-open">
+      <Button size="sm" variant="secondary" onClick={openModel} disabled={!presetsLoaded} data-testid="btn-open">
         <FolderOpen className="h-4 w-4" /> Open
       </Button>
       <Button size="sm" variant="secondary" onClick={slice} disabled={busy || !modelLoaded} data-testid="btn-slice">
