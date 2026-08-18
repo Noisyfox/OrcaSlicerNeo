@@ -14,6 +14,10 @@ final whole-branch review plus the fix-wave re-review). Merged to main
 `axisLock="z"` dropped for a free drag in the camera-facing plane. See
 "Free body drag" below.
 
+**Amendment (2026-08-18, post-merge):** the body drag locks Z again —
+`axisLock="z"` reinstated on the `DragControls`, reversing the 2026-08-17
+free-drag amendment. See "Z-locked body drag (2026-08-18 amendment)".
+
 ## What shipped
 
 - **Move gizmo** on selection: drei `TransformControls` (translate, world
@@ -94,6 +98,19 @@ No test changes were needed: the e2e move-gizmo spec exercises the gizmo
 arrows, panel inputs and Drop to bed — none asserts a Z-locked body drag —
 and the unit suites never touched the drag plane. The change is
 `ModelMesh.tsx` (drop `axisLock="z"` + comment) and this doc set.
+
+## Z-locked body drag (2026-08-18 amendment)
+
+The 2026-08-17 free-drag amendment was reversed: `axisLock="z"` is back on
+the `DragControls` in `ModelMesh.tsx`. The drag plane is world-XY at the
+grab point's height again — a body drag moves the selection in X/Y and
+keeps Z; height changes come from the gizmo Z arrow and the move panel
+(unchanged). The lock lives in drei's plane intersection, so the
+`SceneInteractionController` and its unit tests are untouched: the
+controller applies whatever delta `onDrag` hands it, and drei's
+axis-locked localMatrix carries a zero-Z delta. Same verification as the
+2026-08-17 reversal: unit suite + typecheck (the e2e move-gizmo spec
+asserts no Z-locked body drag).
 
 ## Verification
 

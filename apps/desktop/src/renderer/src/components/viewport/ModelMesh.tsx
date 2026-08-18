@@ -51,6 +51,11 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
     <DragControls
       ref={groupRef}
       autoTransform={false}
+      // Body drags stay planar: drei constrains the drag plane to world-XY
+      // through the grab point, so Z keeps the object's current height.
+      // Lifts come from the gizmo Z arrow and the move panel (design doc
+      // Amendments, 2026-08-18).
+      axisLock="z"
       dragConfig={{ enabled: sceneInteraction.bodyDragEnabled }}
       onDragStart={(origin) => {
         // A new body drag selects its hit's complete instance before taking a
