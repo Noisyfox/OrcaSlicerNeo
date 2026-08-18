@@ -25,6 +25,9 @@ the WASM model and the renderer collection.
   mouse release (or after a panel action). Add Model waits only for a pending
   settled commit, so its reload retains every existing model position without
   delaying persistence until another action.
+- The synthetic click emitted after either a body or move-gizmo drag is
+  consumed. Releasing a group move over one selected model therefore retains
+  the complete selection.
 - Adding or clearing invalidates the slice result and selection. Cancelling a
   file dialog or a failed import leaves the scene and its current slice state
   unchanged.

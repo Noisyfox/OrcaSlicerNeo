@@ -64,6 +64,18 @@ describe('SceneInteractionController', () => {
     expect(controller.owner).toBe('none');
   });
 
+  it('keeps the complete selection when a gizmo drag ends over one member', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.selectFromHit(volumes[2], true);
+    controller.registerGizmoGrabberHitTest(() => true);
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+
+    expect(controller.beginGizmoDrag()).toBe(true);
+    expect(controller.endDrag()).toBe(true);
+    expect(controller.selectFromClick(volumes[0], false)).toBe(false);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+  });
+
   it('moves every selected instance by an equal body-drag delta', () => {
     controller.selectFromHit(volumes[0], false);
     controller.selectFromHit(volumes[2], true);

@@ -33,7 +33,7 @@ export class SceneInteractionController {
   private pointerOrigin: PointerOrigin = 'none';
   private gizmoGrabberHovered = false;
   private gizmoGrabberHitTest: ((event: PointerEvent) => boolean) | null = null;
-  private suppressPostBodyDragClick = false;
+  private suppressPostDragClick = false;
   private drag: DragSnapshot | null = null;
 
   constructor(private readonly getVolumes: () => readonly GLVolume[]) {}
@@ -88,8 +88,8 @@ export class SceneInteractionController {
 
   /** Preserve a multi-selection when the browser dispatches click after drag end. */
   selectFromClick(hit: GLVolume, additive: boolean): boolean {
-    if (this.suppressPostBodyDragClick) {
-      this.suppressPostBodyDragClick = false;
+    if (this.suppressPostDragClick) {
+      this.suppressPostDragClick = false;
       return false;
     }
     return this.selectFromHit(hit, additive);
@@ -149,7 +149,7 @@ export class SceneInteractionController {
     this.selection.clear();
     this.openGizmo = null;
     this.drag = null;
-    this.suppressPostBodyDragClick = false;
+    this.suppressPostDragClick = false;
     this.pointerOwner = 'none';
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
@@ -183,12 +183,14 @@ export class SceneInteractionController {
 
   endDrag(): boolean {
     if (!this.drag) return false;
-    const completedKind = this.drag.kind;
     this.drag = null;
     this.pointerOwner = 'none';
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
-    this.suppressPostBodyDragClick = completedKind === 'body';
+    // DragControls and TransformControls can both leave a model-targeted
+    // click behind after mouseup. It is part of the completed gesture, not a
+    // new selection request, even when the cursor ends over one group member.
+    this.suppressPostDragClick = true;
     this.emit();
     return true;
   }
