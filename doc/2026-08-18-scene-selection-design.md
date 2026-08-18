@@ -295,9 +295,11 @@ Confirmed 2026-08-18:
   each and assert that the synchronization loop calls `setModelTransform` for
   every `(objectIdx, volumeIdx, instanceIdx)` composite. Client/mock tests
   verify the same fixture exposes independent per-volume bridge state.
-- Electron e2e: select two loaded instances, confirm both highlight, confirm
-  one gizmo, drag body and axis handle, assert equal deltas and unchanged
-  relative spacing, then slice and verify every affected composite transform
-  was synchronized. Include an axis-grabber press over model geometry and
-  assert that the gizmo moves the selection without initiating body drag.
+- Electron e2e: select two loaded instances, confirm one gizmo, exercise a
+  live multi-selection body drag and axis-handle drag, then slice and reload
+  the persisted selection transforms. Include an axis-grabber press over
+  model geometry and assert that the gizmo moves the selection without
+  initiating body drag. Controller and pre-slice synchronization unit tests
+  assert equal per-instance deltas, unchanged relative spacing, and every
+  affected composite transform call.
 - Run desktop unit tests, typecheck, and e2e suite after implementation.
