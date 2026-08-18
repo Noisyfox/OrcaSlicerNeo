@@ -285,6 +285,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_progress_callback(ptr: number) {
       progressCallback = ptr;
     },
+    orc_get_threading_info() {
+      return { ok: true, threaded: false, max_concurrency: 1, arena_concurrency: 1 };
+    },
     orc_slice(_config: string) {
       if (!modelLoaded) return { error: 'no model loaded' };
       // Drive progress 0..100 synchronously, exactly like the real bridge:
@@ -375,6 +378,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
     orc_set_progress_callback: { ret: 'void', args: ['pointer'] },
+    orc_get_threading_info: { ret: 'number', args: [] },
     orc_slice: { ret: 'number', args: ['string'] },
     orc_get_slice_result: { ret: 'number', args: [] },
     orc_export_gcode: { ret: 'number', args: [] },

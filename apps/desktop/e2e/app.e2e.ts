@@ -9,9 +9,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
-const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
+const MODEL_PATH = process.env.ORCA_E2E_MODEL
+  ? resolve(process.env.ORCA_E2E_MODEL)
+  : resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
+const MODEL_COUNT = Math.max(1, Number.parseInt(process.env.ORCA_E2E_MODEL_COUNT ?? '1', 10) || 1);
+const PRINTER_PROFILE = process.env.ORCA_E2E_PRINTER ?? 'Bambu Lab P1S 0.4 nozzle';
 const REAL = process.env.ORCA_E2E_REAL === '1';
 const PRESET_READY_TIMEOUT = REAL ? 300_000 : 30_000;
+const SLICE_RESULT_TIMEOUT = REAL ? 60_000 : 5_000;
 
 /** Captures renderer console/pageerror/crash/navigation evidence; dump() is
  *  called only on failure so CI logs carry the renderer's story when red. */
@@ -116,15 +121,21 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // Preset picker (popup style, base-mira): the trigger is a button showing
     // the current value; opening shows a searchable popup; typing filters the
     // list; picking updates the trigger and the real bridge selection. The
-    // mock starts on the X1 Carbon — switch to the P1S to prove a change.
+    // mock starts on the X1 Carbon — switch to a known printer to prove a
+    // change. The profile can be overridden for real-model regression runs.
     await page.getByTestId('preset-select').click();
     await expect(page.locator('[data-slot="combobox-content"]')).toBeVisible();
     await expect(page.locator('[data-slot="combobox-content"] input')).toBeVisible();
-    await page.locator('[data-slot="combobox-content"] input').fill('P1S');
-    await expect(page.locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')).toHaveCount(1);
-    await expect(page.locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')).toHaveText('Bambu Lab P1S 0.4 nozzle');
-    await page.locator('[data-slot="combobox-content"] [data-slot="combobox-item"]').click();
-    await expect(page.getByTestId('preset-select')).toContainText('Bambu Lab P1S 0.4 nozzle');
+    await page.locator('[data-slot="combobox-content"] input').fill(PRINTER_PROFILE);
+    // The full preset bundle has several similar variants; target the exact
+    // profile rather than assuming the search produces one result (the mock
+    // does).
+    const printer = page
+      .locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')
+      .filter({ hasText: PRINTER_PROFILE });
+    await expect(printer).toHaveCount(1);
+    await printer.click();
+    await expect(page.getByTestId('preset-select')).toContainText(PRINTER_PROFILE);
     // Single-select: the popup dismisses on pick.
     await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
 
@@ -132,15 +143,19 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
     await expect(page.getByTestId('btn-export')).toBeDisabled();
 
-    // Add model (ORCA_E2E stub returns the fixture path).
-    await page.getByTestId('btn-add-model').click();
+    // Add model(s). ORCA_E2E returns MODEL_PATH for every dialog request;
+    // MODEL_COUNT makes a local multi-model regression reproducible without
+    // adding a large user model to the repository.
+    for (let i = 0; i < MODEL_COUNT; i += 1) {
+      await page.getByTestId('btn-add-model').click();
+    }
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
     // Slice → status flips to Sliced, preview + scrubber appear, export unlocks.
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
     await expect(page.getByTestId('viewport')).toBeVisible();
-    await expect(page.getByTestId('layer-scrubber')).toBeVisible();
+    await expect(page.getByTestId('layer-scrubber')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
     await expect(page.getByTestId('btn-export')).toBeEnabled();
 
     // The scrubber grabber (Base UI Thumb: div wrapper + visually-hidden

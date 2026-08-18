@@ -21,13 +21,21 @@ existing renderer Web Worker boundary.
 - The threaded build passes `-pthread` when compiling every target and when
   linking. Emscripten requires both; this also enables `__EMSCRIPTEN_PTHREADS__`.
 - Pre-create a pthread worker pool with
-  `-sPTHREAD_POOL_SIZE=navigator.hardwareConcurrency`. Emscripten emits this
-  expression directly into the loader, so the pool uses every logical core the
-  current runtime exposes while avoiding first-slice worker-start latency.
+  `-sPTHREAD_POOL_SIZE=Math.min(4,navigator.hardwareConcurrency)`. The
+  desktop module itself is already a renderer worker; a larger nested pool
+  caused Chromium to abort a multi-object slice with `Error: unwind`. This
+  expression still uses every core on smaller machines while preserving the
+  verified four-worker budget on larger ones.
 - Use oneTBB's runtime `global_control(max_allowed_parallelism, cores)` and a
-  matching task arena in bridge startup, where `cores` comes from
-  `emscripten_num_logical_cores()`. This matches the loader pool without a
-  fixed build-time cap.
+  matching task arena in bridge startup, where `cores` is the minimum of
+  `emscripten_num_logical_cores()` and the configured four-worker budget.
+  Both build values remain explicit overrides for controlled profiling.
+- Do not install the dynamic JavaScript progress callback in a threaded
+  module. oneTBB can invoke the callback from a pthread whose Wasm function
+  table does not track a renderer-worker `addFunction` table growth; Chromium
+  then traps with `table index is out of bounds` and surfaces `Error: unwind`.
+  The UI retains its operation-level `Slicing…` state; serial/mock builds keep
+  detailed progress until a cross-pthread-safe callback transport is added.
 - Preserve `-sALLOW_MEMORY_GROWTH=1`. Emscripten documents that heap views held
   by JavaScript must be refreshed after growth; the client already obtains a
   fresh `HEAPU8` view for each bridge call. The threaded build will use
@@ -76,6 +84,7 @@ one begins.
 | Toolchain/dependency mismatch | Pin source commit, build oneTBB with the same Emscripten SDK and wasm64/pthread flags as the module. |
 | Heap growth invalidates JS views | Read `HEAPU8` at marshaling time; never cache it across calls. |
 | Unsupported shared-memory runtime | Keep a separate, explicit serial build variant; do not claim a single artifact can silently fall back. |
+| Pthread invokes a dynamically-added JS callback | Omit that callback for the threaded module; preserve operation-level slice state and keep serial progress support. |
 
 ## Verification Matrix
 
@@ -85,6 +94,7 @@ one begins.
 | WASM bridge | Thread diagnostic reports enabled and effective concurrency is at least two; existing bridge smoke remains green. |
 | Slice | Existing cube smoke produces G-code with `G1` moves. |
 | Client/app | Existing Vitest/typecheck and Playwright flows remain green. |
+| Real multi-model app | Two copies of an external STL, with a profile that has no exclusion area, slice, render, and export without `unwind`. |
 | Headers | Electron's `app://` response maintains both COOP and COEP headers. |
 
 ## References

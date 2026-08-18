@@ -21,10 +21,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
-# This is a JavaScript expression emitted into the loader by Emscripten, not
-# merely an integer. navigator.hardwareConcurrency pre-creates one worker for
-# every logical core the runtime exposes.
-set(WASM_PTHREAD_POOL_SIZE "navigator.hardwareConcurrency" CACHE STRING "Pre-created Emscripten pthread workers")
+# The desktop module already runs inside a renderer worker. Chromium can
+# report far more logical cores than can safely host nested Emscripten
+# pthreads, so use all available cores up to a verified four-worker budget.
+# This JavaScript expression is emitted directly into the module loader.
+set(WASM_PTHREAD_POOL_SIZE "Math.min(4,navigator.hardwareConcurrency)" CACHE STRING "Pre-created Emscripten pthread workers")
+set(WASM_TBB_MAX_CONCURRENCY 4 CACHE STRING "Maximum oneTBB worker concurrency for WASM")
 if(WASM_THREADING)
   if(NOT DEFINED TBB_ROOT OR "${TBB_ROOT}" STREQUAL "")
     message(FATAL_ERROR "TBB_ROOT must name the staged oneTBB build when WASM_THREADING=ON.")
@@ -40,7 +42,7 @@ if(WASM_THREADING)
   # Emscripten requires -pthread on every compilation as well as the final
   # link; putting it here covers libslic3r, vendored deps, and bridge TUs.
   add_compile_options(-pthread)
-  message(STATUS "WASM threading: oneTBB (${TBB_ROOT}), pthread pool=${WASM_PTHREAD_POOL_SIZE}")
+  message(STATUS "WASM threading: oneTBB (${TBB_ROOT}), pthread pool=${WASM_PTHREAD_POOL_SIZE}, TBB max=${WASM_TBB_MAX_CONCURRENCY}")
 else()
   message(STATUS "WASM threading: serial TBB shim (explicit fallback)")
 endif()
@@ -152,6 +154,7 @@ target_compile_definitions(slic3r_core PUBLIC
 if(WASM_THREADING)
   target_compile_definitions(slic3r_core PUBLIC
     ORCA_WASM_THREADING=1
+    ORCA_WASM_TBB_MAX_CONCURRENCY=${WASM_TBB_MAX_CONCURRENCY}
   )
 endif()
 # Boost.Log ABI tag: Boost.Log 2.x is a compiled library (no header-only

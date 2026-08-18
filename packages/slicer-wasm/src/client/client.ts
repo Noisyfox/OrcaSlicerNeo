@@ -25,13 +25,20 @@ export function createClient(
   async function module(): Promise<OrcaModule> {
     if (!modulePromise) {
       modulePromise = moduleFactory({ noInitialRun: true }).then((m) => {
-        // Register the progress callback ONCE at module init and NEVER
-        // removeFunction it (stale-slot trap discipline, bridge-smoke Fix
-        // round 1): the bridge's g_progress is a raw fn ptr with no orc_*
-        // clear path; a removed slot re-used by a later slice traps the
-        // whole module. The bridge calls it only while slicing; the sink
-        // (the worker's progress-message post) lets the bridge-level stream
-        // escape this module.
+        // A dynamic JS function-table entry is safe in the serial/mock
+        // module. In a pthread build, however, a status callback can run on
+        // a oneTBB worker whose Wasm instance does not receive a table-growth
+        // update made by the renderer worker. Calling that entry then traps
+        // with "table index is out of bounds". Keep slice status at the
+        // operation level (the UI already shows "Slicing…") until progress
+        // has a cross-pthread-safe transport; never install the unsafe entry.
+        const threading = JSON.parse(
+          m.ccall('orc_get_threading_info', 'string', [], []) as string,
+        ) as { threaded?: boolean };
+        if (threading.threaded) return m;
+
+        // Register the serial progress callback ONCE and never remove it:
+        // the bridge's g_progress is a raw fn ptr with no clear path.
         const cb = m.addFunction((pct: unknown, text: unknown) => {
           const msg = m.UTF8ToString(Number(text));
           for (const l of progressListeners) l(Number(pct), msg);
