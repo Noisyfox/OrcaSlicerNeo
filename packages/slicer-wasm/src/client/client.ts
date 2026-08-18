@@ -12,12 +12,14 @@ import type {
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer,
   ClientToolpath, ClientSlicedMesh, ToolpathFeature, ModelTransform,
+  ProgressMailbox,
 } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
 export function createClient(
   moduleFactory: OrcaModuleFactory,
   onBridgeProgress?: (percent: number, text: string) => void,
+  onProgressMailbox?: (mailbox: ProgressMailbox) => void,
 ): SlicerClient {
   let modulePromise: Promise<OrcaModule> | null = null;
   const progressListeners = new Set<(percent: number, text: string) => void>();
@@ -25,17 +27,27 @@ export function createClient(
   async function module(): Promise<OrcaModule> {
     if (!modulePromise) {
       modulePromise = moduleFactory({ noInitialRun: true }).then((m) => {
-        // A dynamic JS function-table entry is safe in the serial/mock
-        // module. In a pthread build, however, a status callback can run on
-        // a oneTBB worker whose Wasm instance does not receive a table-growth
-        // update made by the renderer worker. Calling that entry then traps
-        // with "table index is out of bounds". Keep slice status at the
-        // operation level (the UI already shows "Slicing…") until progress
-        // has a cross-pthread-safe transport; never install the unsafe entry.
-        const threading = JSON.parse(
-          m.ccall('orc_get_threading_info', 'string', [], []) as string,
-        ) as { threaded?: boolean };
-        if (threading.threaded) return m;
+        // Use the regular JSON bridge decoder instead of ccall('string') so
+        // wasm64 and the mock module share the same pointer contract.
+        const threading = callJson(m, 'orc_get_threading_info', [], []) as {
+          threaded?: boolean;
+        };
+        if (threading.threaded) {
+          const mailbox = callJson(m, 'orc_get_progress_mailbox', [], []) as {
+            ok?: boolean; byte_offset?: number; text_capacity?: number;
+          };
+          const buffer = m.HEAPU8.buffer;
+          if (mailbox.ok && buffer instanceof SharedArrayBuffer &&
+              Number.isSafeInteger(mailbox.byte_offset) &&
+              Number.isSafeInteger(mailbox.text_capacity)) {
+            onProgressMailbox?.({
+              buffer,
+              byteOffset: Number(mailbox.byte_offset),
+              textCapacity: Number(mailbox.text_capacity),
+            });
+          }
+          return m;
+        }
 
         // Register the serial progress callback ONCE and never remove it:
         // the bridge's g_progress is a raw fn ptr with no clear path.

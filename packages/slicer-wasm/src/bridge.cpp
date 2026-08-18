@@ -13,11 +13,16 @@
 #include <emscripten/threading.h>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <cctype>
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include "libslic3r/AppConfig.hpp"
@@ -588,7 +593,68 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
 using progress_fn = void (*)(int, const char*);
 progress_fn g_progress = nullptr;
 
-EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) { g_progress = cb; }
+// Threaded status transport -------------------------------------------------
+//
+// oneTBB can call Print's status callback from any pthread. Do not call a
+// JS function-table entry from there: dynamically-grown tables are not shared
+// reliably by Chromium's per-pthread Wasm instances. Instead publish the
+// latest status in this fixed shared-memory mailbox. The renderer reads it
+// directly while the module worker is blocked in orc_slice(). See
+// doc/2026-08-18-threaded-progress-mailbox-design.md.
+constexpr std::size_t k_progress_text_capacity = 512;
+struct alignas(4) ProgressMailbox {
+    std::atomic<std::uint32_t> sequence{0}; // odd while a writer owns it
+    std::atomic<std::uint32_t> percent{0};
+    std::atomic<std::uint32_t> text_length{0};
+    std::uint32_t reserved{0};
+    std::array<char, k_progress_text_capacity> text{};
+};
+static_assert(sizeof(std::atomic<std::uint32_t>) == sizeof(std::uint32_t));
+static_assert(offsetof(ProgressMailbox, sequence) == 0);
+static_assert(offsetof(ProgressMailbox, percent) == 4);
+static_assert(offsetof(ProgressMailbox, text_length) == 8);
+static_assert(offsetof(ProgressMailbox, text) == 16);
+
+ProgressMailbox g_progress_mailbox;
+std::mutex g_progress_mailbox_mutex;
+
+void publish_progress(int percent, std::string_view text)
+{
+    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+    // The sequence brackets all non-atomic text writes. Readers retry if it
+    // changes or is odd, so they never render a partially copied UTF-8 value.
+    const std::uint32_t odd =
+        g_progress_mailbox.sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+    const auto clamped = static_cast<std::uint32_t>(std::clamp(percent, 0, 100));
+    std::size_t len = std::min(text.size(), k_progress_text_capacity - 1);
+    // If the next omitted byte is a continuation, remove the partial code
+    // point that began before the truncation boundary.
+    while (len > 0 && len < text.size() &&
+           (static_cast<unsigned char>(text[len]) & 0xc0u) == 0x80u)
+        --len;
+    std::memcpy(g_progress_mailbox.text.data(), text.data(), len);
+    g_progress_mailbox.text[len] = '\0';
+    g_progress_mailbox.percent.store(clamped, std::memory_order_relaxed);
+    g_progress_mailbox.text_length.store(static_cast<std::uint32_t>(len), std::memory_order_relaxed);
+    g_progress_mailbox.sequence.store(odd + 1, std::memory_order_release);
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_progress_mailbox()
+{
+    return dup_json(json{{"ok", true},
+                         {"byte_offset", reinterpret_cast<std::uintptr_t>(&g_progress_mailbox)},
+                         {"text_capacity", k_progress_text_capacity}}.dump());
+}
+
+EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
+#ifdef ORCA_WASM_THREADING
+    // Deliberately ignore raw callbacks in a pthread module. The mailbox above
+    // is the only safe threaded transport, including for direct bridge users.
+    (void)cb;
+#else
+    g_progress = cb;
+#endif
+}
 
 EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     try {
@@ -691,7 +757,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         // PrintBase::SlicingStatus (PrintBase.hpp:440), not a Slic3r-top-level
         // type — qualify it (status_callback_type is PrintBase's typedef too).
         state().print.set_status_callback([&](const PrintBase::SlicingStatus& st) {
+            publish_progress(st.percent, st.text);
+#ifndef ORCA_WASM_THREADING
             if (g_progress) g_progress(st.percent, st.text.c_str());
+#endif
         });
 #ifdef ORCA_WASM_THREADING
         // Keep every libslic3r parallel_for inside the same fixed-size arena.

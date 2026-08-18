@@ -27,12 +27,12 @@ existing renderer Web Worker boundary.
   matching task arena in bridge startup, where `cores` is
   `emscripten_num_logical_cores()` (with a nonzero fallback). The pool-size
   build value remains an explicit override for controlled profiling.
-- Do not install the dynamic JavaScript progress callback in a threaded
-  module. oneTBB can invoke the callback from a pthread whose Wasm function
-  table does not track a renderer-worker `addFunction` table growth; Chromium
-  then traps with `table index is out of bounds` and surfaces `Error: unwind`.
-  The UI retains its operation-level `Slicing…` state; serial/mock builds keep
-  detailed progress until a cross-pthread-safe callback transport is added.
+- Threaded slice status uses the shared-memory mailbox described in
+  `doc/2026-08-18-threaded-progress-mailbox-design.md`. oneTBB workers only
+  publish atomically to Wasm memory; the renderer polls it directly. This
+  keeps detailed progress live without a dynamically-added JavaScript function
+  pointer, which can trap from a pthread with `table index is out of bounds`
+  and surface `Error: unwind`.
 - Preserve `-sALLOW_MEMORY_GROWTH=1`. Emscripten documents that heap views held
   by JavaScript must be refreshed after growth; the client already obtains a
   fresh `HEAPU8` view for each bridge call. The threaded build will use
@@ -81,7 +81,7 @@ one begins.
 | Toolchain/dependency mismatch | Pin source commit, build oneTBB with the same Emscripten SDK and wasm64/pthread flags as the module. |
 | Heap growth invalidates JS views | Read `HEAPU8` at marshaling time; never cache it across calls. |
 | Unsupported shared-memory runtime | Keep a separate, explicit serial build variant; do not claim a single artifact can silently fall back. |
-| Pthread invokes a dynamically-added JS callback | Omit that callback for the threaded module; preserve operation-level slice state and keep serial progress support. |
+| Pthread invokes a dynamically-added JS callback | Use an atomic shared-memory progress mailbox for the threaded module; serial keeps its one-time callback. |
 
 ## Verification Matrix
 
