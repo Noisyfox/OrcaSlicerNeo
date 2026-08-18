@@ -136,6 +136,26 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 - [x] Renderer transforms synchronize to the C++ `Model` immediately before
       slice, never during pointer interaction.
 
+## Milestone 7: Scene-owned Multi-volume Selection
+
+> [!info] Status: **approved, implementation pending** (2026-08-18).
+>
+> Design: `doc/2026-08-18-scene-selection-design.md`. The scene will own a
+> multi-volume `Selection`, the sole open gizmo, and gesture state. The
+> default mode selects complete instances; a later modifier will provide
+> part/volume selection. Gizmo grabbers strictly take pointer priority over
+> body dragging.
+
+- [ ] `Selection` holds multiple CompositeID GL volumes and expands normal
+      hits to a complete `(objectIdx, instanceIdx)`.
+- [ ] Scene owns selection, one open gizmo, and mutual-exclusive body/gizmo
+      gesture state.
+- [ ] Drag, gizmo, move-panel, drop-to-bed, and reset operate on the complete
+      selection through its aggregate pivot.
+- [ ] A gizmo-grabber hit cannot begin or mutate a DragControls body drag.
+- [ ] Unit and Electron e2e coverage verify multi-instance movement, one
+      gizmo, pointer arbitration, and pre-slice transform synchronization.
+
 ## Milestone 5+: Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
