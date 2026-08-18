@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import type { OptionMetadata, PresetInfo } from '@slicer/client';
-import type { Vec3 } from '../lib/vec3';
 
 interface SettingsState {
   metadata: OptionMetadata | null;
@@ -19,33 +18,12 @@ interface SettingsState {
   selectedFilament: string;
   values: Record<string, string>;
   modelLoaded: boolean;
-  selectedObject: number | null;
-  selectedVolumeId: string | null;
-  /** Active viewport tool. Only 'move' exists today; rotate/scale milestones
-   *  extend this field — the gizmo family renders from it. */
-  tool: string;
-  /** Per-object current world offsets — the client-side truth for the move
-   *  panel and drag commits (seeded at load, updated live during drags and
-   *  on commit). */
-  positions: Record<number, Vec3>;
-  /** Load-time offset snapshot — Reset target. */
-  initialPositions: Record<number, Vec3>;
-  /** Object-local bounding-box min Z (from geometry) — Drop-to-bed input. */
-  objectMinZ: Record<number, number>;
   setMetadata: (m: OptionMetadata) => void;
   setPresets: (printers: PresetInfo[], prints: PresetInfo[], filaments: PresetInfo[]) => void;
   setSelections: (printer: string, print: string, filament: string) => void;
   setValue: (key: string, value: string) => void;
   setValues: (values: Record<string, string>) => void;
   setModelLoaded: (v: boolean) => void;
-  setSelectedObject: (v: number | null) => void;
-  setSelectedVolumeId: (v: string | null) => void;
-  setObjectOffsets: (
-    positions: Record<number, Vec3>,
-    initialPositions: Record<number, Vec3>,
-    objectMinZ: Record<number, number>,
-  ) => void;
-  setObjectOffset: (objectIdx: number, pos: Vec3) => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -58,12 +36,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   selectedFilament: '',
   values: {},
   modelLoaded: false,
-  selectedObject: null,
-  selectedVolumeId: null,
-  tool: 'move',
-  positions: {},
-  initialPositions: {},
-  objectMinZ: {},
   setMetadata: (metadata) => set({ metadata }),
   setPresets: (printers, prints, filaments) => set({
     printers, prints, filaments,
@@ -76,10 +48,4 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setValue: (key, value) => set((s) => ({ values: { ...s.values, [key]: value } })),
   setValues: (values) => set({ values }),
   setModelLoaded: (modelLoaded) => set({ modelLoaded }),
-  setSelectedObject: (selectedObject) => set({ selectedObject }),
-  setSelectedVolumeId: (selectedVolumeId) => set({ selectedVolumeId }),
-  setObjectOffsets: (positions, initialPositions, objectMinZ) =>
-    set({ positions, initialPositions, objectMinZ }),
-  setObjectOffset: (objectIdx, pos) =>
-    set((s) => ({ positions: { ...s.positions, [objectIdx]: pos } })),
 }));

@@ -5,7 +5,6 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport } from '@react-three/drei';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
-import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSceneInteraction } from './SceneInteractionContext';
 
 // WebGL can be unavailable (old GPUs, VMs, headless GL stacks like Mesa
@@ -32,8 +31,6 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
 
 export function Viewport() {
   const sceneInteraction = useSceneInteraction();
-  const setSelected = useSettingsStore((s) => s.setSelectedObject);
-  const setSelectedVolume = useSettingsStore((s) => s.setSelectedVolumeId);
   return (
     <div className="absolute inset-0" data-testid="viewport">
       <ViewportErrorBoundary>
@@ -55,9 +52,6 @@ export function Viewport() {
           dpr={[1, 2]}
           onPointerMissed={() => {
             sceneInteraction.clearSelection();
-            // Temporary sidebar compatibility during the move-panel migration.
-            setSelected(null);
-            setSelectedVolume(null);
           }}
         >
           <color attach="background" args={['#0f172a']} />

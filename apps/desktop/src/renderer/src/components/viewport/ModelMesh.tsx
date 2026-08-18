@@ -5,7 +5,6 @@ import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { DragControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
-import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import type { GLVolume } from './GLVolume';
 
@@ -24,7 +23,6 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
   const selected = sceneInteraction.selection.has(data);
-  const setSelectedVolume = useSettingsStore((s) => s.setSelectedVolumeId);
   const scratch = useMemo(() => new THREE.Vector3(), []);
 
   // Native transform layering: ModelInstance outside and ModelVolume inside.
@@ -51,7 +49,6 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
         // overlapping TransformControls grabber.
         if (!sceneInteraction.selection.has(data) && sceneInteraction.owner === 'none') {
           sceneInteraction.selectFromHit(data, false);
-          setSelectedVolume(data.id); // temporary move-panel compatibility
         }
         if (!sceneInteraction.tryBeginBodyDrag()) return;
         const group = groupRef.current;
@@ -78,7 +75,6 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
             event.stopPropagation();
             if (sceneInteraction.owner !== 'none') return;
             sceneInteraction.selectFromHit(data, event.nativeEvent.ctrlKey || event.nativeEvent.metaKey);
-            setSelectedVolume(data.id); // temporary move-panel compatibility
           }}
         >
           <meshStandardMaterial
