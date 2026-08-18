@@ -27,6 +27,8 @@ import { resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
+const REAL = process.env.ORCA_E2E_REAL === '1';
+const PRESET_READY_TIMEOUT = REAL ? 300_000 : 30_000;
 
 async function launchApp() {
   const exportPath = resolve(DESKTOP_ROOT, 'e2e/out/select-scroll-out.gcode');
@@ -43,7 +45,7 @@ async function launchApp() {
   // fits and nothing can be scrolled — the bug only shows in a scrolled
   // sidebar).
   await page.setViewportSize({ width: 1280, height: 600 });
-  await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
   return { app, page };
 }
 

@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 const REAL = process.env.ORCA_E2E_REAL === '1';
+const PRESET_READY_TIMEOUT = REAL ? 300_000 : 30_000;
 
 /** Captures renderer console/pageerror/crash/navigation evidence; dump() is
  *  called only on failure so CI logs carry the renderer's story when red. */
@@ -108,7 +109,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // the first get_presets answers — that has exceeded 30 s on shared CI
     // runners while finishing locally in ~20 s (run 10, e2e-real line 98).
     await expect(page.getByTestId('preset-select')).toBeVisible({
-      timeout: REAL ? 120_000 : 30_000,
+      timeout: PRESET_READY_TIMEOUT,
     });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
 
@@ -238,7 +239,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
     const diag = attachRendererDiagnostics(page);
     await page.setViewportSize({ width: 1280, height: 800 });
     try {
-      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
       await page.getByTestId('btn-add-model').click();
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
