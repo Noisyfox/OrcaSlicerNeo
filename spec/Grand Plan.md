@@ -173,6 +173,13 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
       geometry under the cursor. See
       `doc/2026-08-18-disable-raycasting-during-drag.md`.
 
+## Sliced Preview Alignment Follow-up
+
+- [x] The current layer cross-section follows the first print object's XY
+      instance placement, so it no longer appears as a ghost at the plate
+      origin after a model move. See
+      `doc/2026-08-18-sliced-mesh-plate-offset.md`.
+
 ## Milestone 5+: Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)

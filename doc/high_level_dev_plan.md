@@ -235,6 +235,13 @@
 
 ## Cross-Cutting Practices
 
+### Sliced Preview Alignment Follow-up
+
+> **Status: delivered 2026-08-18.** The sliced layer cross-section now follows
+> the first print object's XY instance placement, matching the plate-space
+> G-code toolpath after a model move. Its slicer-provided Z remains unchanged.
+> See `doc/2026-08-18-sliced-mesh-plate-offset.md`.
+
 - **Bridge is the only seam:** renderer code never imports the WASM module
   directly; it goes through `packages/slicer-wasm/src/client`. Binary buffers
   cross via the heap and transferables — never JSON.
