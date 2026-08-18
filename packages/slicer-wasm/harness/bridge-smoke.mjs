@@ -51,6 +51,15 @@ const init = callJson('orc_init', ['string'], ['']);
 check('orc_init ok', init.ok === true, JSON.stringify(init));
 check('init has printers', init.printers > 0, `printers=${init.printers}`);
 
+// The threaded wasm build must retain the fixed TBB arena that matches its
+// pre-created Emscripten pthread pool. The dedicated oneTBB probe separately
+// verifies that more than one worker actually executes work.
+const threading = callJson('orc_get_threading_info', [], []);
+check('threaded build reports a bounded TBB pool',
+      threading.ok === true && threading.threaded === true
+      && threading.max_concurrency === 4 && threading.arena_concurrency === 4,
+      JSON.stringify(threading));
+
 // 2. presets
 const printers = callJson('orc_get_presets', ['string'], ['printer']);
 check('orc_get_presets(printer)', Array.isArray(printers.presets) && printers.presets.length > 0,

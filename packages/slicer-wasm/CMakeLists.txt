@@ -146,6 +146,12 @@ target_compile_definitions(slic3r_core PUBLIC
   BOOST_HAS_PTHREADS
   BOOST_THREAD_PLATFORM_PTHREAD
 )
+if(WASM_THREADING)
+  target_compile_definitions(slic3r_core PUBLIC
+    ORCA_WASM_THREADING=1
+    ORCA_WASM_TBB_MAX_CONCURRENCY=${WASM_PTHREAD_POOL_SIZE}
+  )
+endif()
 # Boost.Log ABI tag: Boost.Log 2.x is a compiled library (no header-only
 # mode). The Boost archives were built with -pthread (build-boost-wasm64.sh),
 # so their symbols live in the v2s_mt_posix namespace. Emscripten's libc++

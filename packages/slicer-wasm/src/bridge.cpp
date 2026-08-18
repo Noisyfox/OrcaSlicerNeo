@@ -33,6 +33,11 @@
 // included above).
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 
+#ifdef ORCA_WASM_THREADING
+#include <tbb/global_control.h>
+#include <tbb/task_arena.h>
+#endif
+
 #include "nlohmann/json.hpp"
 
 using namespace Slic3r;
@@ -52,6 +57,14 @@ namespace {
 // run) — observed as "memory access out of bounds" at instantiation when
 // constructed eagerly.
 struct BridgeState {
+#ifdef ORCA_WASM_THREADING
+    // Match the pre-created Emscripten pthread pool. Letting oneTBB request
+    // additional workers would reintroduce nested-worker startup stalls.
+    tbb::global_control tbb_concurrency{
+        tbb::global_control::max_allowed_parallelism,
+        ORCA_WASM_TBB_MAX_CONCURRENCY};
+    tbb::task_arena tbb_arena{ORCA_WASM_TBB_MAX_CONCURRENCY};
+#endif
     AppConfig   app_config;
     PresetBundle presets;
     Model       model;
@@ -667,7 +680,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         state().print.set_status_callback([&](const PrintBase::SlicingStatus& st) {
             if (g_progress) g_progress(st.percent, st.text.c_str());
         });
+#ifdef ORCA_WASM_THREADING
+        // Keep every libslic3r parallel_for inside the same fixed-size arena.
+        // This mirrors the known-good oneTBB probe and prevents oneTBB from
+        // trying to use more workers than Emscripten pre-created.
+        state().tbb_arena.execute([&] { state().print.process(); });
+#else
         state().print.process();
+#endif
         state().print.set_status_default();
         // Fix round 2: additive success field — always present, empty when the
         // config is clean. M2 clients (config UI) rely on this to warn about
@@ -938,6 +958,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
         // init): never let a C++ exception cross the extern "C" seam.
         return error_json("unknown C++ exception");
     }
+}
+
+// Lightweight build/runtime diagnostic for the worker client and smoke tests.
+// It does not initialize presets or mutate the model, so it is safe to query
+// before normal bridge setup.
+EMSCRIPTEN_KEEPALIVE const char* orc_get_threading_info() {
+#ifdef ORCA_WASM_THREADING
+    return dup_json(json{{"ok", true}, {"threaded", true},
+                         {"max_concurrency", ORCA_WASM_TBB_MAX_CONCURRENCY},
+                         {"arena_concurrency", state().tbb_arena.max_concurrency()}}.dump());
+#else
+    return dup_json(json{{"ok", true}, {"threaded", false},
+                         {"max_concurrency", 1}, {"arena_concurrency", 1}}.dump());
+#endif
 }
 
 // Diagnostic: what preset (if any) is selected in each collection, and what
