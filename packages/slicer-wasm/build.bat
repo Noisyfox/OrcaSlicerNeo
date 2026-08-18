@@ -29,6 +29,10 @@ set "SHIM_INCLUDE=%WORK_DIR%\shim-include"
 set "GEN_INCLUDE=%WORK_DIR%\gen"
 set "BUILD_DIR=%WORK_DIR%\build"
 set "OUT_DIR=%PKG_DIR%\out"
+if not defined WASM_THREADING set "WASM_THREADING=1"
+if not defined WASM_PTHREAD_POOL_SIZE set "WASM_PTHREAD_POOL_SIZE=4"
+if not defined WASM_TBB_COMMIT set "WASM_TBB_COMMIT=3cdc6f6558ba23ec9ceed92078b49dc664ed5bf3"
+set "TBB_ROOT=%WORK_DIR%\deps\oneTBB-%WASM_TBB_COMMIT%\stage-wasm64-pthreads"
 
 REM Header-only / Emscripten-built dependency include dirs (fetch-deps.bat,
 REM build-boost-wasm64.bat). Overridable for CI.
@@ -149,6 +153,11 @@ if not exist "%BOOST_INCLUDE%\boost" (
     exit /b 1
   )
 )
+if not "%WASM_THREADING%"=="0" if not exist "%TBB_ROOT%\lib\libtbb.a" (
+  echo [wasm] Building pinned oneTBB ^(wasm64 + pthreads^)
+  call "%PKG_DIR%\build-onetbb.bat"
+  if errorlevel 1 exit /b 1
+)
 
 REM ---------------- Version header (fork-derived) ----------------
 REM Replaces the static stub: version + commit hash come from the pinned
@@ -189,6 +198,7 @@ set "GEN_CM=%GEN_INCLUDE:\=/%"
 set "EIGEN_CM=%EIGEN_INCLUDE:\=/%"
 set "BOOST_CM=%BOOST_INCLUDE:\=/%"
 set "CEREAL_CM=%CEREAL_INCLUDE:\=/%"
+set "TBB_CM=%TBB_ROOT:\=/%"
 
 REM ---------------- Configure + build ----------------
 echo [wasm] Configuring stripped libslic3r + bridge + CLI (emcmake)
@@ -200,6 +210,9 @@ emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DEIGEN_INCLUDE="%EIGEN_CM%" ^
   -DBOOST_INCLUDE="%BOOST_CM%" ^
   -DCEREAL_INCLUDE="%CEREAL_CM%" ^
+  -DWASM_THREADING=%WASM_THREADING% ^
+  -DWASM_PTHREAD_POOL_SIZE=%WASM_PTHREAD_POOL_SIZE% ^
+  -DTBB_ROOT="%TBB_CM%" ^
   -DPRELOAD_FILES="%PRELOAD_FILES%"
 if errorlevel 1 (
   echo [wasm] ERROR: CMake configure failed. Fix include paths / missing deps and re-run.

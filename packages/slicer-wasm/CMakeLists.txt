@@ -20,6 +20,28 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # -sMEMORY64 is deprecated and warns on every em++ invocation.)
 add_compile_options(-m64)
 
+option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
+set(WASM_PTHREAD_POOL_SIZE 4 CACHE STRING "Pre-created Emscripten pthread workers")
+if(WASM_THREADING)
+  if(NOT DEFINED TBB_ROOT OR "${TBB_ROOT}" STREQUAL "")
+    message(FATAL_ERROR "TBB_ROOT must name the staged oneTBB build when WASM_THREADING=ON.")
+  endif()
+  set(TBB_INCLUDE_DIR "${TBB_ROOT}/include")
+  set(TBB_ARCHIVE "${TBB_ROOT}/lib/libtbb.a")
+  set(TBBMALLOC_ARCHIVE "${TBB_ROOT}/lib/libtbbmalloc.a")
+  foreach(required_path "${TBB_INCLUDE_DIR}/tbb/tbb.h" "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+    if(NOT EXISTS "${required_path}")
+      message(FATAL_ERROR "Threaded WASM build requires oneTBB artifact: ${required_path}")
+    endif()
+  endforeach()
+  # Emscripten requires -pthread on every compilation as well as the final
+  # link; putting it here covers libslic3r, vendored deps, and bridge TUs.
+  add_compile_options(-pthread)
+  message(STATUS "WASM threading: oneTBB (${TBB_ROOT}), pthread pool=${WASM_PTHREAD_POOL_SIZE}")
+else()
+  message(STATUS "WASM threading: serial TBB shim (explicit fallback)")
+endif()
+
 if(NOT EMSCRIPTEN)
   message(FATAL_ERROR "Configure with emcmake (Emscripten toolchain required).")
 endif()
@@ -83,8 +105,13 @@ file(GLOB STUB_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/stubs/*.cpp")
 
 add_library(slic3r_core STATIC ${LIBSLIC3R_SRC} ${STUB_SRC})
 
+if(WASM_THREADING)
+  # Real oneTBB must precede the generic compatibility shim. The shim still
+  # supplies boost::thread/libnoise/libjpeg stand-ins for dropped features.
+  target_include_directories(slic3r_core PUBLIC "${TBB_INCLUDE_DIR}")
+endif()
 target_include_directories(slic3r_core PUBLIC
-  "${SHIM_INCLUDE}"          # serial TBB shim FIRST, ahead of any real tbb
+  "${SHIM_INCLUDE}"
   "${GEN_INCLUDE}"           # generated headers: libslic3r_version.h, openssl/md5.h
   "${ORCA_SRC}/src"
   "${LIBSLIC3R_ROOT}"
@@ -219,6 +246,9 @@ set(DEPS_CORE_SRC
 )
 add_library(deps_core STATIC ${DEPS_CORE_SRC})
 
+if(WASM_THREADING)
+  target_include_directories(deps_core PUBLIC "${TBB_INCLUDE_DIR}")
+endif()
 target_include_directories(deps_core PUBLIC
   "${SHIM_INCLUDE}"
   "${GEN_INCLUDE}"
@@ -282,6 +312,9 @@ add_executable(orca_slice ${ORCA_SLICE_SRC})
 # nlohmann throw escaped orc_init's catches exactly because of this.
 target_compile_options(orca_slice PRIVATE -fexceptions)
 target_link_libraries(orca_slice PRIVATE slic3r_core deps_core)
+if(WASM_THREADING)
+  target_link_libraries(orca_slice PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+endif()
 # Boost static archives (Emscripten-built wasm64, build-boost-wasm64.sh):
 # libslic3r objects reference boost::filesystem / boost::regex / boost::log
 # (v2s_mt_posix ABI — the archives were built with -pthread) / etc. Grouped
@@ -324,6 +357,15 @@ target_link_options(orca_slice PRIVATE
   -sDISABLE_EXCEPTION_CATCHING=0
   -sALLOW_TABLE_GROWTH=1
 )
+if(WASM_THREADING)
+  target_link_options(orca_slice PRIVATE
+    -pthread
+    "-sPTHREAD_POOL_SIZE=${WASM_PTHREAD_POOL_SIZE}"
+    # dlmalloc has a single global lock; mimalloc has per-thread allocation
+    # contexts and avoids making TBB's allocation-heavy passes serialize.
+    -sMALLOC=mimalloc
+  )
+endif()
 # Full vendor preset bundle (72 MB) via preload-file: the .data file is
 # streamed into MEMFS at module start and the heap grows (ALLOW_MEMORY_GROWTH)
 # — embed-file would bloat the wasm binary instead.
