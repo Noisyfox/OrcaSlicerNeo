@@ -8,6 +8,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { errorText } from '../../slicer/errors';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { syncModelTransforms } from './syncModelTransforms';
 
 export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const status = useSlicerStore((s) => s.status);
@@ -57,16 +58,11 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
     );
     // Apply all renderer-side CompositeIDs to the C++ Model at the slice
     // boundary. Interaction never waits on the worker.
-    for (const volume of glVolumeCollection.volumes) {
-      const synced = await slicerClient.setModelTransform(
-        volume.buffer.objectIdx, volume.buffer.volumeIdx, volume.buffer.instanceIdx,
-        volume.instanceTransform, volume.volumeTransform,
-      );
-      if (!synced.ok) {
-        setSlicerStatus('error');
-        setError(synced.error ?? 'model synchronization failed');
-        return;
-      }
+    const synced = await syncModelTransforms(slicerClient, glVolumeCollection.volumes);
+    if (!synced.ok) {
+      setSlicerStatus('error');
+      setError(synced.error ?? 'model synchronization failed');
+      return;
     }
     setSlicerStatus('slicing');
     // A new slice clears the previous failure — the status bar must not keep

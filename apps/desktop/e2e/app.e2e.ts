@@ -259,6 +259,40 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await expect(page.getByTestId('move-panel')).toBeVisible();
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
 
+      // Ctrl-select the second instance, then body-drag the first mesh away
+      // from the aggregate gizmo. The panel proves the live DragControls path
+      // moved the aggregate pivot; controller tests pin equal member deltas.
+      const secondCubeCenter = await project([60, 10, 10]);
+      if (!secondCubeCenter) throw new Error('second cube projection unavailable');
+      await page.keyboard.down('Control');
+      await page.mouse.click(secondCubeCenter.x, secondCubeCenter.y);
+      await page.keyboard.up('Control');
+      await expect(page.getByTestId('move-x')).toHaveValue('35.000');
+      const bodyPivotBefore = await Promise.all(['x', 'y', 'z'].map((axis) =>
+        page.getByTestId(`move-${axis}`).inputValue(),
+      ));
+      await page.mouse.move(cubeCenter.x, cubeCenter.y);
+      await page.mouse.down();
+      await page.mouse.move(cubeCenter.x + 8, cubeCenter.y + 4);
+      await expect
+        .poll(() => page.evaluate(() =>
+          (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.(),
+        ))
+        .toBe('body');
+      await page.mouse.move(cubeCenter.x + 40, cubeCenter.y + 20, { steps: 4 });
+      await page.mouse.up();
+      await expect
+        .poll(async () => Promise.all(['x', 'y', 'z'].map((axis) =>
+          page.getByTestId(`move-${axis}`).inputValue(),
+        )))
+        .not.toEqual(bodyPivotBefore);
+      await page.getByTestId('move-reset').click();
+      await expect(page.getByTestId('move-x')).toHaveValue('35.000');
+
+      // Return to one instance so the X-grabber overlaps its mesh below.
+      await page.mouse.click(cubeCenter.x, cubeCenter.y);
+      await expect(page.getByTestId('move-x')).toHaveValue('10.000');
+
       // The X shaft is at the first selection's pivot (10,10,10) plus
       // [10,0,0]. That point is also on the cube, exercising the collision
       // that must belong to TransformControls rather than DragControls.

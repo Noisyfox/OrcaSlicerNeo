@@ -27,6 +27,7 @@ export class SceneInteractionController {
   private pointerOwner: PointerOwner = 'none';
   private gizmoGrabberHovered = false;
   private gizmoGrabberHitTest: ((event: PointerEvent) => boolean) | null = null;
+  private suppressPostBodyDragClick = false;
   private drag: DragSnapshot | null = null;
 
   constructor(private readonly getVolumes: () => readonly GLVolume[]) {}
@@ -40,7 +41,12 @@ export class SceneInteractionController {
   get owner(): PointerOwner { return this.pointerOwner; }
   get activeDrag(): DragSnapshot | null { return this.drag; }
   get bodyDragEnabled(): boolean {
-    return !this.gizmoGrabberHovered && this.pointerOwner === 'none' && !this.selection.empty;
+    // The initiating DragControls must stay enabled for the rest of its own
+    // gesture. A gizmo remains exclusive; other body wrappers are still
+    // blocked synchronously by tryBeginBodyDrag/update ownership checks.
+    return !this.gizmoGrabberHovered
+      && (this.pointerOwner === 'none' || this.pointerOwner === 'body')
+      && !this.selection.empty;
   }
 
   selectedVolumes(): GLVolume[] {
@@ -54,6 +60,15 @@ export class SceneInteractionController {
     this.syncGizmoToSelection();
     if (changed) this.emit();
     return changed;
+  }
+
+  /** Preserve a multi-selection when the browser dispatches click after drag end. */
+  selectFromClick(hit: GLVolume, additive: boolean): boolean {
+    if (this.suppressPostBodyDragClick) {
+      this.suppressPostBodyDragClick = false;
+      return false;
+    }
+    return this.selectFromHit(hit, additive);
   }
 
   clearSelection(): boolean {
@@ -101,6 +116,7 @@ export class SceneInteractionController {
     this.selection.clear();
     this.openGizmo = null;
     this.drag = null;
+    this.suppressPostBodyDragClick = false;
     this.pointerOwner = 'none';
     this.gizmoGrabberHovered = false;
     if (hadState) this.emit();
@@ -133,9 +149,11 @@ export class SceneInteractionController {
 
   endDrag(): boolean {
     if (!this.drag) return false;
+    const completedKind = this.drag.kind;
     this.drag = null;
     this.pointerOwner = 'none';
     this.gizmoGrabberHovered = false;
+    this.suppressPostBodyDragClick = completedKind === 'body';
     this.emit();
     return true;
   }

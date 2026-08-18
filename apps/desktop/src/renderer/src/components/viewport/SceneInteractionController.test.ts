@@ -73,6 +73,8 @@ describe('SceneInteractionController', () => {
       [-2, 7, 1], [-2, 7, 1], [18, 12, 1], [18, 12, 1],
     ]);
     expect(controller.endDrag()).toBe(true);
+    expect(controller.selectFromClick(volumes[0], false)).toBe(false);
+    expect(controller.selectedVolumes()).toEqual(volumes);
   });
 
   it('gives a gizmo grabber priority over body dragging', () => {

@@ -14,15 +14,14 @@ const AXES = ['x', 'y', 'z'] as const;
 
 export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const version = useSceneInteractionVersion(sceneInteraction ?? undefined);
-  if (!sceneInteraction) return null;
-  const pivot = sceneInteraction.selectionPivot();
+  const pivot = sceneInteraction?.selectionPivot() ?? null;
   const current = pivot ? pivot.toArray() as Vec3 : null;
   const [draft, setDraft] = useState<[string, string, string] | null>(null);
   const currentKey = current?.join(',') ?? '';
 
   useEffect(() => { setDraft(null); }, [currentKey]);
 
-  if (!current) return null;
+  if (!sceneInteraction || !current) return null;
 
   const moveTo = (next: Vec3) => {
     sceneInteraction.moveSelectionToPivot(new THREE.Vector3(...next));

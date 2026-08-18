@@ -291,8 +291,10 @@ Confirmed 2026-08-18:
   delta, reset/drop, gesture exclusion, and exactly-one-gizmo state. Include
   a simulated grabber/mesh overlap and assert that the gizmo claims it while
   `DragControls` performs no body-drag update.
-- Existing client/bridge tests: verify changed instance transforms remain
-  consistent across all composite GL volumes before `setModelTransform` calls.
+- Pre-slice synchronization unit: use two instances with two sibling volumes
+  each and assert that the synchronization loop calls `setModelTransform` for
+  every `(objectIdx, volumeIdx, instanceIdx)` composite. Client/mock tests
+  verify the same fixture exposes independent per-volume bridge state.
 - Electron e2e: select two loaded instances, confirm both highlight, confirm
   one gizmo, drag body and axis handle, assert equal deltas and unchanged
   relative spacing, then slice and verify every affected composite transform

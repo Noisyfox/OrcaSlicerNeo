@@ -59,11 +59,11 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
         if (sceneInteraction.owner !== 'body') return;
         const start = sceneInteraction.activeDrag?.startPivot;
         if (!start) return;
-        // Drei's delta matrix is the per-pointer-update movement it intended
-        // to apply. Accumulating it avoids relying on an imperative group
-        // matrix that deliberately remains untouched (autoTransform=false).
+        // With autoTransform disabled Drei compares every drag update against
+        // the unchanged group matrix, so this is the total gesture delta from
+        // the fixed start state, not an incremental delta to accumulate.
         scratch.setFromMatrixPosition(deltaLocalMatrix);
-        bodyDeltaRef.current.add(scratch);
+        bodyDeltaRef.current.copy(scratch);
         sceneInteraction.updateDragPivot(start.clone().add(bodyDeltaRef.current));
         invalidate();
       }}
@@ -77,7 +77,7 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
           onClick={(event) => {
             event.stopPropagation();
             if (sceneInteraction.owner !== 'none') return;
-            sceneInteraction.selectFromHit(data, event.nativeEvent.ctrlKey || event.nativeEvent.metaKey);
+            sceneInteraction.selectFromClick(data, event.nativeEvent.ctrlKey || event.nativeEvent.metaKey);
           }}
         >
           <meshStandardMaterial
