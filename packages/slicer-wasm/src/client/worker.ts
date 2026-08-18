@@ -73,7 +73,12 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     if ((before & 1) !== 0 || before === lastMailboxSequence) return;
     const percent = Atomics.load(words, 1);
     const length = Math.min(Atomics.load(words, 2), mailbox.textCapacity);
-    const text = decoder.decode(new Uint8Array(mailbox.buffer, mailbox.byteOffset + 16, length));
+    // Chromium intentionally rejects SharedArrayBuffer-backed views in
+    // TextDecoder. Copy this tiny (<=512 byte) status payload after the
+    // sequence read; the second sequence check below rejects a torn copy.
+    const textBytes = new Uint8Array(length);
+    textBytes.set(new Uint8Array(mailbox.buffer, mailbox.byteOffset + 16, length));
+    const text = decoder.decode(textBytes);
     // A writer may have begun while the bytes were copied. Discard that read
     // rather than emitting a torn status string.
     if (before !== Atomics.load(words, 0)) return;

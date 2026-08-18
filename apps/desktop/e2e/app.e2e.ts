@@ -153,6 +153,14 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
 
     // Slice → status flips to Sliced, preview + scrubber appear, export unlocks.
     await page.getByTestId('btn-slice').click();
+    if (REAL) {
+      // The threaded progress mailbox is polled by the renderer while the
+      // module worker is busy in orc_slice. A real multi-model slice lasts
+      // long enough to prove the status bar receives an in-flight update.
+      await expect(page.getByTestId('slicer-progress')).toBeVisible();
+      await expect.poll(async () => Number(await page.getByTestId('slicer-progress').getAttribute('data-progress')))
+        .toBeGreaterThan(0);
+    }
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
     await expect(page.getByTestId('viewport')).toBeVisible();
     await expect(page.getByTestId('layer-scrubber')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
