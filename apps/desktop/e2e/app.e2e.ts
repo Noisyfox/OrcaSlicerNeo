@@ -207,7 +207,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // region ABOVE the scrubber overlay: the overlay is positioned over the
     // canvas, so a plain canvas-element screenshot would include its changing
     // label/thumb and pass even if the GL view never redrew.
-    const canvas = page.getByTestId('viewport').locator('canvas');
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
     const box = await canvas.boundingBox();
     if (!box) throw new Error('viewport canvas has no bounding box');
     const glRegion = { x: box.x, y: box.y, width: box.width, height: Math.max(0, box.height - 130) };
@@ -266,7 +266,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await page.getByTestId('btn-add-model').click();
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
-      const canvas = page.getByTestId('viewport').locator('canvas');
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
       const box = await canvas.boundingBox();
       if (!box) throw new Error('viewport canvas has no bounding box');
       const project = (p: [number, number, number]) =>
