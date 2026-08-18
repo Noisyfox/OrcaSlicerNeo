@@ -275,6 +275,10 @@ Confirmed 2026-08-18:
    per-instance reset semantics.
 4. Gizmo grabbers take priority over body drag. A `DragControls` gesture is
    permitted only when no gizmo grabber owns the pointer.
+5. Related interactive UI state—model meshes, aggregate selection pivot,
+   gizmo, and dependent controls—must update in the same interaction turn.
+   Do not defer one visual participant to a later React/frame update unless
+   the user explicitly requests that behavior.
 
 ## Non-goals
 
