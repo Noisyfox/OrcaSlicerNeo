@@ -161,6 +161,12 @@ profiles/
 profile file tree. A small browser-compatible archive dependency runs in the
 Worker and unpacks packages into MEMFS.
 
+Package membership is generated deterministically from the upstream
+OrcaSlicer profile organization. The build must not carry a manually curated
+vendor-file list: upstream common resources become `core`, and upstream vendor
+organization defines the vendor packages. This keeps package generation
+reproducible as upstream profiles are added, removed, or reorganized.
+
 The first release includes all packages and attempts to load them all before
 slicer initialization. It shows package-level boot progress.
 
