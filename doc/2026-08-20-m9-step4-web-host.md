@@ -1,7 +1,7 @@
 # M9 Step 4 — Static Web Host
 
-**Date:** 2026-08-20  
-**Status:** Implemented and verified  
+**Date:** 2026-08-20
+**Status:** Implemented and verified
 **Scope:** Add the Vite static Web host and browser platform adapter while
 keeping Electron's host and runtime behavior unchanged.
 
