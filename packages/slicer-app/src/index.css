@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "./**/*.{ts,tsx}";
 
 /* The :root palette uses tw3-style HSL triplets ("0 0% 7%"), which are not
    valid standalone colors — hsl() must be applied at the theme mapping,
