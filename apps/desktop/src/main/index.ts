@@ -67,19 +67,16 @@ const MIME_BY_EXT: Record<string, string> = {
 const e2eOpenPath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_MODEL ?? null) : null;
 const e2eSavePath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_EXPORT ?? null) : null;
 
-// M4: the persisted app config (installed printers + selections) — the
-// single source of truth the bridge applies at boot. Lives in userData.
-// Under ORCA_E2E=1 the e2e launcher may supply ORCA_E2E_APPCONFIG for a
-// hermetic file; without one, persistence is disabled (fresh config every
-// run — the pre-M4 behavior, so runs never leak state into each other).
-const appConfigPath = (): string => {
-  if (process.env.ORCA_E2E === '1' && process.env.ORCA_E2E_APPCONFIG) {
-    return process.env.ORCA_E2E_APPCONFIG;
+// M9: only the small shared UserPreferences document is persisted. Keep the
+// old IPC channel names during the incremental Electron migration.
+const preferencesPath = (): string => {
+  if (process.env.ORCA_E2E === '1' && process.env.ORCA_E2E_PREFERENCES) {
+    return process.env.ORCA_E2E_PREFERENCES;
   }
-  return join(app.getPath('userData'), 'appconfig.json');
+  return join(app.getPath('userData'), 'preferences.json');
 };
-const appConfigPersisted = (): boolean =>
-  process.env.ORCA_E2E !== '1' || Boolean(process.env.ORCA_E2E_APPCONFIG);
+const preferencesPersisted = (): boolean =>
+  process.env.ORCA_E2E !== '1' || Boolean(process.env.ORCA_E2E_PREFERENCES);
 
 let rendererPort = 0;
 let rendererServer: Server | null = null;
@@ -168,9 +165,9 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(Ipc.appConfigLoad, async (): Promise<AppConfigLoadResult> => {
-    if (!appConfigPersisted()) return { found: false, json: null };
+    if (!preferencesPersisted()) return { found: false, json: null };
     try {
-      const raw = await readFile(appConfigPath(), 'utf8');
+      const raw = await readFile(preferencesPath(), 'utf8');
       return { found: true, json: JSON.parse(raw) };
     } catch {
       // ENOENT (no config yet) and corrupt JSON both mean: fresh config.
@@ -179,11 +176,11 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(Ipc.appConfigSave, async (_event, json: unknown): Promise<void> => {
-    if (!appConfigPersisted()) return;
+    if (!preferencesPersisted()) return;
     // Round-trip through stringify so a corrupt partial write can never be
     // served back to the bridge; atomic-ish via tmp + rename is overkill for
     // this file's size, a plain write is fine (single writer: the renderer).
-    await writeFile(appConfigPath(), JSON.stringify(json, null, 2), 'utf8');
+    await writeFile(preferencesPath(), JSON.stringify(json, null, 2), 'utf8');
   });
 
 }

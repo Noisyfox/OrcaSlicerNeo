@@ -51,18 +51,17 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
     [metadata],
   );
 
-  // M4: the picker drives the REAL bridge selection (selectPreset) and
-  // persists the authoritative app config back through main. The response
-  // carries all three selections — a printer change re-runs the compat
-  // tail and moves print/filament with it, so we sync all three at once.
+  // A system profile selection is session state; only its three names and UI
+  // preferences are persisted. Compatibility remains in the C++ bridge.
   async function handleSelectPreset(kind: PresetKind, name: string) {
     try {
       const r = await platform.runtime.selectPreset(kind, name);
       if (!r.ok) throw new Error(r.error ?? 'selectPreset failed');
       setSelections(r.printer.name, r.print.name, r.filament.name);
-      const cfg = await platform.runtime.getAppConfig();
-      if (!cfg.ok) throw new Error(cfg.error ?? 'getAppConfig failed');
-      await platform.preferences.save(cfg);
+      const prefs = await platform.preferences.load();
+      await platform.preferences.save({ ...prefs, selectedProfiles: {
+        printer: r.printer.name, print: r.print.name, filament: r.filament.name,
+      } });
     } catch (err) {
       setError(`select ${kind}: ${String(err)}`);
     }

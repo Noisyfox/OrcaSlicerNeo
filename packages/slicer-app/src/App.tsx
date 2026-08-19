@@ -10,6 +10,7 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import type { SceneInteractionController } from './components/viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
+import { restoreSelections } from './preferences';
 
 export default function App() {
   const platform = usePlatform();
@@ -22,22 +23,24 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
-        // M4: the persisted app config (installed printers + selections) is
-        // the bridge's single source of truth. No config file ⇒ fresh
-        // config (bridge installs everything, picks the first non-default).
-        const appConfig = await platform.preferences.load();
-        const init = await platform.runtime.init(appConfig as Record<string, unknown> | undefined);
+        const preferences = await platform.preferences.load();
+        const init = await platform.runtime.init();
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
-        const [printers, prints, filaments] = await Promise.all([
+        const metadata = await platform.runtime.getOptionMetadata();
+        // Restore only names; compatibility and defaults remain authoritative
+        // in the C++ preset bundle. The bridge response is written back so a
+        // missing/corrupt selection is healed for the next boot.
+        const resolved = await restoreSelections(platform.runtime, preferences);
+        const restored = await Promise.all([
           platform.runtime.getPresets('printer'),
           platform.runtime.getPresets('print'),
           platform.runtime.getPresets('filament'),
         ]);
-        const metadata = await platform.runtime.getOptionMetadata();
+        if (!cancelled) await platform.preferences.save(resolved);
         if (cancelled) return;
         // Entries carry the real is_visible/selected flags — the store
         // derives the picker's value + installed grouping from them.
-        setPresets(printers.presets, prints.presets, filaments.presets);
+        setPresets(restored[0].presets, restored[1].presets, restored[2].presets);
         setMetadata(metadata);
       } catch (err) {
         if (!cancelled) setError(`boot: ${String(err)}`);

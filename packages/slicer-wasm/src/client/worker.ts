@@ -30,6 +30,7 @@ export function startWorker(
   onMessage: (fn: (msg: WorkerMessage) => void) => void = (fn) => {
     (self as unknown as { onmessage: (e: MessageEvent<WorkerMessage>) => void }).onmessage = (e) => fn(e.data);
   },
+  beforeInit?: (module: import('./types').OrcaModule) => Promise<void>,
 ): void {
   // Serial builds forward their permanent bridge callback. Threaded builds
   // send a SharedArrayBuffer mailbox; the renderer polls it independently
@@ -38,7 +39,7 @@ export function startWorker(
     post({ type: 'progress', percent: pct, text });
   }, (mailbox) => {
     post({ type: 'progress-mailbox', mailbox });
-  });
+  }, beforeInit);
 
   onMessage(async (msg) => {
     if (msg.type !== 'request') return;

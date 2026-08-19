@@ -19,6 +19,7 @@ export interface OrcaModule {
   FS: {
     writeFile: (path: string, data: Uint8Array) => void;
     readFile: (path: string) => Uint8Array;
+    mkdir?: (path: string) => void;
   };
 }
 

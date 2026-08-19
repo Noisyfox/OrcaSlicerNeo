@@ -1,5 +1,5 @@
 import type { AppConfig } from '@slicer/client';
-import type { PlatformCapabilities } from '@orca/platform-contract';
+import { normalizeUserPreferences, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import type { FileDialogFilter } from '../../../shared/ipc';
 import type { SlicerRuntime } from '@orca/platform-contract';
 
@@ -40,11 +40,17 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     },
     preferences: {
       async load() {
-        const result = await host.appConfig.load();
-        return result.found ? result.json : null;
+        try {
+          const result = await host.appConfig.load();
+          return normalizeUserPreferences(result.found ? result.json : null);
+        } catch (error) {
+          console.error('preferences load failed; using in-memory defaults', error);
+          return normalizeUserPreferences(null);
+        }
       },
       async save(value) {
-        await host.appConfig.save(value);
+        try { await host.appConfig.save(normalizeUserPreferences(value)); }
+        catch (error) { console.error('preferences save failed; keeping in-memory preferences', error); }
       },
     },
     runtime,

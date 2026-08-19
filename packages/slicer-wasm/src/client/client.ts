@@ -20,6 +20,7 @@ export function createClient(
   moduleFactory: OrcaModuleFactory,
   onBridgeProgress?: (percent: number, text: string) => void,
   onProgressMailbox?: (mailbox: ProgressMailbox) => void,
+  beforeInit?: (module: OrcaModule) => Promise<void>,
 ): SlicerClient {
   let modulePromise: Promise<OrcaModule> | null = null;
   const progressListeners = new Set<(percent: number, text: string) => void>();
@@ -66,6 +67,7 @@ export function createClient(
   return {
     async init(appConfig?: AppConfig | null): Promise<InitResult> {
       const m = await module();
+      await beforeInit?.(m);
       // M4: the app config (installed-state + selections) is the bridge's
       // source of truth; omitted = fresh config (bridge installs everything).
       // wasm64: every C param must receive a value — passing an empty string

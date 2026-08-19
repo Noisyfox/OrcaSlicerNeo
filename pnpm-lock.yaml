@@ -115,6 +115,8 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
 
+  packages/profile-resources: {}
+
   packages/slicer-app:
     dependencies:
       '@base-ui/react':
