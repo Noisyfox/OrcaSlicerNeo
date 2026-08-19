@@ -10,10 +10,12 @@ import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext'
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import type { Vec3 } from '../../lib/vec3';
 import { persistSettledModelTransforms } from '../toolbar/persistModelTransforms';
+import { usePlatform } from '../../platform';
 
 const AXES = ['x', 'y', 'z'] as const;
 
 export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
+  const platform = usePlatform();
   const version = useSceneInteractionVersion(sceneInteraction ?? undefined);
   const pivot = sceneInteraction?.selectionPivot() ?? null;
   const current = pivot ? pivot.toArray() as Vec3 : null;
@@ -26,7 +28,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
 
   const moveTo = (next: Vec3) => {
     if (sceneInteraction.moveSelectionToPivot(new THREE.Vector3(...next))) {
-      void persistSettledModelTransforms();
+      void persistSettledModelTransforms(platform.runtime);
     }
   };
 
@@ -71,7 +73,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
           variant="secondary"
           data-testid="move-drop-bed"
           onClick={() => {
-            if (sceneInteraction.dropSelectionToBed()) void persistSettledModelTransforms();
+            if (sceneInteraction.dropSelectionToBed()) void persistSettledModelTransforms(platform.runtime);
           }}
         >
           Drop to bed
@@ -81,7 +83,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
           variant="secondary"
           data-testid="move-reset"
           onClick={() => {
-            if (sceneInteraction.resetSelection()) void persistSettledModelTransforms();
+            if (sceneInteraction.resetSelection()) void persistSettledModelTransforms(platform.runtime);
           }}
         >
           Reset

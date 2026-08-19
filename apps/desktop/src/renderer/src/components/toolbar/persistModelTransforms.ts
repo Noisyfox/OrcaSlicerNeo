@@ -1,4 +1,4 @@
-import { platform } from '../../platform';
+import type { SlicerRuntime } from '../../platform';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { syncModelTransforms } from './syncModelTransforms';
 
@@ -10,11 +10,11 @@ type SyncResult = { ok: boolean; error?: string };
 let pendingSettledTransformSync: Promise<SyncResult> = Promise.resolve({ ok: true });
 
 /** Queue a snapshot after a move has settled (mouse release or panel commit). */
-export function persistSettledModelTransforms(): Promise<SyncResult> {
+export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<SyncResult> {
   const snapshot = [...glVolumeCollection.volumes];
   const sync = pendingSettledTransformSync.then(
-    () => syncModelTransforms(platform.runtime, snapshot),
-    () => syncModelTransforms(platform.runtime, snapshot),
+    () => syncModelTransforms(runtime, snapshot),
+    () => syncModelTransforms(runtime, snapshot),
   );
   pendingSettledTransformSync = sync.catch((error) => ({
     ok: false,

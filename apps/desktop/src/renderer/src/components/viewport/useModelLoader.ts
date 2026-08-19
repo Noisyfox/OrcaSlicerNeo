@@ -1,12 +1,13 @@
 // apps/desktop/src/renderer/src/components/viewport/useModelLoader.ts
 import { useEffect, useState } from 'react';
-import { platform } from '../../platform';
+import { usePlatform } from '../../platform';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { GLVolume, glVolumeCollection } from './GLVolume';
 
 export type LoadedObject = GLVolume;
 
 export function useModelLoader(): LoadedObject[] {
+  const platform = usePlatform();
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const modelRevision = useSettingsStore((s) => s.modelRevision);
   const [objects, setObjects] = useState<LoadedObject[]>([]);

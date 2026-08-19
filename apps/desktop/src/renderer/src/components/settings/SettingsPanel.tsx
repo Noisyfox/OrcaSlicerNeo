@@ -8,7 +8,7 @@ import { MovePanel } from './MovePanel';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { platform } from '../../platform';
+import { usePlatform } from '../../platform';
 import {
   Combobox,
   ComboboxContent,
@@ -31,6 +31,7 @@ const PROCESS_KEYS = [
 type PresetKind = 'printer' | 'print' | 'filament';
 
 export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
+  const platform = usePlatform();
   const metadata = useSettingsStore((s) => s.metadata);
   const printers = useSettingsStore((s) => s.printers);
   const prints = useSettingsStore((s) => s.prints);

@@ -9,9 +9,10 @@ import { StatusBar } from './components/status/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import type { SceneInteractionController } from './components/viewport/SceneInteractionController';
-import { platform } from './platform';
+import { usePlatform } from './platform';
 
 export default function App() {
+  const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
   const setPresets = useSettingsStore((s) => s.setPresets);
   const setError = useSlicerStore((s) => s.setError);

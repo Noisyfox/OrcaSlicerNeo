@@ -9,6 +9,7 @@ import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteract
 import type { GLVolume } from './GLVolume';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import { persistSettledModelTransforms } from '../toolbar/persistModelTransforms';
+import { usePlatform } from '../../platform';
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
   const { offset, rotation, scale, mirror } = transform;
@@ -21,6 +22,7 @@ function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransfo
 }
 
 export function GLVolumeMesh({ data }: { data: GLVolume }) {
+  const platform = usePlatform();
   const groupRef = useRef<THREE.Group>(null);
   const volumeGroupRef = useRef<THREE.Group>(null);
   const bodyStartRef = useRef(new THREE.Vector3());
@@ -79,7 +81,7 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
       }}
       onDragEnd={() => {
         if (sceneInteraction.owner === 'body' && sceneInteraction.endDrag()) {
-          void persistSettledModelTransforms();
+          void persistSettledModelTransforms(platform.runtime);
         }
       }}
     >

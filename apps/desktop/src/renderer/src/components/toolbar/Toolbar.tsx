@@ -9,9 +9,10 @@ import { glVolumeCollection } from '../viewport/GLVolume';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms } from './syncModelTransforms';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
-import { platform } from '../../platform';
+import { usePlatform } from '../../platform';
 
 export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
+  const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
   const setSlicerStatus = useSlicerStore((s) => s.setStatus);
   const setError = useSlicerStore((s) => s.setError);

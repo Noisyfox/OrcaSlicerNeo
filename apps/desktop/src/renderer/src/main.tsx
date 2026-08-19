@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import * as THREE from 'three';
 import App from './App';
 import './index.css';
+import { slicerClient } from './slicer/slicerClient';
+import { createElectronAdapter } from './platform/electronAdapter';
+import { PlatformProvider } from './platform';
 
 // Z-up is the slicer convention (doc/2026-08-15-viewport-z-up-convention.md).
 // Object3D.DEFAULT_UP is the up vector every Object3D — cameras included — is
@@ -15,6 +18,8 @@ THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1);
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <PlatformProvider value={createElectronAdapter(slicerClient)}>
+      <App />
+    </PlatformProvider>
   </React.StrictMode>
 );

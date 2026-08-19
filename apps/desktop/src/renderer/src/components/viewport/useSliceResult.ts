@@ -1,7 +1,7 @@
 // apps/desktop/src/renderer/src/components/viewport/useSliceResult.ts
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
-import { platform } from '../../platform';
+import { usePlatform } from '../../platform';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import type { ClientSliceResult } from '@slicer/client';
 
@@ -12,6 +12,7 @@ export interface ToolpathGeometry {
 }
 
 export function useSliceResult() {
+  const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
   const layers = useSlicerStore((s) => s.layers);
   const setLayers = useSlicerStore((s) => s.setLayers);
