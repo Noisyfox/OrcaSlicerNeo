@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { installProfiles, type ProfileSource } from './profiles';
+import { installProfiles, resolveProfileBaseUrl, type ProfileSource } from './profiles';
 
 function zip(entries: Array<[string, string]>): Uint8Array {
   const chunks: Uint8Array[] = [];
@@ -23,6 +23,12 @@ function manifest(packages: Array<{ id: string; kind: 'core' | 'vendor'; path: s
 }
 
 describe('profile installer', () => {
+  it('resolves profiles from the configured deployment base', () => {
+    expect(resolveProfileBaseUrl('/', 'https://host.test/assets/worker.js').href).toBe('https://host.test/profiles/');
+    expect(resolveProfileBaseUrl('/orca/', 'https://host.test/orca/assets/worker.js').href).toBe('https://host.test/orca/profiles/');
+    expect(resolveProfileBaseUrl('/preview/orca', 'https://host.test/preview/orca/assets/worker.js').href).toBe('https://host.test/preview/orca/profiles/');
+  });
+
   it('mounts every compact package before init', async () => {
     const files = {
       'manifest.json': manifest([

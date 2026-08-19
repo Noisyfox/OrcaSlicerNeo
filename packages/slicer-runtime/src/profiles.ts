@@ -63,6 +63,12 @@ export function createFetchProfileSource(base: string | URL): ProfileSource {
   return { fetch: async (path) => bytes(await fetch(new URL(path, root))) };
 }
 
+/** Resolve bundled profile assets against the host's configured deployment base. */
+export function resolveProfileBaseUrl(baseUrl: string, moduleUrl: string | URL): URL {
+  const deploymentBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  return new URL('profiles/', new URL(deploymentBase, moduleUrl));
+}
+
 function safeEntryPath(entry: string): string {
   const normalized = entry.replaceAll('\\', '/');
   if (!normalized || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) throw new Error(`unsafe profile path: ${entry}`);

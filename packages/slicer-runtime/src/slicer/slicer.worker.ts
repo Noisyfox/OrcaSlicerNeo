@@ -7,7 +7,7 @@
 import { startWorker } from '@slicer/client';
 import type { OrcaModuleFactory, OrcaModule } from '@slicer/client';
 import { createMockModule } from '@slicer/testing';
-import { createFetchProfileSource, installProfiles } from '../profiles';
+import { createFetchProfileSource, installProfiles, resolveProfileBaseUrl } from '../profiles';
 
 const useMock = import.meta.env.VITE_USE_MOCK === '1';
 const mockInstanceCount = Number(import.meta.env.VITE_MOCK_INSTANCE_COUNT ?? 1);
@@ -55,7 +55,7 @@ const factory: OrcaModuleFactory = useMock
 // Profile bytes are fetched and mounted by the Worker before the first bridge
 // init. They never cross preload/IPC and remain relative to host deployment.
 const profileSource = createFetchProfileSource(
-  import.meta.env.PROD ? new URL('../profiles/', import.meta.url) : new URL('/profiles/', import.meta.url),
+  resolveProfileBaseUrl(import.meta.env.BASE_URL, import.meta.url),
 );
 startWorker(factory, undefined, undefined, async (module) => {
   if (useMock) return;
