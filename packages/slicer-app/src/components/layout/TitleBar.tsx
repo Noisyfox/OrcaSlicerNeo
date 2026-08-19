@@ -1,4 +1,4 @@
-import { usePlatform } from '../../platform';
+import { usePlatform } from '@orca/platform-contract';
 
 export function TitleBar() {
   // macOS traffic lights float over the top-left of the custom bar; give

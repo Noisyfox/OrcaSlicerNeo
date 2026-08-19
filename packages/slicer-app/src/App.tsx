@@ -9,7 +9,7 @@ import { StatusBar } from './components/status/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import type { SceneInteractionController } from './components/viewport/SceneInteractionController';
-import { usePlatform } from './platform';
+import { usePlatform } from '@orca/platform-contract';
 
 export default function App() {
   const platform = usePlatform();

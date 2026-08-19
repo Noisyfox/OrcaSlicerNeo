@@ -1,7 +1,7 @@
 // apps/desktop/src/renderer/src/components/viewport/useSliceResult.ts
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
-import { usePlatform } from '../../platform';
+import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import type { ClientSliceResult } from '@slicer/client';
 

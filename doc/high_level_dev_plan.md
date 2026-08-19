@@ -238,7 +238,7 @@
 
 ### Milestone 9 — Shared Web–Electron Application Architecture
 
-> **Status: step 1 delivered, migration in progress (2026-08-19).** The norm is
+> **Status: steps 1–2 implemented, migration in progress (2026-08-19).** The norm is
 > `spec/Web-Electron Shared Application Architecture.md`. This is an
 > incremental extraction, not a renderer rewrite: Electron remains usable at
 > every step, and implementation commits follow independently verifiable
@@ -249,6 +249,10 @@
   and profile-source contracts.
 - **Step 1 delivered:** replace renderer calls to `window.orca` with the Electron adapter,
   retaining existing Electron behavior as the verification target.
+- **Step 2 implemented:** extract the existing platform-neutral UI/stores/
+  viewport into `packages/slicer-app`, Worker/runtime orchestration into
+  `packages/slicer-runtime`, and the injected contracts/provider into
+  `packages/platform-contract`; Electron retains only its entry and adapter.
 
 **Epic 9.2: extract shared application/runtime**
 - Move platform-neutral React components, stores, viewport, styles, Worker

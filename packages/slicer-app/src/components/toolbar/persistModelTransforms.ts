@@ -1,4 +1,4 @@
-import type { SlicerRuntime } from '../../platform';
+import type { SlicerRuntime } from '@orca/platform-contract';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { syncModelTransforms } from './syncModelTransforms';
 

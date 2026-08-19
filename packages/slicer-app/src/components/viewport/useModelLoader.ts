@@ -1,6 +1,6 @@
 // apps/desktop/src/renderer/src/components/viewport/useModelLoader.ts
 import { useEffect, useState } from 'react';
-import { usePlatform } from '../../platform';
+import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { GLVolume, glVolumeCollection } from './GLVolume';
 

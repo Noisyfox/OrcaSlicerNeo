@@ -13,6 +13,15 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@orca/platform-contract':
+        specifier: workspace:*
+        version: link:../../packages/platform-contract
+      '@orca/slicer-app':
+        specifier: workspace:*
+        version: link:../../packages/slicer-app
+      '@orca/slicer-runtime':
+        specifier: workspace:*
+        version: link:../../packages/slicer-runtime
       '@react-three/drei':
         specifier: ^10.7.8
         version: 10.7.8(@react-three/fiber@9.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1))(@types/react@19.2.18)(@types/three@0.185.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1)
@@ -80,6 +89,102 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^7.3.6
+        version: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
+
+  packages/platform-contract:
+    dependencies:
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
+
+  packages/slicer-app:
+    dependencies:
+      '@base-ui/react':
+        specifier: ^1.7.0
+        version: 1.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@orca/platform-contract':
+        specifier: workspace:*
+        version: link:../platform-contract
+      '@orca/slicer-runtime':
+        specifier: workspace:*
+        version: link:../slicer-runtime
+      '@react-three/drei':
+        specifier: ^10.7.8
+        version: 10.7.8(@react-three/fiber@9.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1))(@types/react@19.2.18)(@types/three@0.185.4)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1)
+      '@react-three/fiber':
+        specifier: ^9.7.0
+        version: 9.7.0(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(three@0.185.1)
+      class-variance-authority:
+        specifier: ^0.7.1
+        version: 0.7.1
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
+      lucide-react:
+        specifier: ^1.31.0
+        version: 1.31.0(react@19.2.8)
+      react:
+        specifier: ^19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: ^19.2.8
+        version: 19.2.8(react@19.2.8)
+      tailwind-merge:
+        specifier: ^3.6.0
+        version: 3.6.0
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+      three:
+        specifier: ^0.185.1
+        version: 0.185.1
+      zustand:
+        specifier: ^5.0.15
+        version: 5.0.15(@types/react@19.2.18)(react@19.2.8)(use-sync-external-store@1.6.0(react@19.2.8))
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.18
+        version: 19.2.18
+      '@types/react-dom':
+        specifier: ^19.2.0
+        version: 19.2.4(@types/react@19.2.18)
+      '@types/three':
+        specifier: ^0.185.4
+        version: 0.185.4
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vite:
+        specifier: ^7.3.6
+        version: 7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0)
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@24.13.3)(vite@7.3.6(@types/node@24.13.3)(jiti@2.7.0)(lightningcss@1.32.0))
+
+  packages/slicer-runtime:
+    dependencies:
+      slicer-wasm:
+        specifier: workspace:*
+        version: link:../slicer-wasm
+    devDependencies:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

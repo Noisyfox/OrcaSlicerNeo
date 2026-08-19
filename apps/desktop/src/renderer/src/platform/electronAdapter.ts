@@ -1,7 +1,7 @@
 import type { AppConfig } from '@slicer/client';
-import type { PlatformCapabilities } from './contracts';
+import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { FileDialogFilter } from '../../../shared/ipc';
-import type { SlicerRuntime } from './contracts';
+import type { SlicerRuntime } from '@orca/platform-contract';
 
 const MODEL_FILTERS: FileDialogFilter[] = [
   { name: 'Models', extensions: ['stl', '3mf'] },

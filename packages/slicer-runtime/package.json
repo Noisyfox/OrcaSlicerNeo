@@ -1,0 +1,10 @@
+{
+  "name": "@orca/slicer-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./worker": "./src/slicer/slicer.worker.ts" },
+  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json", "test": "vitest run" },
+  "devDependencies": { "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" },
+  "dependencies": { "slicer-wasm": "workspace:*" }
+}

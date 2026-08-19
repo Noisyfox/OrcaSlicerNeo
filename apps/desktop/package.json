@@ -10,7 +10,7 @@
     "predev": "node ../../scripts/stage-wasm.mjs --soft",
     "dev": "electron-vite dev --noSandbox",
     "build": "electron-vite build",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "package:win": "electron-vite build && electron-builder --win --x64 --publish never",
     "package:dir": "electron-vite build && electron-builder --dir --publish never",
@@ -20,6 +20,9 @@
     "test:e2e:real": "electron-vite build && playwright test e2e/app.e2e.ts e2e/slice-error.e2e.ts e2e/select-scroll.e2e.ts"
   },
   "dependencies": {
+    "@orca/platform-contract": "workspace:*",
+    "@orca/slicer-app": "workspace:*",
+    "@orca/slicer-runtime": "workspace:*",
     "@base-ui/react": "^1.7.0",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",

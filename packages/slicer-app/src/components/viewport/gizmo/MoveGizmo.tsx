@@ -7,7 +7,7 @@ import { TransformControls } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useSceneInteraction } from '../SceneInteractionContext';
 import { persistSettledModelTransforms } from '../../toolbar/persistModelTransforms';
-import { usePlatform } from '../../../platform';
+import { usePlatform } from '@orca/platform-contract';
 
 export function MoveGizmo({ target }: { target: THREE.Object3D }) {
   const platform = usePlatform();

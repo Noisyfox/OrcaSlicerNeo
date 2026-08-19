@@ -1,0 +1,25 @@
+{
+  "name": "@orca/slicer-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./styles.css": "./src/index.css" },
+  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json", "test": "vitest run" },
+  "devDependencies": { "@types/react": "^19.2.18", "@types/react-dom": "^19.2.0", "@types/three": "^0.185.4", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" },
+  "dependencies": {
+    "@orca/platform-contract": "workspace:*",
+    "@orca/slicer-runtime": "workspace:*",
+    "@base-ui/react": "^1.7.0",
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.31.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwind-merge": "^3.6.0",
+    "tailwindcss": "^4.3.3",
+    "three": "^0.185.1",
+    "zustand": "^5.0.15"
+  }
+}

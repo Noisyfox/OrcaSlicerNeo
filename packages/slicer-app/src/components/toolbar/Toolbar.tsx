@@ -4,12 +4,12 @@ import { FolderPlus, Slice, Download, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { errorText } from '../../slicer/errors';
+import { errorText } from '@orca/slicer-runtime';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms } from './syncModelTransforms';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
-import { usePlatform } from '../../platform';
+import { usePlatform } from '@orca/platform-contract';
 
 export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const platform = usePlatform();

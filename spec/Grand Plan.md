@@ -175,7 +175,7 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 
 ## Milestone 9: Shared Web–Electron Application Architecture
 
-> [!info] Status: **step 1 delivered, migration in progress** (2026-08-19).
+> [!info] Status: **steps 1–2 implemented, migration in progress** (2026-08-19).
 > Normative design:
 > [`Web–Electron Shared Application Architecture.md`](Web-Electron%20Shared%20Application%20Architecture.md).
 
@@ -186,7 +186,7 @@ cross-origin isolation is available, and serial WASM otherwise.
 
 - [x] Platform contracts and Electron adapter; remove shared UI's direct
       `window.orca` use while keeping Electron running.
-- [ ] Extract platform-neutral UI/runtime into shared packages without
+- [x] Extract platform-neutral UI/runtime into shared packages without
       rewriting unrelated renderer behavior.
 - [ ] Replace Emscripten profile preload files with upstream-organized `core`
       and vendor packages installed into MEMFS at startup.

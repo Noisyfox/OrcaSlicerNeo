@@ -1,11 +1,11 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import * as THREE from 'three';
-import App from './App';
-import './index.css';
-import { slicerClient } from './slicer/slicerClient';
+import { App } from '@orca/slicer-app';
+import '@orca/slicer-app-css';
+import { slicerClient } from '@orca/slicer-runtime';
 import { createElectronAdapter } from './platform/electronAdapter';
-import { PlatformProvider } from './platform';
+import { PlatformProvider } from '@orca/platform-contract';
 
 // Z-up is the slicer convention (doc/2026-08-15-viewport-z-up-convention.md).
 // Object3D.DEFAULT_UP is the up vector every Object3D — cameras included — is

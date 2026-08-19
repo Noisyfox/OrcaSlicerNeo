@@ -9,7 +9,7 @@ import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteract
 import type { GLVolume } from './GLVolume';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import { persistSettledModelTransforms } from '../toolbar/persistModelTransforms';
-import { usePlatform } from '../../platform';
+import { usePlatform } from '@orca/platform-contract';
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
   const { offset, rotation, scale, mirror } = transform;

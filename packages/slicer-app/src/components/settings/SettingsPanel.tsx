@@ -8,7 +8,7 @@ import { MovePanel } from './MovePanel';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { usePlatform } from '../../platform';
+import { usePlatform } from '@orca/platform-contract';
 import {
   Combobox,
   ComboboxContent,
