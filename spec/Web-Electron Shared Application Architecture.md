@@ -35,8 +35,9 @@ are not persisted in either host during the first release.
 
 ## 2. Product and Compatibility Policy
 
-- **Web execution:** entirely local WASM. A future `SlicerEngine` extension
-  point may add remote slicing, but no remote implementation is in scope.
+- **Web execution:** entirely local WASM. No generalized remote-slicer
+  abstraction is introduced; a future cloud capability must define a boundary
+  for its concrete task instead of preemptively duplicating the WASM API.
 - **Primary target:** desktop Chrome on Windows, macOS, and Linux.
 - **Hard browser requirements:** WebGL 2 and wasm64. If either is absent, the
   web application shows an unsupported-environment screen and does not start.
@@ -126,8 +127,10 @@ interface PlatformCapabilities {
 
 `packages/slicer-wasm/src/client` remains the only JavaScript layer that calls
 the C++ bridge. `slicer-runtime` owns creation of the app Worker and resolution
-of runtime assets; UI features receive a typed `SlicerClient`, never module
-URLs or Emscripten globals.
+of runtime assets and profile installation into MEMFS; UI features receive a
+typed `SlicerClient`, never module URLs or Emscripten globals. The shared UI
+directly uses that client because model parsing, scene meshes, slicing, preview
+data, and G-code all share its one stateful WASM/MEMFS session.
 
 Every runtime asset URL is relative to the host/module deployment location.
 No app code hardcodes an origin or root-relative asset path. This applies to
@@ -259,8 +262,13 @@ On boot, after all available profiles are initialized, the runtime restores
 selections through the C++ bridge in this order: printer, print, filament. It
 accepts the bridge's resulting compatible combination rather than duplicating
 compatibility logic in TypeScript. A missing profile name falls back to that
-category's system default and logs to the console. The resolved combination is
-immediately written back to preferences.
+category's system default and logs to the console; if no default is usable, it
+falls back to the first profile returned by the bridge. The resolved combination
+is immediately written back to preferences.
+
+Selecting any system printer, print, or filament profile clears all temporary
+slicer-setting overrides for the current session. Overrides are never carried
+from one system profile combination to another.
 
 ## 8. Interaction and Lifecycle
 
@@ -273,6 +281,11 @@ immediately written back to preferences.
   results would be lost; the exact host confirmation mechanism is an adapter
   detail. The first release only offers leave/cancel, never a save-custom-
   profile action.
+- Any change to slice inputs invalidates the current result: profile selection,
+  temporary settings, model import/clear, and model transforms all require a
+  new slice. On invalidation the sliced mesh, toolpath, and layer state are
+  immediately cleared, export is disabled, and the common status indicates
+  that re-slicing is required. Stale preview data is never rendered.
 - A first-release AGPL source-code link is present in a visible footer or menu,
   pointing to the source corresponding to the web release. A fuller About page
   is deferred.
