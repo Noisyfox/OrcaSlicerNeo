@@ -32,7 +32,7 @@ renderer is proportional to actual changes, never to elapsed time.
   produces identical JSX (stable object identity) commits nothing through the
   r3f reconciler, and pointer events do not invalidate either — e.g.
   `geometry.setDrawRange()` from a store subscription (the layer scrubber's
-  visibility control in `ToolpathLines.tsx` / `SlicedMesh.tsx`) and
+  visibility control in `ToolpathLines.tsx`) and
   `mesh.position.copy()` per drag step in `ModelMesh.tsx` both stay frozen
   until an explicit `useThree((s) => s.invalidate)()` after the mutation.
   e2e regression coverage: canvas-pixel assertions for the scrubber and the

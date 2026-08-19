@@ -335,24 +335,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const vo = vptr / 4;
       const lo = lptr / 4;
       const fo = fptr / 4;
-      const m = 36; // mesh verts = 12 tris x 3 (triangle soup, one vertex set per tri)
-      const t = 12; // triangles
-      const mvptr = malloc(m * 3 * 4);
-      const miptr = malloc(t * 3 * 4);
-      const mlptr = malloc(t * 4);
       for (let i = 0; i < n; i++) {
         const layer = Math.floor((i / n) * fixture.layers);
         HEAPF32.set([i % 200, (i * 3) % 200, layer * 0.2], vo + i * 3);
         HEAPU32[lo + i] = layer;
         HEAPU32[fo + i] = i % fixture.features.length;
-      }
-      for (let i = 0; i < t; i++) {
-        const layer = Math.floor((i / t) * fixture.layers);
-        HEAPU32[mlptr / 4 + i] = layer;
-        const base = miptr / 4 + i * 3;
-        HEAPU32[base] = i * 3; HEAPU32[base + 1] = i * 3 + 1; HEAPU32[base + 2] = i * 3 + 2;
-        const o = mvptr / 4 + i * 3 * 3;
-        HEAPF32.set([(i * 5) % 200, (i * 7) % 200, layer * 0.2], o);
       }
       return {
         ok: true,
@@ -363,11 +350,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           layer_ptr: lptr, layer_count: n,
           feature_ptr: fptr, feature_count: n,
           features: fixture.features,
-        },
-        mesh: {
-          vertex_ptr: mvptr, vertex_count: m,
-          index_ptr: miptr, index_count: t * 3,
-          layer_ptr: mlptr, layer_count: t,
         },
       };
     },

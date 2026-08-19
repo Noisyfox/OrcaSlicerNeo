@@ -182,7 +182,7 @@ describe('SlicerClient bridge contract', () => {
     expect(module._functionRegistrations).toBe(0);
   });
 
-  it('getSliceResult extracts toolpath + mesh buffers with layer ranges', async () => {
+  it('getSliceResult extracts toolpath buffers with layer ranges', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
     await c.slice({}, () => {});
@@ -191,11 +191,6 @@ describe('SlicerClient bridge contract', () => {
     expect(r.toolpath.vertexCount).toBe(2400);
     expect(r.toolpath.positions.byteLength).toBe(2400 * 3 * 4);
     expect(r.toolpath.features.length).toBeGreaterThanOrEqual(2);
-    expect(r.mesh.vertexCount).toBeGreaterThan(0);
-    expect(r.mesh.indexCount).toBe(36);
-    // every triangle index < vertex count
-    const maxIdx = Math.max(...Array.from(r.mesh.indices));
-    expect(maxIdx).toBeLessThan(r.mesh.vertexCount);
   });
 
   it('exportGcode returns the MEMFS bytes', async () => {

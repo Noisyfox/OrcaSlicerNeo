@@ -14,8 +14,8 @@ milestone checklist (`spec/Grand Plan.md`), and `doc/high_level_dev_plan.md`.
 ## Overview
 
 Milestone 2 delivers the v1 user flow end to end in the Electron app: load
-STL/3MF → configure → slice → 3D preview (sliced mesh + toolpath + layer
-slider) → export G-code. The renderer never touches the WASM module: it talks
+STL/3MF → configure → slice → 3D preview (toolpath + layer slider) → export
+G-code. The renderer never touches the WASM module: it talks
 to `packages/slicer-wasm/src/client` (promise-based, typed), which runs inside
 a Web Worker; binary buffers cross the wasm heap (`_malloc`/`_free` +
 `HEAPU8`) as transferable-copied typed arrays, never JSON.
@@ -37,9 +37,9 @@ real module on an emsdk machine (see Verification).
 | 4 | Electron shell: main/preload/renderer (electron-vite), zustand stores, `contextIsolation` + preload `contextBridge` API (open/save dialogs, file IO, window controls), COOP/COEP session headers |
 | 5 | Renderer base: tailwind + shadcn/ui primitives, app shell layout |
 | 6 | App boot + metadata-driven settings: worker client wiring, presets + option metadata load, settings panel rendered from `orc_get_option_metadata()` (no duplicated schema), config round-trip as JSON |
-| 7 | C++ binary-buffer bridge: model mesh, instance offset, toolpath + sliced mesh in `orc_get_slice_result` (`bridge.cpp` + `bridge_buffers.{hpp,cpp}`) |
+| 7 | C++ binary-buffer bridge: model mesh, instance offset, toolpath in `orc_get_slice_result` (`bridge.cpp` + `bridge_buffers.{hpp,cpp}`) |
 | 8 | R3F viewport: bed plate + grid, model meshes from WASM triangle buffers, orbit/select, drag-move on plate (world-space offset commit) |
-| 9 | Slice preview: toolpath `LineSegments` + per-feature colored sliced mesh + layer scrubber (`setDrawRange`) |
+| 9 | Slice preview: toolpath `LineSegments` + layer scrubber (`setDrawRange`) |
 | 10 | G-code export: `exportGcode()` → MEMFS bytes → native save dialog |
 
 Plus one follow-up fix commit: slice status reset on model load (stale-export
@@ -73,17 +73,9 @@ the JS side copies the bytes out (`HEAPU8.slice`) into fresh typed arrays and
 | `feature_ptr` / `feature_count` | number | Uint32Array palette index per vertex |
 | `features` | JSON array | palette: `[{id, name, color:[r,g,b]}]` (client clamps out-of-range palette indexes) |
 
-**Sliced mesh** (`orc_get_slice_result` → `ClientSlicedMesh`):
-
-| Key | Type | Meaning |
-|---|---|---|
-| `vertex_ptr` / `vertex_count` | number | Float32Array xyz per mesh vertex |
-| `index_ptr` / `index_count` | number | Uint32Array triangle index triples |
-| `layer_ptr` / `layer_count` | number | Uint32Array layer_id per TRIANGLE (count = triangle count) |
-
 The slice call (`orc_slice`) returns `{"ok", "unrecognized_keys"}` (the
 dropped-key report); the slice-result JSON carries `{"ok", "objects",
-"layers", "toolpath", "mesh"}` with the feature palette nested as
+"layers", "toolpath"}` with the feature palette nested as
 `toolpath.features`. Contract tests:
 `src/client/client.test.ts` (10 tests) + `src/client/worker.test.ts` (4).
 
@@ -123,7 +115,7 @@ worker). The app's entry is `apps/desktop/src/renderer/src/slicer/slicer.worker.
 (malloc'd C strings the JS side `_free()`s); binary buffers via the heap.
 M2 added `orc_set_instance_offset` and `orc_get_model_mesh`; the others carry
 over from M1 (M1 doc's `orc_get_slice_result` "JSON stats only" note is now
-superseded — it returns the toolpath + sliced-mesh buffers).
+superseded — it returns the toolpath buffers).
 
 | Function | Input | Success JSON |
 |---|---|---|
@@ -178,26 +170,16 @@ Bridge (`src/bridge.cpp`):
 
 Buffers (`src/bridge_buffers.cpp`):
 
-11. `SlicesToTriangleMeshParams`/`SlicesToTriangleMesh`
-    (`TriangleMeshSlicer.hpp`) do **not** exist at the pin — the per-layer
-    sliced mesh uses the documented raw-soup fallback:
-    `triangulate_expolygons_3d(lslices, z, NORMALS_UP)` (Tesselate.hpp), the
-    same cap tesselation the missing Prusa API used; its Vec3d triangle soup
-    feeds the emit loop 1:1.
-12. `Layer` has no `slices` member (that is per-region,
-    `LayerRegion::slices`) — `Layer::lslices` is the layer's merged
-    ExPolygons, the direct input for the triangulator.
-13. `ExPolygon::triangulate_self()` / `triangles` don't exist at the pin.
-14. `MoveVertex::extrusion_role` is the extrusion-role field
+11. `MoveVertex::extrusion_role` is the extrusion-role field
     (`MoveVertex::type` is the `EMoveType` move classification); the palette
     is keyed by `ExtrusionRole`.
-15. `MoveVertex::layer_id` is unsigned at the pin — no `< 0` case.
-16. No `erBridges` enumerator — the bridge role is `erBridgeInfill`
+12. `MoveVertex::layer_id` is unsigned at the pin — no `< 0` case.
+13. No `erBridges` enumerator — the bridge role is `erBridgeInfill`
     (Bridge palette entry as briefed).
 
 wasm64 marshaling (client + harness):
 
-17. Heap pointers cross the `ccall` boundary as BigInt — the client uses
+14. Heap pointers cross the `ccall` boundary as BigInt — the client uses
     `'pointer'` arg types and `Number()`-casts on the way back, and the
     progress `text` arrives as BigInt → `UTF8ToString(Number(text))`.
     Documented in `harness/bridge-smoke.mjs`; do not "fix".
@@ -223,8 +205,6 @@ every slice reports progress even with no listener attached.
   the M1 note's benign `get_hrc_by_nozzle_type` parse error goes away).
 - **Slice-output cross-check** vs desktop OrcaSlicer (same model + profile).
 - **Root `LICENSE`** (AGPL-3.0) + source-offer notes.
-- **Multi-object preview** is v1-sliced-mesh-first-object-only (full
-  multi-object is M4).
 
 ## Verification (acceptance, delivery machine 2026-08-13)
 

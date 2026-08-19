@@ -202,8 +202,8 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
 
     // Layer scrubber must invalidate the demand-mode frame: scrubbing from
     // layer 0 to the last layer changes the rendered canvas pixels (the
-    // toolpath/mesh draw range follows the layer — ToolpathLines/SlicedMesh
-    // call invalidate() after setDrawRange). Clip the screenshot to the canvas
+    // toolpath draw range follows the layer — ToolpathLines calls
+    // invalidate() after setDrawRange). Clip the screenshot to the canvas
     // region ABOVE the scrubber overlay: the overlay is positioned over the
     // canvas, so a plain canvas-element screenshot would include its changing
     // label/thumb and pass even if the GL view never redrew.

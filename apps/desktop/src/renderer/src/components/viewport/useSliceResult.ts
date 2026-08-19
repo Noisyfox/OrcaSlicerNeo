@@ -11,11 +11,6 @@ export interface ToolpathGeometry {
   layerRanges: Array<[number, number]>;
 }
 
-export interface SlicedMeshGeometry {
-  geometry: THREE.BufferGeometry;
-  layerRanges: Array<[number, number]>;
-}
-
 export function useSliceResult() {
   const status = useSlicerStore((s) => s.status);
   const layers = useSlicerStore((s) => s.layers);
@@ -78,30 +73,5 @@ export function useSliceResult() {
     return { geometry, layerRanges };
   }, [result]);
 
-  const mesh = useMemo<SlicedMeshGeometry | null>(() => {
-    if (!result) return null;
-    const m = result.mesh;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(m.positions, 3));
-    geometry.setIndex(new THREE.BufferAttribute(m.indices, 1));
-    geometry.computeVertexNormals();
-    geometry.setDrawRange(0, 0);
-
-    // per-layer [start, count] over INDEX entries (indexed drawRange)
-    const layerRanges: Array<[number, number]> = [];
-    const triPerLayer = new Map<number, number>();
-    for (let i = 0; i < m.layerRanges.length; i++) {
-      triPerLayer.set(m.layerRanges[i], (triPerLayer.get(m.layerRanges[i]) ?? 0) + 1);
-    }
-    const maxLayer = Math.max(...triPerLayer.keys(), 0);
-    let running = 0;
-    for (let layer = 0; layer <= maxLayer; layer++) {
-      const n = triPerLayer.get(layer) ?? 0;
-      layerRanges.push([running, n * 3]);
-      running += n * 3;
-    }
-    return { geometry, layerRanges };
-  }, [result]);
-
-  return { result, toolpath, mesh };
+  return { result, toolpath };
 }
