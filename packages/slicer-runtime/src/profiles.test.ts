@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { installProfiles, resolveProfileBaseUrl, type ProfileSource } from './profiles';
+import { installProfiles, resolveModuleAssetUrl, resolveProfileBaseUrl, type ProfileSource } from './profiles';
 
 function zip(entries: Array<[string, string]>): Uint8Array {
   const chunks: Uint8Array[] = [];
@@ -27,6 +27,13 @@ describe('profile installer', () => {
     expect(resolveProfileBaseUrl('/', 'https://host.test/assets/worker.js').href).toBe('https://host.test/profiles/');
     expect(resolveProfileBaseUrl('/orca/', 'https://host.test/orca/assets/worker.js').href).toBe('https://host.test/orca/profiles/');
     expect(resolveProfileBaseUrl('/preview/orca', 'https://host.test/preview/orca/assets/worker.js').href).toBe('https://host.test/preview/orca/profiles/');
+  });
+
+  it('resolves worker assets beside the module on a deployment subpath', () => {
+    expect(resolveModuleAssetUrl('../wasm/orca_slice.js', 'https://host.test/orca/assets/worker.js'))
+      .toBe('https://host.test/orca/wasm/orca_slice.js');
+    expect(resolveModuleAssetUrl('../wasm/orca_slice.wasm', 'https://host.test/preview/orca/assets/worker.js'))
+      .toBe('https://host.test/preview/orca/wasm/orca_slice.wasm');
   });
 
   it('mounts every compact package before init', async () => {

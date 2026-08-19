@@ -66,7 +66,18 @@ export function createFetchProfileSource(base: string | URL): ProfileSource {
 /** Resolve bundled profile assets against the host's configured deployment base. */
 export function resolveProfileBaseUrl(baseUrl: string, moduleUrl: string | URL): URL {
   const deploymentBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
-  return new URL('profiles/', new URL(deploymentBase, moduleUrl));
+  // Keep the module URL indirect so Vite does not attempt to statically
+  // prebundle `new URL('./', import.meta.url)`; this is resolved at runtime
+  // for site-root and subpath deployments alike.
+  const Url = globalThis.URL;
+  const moduleBase = new Url(String(moduleUrl));
+  return new Url('profiles/', new Url(deploymentBase, moduleBase));
+}
+
+/** Resolve a host asset beside the deployment's worker chunk. */
+export function resolveModuleAssetUrl(relativePath: string, moduleUrl: string | URL): string {
+  const Url = globalThis.URL;
+  return new Url(relativePath, new Url(String(moduleUrl))).href;
 }
 
 function safeEntryPath(entry: string): string {

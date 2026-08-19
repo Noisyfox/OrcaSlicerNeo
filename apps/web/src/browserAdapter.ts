@@ -9,7 +9,10 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
       async save(value) { try { localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify(normalizeUserPreferences(value))); } catch { /* ephemeral fallback */ } },
     },
     runtime,
-    profiles: { resolve: (relativePath) => new URL(relativePath, new URL(import.meta.env.BASE_URL, import.meta.url)).href },
+    profiles: { resolve: (relativePath) => {
+      const Url = globalThis.URL;
+      return new Url(relativePath, new Url(import.meta.env.BASE_URL, String(import.meta.url))).href;
+    } },
     chrome: { kind: 'web', platform: navigator.platform },
   };
 }
