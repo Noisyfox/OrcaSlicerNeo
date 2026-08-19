@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-19
 
-**Status:** Draft — active architecture review
+**Status:** Approved — implementation basis
 
 **Scope:** Refactor OrcaSlicerNeo so the same application functionality can ship
 as an Electron desktop application and a conventional static web application.

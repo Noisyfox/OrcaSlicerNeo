@@ -2,11 +2,14 @@
 
 ## Context
 
-- Scope: next-generation OrcaSlicer desktop GUI on Electron + React + TypeScript +
-  Vite + shadcn/ui, with the C++ slicing core (`libslic3r`) reused as-is and
-  compiled to WASM via Emscripten. One `.wasm` serves Windows x64/arm64, Linux
-  x64/arm64, macOS x64/arm64. See `doc/2026-08-12-electron-gui-rewrite-design.md`
-  for the approved design; `spec/Grand Plan.md` for the milestone checklist.
+- Scope: next-generation OrcaSlicer application on Electron and a conventional
+  static Web host, sharing React + TypeScript + Vite + shadcn/ui features and
+  a local WASM slicing core (`libslic3r`). Electron continues to target Windows
+  x64/arm64, Linux x64/arm64, and macOS x64/arm64; the Web target is desktop
+  Chrome 133+ with WebGL 2 and wasm64. See the approved
+  `spec/Web-Electron Shared Application Architecture.md` for the normative
+  cross-host design, `doc/2026-08-12-electron-gui-rewrite-design.md` for the
+  delivered desktop vertical slice, and `spec/Grand Plan.md` for milestones.
 - Guardrails: `libslic3r` changes are minimal (patches/stubs/shim only, never
   ad-hoc edits to the submodule); all C++↔JS traffic goes through the extern "C"
   bridge; docs-first (dated notes in `doc/`).
@@ -232,6 +235,41 @@
 > disables raycasting for active camera, body, and gizmo drags. This prevents
 > dense model geometry from lowering orbit frame rate only while the pointer
 > is over the model. See `doc/2026-08-18-disable-raycasting-during-drag.md`.
+
+### Milestone 9 — Shared Web–Electron Application Architecture
+
+> **Status: approved, not started (2026-08-19).** The norm is
+> `spec/Web-Electron Shared Application Architecture.md`. This is an
+> incremental extraction, not a renderer rewrite: Electron remains usable at
+> every step, and implementation commits follow independently verifiable
+> contracts, extraction, profile delivery, Web host, and dual-artifact tests.
+
+**Epic 9.1: platform contracts and Electron adapter**
+- Define injected file-import/export, preferences, platform-chrome, runtime,
+  and profile-source contracts.
+- Replace shared renderer calls to `window.orca` with the Electron adapter,
+  retaining existing Electron behavior as the verification target.
+
+**Epic 9.2: extract shared application/runtime**
+- Move platform-neutral React components, stores, viewport, styles, Worker
+  orchestration, and typed client use into the shared workspace packages with
+  minimal unrelated behavior change.
+- Keep the shared `BrandBar`; Electron contributes frameless drag/macOS inset
+  styling and Web supplies the visually matching non-window-control variant.
+
+**Epic 9.3: portable profile resources and preferences**
+- Build upstream-organized core/vendor profile archives separately from WASM;
+  install all shipped packages into MEMFS before `orc_init()`.
+- Replace AppConfig persistence with the shared selected-profile/UI-preference
+  repository. Profiles, projects, models, overrides, results, and G-code stay
+  ephemeral in the first release.
+
+**Epic 9.4: static Web host and verification**
+- Add `apps/web`, use browser file selection/Blob download, local static
+  resources, supported-environment/startup screens, and native `beforeunload`
+  protection for ephemeral work.
+- Build and verify threaded and serial wasm64 artifacts with Chrome Web E2E;
+  retain Electron E2E and compact fixture/full-package release smoke coverage.
 
 ## Cross-Cutting Practices
 
