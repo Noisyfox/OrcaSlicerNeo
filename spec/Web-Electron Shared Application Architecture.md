@@ -94,6 +94,12 @@ Themes, global CSS, shadcn wrappers, and application components belong to
 `slicer-app`; hosts may add only narrow platform CSS, such as Electron window
 drag regions.
 
+Migration is an extraction and adaptation, not a rewrite of unrelated product
+behavior. Existing renderer components, stores, and slicer workflows should
+move substantially intact wherever they are already platform-neutral; changes
+must be limited to real platform boundaries or explicitly approved behavior
+corrections.
+
 ## 4. Platform Boundary
 
 The shared application receives platform services through injected interfaces.
@@ -258,6 +264,11 @@ no new vendor/model/variant identifier is introduced.
   Electron writes a small preferences file in user data; Web uses localStorage.
 - A malformed, unreadable, or unsupported preference version is discarded and
   replaced with defaults. The first release has no migration implementation.
+- If either repository cannot read or write (for example, disabled Web storage,
+  quota exhaustion, or an Electron file I/O failure), the application continues
+  with in-memory preferences for that session and logs the failure to the
+  console. Preferences never block startup or slicing; the first release has
+  no dialog, retry, or recovery flow.
 - `sidebarWidth` and other common UI preferences are persisted in both hosts.
 - Future host-only UI data may use platform namespaces. Shared preferences must
   not acquire Electron-only concepts.
@@ -283,6 +294,10 @@ from one system profile combination to another.
   not create a reduced mobile-style slicer page.
 - Web G-code export triggers a standard browser file download. Electron keeps
   its native save dialog.
+- A 3MF import contributes only its model geometry, instances, and stored
+  layout. Embedded profiles, temporary settings, slice results, and other
+  project-level configuration are ignored; installed system profiles remain
+  the sole configuration source.
 - Imported models and work in progress are ephemeral. Both hosts will warn
   before leaving when models, temporary slicer-setting overrides, or unexported
   results would be lost; the exact host confirmation mechanism is an adapter
@@ -345,7 +360,27 @@ verification of either artifact.
   notification.
 - Complete About page and expanded legal information.
 
-## 12. Relationship to Existing Specifications
+## 12. Migration Sequence
+
+Migration proceeds as small independently verifiable steps, keeping Electron
+usable throughout:
+
+1. Define the platform contracts and make the Electron renderer use an
+   Electron adapter instead of directly calling `window.orca`; do not move UI
+   in this step.
+2. Extract platform-neutral renderer UI and runtime code into the shared
+   packages without redesigning unrelated stores or slicer workflows.
+3. Move profile delivery from Emscripten preload files to the portable package
+   runtime, first preserving Electron behavior and smoke coverage.
+4. Add the Web host and browser adapter, then validate the shared core flow.
+5. Add dual-wasm capability selection and the required real-artifact E2E
+   coverage before declaring the refactor complete.
+
+Each step must have a focused verification target and a separate commit. The
+temporary legacy AppConfig bridge may remain inside the Electron migration path
+only until the shared preference/profile contracts replace its callers.
+
+## 13. Relationship to Existing Specifications
 
 This specification extends the approved Electron GUI rewrite design in
 `doc/2026-08-12-electron-gui-rewrite-design.md`. It replaces the desktop-only
