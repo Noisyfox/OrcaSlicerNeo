@@ -3,7 +3,7 @@ import { installProfiles, resolveModuleAssetUrl, resolveProfileBaseUrl, type Pro
 
 function zip(entries: Array<[string, string]>): Uint8Array {
   const chunks: Uint8Array[] = [];
-  for (const [name, value] of entries) {
+      for (const [name, value] of entries) {
     const n = new TextEncoder().encode(name); const d = new TextEncoder().encode(value);
     const b = new Uint8Array(30 + n.length + d.length); const v = new DataView(b.buffer);
     v.setUint32(0, 0x04034b50, true); v.setUint16(4, 10, true); v.setUint16(8, 0, true);
@@ -27,6 +27,7 @@ describe('profile installer', () => {
     expect(resolveProfileBaseUrl('/', 'https://host.test/assets/worker.js').href).toBe('https://host.test/profiles/');
     expect(resolveProfileBaseUrl('/orca/', 'https://host.test/orca/assets/worker.js').href).toBe('https://host.test/orca/profiles/');
     expect(resolveProfileBaseUrl('/preview/orca', 'https://host.test/preview/orca/assets/worker.js').href).toBe('https://host.test/preview/orca/profiles/');
+    expect(resolveProfileBaseUrl('./', 'https://host.test/orca/assets/worker.js').href).toBe('https://host.test/orca/profiles/');
   });
 
   it('resolves worker assets beside the module on a deployment subpath', () => {
@@ -51,8 +52,8 @@ describe('profile installer', () => {
       writeFile: (path, bytes) => { const parent = path.slice(0, path.lastIndexOf('/')) || '/'; if (!dirs.has(parent)) throw new Error(`missing parent ${parent}`); mounted.set(path, bytes); },
       readFile: () => new Uint8Array(),
     } }, source(files));
-    expect([...mounted.keys()]).toEqual(['/system/common.json', '/system/Vendor/machine.json']);
-    expect(dirs.has('/system/Vendor')).toBe(true);
+    expect([...mounted.keys()]).toEqual(['/system/common.json', '/system/vendor/Vendor/machine.json']);
+    expect(dirs.has('/system/vendor/Vendor')).toBe(true);
   });
 
   it('blocks on core failure but skips a failed vendor', async () => {

@@ -9,7 +9,7 @@ export default defineConfig({
   base: './',
   // The checked-in static profile bundle is host-neutral and is reused by
   // both static hosts; WASM artifact packaging remains Step 5.
-  publicDir: root('../../apps/desktop/public'),
+  publicDir: root('../../apps/desktop/src/renderer/public'),
   // The normal server/preview is isolated. Web E2E deliberately sets
   // ORCA_WEB_NO_ISOLATION=1 to exercise the real serial artifact.
   server: { headers: isolationHeaders() },

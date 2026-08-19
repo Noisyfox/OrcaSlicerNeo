@@ -3,7 +3,7 @@
 // (or `build-windows.bat build`). --soft: warn and exit 0 when the build is
 // missing — used by the desktop `predev` hook so mock-mode UI dev
 // (VITE_USE_MOCK=1) still boots on a fresh checkout with no wasm build.
-import { copyFile, mkdir } from 'node:fs/promises';
+import { copyFile, cp, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +12,8 @@ const soft = process.argv.includes('--soft');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outRoot = join(root, 'packages/slicer-wasm/out');
 const dstRoot = join(root, 'apps/desktop/src/renderer/public/wasm');
+const profileSrc = join(root, 'apps/desktop/public/profiles');
+const profileDst = join(root, 'apps/desktop/src/renderer/public/profiles');
 
 if (!existsSync(outRoot)) {
   if (soft) {
@@ -21,7 +23,7 @@ if (!existsSync(outRoot)) {
   console.error('no WASM build found — run: bash packages/slicer-wasm/build.sh');
   process.exit(1);
 }
-await mkdir(dst, { recursive: true });
+if (existsSync(profileSrc)) await cp(profileSrc, profileDst, { recursive: true, force: true });
 for (const variant of ['threaded', 'serial']) {
   const src = join(outRoot, variant);
   const dst = join(dstRoot, variant);

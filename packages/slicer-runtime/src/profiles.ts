@@ -18,8 +18,11 @@ async function unzip(data: Uint8Array): Promise<Array<{ path: string; data: Uint
   while (p + 4 <= data.byteLength) {
     const sig = view.getUint32(p, true); p += 4;
     if (sig !== 0x04034b50) break;
+    // `p` points just after the four-byte signature. Relative offsets are
+    // therefore version/flags/method at +0/+2/+4, sizes at +14/+18, and
+    // name/extra lengths at +22/+24.
     const method = view.getUint16(p + 4, true);
-    const compressed = view.getUint32(p + 18, true);
+    const compressed = view.getUint32(p + 14, true);
     const nameLength = view.getUint16(p + 22, true);
     const extraLength = view.getUint16(p + 24, true);
     const name = new TextDecoder().decode(data.subarray(p + 26, p + 26 + nameLength));
@@ -47,7 +50,12 @@ export async function installProfiles(module: Pick<OrcaModule, 'FS'>, source: Pr
       // Preserve the virtual tree expected by libslic3r's PresetBundle.
       for (const entry of entries) {
         const relative = safeEntryPath(entry.path);
-        const fullPath = `/system/${relative}`;
+        // Vendor archives contain paths relative to their upstream vendor
+        // directory; restore that directory in MEMFS. Core files remain at
+        // `/system`, while OrcaFilamentLibrary and printer vendors land at
+        // the exact tree consumed by PresetBundle.
+        const mounted = pkg.kind === 'vendor' ? `${safeEntryPath(pkg.id)}/${relative}` : relative;
+        const fullPath = `/system/${mounted}`;
         mkdirParents(module.FS, fullPath.slice(0, fullPath.lastIndexOf('/')));
         module.FS.writeFile(fullPath, entry.data);
       }
@@ -65,7 +73,9 @@ export function createFetchProfileSource(base: string | URL): ProfileSource {
 
 /** Resolve bundled profile assets against the host's configured deployment base. */
 export function resolveProfileBaseUrl(baseUrl: string, moduleUrl: string | URL): URL {
-  const deploymentBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+  const deploymentBase = baseUrl === './' || baseUrl === '.'
+    ? new URL('../', new URL(String(moduleUrl))).href
+    : (baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
   // Keep the module URL indirect so Vite does not attempt to statically
   // prebundle `new URL('./', import.meta.url)`; this is resolved at runtime
   // for site-root and subpath deployments alike.

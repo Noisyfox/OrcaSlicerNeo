@@ -9,7 +9,9 @@ export function supportsWebgl2(): boolean {
 export function supportsWasm64(): boolean {
   try {
     if (typeof WebAssembly?.Memory !== 'function') return false;
-    new WebAssembly.Memory({ initial: 1, maximum: 1, address: 'i64' } as WebAssembly.MemoryDescriptor & { address: string });
+    // Memory64 uses BigInt page counts; number values throw even in browsers
+    // that fully support the i64 address space.
+    new WebAssembly.Memory({ initial: 1n, maximum: 1n, address: 'i64' } as unknown as WebAssembly.MemoryDescriptor & { address: string });
     return true;
   } catch { return false; }
 }

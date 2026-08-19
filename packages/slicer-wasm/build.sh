@@ -129,6 +129,13 @@ apply_patches() {
 apply_patches
 
 mkdir -p "$WORK_DIR" "$OUT_DIR" "$GEN_INCLUDE"
+# fetch-deps.sh historically writes the OpenSSL compatibility header in the
+# shared work tree. Variant-specific CMake trees must receive the same header
+# or the serial/threaded builds diverge before compilation starts.
+if [[ -f "$WORK_DIR/gen/openssl/md5.h" && ! -f "$GEN_INCLUDE/openssl/md5.h" ]]; then
+  mkdir -p "$GEN_INCLUDE/openssl"
+  cp "$WORK_DIR/gen/openssl/md5.h" "$GEN_INCLUDE/openssl/md5.h"
+fi
 generate_shim
 
 # ---------------- Dependency staging ----------------
