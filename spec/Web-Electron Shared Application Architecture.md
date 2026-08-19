@@ -38,7 +38,9 @@ are not persisted in either host during the first release.
 - **Web execution:** entirely local WASM. No generalized remote-slicer
   abstraction is introduced; a future cloud capability must define a boundary
   for its concrete task instead of preemptively duplicating the WASM API.
-- **Primary target:** desktop Chrome on Windows, macOS, and Linux.
+- **Primary target:** desktop Chrome 133 or later on Windows, macOS, and
+  Linux. Chrome 133 is the first supported baseline because it ships the
+  required Wasm Memory64 support.
 - **Hard browser requirements:** WebGL 2 and wasm64. If either is absent, the
   web application shows an unsupported-environment screen and does not start.
 - **WASM threading:** prefer the threaded wasm64 artifact. When cross-origin
@@ -197,8 +199,12 @@ vendor-file list: upstream common resources become `core`, and upstream vendor
 organization defines the vendor packages. This keeps package generation
 reproducible as upstream profiles are added, removed, or reorganized.
 
-The first release includes all packages and attempts to load them all before
-slicer initialization. It shows package-level boot progress.
+The first release includes all packages and installs every package before
+slicer initialization; it does not defer a vendor package until profile
+selection. A shared startup screen remains visible until the WASM runtime and
+all attempted package installs complete, and shows coarse progress such as
+runtime initialization and system-profile installation. The main application
+is not interactive before that point.
 
 Profile packaging is an independent build/CI target. A profile-content change
 generates only the manifest and profile packages; it must not trigger a WASM
@@ -207,8 +213,9 @@ or bridge/runtime interpretation of its fields changes.
 
 - A failed vendor package is skipped; startup continues and writes an error to
   the console. Only successfully installed packages contribute profiles.
-- A failed `core` package fails initialization and logs the error. A dedicated
-  recovery screen/retry action is deferred.
+- A failed `core` package or WASM initialization fails startup and logs the
+  error; the host does not enter the main application. A dedicated recovery
+  screen/retry action is deferred.
 - Versioned immutable file names and a small manifest pointer are used so
   future independent package updates have a cache-friendly distribution path.
 - The first release does **not** implement profile-package hashes, signatures,
@@ -331,6 +338,9 @@ verification of either artifact.
   persistence, and conflict resolution.
 - Project/model/result/G-code persistence and project save/load.
 - Remote slicing implementation.
+- In-progress slicing cancellation. The existing bridge capability is not
+  exposed through the first-release UI; a future design must define reliable
+  behavior for both threaded and serial WASM artifacts.
 - Rich startup error page, retry behavior, and user-visible profile fallback
   notification.
 - Complete About page and expanded legal information.
