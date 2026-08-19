@@ -17,6 +17,9 @@ export default function App() {
   const setMetadata = useSettingsStore((s) => s.setMetadata);
   const setPresets = useSettingsStore((s) => s.setPresets);
   const setError = useSlicerStore((s) => s.setError);
+  const modelLoaded = useSettingsStore((s) => s.modelLoaded);
+  const values = useSettingsStore((s) => s.values);
+  const status = useSlicerStore((s) => s.status);
   const [sceneInteraction, setSceneInteraction] = useState<SceneInteractionController | null>(null);
 
   useEffect(() => {
@@ -48,6 +51,17 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [setMetadata, setPresets, setError]);
+
+  useEffect(() => {
+    if (platform.chrome.kind !== 'web') return;
+    const protect = (event: BeforeUnloadEvent) => {
+      if (!modelLoaded && status !== 'done' && Object.keys(values).length === 0) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', protect);
+    return () => window.removeEventListener('beforeunload', protect);
+  }, [platform.chrome.kind, modelLoaded, status, values]);
 
   return (
     <AppShell
