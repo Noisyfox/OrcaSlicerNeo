@@ -963,8 +963,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
     }
 }
 
-// Binary toolpath + sliced mesh + stats. Contract mirrors the Task 1
-// mock; JS reads the heap buffers and _free()s the pointers.
+// Binary toolpath + stats. Contract mirrors the Task 1 mock; JS reads the
+// heap buffers and _free()s the pointers.
 EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     try {
         auto& print = state().print;
@@ -973,10 +973,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                  {"toolpath", json{{"vertex_ptr", 0}, {"vertex_count", 0},
                                                    {"layer_ptr", 0}, {"layer_count", 0},
                                                    {"feature_ptr", 0}, {"feature_count", 0},
-                                                   {"features", json::array()}}},
-                                 {"mesh", json{{"vertex_ptr", 0}, {"vertex_count", 0},
-                                               {"index_ptr", 0}, {"index_count", 0},
-                                               {"layer_ptr", 0}, {"layer_count", 0}}}}.dump());
+                                                   {"features", json::array()}}}}.dump());
 
         // The toolpath comes from post-processing the exported gcode
         // (GCodeProcessor::process_file — the GUI's own mechanism). Export
@@ -993,7 +990,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             gcode_result = processor.get_result();
         }
         auto tp = bridge::build_toolpath(gcode_result);
-        auto mesh = bridge::build_sliced_mesh(print);
 
         // Feature palette (local id → name/color). build_toolpath assigns
         // ids 0..N-1 in order of first use; the features buffer holds those
@@ -1010,14 +1006,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         const std::uintptr_t tvptr = reinterpret_cast<std::uintptr_t>(tp.positions.data);
         const std::uintptr_t tlptr = reinterpret_cast<std::uintptr_t>(tp.layers.data);
         const std::uintptr_t tfptr = reinterpret_cast<std::uintptr_t>(tp.features.data);
-        const std::uintptr_t mvptr = reinterpret_cast<std::uintptr_t>(mesh.positions.data);
-        const std::uintptr_t miptr = reinterpret_cast<std::uintptr_t>(mesh.indices.data);
-        const std::uintptr_t mlptr = reinterpret_cast<std::uintptr_t>(mesh.layer_ids.data);
         const size_t n_verts = tp.positions.size / 12;
-        const size_t m_verts = mesh.positions.size / 12;
-        const size_t m_tris  = mesh.indices.size / 12;
         tp.positions.release(); tp.layers.release(); tp.features.release();
-        mesh.positions.release(); mesh.indices.release(); mesh.layer_ids.release();
 
         json out{{"ok", true}, {"objects", print.objects().size()}, {"layers", layers}};
         out["toolpath"] = {
@@ -1025,11 +1015,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             {"layer_ptr", tlptr}, {"layer_count", n_verts},
             {"feature_ptr", tfptr}, {"feature_count", n_verts},
             {"features", std::move(features)},
-        };
-        out["mesh"] = {
-            {"vertex_ptr", mvptr}, {"vertex_count", m_verts},
-            {"index_ptr", miptr}, {"index_count", m_tris * 3},
-            {"layer_ptr", mlptr}, {"layer_count", m_tris},
         };
         return dup_json(out.dump());
     } catch (const std::exception& e) {

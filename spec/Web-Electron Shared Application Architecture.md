@@ -22,8 +22,8 @@ feature-equivalent interface:
 2. Select bundled system printer/process/filament profiles.
 3. Change the existing core settings surface.
 4. Slice locally.
-5. Inspect the model, sliced mesh, toolpath, layers, selection, and movement in
-   the 3D viewport.
+5. Inspect the model, toolpath, layers, selection, and movement in the 3D
+   viewport.
 6. Download G-code.
 
 Project persistence, user-created profiles, cloud accounts, cloud slicing,
@@ -331,9 +331,9 @@ from one system profile combination to another.
   first-release flow.
 - Any change to slice inputs invalidates the current result: profile selection,
   temporary settings, model import/clear, and model transforms all require a
-  new slice. On invalidation the sliced mesh, toolpath, and layer state are
-  immediately cleared, export is disabled, and the common status indicates
-  that re-slicing is required. Stale preview data is never rendered.
+  new slice. On invalidation the toolpath and layer state are immediately
+  cleared, export is disabled, and the common status indicates that re-slicing
+  is required. Stale preview data is never rendered.
 - A first-release AGPL source-code link is present in a visible footer or menu,
   pointing to the source corresponding to the web release. A fuller About page
   is deferred.

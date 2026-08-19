@@ -10,7 +10,7 @@ Rebuild the OrcaSlicer desktop GUI on Electron + React + TypeScript + Vite + sha
 The existing wxWidgets GUI (371k LOC) is **not** ported. The C++ slicing core
 (`libslic3r`) is reused as-is, compiled to **WebAssembly via Emscripten**, and called
 from JS. v1 delivers the vertical slice: load STL/3MF → configure basic print settings →
-slice → 3D preview (sliced mesh + G-code toolpath) → export G-code.
+slice → 3D preview (G-code toolpath) → export G-code.
 
 Feasibility is proven by a phase-0 compile spike (external reference
 implementation; GO verdict, 2026-07-24: Emscripten 6.0.4, OrcaSlicer v2.4.2):
@@ -138,7 +138,7 @@ the WASM heap (`_malloc`/`_free` + `HEAPU8` views, standard Emscripten marshalin
 | `orc_add_model(ptr, len, ext)` | append a model file to the current scene; model JSON + binary triangle buffers (instance transforms in JSON) | `Model::read_from_file` / 3mf loaders + `Model::add_object` |
 | `orc_clear_model()` | reset the current scene and stale print result | `Model` reset + `Print::clear` |
 | `orc_slice(config_json)` | apply config + run slice; progress via registered JS callback | `Print::apply`, `Print::process`, `set_status_callback` (`SlicingStatus`) |
-| `orc_get_slice_result()` | toolpath buffer (per-vertex position/color/layer) + sliced mesh buffer + JSON stats | `GCodeProcessorResult`, `SlicesToTriangleMesh` |
+| `orc_get_slice_result()` | toolpath buffer (per-vertex position/color/layer) + JSON stats | `GCodeProcessorResult` |
 | `orc_export_gcode()` | write gcode to MEMFS; JS reads bytes back | `Print::export_gcode` (thumbnail cb = nullptr) |
 | `orc_cancel()` | set cancel flag checked at step boundaries | `PrintBase::cancel()` |
 
@@ -178,7 +178,7 @@ The spike's one-shot CLI driver stays for harness parity (node smoke tests, fixt
 1. Launch → worker loads WASM → `orc_init()` mounts presets.
 2. Add Model → native dialog → bytes → `addModel` → model appended on the bed in 3D view; Clear Scene explicitly removes all models.
 3. Settings panel: pick printer preset, tweak a few options (metadata-driven).
-4. **Slice** → `slice(configJson)` with progress bar → sliced mesh + toolpath shown.
+4. **Slice** → `slice(configJson)` with progress bar → toolpath shown.
 5. **Export** → `exportGcode()` → MEMFS bytes → native save dialog → file on disk.
 6. Re-slice after setting changes (config diffing via `Print::apply` status).
 
@@ -221,7 +221,7 @@ matrix) later; macOS signing deferred.
 - **D** — Electron shell: windows, preload API, session headers, settings UI from
   metadata.
 - **E** — 3D viewport (R3F), model loading, slice orchestration, progress, preview
-  (sliced mesh + toolpath + layer slider).
+  (toolpath + layer slider).
 - **F** — Export, electron-builder packaging for 6 targets, Playwright e2e.
 
 ## References

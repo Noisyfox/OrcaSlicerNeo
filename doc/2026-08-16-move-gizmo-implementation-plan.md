@@ -1012,11 +1012,10 @@ import { BedPlate } from './BedPlate';
 import { ModelMesh } from './ModelMesh';
 import { useSliceResult } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
-import { SlicedMesh } from './SlicedMesh';
 
 export function Scene() {
   const objects = useModelLoader();
-  const { toolpath, mesh } = useSliceResult();
+  const { toolpath } = useSliceResult();
   // Test-only projection hook (mock/e2e builds): Playwright needs exact
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
   // No-op in production builds (VITE_USE_MOCK is unset).
@@ -1044,7 +1043,6 @@ export function Scene() {
       {objects.map((o) => (
         <ModelMesh key={o.buffer.objectIdx} data={o} />
       ))}
-      {mesh && <SlicedMesh data={mesh} />}
       {toolpath && <ToolpathLines data={toolpath} />}
     </>
   );

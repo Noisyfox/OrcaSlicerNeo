@@ -8,7 +8,7 @@ export type {
   OptionMetadata, OptionMeta,
   LoadModelResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
   SliceResultStatus, ClientSliceResult, ClientToolpath,
-  ClientSlicedMesh, ToolpathFeature, ExportGcodeResult, CancelResult,
+  ToolpathFeature, ExportGcodeResult, CancelResult,
 } from './types';
 export { createMockModule } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';

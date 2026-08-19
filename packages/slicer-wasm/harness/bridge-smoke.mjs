@@ -262,12 +262,6 @@ if (res2.toolpath && res2.toolpath.vertex_count > 0) {
   check('toolpath layers ascending within range', layers.every((l) => l >= 0 && l < res2.layers));
   check('toolpath features in palette', feats.every((f) => Number.isInteger(f) && f >= 0));
 }
-if (res2.mesh && res2.mesh.vertex_count > 0) {
-  const mi = new Uint32Array(readBytes(Module, Number(res2.mesh.index_ptr), res2.mesh.index_count * 4).buffer);
-  check('mesh indices < vertex_count', mi.every((i) => i < res2.mesh.vertex_count));
-  Module._free(Number(res2.mesh.vertex_ptr));
-  Module._free(Number(res2.mesh.layer_ptr));
-}
 
 // 7c. model mesh buffers (M2 contract)
 const mm = callJson('orc_get_model_mesh', [], []);

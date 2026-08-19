@@ -2,22 +2,12 @@
 // ----------------------------------------------------------------
 // Assembles the binary slice-result buffers from libslic3r data.
 // Toolpath: GCodeProcessorResult moves (post-processed gcode).
-// Sliced mesh: per-layer slice triangulation over PrintObject layers.
 // The layout is the M2 bridge contract (Task 1 mock mirror).
 // ----------------------------------------------------------------
 #include "bridge_buffers.hpp"
 
-// Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/; the
-// brief's SlicesToTriangleMeshParams/SlicesToTriangleMesh (TriangleMesh
-// Slicer.hpp) and ExPolygon::triangulate_self()/triangles do NOT exist
-// here — the per-layer triangulator is triangulate_expolygons_3d
-// (Tesselate.hpp), the same cap tesselation the missing Prusa API used.
-// PrintObject is defined in Print.hpp (no PrintObject.hpp at this SHA);
-// Layer::lslices / print_z need the complete Layer type (Layer.hpp).
+// Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/.
 #include "libslic3r/GCode/GCodeProcessor.hpp"
-#include "libslic3r/Print.hpp"
-#include "libslic3r/Tesselate.hpp"
-#include "libslic3r/Layer.hpp"
 
 #include <map>
 #include <string>
@@ -26,7 +16,6 @@ namespace bridge {
 
 using Slic3r::ExtrusionRole;
 using Slic3r::GCodeProcessorResult;
-using Slic3r::Print;
 
 const std::map<ExtrusionRole, FeatureInfo>& feature_palette() {
     static const std::map<ExtrusionRole, FeatureInfo> palette = {
@@ -68,53 +57,6 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
             out.palette_used.emplace_back(mv.extrusion_role, it->second);
         }
         out.features.appendU32(fid->second);
-    }
-    return out;
-}
-
-MeshBuffers build_sliced_mesh(const Print& print) {
-    MeshBuffers out;
-    // v1: first object only (multi-object preview is M4).
-    if (print.objects().empty()) return out;
-    const auto& print_object = print.objects().front();
-    const auto& layers = print_object->layers();
-    if (layers.empty()) return out;
-
-    std::uint32_t vertex_base = 0;
-    for (size_t li = 0; li < layers.size(); ++li) {
-        const double z = layers[li]->print_z;
-
-        // Per-layer triangulation, exactly like the GUI's preview: tesselate
-        // the layer's merged slice geometry flat at z. Drift at the pinned
-        // SHA: Layer has no `slices` member (that is per-region,
-        // LayerRegion::slices, Layer.hpp:45) — Layer::lslices (Layer.hpp:
-        // 157) is the layer's merged ExPolygons (all regions combined), the
-        // direct input for triangulate_expolygons_3d. SlicesToTriangleMesh
-        // Params does not exist (only slices_to_mesh, a full-stack wall+cap
-        // builder with no per-triangle layer info) and ExPolygon has no
-        // triangulate_self()/triangles — triangulate_expolygons_3d is the
-        // per-layer cap tesselation the missing Prusa API itself used, and
-        // its Vec3d triangle soup (3 vertices per triangle) feeds the emit
-        // loop below 1:1 (the brief's documented raw-soup fallback).
-        const std::vector<Slic3r::Vec3d> soup =
-            Slic3r::triangulate_expolygons_3d(layers[li]->lslices, z, Slic3r::NORMALS_UP);
-
-        // Emit per-triangle vertices, global indices, and layer ids.
-        const size_t tris = soup.size() / 3;
-        if (tris == 0) continue;
-        for (size_t t = 0; t < tris; ++t) {
-            for (int v = 0; v < 3; ++v) {
-                const auto& p = soup[t * 3 + v];
-                out.positions.appendF32(static_cast<float>(p.x()));
-                out.positions.appendF32(static_cast<float>(p.y()));
-                out.positions.appendF32(static_cast<float>(p.z()));
-            }
-            out.indices.appendU32(vertex_base + static_cast<std::uint32_t>(t * 3 + 0));
-            out.indices.appendU32(vertex_base + static_cast<std::uint32_t>(t * 3 + 1));
-            out.indices.appendU32(vertex_base + static_cast<std::uint32_t>(t * 3 + 2));
-            out.layer_ids.appendU32(static_cast<std::uint32_t>(li));
-        }
-        vertex_base += static_cast<std::uint32_t>(tris * 3);
     }
     return out;
 }

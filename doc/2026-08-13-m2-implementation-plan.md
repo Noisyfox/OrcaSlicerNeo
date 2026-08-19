@@ -7,9 +7,9 @@ Scope: Milestone 2 (Electron Vertical Slice, design Phases C–E) of
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** The v1 user flow works end to end in the Electron app: load STL/3MF → configure → slice → 3D preview (sliced mesh + toolpath + layer scrubber) → export G-code — with the WASM module running in a Web Worker behind a typed client.
+**Goal:** The v1 user flow works end to end in the Electron app: load STL/3MF → configure → slice → 3D preview (toolpath + layer scrubber) → export G-code — with the WASM module running in a Web Worker behind a typed client.
 
-**Architecture:** The renderer never touches the WASM module. A typed promise-based client (`packages/slicer-wasm/src/client`) marshals JSON + binary buffers across the wasm heap; a Vite-bundled Web Worker (app-owned entry, package-owned logic) is the only place the module is imported. The Electron main process gains native dialogs + COOP/COEP session headers; the renderer gets zustand stores, a metadata-driven settings panel (shadcn/ui), and a react-three-fiber viewport. Binary slice results (toolpath + sliced mesh) are produced by new bridge functions in `bridge.cpp`, laid out so the client's unit tests (against a mock Emscripten module, no emsdk) pin the contract before the C++ exists.
+**Architecture:** The renderer never touches the WASM module. A typed promise-based client (`packages/slicer-wasm/src/client`) marshals JSON + binary buffers across the wasm heap; a Vite-bundled Web Worker (app-owned entry, package-owned logic) is the only place the module is imported. The Electron main process gains native dialogs + COOP/COEP session headers; the renderer gets zustand stores, a metadata-driven settings panel (shadcn/ui), and a react-three-fiber viewport. Binary slice results (toolpath) are produced by new bridge functions in `bridge.cpp`, laid out so the client's unit tests (against a mock Emscripten module, no emsdk) pin the contract before the C++ exists.
 
 **Tech Stack:** Electron 34 + electron-vite, React 18 + TypeScript 5, Tailwind + shadcn/ui (radix), zustand, three 0.160 + @react-three/fiber 8 + drei 9, vitest 2, Emscripten wasm64 module (built in M1).
 
@@ -465,7 +465,7 @@ contract against the mock (Task 1).
 
 **Interfaces:**
 - Consumes: `createMockModule` (Task 1). The module surface: `ccall(name, ret, argTypes, args)`, `UTF8ToString(ptr)`, `_malloc(size)`, `_free(ptr)`, `HEAPU8`/`HEAPU32`/`HEAPF32`, `addFunction`, `FS`.
-- Produces: `type OrcaModule` (structural module type), `type OrcaModuleFactory = (opts: { noInitialRun?: boolean; print?: (s: string) => void; printErr?: (s: string) => void }) => Promise<OrcaModule>`; `class SlicerClient` with the API above; `heapMarshaling` helpers (`writeBytes`, `readBytes`, `readF32`, `readU32`, `callJson`); `ClientSliceResult`/`ClientModelMesh`/`ClientToolpath`/`ClientSlicedMesh` types. Task 3's worker wraps `SlicerClient`; Task 5's stores consume the types.
+- Produces: `type OrcaModule` (structural module type), `type OrcaModuleFactory = (opts: { noInitialRun?: boolean; print?: (s: string) => void; printErr?: (s: string) => void }) => Promise<OrcaModule>`; `class SlicerClient` with the API above; `heapMarshaling` helpers (`writeBytes`, `readBytes`, `readF32`, `readU32`, `callJson`); `ClientSliceResult`/`ClientModelMesh`/`ClientToolpath` types. Task 3's worker wraps `SlicerClient`; Task 5's stores consume the types.
 
 - [ ] **Step 1: Write the failing tests (contract pin)**
 
@@ -693,22 +693,11 @@ export interface ClientToolpath {
   palette: ToolpathFeature[];
 }
 
-export interface ClientSlicedMesh {
-  vertexCount: number;
-  /** Float32Array xyz per mesh vertex */
-  positions: Float32Array;
-  /** Uint32Array triangle index triples */
-  indices: Uint32Array;
-  /** Uint32Array layer_id per TRIANGLE (index triple) */
-  layerRanges: Uint32Array;
-}
-
 export interface ClientSliceResult {
   ok: boolean;
   objects: number;
   layers: number;
   toolpath: ClientToolpath;
-  mesh: ClientSlicedMesh;
   error?: string;
 }
 
@@ -802,7 +791,7 @@ import type {
   InitResult, PresetList, OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer,
-  ClientToolpath, ClientSlicedMesh, ToolpathFeature,
+  ClientToolpath, ToolpathFeature,
 } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
@@ -914,13 +903,8 @@ export function createClient(
           feature_ptr: number; feature_count: number;
           features: ToolpathFeature[];
         };
-        mesh?: {
-          vertex_ptr: number; vertex_count: number;
-          index_ptr: number; index_count: number;
-          layer_ptr: number; layer_count: number;
-        };
       };
-      if (!r.ok || !r.toolpath || !r.mesh) return r as ClientSliceResult;
+      if (!r.ok || !r.toolpath) return r as ClientSliceResult;
 
       const t = r.toolpath;
       const toolpath: ClientToolpath = {
@@ -931,15 +915,7 @@ export function createClient(
         palette: t.features,
       };
 
-      const s = r.mesh;
-      const mesh: ClientSlicedMesh = {
-        vertexCount: s.vertex_count,
-        positions: new Float32Array(readBytes(m, Number(s.vertex_ptr), s.vertex_count * 3 * 4).buffer),
-        indices: new Uint32Array(readBytes(m, Number(s.index_ptr), s.index_count * 4).buffer),
-        layerRanges: new Uint32Array(readBytes(m, Number(s.layer_ptr), s.layer_count * 4).buffer),
-      };
-
-      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath, mesh };
+      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath };
     },
 
     async exportGcode(): Promise<ExportGcodeResult> {
@@ -968,7 +944,7 @@ export type {
   InitResult, PresetList, OptionMetadata, OptionMeta,
   LoadModelResult, ModelMeshResult, ModelObjectBuffer,
   SliceResultStatus, ClientSliceResult, ClientToolpath,
-  ClientSlicedMesh, ToolpathFeature, ExportGcodeResult, CancelResult,
+  ToolpathFeature, ExportGcodeResult, CancelResult,
 } from './types';
 export { createMockModule } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';
@@ -2442,9 +2418,8 @@ git commit -m "feat: app boot (worker client + presets + metadata) and metadata-
 
 The M2 contract (Task 1 mock) implemented in C++: `orc_get_model_mesh`,
 `orc_set_instance_offset`, and the binary `orc_get_slice_result` (toolpath +
-sliced mesh + stats). Toolpath comes from `GCodeProcessor` post-processing
-the exported gcode; sliced mesh from `SlicesToTriangleMesh` over
-`PrintObject` layers. **Pinned-SHA drift surface** — each API below is
+stats). Toolpath comes from `GCodeProcessor` post-processing
+the exported gcode. **Pinned-SHA drift surface** — each API below is
 verified against the submodule before use (AGENTS.md iterate loop); the
 smoke test + client tests are the test.
 
@@ -2459,8 +2434,8 @@ smoke test + client tests are the test.
 - Produces (contract identical to Task 1's mock):
   - `orc_get_model_mesh()` → `{ok, objects: [{object_idx, vertex_ptr, vertex_count, index_ptr, index_count, offset:[x,y,z]}]}` — `Float32` xyz + `Uint32` index triples on the heap; JS frees both ptrs.
   - `orc_set_instance_offset(object_idx, instance_idx, x, y, z)` → `{ok}` — sets `ModelInstance::set_offset`.
-  - `orc_get_slice_result()` → `{ok, objects, layers, toolpath: {vertex_ptr, vertex_count, layer_ptr, layer_count, feature_ptr, feature_count, features: [{id, name, color}]}, mesh: {vertex_ptr, vertex_count, index_ptr, index_count, layer_ptr, layer_count}}` — toolpath per-vertex `Float32 xyz` + `Uint32 layer_id` + `Uint32 feature`; mesh `Float32 xyz` + `Uint32` triples + per-triangle `Uint32 layer_id`. All ptrs malloc'd; JS frees.
-- Produces: `bridge_buffers.hpp` — `MallocBuffer` RAII (ptr + size, freed at scope end or handed off), `appendF32/appendU32/appendBytes`, `feature_palette()`, `build_toolpath(result)`, `build_sliced_mesh(print)`.
+  - `orc_get_slice_result()` → `{ok, objects, layers, toolpath: {vertex_ptr, vertex_count, layer_ptr, layer_count, feature_ptr, feature_count, features: [{id, name, color}]}}` — toolpath per-vertex `Float32 xyz` + `Uint32 layer_id` + `Uint32 feature`. All ptrs malloc'd; JS frees.
+- Produces: `bridge_buffers.hpp` — `MallocBuffer` RAII (ptr + size, freed at scope end or handed off), `appendF32/appendU32/appendBytes`, `feature_palette()`, `build_toolpath(result)`.
 
 - [ ] **Step 1: Verify the pinned-SHA APIs (read the submodule headers)**
 
@@ -2536,22 +2511,19 @@ struct MallocBuffer {
 };
 ```
 
-- [ ] **Step 3: Write `bridge_buffers.cpp` (toolpath + sliced mesh assembly)**
+- [ ] **Step 3: Write `bridge_buffers.cpp` (toolpath assembly)**
 
 ```cpp
 // packages/slicer-wasm/src/bridge_buffers.cpp
 // ----------------------------------------------------------------
 // Assembles the binary slice-result buffers from libslic3r data.
 // Toolpath: GCodeProcessorResult moves (post-processed gcode).
-// Sliced mesh: SlicesToTriangleMesh over PrintObject layers.
 // The layout is the M2 bridge contract (Task 1 mock mirror).
 // ----------------------------------------------------------------
 #include "bridge_buffers.hpp"
 
-#include "libslic3r/GCodeProcessor.hpp"
-#include "libslic3r/Print.hpp"
-#include "libslic3r/PrintObject.hpp"
-#include "libslic3r/TriangleMeshSlicer.hpp"
+// Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/.
+#include "libslic3r/GCode/GCodeProcessor.hpp"
 
 #include <map>
 #include <string>
@@ -2560,7 +2532,6 @@ namespace bridge {
 
 using Slic3r::ExtrusionRole;
 using Slic3r::GCodeProcessorResult;
-using Slic3r::Print;
 
 // Feature palette (id = ExtrusionRole value, name/color for the client).
 struct FeatureInfo { std::string name; unsigned char color[3]; };
@@ -2613,99 +2584,8 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
     return out;
 }
 
-struct MeshBuffers {
-    MallocBuffer positions;   // Float32 xyz per vertex
-    MallocBuffer indices;     // Uint32 index triples
-    MallocBuffer layer_ids;   // Uint32 per TRIANGLE
-};
-
-MeshBuffers build_sliced_mesh(const Print& print) {
-    MeshBuffers out;
-    // v1: first object only (multi-object preview is M4).
-    if (print.objects().empty()) return out;
-    const auto& print_object = print.objects().front();
-    const auto& layers = print_object->layers();
-    if (layers.empty()) return out;
-
-    std::uint32_t vertex_base = 0;
-    for (size_t li = 0; li < layers.size(); ++li) {
-        const auto& slices = layers[li]->slices;
-        const double z = layers[li]->print_z;
-
-        // Per-layer input for SlicesToTriangleMesh, exactly like the GUI's
-        // preview: flatten each slice polygon (contour + holes) into
-        // x,y,z floats; ExPolygon::triangles (IndexedTriangle {a,b,c},
-        // verified in Step 1) indices point into that flattened list.
-        std::vector<float>  vv;
-        std::vector<size_t> tri;
-        for (const auto& expoly : slices) {
-            const size_t start = vv.size() / 3;
-            for (const auto& p : expoly.contour.points) {
-                vv.push_back(static_cast<float>(p.x()));
-                vv.push_back(static_cast<float>(p.y()));
-                vv.push_back(static_cast<float>(z));
-            }
-            for (const auto& hole : expoly.holes)
-                for (const auto& p : hole.points) {
-                    vv.push_back(static_cast<float>(p.x()));
-                    vv.push_back(static_cast<float>(p.y()));
-                    vv.push_back(static_cast<float>(z));
-                }
-            expoly.triangulate_self(); // idempotent
-            for (const auto& t : expoly.triangles) {
-                tri.push_back(start + t.a);
-                tri.push_back(start + t.b);
-                tri.push_back(start + t.c);
-            }
-        }
-        const size_t v_count = vv.size() / 3;
-        const size_t t_count = tri.size() / 3;
-        if (t_count == 0) continue;
-
-        // GUI-parity smoothing pass (verify fields at the pinned SHA,
-        // Task 7 Step 1 — the struct is stable across Prusa 2.5+ / Orca
-        // 1.x–2.x). If it differs, the raw tri/vv soup is emitted instead
-        // (tout comes back empty) — the buffer contract is identical.
-        std::vector<float>  vout;
-        std::vector<size_t> tout;
-        std::vector<size_t> tcolor;
-        Slic3r::SlicesToTriangleMeshParams params{
-            vv, {v_count}, tri, {t_count}, vout, tout, tcolor,
-        };
-        Slic3r::SlicesToTriangleMesh(params);
-        if (tout.empty()) { // fallback: raw triangulation
-            tout = std::move(tri);
-            vout = std::move(vv);
-        }
-
-        // Emit per-triangle vertices, global indices, and layer ids.
-        const size_t tris = tout.size() / 3;
-        for (size_t t = 0; t < tris; ++t) {
-            for (int v = 0; v < 3; ++v) {
-                const size_t vi = tout[t * 3 + v] * 3;
-                out.positions.appendF32(vout[vi]);
-                out.positions.appendF32(vout[vi + 1]);
-                out.positions.appendF32(vout[vi + 2]);
-            }
-            out.indices.appendU32(vertex_base + static_cast<std::uint32_t>(t * 3 + 0));
-            out.indices.appendU32(vertex_base + static_cast<std::uint32_t>(t * 3 + 1));
-            out.indices.appendU32(vertex_base + static_cast<std::uint32_t>(t * 3 + 2));
-            out.layer_ids.appendU32(static_cast<std::uint32_t>(li));
-        }
-        vertex_base += static_cast<std::uint32_t>(tris * 3);
-    }
-    return out;
-}
-
 }  // namespace bridge
 ```
-
-> **Honesty note (iterate surface):** `SlicesToTriangleMeshParams` is verified
-> against the pinned header in Step 1 before this compiles; the fallback
-> (raw `tri`/`vv` soup, emitted when `tout` comes back empty) keeps the
-> contract (Float32 xyz + Uint32 triples + per-triangle layer id) intact
-> under any params drift. `GCodeProcessor::process_file` may need an explicit
-> `reset()` first at the pinned SHA — add it if the smoke traps.
 
 - [ ] **Step 4: Extend `bridge.cpp` — new + updated exports**
 
@@ -2776,7 +2656,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
 Replace `orc_get_slice_result` with:
 
 ```cpp
-// Binary toolpath + sliced mesh + stats. Contract mirrors the Task 1
+// Binary toolpath + stats. Contract mirrors the Task 1
 // mock; JS reads the heap buffers and _free()s the pointers.
 EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     try {
@@ -2786,10 +2666,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                  {"toolpath", json{{"vertex_ptr", 0}, {"vertex_count", 0},
                                                    {"layer_ptr", 0}, {"layer_count", 0},
                                                    {"feature_ptr", 0}, {"feature_count", 0},
-                                                   {"features", json::array()}}},
-                                 {"mesh", json{{"vertex_ptr", 0}, {"vertex_count", 0},
-                                               {"index_ptr", 0}, {"index_count", 0},
-                                               {"layer_ptr", 0}, {"layer_count", 0}}}}.dump());
+                                                   {"features", json::array()}}}}.dump());
 
         // The toolpath comes from post-processing the exported gcode
         // (GCodeProcessor::process_file — the GUI's own mechanism). Export
@@ -2806,7 +2683,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             gcode_result = processor.get_result();
         }
         auto tp = bridge::build_toolpath(gcode_result);
-        auto mesh = bridge::build_sliced_mesh(print);
 
         // Feature palette (local id → name/color). build_toolpath assigns
         // ids 0..N-1 in order of first use; the features buffer holds those
@@ -2822,14 +2698,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         const std::uint32_t tvptr = reinterpret_cast<std::uint32_t>(tp.positions.data);
         const std::uint32_t tlptr = reinterpret_cast<std::uint32_t>(tp.layers.data);
         const std::uint32_t tfptr = reinterpret_cast<std::uint32_t>(tp.features.data);
-        const std::uint32_t mvptr = reinterpret_cast<std::uint32_t>(mesh.positions.data);
-        const std::uint32_t miptr = reinterpret_cast<std::uint32_t>(mesh.indices.data);
-        const std::uint32_t mlptr = reinterpret_cast<std::uint32_t>(mesh.layer_ids.data);
         const size_t n_verts = tp.positions.size / 12;
-        const size_t m_verts = mesh.positions.size / 12;
-        const size_t m_tris  = mesh.indices.size / 12;
         tp.positions.release(); tp.layers.release(); tp.features.release();
-        mesh.positions.release(); mesh.indices.release(); mesh.layer_ids.release();
 
         json out{{"ok", true}, {"objects", print.objects().size()}, {"layers", layers}};
         out["toolpath"] = {
@@ -2837,11 +2707,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             {"layer_ptr", tlptr}, {"layer_count", n_verts},
             {"feature_ptr", tfptr}, {"feature_count", n_verts},
             {"features", std::move(features)},
-        };
-        out["mesh"] = {
-            {"vertex_ptr", mvptr}, {"vertex_count", m_verts},
-            {"index_ptr", miptr}, {"index_count", m_tris * 3},
-            {"layer_ptr", mlptr}, {"layer_count", m_tris},
         };
         return dup_json(out.dump());
     } catch (const std::exception& e) {
@@ -2921,7 +2786,7 @@ but new includes may surface new headers).
 
 ```bash
 git add packages/slicer-wasm/src/bridge.cpp packages/slicer-wasm/src/bridge_buffers.cpp packages/slicer-wasm/src/bridge_buffers.hpp packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/CMakeLists.txt
-git commit -m "feat: bridge binary buffers — model mesh, instance offset, toolpath + sliced mesh in orc_get_slice_result"
+git commit -m "feat: bridge binary buffers — model mesh, instance offset, toolpath in orc_get_slice_result"
 ```
 
 ---
@@ -3220,21 +3085,20 @@ git commit -m "feat: R3F viewport — bed grid, model mesh from wasm buffers, or
 
 ---
 
-### Task 9: Slice orchestration + preview (toolpath lines, sliced mesh, layer scrubber)
+### Task 9: Slice orchestration + preview (toolpath lines, layer scrubber)
 
 After a slice, the store holds `layers`; the preview fetches
-`getSliceResult()` and renders per-feature toolpath `LineSegments` +
-sliced mesh, with a layer scrubber (slider) driving per-layer draw ranges
-(design §Electron App "preview: per-feature colored mesh + toolpath lines +
-layer slider").
+`getSliceResult()` and renders per-feature toolpath `LineSegments`, with a
+layer scrubber (slider) driving per-layer draw ranges (design §Electron App
+"preview: toolpath + layer slider").
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/viewport/ToolpathLines.tsx`, `.../viewport/SlicedMesh.tsx`, `.../viewport/LayerScrubber.tsx`, `.../viewport/PreviewLayer.tsx` (scrubber state + draw-range computation), `.../viewport/useSliceResult.ts`
+- Create: `apps/desktop/src/renderer/src/components/viewport/ToolpathLines.tsx`, `.../viewport/LayerScrubber.tsx`, `.../viewport/PreviewLayer.tsx` (scrubber state + draw-range computation), `.../viewport/useSliceResult.ts`
 - Modify: `apps/desktop/src/renderer/src/components/viewport/Scene.tsx` (render preview when done), `apps/desktop/src/renderer/src/components/status/StatusBar.tsx` (layer info), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (slice → fetch result on done)
 
 **Interfaces:**
 - Consumes: `ClientSliceResult` (Task 2), stores (Task 5), `getSliceResult()` (Task 7).
-- Produces: `useSliceResult` — fetch on `status === 'done'`, build `BufferGeometry`s (toolpath positions + per-feature colors via vertex colors, sliced mesh positions/indices), cache by `layers`; `ToolpathLines` — `<lineSegments>` with vertex colors (feature palette) + `setDrawRange` per layer; `SlicedMesh` — `<mesh>` with draw range; `LayerScrubber` — slider `[0, maxLayer]` stored in `useSlicerStore.layer` (new), default `maxLayer`.
+- Produces: `useSliceResult` — fetch on `status === 'done'`, build a `BufferGeometry` (toolpath positions + per-feature colors via vertex colors), cache by `layers`; `ToolpathLines` — `<lineSegments>` with vertex colors (feature palette) + `setDrawRange` per layer; `LayerScrubber` — slider `[0, maxLayer]` stored in `useSlicerStore.layer` (new), default `maxLayer`.
 
 - [ ] **Step 1: Extend `useSlicerStore` (layer + range state) + test**
 
@@ -3280,11 +3144,6 @@ import type { ClientSliceResult } from '@slicer/client';
 export interface ToolpathGeometry {
   geometry: THREE.BufferGeometry;
   /** per-layer [start, count] index ranges into the geometry */
-  layerRanges: Array<[number, number]>;
-}
-
-export interface SlicedMeshGeometry {
-  geometry: THREE.BufferGeometry;
   layerRanges: Array<[number, number]>;
 }
 
@@ -3350,36 +3209,11 @@ export function useSliceResult() {
     return { geometry, layerRanges };
   }, [result]);
 
-  const mesh = useMemo<SlicedMeshGeometry | null>(() => {
-    if (!result) return null;
-    const m = result.mesh;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(m.positions, 3));
-    geometry.setIndex(new THREE.BufferAttribute(m.indices, 1));
-    geometry.computeVertexNormals();
-    geometry.setDrawRange(0, 0);
-
-    // per-layer [start, count] over INDEX entries (indexed drawRange)
-    const layerRanges: Array<[number, number]> = [];
-    const triPerLayer = new Map<number, number>();
-    for (let i = 0; i < m.layerRanges.length; i++) {
-      triPerLayer.set(m.layerRanges[i], (triPerLayer.get(m.layerRanges[i]) ?? 0) + 1);
-    }
-    const maxLayer = Math.max(...triPerLayer.keys(), 0);
-    let running = 0;
-    for (let layer = 0; layer <= maxLayer; layer++) {
-      const n = triPerLayer.get(layer) ?? 0;
-      layerRanges.push([running, n * 3]);
-      running += n * 3;
-    }
-    return { geometry, layerRanges };
-  }, [result]);
-
-  return { result, toolpath, mesh };
+  return { result, toolpath };
 }
 ```
 
-- [ ] **Step 3: Write `ToolpathLines.tsx` + `SlicedMesh.tsx`**
+- [ ] **Step 3: Write `ToolpathLines.tsx`**
 
 ```tsx
 // apps/desktop/src/renderer/src/components/viewport/ToolpathLines.tsx
@@ -3401,30 +3235,6 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
     <lineSegments ref={ref} geometry={data.geometry} frustumCulled={false}>
       <lineBasicMaterial vertexColors depthTest={false} transparent opacity={0.95} />
     </lineSegments>
-  );
-}
-```
-
-```tsx
-// apps/desktop/src/renderer/src/components/viewport/SlicedMesh.tsx
-import { useEffect, useRef } from 'react';
-import * as THREE from 'three';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import type { SlicedMeshGeometry } from './useSliceResult';
-
-export function SlicedMesh({ data }: { data: SlicedMeshGeometry }) {
-  const ref = useRef<THREE.Mesh>(null);
-  const layer = useSlicerStore((s) => s.layer);
-
-  useEffect(() => {
-    const range = data.layerRanges[layer] ?? [0, 0];
-    data.geometry.setDrawRange(range[0], range[1]);
-  }, [data, layer]);
-
-  return (
-    <mesh ref={ref} geometry={data.geometry} frustumCulled={false}>
-      <meshBasicMaterial color="#94a3b8" wireframe transparent opacity={0.35} depthWrite={false} />
-    </mesh>
   );
 }
 ```
@@ -3470,11 +3280,10 @@ Wire into `Viewport.tsx` (absolute overlay) + `Scene.tsx`:
 // Scene.tsx additions
 import { useSliceResult } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
-import { SlicedMesh } from './SlicedMesh';
 
 export function Scene() {
   const objects = useModelLoader();
-  const { toolpath, mesh } = useSliceResult();
+  const { toolpath } = useSliceResult();
   return (
     <>
       <ambientLight intensity={0.6} />
@@ -3483,7 +3292,6 @@ export function Scene() {
       {objects.map((o) => (
         <ModelMesh key={o.buffer.objectIdx} data={o} />
       ))}
-      {mesh && <SlicedMesh data={mesh} />}
       {toolpath && <ToolpathLines data={toolpath} />}
     </>
   );
@@ -3505,13 +3313,13 @@ The slice button already sets `status('done')`; `useSliceResult` reacts. Verify 
 - [ ] **Step 6: Verify**
 
 Run: `pnpm --filter desktop typecheck && pnpm --filter desktop test && pnpm --filter slicer-wasm test`
-Expected: exit 0 (3 store tests PASS, slicer-wasm 14 PASS). Manual: `VITE_USE_MOCK=1 pnpm --filter desktop dev` — open file, Slice, scrub layers, see toolpath + sliced mesh clip by layer.
+Expected: exit 0 (3 store tests PASS, slicer-wasm 14 PASS). Manual: `VITE_USE_MOCK=1 pnpm --filter desktop dev` — open file, Slice, scrub layers, see toolpath clip by layer.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add apps/desktop/src/renderer/src/components/viewport apps/desktop/src/renderer/src/stores apps/desktop/src/renderer/src/components/status apps/desktop/src/renderer/src/components/toolbar
-git commit -m "feat: slice preview — toolpath LineSegments + sliced mesh with layer scrubber draw ranges"
+git commit -m "feat: slice preview — toolpath LineSegments with layer scrubber draw ranges"
 ```
 
 ---
@@ -3600,10 +3408,10 @@ partial.
 - [ ] **Step 3: Write `doc/2026-08-13-m2-implementation-notes.md`**
 
 Header block (title/date/status/scope); the binary-buffer contracts (model
-mesh, toolpath, sliced mesh — pointer to the Task 1 mock as the spec);
+mesh, toolpath — pointer to the Task 1 mock as the spec);
 worker protocol (request/response/progress); the `stage:wasm` + `VITE_USE_MOCK`
 dev workflow; every drift fix actually hit at the pinned SHA (bridge function
-signatures, `SlicesToTriangleMesh` params, option keys); known M3 work
+signatures, option keys); known M3 work
 (packaging, e2e, full preset bundle, cross-check).
 
 - [ ] **Step 4: Verify the acceptance criteria once more**
@@ -3633,22 +3441,20 @@ git commit -m "docs: mark M2 delivered, add M2 implementation notes"
   dialogs, COOP/COEP) → Task 4; settings UI from option metadata → Tasks 5–6;
   3D viewport (R3F bed/models/orbit/select/move) → Task 8; slice orchestration
   (config JSON → progress → result buffers) → Tasks 6–7 (slice) + Task 9
-  (result); preview (per-feature mesh + toolpath + layer scrubber) → Task 9;
+  (result); preview (toolpath + layer scrubber) → Task 9;
   export through native save dialog → Task 10. Design-doc specifics covered:
   promise-based client API with transferables (Tasks 2–3), public-dir wasm
   staging + mock fallback for emsdk-less dev (Tasks 3, 6), metadata-driven settings
-  (Task 6), `SlicesToTriangleMesh` + `GCodeProcessorResult` toolpath with
+  (Task 6), `GCodeProcessorResult` toolpath with
   per-layer draw ranges (Task 7/9), COOP/COEP session headers (Task 4), i18n
   English-only (no task, by design).
-- **Placeholder scan:** the two genuinely uncertain pieces — `SlicesToTriangleMesh`
-  params at the pinned SHA and the `GCodeProcessor`/`MoveVertex` field names —
-  are named iterate surfaces with a verify step (Task 7 Step 1) and a robust
-  fallback (manual ExPolygon triangulation, emitted in the code). No "TODO"
-  or "similar to Task N" remains.
-- **Type consistency:** `ClientSliceResult`/`ClientToolpath`/`ClientSlicedMesh`
+- **Placeholder scan:** the one genuinely uncertain piece — the
+  `GCodeProcessor`/`MoveVertex` field names — is a named iterate surface with
+  a verify step (Task 7 Step 1). No "TODO" or "similar to Task N" remains.
+- **Type consistency:** `ClientSliceResult`/`ClientToolpath`
   (Task 2 types.ts) match the mock's JSON keys (Task 1) and the C++ JSON keys
   (Task 7) — `vertex_ptr/vertex_count`, `layer_ptr/layer_count`,
-  `feature_ptr/feature_count`, `index_ptr/index_count`; the worker protocol
+  `feature_ptr/feature_count`; the worker protocol
   types (`WorkerMessage`) match `createWorkerClient`'s transport in Task 3 and
   the app's `makeTransport` in Task 6; store action names
   (`setModelLoaded/setSelectedObject/setInstanceOffset/setLayer/setMaxLayer`)

@@ -1348,7 +1348,7 @@ git commit -m "test: node smoke green — cube.stl slices to valid G-code"
 ### Task 10: Bridge API (`src/bridge.cpp`) + bridge smoke
 
 The design doc's 8-function extern "C" API, compiled into the same module as
-`slice_main`. Binary result buffers (toolpath/sliced-mesh marshaling) are
+`slice_main`. Binary result buffers (toolpath marshaling) are
 deliberately Milestone 2 (Epic 2.4 "Slice orchestration: config JSON →
 progress → result buffers") — the client test drives their exact layout; here
 `orc_get_slice_result` returns JSON stats.
@@ -1590,7 +1590,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     }
 }
 
-// JSON stats for v1; the binary toolpath + sliced-mesh buffers land in
+// JSON stats for v1; the binary toolpath buffers land in
 // Milestone 2 (Epic 2.4) where the JS client drives their layout.
 EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     try {

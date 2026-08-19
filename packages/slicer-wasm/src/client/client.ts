@@ -11,7 +11,7 @@ import type {
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer,
-  ClientToolpath, ClientSlicedMesh, ToolpathFeature, ModelTransform,
+  ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox,
 } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
@@ -184,13 +184,8 @@ export function createClient(
           feature_ptr: number; feature_count: number;
           features: ToolpathFeature[];
         };
-        mesh?: {
-          vertex_ptr: number; vertex_count: number;
-          index_ptr: number; index_count: number;
-          layer_ptr: number; layer_count: number;
-        };
       };
-      if (!r.ok || !r.toolpath || !r.mesh) return r as unknown as ClientSliceResult;
+      if (!r.ok || !r.toolpath) return r as unknown as ClientSliceResult;
 
       const t = r.toolpath;
       const toolpath: ClientToolpath = {
@@ -201,16 +196,7 @@ export function createClient(
         palette: t.features,
       };
 
-      const s = r.mesh;
-      const mesh: ClientSlicedMesh = {
-        vertexCount: s.vertex_count,
-        positions: new Float32Array(readBytes(m, Number(s.vertex_ptr), s.vertex_count * 3 * 4).buffer),
-        indices: new Uint32Array(readBytes(m, Number(s.index_ptr), s.index_count * 4).buffer),
-        indexCount: s.index_count,
-        layerRanges: new Uint32Array(readBytes(m, Number(s.layer_ptr), s.layer_count * 4).buffer),
-      };
-
-      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath, mesh };
+      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath };
     },
 
     async exportGcode(): Promise<ExportGcodeResult> {

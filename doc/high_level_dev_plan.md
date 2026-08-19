@@ -60,7 +60,7 @@
   `orc_init`, `orc_get_presets`, `orc_get_option_metadata`, `orc_add_model`,
   `orc_clear_model`,
   `orc_slice` (progress via registered JS callback from `set_status_callback`),
-  `orc_get_slice_result` (toolpath + sliced mesh + stats), `orc_export_gcode`
+  `orc_get_slice_result` (toolpath + stats), `orc_export_gcode`
   (MEMFS), `orc_cancel`.
 - Retain `slice_main.cpp` (spike CLI driver) for harness parity.
 - Resources: curated preset subset via `--embed-file`.
@@ -78,7 +78,7 @@
 > dialogs/file IO and COOP/COEP session headers; settings UI rendered from
 > `orc_get_option_metadata()`; R3F viewport (bed, model mesh from WASM
 > buffers, orbit/select, drag-move); slice orchestration with progress and
-> binary result buffers (toolpath + per-feature sliced mesh); layer scrubber;
+> binary result buffers (toolpath); layer scrubber;
 > G-code export through the native save dialog. Real-module verification
 > (WASM rebuild + `bridge-smoke.mjs` + `run-slice.mjs`) is deferred — the
 > delivery machine has no emsdk; the binary-buffer bridge is unit-tested
@@ -272,13 +272,6 @@
   retain Electron E2E and compact fixture/full-package release smoke coverage.
 
 ## Cross-Cutting Practices
-
-### Sliced Preview Alignment Follow-up
-
-> **Status: delivered 2026-08-18.** The sliced layer cross-section now follows
-> the first print object's XY instance placement, matching the plate-space
-> G-code toolpath after a model move. Its slicer-provided Z remains unchanged.
-> See `doc/2026-08-18-sliced-mesh-plate-offset.md`.
 
 - **Bridge is the only seam:** renderer code never imports the WASM module
   directly; it goes through `packages/slicer-wasm/src/client`. Binary buffers

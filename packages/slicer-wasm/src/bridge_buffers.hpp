@@ -16,13 +16,12 @@
 #include <vector>
 
 // ExtrusionRole keys the feature palette; the layout structs below are
-// consumed by bridge.cpp (tp.palette_used, auto tp/mesh), so they live
-// in this header, not only in bridge_buffers.cpp.
+// consumed by bridge.cpp (tp.palette_used), so they live in this header,
+// not only in bridge_buffers.cpp.
 #include "libslic3r/ExtrusionEntity.hpp"
 
 namespace Slic3r {
 struct GCodeProcessorResult;
-class Print;
 }
 
 // A buffer that owns malloc'd memory. By default the storage lives
@@ -89,14 +88,7 @@ struct ToolpathBuffers {
     std::vector<std::pair<ExtrusionRole, FeatureInfo>> palette_used;
 };
 
-struct MeshBuffers {
-    MallocBuffer positions;   // Float32 xyz per vertex
-    MallocBuffer indices;     // Uint32 index triples
-    MallocBuffer layer_ids;   // Uint32 per TRIANGLE
-};
-
 const std::map<ExtrusionRole, FeatureInfo>& feature_palette();
 ToolpathBuffers build_toolpath(const Slic3r::GCodeProcessorResult& result);
-MeshBuffers build_sliced_mesh(const Slic3r::Print& print);
 
 }  // namespace bridge

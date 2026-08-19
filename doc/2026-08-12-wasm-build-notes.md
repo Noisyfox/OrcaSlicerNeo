@@ -285,15 +285,15 @@ Print).
 | `orc_load_model(data, len, ext)` | model bytes in heap + length + extension | Bytes staged to `/tmp/uploaded_model.<ext>`; `Model::read_from_file` with `LoadStrategy::AddDefaultInstances` → `{"ok": true, "objects": N, "instances": N}`. |
 | `orc_set_progress_callback(cb)` | JS function via wasm table (`void(*)(int, const char*)`) | `void`. Called from `set_status_callback` with `(percent, text)` during `orc_slice`. Clear with `orc_set_progress_callback(0)` before `removeFunction`. |
 | `orc_slice(config_json)` | config JSON string | Starts from `DynamicPrintConfig::full_print_config()` (optptr() null-derefs on missing keys otherwise); JSON keys applied per-key with one shared `ConfigSubstitutionContext{Disable}` (strict, no substitutions; `\\n` escapes restored to real newlines); `normalize_fdm()` → `print.apply` → `validate()` (error if non-empty) → `process()` with progress → `{"ok": true, "unrecognized_keys": [k, ...]}`. `unrecognized_keys` is additive (fix round 2): always present, empty when clean; M2 clients warn on dropped keys. |
-| `orc_get_slice_result()` | — | v1 = JSON stats only: `{"ok": true, "objects": N, "layers": N}` (`layers` present when non-empty). Binary toolpath + sliced-mesh buffers are M2 (Epic 2.4). |
+| `orc_get_slice_result()` | — | v1 = JSON stats only: `{"ok": true, "objects": N, "layers": N}` (`layers` present when non-empty). Binary toolpath buffers are M2 (Epic 2.4). |
 | `orc_export_gcode()` | — | `print.export_gcode` to MEMFS → `{"ok": true, "path": "/out.gcode"}`. |
 | `orc_cancel()` | — | State reset (fix round 1): `print.cancel()` **and** `print.restart()` — a cancel can never interrupt an in-flight slice (synchronous bridge) and must not poison the next one. `{"ok": true}`. |
 
 ## Known M2 work
 
 - **Binary slice-result buffers** (Epic 2.4): `orc_get_slice_result` currently
-  returns JSON stats only; the binary toolpath + per-feature sliced-mesh
-  buffers are the M2 client's layout contract.
+  returns JSON stats only; the binary toolpath buffers are the M2 client's
+  layout contract.
 - **Full preset bundle + `nozzle_info.json` embed:** the curated subset is
   enough for v1, but `orc_export_gcode` logs a benign
   `get_hrc_by_nozzle_type` parse error; M3 replaces the subset with the full

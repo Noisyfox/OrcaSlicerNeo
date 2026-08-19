@@ -156,23 +156,11 @@ export interface ClientToolpath {
   palette: ToolpathFeature[];
 }
 
-export interface ClientSlicedMesh {
-  vertexCount: number;
-  /** Float32Array xyz per mesh vertex */
-  positions: Float32Array;
-  /** Uint32Array triangle index triples */
-  indices: Uint32Array;
-  indexCount: number;
-  /** Uint32Array layer_id per TRIANGLE (index triple) */
-  layerRanges: Uint32Array;
-}
-
 export interface ClientSliceResult {
   ok: boolean;
   objects: number;
   layers: number;
   toolpath: ClientToolpath;
-  mesh: ClientSlicedMesh;
   error?: string;
 }
 
