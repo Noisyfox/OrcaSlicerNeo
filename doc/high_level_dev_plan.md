@@ -238,7 +238,7 @@
 
 ### Milestone 9 — Shared Web–Electron Application Architecture
 
-> **Status: approved, not started (2026-08-19).** The norm is
+> **Status: step 1 delivered, migration in progress (2026-08-19).** The norm is
 > `spec/Web-Electron Shared Application Architecture.md`. This is an
 > incremental extraction, not a renderer rewrite: Electron remains usable at
 > every step, and implementation commits follow independently verifiable
@@ -247,7 +247,7 @@
 **Epic 9.1: platform contracts and Electron adapter**
 - Define injected file-import/export, preferences, platform-chrome, runtime,
   and profile-source contracts.
-- Replace shared renderer calls to `window.orca` with the Electron adapter,
+- **Step 1 delivered:** replace renderer calls to `window.orca` with the Electron adapter,
   retaining existing Electron behavior as the verification target.
 
 **Epic 9.2: extract shared application/runtime**

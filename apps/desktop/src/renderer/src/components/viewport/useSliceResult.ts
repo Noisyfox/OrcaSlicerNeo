@@ -1,7 +1,7 @@
 // apps/desktop/src/renderer/src/components/viewport/useSliceResult.ts
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
-import { slicerClient } from '../../slicer/slicerClient';
+import { platform } from '../../platform';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import type { ClientSliceResult } from '@slicer/client';
 
@@ -23,7 +23,7 @@ export function useSliceResult() {
     let cancelled = false;
     (async () => {
       try {
-        const r = await slicerClient.getSliceResult();
+      const r = await platform.runtime.getSliceResult();
         if (!r.ok) throw new Error(r.error ?? 'getSliceResult failed');
         if (cancelled) return;
         setResult(r);

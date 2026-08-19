@@ -3,12 +3,12 @@ import { useMemo } from 'react';
 import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
-import { slicerClient } from '../../slicer/slicerClient';
 import { OptionField } from './OptionField';
 import { MovePanel } from './MovePanel';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { platform } from '../../platform';
 import {
   Combobox,
   ComboboxContent,
@@ -56,12 +56,12 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   // tail and moves print/filament with it, so we sync all three at once.
   async function handleSelectPreset(kind: PresetKind, name: string) {
     try {
-      const r = await slicerClient.selectPreset(kind, name);
+      const r = await platform.runtime.selectPreset(kind, name);
       if (!r.ok) throw new Error(r.error ?? 'selectPreset failed');
       setSelections(r.printer.name, r.print.name, r.filament.name);
-      const cfg = await slicerClient.getAppConfig();
+      const cfg = await platform.runtime.getAppConfig();
       if (!cfg.ok) throw new Error(cfg.error ?? 'getAppConfig failed');
-      await window.orca.appConfig.save(cfg);
+      await platform.preferences.save(cfg);
     } catch (err) {
       setError(`select ${kind}: ${String(err)}`);
     }

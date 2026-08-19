@@ -1,6 +1,6 @@
 // apps/desktop/src/renderer/src/components/viewport/useModelLoader.ts
 import { useEffect, useState } from 'react';
-import { slicerClient } from '../../slicer/slicerClient';
+import { platform } from '../../platform';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { GLVolume, glVolumeCollection } from './GLVolume';
 
@@ -20,7 +20,7 @@ export function useModelLoader(): LoadedObject[] {
     }
     (async () => {
       try {
-        const res = await slicerClient.getModelMesh();
+        const res = await platform.runtime.getModelMesh();
         if (!res.ok) throw new Error(res.error ?? 'getModelMesh failed');
         const loaded: LoadedObject[] = res.objects.map((buf) => new GLVolume(buf));
         if (disposed) {

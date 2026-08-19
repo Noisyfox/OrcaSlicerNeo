@@ -3,13 +3,13 @@ import { useState } from 'react';
 import { FolderPlus, Slice, Download, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSlicerStore } from '../../stores/useSlicerStore';
-import { slicerClient } from '../../slicer/slicerClient';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { errorText } from '../../slicer/errors';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms } from './syncModelTransforms';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
+import { platform } from '../../platform';
 
 export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const status = useSlicerStore((s) => s.status);
@@ -26,24 +26,20 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
   const [exporting, setExporting] = useState(false);
 
   async function addModel() {
-    const { path } = await window.orca.openFileDialog([
-      { name: 'Models', extensions: ['stl', '3mf'] },
-      { name: 'All files', extensions: ['*'] },
-    ]);
-    if (!path) return;
+    const file = await platform.models.pick();
+    if (!file) return;
     try {
-      const buf = await window.orca.readFile(path);
-      const ext = path.split('.').pop() ?? 'stl';
+      const ext = file.name.split('.').pop() ?? 'stl';
       // A just-finished gesture persists its settled state on release. Wait
       // for that commit before the additive import refreshes the collection.
       const synced = await waitForSettledModelTransforms();
       if (!synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
-      const r = await slicerClient.addModel(new Uint8Array(buf), ext);
+      const r = await platform.runtime.addModel(file.bytes, ext);
       if (!r.ok) throw new Error(r.error ?? 'add failed');
       // Only a successful add changes the plate. A dialog cancel or parse
       // failure must leave the existing scene and its sliced result intact.
       setSlicerStatus('idle');
-      useSettingsStore.getState().setValue('modelPath', path);
+      useSettingsStore.getState().setValue('modelPath', file.sourcePath ?? file.name);
       useSettingsStore.getState().setModelLoaded(true);
       sceneInteraction?.resetForModel();
       setError(null);
@@ -58,7 +54,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
   async function clearScene() {
     if (busy || !modelLoaded) return;
     try {
-      const r = await slicerClient.clearModel();
+      const r = await platform.runtime.clearModel();
       if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
       setSlicerStatus('idle');
       useSettingsStore.getState().setModelLoaded(false);
@@ -82,7 +78,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
     );
     // Apply all renderer-side CompositeIDs to the C++ Model at the slice
     // boundary. Interaction never waits on the worker.
-    const synced = await syncModelTransforms(slicerClient, glVolumeCollection.volumes);
+    const synced = await syncModelTransforms(platform.runtime, glVolumeCollection.volumes);
     if (!synced.ok) {
       setSlicerStatus('error');
       setError(synced.error ?? 'model synchronization failed');
@@ -93,7 +89,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
     // showing the old error while the new slice runs (or if it succeeds).
     setError(null);
     try {
-      const r = await slicerClient.slice(values, (pct) => useSlicerStore.getState().setProgress(pct));
+      const r = await platform.runtime.slice(values, (pct) => useSlicerStore.getState().setProgress(pct));
       // A failed slice is not a thrown error: r.error is the bridge's plain
       // message (set it directly — a `new Error(...)` + String(err) round
       // trip would double-wrap it as "Error: <msg>"; the status bar already
@@ -119,16 +115,9 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
     if (exporting) return;
     setExporting(true);
     try {
-      const res = await slicerClient.exportGcode();
+      const res = await platform.runtime.exportGcode();
       if (!res.ok) throw new Error(res.error ?? 'export failed');
-      const { path } = await window.orca.saveFileDialog('output.gcode', [
-        { name: 'G-code', extensions: ['gcode'] },
-      ]);
-      if (!path) return; // canceled — nothing to do
-      await window.orca.writeFile(path, res.bytes.buffer.slice(
-        res.bytes.byteOffset,
-        res.bytes.byteOffset + res.bytes.byteLength,
-      ) as ArrayBuffer);
+      await platform.exports.save('output.gcode', res.bytes);
     } catch (err) {
       setError(`export: ${errorText(err)}`);
       console.error('export failed:', err);

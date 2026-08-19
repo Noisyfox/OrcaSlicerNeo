@@ -1,0 +1,60 @@
+import type { AppConfig } from '@slicer/client';
+import type { PlatformCapabilities } from './contracts';
+import type { FileDialogFilter } from '../../../shared/ipc';
+import type { SlicerRuntime } from './contracts';
+
+const MODEL_FILTERS: FileDialogFilter[] = [
+  { name: 'Models', extensions: ['stl', '3mf'] },
+  { name: 'All files', extensions: ['*'] },
+];
+
+const GCODE_FILTERS: FileDialogFilter[] = [
+  { name: 'G-code', extensions: ['gcode'] },
+];
+
+/** The only renderer module allowed to know about the Electron preload API. */
+export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilities {
+  const host = window.orca;
+  return {
+    models: {
+      async pick() {
+        const { path } = await host.openFileDialog(MODEL_FILTERS);
+        if (!path) return null;
+        const bytes = new Uint8Array(await host.readFile(path));
+        return {
+          name: path.split(/[\\/]/).pop() ?? path,
+          bytes,
+          sourcePath: path,
+        };
+      },
+    },
+    exports: {
+      async save(defaultName, bytes) {
+        const { path } = await host.saveFileDialog(defaultName, GCODE_FILTERS);
+        if (!path) return;
+        await host.writeFile(path, bytes.buffer.slice(
+          bytes.byteOffset,
+          bytes.byteOffset + bytes.byteLength,
+        ) as ArrayBuffer);
+      },
+    },
+    preferences: {
+      async load() {
+        const result = await host.appConfig.load();
+        return result.found ? result.json : null;
+      },
+      async save(value) {
+        await host.appConfig.save(value);
+      },
+    },
+    runtime,
+    profiles: {
+      // Step 1 preserves the existing Electron asset layout. The portable
+      // profile installer/source is intentionally introduced in step 3.
+      resolve: (relativePath) => relativePath,
+    },
+    chrome: { kind: 'desktop', platform: host.platform },
+  };
+}
+
+export type ElectronAppConfig = AppConfig;

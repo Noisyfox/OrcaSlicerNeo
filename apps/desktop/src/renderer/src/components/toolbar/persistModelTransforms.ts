@@ -1,4 +1,4 @@
-import { slicerClient } from '../../slicer/slicerClient';
+import { platform } from '../../platform';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { syncModelTransforms } from './syncModelTransforms';
 
@@ -13,8 +13,8 @@ let pendingSettledTransformSync: Promise<SyncResult> = Promise.resolve({ ok: tru
 export function persistSettledModelTransforms(): Promise<SyncResult> {
   const snapshot = [...glVolumeCollection.volumes];
   const sync = pendingSettledTransformSync.then(
-    () => syncModelTransforms(slicerClient, snapshot),
-    () => syncModelTransforms(slicerClient, snapshot),
+    () => syncModelTransforms(platform.runtime, snapshot),
+    () => syncModelTransforms(platform.runtime, snapshot),
   );
   pendingSettledTransformSync = sync.catch((error) => ({
     ok: false,
