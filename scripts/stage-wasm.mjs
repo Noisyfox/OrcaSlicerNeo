@@ -10,10 +10,10 @@ import { fileURLToPath } from 'node:url';
 
 const soft = process.argv.includes('--soft');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const src = join(root, 'packages/slicer-wasm/out');
-const dst = join(root, 'apps/desktop/src/renderer/public/wasm');
+const outRoot = join(root, 'packages/slicer-wasm/out');
+const dstRoot = join(root, 'apps/desktop/src/renderer/public/wasm');
 
-if (!existsSync(src)) {
+if (!existsSync(outRoot)) {
   if (soft) {
     console.warn('[stage-wasm] no WASM build — skipping (mock-mode / UI-only dev)');
     process.exit(0);
@@ -22,15 +22,25 @@ if (!existsSync(src)) {
   process.exit(1);
 }
 await mkdir(dst, { recursive: true });
-for (const f of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
-  if (!existsSync(join(src, f))) {
-    if (soft) {
-      console.warn(`[stage-wasm] missing ${f} in ${src} — skipping (mock-mode / UI-only dev)`);
-      process.exit(0);
-    }
-    console.error(`missing ${f} in ${src}`);
+for (const variant of ['threaded', 'serial']) {
+  const src = join(outRoot, variant);
+  const dst = join(dstRoot, variant);
+  if (!existsSync(src)) {
+    if (soft) { console.warn(`[stage-wasm] missing ${variant} artifact directory — skipping`); continue; }
+    console.error(`missing ${variant} artifact directory in ${outRoot}`);
     process.exit(1);
   }
-  await copyFile(join(src, f), join(dst, f));
-  console.log(`staged ${f}`);
+  await mkdir(dst, { recursive: true });
+  for (const f of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
+    if (!existsSync(join(src, f))) {
+      if (soft) {
+        console.warn(`[stage-wasm] missing ${variant}/${f} — skipping (mock-mode / UI-only dev)`);
+        continue;
+      }
+      console.error(`missing ${variant}/${f} in ${src}`);
+      process.exit(1);
+    }
+    await copyFile(join(src, f), join(dst, f));
+    console.log(`staged ${variant}/${f}`);
+  }
 }

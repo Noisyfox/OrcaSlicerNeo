@@ -238,7 +238,7 @@
 
 ### Milestone 9 — Shared Web–Electron Application Architecture
 
-> **Status: steps 1–2 implemented, migration in progress (2026-08-19).** The norm is
+> **Status: M9 steps 1–5 implemented (2026-08-20).** The norm is
 > `spec/Web-Electron Shared Application Architecture.md`. This is an
 > incremental extraction, not a renderer rewrite: Electron remains usable at
 > every step, and implementation commits follow independently verifiable
@@ -274,6 +274,9 @@
   protection for ephemeral work.
 - Build and verify threaded and serial wasm64 artifacts with Chrome Web E2E;
   retain Electron E2E and compact fixture/full-package release smoke coverage.
+  **Step 5 delivered:** dual variant build/staging and capability-based Worker
+  selection are implemented; real-artifact Chrome/Electron verification is the
+  release gate documented in `doc/2026-08-20-m9-step5-dual-wasm-web-e2e.md`.
 
 ## Cross-Cutting Practices
 

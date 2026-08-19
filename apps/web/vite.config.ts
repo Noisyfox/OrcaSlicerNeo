@@ -10,8 +10,10 @@ export default defineConfig({
   // The checked-in static profile bundle is host-neutral and is reused by
   // both static hosts; WASM artifact packaging remains Step 5.
   publicDir: root('../../apps/desktop/public'),
-  server: { headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' } },
-  preview: { headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' } },
+  // The normal server/preview is isolated. Web E2E deliberately sets
+  // ORCA_WEB_NO_ISOLATION=1 to exercise the real serial artifact.
+  server: { headers: isolationHeaders() },
+  preview: { headers: isolationHeaders() },
   resolve: { alias: {
     '@': root('../../packages/slicer-app/src'),
     '@orca/slicer-app': root('../../packages/slicer-app/src/index.ts'),
@@ -22,3 +24,10 @@ export default defineConfig({
     '@slicer/testing': root('../../packages/slicer-wasm/src/client/testing/mock-module.ts'),
   } },
 });
+
+function isolationHeaders(): Record<string, string> {
+  return process.env.ORCA_WEB_NO_ISOLATION === '1' ? {} : {
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Cross-Origin-Embedder-Policy': 'require-corp',
+  };
+}

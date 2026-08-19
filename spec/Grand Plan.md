@@ -188,11 +188,11 @@ cross-origin isolation is available, and serial WASM otherwise.
       `window.orca` use while keeping Electron running.
 - [x] Extract platform-neutral UI/runtime into shared packages without
       rewriting unrelated renderer behavior.
-- [ ] Replace Emscripten profile preload files with upstream-organized `core`
+- [x] Replace Emscripten profile preload files with upstream-organized `core`
       and vendor packages installed into MEMFS at startup.
-- [ ] Add the static `apps/web` host, browser file/download adapters, and the
+- [x] Add the static `apps/web` host, browser file/download adapters, and the
       common startup/unsupported-environment experiences.
-- [ ] Ship and verify real threaded and serial wasm64 artifacts in Chrome Web
+- [x] Ship and verify real threaded and serial wasm64 artifacts in Chrome Web
       E2E, while retaining Electron core E2E.
 ## Milestone 5+: Post-v1 Expansion (queued, not yet scheduled)
 

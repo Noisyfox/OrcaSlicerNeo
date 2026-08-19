@@ -21,7 +21,10 @@ export async function startWebApp(deps: WebStartupDeps): Promise<void> {
   }
   try {
     const runtime = await deps.loadRuntime();
-    deps.render(runtime, { serialFallback: !deps.isolated });
+    // The runtime makes the same decision inside its Worker. Keep the UI
+    // status tied to the capability probe (isolation plus SAB), not merely to
+    // the page header, so a deliberately reduced test path reports reality.
+    deps.render(runtime, { serialFallback: !capabilities.threadedWasm });
   } catch (error) {
     deps.failed(error);
   }

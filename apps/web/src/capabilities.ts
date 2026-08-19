@@ -1,4 +1,4 @@
-export interface WebCapabilities { webgl2: boolean; wasm64: boolean; }
+export interface WebCapabilities { webgl2: boolean; wasm64: boolean; threadedWasm: boolean; }
 
 export function supportsWebgl2(): boolean {
   try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; }
@@ -15,5 +15,10 @@ export function supportsWasm64(): boolean {
 }
 
 export function detectWebCapabilities(): WebCapabilities {
-  return { webgl2: supportsWebgl2(), wasm64: supportsWasm64() };
+  return {
+    webgl2: supportsWebgl2(),
+    wasm64: supportsWasm64(),
+    threadedWasm: typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated
+      && typeof SharedArrayBuffer === 'function',
+  };
 }

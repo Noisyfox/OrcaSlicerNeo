@@ -20,12 +20,18 @@ const factory: OrcaModuleFactory = useMock
       // artifact is served from wasm/. Resolving from the module URL keeps
       // both root and subpath deployments portable, including Vite dev.
       const workerUrl = String(import.meta.url);
-      const wasmUrl = resolveModuleAssetUrl('../wasm/orca_slice.js', workerUrl);
+      // The host deliberately publishes both real wasm64 variants. A Worker
+      // inherits the page's isolation state; this keeps the selection tied to
+      // the capability actually available to the module, rather than a UI
+      // preference or a guessed browser string.
+      const isolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
+      const artifactDir = isolated ? 'threaded' : 'serial';
+      const wasmUrl = resolveModuleAssetUrl(`../wasm/${artifactDir}/orca_slice.js`, workerUrl);
       // Emscripten's scriptDirectory inside a worker derives from the
       // WORKER script's URL (assets/), not the imported module's — so
       // .wasm/.data fetches 404 unless locateFile points at wasm/ (the
       // harness never hits this: Node resolves from the module itself).
-      const locateFile = (path: string) => resolveModuleAssetUrl(`../wasm/${path}`, workerUrl);
+      const locateFile = (path: string) => resolveModuleAssetUrl(`../wasm/${artifactDir}/${path}`, workerUrl);
       const mod = (await import(/* @vite-ignore */ wasmUrl)) as {
         default: (opts?: { noInitialRun?: boolean; locateFile?: (path: string) => string }) => OrcaModule;
       };

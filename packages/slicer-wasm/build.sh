@@ -24,11 +24,13 @@ set -euo pipefail
 PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 WORK_DIR="${WORK_DIR:-$PKG_DIR/.work}"            # gitignored scratch space
 ORCA_SRC="$PKG_DIR/cpp"                            # pinned submodule = the source
-SHIM_INCLUDE="$WORK_DIR/shim-include"              # generated tbb/*.h forwarding headers
-GEN_INCLUDE="$WORK_DIR/gen"                        # generated headers (libslic3r_version.h, openssl/md5.h)
-BUILD_DIR="$WORK_DIR/build"
-OUT_DIR="$PKG_DIR/out"
 WASM_THREADING="${WASM_THREADING:-1}"
+ARTIFACT_VARIANT="${WASM_ARTIFACT_VARIANT:-$([[ "$WASM_THREADING" == "0" ]] && echo serial || echo threaded)}"
+VARIANT_WORK_DIR="$WORK_DIR/$ARTIFACT_VARIANT"
+SHIM_INCLUDE="$VARIANT_WORK_DIR/shim-include"
+GEN_INCLUDE="$VARIANT_WORK_DIR/gen"
+BUILD_DIR="$VARIANT_WORK_DIR/build"
+OUT_DIR="${WASM_OUT_DIR:-$PKG_DIR/out/$ARTIFACT_VARIANT}"
 # Emscripten evaluates this expression in the runtime and creates one pthread
 # worker per available logical core. Callers can override it for profiling.
 WASM_PTHREAD_POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-navigator.hardwareConcurrency}"
@@ -207,6 +209,13 @@ for f in orca_slice.js orca_slice.wasm orca_slice.data; do
   [[ -f "$BUILD_DIR/$f" ]] || die "Build did not produce $BUILD_DIR/$f — check the link step above"
   cp -f "$BUILD_DIR/$f" "$OUT_DIR/"
 done
+# Keep the historical single-artifact location for existing Node smoke and
+# Electron scripts when the default threaded build is run directly. The dual
+# entry point and Web host consume the explicit variant directories.
+if [[ "$ARTIFACT_VARIANT" == "threaded" && "$OUT_DIR" != "$PKG_DIR/out" ]]; then
+  mkdir -p "$PKG_DIR/out"
+  for f in orca_slice.js orca_slice.wasm orca_slice.data; do cp -f "$OUT_DIR/$f" "$PKG_DIR/out/"; done
+fi
 ls -la "$OUT_DIR"
 log "Done. Artifacts in $OUT_DIR/"
 log "Smoke test: node harness/run-slice.mjs --module out/orca_slice.js \\
