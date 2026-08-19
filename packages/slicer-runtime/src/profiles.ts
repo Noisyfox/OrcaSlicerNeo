@@ -45,7 +45,12 @@ export async function installProfiles(module: Pick<OrcaModule, 'FS'>, source: Pr
     try {
       const entries = await unzip(await source.fetch(pkg.path));
       // Preserve the virtual tree expected by libslic3r's PresetBundle.
-      for (const entry of entries) module.FS.writeFile(`/system/${entry.path.replace(/^\/+/, '')}`, entry.data);
+      for (const entry of entries) {
+        const relative = safeEntryPath(entry.path);
+        const fullPath = `/system/${relative}`;
+        mkdirParents(module.FS, fullPath.slice(0, fullPath.lastIndexOf('/')));
+        module.FS.writeFile(fullPath, entry.data);
+      }
     } catch (error) {
       if (pkg.kind === 'core') throw new Error(`core profile package ${pkg.id} failed: ${String(error)}`);
       console.error(`vendor profile package ${pkg.id} skipped`, error);
@@ -56,4 +61,23 @@ export async function installProfiles(module: Pick<OrcaModule, 'FS'>, source: Pr
 export function createFetchProfileSource(base: string | URL): ProfileSource {
   const root = new URL(base.toString());
   return { fetch: async (path) => bytes(await fetch(new URL(path, root))) };
+}
+
+function safeEntryPath(entry: string): string {
+  const normalized = entry.replaceAll('\\', '/');
+  if (!normalized || normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized)) throw new Error(`unsafe profile path: ${entry}`);
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.some((part) => part === '..' || part === '.')) throw new Error(`unsafe profile path: ${entry}`);
+  return parts.join('/');
+}
+
+function mkdirParents(fs: Pick<OrcaModule['FS'], 'mkdir'>, path: string): void {
+  if (!fs.mkdir) return;
+  const parts = path.split('/');
+  let current = '';
+  for (const part of parts) {
+    if (!part) continue;
+    current += `/${part}`;
+    try { fs.mkdir(current); } catch { /* EEXIST */ }
+  }
 }

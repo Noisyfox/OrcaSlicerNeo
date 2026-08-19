@@ -39,9 +39,6 @@
 # Options:
 #   -j N, --jobs N   Parallelism for ninja / b2 (quick/build/boost).
 #                    Default: ninja auto; BOOST_JOBS=4 as upstream.
-#   --profiles <dir> WASM_PROFILES_DIR override for `build`/`full`
-#                    (a curated dir = lighter .data bundle; default is the
-#                    full profiles tree).
 #   --no-env         Skip emsdk auto-activation (expect emcmake on PATH).
 #   -v, --verbose    set -x (print every command).
 #
@@ -61,7 +58,6 @@ OUT_DIR="$PKG/out"
 BOOST_STAGE="$WORK/deps/boost-1.84.0/stage-wasm64/lib"
 
 JOBS=""            # "" = toolchain default
-PROFILES_DIR=""    # "" = full bundle
 AUTO_ENV=1
 
 usage() { sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; }
@@ -101,9 +97,6 @@ while [[ $# -gt 0 ]]; do
     -j|--jobs)
       [[ $# -ge 2 ]] || die "Option $1 requires an argument (see --help)"
       JOBS="$2"; shift 2 ;;
-    --profiles)
-      [[ $# -ge 2 ]] || die "Option $1 requires an argument (see --help)"
-      PROFILES_DIR="$2"; shift 2 ;;
     --no-env)    AUTO_ENV=0; shift ;;
     -v|--verbose) set -x; shift ;;
     -h|--help)   usage; exit 0 ;;
@@ -150,12 +143,7 @@ case "$CMD" in
   build)
     ensure_emsdk
     [[ -d "$BOOST_STAGE" ]] || die "Boost wasm64 archives missing ($BOOST_STAGE) — run: bash scripts/build.sh boost"
-    if [[ -n "$PROFILES_DIR" ]]; then
-      log "WASM_PROFILES_DIR=$PROFILES_DIR (lighter .data bundle)"
-      WASM_PROFILES_DIR="$PROFILES_DIR" bash "$PKG/build.sh"
-    else
-      bash "$PKG/build.sh"
-    fi
+    bash "$PKG/build.sh"
     ;;
 
   # ---------------- cold start ----------------
@@ -163,11 +151,7 @@ case "$CMD" in
     ensure_emsdk
     bash "$PKG/fetch-deps.sh"
     BOOST_JOBS="${JOBS:-4}" bash "$PKG/build-boost-wasm64.sh"
-    if [[ -n "$PROFILES_DIR" ]]; then
-      WASM_PROFILES_DIR="$PROFILES_DIR" bash "$PKG/build.sh"
-    else
-      bash "$PKG/build.sh"
-    fi
+    bash "$PKG/build.sh"
     ;;
 
   # ---------------- incremental ninja loop ----------------

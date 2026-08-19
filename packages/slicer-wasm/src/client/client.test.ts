@@ -46,23 +46,6 @@ describe('SlicerClient bridge contract', () => {
     }
   });
 
-  it('init accepts an app config JSON and getAppConfig round-trips it', async () => {
-    const c = makeClient();
-    const cfg = { models: [], presets: { machine: 'Bambu Lab P1S 0.4 nozzle' } };
-    const r = await c.init(cfg);
-    expect(r.ok).toBe(true);
-    const back = await c.getAppConfig();
-    expect(back.ok).toBe(true);
-    expect(back.presets).toEqual({ machine: 'Bambu Lab P1S 0.4 nozzle' });
-  });
-
-  it('setAppConfig re-inits with a new config', async () => {
-    const c = makeClient();
-    const r = await c.setAppConfig({ models: [], presets: {} });
-    expect(r.ok).toBe(true);
-    expect(r.printers).toBeGreaterThan(0);
-  });
-
   it('selectPreset moves the selection and reports all three', async () => {
     const c = makeClient();
     const r = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');

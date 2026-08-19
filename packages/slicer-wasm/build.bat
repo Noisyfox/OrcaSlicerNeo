@@ -181,19 +181,14 @@ for /f "delims=" %%h in ('git -C "%ORCA_SRC%" rev-parse --short HEAD 2^>nul') do
 >> "%GEN_INCLUDE%\libslic3r_version.h" echo #endif
 echo [wasm] Wrote %GEN_INCLUDE%\libslic3r_version.h ^(SLIC3R_VERSION=%VER%^)
 
-REM ---------------- Full preset bundle (for orc_init) ----------------
-REM The full resources\profiles tree via --preload-file, mounted at /system.
-REM Override WASM_PROFILES_DIR for a lighter local build (e.g. a curated
-REM dir); CI and packaging always use the full tree.
-if not defined WASM_PROFILES_DIR set "WASM_PROFILES_DIR=%ORCA_SRC%\resources\profiles"
+REM Profiles are installed by the runtime Worker before orc_init().
+REM WASM only retains the distinct /info resource needed by the bridge.
 set "INFO_DIR=%ORCA_SRC%\resources\info"
-echo [wasm] Preset bundle: %WASM_PROFILES_DIR%
 REM file_packager runs as a native exe and needs forward-slash native paths.
 REM In cmd there is no MSYS ';' mangling to work around - just normalize
 REM backslashes so the CMake cache matches a Git Bash-configured tree too.
-set "PRELOAD_P=%WASM_PROFILES_DIR:\=/%"
 set "PRELOAD_I=%INFO_DIR:\=/%"
-set "PRELOAD_FILES=%PRELOAD_P%@/system;%PRELOAD_I%@/info"
+set "PRELOAD_FILES=%PRELOAD_I%@/info"
 set "ORCA_SRC_CM=%ORCA_SRC:\=/%"
 set "SHIM_CM=%SHIM_INCLUDE:\=/%"
 set "GEN_CM=%GEN_INCLUDE:\=/%"
@@ -234,7 +229,7 @@ if errorlevel 1 (
 
 REM ---------------- Collect artifacts ----------------
 REM Fail loudly: a missing artifact is a build defect, not a warning. The .data
-REM is the --preload-file bundle (full profiles tree) - emcc emits it at link
+REM is the --preload-file info bundle - emcc emits it at link
 REM time, so absence here means the link step regressed.
 for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do (
   if not exist "%BUILD_DIR%\%%f" (

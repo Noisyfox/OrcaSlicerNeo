@@ -32,17 +32,27 @@ describe('profile installer', () => {
       'core.zip': zip([['common.json', '{}']]),
       'vendors/vendor.zip': zip([['Vendor/machine.json', '{}']]),
     };
-    const mounted = new Map<string, Uint8Array>();
-    await installProfiles({ FS: { writeFile: (path, bytes) => mounted.set(path, bytes), readFile: () => new Uint8Array() } }, source(files));
+    const mounted = new Map<string, Uint8Array>(); const dirs = new Set(['/']);
+    await installProfiles({ FS: {
+      mkdir: (path) => { if (dirs.has(path)) throw new Error('EEXIST'); dirs.add(path); },
+      writeFile: (path, bytes) => { const parent = path.slice(0, path.lastIndexOf('/')) || '/'; if (!dirs.has(parent)) throw new Error(`missing parent ${parent}`); mounted.set(path, bytes); },
+      readFile: () => new Uint8Array(),
+    } }, source(files));
     expect([...mounted.keys()]).toEqual(['/system/common.json', '/system/Vendor/machine.json']);
+    expect(dirs.has('/system/Vendor')).toBe(true);
   });
 
   it('blocks on core failure but skips a failed vendor', async () => {
     const base = { 'manifest.json': manifest([
       { id: 'core', kind: 'core', path: 'core.zip' }, { id: 'vendor', kind: 'vendor', path: 'bad.zip' },
     ]), 'core.zip': zip([['ok', '1']]) };
-    await expect(installProfiles({ FS: { writeFile: () => {}, readFile: () => new Uint8Array() } }, source(base))).resolves.toBeUndefined();
+    await expect(installProfiles({ FS: { mkdir: () => {}, writeFile: () => {}, readFile: () => new Uint8Array() } }, source(base))).resolves.toBeUndefined();
     const broken = { 'manifest.json': manifest([{ id: 'core', kind: 'core', path: 'missing.zip' }]) };
-    await expect(installProfiles({ FS: { writeFile: () => {}, readFile: () => new Uint8Array() } }, source(broken))).rejects.toThrow(/core profile package/);
+    await expect(installProfiles({ FS: { mkdir: () => {}, writeFile: () => {}, readFile: () => new Uint8Array() } }, source(broken))).rejects.toThrow(/core profile package/);
+  });
+
+  it('rejects traversal paths (and treats a bad vendor as skippable)', async () => {
+    const files = { 'manifest.json': manifest([{ id: 'core', kind: 'core', path: 'core.zip' }]), 'core.zip': zip([['../escape', 'x']]) };
+    await expect(installProfiles({ FS: { mkdir: () => {}, writeFile: () => {}, readFile: () => new Uint8Array() } }, source(files))).rejects.toThrow(/unsafe profile path/);
   });
 });

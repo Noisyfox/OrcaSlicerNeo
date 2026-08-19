@@ -162,16 +162,9 @@ EOF
 } > /dev/null
 log "Wrote $GEN_INCLUDE/libslic3r_version.h (SLIC3R_VERSION=$(git -C "$ORCA_SRC" describe --tags --always 2>/dev/null || echo 0.0.0))"
 
-# ---------------- Full preset bundle (for orc_init) ----------------
-# M3: the full resources/profiles tree via --preload-file, mounted at /system
-# — the same location the M1 curated embed used, so PresetBundle::load_presets
-# and the harnesses are unchanged. With the full tree every third-party
-# filament inherits chain resolves, so the M1 curated fixpoint filter is gone.
-# Override WASM_PROFILES_DIR for a lighter local build (e.g. a curated dir);
-# CI and packaging always use the full tree.
-WASM_PROFILES_DIR="${WASM_PROFILES_DIR:-$ORCA_SRC/resources/profiles}"
+# Profile packages are installed by the runtime Worker before orc_init().
+# WASM only retains the distinct /info resource needed by the bridge.
 INFO_DIR="$ORCA_SRC/resources/info"
-log "Preset bundle: $WASM_PROFILES_DIR"
 # file_packager runs as a native exe under emcc on Windows (Git Bash) and
 # needs Windows paths. MSYS auto-converts plain args, but SKIPS args
 # containing ';' — the list separator in -DPRELOAD_FILES — so convert
@@ -179,7 +172,6 @@ log "Preset bundle: $WASM_PROFILES_DIR"
 # no-op and native paths are already correct. -m = forward-slash style
 # (F:/...), which Windows Python and CMake both accept.
 if command -v cygpath >/dev/null 2>&1; then
-  WASM_PROFILES_DIR="$(cygpath -m "$WASM_PROFILES_DIR")"
   INFO_DIR="$(cygpath -m "$INFO_DIR")"
 fi
 
@@ -196,7 +188,7 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DWASM_THREADING="$WASM_THREADING" \
   -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
   -DTBB_ROOT="$TBB_ROOT" \
-  -DPRELOAD_FILES="$WASM_PROFILES_DIR@/system;$INFO_DIR@/info" \
+  -DPRELOAD_FILES="$INFO_DIR@/info" \
   || die "CMake configure failed. Fix include paths / missing deps and re-run."
 
 log "Building (emmake ninja) — expect to iterate on compile errors"
@@ -208,7 +200,7 @@ emmake ninja -C "$BUILD_DIR" orca_slice || die "Build failed. Common next steps:
 
 # ---------------- Collect artifacts ----------------
 # Fail loudly: a missing artifact is a build defect, not a warning. The .data
-# is the --preload-file bundle (full profiles tree) — emcc emits it at link
+# is the --preload-file info bundle — emcc emits it at link
 # time, so absence here means the link step regressed. The listing below is
 # evidence in the CI log (size tells the curated vs full-bundle case apart).
 for f in orca_slice.js orca_slice.wasm orca_slice.data; do

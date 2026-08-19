@@ -42,6 +42,11 @@
       "path": "vendors/Blocks.upstream.zip"
     },
     {
+      "id": "CONSTRUCT3D",
+      "kind": "vendor",
+      "path": "vendors/CONSTRUCT3D.upstream.zip"
+    },
+    {
       "id": "Chuanying",
       "kind": "vendor",
       "path": "vendors/Chuanying.upstream.zip"
@@ -60,11 +65,6 @@
       "id": "Comgrow",
       "kind": "vendor",
       "path": "vendors/Comgrow.upstream.zip"
-    },
-    {
-      "id": "CONSTRUCT3D",
-      "kind": "vendor",
-      "path": "vendors/CONSTRUCT3D.upstream.zip"
     },
     {
       "id": "Creality",
@@ -102,14 +102,14 @@
       "path": "vendors/Eryone.upstream.zip"
     },
     {
-      "id": "Flashforge",
-      "kind": "vendor",
-      "path": "vendors/Flashforge.upstream.zip"
-    },
-    {
       "id": "FLSun",
       "kind": "vendor",
       "path": "vendors/FLSun.upstream.zip"
+    },
+    {
+      "id": "Flashforge",
+      "kind": "vendor",
+      "path": "vendors/Flashforge.upstream.zip"
     },
     {
       "id": "FlyingBear",
@@ -135,11 +135,6 @@
       "id": "InfiMech",
       "kind": "vendor",
       "path": "vendors/InfiMech.upstream.zip"
-    },
-    {
-      "id": "iQ",
-      "kind": "vendor",
-      "path": "vendors/iQ.upstream.zip"
     },
     {
       "id": "Kingroon",
@@ -217,6 +212,11 @@
       "path": "vendors/Qidi.upstream.zip"
     },
     {
+      "id": "RH3D",
+      "kind": "vendor",
+      "path": "vendors/RH3D.upstream.zip"
+    },
+    {
       "id": "Raise3D",
       "kind": "vendor",
       "path": "vendors/Raise3D.upstream.zip"
@@ -225,16 +225,6 @@
       "id": "Ratrig",
       "kind": "vendor",
       "path": "vendors/Ratrig.upstream.zip"
-    },
-    {
-      "id": "re3D",
-      "kind": "vendor",
-      "path": "vendors/re3D.upstream.zip"
-    },
-    {
-      "id": "RH3D",
-      "kind": "vendor",
-      "path": "vendors/RH3D.upstream.zip"
     },
     {
       "id": "RolohaunDesign",
@@ -307,6 +297,11 @@
       "path": "vendors/Vzbot.upstream.zip"
     },
     {
+      "id": "WEMAKE3D",
+      "kind": "vendor",
+      "path": "vendors/WEMAKE3D.upstream.zip"
+    },
+    {
       "id": "Wanhao",
       "kind": "vendor",
       "path": "vendors/Wanhao.upstream.zip"
@@ -317,11 +312,6 @@
       "path": "vendors/Wanhao France.upstream.zip"
     },
     {
-      "id": "WEMAKE3D",
-      "kind": "vendor",
-      "path": "vendors/WEMAKE3D.upstream.zip"
-    },
-    {
       "id": "WonderMaker",
       "kind": "vendor",
       "path": "vendors/WonderMaker.upstream.zip"
@@ -330,6 +320,16 @@
       "id": "Z-Bolt",
       "kind": "vendor",
       "path": "vendors/Z-Bolt.upstream.zip"
+    },
+    {
+      "id": "iQ",
+      "kind": "vendor",
+      "path": "vendors/iQ.upstream.zip"
+    },
+    {
+      "id": "re3D",
+      "kind": "vendor",
+      "path": "vendors/re3D.upstream.zip"
     }
   ]
 }

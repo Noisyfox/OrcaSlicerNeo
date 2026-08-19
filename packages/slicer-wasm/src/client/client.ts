@@ -7,7 +7,7 @@
 // ----------------------------------------------------------------
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
-  InitResult, PresetList, AppConfig, SelectPresetResult,
+  InitResult, PresetList, SelectPresetResult,
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer,
@@ -65,28 +65,13 @@ export function createClient(
   }
 
   return {
-    async init(appConfig?: AppConfig | null): Promise<InitResult> {
+    async init(): Promise<InitResult> {
       const m = await module();
       await beforeInit?.(m);
-      // M4: the app config (installed-state + selections) is the bridge's
-      // source of truth; omitted = fresh config (bridge installs everything).
       // wasm64: every C param must receive a value — passing an empty string
       // for the nullable app_config_json arg, never no args (undefined → BigInt
       // conversion TypeError in the wasm64 wrapper).
-      if (appConfig !== undefined && appConfig !== null) {
-        return callJson(m, 'orc_init', ['string'], [JSON.stringify(appConfig)]) as InitResult;
-      }
       return callJson(m, 'orc_init', ['string'], ['']) as InitResult;
-    },
-
-    async setAppConfig(appConfig: AppConfig): Promise<InitResult> {
-      const m = await module();
-      return callJson(m, 'orc_set_app_config', ['string'], [JSON.stringify(appConfig)]) as InitResult;
-    },
-
-    async getAppConfig(): Promise<AppConfig & { ok: boolean; error?: string }> {
-      const m = await module();
-      return callJson(m, 'orc_get_app_config', [], []) as AppConfig & { ok: boolean; error?: string };
     },
 
     async getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList> {

@@ -1,4 +1,3 @@
-import type { AppConfig } from '@slicer/client';
 import { normalizeUserPreferences, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import type { FileDialogFilter } from '../../../shared/ipc';
 import type { SlicerRuntime } from '@orca/platform-contract';
@@ -62,5 +61,3 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     chrome: { kind: 'desktop', platform: host.platform },
   };
 }
-
-export type ElectronAppConfig = AppConfig;

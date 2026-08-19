@@ -14,7 +14,7 @@ REM           build-windows.bat quick -j 8
 REM           build-windows.bat full
 REM
 REM Commands: env deps boost build full quick shim smoke test dev
-REM e2e help. Options: -j N, --jobs N, --profiles <dir>, --no-env, -v.
+REM e2e help. Options: -j N, --jobs N, --no-env, -v.
 REM ================================================================
 setlocal EnableExtensions
 
@@ -30,7 +30,6 @@ set "OUT_DIR=%PKG%\out"
 set "BOOST_STAGE=%WORK%\deps\boost-1.84.0\stage-wasm64\lib"
 
 set "JOBS="
-set "PROFILES_DIR="
 set "AUTO_ENV=1"
 
 REM ---------------- arg parsing ----------------
@@ -41,7 +40,6 @@ shift
 if "%~1"=="" goto :parsed
 if /i "%~1"=="-j"          (set "JOBS=%~2" & shift & shift & goto :parse)
 if /i "%~1"=="--jobs"      (set "JOBS=%~2" & shift & shift & goto :parse)
-if /i "%~1"=="--profiles"  (set "PROFILES_DIR=%~2" & shift & shift & goto :parse)
 if /i "%~1"=="--no-env"    (set "AUTO_ENV=0" & shift & goto :parse)
 if /i "%~1"=="-v"          (echo on & shift & goto :parse)
 if /i "%~1"=="-h"          (call :usage & exit /b 0)
@@ -108,9 +106,6 @@ echo.
 echo Options:
 echo   -j N, --jobs N   Parallelism for ninja / b2 ^(quick/build/boost^).
 echo                    Default: ninja auto; BOOST_JOBS=4 as upstream.
-echo   --profiles ^<dir^> WASM_PROFILES_DIR override for `build`/`full`
-echo                    ^(a curated dir = lighter .data bundle; default is the
-echo                    full profiles tree^).
 echo   --no-env         Skip emsdk auto-activation ^(expect emcmake on PATH^).
 echo   -v               echo on ^(print every command^).
 exit /b 0
@@ -199,10 +194,6 @@ if not exist "%BOOST_STAGE%" (
   echo [winbuild] ERROR: Boost wasm64 archives missing ^(%BOOST_STAGE%^) - run: build-windows.bat boost
   exit /b 1
 )
-if defined PROFILES_DIR (
-  echo [winbuild] WASM_PROFILES_DIR=%PROFILES_DIR% ^(lighter .data bundle^)
-  set "WASM_PROFILES_DIR=%PROFILES_DIR%"
-)
 call "%PKG%\build.bat"
 if errorlevel 1 exit /b 1
 exit /b 0
@@ -215,7 +206,6 @@ if errorlevel 1 exit /b 1
 if defined JOBS (set "BOOST_JOBS=%JOBS%") else (set "BOOST_JOBS=4")
 call "%PKG%\build-boost-wasm64.bat"
 if errorlevel 1 exit /b 1
-if defined PROFILES_DIR set "WASM_PROFILES_DIR=%PROFILES_DIR%"
 call "%PKG%\build.bat"
 if errorlevel 1 exit /b 1
 exit /b 0

@@ -64,11 +64,6 @@ export interface PresetList {
   error?: string;
 }
 
-/** The app-config JSON (fork's USE_JSON_CONFIG schema): models (installed
- *  vendor/model/variant), presets (machine/process/filament selections),
- *  filaments (installed filaments). The renderer persists this. */
-export type AppConfig = Record<string, unknown>;
-
 export interface SelectPresetResult {
   ok: boolean;
   printer: { name: string; idx: number };
@@ -178,12 +173,8 @@ export interface CancelResult {
 }
 
 export interface SlicerClient {
-  /** Initialize the preset bundle. appConfig is the persisted app-config
-   *  JSON (installed printers + selections); omit for a fresh config
-   *  (bridge installs everything and picks the first non-default printer). */
-  init(appConfig?: AppConfig | null): Promise<InitResult>;
-  setAppConfig(appConfig: AppConfig): Promise<InitResult>;
-  getAppConfig(): Promise<AppConfig & { ok: boolean; error?: string }>;
+  /** Initialize after the host has installed profile packages into MEMFS. */
+  init(): Promise<InitResult>;
   getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList>;
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
