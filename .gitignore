@@ -8,3 +8,15 @@ packages/slicer-wasm/.work/
 packages/slicer-wasm/out/
 apps/desktop/src/renderer/public/wasm/
 apps/desktop/release/
+.claude/
+.codebuddy/
+.gemini/
+.mcp.json
+opencode.json
+opencode.jsonc
+.opencode/
+.qoder/
+.kiro/settings/
+.vscode/mcp.json
+# Added by code-review-graph
+.code-review-graph/
