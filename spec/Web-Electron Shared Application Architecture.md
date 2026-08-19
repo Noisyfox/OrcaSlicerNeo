@@ -30,6 +30,9 @@ Project persistence, user-created profiles, cloud accounts, cloud slicing,
 profile updates, on-demand profile delivery, drag-and-drop import, PWA/offline
 support, and richer startup recovery are intentionally deferred.
 
+Temporary slicer setting overrides remain usable during a running session, but
+are not persisted in either host during the first release.
+
 ## 2. Product and Compatibility Policy
 
 - **Web execution:** entirely local WASM. A future `SlicerEngine` extension
@@ -56,6 +59,10 @@ support, and richer startup recovery are intentionally deferred.
   and whether it is supported, degraded, or deferred.
 - **Static web application:** no Service Worker, installability, or guaranteed
   offline use in the first release.
+- **Development:** the normal Web development server and standard Web E2E
+  environment carry COOP/COEP and exercise the full threaded path. Separate
+  startup/test commands deliberately omit those headers to exercise serial
+  fallback and other reduced-capability scenarios.
 
 ## 3. Workspace Shape
 
@@ -73,6 +80,12 @@ packages/
 The exact package names may change during implementation, but these boundaries
 are normative. `apps/desktop/src/renderer` must not remain the de facto shared
 application directory.
+
+Both hosts use the same React, TypeScript, Vite, Tailwind/shadcn, Zustand, and
+React Three Fiber stack. No SSR framework or second UI framework is introduced.
+Themes, global CSS, shadcn wrappers, and application components belong to
+`slicer-app`; hosts may add only narrow platform CSS, such as Electron window
+drag regions.
 
 ## 4. Platform Boundary
 
@@ -111,6 +124,11 @@ interface PlatformCapabilities {
 the C++ bridge. `slicer-runtime` owns creation of the app Worker and resolution
 of runtime assets; UI features receive a typed `SlicerClient`, never module
 URLs or Emscripten globals.
+
+Every runtime asset URL is relative to the host/module deployment location.
+No app code hardcodes an origin or root-relative asset path. This applies to
+the Worker, WASM artifacts, profile manifest, and profile packages, so the
+same Web build can run at a site root, a subpath, or a preview deployment.
 
 At startup the Web host performs capability gating before creating the app:
 
@@ -170,6 +188,11 @@ reproducible as upstream profiles are added, removed, or reorganized.
 The first release includes all packages and attempts to load them all before
 slicer initialization. It shows package-level boot progress.
 
+Profile packaging is an independent build/CI target. A profile-content change
+generates only the manifest and profile packages; it must not trigger a WASM
+build. Rebuilding WASM/runtime is required only when the profile package format
+or bridge/runtime interpretation of its fields changes.
+
 - A failed vendor package is skipped; startup continues and writes an error to
   the console. Only successfully installed packages contribute profiles.
 - A failed `core` package fails initialization and logs the error. A dedicated
@@ -213,7 +236,7 @@ no new vendor/model/variant identifier is introduced.
   not acquire Electron-only concepts.
 - User-created profiles, profile-definition persistence, project data, models,
   transforms, settings edits, slice results, and G-code are not persisted in
-  the first release.
+  the first release. Settings edits remain active only for the current session.
 
 On boot, after all available profiles are initialized, the runtime restores
 selections through the C++ bridge in this order: printer, print, filament. It
@@ -229,8 +252,10 @@ immediately written back to preferences.
 - Web G-code export triggers a standard browser file download. Electron keeps
   its native save dialog.
 - Imported models and work in progress are ephemeral. Both hosts will warn
-  before leaving when models or unexported results would be lost; the exact
-  host confirmation mechanism is an adapter detail.
+  before leaving when models, temporary slicer-setting overrides, or unexported
+  results would be lost; the exact host confirmation mechanism is an adapter
+  detail. The first release only offers leave/cancel, never a save-custom-
+  profile action.
 - A first-release AGPL source-code link is present in a visible footer or menu,
   pointing to the source corresponding to the web release. A fuller About page
   is deferred.
