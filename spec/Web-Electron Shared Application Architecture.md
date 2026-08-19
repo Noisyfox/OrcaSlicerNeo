@@ -46,11 +46,15 @@ are not persisted in either host during the first release.
   single-thread fallback is shown as a non-blocking UI status.
 - **WASM artifacts:** both threaded and single-thread wasm64 builds ship with
   Electron and Web. They expose the same typed client contract.
+- **Thread pool:** the threaded artifact uses all logical cores reported by
+  `navigator.hardwareConcurrency`; the first release imposes no extra cap.
 - **Deployment:** all first-party application resources are served from one
   origin: HTML, JavaScript, Worker chunks, WASM, `.data` (if any), profile
   bundles, fonts, and images. The production web host supplies the COOP/COEP
   headers required by the threaded variant. A non-isolated deployment remains
   usable through the serial variant.
+- **Transport:** production Web deployments require HTTPS. `localhost` is the
+  sole development exception; public HTTP deployment is unsupported.
 - **Rendering:** the application requires WebGL 2; WebGL 1 is not a fallback.
 - **Language:** English-only initially. User-visible copy must be organized so
   a later i18n layer can replace it without reworking feature logic.
@@ -142,6 +146,11 @@ origin normally selects the threaded artifact. Browser/resource failures and
 out-of-memory failures are surfaced through common error handling. No product
 model-size limit is imposed in the first release.
 
+The current opaque AppConfig bridge/client path is retired: initialization no
+longer accepts AppConfig JSON, and the `setAppConfig` / `getAppConfig` APIs are
+removed from the shared contract. Profile selection is restored only through
+`selectPreset(kind, name)` after runtime resources are ready.
+
 ## 6. Profile Resource Architecture
 
 System profiles are runtime resources, not Emscripten `--preload-file` inputs.
@@ -203,6 +212,11 @@ or bridge/runtime interpretation of its fields changes.
   compatibility validation, online update checks, rollback, or on-demand
   downloading. They remain explicit follow-up work.
 
+The first-release picker lists only profiles that were successfully installed
+from profile packages. The AppConfig-derived `is_visible` and “Not installed”
+states are removed; a future on-demand delivery feature may add an explicit
+downloadable-but-not-installed state.
+
 ## 7. Preferences and Selection Restoration
 
 System profile definitions and installation state are never duplicated into a
@@ -214,6 +228,7 @@ and UI preferences:
 
 ```ts
 interface UserPreferences {
+  version: 1;
   selectedProfiles: {
     printer?: string;
     print?: string;
@@ -231,6 +246,8 @@ no new vendor/model/variant identifier is introduced.
 
 - Electron and Web implement the same `UserPreferencesRepository` contract.
   Electron writes a small preferences file in user data; Web uses localStorage.
+- A malformed, unreadable, or unsupported preference version is discarded and
+  replaced with defaults. The first release has no migration implementation.
 - `sidebarWidth` and other common UI preferences are persisted in both hosts.
 - Future host-only UI data may use platform namespaces. Shared preferences must
   not acquire Electron-only concepts.
@@ -281,6 +298,11 @@ The refactor is not complete until all of the following hold:
 3. A real threaded wasm64 Chrome flow verifies COOP/COEP deployment.
 4. A real serial wasm64 Chrome flow verifies the fallback path.
 5. Existing Electron core E2E continues to pass.
+
+Routine Chrome E2E may use compact profile fixtures that preserve upstream
+profile organization, keeping the feedback cycle small. A profile-package
+integration test and a release/overnight smoke run must instead boot the full
+manifest and every vendor package.
 
 Mocks remain appropriate for fast unit/UI tests but cannot replace real WASM
 verification of either artifact.
