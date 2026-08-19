@@ -94,6 +94,16 @@ Themes, global CSS, shadcn wrappers, and application components belong to
 `slicer-app`; hosts may add only narrow platform CSS, such as Electron window
 drag regions.
 
+The common app includes a visually shared `BrandBar`. Electron supplies its
+drag-region styling and, on macOS, the traffic-light safe inset; Web renders
+the same branded bar without a drag region, native-window inset, or window
+controls. This preserves the intentional Electron frameless design without
+making it a Web-only or desktop-only component.
+
+The first-release Web layout is a desktop layout with a minimum viewport of
+1024 × 700 CSS pixels. Below that size it retains the complete layout and may
+scroll; it must not claim partial responsive/mobile support.
+
 Migration is an extraction and adaptation, not a rewrite of unrelated product
 behavior. Existing renderer components, stores, and slicer workflows should
 move substantially intact wherever they are already platform-neutral; changes
@@ -126,10 +136,15 @@ interface PlatformCapabilities {
 
 - The Electron adapter uses native dialogs and main/preload IPC.
 - The Web adapter uses browser file selection and a normal Blob download.
+- The shared model state contains only a display name and model data. Electron
+  retains an absolute source path in its host-private, in-memory session data
+  for a future seamless model-reload feature; it is neither rendered by the
+  common UI nor persisted in the first release. Web has no equivalent path.
 - Drag-and-drop will eventually be supported on both hosts through the same
   import contract, but is not a first-release feature.
-- Desktop-specific title-bar/window behavior belongs to the desktop host;
-  the web host supplies normal browser chrome.
+- `BrandBar` styling uses the injected `chrome` capability rather than a
+  direct `window.orca` read. Its visual component remains common, while
+  Electron-only drag behavior stays in the Electron host.
 
 ## 5. Runtime and WASM Loading
 
@@ -144,6 +159,13 @@ Every runtime asset URL is relative to the host/module deployment location.
 No app code hardcodes an origin or root-relative asset path. This applies to
 the Worker, WASM artifacts, profile manifest, and profile packages, so the
 same Web build can run at a site root, a subpath, or a preview deployment.
+
+In the first release, both hosts resolve profile packages through this same
+relative-URL fetch path. Electron bundles the packages with its renderer
+assets and its existing restricted loopback HTTP server serves them to the
+Worker; Web serves the equivalent static files. The Worker never receives
+profile bytes through preload/IPC or direct Node filesystem access. Electron
+may introduce an optimized source later behind the `ProfileSource` contract.
 
 At startup the Web host performs capability gating before creating the app:
 
@@ -303,6 +325,10 @@ from one system profile combination to another.
   results would be lost; the exact host confirmation mechanism is an adapter
   detail. The first release only offers leave/cancel, never a save-custom-
   profile action.
+- Web uses the browser's native `beforeunload` confirmation for close, reload,
+  and navigation away; browsers may not show custom detail. Electron may use a
+  native host confirmation. Neither host offers saving or restoration in this
+  first-release flow.
 - Any change to slice inputs invalidates the current result: profile selection,
   temporary settings, model import/clear, and model transforms all require a
   new slice. On invalidation the sliced mesh, toolpath, and layer state are
