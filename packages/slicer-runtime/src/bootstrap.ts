@@ -33,6 +33,8 @@ export function selectRuntimeArtifact(capabilities: RuntimeCapabilities): 'threa
 export interface RuntimeBootstrapOptions {
   transport: WorkerTransport;
   capabilities?: RuntimeCapabilities;
+  /** Host-supplied hook reserved for profile installation (Step 6). */
+  installProfiles?: () => Promise<void>;
   initialize?: () => Promise<void>;
 }
 
@@ -55,7 +57,11 @@ export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): Slicer
   let rejectReady!: (error: unknown) => void;
   const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
   const client = createWorkerClient(options.transport) as SlicerClient;
-  const runtime = Object.assign(client, { get status() { return status; }, ready }) as SlicerRuntime & { ready: Promise<void> };
+  // Keep lifecycle properties outside the client's Proxy dispatch. Defining
+  // `status` on the Proxy itself would still be intercepted as an operation.
+  const runtime = Object.create(client) as SlicerRuntime & { ready: Promise<void> };
+  runtime.ready = ready;
+  Object.defineProperty(runtime, 'status', { enumerable: true, get: () => status });
   const caps = options.capabilities ?? detectRuntimeCapabilities();
   if (selectRuntimeArtifact(caps) === 'unsupported') {
     status = { phase: 'unsupported', message: 'WebGL 2 and wasm64 are required' };
@@ -65,6 +71,10 @@ export function createRuntimeBootstrap(options: RuntimeBootstrapOptions): Slicer
       try {
         status = { phase: 'loading-runtime' };
         await options.initialize?.();
+        if (options.installProfiles) {
+          status = { phase: 'installing-profiles' };
+          await options.installProfiles();
+        }
         status = { phase: 'ready' };
         resolveReady();
       } catch (error) {

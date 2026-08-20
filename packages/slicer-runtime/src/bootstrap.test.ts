@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact } from './bootstrap';
+import { createRuntimeBootstrap, detectRuntimeCapabilities, resolveRuntimeAsset, selectRuntimeArtifact, type WorkerTransport } from './bootstrap';
 
 describe('portable runtime bootstrap', () => {
   it('requires both isolation and thread primitives for threaded wasm', () => {
@@ -19,5 +19,22 @@ describe('portable runtime bootstrap', () => {
     ['file:///C:/app/', 'file:///C:/app/wasm/serial/orca.js'],
   ])('resolves assets under %s', (base, expected) => {
     expect(resolveRuntimeAsset('wasm/serial/orca.js', base)).toBe(expected);
+  });
+
+  it('exposes installing-profiles while the host hook is running', async () => {
+    const transport: WorkerTransport = { post() {}, onMessage() {} };
+    let release!: () => void;
+    const profiles = new Promise<void>((resolve) => { release = resolve; });
+    const runtime = createRuntimeBootstrap({
+      transport,
+      capabilities: { webgl2: true, wasm64: true, threadedWasm: false },
+      installProfiles: () => profiles,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(runtime.status?.phase).toBe('installing-profiles');
+    release();
+    await (runtime as typeof runtime & { ready: Promise<void> }).ready;
+    expect(runtime.status?.phase).toBe('ready');
   });
 });
