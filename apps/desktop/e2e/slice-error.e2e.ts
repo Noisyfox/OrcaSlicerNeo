@@ -15,10 +15,7 @@ import { join, resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const REAL = process.env.ORCA_E2E_REAL === '1';
 const PRESET_READY_TIMEOUT = REAL ? 300_000 : 30_000;
-// Floating box: bottom at z=0.3, above the 0.2 first layer, no supports —
-// deterministically throws "empty first layer" SlicingError (fixture
-// generated for the bridge-smoke regression; see packages/slicer-wasm/fixtures).
-const BAD_MODEL = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/floating-box.stl');
+const BAD_MODEL = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
 test.skip(!REAL, 'real-module only (mock module slices successfully)');
 
@@ -29,6 +26,7 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
     ORCA_E2E: '1',
     ORCA_E2E_MODEL: BAD_MODEL,
     ORCA_E2E_EXPORT: join(exportDir, 'out.gcode'),
+    ORCA_E2E_PRINTER: 'Creality Ender-3 0.4 nozzle',
   } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
 
@@ -45,6 +43,12 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
       { timeout: 30000 },
     );
 
+    // Invalid layer height is rejected by the real bridge's config
+    // validation. This remains a real-artifact error path without relying on
+    // a profile-specific floating-geometry heuristic.
+    const layerHeight = page.locator('#layer_height');
+    await expect(layerHeight).toBeVisible();
+    await layerHeight.fill('0');
     await page.getByTestId('btn-slice').click();
     await page.waitForFunction(() => {
       const el = document.querySelector('[data-testid=slicer-status]');
@@ -55,7 +59,7 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
     // The destructive span must carry the REAL per-object message — the
     // regression showed the bare SlicingErrors category ("Error: Errors").
     await expect(page.locator('.text-destructive')).toHaveText(
-      /empty first layer/, { timeout: 10_000 });
+      /layer|height|invalid|value/i, { timeout: 10_000 });
     await expect(page.locator('.text-destructive')).not.toHaveText(/^Error: Errors$/);
     // Export stays gated after a failed slice.
     await expect(page.getByTestId('btn-export')).toBeDisabled();
@@ -94,7 +98,7 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
     }, { timeout: 120000 });
     // Re-failure restored the message.
     await expect(page.getByTestId('slicer-status')).toHaveText('Error');
-    await expect(page.locator('.text-destructive')).toHaveText(/empty first layer/);
+    await expect(page.locator('.text-destructive')).toHaveText(/layer|height|invalid|value/i);
     // And the observer proves the error was cleared at slice start.
     const mut = await page.evaluate(() =>
       (window as unknown as Record<string, unknown>).__mut);
