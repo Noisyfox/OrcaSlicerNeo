@@ -11,7 +11,7 @@
 // CI e2e-real covers the same path with the real module in the dev build.
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
 import { existsSync } from 'node:fs';
-import { copyFile, readFile, rename, writeFile } from 'node:fs/promises';
+import { copyFile, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
@@ -91,11 +91,7 @@ test('packaged app blocks startup when the core profile package is corrupt', asy
       await expect(page.getByTestId('preset-select')).toHaveCount(0);
     } finally { await app.close(); }
   } finally {
-    await writeFile(CORE_PACKAGE, await readFile(backup));
-    await rename(backup, `${backup}.restored`);
-    // The temporary restored marker is safe to remove only after the original
-    // has been recreated; test fixtures never share this release directory.
-    const { unlink } = await import('node:fs/promises');
-    await unlink(`${backup}.restored`);
+    await copyFile(backup, CORE_PACKAGE);
+    await unlink(backup);
   }
 });
