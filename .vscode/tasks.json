@@ -19,6 +19,12 @@
                     "endsPattern": "Local:"
                 }
             }
+        },
+        {
+            "label": "web: stop vite",
+            "type": "shell",
+            "command": "node scripts/stop-port.mjs 5173",
+            "problemMatcher": []
         }
     ]
 }

@@ -13,6 +13,9 @@
             // Starts the Vite dev server (see .vscode/tasks.json) and waits
             // for it to be ready before launching the browser.
             "preLaunchTask": "web: vite dev server",
+            // Kills the Vite dev server when the debug session ends (browser
+            // window closed, or Stop pressed) — see scripts/stop-port.mjs.
+            "postDebugTask": "web: stop vite",
             "presentation": {
                 "order": 0
             }
