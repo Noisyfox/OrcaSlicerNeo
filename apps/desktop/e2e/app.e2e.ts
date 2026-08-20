@@ -104,6 +104,19 @@ async function launchApp(): Promise<LaunchResult> {
   return { app, exportPath };
 }
 
+async function selectStableRealPrinter(page: Page): Promise<void> {
+  await page.getByTestId('preset-select').click();
+  await expect(page.locator('[data-slot="combobox-content"]')).toBeVisible();
+  await page.locator('[data-slot="combobox-content"] input').fill(PRINTER_PROFILE);
+  const printer = page
+    .locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')
+    .filter({ hasText: PRINTER_PROFILE });
+  await expect(printer).toHaveCount(1);
+  await printer.click();
+  await expect(page.getByTestId('preset-select')).toContainText(PRINTER_PROFILE);
+  await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
+}
+
 test('full v1 flow: add models → slice → preview → export gcode', async () => {
   const { app, exportPath } = await launchApp();
   try {
@@ -127,21 +140,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // list; picking updates the trigger and the real bridge selection. The
     // mock starts on the X1 Carbon — switch to a known printer to prove a
     // change. The profile can be overridden for real-model regression runs.
-    await page.getByTestId('preset-select').click();
-    await expect(page.locator('[data-slot="combobox-content"]')).toBeVisible();
-    await expect(page.locator('[data-slot="combobox-content"] input')).toBeVisible();
-    await page.locator('[data-slot="combobox-content"] input').fill(PRINTER_PROFILE);
-    // The full preset bundle has several similar variants; target the exact
-    // profile rather than assuming the search produces one result (the mock
-    // does).
-    const printer = page
-      .locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')
-      .filter({ hasText: PRINTER_PROFILE });
-    await expect(printer).toHaveCount(1);
-    await printer.click();
-    await expect(page.getByTestId('preset-select')).toContainText(PRINTER_PROFILE);
-    // Single-select: the popup dismisses on pick.
-    await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
+    await selectStableRealPrinter(page);
 
     // Slice gated until a model is loaded.
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
@@ -267,6 +266,11 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
     await page.setViewportSize({ width: 1280, height: 800 });
     try {
       await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      // Keep the real geometry fixture away from vendor exclusion zones. The
+      // default profile is user/preset dependent (and can be Bambu), so this
+      // scene test must establish the same printable profile as the full flow
+      // before importing and slicing the cube.
+      await selectStableRealPrinter(page);
       // Add two real model instances so aggregate-pivot and multi-selection
       // assertions exercise the actual GL volume collection.
       await page.getByTestId('btn-add-model').click();
