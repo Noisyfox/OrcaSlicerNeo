@@ -6,17 +6,22 @@ Branch: `feat/global-z-up`
 ## What
 
 Replace the piecemeal per-camera Z-up wiring with a global one:
-`THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1)` in the renderer
-entry ([main.tsx](../apps/desktop/src/renderer/src/main.tsx)), before the
-Canvas mounts. `DEFAULT_UP` (renamed from the older `DefaultUp` in r185) is
-the up vector every `Object3D` — cameras included — is born with, so nothing
-downstream needs to remember the convention.
+`THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1)` in the shared app
+module, before the Canvas mounts. `DEFAULT_UP` (renamed from the older
+`DefaultUp` in r185) is the up vector every `Object3D` — cameras included —
+is born with, so nothing downstream needs to remember the convention.
 
 Changes:
 
-- `main.tsx` — module-scope assignment, guarded by a comment that it must
-  stay ahead of any `Object3D` construction (objects created at import time
-  would keep the three.js Y-up default).
+- `packages/slicer-app/src/threeZUp.ts` — module-scope assignment, guarded by
+  a comment that it must stay ahead of any `Object3D` construction (objects
+  created at import time would keep the three.js Y-up default).
+- `packages/slicer-app/src/index.ts` — `import './threeZUp'` is the first
+  import of the package entry, so the convention is set for every host
+  (desktop and web) before any other module in the package graph evaluates.
+- `apps/desktop/src/renderer/src/main.tsx` and `apps/web/src/main.tsx` —
+  dropped their duplicate assignments (and now-unused `three` imports); the
+  convention comes from importing `@orca/slicer-app`.
 - `Viewport.tsx` — dropped `up: [0, 0, 1]` from the Canvas camera prop; it is
   now inherited at construction. Comment updated.
 

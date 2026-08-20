@@ -1,6 +1,5 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import * as THREE from 'three';
 import { App } from '@orca/slicer-app';
 import '@orca/slicer-app-css';
 import { PlatformProvider } from '@orca/platform-contract';
@@ -21,7 +20,8 @@ void startWebApp({
   loadRuntime: () => import('@orca/slicer-runtime'),
   render: (loadedRuntime, state) => {
     const { slicerClient } = loadedRuntime as typeof import('@orca/slicer-runtime');
-    THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1);
+    // The global Z-up convention (THREE.Object3D.DEFAULT_UP) is set by the
+    // @orca/slicer-app package entry, before anything here constructs an Object3D.
     createRoot(document.getElementById('root')!).render(<React.StrictMode><div className="web-app-shell">
       {state.serialFallback && <aside className="web-serial-status" data-testid="serial-fallback-status" role="status">
         Threaded WebAssembly is unavailable in this page, so OrcaSlicerNeo is running the serial wasm64 fallback.
