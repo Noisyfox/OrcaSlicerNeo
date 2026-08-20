@@ -24,7 +24,8 @@ const factory: OrcaModuleFactory = useMock
       // inherits the page's isolation state; this keeps the selection tied to
       // the capability actually available to the module, rather than a UI
       // preference or a guessed browser string.
-      const isolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated;
+      const isolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated
+        && typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object';
       const artifactDir = isolated ? 'threaded' : 'serial';
       const wasmUrl = resolveModuleAssetUrl(`../wasm/${artifactDir}/orca_slice.js`, workerUrl);
       // Emscripten's scriptDirectory inside a worker derives from the
