@@ -16,7 +16,7 @@ REM           build-windows.bat quick -j 8
 REM           build-windows.bat full
 REM
 REM Commands: env deps boost build full quick shim smoke test dev
-REM e2e help. Options: -j N, --jobs N, --no-env, -v.
+REM e2e help. Options: -j N, --jobs N, --no-env, --debug, -v.
 REM ================================================================
 setlocal EnableExtensions
 
@@ -36,6 +36,7 @@ set "BOOST_STAGE=%WORK%\deps\boost-1.84.0\stage-wasm64\lib"
 set "JOBS="
 set "AUTO_ENV=1"
 set "VARIANT="
+set "DBG=0"
 
 REM ---------------- arg parsing ----------------
 set "CMD=%~1"
@@ -47,6 +48,7 @@ if /i "%~1"=="-j"          (set "JOBS=%~2" & shift & shift & goto :parse)
 if /i "%~1"=="--jobs"      (set "JOBS=%~2" & shift & shift & goto :parse)
 if /i "%~1"=="--variant"   (set "VARIANT=%~2" & shift & shift & goto :parse)
 if /i "%~1"=="--no-env"    (set "AUTO_ENV=0" & shift & goto :parse)
+if /i "%~1"=="--debug"     (set "DBG=1" & shift & goto :parse)
 if /i "%~1"=="-v"          (echo on & shift & goto :parse)
 if /i "%~1"=="-h"          (call :usage & exit /b 0)
 if /i "%~1"=="--help"      (call :usage & exit /b 0)
@@ -126,6 +128,10 @@ echo                    Default: ninja auto; BOOST_JOBS=4 as upstream.
 echo   --variant threaded^|serial^|both
 echo                    Build/verify one variant, or both ^(default: both^).
 echo   --no-env         Skip emsdk auto-activation ^(expect emcmake on PATH^).
+echo   --debug          Build with embedded DWARF: libslic3r + bridge at
+echo                    -g -O0 ^(deps stay release -O3^). Applies at configure
+echo                    time ^(build/full^); for quick the tree must have been
+echo                    configured with it ^(checked, with a clear error^).
 echo   -v               echo on ^(print every command^).
 exit /b 0
 
@@ -213,7 +219,8 @@ if not exist "%BOOST_STAGE%" (
   echo [winbuild] ERROR: Boost wasm64 archives missing ^(%BOOST_STAGE%^) - run: build-windows.bat boost
   exit /b 1
 )
-call "%SCRIPT_DIR%\build-wasm-dual.bat"
+if "%DBG%"=="1" call "%SCRIPT_DIR%\build-wasm-dual.bat" --debug
+if not "%DBG%"=="1" call "%SCRIPT_DIR%\build-wasm-dual.bat"
 exit /b %errorlevel%
 
 :cmd_full
@@ -224,9 +231,9 @@ if errorlevel 1 exit /b 1
 if defined JOBS (set "BOOST_JOBS=%JOBS%") else (set "BOOST_JOBS=4")
 call "%PKG%\build-boost-wasm64.bat"
 if errorlevel 1 exit /b 1
-call "%SCRIPT_DIR%\build-wasm-dual.bat"
-if errorlevel 1 exit /b 1
-exit /b 0
+if "%DBG%"=="1" call "%SCRIPT_DIR%\build-wasm-dual.bat" --debug
+if not "%DBG%"=="1" call "%SCRIPT_DIR%\build-wasm-dual.bat"
+exit /b %errorlevel%
 
 :cmd_quick
 call :ensure_emsdk
@@ -278,6 +285,16 @@ set "QOUT=%PKG%\out\%QV%"
 if not exist "%QBUILD%" (
   echo [winbuild] ERROR: No build tree at %QBUILD% - run: build-windows.bat build
   exit /b 1
+)
+REM --debug is a configure-time decision: quick only re-runs ninja, so
+REM verify the tree was actually configured with WASM_DEBUG rather than
+REM silently staging a release module.
+if "%DBG%"=="1" (
+  findstr /C:"WASM_DEBUG:BOOL=ON" "%QBUILD%\CMakeCache.txt" >nul 2>nul
+  if errorlevel 1 (
+    echo [winbuild] ERROR: Build tree %QBUILD% was configured without WASM_DEBUG - run: build-windows.bat build --debug
+    exit /b 1
+  )
 )
 if defined JOBS (
   emmake ninja -C "%QBUILD%" orca_slice -j %JOBS%

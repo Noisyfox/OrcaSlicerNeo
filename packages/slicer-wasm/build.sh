@@ -19,6 +19,9 @@
 # Usage:
 #   ./build.sh                # full run (deps + boost + configure + build)
 #   ./build.sh --shim-only    # just (re)generate the TBB shim headers
+#   ./build.sh --debug        # libslic3r + bridge at -g -O0 (embedded DWARF,
+#                             # interactive source-level debugging; deps stay release)
+#   (or set WASM_DEBUG=1)
 set -euo pipefail
 
 PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -93,10 +96,27 @@ generate_shim() {
   log "Shim headers written (TBB + boost::thread + libnoise + libjpeg)."
 }
 
-if [[ "${1:-}" == "--shim-only" ]]; then
+# ---------------- arg parsing ----------------
+# --debug: rebuild the libslic3r/bridge part with -g -O0 so the final module
+# embeds DWARF for interactive source-level debugging (Chrome DevTools).
+# Dependencies (Boost/oneTBB/vendored deps) stay release WITHOUT debug info.
+# WASM_DEBUG=1 is honored for programmatic callers (build-wasm-dual.sh).
+DEBUG="${WASM_DEBUG:-0}"
+SHIM_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --debug)     DEBUG=1 ;;
+    --shim-only) SHIM_ONLY=1 ;;
+    *) die "Unknown option: $arg (see header comment)" ;;
+  esac
+done
+if [[ "$SHIM_ONLY" == 1 ]]; then
   mkdir -p "$WORK_DIR"
   generate_shim
   exit 0
+fi
+if [[ "$DEBUG" == 1 ]]; then
+  log "DEBUG build: libslic3r + bridge at -g -O0 (DWARF embedded, interactive source-level debugging); deps stay release"
 fi
 
 # ---------------- Prerequisite checks ----------------
@@ -188,6 +208,7 @@ fi
 log "Configuring stripped libslic3r + bridge + CLI (emcmake)"
 emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
+  -DWASM_DEBUG="$DEBUG" \
   -DORCA_SRC="$ORCA_SRC" \
   -DSHIM_INCLUDE="$SHIM_INCLUDE" \
   -DGEN_INCLUDE="$GEN_INCLUDE" \

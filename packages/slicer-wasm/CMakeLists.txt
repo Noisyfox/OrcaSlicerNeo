@@ -21,6 +21,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
+# Debug build (build.sh/build.bat --debug or WASM_DEBUG=1): only the
+# libslic3r part (slic3r_core + bridge/CLI TUs) is rebuilt with -g -O0 so the
+# final module embeds DWARF for interactive source-level debugging in Chrome
+# DevTools. Dependencies (Boost, oneTBB, vendored deps_core) stay -O3 release
+# WITHOUT debug info — they are not recompiled. -g at link time is what keeps
+# the DWARF sections inside orca_slice.wasm (no external source maps).
+option(WASM_DEBUG "Build libslic3r + bridge with embedded DWARF (-g -O0); deps stay release" OFF)
 # This JavaScript expression is emitted directly into the module loader.
 # oneTBB and Emscripten use every logical core the runtime exposes.
 set(WASM_PTHREAD_POOL_SIZE "navigator.hardwareConcurrency" CACHE STRING "Pre-created Emscripten pthread workers")
@@ -42,6 +49,9 @@ if(WASM_THREADING)
   message(STATUS "WASM threading: oneTBB (${TBB_ROOT}), pthread pool=${WASM_PTHREAD_POOL_SIZE}")
 else()
   message(STATUS "WASM threading: serial TBB shim (explicit fallback)")
+endif()
+if(WASM_DEBUG)
+  message(STATUS "WASM debug: libslic3r + bridge at -g -O0 (embedded DWARF); deps stay -O3 without debug info")
 endif()
 
 if(NOT EMSCRIPTEN)
@@ -170,10 +180,18 @@ endif()
 # not a template in the scalar specialization; clang 21 promotes the
 # diagnostic to an error (boost/qvm via boost/geometry). Boost fixed this
 # upstream post-1.84; suppress here (accepted by clang 18/20).
-target_compile_options(slic3r_core PRIVATE
-  -O3 -fexceptions -Wno-unused
-  -Wno-missing-template-arg-list-after-template-kw
-)
+# WASM_DEBUG: the libslic3r part is rebuilt with -g -O0 (embedded DWARF for
+# interactive source-level debugging; -O0 keeps breakpoints, stepping and
+# variable inspection usable). Deps are intentionally NOT covered — see the
+# option comment at the top of this file.
+if(WASM_DEBUG)
+  set(SLIC3R_COMPILE_OPTS -g -O0 -fexceptions -Wno-unused
+      -Wno-missing-template-arg-list-after-template-kw)
+else()
+  set(SLIC3R_COMPILE_OPTS -O3 -fexceptions -Wno-unused
+      -Wno-missing-template-arg-list-after-template-kw)
+endif()
+target_compile_options(slic3r_core PRIVATE ${SLIC3R_COMPILE_OPTS})
 
 # ---- Vendored deps (deps_src/ inside the submodule) ----
 # The upstream two-stage build compiles these as separate static libs; the
@@ -317,7 +335,12 @@ add_executable(orca_slice ${ORCA_SLICE_SRC})
 # executable's TUs need it explicitly (the -fexceptions in
 # target_link_options below is link-time only). M4 probe section 4: the
 # nlohmann throw escaped orc_init's catches exactly because of this.
-target_compile_options(orca_slice PRIVATE -fexceptions)
+if(WASM_DEBUG)
+  # Bridge/CLI TUs get the same -g -O0 as libslic3r (see slic3r_core above).
+  target_compile_options(orca_slice PRIVATE -fexceptions -g -O0)
+else()
+  target_compile_options(orca_slice PRIVATE -fexceptions)
+endif()
 target_link_libraries(orca_slice PRIVATE slic3r_core deps_core)
 if(WASM_THREADING)
   target_link_libraries(orca_slice PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
@@ -331,8 +354,16 @@ if(BOOST_ARCHIVES)
   target_link_libraries(orca_slice PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
 endif()
 set_target_properties(orca_slice PROPERTIES OUTPUT_NAME "orca_slice" SUFFIX ".js")
+# Link optimization: debug replaces -O3 with -O0 -g. -g at LINK time is what
+# embeds the DWARF sections in the final .wasm (no -gsource-map, no external
+# files); -O0 skips heavy wasm-opt so the debug info survives in place.
+set(ORCA_LINK_OPTIMIZE -O3)
+if(WASM_DEBUG)
+  set(ORCA_LINK_OPTIMIZE -O0 -g)
+endif()
 target_link_options(orca_slice PRIVATE
-  -O3 -fexceptions
+  ${ORCA_LINK_OPTIMIZE}
+  -fexceptions
   -m64
   -sMODULARIZE=1
   -sEXPORT_ES6=1
@@ -364,6 +395,12 @@ target_link_options(orca_slice PRIVATE
   -sDISABLE_EXCEPTION_CATCHING=0
   -sALLOW_TABLE_GROWTH=1
 )
+if(WASM_DEBUG)
+  # Runtime assertions are the default at -O0, but kept explicit here so a
+  # future link-flag edit (e.g. raising the optimization level) cannot
+  # silently strip them from a debug build.
+  target_link_options(orca_slice PRIVATE -sASSERTIONS=1)
+endif()
 if(WASM_THREADING)
   target_link_options(orca_slice PRIVATE
     -pthread

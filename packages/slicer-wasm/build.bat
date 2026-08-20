@@ -24,6 +24,9 @@ REM
 REM Usage:
 REM   build.bat                full run (deps + configure + build)
 REM   build.bat --shim-only    just (re)generate the TBB shim headers
+REM   build.bat --debug        libslic3r + bridge at -g -O0 (embedded DWARF,
+REM                            interactive source-level debugging; deps stay
+REM                            release) - or set WASM_DEBUG=1
 REM ================================================================
 setlocal
 
@@ -63,7 +66,23 @@ REM Every <tbb/NAME.h> libslic3r may include forwards to shim\_serial.hpp. Add
 REM names here as compile errors reveal more includes.
 set "TBB_HEADERS=tbb parallel_for parallel_for_each parallel_reduce parallel_sort parallel_invoke blocked_range blocked_range2d enumerable_thread_specific combinable spin_mutex mutex spin_rw_mutex queuing_mutex task_group task_arena global_control task_scheduler_init concurrent_vector tick_count scalable_allocator cache_aligned_allocator tbb_allocator partitioner version concurrent_unordered_map concurrent_unordered_set concurrent_map concurrent_queue parallel_pipeline"
 
-if "%~1"=="--shim-only" goto :shim_only
+REM ---------------- arg parsing ----------------
+REM --debug: rebuild the libslic3r/bridge part with -g -O0 so the final module
+REM embeds DWARF for interactive source-level debugging (Chrome DevTools).
+REM Dependencies (Boost/oneTBB/vendored deps) stay release WITHOUT debug info.
+REM WASM_DEBUG=1 is honored for programmatic callers (build-wasm-dual.bat).
+set "DBG=0"
+set "SHIM_ONLY=0"
+:parse_args
+if "%~1"=="" goto :args_done
+if /i "%~1"=="--debug"     (set "DBG=1" & shift & goto :parse_args)
+if /i "%~1"=="--shim-only" (set "SHIM_ONLY=1" & shift & goto :parse_args)
+echo [wasm] ERROR: Unknown option: %~1 ^(see header comment^)
+exit /b 1
+:args_done
+if defined WASM_DEBUG set "DBG=%WASM_DEBUG%"
+if "%DBG%"=="1" echo [wasm] DEBUG build: libslic3r + bridge at -g -O0 ^(DWARF embedded, interactive source-level debugging^); deps stay release
+if "%SHIM_ONLY%"=="1" goto :shim_only
 
 REM ---------------- Prerequisite checks ----------------
 where git >nul 2>nul
@@ -167,7 +186,7 @@ copy /y "%PKG_DIR%\shim\jpeglib.h" "%SHIM_INCLUDE%\jpeglib.h" >nul
 copy /y "%PKG_DIR%\shim\jerror.h" "%SHIM_INCLUDE%\jerror.h" >nul
 echo [wasm] Shim headers written (TBB + boost::thread + libnoise + libjpeg).
 
-if "%~1"=="--shim-only" exit /b 0
+if "%SHIM_ONLY%"=="1" exit /b 0
 
 REM ---------------- Dependency staging ----------------
 if not exist "%BOOST_INCLUDE%\boost" (
@@ -224,6 +243,7 @@ REM ---------------- Configure + build ----------------
 echo [wasm] Configuring stripped libslic3r + bridge + CLI (emcmake)
 emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DCMAKE_BUILD_TYPE=Release ^
+  -DWASM_DEBUG=%DBG% ^
   -DORCA_SRC="%ORCA_SRC_CM%" ^
   -DSHIM_INCLUDE="%SHIM_CM%" ^
   -DGEN_INCLUDE="%GEN_CM%" ^

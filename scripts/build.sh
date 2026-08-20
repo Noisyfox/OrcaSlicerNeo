@@ -46,6 +46,10 @@
 #   --variant threaded|serial|both
 #                    Build/verify one variant, or both (default: both).
 #   --no-env         Skip emsdk auto-activation (expect emcmake on PATH).
+#   --debug          Build with embedded DWARF: libslic3r + bridge at
+#                    -g -O0 (deps stay release -O3). Applies at configure
+#                    time (build/full); for quick the tree must have been
+#                    configured with it (checked, with a clear error).
 #   -v, --verbose    set -x (print every command).
 #
 # emsdk vs PATH: if emcc/emcmake are already on PATH (Homebrew emscripten,
@@ -68,8 +72,9 @@ BOOST_STAGE="$WORK/deps/boost-1.84.0/stage-wasm64/lib"
 JOBS=""            # "" = toolchain default
 AUTO_ENV=1
 VARIANT=both
+DEBUG=0
 
-usage() { sed -n '2,55p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,59p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # ---------------- emsdk auto-activation ----------------
 # Already on PATH (Homebrew emscripten, sourced emsdk env)? Use it as-is;
@@ -113,6 +118,7 @@ while [[ $# -gt 0 ]]; do
         die "--variant must be 'threaded', 'serial' or 'both' (got '$VARIANT')"
       ;;
     --no-env)    AUTO_ENV=0; shift ;;
+    --debug)     DEBUG=1; shift ;;
     -v|--verbose) set -x; shift ;;
     -h|--help)   usage; exit 0 ;;
     *) die "Unknown option: $1 (see --help)" ;;
@@ -126,6 +132,12 @@ NINJA_JOBS=(); [[ -n "$JOBS" ]] && NINJA_JOBS=(-j "$JOBS")
 quick_variant() {
   local v="$1" bd="$WORK/$1/build" outd="$PKG/out/$1"
   [[ -d "$bd" ]] || die "No build tree at $bd — run: bash scripts/build.sh build"
+  # --debug is a configure-time decision: quick only re-runs ninja, so verify
+  # the tree was actually configured with WASM_DEBUG rather than silently
+  # staging a release module.
+  if [[ "$DEBUG" == 1 ]] && ! grep -q '^WASM_DEBUG:BOOL=ON' "$bd/CMakeCache.txt"; then
+    die "Tree $bd was configured without WASM_DEBUG — run: bash scripts/build.sh build --debug (reconfigures both variants)"
+  fi
   log "Incremental: emmake ninja -C $bd orca_slice ${NINJA_JOBS[*]+"${NINJA_JOBS[*]}"}"
   emmake ninja -C "$bd" orca_slice "${NINJA_JOBS[@]}"
   for f in orca_slice.js orca_slice.wasm orca_slice.data; do
@@ -188,7 +200,11 @@ case "$CMD" in
   build)
     ensure_emsdk
     [[ -d "$BOOST_STAGE" ]] || die "Boost wasm64 archives missing ($BOOST_STAGE) — run: bash scripts/build.sh boost"
-    bash "$ROOT/scripts/build-wasm-dual.sh"
+    if [[ "$DEBUG" == 1 ]]; then
+      bash "$ROOT/scripts/build-wasm-dual.sh" --debug
+    else
+      bash "$ROOT/scripts/build-wasm-dual.sh"
+    fi
     ;;
 
   # ---------------- cold start ----------------
@@ -196,7 +212,11 @@ case "$CMD" in
     ensure_emsdk
     bash "$PKG/fetch-deps.sh"
     BOOST_JOBS="${JOBS:-4}" bash "$PKG/build-boost-wasm64.sh"
-    bash "$ROOT/scripts/build-wasm-dual.sh"
+    if [[ "$DEBUG" == 1 ]]; then
+      bash "$ROOT/scripts/build-wasm-dual.sh" --debug
+    else
+      bash "$ROOT/scripts/build-wasm-dual.sh"
+    fi
     ;;
 
   # ---------------- incremental ninja loop (both variants unless --variant) ----------------
