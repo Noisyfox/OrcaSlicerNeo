@@ -3,5 +3,5 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "build": "node scripts/build.mjs" }
+  "scripts": { "build": "node scripts/build.mjs", "test": "vitest run" }
 }
