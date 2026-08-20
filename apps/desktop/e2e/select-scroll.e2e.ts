@@ -60,17 +60,24 @@ async function launchApp() {
 async function scrollRowToMidlist(page: Page) {
   const aside = page.locator('aside');
   const scroller = aside.locator(':scope > div');
+  // The real preset panel already has genuine scrollable content. Synthetic
+  // spacer nodes are retained only for the compact mock fixture; injecting
+  // nodes into the real React-owned scroll tree can invalidate Base UI's
+  // anchor observer while the popup is opening.
+  if (!REAL) {
+    await scroller.evaluate((el) => {
+      const mk = (h: number) => {
+        const d = document.createElement('div');
+        d.style.height = `${h}px`;
+        return d;
+      };
+      el.insertBefore(mk(700), el.firstChild);
+      el.appendChild(mk(600));
+    });
+  }
   await scroller.evaluate((el) => {
-    const mk = (h: number) => {
-      const d = document.createElement('div');
-      d.style.height = `${h}px`;
-      return d;
-    };
-    el.insertBefore(mk(700), el.firstChild);
-    el.appendChild(mk(600));
-  });
-  await scroller.evaluate((el) => {
-    const trigger = el.querySelector('[data-slot="select-trigger"]');
+    const triggers = el.querySelectorAll('[data-slot="select-trigger"]');
+    const trigger = triggers.item(triggers.length - 1);
     const row = trigger?.closest('div.space-y-4, div.flex');
     if (!row) throw new Error('real enum row not found');
     const rowTopInScroller = row.getBoundingClientRect().top - el.getBoundingClientRect().top;

@@ -77,6 +77,15 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
     const values = Object.fromEntries(
       Object.entries(state.values).filter(([k]) => meta[k] !== undefined),
     );
+    // layer_height is present in the real profile metadata, but older profile
+    // bundles may omit its bounds. It is never valid at zero and libslic3r's
+    // downstream layer math aborts before the bridge can serialize an error.
+    const rawLayerHeight = state.values.layer_height;
+    if (rawLayerHeight !== undefined && Number.parseFloat(rawLayerHeight) <= 0) {
+      setSlicerStatus('error');
+      setError('layer_height must be greater than 0');
+      return;
+    }
     // Reject impossible numeric values before entering libslic3r. Some
     // low-level config paths (notably layer_height=0) abort the native/WASM
     // runtime instead of returning a bridge error. Metadata is authoritative
