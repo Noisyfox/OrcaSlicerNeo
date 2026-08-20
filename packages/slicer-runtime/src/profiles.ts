@@ -12,7 +12,9 @@ export interface ProfileInstallProgress {
 
 async function bytes(response: Response): Promise<Uint8Array> {
   if (!response.ok) throw new Error(`profile fetch ${response.status}: ${response.url}`);
-  return new Uint8Array(await response.arrayBuffer());
+  const data = new Uint8Array(await response.arrayBuffer());
+  console.info('[profiles] fetch-complete', JSON.stringify({ url: response.url, bytes: data.byteLength }));
+  return data;
 }
 
 // Minimal browser/Worker ZIP reader. Stored entries are supported everywhere;
@@ -57,6 +59,8 @@ export async function installProfiles(
   manifestPath = 'manifest.json',
   onProgress?: (progress: ProfileInstallProgress) => void,
 ) {
+  const startedAt = Date.now();
+  console.info('[profiles] install-start', JSON.stringify({ manifest: manifestPath }));
   const manifest = JSON.parse(new TextDecoder().decode(await readBytes(await source.fetch(manifestPath)))) as ProfileManifest;
   if (manifest.version !== 1 || !Array.isArray(manifest.packages)) throw new Error('unsupported profile manifest');
   try { module.FS.mkdir?.('/system'); } catch { /* preload may already have mounted it */ }
@@ -88,6 +92,7 @@ export async function installProfiles(
         mkdirParents(module.FS, fullPath.slice(0, fullPath.lastIndexOf('/')));
         module.FS.writeFile(fullPath, entry.data);
       }
+      console.info('[profiles] package-installed', JSON.stringify({ package: pkg.id, kind: pkg.kind, index: index + 1, total, entries: entries.length, elapsedMs: Date.now() - startedAt }));
     } catch (error) {
       if (pkg.kind === 'core') {
         console.error('[profiles] core failure', JSON.stringify({ package: pkg.id, index: index + 1, total }), error);
@@ -96,6 +101,7 @@ export async function installProfiles(
       console.warn('[profiles] vendor skipped', JSON.stringify({ package: pkg.id, index: index + 1, total }), error);
     }
   }
+  console.info('[profiles] install-complete', JSON.stringify({ packages: total, elapsedMs: Date.now() - startedAt }));
 }
 
 export function createFetchProfileSource(base: string | URL): ProfileSource {

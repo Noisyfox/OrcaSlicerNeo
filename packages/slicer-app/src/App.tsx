@@ -21,11 +21,14 @@ export default function App() {
   const values = useSettingsStore((s) => s.values);
   const status = useSlicerStore((s) => s.status);
   const [sceneInteraction, setSceneInteraction] = useState<SceneInteractionController | null>(null);
+  const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
+  const [bootError, setBootError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
+        setBoot('starting');
         const preferences = await platform.preferences.load();
         const init = await platform.runtime.init();
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
@@ -45,8 +48,14 @@ export default function App() {
         // derives the picker's value + installed grouping from them.
         setPresets(restored[0].presets, restored[1].presets, restored[2].presets);
         setMetadata(metadata);
+        setBoot('ready');
       } catch (err) {
-        if (!cancelled) setError(`boot: ${String(err)}`);
+        if (!cancelled) {
+          const message = String(err);
+          setBootError(message);
+          setBoot('failed');
+          setError(`boot: ${message}`);
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -62,6 +71,28 @@ export default function App() {
     window.addEventListener('beforeunload', protect);
     return () => window.removeEventListener('beforeunload', protect);
   }, [platform.chrome.kind, modelLoaded, status, values]);
+
+  // Keep the shared application inert until the worker has initialized the
+  // core and every profile package has been installed. This is intentionally
+  // host-neutral: Electron and Web must expose the same startup contract and
+  // must never allow a user action against a partially populated MEMFS.
+  if (boot !== 'ready') {
+    return (
+      <main className="flex h-full items-center justify-center bg-background" data-testid="startup-screen">
+        <section className="w-full max-w-lg space-y-3 rounded-lg border bg-card p-8 shadow-sm">
+          <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
+          {boot === 'failed' ? (
+            <>
+              <h2 className="text-destructive">Startup failed</h2>
+              <p className="break-words text-sm text-muted-foreground" data-testid="startup-error">{bootError}</p>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground" data-testid="startup-progress">Loading slicer runtime and profiles…</p>
+          )}
+        </section>
+      </main>
+    );
+  }
 
   return (
     <AppShell
