@@ -1,34 +1,44 @@
 # OrcaSlicerNeo
 
-A next-generation desktop GUI for OrcaSlicer, rebuilt on **Electron + React +
-TypeScript + Vite + shadcn/ui**, with the C++ slicing core (`libslic3r`) reused
-as-is and compiled to **WebAssembly** via Emscripten.
+A next-generation OrcaSlicer GUI — one shared **React + TypeScript + Vite +
+shadcn/ui** application with thin **Electron** (desktop) and **static Web**
+hosts, with the C++ slicing core (`libslic3r`) reused as-is and compiled to
+**WebAssembly** via Emscripten.
 
-The existing wxWidgets GUI is not ported. One `.wasm` serves all six target
-platforms: Windows x64/arm64, Linux x64/arm64, macOS x64/arm64.
+The existing wxWidgets GUI is not ported. Two wasm64 variants — `threaded`
+(oneTBB + pthreads) and `serial` (TBB shim fallback) — built from the same
+bridge serve all six desktop platforms and the Web target; the runtime picks
+`threaded` when the host is cross-origin isolated and falls back to `serial`.
 
 ## Status
 
 - **Design approved** — see [doc/2026-08-12-electron-gui-rewrite-design.md](doc/2026-08-12-electron-gui-rewrite-design.md)
 - Feasibility proven by the phase-0 compile spike (GO verdict 2026-07-24) —
   see CLAUDE.md → Reference for details
-- Milestone 1 (WASM core: submodule, serial shim, Boost wasm64, bridge,
-  smoke tests) delivered 2026-08-13; desktop GUI in active development —
-  see [doc/high_level_dev_plan.md](doc/high_level_dev_plan.md) and
-  [spec/Grand Plan.md](spec/Grand Plan.md) for the roadmap
+- **Milestones 1–8 delivered** (2026-08-13 → 2026-08-18): WASM core, Electron
+  vertical slice, packaging/hardening, preset management, move gizmo,
+  multi-volume selection, add/clear scene; **Milestone 9 delivered 2026-08-20**:
+  shared Web–Electron application architecture (one React app with thin
+  Electron and static-Web hosts) — see
+  [doc/high_level_dev_plan.md](doc/high_level_dev_plan.md),
+  [spec/Grand Plan.md](spec/Grand Plan.md), and the approved
+  [Web–Electron architecture spec](spec/Web-Electron%20Shared%20Application%20Architecture.md)
+  for the roadmap
 
 ## Layout
 
 ```
-apps/desktop/          Electron app (main / preload / renderer)
-apps/web/              browser app (Vite static host; shared UI + runtime)
+apps/desktop/          Electron host (main / preload / renderer entry)
+apps/web/              static Web host (Vite; browser adapters, capability gate)
 packages/slicer-wasm/  WASM slicer module: build scaffold + bridge + JS client
   cpp/                 git submodule → Noisyfox/OrcaSlicer (the C++ source)
-packages/slicer-app/   shared React UI (used by both hosts)
-packages/slicer-runtime/ shared runtime + worker glue (used by both hosts)
+packages/slicer-app/   shared React UI (components, stores, viewport, styles)
+packages/slicer-runtime/ shared runtime + worker glue (asset resolution, profiles)
+packages/platform-contract/ injected platform contracts (host adapters)
+packages/profile-resources/ profile package build (manifest + core/vendor ZIPs)
 doc/                   dated engineering docs (YYYY-MM-DD-topic.md)
 spec/                  approved specs
-tools/ scripts/ tests/ dev utilities, CI scripts, e2e tests
+tools/ scripts/        dev utilities, CI scripts
 ```
 
 See [project_structure_and_guidelines.md](project_structure_and_guidelines.md) and
@@ -85,8 +95,10 @@ bash scripts/build.sh full -j 8
 
 `full` is the cold-start path: fetch header-only deps (Eigen / Boost 1.84 /
 cereal) → cross-compile Boost 1.84 wasm64 static archives → patch the
-submodule, apply the shim, configure with CMake + Emscripten, ninja-build,
-and stage `orca_slice.{js,wasm,data}` to `packages/slicer-wasm/out/`.
+submodule, apply the shim, configure with CMake + Emscripten, ninja-build
+both wasm64 variants (threaded + serial, separate CMake/output trees), and
+stage each variant's `orca_slice.{js,wasm,data}` set to
+`packages/slicer-wasm/out/{threaded,serial}/`.
 
 For iterating on bridge/CMake changes after a first full build, use the
 incremental loop — seconds-to-minutes, no configure or patch re-apply:
@@ -101,20 +113,22 @@ bash scripts/build.sh quick -j 8
 
 Other driver subcommands: `deps` (fetch deps only), `boost` (Boost wasm64
 only), `build` (full build, requires Boost archives), `shim` (regenerate
-TBB/shim headers), `smoke` (run the Node harnesses against `out/`), `test`
-(vitest + typecheck for both packages), `dev` (launch the Electron app),
+TBB/shim headers), `smoke` (run the Node harnesses against both variants in
+`out/`), `test` (slicer-wasm vitest + typecheck; the whole workspace runs via
+`pnpm -r test` / `pnpm -r typecheck`), `dev` (launch the Electron app),
 `e2e` (Playwright Electron), `env`, `help`.
 
 ### Verify: slice a cube
 
 ```bash
 node packages/slicer-wasm/harness/run-slice.mjs \
-  --module packages/slicer-wasm/out/orca_slice.js \
+  --module packages/slicer-wasm/out/serial/orca_slice.js \
   --stl packages/slicer-wasm/fixtures/cube.stl \
   --config packages/slicer-wasm/fixtures/config.json
 ```
 
-(or just `<driver> smoke` — it runs both the slice and bridge harnesses)
+(or just `<driver> smoke` — it runs the slice and bridge harnesses against
+both the `threaded` and `serial` variants)
 
 ### Run the app / tests
 
@@ -128,6 +142,7 @@ pnpm -r typecheck
 pnpm --filter desktop test:e2e # Playwright Electron e2e (also: <driver> e2e)
 pnpm --filter web test:e2e:threaded # Chrome e2e against the threaded wasm
 pnpm --filter web test:e2e:serial   # Chrome e2e against the serial fallback
+pnpm --filter web test:non-root    # production build served from a subpath
 ```
 
 **Web app prerequisites.** Unlike the Electron app, the browser host has no

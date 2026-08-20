@@ -175,35 +175,51 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 
 ## Milestone 9: Shared Web–Electron Application Architecture
 
-> [!info] Status: **steps 1–2 implemented, migration in progress** (2026-08-19).
+> [!info] Status: **delivered 2026-08-20** — migration steps 0–11 per the
+> [implementation plan](../doc/2026-08-19-web-electron-shared-implementation-plan.md).
 > Normative design:
 > [`Web–Electron Shared Application Architecture.md`](Web-Electron%20Shared%20Application%20Architecture.md).
+> Release-gate evidence (96 tests, typecheck, both real wasm64 artifacts, web
+> threaded/serial e2e, non-root deployment, desktop e2e):
+> `doc/2026-08-20-m9-step11-release-regression-audit.md`.
 
 Refactor the Electron renderer into a shared React application with thin
 Electron and static-Web hosts. The core flow remains local wasm64 slicing; the
 Web target is desktop Chrome 133+ with WebGL 2, threaded WASM where
 cross-origin isolation is available, and serial WASM otherwise.
 
-- [x] Platform contracts and Electron adapter; remove shared UI's direct
-      `window.orca` use while keeping Electron running.
-- [x] Extract platform-neutral UI/runtime into shared packages without
-      rewriting unrelated renderer behavior.
-- [x] Replace Emscripten profile preload files with upstream-organized `core`
-      and vendor packages installed into MEMFS at startup.
-- [x] Add the static `apps/web` host, browser file/download adapters, and the
-      common startup/unsupported-environment experiences.
-- [x] Ship and verify real threaded and serial wasm64 artifacts in Chrome Web
-      E2E, while retaining Electron core E2E.
-## Milestone 5+: Post-v1 Expansion (queued, not yet scheduled)
+- [x] Step 0 — migration baseline captured (`doc/2026-08-20-m9-step0-migration-baseline.md`)
+- [x] Step 1 — dependency-free platform contracts (`packages/platform-contract`)
+- [x] Step 2 — Electron adapter replacing direct `window.orca` use
+- [x] Step 3 — shared React app extracted into `packages/slicer-app`
+      (import-direction guard included)
+- [x] Step 4 — reusable runtime bootstrap (`packages/slicer-runtime`)
+- [x] Step 5 — deterministic profile packages built independently of WASM
+      (`packages/profile-resources`: manifest + core/vendor ZIPs)
+- [x] Step 6 — profile packages installed into MEMFS before `orc_init()`
+      (failed vendor skipped, failed `core` fails startup)
+- [x] Step 7 — AppConfig replaced by shared preferences (Electron file /
+      Web localStorage, in-memory fallback)
+- [x] Step 8 — Electron fully on the shared runtime; legacy AppConfig bridge
+      API removed (`selectPreset` is the only selection path)
+- [x] Step 9 — static `apps/web` host: browser file/download adapters,
+      capability gating, `beforeunload` guarding, relative asset URLs
+- [x] Step 10 — dual wasm64 artifacts (threaded + serial) staged; real-artifact
+      Chrome e2e for both variants
+      (`doc/2026-08-20-m9-step10-dual-wasm-web-e2e.md`)
+- [x] Step 11 — release/regression audit
+      (`doc/2026-08-20-m9-step11-release-regression-audit.md`)
+
+## Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)
 - [ ] Gizmos: rotate/scale/cut/measure/arrange/orient (move delivered in
       Milestone 5)
-- [ ] Parallelism: upstream oneTBB + pthreads + COOP/COEP (implementation in
-      progress; design + incremental verification:
-      `doc/2026-08-18-wasm-parallelism-design.md`); perf tuning for large
-      plates
+- [x] Parallelism: upstream oneTBB + pthreads + COOP/COEP (design:
+      `doc/2026-08-18-wasm-parallelism-design.md`) — delivered with M9
+      step 10 as the default `threaded` artifact
+- [ ] Perf tuning for large plates
 - [ ] STEP import (OCCT Emscripten port decision)
 - [ ] CGAL features: mesh boolean, hollowing, advanced cut
 - [ ] Device panel & printer connectivity (Bambu LAN/cloud, Moonraker, …)

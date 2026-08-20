@@ -1,4 +1,4 @@
-# High Level Development Plan (updated 2026-08-16)
+# High Level Development Plan (updated 2026-08-20)
 
 ## Context
 
@@ -14,8 +14,9 @@
   ad-hoc edits to the submodule); all C++↔JS traffic goes through the extern "C"
   bridge; docs-first (dated notes in `doc/`).
 - Testing: every milestone ships with its smoke/unit/e2e layer — Node smoke for
-  the WASM module, vitest with a mock Emscripten module for the client, Playwright
-  Electron for the app.
+  the WASM module, vitest with a mock Emscripten module for the shared
+  packages/client, Playwright Electron for the desktop app and Playwright
+  Chrome for the Web host (real threaded + serial artifacts).
 
 ## Milestones & Epics
 
@@ -238,21 +239,28 @@
 
 ### Milestone 9 — Shared Web–Electron Application Architecture
 
-> **Status: M9 steps 1–5 implemented (2026-08-20).** The norm is
-> `spec/Web-Electron Shared Application Architecture.md`. This is an
-> incremental extraction, not a renderer rewrite: Electron remains usable at
-> every step, and implementation commits follow independently verifiable
-> contracts, extraction, profile delivery, Web host, and dual-artifact tests.
+> **Status: delivered 2026-08-20** (migration steps 0–11 per
+> `doc/2026-08-19-web-electron-shared-implementation-plan.md`). The norm is
+> `spec/Web-Electron Shared Application Architecture.md`. This was an
+> incremental extraction, not a renderer rewrite: Electron remained usable at
+> every step, with one commit per independently verifiable step. Release-gate
+> evidence (96 tests, typecheck, both real wasm64 artifacts, web threaded/
+> serial e2e, non-root deployment, desktop e2e):
+> `doc/2026-08-20-m9-step11-release-regression-audit.md`.
 
 **Epic 9.1: platform contracts and Electron adapter**
 - Define injected file-import/export, preferences, platform-chrome, runtime,
   and profile-source contracts.
-- **Step 1 delivered:** replace renderer calls to `window.orca` with the Electron adapter,
-  retaining existing Electron behavior as the verification target.
-- **Step 2 implemented:** extract the existing platform-neutral UI/stores/
-  viewport into `packages/slicer-app`, Worker/runtime orchestration into
-  `packages/slicer-runtime`, and the injected contracts/provider into
-  `packages/platform-contract`; Electron retains only its entry and adapter.
+- **Step 1 delivered:** `packages/platform-contract` — dependency-free
+  contracts + provider context; the shared app no longer touches
+  `window.orca` directly (docs: `doc/2026-08-19-m9-step1-platform-contracts.md`).
+- **Step 2 delivered:** Electron adapter replacing renderer `window.orca`
+  calls, retaining existing Electron behavior as the verification target;
+  **steps 3–4 delivered:** platform-neutral UI/stores/viewport extracted into
+  `packages/slicer-app` (import-direction guard test included) and
+  Worker/runtime orchestration into `packages/slicer-runtime` (portable
+  worker bootstrap); Electron retains only its entry and adapter (docs:
+  `doc/2026-08-19-m9-step2-shared-extraction.md`).
 
 **Epic 9.2: extract shared application/runtime**
 - Move platform-neutral React components, stores, viewport, styles, Worker
@@ -260,6 +268,11 @@
   minimal unrelated behavior change.
 - Keep the shared `BrandBar`; Electron contributes frameless drag/macOS inset
   styling and Web supplies the visually matching non-window-control variant.
+- **Step 8 delivered:** Electron fully consumes the shared runtime startup
+  gate and worker bootstrap; the legacy AppConfig bridge API was removed
+  (commit `2c08b8b` — `refactor(wasm): remove legacy AppConfig bridge API`),
+  leaving `selectPreset(kind, name)` as the only selection path. Docs:
+  `doc/2026-08-20-m9-step8-electron-shared-runtime.md`.
 
 **Epic 9.3: portable profile resources and preferences**
 - Build upstream-organized core/vendor profile archives separately from WASM;
@@ -267,6 +280,16 @@
 - Replace AppConfig persistence with the shared selected-profile/UI-preference
   repository. Profiles, projects, models, overrides, results, and G-code stay
   ephemeral in the first release.
+- **Steps 5–6 delivered:** deterministic profile pack generation
+  (`packages/profile-resources`: versioned manifest + core/vendor ZIPs from
+  upstream organization) and a Worker-side installer into MEMFS with
+  per-package console progress; a failed vendor package is skipped, a failed
+  `core` package or WASM init fails startup. Docs:
+  `doc/2026-08-20-m9-step3-profile-resources.md`.
+- **Step 7 delivered:** AppConfig replaced by shared preferences
+  (Electron file in user data / Web localStorage, in-memory fallback on
+  read/write failure); restoration order printer → print → filament through
+  the bridge, resolved combination written back.
 
 **Epic 9.4: static Web host and verification**
 - Add `apps/web`, use browser file selection/Blob download, local static
@@ -274,9 +297,18 @@
   protection for ephemeral work.
 - Build and verify threaded and serial wasm64 artifacts with Chrome Web E2E;
   retain Electron E2E and compact fixture/full-package release smoke coverage.
-  **Step 5 delivered:** dual variant build/staging and capability-based Worker
-  selection are implemented; real-artifact Chrome/Electron verification is the
-  release gate documented in `doc/2026-08-20-m9-step10-dual-wasm-web-e2e.md`.
+- **Step 9 delivered:** static Web host with capability gating (WebGL 2 +
+  wasm64 → `threaded` when cross-origin isolated, else `serial` with a
+  non-blocking fallback status), runtime asset URLs relative to the
+  deployment base (site root / subpath / preview), and `beforeunload`
+  guarding. Docs: `doc/2026-08-20-m9-step4-web-host.md`,
+  `doc/2026-08-20-fix-dev-wasm-url-shared-runtime.md`.
+- **Step 10 delivered:** dual-variant build/staging (separate CMake/output
+  trees per variant via `scripts/build-wasm-dual.*` + `stage-wasm.mjs`) and
+  real-artifact Chrome e2e for both variants —
+  `doc/2026-08-20-m9-step10-dual-wasm-web-e2e.md`.
+- **Step 11 delivered:** release/regression audit — see the M9 status block
+  above for the evidence list (`doc/2026-08-20-m9-step11-release-regression-audit.md`).
 
 ## Cross-Cutting Practices
 
@@ -287,11 +319,11 @@
   bridge-signature drift are the documented fix loops (see AGENTS.md).
 - **wasm64 consistency:** all objects, Boost archives, and link must agree on
   `-sMEMORY64`; fall back to wasm32 + `GCode.hpp` size_t fix only if blocked.
-- **Parallel WASM slice:** the queued wasmtbb/pthread follow-up is now being
-  implemented as the documented, independently verified work in
-  `doc/2026-08-18-wasm-parallelism-design.md`. The default artifact will use
-  upstream oneTBB plus a bounded Emscripten pthread pool; the serial shim
-  remains an explicit fallback build.
+- **Parallel WASM slice:** delivered with M9 step 10 — the default `threaded`
+  artifact uses upstream oneTBB (pinned commit `3cdc6f6`) over Emscripten
+  pthreads, built in its own CMake tree (`doc/2026-08-18-wasm-parallelism-design.md`);
+  the serial shim remains the explicit `serial` fallback artifact. Both ship
+  and are verified; only perf tuning for large plates stays queued.
 - **Docs-first:** each epic creates/updates a short sub-doc in `doc/` capturing
   decisions and testing notes; keep this plan and `spec/Grand Plan.md` in sync
   with delivered work.

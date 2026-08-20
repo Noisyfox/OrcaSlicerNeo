@@ -2,14 +2,18 @@
 
 ## Architecture & Scope
 
-- OrcaSlicerNeo is a desktop GUI rewrite of OrcaSlicer: **Electron + React +
-  TypeScript + Vite + shadcn/ui**, with the C++ slicing core (`libslic3r`)
-  compiled to **WebAssembly (Emscripten)** and called from JS.
+- OrcaSlicerNeo rebuilds the OrcaSlicer GUI as a shared React app
+  (**React + TypeScript + Vite + shadcn/ui**) with two thin hosts: an
+  **Electron** desktop app (`apps/desktop`) and a static **Web** app
+  (`apps/web`), with the C++ slicing core (`libslic3r`) compiled to
+  **WebAssembly (Emscripten)** and called from JS.
 - The wxWidgets GUI is **not** ported and not compiled in the WASM build.
 - Monorepo managed by pnpm workspaces (`apps/*`, `packages/*`), runtime pinned
   via Volta (following established monorepo conventions).
 - Target platforms: Windows x64/arm64, Linux x64/arm64, macOS x64/arm64 — all
-  ship the same `.wasm`.
+  ship both wasm64 variants; the Web target is desktop Chrome 133+ with
+  WebGL 2 and wasm64 (see
+  `spec/Web-Electron Shared Application Architecture.md`).
 - Keep the C++ submodule changes **minimal**: `libslic3r` is reused as-is;
   modifications happen only through `packages/slicer-wasm/patches/*.patch` or
   deliberate submodule commits, never ad-hoc edits.
@@ -17,9 +21,11 @@
 
 ## Authoritative Documents
 
-- Read `doc/2026-08-12-electron-gui-rewrite-design.md` **before any coding** —
-  it is the approved design for the current milestone (v1 vertical slice:
-  load STL/3MF → configure → slice → 3D preview → export G-code).
+- Read `spec/Web-Electron Shared Application Architecture.md` **before any
+  coding** — it is the approved design for the current milestone (shared
+  Electron + static-Web application). `doc/2026-08-12-electron-gui-rewrite-design.md`
+  remains the approved design for the delivered desktop vertical slice
+  (load STL/3MF → configure → slice → 3D preview → export G-code) it extends.
 - Read `doc/high_level_dev_plan.md` for the roadmap and `spec/Grand Plan.md`
   for the milestone checklist; keep both in sync with delivered work.
 - Read `project_structure_and_guidelines.md` for structure and engineering
@@ -30,9 +36,22 @@
 
 ## Project Structure
 
-- `apps/desktop/`: Electron app — `src/main/` (windows, dialogs, session
-  config), `src/preload/` (contextBridge API), `src/renderer/` (React app,
-  react-three-fiber viewport, shadcn/ui).
+- `apps/desktop/`: Electron host — `src/main/` (windows, dialogs, session
+  config), `src/preload/` (contextBridge API), `src/renderer/` (thin entry
+  composing the shared app with the Electron adapter).
+- `apps/web/`: static Web host — Vite app, browser adapters (file picker /
+  Blob download, localStorage preferences), capability gate and
+  unsupported-environment screen.
+- `packages/slicer-app/`: shared React UI — components, stores, viewport,
+  styles (used by both hosts; an import-direction guard test keeps it free
+  of host/Electron/Node dependencies).
+- `packages/slicer-runtime/`: shared runtime — Worker/WASM asset resolution,
+  profile installation into MEMFS, startup gate and capability selection.
+- `packages/platform-contract/`: injected platform contracts (models,
+  exports, preferences, runtime, chrome) + context provider.
+- `packages/profile-resources/`: deterministic profile package build
+  (versioned manifest + core/vendor ZIPs from upstream profile
+  organization).
 - `packages/slicer-wasm/`: the WASM slicer module.
   - `cpp/`: git submodule → `Noisyfox/OrcaSlicer` (pinned SHA). Do not commit
     changes to the submodule pointer casually; update it with intent.
@@ -44,19 +63,22 @@
     cmd-native, no Git Bash): WASM build pipeline.
 - `doc/`: dated engineering docs (`YYYY-MM-DD-topic.md`, repo convention).
 - `spec/`: approved specs.
-- `tools/ scripts/ tests/`: dev utilities, CI/packaging scripts, e2e tests and
-  fixtures.
+- `tools/ scripts/`: dev utilities, CI/packaging scripts.
 
 ## Key paths
 
 | Path | What it is |
 |---|---|
-| `doc/2026-08-12-electron-gui-rewrite-design.md` | **Approved design — read before coding.** Architecture, bridge API table, decisions, risks |
+| `spec/Web-Electron Shared Application Architecture.md` | **Approved design — read before coding.** Shared Electron + Web architecture, contracts, decisions |
+| `doc/2026-08-12-electron-gui-rewrite-design.md` | Approved design for the delivered desktop vertical slice |
 | `doc/high_level_dev_plan.md` / `spec/Grand Plan.md` | Roadmap + milestone checklist (keep in sync with work) |
+| `packages/slicer-app/` `packages/slicer-runtime/` | Shared React UI / runtime glue (used by both hosts) |
+| `packages/platform-contract/` `packages/profile-resources/` | Injected platform contracts / profile package build |
 | `packages/slicer-wasm/cpp/` | git submodule → `Noisyfox/OrcaSlicer` (C++ source, pinned SHA). Treat as read-only except via `patches/` |
 | `packages/slicer-wasm/src/bridge.cpp` | extern "C" bridge API (the C++↔JS seam) |
 | `packages/slicer-wasm/src/client/` | typed JS client + worker glue (the only JS that touches the WASM module) |
-| `apps/desktop/src/` | Electron main / preload / renderer |
+| `apps/desktop/src/` | Electron main / preload / renderer entry |
+| `apps/web/src/` | static Web host entry + adapters |
 
 ## Reference (do not reinvent)
 
@@ -88,9 +110,9 @@ proved feasibility and contains reusable machinery:
   escaping, CRLF): see `doc/2026-08-15-cmd-build-pipeline.md`.
 - WASM: `packages\slicer-wasm\build.bat` (cmd; `call <emsdk>\emsdk_env.bat`
   first, or use the driver; ~50 GB disk for the dep build)
-- Node smoke: `node packages/slicer-wasm/harness/run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.json`
-- App dev: `pnpm --filter desktop dev` (electron-vite)
-- e2e: `pnpm --filter desktop test:e2e` (Playwright Electron)
+- Node smoke: `node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json` (variants live under `out/{threaded,serial}/`)
+- App dev: `pnpm --filter desktop dev` (electron-vite) / `pnpm --filter web dev` (Vite)
+- e2e: `pnpm --filter desktop test:e2e` (Playwright Electron); `pnpm --filter web test:e2e:threaded` / `test:e2e:serial` (Playwright Chrome, real artifacts)
 
 ## WASM Build Workflow (iterative — do not expect push-button)
 
@@ -119,7 +141,8 @@ The WASM build is an iteration surface, not a finished pipeline. When it fails:
 - Never block the UI thread from the renderer; the WASM module runs in a Web
   Worker.
 - The client (`packages/slicer-wasm/src/client`) is the only JS that talks to
-  the WASM module; renderer code goes through it.
+  the WASM module; application code goes through `slicer-runtime`, never the
+  module URLs or Emscripten globals.
 
 ## Golden rules
 
@@ -152,9 +175,15 @@ The WASM build is an iteration surface, not a finished pipeline. When it fails:
 ## Testing
 
 - Node smoke tests (no Electron): `packages/slicer-wasm/harness/` pattern —
-  stage fixtures into MEMFS, run via `callMain`, validate G-code output.
-- Unit (`vitest`): client + stores against a mock Emscripten module (no emsdk).
-- e2e (Playwright Electron): drive the full v1 flow in the packaged app.
+  stage fixtures into MEMFS, run via `callMain`, validate G-code output
+  (run against both `out/threaded/` and `out/serial/` artifacts).
+- Unit (`vitest`): shared packages + client against a mock Emscripten module
+  (no emsdk); `packages/slicer-app/src/import-direction.test.ts` guards the
+  shared packages from host dependencies.
+- e2e (Playwright): drive the full v1 flow in the Electron app
+  (`apps/desktop/e2e/`) and in Chrome against both real wasm64 artifacts
+  (`apps/web/e2e/`, `scripts/run-web-e2e-serial.mjs`), plus a packaged-app
+  runtime probe (`scripts/run-desktop-e2e-real.mjs`).
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph

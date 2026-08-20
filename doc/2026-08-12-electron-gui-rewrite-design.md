@@ -4,6 +4,14 @@ Date: 2026-08-12
 Status: Approved (brainstorming session, 2026-08-12)
 Scope: v1 vertical slice of a rebuilt OrcaSlicer desktop GUI on Electron + React
 
+> **Amended 2026-08-20:** this desktop design is superseded as the current
+> normative design by `spec/Web-Electron Shared Application Architecture.md`
+> (one shared React app with thin Electron and static-Web hosts). The desktop
+> vertical slice specified here is delivered (milestones 1–8); Milestone 9
+> delivered the shared architecture, including the dual wasm64 artifacts
+> (`threaded` + `serial`) that replace the single `.wasm` assumed below. See
+> `doc/high_level_dev_plan.md` / `spec/Grand Plan.md` for current status.
+
 ## Executive Summary
 
 Rebuild the OrcaSlicer desktop GUI on Electron + React + TypeScript + Vite + shadcn/ui.

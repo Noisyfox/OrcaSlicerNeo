@@ -18,8 +18,10 @@ Emscripten. It enforces:
    modified only through `packages/slicer-wasm/patches/*.patch` or deliberate,
    documented submodule commits. All WASM-specific build logic lives in the
    scaffold (`packages/slicer-wasm/`), never in the upstream build system.
-2. **One artifact, six platforms:** the same `.wasm` ships on Windows x64/arm64,
-   Linux x64/arm64, macOS x64/arm64.
+2. **One bridge, many hosts:** the same extern "C" bridge ships as two wasm64
+   variants — `threaded` (upstream oneTBB + pthreads; selected when the host is
+   cross-origin isolated) and `serial` (TBB shim fallback) — on Windows
+   x64/arm64, Linux x64/arm64, macOS x64/arm64, and the static Web host.
 3. **A clean C++↔JS seam:** an extern "C", JSON-in/JSON-out bridge is the only
    interface; binary data (meshes, toolpaths) crosses as heap buffers. The JS
    client in `packages/slicer-wasm/src/client/` is the only JS that touches the
@@ -34,11 +36,24 @@ Emscripten. It enforces:
 ```text
 orca-slicer-neo/
 ├── apps/
-│   └── desktop/                  # Electron app
-│       ├── src/main/             # window mgmt, native dialogs, session (COOP/COEP)
-│       ├── src/preload/          # contextBridge API (contextIsolation: true)
-│       └── src/renderer/         # React app: shadcn/ui, zustand, react-three-fiber viewport
+│   ├── desktop/                  # Electron host
+│   │   ├── src/main/             # window mgmt, native dialogs, session (COOP/COEP)
+│   │   ├── src/preload/          # contextBridge API (contextIsolation: true)
+│   │   ├── src/renderer/         # thin entry: shared app + Electron adapter
+│   │   └── e2e/                  # Playwright Electron specs
+│   └── web/                      # static Web host (Vite)
+│       ├── src/                  # entry + browser adapters (file picker / Blob,
+│       │                         #   localStorage preferences, capability gate)
+│       └── e2e/                  # Playwright Chrome specs (threaded + serial)
 ├── packages/
+│   ├── slicer-app/               # shared React UI: components, stores, viewport,
+│   │                             #   styles (host-free; import-direction guard)
+│   ├── slicer-runtime/           # shared runtime: Worker/WASM asset resolution,
+│   │                             #   profile installation, startup gate
+│   ├── platform-contract/        # injected platform contracts (models, exports,
+│   │                             #   preferences, runtime, chrome) + context
+│   ├── profile-resources/        # deterministic profile package build
+│   │                             #   (manifest + core/vendor ZIPs)
 │   └── slicer-wasm/              # WASM slicer module (AGPL)
 │       ├── cpp/                  # git submodule → Noisyfox/OrcaSlicer @ pinned SHA
 │       ├── CMakeLists.txt        # scaffold: GLOB_RECURSE + DROP_PATTERNS + stubs/
@@ -49,13 +64,13 @@ orca-slicer-neo/
 │       ├── src/client/           # typed JS client + Web Worker glue
 │       ├── harness/              # Node smoke runner + mock-module self-test
 │       ├── fixtures/             # cube.stl generator, starter config.json
-│       ├── build.sh              # emsdk env → patches → shim gen → emcmake → artifacts
+│       ├── build.sh / build.bat  # emsdk env → patches → shim gen → emcmake → artifacts
 │       └── build-boost-wasm64.sh # Emscripten Boost 1.84 build
 ├── doc/                          # dated engineering docs (YYYY-MM-DD-topic.md)
 ├── spec/                         # approved specs
 ├── tools/                        # dev utilities
-├── scripts/                      # CI / packaging scripts
-├── tests/                        # e2e (Playwright Electron) + fixtures
+├── scripts/                      # CI / packaging scripts (incl. build-wasm-dual.*,
+│                                 #   stage-wasm.mjs, web/desktop e2e runners)
 ├── package.json                  # root scripts
 └── pnpm-workspace.yaml
 ```
@@ -65,7 +80,9 @@ orca-slicer-neo/
 ## 3. Document Conventions
 
 - `doc/` — engineering docs, dated `YYYY-MM-DD-topic.md` (repo convention).
-  Header block: title, date, status, scope. Current: `2026-08-12-electron-gui-rewrite-design.md`.
+  Header block: title, date, status, scope. Approved designs move to `spec/`;
+  the current normative design is `spec/Web-Electron Shared Application
+  Architecture.md`.
 - `spec/` — approved designs (moved from `doc/` or written directly when approved).
 - Root docs: `README.md`, `AGENTS.md` (imported by `CLAUDE.md`),
   `project_structure_and_guidelines.md` (this file).
@@ -83,12 +100,16 @@ See the design doc §C++/WASM Build and the spike's README iterate loop. Key rul
 - **wasm64 (`-sMEMORY64`)**: builds wasm64 consistently (objects, Boost,
   link). Fallback to wasm32 + the `GCode.hpp` size_t fix only if toolchain
   issues block wasm64.
-- **Serial-first**: no `-pthread` in v1; the TBB shim runs parallel primitives
-  inline. Parallelism (wasmtbb + pthreads + COOP/COEP) is a later phase.
+- **Dual-variant**: the production build produces two wasm64 variants in
+  separate CMake/output trees — `threaded` (upstream oneTBB + pthreads;
+  selected at runtime when the host is cross-origin isolated) and `serial`
+  (the TBB shim, no pthreads). Both share one bridge/client contract.
 - **Formats**: STL + 3MF in v1 (STEP/OCCT dropped). Thumbnails dropped
   (`ThumbnailsGeneratorCallback` = nullptr).
-- **Resources**: v1 embeds a curated preset subset (`--embed-file`); full
-  `resources/profiles` bundle via `--preload-file` later.
+- **Profile resources**: system profiles ship as versioned ZIP packages
+  (manifest + core/vendor) built deterministically by
+  `packages/profile-resources`; a Worker-side installer materializes them
+  into MEMFS before `orc_init()`. No `--preload-file` profile bundle.
 - **Memory ownership** across the bridge: JS allocates with `_malloc`, copies
   bytes into `HEAPU8`, calls, reads result (JSON string pointer or binary
   buffer pointer+length), then `_free`s.
@@ -97,17 +118,27 @@ See the design doc §C++/WASM Build and the spike's README iterate loop. Key rul
 
 ## 5. Frontend Guidelines
 
-- **Stack**: React + TypeScript + Vite (electron-vite), Tailwind + shadcn/ui,
-  zustand for state, react-three-fiber + drei for the 3D viewport.
+- **Stack**: React + TypeScript + Vite (electron-vite for Electron, plain Vite
+  for Web), Tailwind + shadcn/ui, zustand for state, react-three-fiber + drei
+  for the 3D viewport. One shared app (`packages/slicer-app`) with thin hosts
+  (Electron / Web).
 - **Imports (code style)**: UI elements follow the shadcn alias convention —
-  `@/components/ui/*` and `@/lib/utils`, never relative paths (`@` →
-  `src/renderer/src`, wired in tsconfig.web.json / electron.vite.config.ts /
-  vitest.config.ts). Business-logic imports (stores, slicer client, feature
-  components) may stay relative.
-- **Security**: `contextIsolation: true`, `nodeIntegration: false`, renderer
-  talks to the OS only through the preload `contextBridge` API.
-- **Process model**: WASM runs in a renderer Web Worker; binary data transfers
-  to the viewport via transferable ArrayBuffers (no IPC hops).
+  `@/components/ui/*` and `@/lib/utils`, never relative paths (`@/*` resolves
+  per package: `packages/slicer-app` maps it to its own `src/`, and the hosts
+  map it to `packages/slicer-app/src`). Shared packages must never import a
+  host, Electron, Node, or an absolute path — enforced by
+  `packages/slicer-app/src/import-direction.test.ts`. Business-logic imports
+  (stores, slicer client, feature components) may stay relative.
+- **Platform boundary**: the shared app receives platform services through
+  injected contracts (`packages/platform-contract`); it never touches
+  `window.orca`, Electron, Node.js, or a host persistence/asset API directly.
+  Electron: `contextIsolation: true`, `nodeIntegration: false`, renderer talks
+  to the OS only through the preload `contextBridge` API.
+- **Process model**: WASM runs in a Web Worker; binary data transfers to the
+  viewport via transferable ArrayBuffers (no IPC hops). The runtime
+  (`packages/slicer-runtime`) selects the `threaded` artifact only when the
+  host is cross-origin isolated, otherwise the `serial` fallback (shown as a
+  non-blocking status).
 - **Settings UI**: rendered generically from `orc_get_option_metadata()` JSON —
   never duplicate option definitions in TS.
 - **i18n**: English only in v1; i18next + `.po`→JSON conversion later.
@@ -118,9 +149,10 @@ See the design doc §C++/WASM Build and the spike's README iterate loop. Key rul
 
 | Layer | Tool | Where |
 |---|---|---|
-| WASM module (no Electron) | Node smoke harness (MEMFS + `callMain`) | `packages/slicer-wasm/harness/` |
-| Client/stores (no emsdk) | vitest + mock Emscripten module | `packages/slicer-wasm/src/client/*.test.ts` |
-| Full app | Playwright (Electron) | `tests/e2e/` |
+| WASM module (no Electron) | Node smoke harness (MEMFS + `callMain`), both variants | `packages/slicer-wasm/harness/` |
+| Shared packages + client (no emsdk, no Electron) | vitest + mock Emscripten module | per-package `*.test.ts` (`platform-contract`, `profile-resources`, `slicer-app`, `slicer-runtime`, `slicer-wasm/src/client/`) |
+| Desktop app | Playwright Electron | `apps/desktop/e2e/` (+ packaged runtime probe via `scripts/run-desktop-e2e-real.mjs`) |
+| Web app | Playwright Chrome — real threaded and serial artifacts, non-root deployment | `apps/web/e2e/`, `scripts/run-web-e2e-serial.mjs` |
 
 Slice cross-check: output for `fixtures/cube.stl` must be consistent with
 desktop OrcaSlicer for the same profile (the spike's GO criterion).
