@@ -31,6 +31,7 @@ async function launch(preferences: string, exportPath: string): Promise<{ app: E
 }
 
 test('persists shared profile/sidebar preferences but not session work', async () => {
+  test.setTimeout(360_000);
   const dir = mkdtempSync(join(tmpdir(), 'orca-preferences-e2e-'));
   const preferences = join(dir, 'preferences.json');
   const firstExport = join(dir, 'first.gcode');

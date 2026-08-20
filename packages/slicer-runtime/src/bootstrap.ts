@@ -39,23 +39,7 @@ export interface RuntimeBootstrapOptions {
 }
 
 export function createWorkerTransport(workerUrl: string | URL): WorkerTransport {
-  // Vite's linked-workspace e2e build may inline the module worker as a data
-  // URL. Materialize it as a blob URL so Chromium's worker policy can keep
-  // script workers same-origin/blob-scoped without requiring data workers.
-  const rawUrl = String(workerUrl);
-  let effectiveUrl: string | URL = workerUrl;
-  if (rawUrl.startsWith('data:')) {
-    const comma = rawUrl.indexOf(',');
-    if (comma < 0) throw new Error('invalid inline worker URL');
-    const header = rawUrl.slice(0, comma);
-    const payload = rawUrl.slice(comma + 1);
-    const source = header.includes(';base64')
-      ? atob(payload)
-      : decodeURIComponent(payload);
-    const bytes = Uint8Array.from(source, (char) => char.charCodeAt(0));
-    effectiveUrl = URL.createObjectURL(new Blob([bytes], { type: 'text/javascript' }));
-  }
-  const worker = new Worker(effectiveUrl, { type: 'module' });
+  const worker = new Worker(workerUrl, { type: 'module' });
   return {
     post: (message) => worker.postMessage(message),
     onMessage: (listener) => worker.addEventListener('message', (event) => listener(event.data)),

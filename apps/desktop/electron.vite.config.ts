@@ -24,7 +24,7 @@ export default defineConfig({
           "style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
           // Vite emits the package worker as a data URL in the e2e/mock bundle;
           // keep the allowance scoped to worker-src (never script-src).
-          "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; child-src 'self' blob:",
+          "font-src 'self' data:; connect-src 'self'; worker-src 'self' data:; child-src 'self' data:",
       },
     },
     resolve: {
