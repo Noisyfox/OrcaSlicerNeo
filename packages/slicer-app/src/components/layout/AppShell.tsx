@@ -8,23 +8,14 @@ import {
   type ReactNode,
 } from 'react';
 import { TitleBar } from './TitleBar';
+import { usePlatform } from '@orca/platform-contract';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 560;
-const SIDEBAR_WIDTH_STORAGE_KEY = 'orca-slicer-neo:sidebar-width';
-
-function getInitialSidebarWidth(): number {
-  if (typeof window === 'undefined') return DEFAULT_SIDEBAR_WIDTH;
-  try {
-    const storedValue = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
-    if (storedValue === null) return DEFAULT_SIDEBAR_WIDTH;
-    const stored = Number(storedValue);
-    if (!Number.isFinite(stored)) return DEFAULT_SIDEBAR_WIDTH;
-    return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored));
-  } catch {
-    return DEFAULT_SIDEBAR_WIDTH;
-  }
+function clampSidebarWidth(value: number | undefined): number {
+  if (!Number.isFinite(value)) return DEFAULT_SIDEBAR_WIDTH;
+  return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
 }
 
 export function AppShell({ settings, viewport, toolbar, status }: {
@@ -33,21 +24,29 @@ export function AppShell({ settings, viewport, toolbar, status }: {
   toolbar: ReactNode;
   status: ReactNode;
 }) {
-  const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
+  const platform = usePlatform();
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizeActiveRef = useRef(false);
   const stopResizeRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    return () => stopResizeRef.current?.();
-  }, []);
+    let active = true;
+    void platform.preferences.load().then((prefs) => {
+      if (active) {
+        const width = clampSidebarWidth(prefs.ui.sidebarWidth);
+        sidebarWidthRef.current = width;
+        setSidebarWidth(width);
+      }
+    });
+    return () => { active = false; stopResizeRef.current?.(); };
+  }, [platform.preferences]);
 
   function persistSidebarWidth(width: number) {
-    try {
-      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(width));
-    } catch {
-      // Ignore storage write failures (private mode, disabled storage, etc.).
-    }
+    void platform.preferences.load().then((prefs) => platform.preferences.save({
+      ...prefs,
+      ui: { ...prefs.ui, sidebarWidth: width },
+    })).catch(() => undefined);
   }
 
   function beginResize(clientX: number) {
@@ -132,7 +131,7 @@ export function AppShell({ settings, viewport, toolbar, status }: {
 
   return (
     <div className="flex h-full flex-col">
-      <TitleBar />
+      <TitleBar chrome={platform.chrome} />
       <div className="flex h-10 items-center gap-2 px-3">{toolbar}</div>
       <div className="flex flex-1 min-h-0 p-1.5">
         <aside

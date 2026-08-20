@@ -32,6 +32,15 @@ export interface UserPreferencesRepository {
   save(value: UserPreferences): Promise<void>;
 }
 
+export interface PlatformChrome {
+  kind: 'desktop' | 'web';
+  platform?: string;
+  /** Whether the host supplies a draggable frameless-window region. */
+  dragRegion?: boolean;
+  /** Whether the host needs clearance for macOS traffic-light buttons. */
+  macSafeInset?: boolean;
+}
+
 export interface ProfilePackage { id: string; kind: 'core' | 'vendor'; path: string; }
 export interface ProfileManifest { version: 1; packages: ProfilePackage[]; }
 
@@ -79,5 +88,5 @@ export interface PlatformCapabilities {
   preferences: UserPreferencesRepository;
   runtime: SlicerRuntime;
   profiles: ProfileSource;
-  chrome: { kind: 'desktop' | 'web'; platform?: string };
+  chrome: PlatformChrome;
 }
