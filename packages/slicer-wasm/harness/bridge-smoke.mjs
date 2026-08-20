@@ -51,16 +51,19 @@ const init = callJson('orc_init', ['string'], ['']);
 check('orc_init ok', init.ok === true, JSON.stringify(init));
 check('init has printers', init.printers > 0, `printers=${init.printers}`);
 
-// The threaded wasm build must use every logical core available at runtime.
+// The threaded wasm build must use every logical core available at runtime;
+// the serial build (WASM_THREADING=0) must report a single-concurrency pool.
 // The loader evaluates navigator.hardwareConcurrency dynamically, so the
 // expected value is intentionally not baked into this test.
 const threading = callJson('orc_get_threading_info', [], []);
 const runtimeCores = globalThis.navigator?.hardwareConcurrency;
-check('threaded build reports the all-core TBB pool',
-      threading.ok === true && threading.threaded === true
-      && Number.isInteger(threading.max_concurrency) && threading.max_concurrency >= 1
-      && threading.arena_concurrency === threading.max_concurrency
-      && (runtimeCores === undefined || threading.max_concurrency === runtimeCores),
+const poolOk = threading.threaded
+  ? Number.isInteger(threading.max_concurrency) && threading.max_concurrency >= 1
+    && threading.arena_concurrency === threading.max_concurrency
+    && (runtimeCores === undefined || threading.max_concurrency === runtimeCores)
+  : threading.max_concurrency === 1 && threading.arena_concurrency === 1;
+check('variant reports a consistent TBB pool',
+      threading.ok === true && poolOk,
       `${JSON.stringify(threading)} runtimeCores=${runtimeCores}`);
 
 // 2. presets

@@ -20,13 +20,15 @@ PATH — e.g. Homebrew emscripten — before falling back to an emsdk install).
 |---|---|---|
 | `packages/slicer-wasm/fetch-deps.bat` | `fetch-deps.sh` | curl (PATH, else System32) + `tar.exe` (bsdtar handles zip/gz) + Boost's own `bootstrap.bat`/`.\b2.exe headers` |
 | `packages/slicer-wasm/build-boost-wasm64.bat` | `build-boost-wasm64.sh` | b2 with `user-config-wasm.jam` (absolute em++/emar/emranlib paths from `where`) |
-| `packages/slicer-wasm/build.bat` | `build.sh` | patches (idempotent `git apply`), serial shim headers, version header from submodule, `emcmake` configure, `emmake ninja`, stage 3 artifacts |
-| `scripts/build-windows.bat` | `scripts/build-windows.sh` (rewritten, was a bash wrapper; the `.sh` itself removed 2026-08-15, replaced on macOS/Linux by `scripts/build.sh`) | `env deps boost build full quick shim smoke test dev e2e` + `-j/--profiles/--no-env/-v`; auto-activates emsdk via `emsdk_env.bat` |
+| `packages/slicer-wasm/build.bat` | `build.sh` | patches (idempotent `git apply`), serial shim headers, version header from submodule, `emcmake` configure, `emmake ninja`, stage 3 artifacts. Variant-aware since 2026-08-20: `WASM_THREADING`/`WASM_ARTIFACT_VARIANT` select `.work\<variant>` + `out\<variant>` (threaded also mirrors to `out\`) |
+| `scripts/build-wasm-dual.bat` | `scripts/build-wasm-dual.sh` | both wasm64 variants (threaded + serial) back to back, then `node scripts\stage-wasm.mjs` stages them into `apps\desktop\src\renderer\public\wasm\<variant>` |
+| `scripts/build-windows.bat` | `scripts/build-windows.sh` (rewritten, was a bash wrapper; the `.sh` itself removed 2026-08-15, replaced on macOS/Linux by `scripts/build.sh`) | `env deps boost build full quick shim smoke test dev e2e` + `-j/--variant/--no-env/-v`; auto-activates emsdk via `emsdk_env.bat`. `build`/`full` run the dual build; `quick`/`smoke` cover both variants unless `--variant` limits them |
 | `.gitattributes` | new | `*.bat text eol=crlf` — cmd misparses LF-only batch files |
 
 `build-windows.bat quick` is the incremental loop for bridge changes:
-auto-activate emsdk → `emmake ninja -C .work\build orca_slice` → copy the 3
-artifacts to `out\`.
+auto-activate emsdk → `emmake ninja -C .work\<variant>\build orca_slice` →
+copy the 3 artifacts to `out\<variant>\` (threaded also to `out\`). Runs
+both variants by default; `--variant threaded|serial` limits to one tree.
 
 ## Gotchas discovered (cmd batch language)
 
@@ -164,6 +166,36 @@ invocations with `call`** (`call pnpm --filter desktop dev`). Fixed in all
 three subroutines that run pnpm (`test`, `dev`, `e2e` — 6 lines total).
 Verified: `dev` launches the electron app (preload built, vite dev server
 up, app stays running); `test` runs all four pnpm suites green.
+
+### 9. Editing a `.bat` while cmd is executing it corrupts the parse — garbage commands, phantom subroutine runs
+
+cmd reads a batch file **lazily in chunks from a byte offset**, not
+line-by-line from a held copy. If the file is truncated-and-rewritten
+(a `Write`/editor save, or a line-ending normalization) while a cmd
+process is mid-execution, the offset misaligns: the next read lands
+mid-file, and cmd re-executes arbitrary lines. Observed 2026-08-20
+while a 20-minute `build-windows.bat build` ran in the background and
+the file was edited concurrently (unused vars removed + CRLF
+re-normalized):
+
+1. The in-flight `build` completed fine (both variants + staging).
+2. On return, the driver's `exit /b %errorlevel%` misparsed →
+   `'errorlevel' is not recognized`.
+3. cmd then **re-executed the body of `:cmd_full` out of nowhere** —
+   the log shows `fetch-deps.bat` → `build-boost-wasm64.bat` → a full
+   second dual build, none of which the `build` command should run.
+4. The second run's return collapsed into more garbage (`'f' is not
+   recognized`, `The system cannot find the batch label specified -
+   cmd_quick)`) and exit 1.
+
+The file itself was fine — a re-run of the identical command with the
+file untouched exited cleanly. Rule: **never modify a `.bat` (or
+re-normalize its line endings) while a cmd process is executing it**,
+including background driver runs; edit only between runs. The
+misparse signature is distinctive — bare tokens as commands
+(`'errorlevel'`, `'f'`), or a `call :label)` with a glued paren — and
+should never be debugged as a file bug without first ruling out a
+mid-run edit.
 
 ## Verification (2026-08-15, all from plain cmd)
 

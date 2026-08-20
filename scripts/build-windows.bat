@@ -5,7 +5,9 @@ REM
 REM Pure cmd - NO Git Bash required. Calls the cmd-native pipeline:
 REM   packages\slicer-wasm\fetch-deps.bat        (deps / full)
 REM   packages\slicer-wasm\build-boost-wasm64.bat (boost / full)
-REM   packages\slicer-wasm\build.bat             (build / shim)
+REM   scripts\build-wasm-dual.bat               (build / full: both
+REM     wasm64 variants - threaded + serial - via build.bat, then stage)
+REM   packages\slicer-wasm\build.bat            (shim; variants)
 REM
 REM Command surface (macOS/Linux twin: scripts\build.sh — plain bash):
 REM   build-windows.bat <command> [options]
@@ -25,12 +27,15 @@ cd /d "%ROOT%"
 
 set "PKG=%ROOT%\packages\slicer-wasm"
 set "WORK=%PKG%\.work"
-set "BUILD_DIR=%WORK%\build"
+REM Variant trees follow packages\slicer-wasm\build.bat: .work\<variant>\build,
+REM out\<variant>. OUT_DIR is the legacy single-artifact location kept in sync
+REM for the threaded variant.
 set "OUT_DIR=%PKG%\out"
 set "BOOST_STAGE=%WORK%\deps\boost-1.84.0\stage-wasm64\lib"
 
 set "JOBS="
 set "AUTO_ENV=1"
+set "VARIANT="
 
 REM ---------------- arg parsing ----------------
 set "CMD=%~1"
@@ -40,6 +45,7 @@ shift
 if "%~1"=="" goto :parsed
 if /i "%~1"=="-j"          (set "JOBS=%~2" & shift & shift & goto :parse)
 if /i "%~1"=="--jobs"      (set "JOBS=%~2" & shift & shift & goto :parse)
+if /i "%~1"=="--variant"   (set "VARIANT=%~2" & shift & shift & goto :parse)
 if /i "%~1"=="--no-env"    (set "AUTO_ENV=0" & shift & goto :parse)
 if /i "%~1"=="-v"          (echo on & shift & goto :parse)
 if /i "%~1"=="-h"          (call :usage & exit /b 0)
@@ -47,6 +53,13 @@ if /i "%~1"=="--help"      (call :usage & exit /b 0)
 echo [winbuild] ERROR: Unknown option: %~1 ^(see --help^)
 exit /b 1
 :parsed
+
+REM --variant default: both variants. threaded|serial|both may be named.
+if not defined VARIANT set "VARIANT=both"
+if /i not "%VARIANT%"=="threaded" if /i not "%VARIANT%"=="serial" if /i not "%VARIANT%"=="both" (
+  echo [winbuild] ERROR: --variant must be threaded, serial or both ^(got %VARIANT%^).
+  exit /b 1
+)
 
 REM ---------------- dispatch ----------------
 set "KNOWN=0"
@@ -88,16 +101,20 @@ echo   deps      Fetch header-only deps ^(Eigen 5.0.1 / Boost 1.84 / cereal^)
 echo             via fetch-deps.bat - idempotent.
 echo   boost     Cross-compile Boost 1.84 wasm64 static archives
 echo             ^(build-boost-wasm64.bat; requires `deps` first^). Long first run.
-echo   build     Full packages\slicer-wasm\build.bat ^(patches submodule, shim,
-echo             configure, ninja, stage to out\^). Requires boost archives;
-echo             fetches deps automatically if missing.
+echo   build     Full dual-variant build via scripts\build-wasm-dual.bat:
+echo             both wasm64 variants ^(threaded + serial^) + stage into
+echo             the renderer. Requires boost archives; fetches deps
+echo             automatically if missing.
 echo   full      deps + boost + build - the complete cold-start path.
-echo   quick     INCREMENTAL: ninja in .work\build + stage the 3 artifacts to
-echo             out\. The fast loop for bridge/CMake changes - no configure,
-echo             no patch re-apply, seconds-to-minutes.
+echo   quick     INCREMENTAL: ninja in .work\threaded\build and
+echo             .work\serial\build + stage the 3 artifacts to out\^<variant^>.
+echo             The fast loop for bridge/CMake changes - no configure,
+echo             no patch re-apply, seconds-to-minutes. Use --variant to
+echo             limit to one build tree.
 echo   shim      Regenerate the TBB/boost::thread/libnoise/libjpeg shim headers
 echo             ^(build.bat --shim-only^) after editing TBB_HEADERS in build.bat.
-echo   smoke     Run both harnesses against out\: run-slice.mjs + bridge-smoke.mjs.
+echo   smoke     Run both harnesses against out\threaded and out\serial:
+echo             run-slice.mjs + bridge-smoke.mjs ^(--variant to limit^).
 echo   test      vitest + typecheck for slicer-wasm and desktop.
 echo   dev       Launch the Electron app in dev mode ^(pnpm --filter desktop dev^).
 echo   e2e       Playwright Electron e2e ^(pnpm --filter desktop test:e2e^).
@@ -106,6 +123,8 @@ echo.
 echo Options:
 echo   -j N, --jobs N   Parallelism for ninja / b2 ^(quick/build/boost^).
 echo                    Default: ninja auto; BOOST_JOBS=4 as upstream.
+echo   --variant threaded^|serial^|both
+echo                    Build/verify one variant, or both ^(default: both^).
 echo   --no-env         Skip emsdk auto-activation ^(expect emcmake on PATH^).
 echo   -v               echo on ^(print every command^).
 exit /b 0
@@ -194,9 +213,8 @@ if not exist "%BOOST_STAGE%" (
   echo [winbuild] ERROR: Boost wasm64 archives missing ^(%BOOST_STAGE%^) - run: build-windows.bat boost
   exit /b 1
 )
-call "%PKG%\build.bat"
-if errorlevel 1 exit /b 1
-exit /b 0
+call "%SCRIPT_DIR%\build-wasm-dual.bat"
+exit /b %errorlevel%
 
 :cmd_full
 call :ensure_emsdk
@@ -206,43 +224,31 @@ if errorlevel 1 exit /b 1
 if defined JOBS (set "BOOST_JOBS=%JOBS%") else (set "BOOST_JOBS=4")
 call "%PKG%\build-boost-wasm64.bat"
 if errorlevel 1 exit /b 1
-call "%PKG%\build.bat"
+call "%SCRIPT_DIR%\build-wasm-dual.bat"
 if errorlevel 1 exit /b 1
 exit /b 0
 
 :cmd_quick
 call :ensure_emsdk
 if errorlevel 1 exit /b 1
-if not exist "%BUILD_DIR%" (
-  echo [winbuild] ERROR: No build tree at %BUILD_DIR% - run: build-windows.bat build
-  exit /b 1
+if /i "%VARIANT%"=="threaded" (
+  call :quick_variant threaded
+  exit /b
 )
-if defined JOBS (
-  emmake ninja -C "%BUILD_DIR%" orca_slice -j %JOBS%
-) else (
-  emmake ninja -C "%BUILD_DIR%" orca_slice
+if /i "%VARIANT%"=="serial" (
+  call :quick_variant serial
+  exit /b
 )
+call :quick_variant threaded
 if errorlevel 1 exit /b 1
-for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do (
-  if not exist "%BUILD_DIR%\%%f" (
-    echo [winbuild] ERROR: Build did not produce %BUILD_DIR%\%%f
-    exit /b 1
-  )
-  copy /y "%BUILD_DIR%\%%f" "%OUT_DIR%\" >nul
-)
-echo [winbuild] Staged to %OUT_DIR%:
-dir "%OUT_DIR%"
-exit /b 0
+call :quick_variant serial
+exit /b
 
 :cmd_shim
 call "%PKG%\build.bat" --shim-only
 exit /b %errorlevel%
 
 :cmd_smoke
-if not exist "%PKG%\out\orca_slice.js" (
-  echo [winbuild] ERROR: Missing %PKG%\out\orca_slice.js - run: build-windows.bat build
-  exit /b 1
-)
 if not exist "%PKG%\fixtures\cube.stl" (
   echo [winbuild] ERROR: Missing %PKG%\fixtures\cube.stl
   exit /b 1
@@ -251,10 +257,63 @@ if not exist "%PKG%\fixtures\config.json" (
   echo [winbuild] ERROR: Missing %PKG%\fixtures\config.json
   exit /b 1
 )
+if /i "%VARIANT%"=="threaded" (
+  call :smoke_variant threaded
+  exit /b
+)
+if /i "%VARIANT%"=="serial" (
+  call :smoke_variant serial
+  exit /b
+)
+call :smoke_variant threaded
+if errorlevel 1 exit /b 1
+call :smoke_variant serial
+exit /b
+
+REM ---- incremental ninja + stage for ONE variant (%1 = threaded|serial) ----
+:quick_variant
+set "QV=%~1"
+set "QBUILD=%WORK%\%QV%\build"
+set "QOUT=%PKG%\out\%QV%"
+if not exist "%QBUILD%" (
+  echo [winbuild] ERROR: No build tree at %QBUILD% - run: build-windows.bat build
+  exit /b 1
+)
+if defined JOBS (
+  emmake ninja -C "%QBUILD%" orca_slice -j %JOBS%
+) else (
+  emmake ninja -C "%QBUILD%" orca_slice
+)
+if errorlevel 1 exit /b 1
+for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do (
+  if not exist "%QBUILD%\%%f" (
+    echo [winbuild] ERROR: Build did not produce %QBUILD%\%%f
+    exit /b 1
+  )
+  copy /y "%QBUILD%\%%f" "%QOUT%\" >nul
+)
+REM The threaded variant keeps the historical single-artifact location for
+REM existing Node smoke and Electron scripts; the dual entry point and Web
+REM host consume the explicit variant directories.
+if /i "%QV%"=="threaded" (
+  if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
+  for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do copy /y "%QOUT%\%%f" "%OUT_DIR%\" >nul
+)
+echo [winbuild] Staged %QV% to %QOUT%:
+dir "%QOUT%"
+exit /b 0
+
+REM ---- harnesses against ONE variant (%1 = threaded|serial) ----
+:smoke_variant
+set "SV=%~1"
+if not exist "%PKG%\out\%SV%\orca_slice.js" (
+  echo [winbuild] ERROR: Missing %PKG%\out\%SV%\orca_slice.js - run: build-windows.bat build
+  exit /b 1
+)
 pushd "%PKG%"
-node harness\run-slice.mjs --module out\orca_slice.js --stl fixtures\cube.stl --config fixtures\config.json
+node harness\run-slice.mjs --module out\%SV%\orca_slice.js --stl fixtures\cube.stl --config fixtures\config.json
 if errorlevel 1 (popd & exit /b 1)
-node harness\bridge-smoke.mjs out\orca_slice.js fixtures\cube.stl
+node harness\bridge-smoke.mjs out\%SV%\orca_slice.js fixtures\cube.stl
 set "RC=%errorlevel%"
 popd
 exit /b %RC%
