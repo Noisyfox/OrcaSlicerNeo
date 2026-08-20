@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test:non-root": "pnpm build && node scripts/non-root-smoke.mjs",
     "test:e2e:threaded": "pnpm --filter desktop exec playwright test --config ../../apps/web/playwright.config.ts",
     "test:e2e:serial": "node ../../scripts/run-web-e2e-serial.mjs",
     "test": "vitest run",

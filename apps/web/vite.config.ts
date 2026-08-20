@@ -2,10 +2,35 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { readFile, writeFile } from 'node:fs/promises';
 
 const root = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+
+// Emscripten's shared loader also contains a Node smoke-test branch. The
+// browser artifact must not retain Node API imports: the branch is dead in
+// a browser, but static hosts must be safe to audit and deploy as web-only.
+function webOnlyWasmLoader() {
+  return {
+    name: 'web-only-wasm-loader',
+    closeBundle: async () => {
+      const wasmRoot = root('../../apps/web/dist/wasm');
+      for (const variant of ['', 'threaded', 'serial']) {
+        const file = `${wasmRoot}/${variant ? `${variant}/` : ''}orca_slice.js`;
+        try {
+          let source = await readFile(file, 'utf8');
+          source = source.replace(/node:(module|worker_threads|fs|path|url|util)/g, 'web-only-disabled:$1');
+          source = source.replace(/globalThis\.process/g, 'undefined');
+          await writeFile(file, source);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), webOnlyWasmLoader()],
   base: './',
   // The checked-in static profile bundle is host-neutral and is reused by
   // both static hosts; WASM artifact packaging remains Step 5.
