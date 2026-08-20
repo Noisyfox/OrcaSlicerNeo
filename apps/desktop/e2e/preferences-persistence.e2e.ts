@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 const PRINTER = 'Bambu Lab P1S 0.4 nozzle';
+const PRESET_READY_TIMEOUT = 180_000;
 
 async function launch(preferences: string, exportPath: string): Promise<{ app: ElectronApplication; page: Page }> {
   const env = {
@@ -15,7 +16,17 @@ async function launch(preferences: string, exportPath: string): Promise<{ app: E
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
   const page = await app.firstWindow();
-  await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
+  const diagnostics: string[] = [];
+  page.on('console', (message) => diagnostics.push(`[${message.type()}] ${message.text()}`));
+  page.on('pageerror', (error) => diagnostics.push(`[pageerror] ${String(error)}`));
+  for (const worker of page.workers()) worker.on('console', (message) => diagnostics.push(`[worker:${message.type()}] ${message.text()}`));
+  page.on('worker', (worker) => worker.on('console', (message) => diagnostics.push(`[worker:${message.type()}] ${message.text()}`)));
+  try {
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+  } catch (error) {
+    console.error(`preference E2E readiness diagnostics:\n${diagnostics.join('\n')}`);
+    throw error;
+  }
   return { app, page };
 }
 

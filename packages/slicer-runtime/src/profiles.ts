@@ -70,6 +70,7 @@ export async function installProfiles(
     safeEntryPath(pkg.path);
     safeEntryPath(pkg.id);
     onProgress?.({ package: pkg, index, total });
+    console.info('[profiles] package', JSON.stringify({ package: pkg.id, kind: pkg.kind, index: index + 1, total }));
     try {
       const entries = await unzip(await readBytes(await source.fetch(pkg.path)));
       // Preserve the virtual tree expected by libslic3r's PresetBundle.
@@ -88,8 +89,11 @@ export async function installProfiles(
         module.FS.writeFile(fullPath, entry.data);
       }
     } catch (error) {
-      if (pkg.kind === 'core') throw new Error(`core profile package ${pkg.id} failed: ${String(error)}`);
-      console.error(`vendor profile package ${pkg.id} skipped`, error);
+      if (pkg.kind === 'core') {
+        console.error('[profiles] core failure', JSON.stringify({ package: pkg.id, index: index + 1, total }), error);
+        throw new Error(`core profile package ${pkg.id} failed: ${String(error)}`);
+      }
+      console.warn('[profiles] vendor skipped', JSON.stringify({ package: pkg.id, index: index + 1, total }), error);
     }
   }
 }

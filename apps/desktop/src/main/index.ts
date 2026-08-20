@@ -248,7 +248,9 @@ function startRendererServer(): void {
         'content-security-policy':
           "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; " +
           "style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
-          "font-src 'self' data:; connect-src 'self'; worker-src 'self'",
+          // The Vite e2e/mock renderer emits its bundled module worker as a
+          // data URL. Keep this narrowly scoped to workers, not scripts.
+          "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; child-src 'self' blob:",
       });
       res.end(data);
     } catch {

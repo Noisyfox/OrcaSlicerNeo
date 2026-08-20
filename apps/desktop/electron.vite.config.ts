@@ -22,7 +22,9 @@ export default defineConfig({
         'content-security-policy':
           "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; " +
           "style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
-          "font-src 'self' data:; connect-src 'self'; worker-src 'self'",
+          // Vite emits the package worker as a data URL in the e2e/mock bundle;
+          // keep the allowance scoped to worker-src (never script-src).
+          "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; child-src 'self' blob:",
       },
     },
     resolve: {
