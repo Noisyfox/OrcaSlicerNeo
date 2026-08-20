@@ -21,8 +21,11 @@ platforms: Windows x64/arm64, Linux x64/arm64, macOS x64/arm64.
 
 ```
 apps/desktop/          Electron app (main / preload / renderer)
+apps/web/              browser app (Vite static host; shared UI + runtime)
 packages/slicer-wasm/  WASM slicer module: build scaffold + bridge + JS client
   cpp/                 git submodule → Noisyfox/OrcaSlicer (the C++ source)
+packages/slicer-app/   shared React UI (used by both hosts)
+packages/slicer-runtime/ shared runtime + worker glue (used by both hosts)
 doc/                   dated engineering docs (YYYY-MM-DD-topic.md)
 spec/                  approved specs
 tools/ scripts/ tests/ dev utilities, CI scripts, e2e tests
@@ -117,10 +120,24 @@ node packages/slicer-wasm/harness/run-slice.mjs \
 
 ```bash
 pnpm --filter desktop dev      # Electron dev mode (also: <driver> dev)
+pnpm --filter web dev          # browser app — Vite dev server (http://localhost:5173)
+pnpm --filter web build        # production web build
+pnpm --filter web preview      # serve the production build locally
 pnpm -r test                   # vitest suites
 pnpm -r typecheck
 pnpm --filter desktop test:e2e # Playwright Electron e2e (also: <driver> e2e)
+pnpm --filter web test:e2e:threaded # Chrome e2e against the threaded wasm
+pnpm --filter web test:e2e:serial   # Chrome e2e against the serial fallback
 ```
+
+**Web app prerequisites.** Unlike the Electron app, the browser host has no
+mock mode — build the WASM module first (`<driver> full` or `quick`; the
+`predev` hook stages it from `packages/slicer-wasm/out/` and warns instead of
+failing if it's missing, but slicing won't work until the module is staged).
+The app requires **WebGL 2 and wasm64**, i.e. Chrome 133 or later, and the dev
+server sends COOP/COEP headers so the threaded build can use
+SharedArrayBuffer; set `ORCA_WEB_NO_ISOLATION=1` to run without isolation
+(the serial e2e uses this to exercise the real serial artifact).
 
 ## Licensing
 
