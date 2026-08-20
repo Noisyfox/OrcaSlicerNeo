@@ -16,7 +16,9 @@ const REAL = process.env.ORCA_E2E_REAL === '1';
 const MODEL_COUNT = Math.max(1, Number.parseInt(process.env.ORCA_E2E_MODEL_COUNT ?? '1', 10) || 1);
 // Creality's bed has no Bambu exclusion zones, making cube.stl a stable
 // real-module fixture while still exercising the genuine profile picker.
-const PRINTER_PROFILE = process.env.ORCA_E2E_PRINTER ?? 'Creality Ender-3 0.4 nozzle';
+const PRINTER_PROFILE = process.env.ORCA_E2E_PRINTER ?? (
+  REAL ? 'Creality Ender-3 0.4 nozzle' : 'Bambu Lab P1S 0.4 nozzle'
+);
 const PRESET_READY_TIMEOUT = REAL ? 300_000 : 30_000;
 const SLICE_RESULT_TIMEOUT = REAL ? 60_000 : 5_000;
 
@@ -268,7 +270,7 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       // Add two real model instances so aggregate-pivot and multi-selection
       // assertions exercise the actual GL volume collection.
       await page.getByTestId('btn-add-model').click();
-      await page.getByTestId('btn-add-model').click();
+      if (REAL) await page.getByTestId('btn-add-model').click();
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
       const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
