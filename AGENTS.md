@@ -105,9 +105,13 @@ proved feasibility and contains reusable machinery:
   `quick` is the incremental ninja loop for bridge changes, rebuilding both
   variant trees by default (`--variant threaded|serial` limits it); `smoke`
   runs the harnesses against both variants. The driver auto-activates emsdk
-  (`C:\emsdk` first) and takes `-j N`, `--variant`, `--no-env`, `-v`. cmd
-  gotchas for .bat edits (NoDefaultCurrentDirectoryInExePath, paren-block
-  escaping, CRLF): see `doc/2026-08-15-cmd-build-pipeline.md`.
+  (`C:\emsdk` first) and takes `-j N`, `--variant`, `--no-env`, `--debug`, `-v`.
+  `--debug` (or `WASM_DEBUG=1`) builds the libslic3r/bridge part with `-g -O0`
+  so the module embeds DWARF for interactive source-level debugging in Chrome
+  DevTools; deps (Boost/oneTBB/vendored) stay release without debug info — see
+  `doc/2026-08-20-wasm-dwarf-debug-build.md`. cmd gotchas for .bat edits
+  (NoDefaultCurrentDirectoryInExePath, paren-block escaping, CRLF): see
+  `doc/2026-08-15-cmd-build-pipeline.md`.
 - WASM: `packages\slicer-wasm\build.bat` (cmd; `call <emsdk>\emsdk_env.bat`
   first, or use the driver; ~50 GB disk for the dep build)
 - Node smoke: `node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json` (variants live under `out/{threaded,serial}/`)
