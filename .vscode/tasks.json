@@ -1,0 +1,24 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "web: vite dev server",
+            "type": "shell",
+            "command": "pnpm --filter web dev",
+            "isBackground": true,
+            // The launch waits for the Vite readiness line before opening
+            // the browser, so the first page load never races the server.
+            "problemMatcher": {
+                "owner": "vite",
+                "pattern": {
+                    "regexp": "^$"
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "VITE v",
+                    "endsPattern": "Local:"
+                }
+            }
+        }
+    ]
+}
