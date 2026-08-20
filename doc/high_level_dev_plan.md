@@ -276,7 +276,7 @@
   retain Electron E2E and compact fixture/full-package release smoke coverage.
   **Step 5 delivered:** dual variant build/staging and capability-based Worker
   selection are implemented; real-artifact Chrome/Electron verification is the
-  release gate documented in `doc/2026-08-20-m9-step5-dual-wasm-web-e2e.md`.
+  release gate documented in `doc/2026-08-20-m9-step10-dual-wasm-web-e2e.md`.
 
 ## Cross-Cutting Practices
 

@@ -1,6 +1,6 @@
-# M9 Step 5 — dual wasm64 delivery and Web verification
+# M9 Step 10 — dual wasm64 delivery and Web verification
 
-Step 5 completes the Web–Electron migration boundary. `packages/slicer-wasm/build.sh`
+Step 10 completes the Web–Electron migration boundary. `packages/slicer-wasm/build.sh`
 now keeps separate CMake/build/output trees for `threaded` and `serial` wasm64
 variants; `scripts/build-wasm-dual.sh` builds both and stages each complete
 `orca_slice.js/.wasm/.data` set under `wasm/<variant>/`. The serial build uses
