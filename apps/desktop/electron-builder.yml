@@ -15,6 +15,10 @@ files:
 # asar-aware either way — unpacking is a load-time win, not a requirement.)
 asarUnpack:
   - out/renderer/wasm/**
+  # Profile ZIPs are runtime inputs fetched by the shared Worker. Keep the
+  # complete package tree outside asar so packaged failure probes (and support
+  # tooling) can distinguish a missing/corrupt core from an asar read issue.
+  - out/renderer/profiles/**
 win:
   target:
     - target: nsis

@@ -22,10 +22,12 @@ async function bytes(response: Response): Promise<Uint8Array> {
 async function unzip(data: Uint8Array): Promise<Array<{ path: string; data: Uint8Array }>> {
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const out: Array<{ path: string; data: Uint8Array }> = [];
+  let localEntries = 0;
   let p = 0;
   while (p + 4 <= data.byteLength) {
     const sig = view.getUint32(p, true); p += 4;
     if (sig !== 0x04034b50) break;
+    localEntries++;
     // `p` points just after the four-byte signature. Relative offsets are
     // therefore version/flags/method at +0/+2/+4, sizes at +14/+18, and
     // name/extra lengths at +22/+24.
@@ -36,6 +38,7 @@ async function unzip(data: Uint8Array): Promise<Array<{ path: string; data: Uint
     const name = new TextDecoder().decode(data.subarray(p + 26, p + 26 + nameLength));
     const start = p + 26 + nameLength + extraLength;
     const payload = data.subarray(start, start + compressed);
+    if (payload.byteLength !== compressed) throw new Error('truncated ZIP entry');
     let content = payload;
     if (method === 8) {
       if (typeof DecompressionStream === 'undefined') throw new Error('deflate ZIP unsupported');
@@ -45,6 +48,7 @@ async function unzip(data: Uint8Array): Promise<Array<{ path: string; data: Uint
     if (!name.endsWith('/')) out.push({ path: name, data: content });
     p = start + compressed;
   }
+  if (localEntries === 0) throw new Error('invalid ZIP archive');
   return out;
 }
 
