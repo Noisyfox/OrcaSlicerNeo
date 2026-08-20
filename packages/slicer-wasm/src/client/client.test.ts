@@ -165,6 +165,27 @@ describe('SlicerClient bridge contract', () => {
     expect(module._functionRegistrations).toBe(0);
   });
 
+  it('beforeInit runs once across repeated init calls (StrictMode double-mount)', async () => {
+    // App.tsx boots from a StrictMode effect in dev, so init() is sent twice.
+    // Profile installation must not re-fetch/re-mount on the second call.
+    let installRuns = 0;
+    const c = createClient(async () => createMockModule(), undefined, undefined, async () => { installRuns += 1; });
+    await c.init();
+    await c.init();
+    expect(installRuns).toBe(1);
+  });
+
+  it('beforeInit retries a rejected install on the next init', async () => {
+    let installRuns = 0;
+    const c = createClient(async () => createMockModule(), undefined, undefined, async () => {
+      installRuns += 1;
+      if (installRuns === 1) throw new Error('first install failed');
+    });
+    await expect(c.init()).rejects.toThrow('first install failed');
+    await expect(c.init()).resolves.toMatchObject({ ok: true });
+    expect(installRuns).toBe(2);
+  });
+
   it('getSliceResult extracts toolpath buffers with layer ranges', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');

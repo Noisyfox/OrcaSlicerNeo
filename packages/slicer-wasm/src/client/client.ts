@@ -23,6 +23,11 @@ export function createClient(
   beforeInit?: (module: OrcaModule) => Promise<void>,
 ): SlicerClient {
   let modulePromise: Promise<OrcaModule> | null = null;
+  // beforeInit (profile installation in the worker) runs once per client:
+  // React StrictMode double-mounts the boot effect in dev, sending init
+  // twice — the second call must not re-fetch/re-install profiles. A rejected
+  // install clears the memo so a later init can retry.
+  let beforeInitPromise: Promise<void> | null = null;
   const progressListeners = new Set<(percent: number, text: string) => void>();
 
   async function module(): Promise<OrcaModule> {
@@ -67,7 +72,20 @@ export function createClient(
   return {
     async init(): Promise<InitResult> {
       const m = await module();
-      await beforeInit?.(m);
+      if (!beforeInitPromise) {
+        if (beforeInit) {
+          beforeInitPromise = beforeInit(m);
+          try {
+            await beforeInitPromise;
+          } catch (error) {
+            beforeInitPromise = null;
+            throw error;
+          }
+        } else {
+          beforeInitPromise = Promise.resolve();
+        }
+      }
+      await beforeInitPromise;
       // wasm64: every C param must receive a value; retain the ABI's ignored
       // legacy string slot while preferences are owned by the host.
       return callJson(m, 'orc_init', ['string'], ['']) as InitResult;
