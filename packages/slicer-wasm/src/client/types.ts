@@ -19,6 +19,7 @@ export interface OrcaModule {
   FS: {
     writeFile: (path: string, data: Uint8Array) => void;
     readFile: (path: string) => Uint8Array;
+    mkdir?: (path: string) => void;
   };
 }
 
@@ -45,8 +46,7 @@ export interface InitResult {
 
 export interface PresetInfo {
   name: string;
-  /** Real set_visible_from_appconfig result (driven by the app config's
-   *  installed-state) — the picker's installed/available grouping. */
+  /** Real preset visibility result from the bundled profile state. */
   is_visible: boolean;
   is_default: boolean;
   /** vendor id, empty when the preset has no vendor profile */
@@ -62,11 +62,6 @@ export interface PresetList {
   presets: PresetInfo[];
   error?: string;
 }
-
-/** The app-config JSON (fork's USE_JSON_CONFIG schema): models (installed
- *  vendor/model/variant), presets (machine/process/filament selections),
- *  filaments (installed filaments). The renderer persists this. */
-export type AppConfig = Record<string, unknown>;
 
 export interface SelectPresetResult {
   ok: boolean;
@@ -177,12 +172,8 @@ export interface CancelResult {
 }
 
 export interface SlicerClient {
-  /** Initialize the preset bundle. appConfig is the persisted app-config
-   *  JSON (installed printers + selections); omit for a fresh config
-   *  (bridge installs everything and picks the first non-default printer). */
-  init(appConfig?: AppConfig | null): Promise<InitResult>;
-  setAppConfig(appConfig: AppConfig): Promise<InitResult>;
-  getAppConfig(): Promise<AppConfig & { ok: boolean; error?: string }>;
+  /** Initialize after the host has installed profile packages into MEMFS. */
+  init(): Promise<InitResult>;
   getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList>;
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */

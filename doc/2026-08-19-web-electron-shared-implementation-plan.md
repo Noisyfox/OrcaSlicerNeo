@@ -396,8 +396,8 @@ application.
 - Use localStorage preferences with the approved failure fallback.
 - Render the common `BrandBar` without Electron-only drag/window behavior.
 - Render a shared startup screen, an unsupported-environment screen, and the
-  desktop minimum viewport behavior (1024 × 700 CSS pixels with overflow below
-  it).
+  desktop minimum viewport behavior (fluid layout that adapts to the window
+  size with no fixed minimum viewport).
 - Add a first-release visible AGPL source link.
 - Register `beforeunload` only when ephemeral model/override/unexported-result
   state is dirty. Do not promise custom browser prompt content or restoration.

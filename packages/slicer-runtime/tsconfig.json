@@ -1,0 +1,1 @@
+{ "compilerOptions": { "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "strict": true, "noEmit": true, "skipLibCheck": true, "lib": ["ES2022", "DOM", "WebWorker"], "paths": { "@slicer/client": ["./../slicer-wasm/src/client/index.ts"], "@slicer/testing": ["./../slicer-wasm/src/client/testing/mock-module.ts"] } }, "include": ["src"] }

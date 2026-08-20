@@ -46,23 +46,6 @@ describe('SlicerClient bridge contract', () => {
     }
   });
 
-  it('init accepts an app config JSON and getAppConfig round-trips it', async () => {
-    const c = makeClient();
-    const cfg = { models: [], presets: { machine: 'Bambu Lab P1S 0.4 nozzle' } };
-    const r = await c.init(cfg);
-    expect(r.ok).toBe(true);
-    const back = await c.getAppConfig();
-    expect(back.ok).toBe(true);
-    expect(back.presets).toEqual({ machine: 'Bambu Lab P1S 0.4 nozzle' });
-  });
-
-  it('setAppConfig re-inits with a new config', async () => {
-    const c = makeClient();
-    const r = await c.setAppConfig({ models: [], presets: {} });
-    expect(r.ok).toBe(true);
-    expect(r.printers).toBeGreaterThan(0);
-  });
-
   it('selectPreset moves the selection and reports all three', async () => {
     const c = makeClient();
     const r = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');
@@ -180,6 +163,27 @@ describe('SlicerClient bridge contract', () => {
     expect(Atomics.load(words, 0) % 2).toBe(0);
     expect(Atomics.load(words, 1)).toBe(100);
     expect(module._functionRegistrations).toBe(0);
+  });
+
+  it('beforeInit runs once across repeated init calls (StrictMode double-mount)', async () => {
+    // App.tsx boots from a StrictMode effect in dev, so init() is sent twice.
+    // Profile installation must not re-fetch/re-mount on the second call.
+    let installRuns = 0;
+    const c = createClient(async () => createMockModule(), undefined, undefined, async () => { installRuns += 1; });
+    await c.init();
+    await c.init();
+    expect(installRuns).toBe(1);
+  });
+
+  it('beforeInit retries a rejected install on the next init', async () => {
+    let installRuns = 0;
+    const c = createClient(async () => createMockModule(), undefined, undefined, async () => {
+      installRuns += 1;
+      if (installRuns === 1) throw new Error('first install failed');
+    });
+    await expect(c.init()).rejects.toThrow('first install failed');
+    await expect(c.init()).resolves.toMatchObject({ ok: true });
+    expect(installRuns).toBe(2);
   });
 
   it('getSliceResult extracts toolpath buffers with layer ranges', async () => {

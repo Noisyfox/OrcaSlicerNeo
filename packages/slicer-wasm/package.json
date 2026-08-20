@@ -6,7 +6,8 @@
   "description": "WASM libslic3r module: Emscripten build scaffold + bridge + typed JS client",
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "profile-smoke": "node harness/profile-smoke.mjs"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

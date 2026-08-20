@@ -10,8 +10,8 @@ export const Ipc = {
   saveFileDialog: 'dialog:saveFile',
   readFile: 'file:read',
   writeFile: 'file:write',
-  appConfigLoad: 'appConfig:load',
-  appConfigSave: 'appConfig:save',
+  preferencesLoad: 'preferences:load',
+  preferencesSave: 'preferences:save',
 } as const;
 
 export interface FileDialogFilter {
@@ -29,9 +29,9 @@ export interface SaveFileResult {
   path: string | null;
 }
 
-/** Load result for the persisted app config (M4 preset management). */
-export interface AppConfigLoadResult {
+/** Result for the small versioned shared preferences document. */
+export interface PreferencesLoadResult {
   found: boolean;
-  /** The parsed app-config JSON (fork's USE_JSON_CONFIG schema) when found. */
+  /** Parsed preferences JSON when found. */
   json: unknown;
 }

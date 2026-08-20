@@ -1,0 +1,335 @@
+{
+  "version": 1,
+  "packages": [
+    {
+      "id": "core",
+      "kind": "core",
+      "path": "core.upstream.zip"
+    },
+    {
+      "id": "Afinia",
+      "kind": "vendor",
+      "path": "vendors/Afinia.upstream.zip"
+    },
+    {
+      "id": "Anker",
+      "kind": "vendor",
+      "path": "vendors/Anker.upstream.zip"
+    },
+    {
+      "id": "Anycubic",
+      "kind": "vendor",
+      "path": "vendors/Anycubic.upstream.zip"
+    },
+    {
+      "id": "Artillery",
+      "kind": "vendor",
+      "path": "vendors/Artillery.upstream.zip"
+    },
+    {
+      "id": "BBL",
+      "kind": "vendor",
+      "path": "vendors/BBL.upstream.zip"
+    },
+    {
+      "id": "BIQU",
+      "kind": "vendor",
+      "path": "vendors/BIQU.upstream.zip"
+    },
+    {
+      "id": "Blocks",
+      "kind": "vendor",
+      "path": "vendors/Blocks.upstream.zip"
+    },
+    {
+      "id": "CONSTRUCT3D",
+      "kind": "vendor",
+      "path": "vendors/CONSTRUCT3D.upstream.zip"
+    },
+    {
+      "id": "Chuanying",
+      "kind": "vendor",
+      "path": "vendors/Chuanying.upstream.zip"
+    },
+    {
+      "id": "Co Print",
+      "kind": "vendor",
+      "path": "vendors/Co Print.upstream.zip"
+    },
+    {
+      "id": "CoLiDo",
+      "kind": "vendor",
+      "path": "vendors/CoLiDo.upstream.zip"
+    },
+    {
+      "id": "Comgrow",
+      "kind": "vendor",
+      "path": "vendors/Comgrow.upstream.zip"
+    },
+    {
+      "id": "Creality",
+      "kind": "vendor",
+      "path": "vendors/Creality.upstream.zip"
+    },
+    {
+      "id": "Cubicon",
+      "kind": "vendor",
+      "path": "vendors/Cubicon.upstream.zip"
+    },
+    {
+      "id": "Custom",
+      "kind": "vendor",
+      "path": "vendors/Custom.upstream.zip"
+    },
+    {
+      "id": "DeltaMaker",
+      "kind": "vendor",
+      "path": "vendors/DeltaMaker.upstream.zip"
+    },
+    {
+      "id": "Dremel",
+      "kind": "vendor",
+      "path": "vendors/Dremel.upstream.zip"
+    },
+    {
+      "id": "Elegoo",
+      "kind": "vendor",
+      "path": "vendors/Elegoo.upstream.zip"
+    },
+    {
+      "id": "Eryone",
+      "kind": "vendor",
+      "path": "vendors/Eryone.upstream.zip"
+    },
+    {
+      "id": "FLSun",
+      "kind": "vendor",
+      "path": "vendors/FLSun.upstream.zip"
+    },
+    {
+      "id": "Flashforge",
+      "kind": "vendor",
+      "path": "vendors/Flashforge.upstream.zip"
+    },
+    {
+      "id": "FlyingBear",
+      "kind": "vendor",
+      "path": "vendors/FlyingBear.upstream.zip"
+    },
+    {
+      "id": "Folgertech",
+      "kind": "vendor",
+      "path": "vendors/Folgertech.upstream.zip"
+    },
+    {
+      "id": "Geeetech",
+      "kind": "vendor",
+      "path": "vendors/Geeetech.upstream.zip"
+    },
+    {
+      "id": "Ginger Additive",
+      "kind": "vendor",
+      "path": "vendors/Ginger Additive.upstream.zip"
+    },
+    {
+      "id": "InfiMech",
+      "kind": "vendor",
+      "path": "vendors/InfiMech.upstream.zip"
+    },
+    {
+      "id": "Kingroon",
+      "kind": "vendor",
+      "path": "vendors/Kingroon.upstream.zip"
+    },
+    {
+      "id": "LH",
+      "kind": "vendor",
+      "path": "vendors/LH.upstream.zip"
+    },
+    {
+      "id": "LONGER",
+      "kind": "vendor",
+      "path": "vendors/LONGER.upstream.zip"
+    },
+    {
+      "id": "Lulzbot",
+      "kind": "vendor",
+      "path": "vendors/Lulzbot.upstream.zip"
+    },
+    {
+      "id": "M3D",
+      "kind": "vendor",
+      "path": "vendors/M3D.upstream.zip"
+    },
+    {
+      "id": "MagicMaker",
+      "kind": "vendor",
+      "path": "vendors/MagicMaker.upstream.zip"
+    },
+    {
+      "id": "Mellow",
+      "kind": "vendor",
+      "path": "vendors/Mellow.upstream.zip"
+    },
+    {
+      "id": "OpenEYE",
+      "kind": "vendor",
+      "path": "vendors/OpenEYE.upstream.zip"
+    },
+    {
+      "id": "OrcaArena",
+      "kind": "vendor",
+      "path": "vendors/OrcaArena.upstream.zip"
+    },
+    {
+      "id": "OrcaFilamentLibrary",
+      "kind": "vendor",
+      "path": "vendors/OrcaFilamentLibrary.upstream.zip"
+    },
+    {
+      "id": "Peopoly",
+      "kind": "vendor",
+      "path": "vendors/Peopoly.upstream.zip"
+    },
+    {
+      "id": "Phrozen",
+      "kind": "vendor",
+      "path": "vendors/Phrozen.upstream.zip"
+    },
+    {
+      "id": "Positron3D",
+      "kind": "vendor",
+      "path": "vendors/Positron3D.upstream.zip"
+    },
+    {
+      "id": "Prusa",
+      "kind": "vendor",
+      "path": "vendors/Prusa.upstream.zip"
+    },
+    {
+      "id": "Qidi",
+      "kind": "vendor",
+      "path": "vendors/Qidi.upstream.zip"
+    },
+    {
+      "id": "RH3D",
+      "kind": "vendor",
+      "path": "vendors/RH3D.upstream.zip"
+    },
+    {
+      "id": "Raise3D",
+      "kind": "vendor",
+      "path": "vendors/Raise3D.upstream.zip"
+    },
+    {
+      "id": "Ratrig",
+      "kind": "vendor",
+      "path": "vendors/Ratrig.upstream.zip"
+    },
+    {
+      "id": "RolohaunDesign",
+      "kind": "vendor",
+      "path": "vendors/RolohaunDesign.upstream.zip"
+    },
+    {
+      "id": "SecKit",
+      "kind": "vendor",
+      "path": "vendors/SecKit.upstream.zip"
+    },
+    {
+      "id": "SeeMeCNC",
+      "kind": "vendor",
+      "path": "vendors/SeeMeCNC.upstream.zip"
+    },
+    {
+      "id": "Snapmaker",
+      "kind": "vendor",
+      "path": "vendors/Snapmaker.upstream.zip"
+    },
+    {
+      "id": "Sovol",
+      "kind": "vendor",
+      "path": "vendors/Sovol.upstream.zip"
+    },
+    {
+      "id": "Tiertime",
+      "kind": "vendor",
+      "path": "vendors/Tiertime.upstream.zip"
+    },
+    {
+      "id": "Tronxy",
+      "kind": "vendor",
+      "path": "vendors/Tronxy.upstream.zip"
+    },
+    {
+      "id": "TwoTrees",
+      "kind": "vendor",
+      "path": "vendors/TwoTrees.upstream.zip"
+    },
+    {
+      "id": "UltiMaker",
+      "kind": "vendor",
+      "path": "vendors/UltiMaker.upstream.zip"
+    },
+    {
+      "id": "Vivedino",
+      "kind": "vendor",
+      "path": "vendors/Vivedino.upstream.zip"
+    },
+    {
+      "id": "Volumic",
+      "kind": "vendor",
+      "path": "vendors/Volumic.upstream.zip"
+    },
+    {
+      "id": "Voron",
+      "kind": "vendor",
+      "path": "vendors/Voron.upstream.zip"
+    },
+    {
+      "id": "Voxelab",
+      "kind": "vendor",
+      "path": "vendors/Voxelab.upstream.zip"
+    },
+    {
+      "id": "Vzbot",
+      "kind": "vendor",
+      "path": "vendors/Vzbot.upstream.zip"
+    },
+    {
+      "id": "WEMAKE3D",
+      "kind": "vendor",
+      "path": "vendors/WEMAKE3D.upstream.zip"
+    },
+    {
+      "id": "Wanhao",
+      "kind": "vendor",
+      "path": "vendors/Wanhao.upstream.zip"
+    },
+    {
+      "id": "Wanhao France",
+      "kind": "vendor",
+      "path": "vendors/Wanhao France.upstream.zip"
+    },
+    {
+      "id": "WonderMaker",
+      "kind": "vendor",
+      "path": "vendors/WonderMaker.upstream.zip"
+    },
+    {
+      "id": "Z-Bolt",
+      "kind": "vendor",
+      "path": "vendors/Z-Bolt.upstream.zip"
+    },
+    {
+      "id": "iQ",
+      "kind": "vendor",
+      "path": "vendors/iQ.upstream.zip"
+    },
+    {
+      "id": "re3D",
+      "kind": "vendor",
+      "path": "vendors/re3D.upstream.zip"
+    }
+  ]
+}

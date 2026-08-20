@@ -100,9 +100,11 @@ the same branded bar without a drag region, native-window inset, or window
 controls. This preserves the intentional Electron frameless design without
 making it a Web-only or desktop-only component.
 
-The first-release Web layout is a desktop layout with a minimum viewport of
-1024 × 700 CSS pixels. Below that size it retains the complete layout and may
-scroll; it must not claim partial responsive/mobile support.
+The first-release Web layout is a desktop layout that adapts fluidly to the
+viewport size: it retains the complete layout at any window size, shrinking
+the settings panel and 3D viewport to fit (each scrolls internally when
+constrained) with no fixed minimum viewport. It must not claim partial
+responsive/mobile support.
 
 Migration is an extraction and adaptation, not a rewrite of unrelated product
 behavior. Existing renderer components, stores, and slicer workflows should

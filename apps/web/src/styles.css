@@ -1,0 +1,9 @@
+.web-startup { min-height: 100vh; display: grid; place-content: center; gap: .75rem; padding: 2rem; font-family: system-ui, sans-serif; background: #181818; color: #eee; }
+.web-startup a { color: #60a5fa; }
+/* height: 100% (not min-height) so the html→body→#root→shell chain stays
+   definite and AppShell's `h-full` flex column tracks the window height. */
+.web-app-shell { height: 100%; }
+.web-serial-status { position: fixed; z-index: 20; top: .5rem; right: .5rem; max-width: min(32rem, calc(100vw - 1rem)); padding: .5rem .75rem; border: 1px solid #d97706; border-radius: .375rem; background: #451a03; color: #fde68a; font: 0.8125rem/1.35 system-ui, sans-serif; pointer-events: none; }
+/* The web layout is fluid: the shell (AppShell) shrinks with the viewport and
+   its internal scroll regions (settings panel, viewport) handle overflow, so
+   no fixed minimum viewport is enforced. */

@@ -7,7 +7,7 @@
 // ----------------------------------------------------------------
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
-  InitResult, PresetList, AppConfig, SelectPresetResult,
+  InitResult, PresetList, SelectPresetResult,
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer,
@@ -20,8 +20,14 @@ export function createClient(
   moduleFactory: OrcaModuleFactory,
   onBridgeProgress?: (percent: number, text: string) => void,
   onProgressMailbox?: (mailbox: ProgressMailbox) => void,
+  beforeInit?: (module: OrcaModule) => Promise<void>,
 ): SlicerClient {
   let modulePromise: Promise<OrcaModule> | null = null;
+  // beforeInit (profile installation in the worker) runs once per client:
+  // React StrictMode double-mounts the boot effect in dev, sending init
+  // twice — the second call must not re-fetch/re-install profiles. A rejected
+  // install clears the memo so a later init can retry.
+  let beforeInitPromise: Promise<void> | null = null;
   const progressListeners = new Set<(percent: number, text: string) => void>();
 
   async function module(): Promise<OrcaModule> {
@@ -64,27 +70,25 @@ export function createClient(
   }
 
   return {
-    async init(appConfig?: AppConfig | null): Promise<InitResult> {
+    async init(): Promise<InitResult> {
       const m = await module();
-      // M4: the app config (installed-state + selections) is the bridge's
-      // source of truth; omitted = fresh config (bridge installs everything).
-      // wasm64: every C param must receive a value — passing an empty string
-      // for the nullable app_config_json arg, never no args (undefined → BigInt
-      // conversion TypeError in the wasm64 wrapper).
-      if (appConfig !== undefined && appConfig !== null) {
-        return callJson(m, 'orc_init', ['string'], [JSON.stringify(appConfig)]) as InitResult;
+      if (!beforeInitPromise) {
+        if (beforeInit) {
+          beforeInitPromise = beforeInit(m);
+          try {
+            await beforeInitPromise;
+          } catch (error) {
+            beforeInitPromise = null;
+            throw error;
+          }
+        } else {
+          beforeInitPromise = Promise.resolve();
+        }
       }
+      await beforeInitPromise;
+      // wasm64: every C param must receive a value; retain the ABI's ignored
+      // legacy string slot while preferences are owned by the host.
       return callJson(m, 'orc_init', ['string'], ['']) as InitResult;
-    },
-
-    async setAppConfig(appConfig: AppConfig): Promise<InitResult> {
-      const m = await module();
-      return callJson(m, 'orc_set_app_config', ['string'], [JSON.stringify(appConfig)]) as InitResult;
-    },
-
-    async getAppConfig(): Promise<AppConfig & { ok: boolean; error?: string }> {
-      const m = await module();
-      return callJson(m, 'orc_get_app_config', [], []) as AppConfig & { ok: boolean; error?: string };
     },
 
     async getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList> {

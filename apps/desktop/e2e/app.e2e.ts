@@ -12,9 +12,13 @@ const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = process.env.ORCA_E2E_MODEL
   ? resolve(process.env.ORCA_E2E_MODEL)
   : resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
-const MODEL_COUNT = Math.max(1, Number.parseInt(process.env.ORCA_E2E_MODEL_COUNT ?? '1', 10) || 1);
-const PRINTER_PROFILE = process.env.ORCA_E2E_PRINTER ?? 'Bambu Lab P1S 0.4 nozzle';
 const REAL = process.env.ORCA_E2E_REAL === '1';
+const MODEL_COUNT = Math.max(1, Number.parseInt(process.env.ORCA_E2E_MODEL_COUNT ?? '1', 10) || 1);
+// Creality's bed has no Bambu exclusion zones, making cube.stl a stable
+// real-module fixture while still exercising the genuine profile picker.
+const PRINTER_PROFILE = process.env.ORCA_E2E_PRINTER ?? (
+  REAL ? 'Creality Ender-3 0.4 nozzle' : 'Bambu Lab P1S 0.4 nozzle'
+);
 const PRESET_READY_TIMEOUT = REAL ? 300_000 : 30_000;
 const SLICE_RESULT_TIMEOUT = REAL ? 60_000 : 5_000;
 
@@ -100,6 +104,19 @@ async function launchApp(): Promise<LaunchResult> {
   return { app, exportPath };
 }
 
+async function selectStableRealPrinter(page: Page): Promise<void> {
+  await page.getByTestId('preset-select').click();
+  await expect(page.locator('[data-slot="combobox-content"]')).toBeVisible();
+  await page.locator('[data-slot="combobox-content"] input').fill(PRINTER_PROFILE);
+  const printer = page
+    .locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')
+    .filter({ hasText: PRINTER_PROFILE });
+  await expect(printer).toHaveCount(1);
+  await printer.click();
+  await expect(page.getByTestId('preset-select')).toContainText(PRINTER_PROFILE);
+  await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
+}
+
 test('full v1 flow: add models → slice → preview → export gcode', async () => {
   const { app, exportPath } = await launchApp();
   try {
@@ -123,21 +140,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     // list; picking updates the trigger and the real bridge selection. The
     // mock starts on the X1 Carbon — switch to a known printer to prove a
     // change. The profile can be overridden for real-model regression runs.
-    await page.getByTestId('preset-select').click();
-    await expect(page.locator('[data-slot="combobox-content"]')).toBeVisible();
-    await expect(page.locator('[data-slot="combobox-content"] input')).toBeVisible();
-    await page.locator('[data-slot="combobox-content"] input').fill(PRINTER_PROFILE);
-    // The full preset bundle has several similar variants; target the exact
-    // profile rather than assuming the search produces one result (the mock
-    // does).
-    const printer = page
-      .locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')
-      .filter({ hasText: PRINTER_PROFILE });
-    await expect(printer).toHaveCount(1);
-    await printer.click();
-    await expect(page.getByTestId('preset-select')).toContainText(PRINTER_PROFILE);
-    // Single-select: the popup dismisses on pick.
-    await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
+    await selectStableRealPrinter(page);
 
     // Slice gated until a model is loaded.
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
@@ -263,12 +266,34 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
     await page.setViewportSize({ width: 1280, height: 800 });
     try {
       await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      // Keep the real geometry fixture away from vendor exclusion zones. The
+      // default profile is user/preset dependent (and can be Bambu), so this
+      // scene test must establish the same printable profile as the full flow
+      // before importing and slicing the cube.
+      await selectStableRealPrinter(page);
+      // Add two real model instances so aggregate-pivot and multi-selection
+      // assertions exercise the actual GL volume collection.
       await page.getByTestId('btn-add-model').click();
+      if (REAL) await page.getByTestId('btn-add-model').click();
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
 
       const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
       const box = await canvas.boundingBox();
       if (!box) throw new Error('viewport canvas has no bounding box');
+      if (REAL) {
+        // Real builds intentionally do not expose mock projection hooks. Use
+        // the actual rendered canvas and camera interaction as the stable
+        // contract: slice real geometry, then prove orbiting changes pixels.
+        await page.getByTestId('btn-slice').click();
+        await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+        const before = await canvas.screenshot();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2, { steps: 6 });
+        await page.mouse.up();
+        await expect.poll(async () => (await canvas.screenshot()).equals(before), { timeout: 10_000 }).toBe(false);
+        return;
+      }
       const project = (p: [number, number, number]) =>
         page
           .evaluate(

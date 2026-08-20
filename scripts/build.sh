@@ -21,16 +21,20 @@
 #             via fetch-deps.sh — idempotent.
 #   boost     Cross-compile Boost 1.84 wasm64 static archives
 #             (build-boost-wasm64.sh; requires `deps` first). Long first run.
-#   build     Full packages/slicer-wasm/build.sh (patches submodule, shim,
-#             configure, ninja, stage to out/). Requires boost archives;
-#             fetches deps automatically if missing.
+#   build     Full dual-variant build via scripts/build-wasm-dual.sh:
+#             both wasm64 variants (threaded + serial) + stage into the
+#             renderer. Requires boost archives; fetches deps automatically
+#             if missing.
 #   full      deps + boost + build — the complete cold-start path.
-#   quick     INCREMENTAL: ninja in .work/build + stage the 3 artifacts to
-#             out/. The fast loop for bridge/CMake changes — no configure,
-#             no patch re-apply, seconds-to-minutes.
+#   quick     INCREMENTAL: ninja in .work/threaded/build and
+#             .work/serial/build + stage the 3 artifacts to out/<variant>.
+#             The fast loop for bridge/CMake changes — no configure, no
+#             patch re-apply, seconds-to-minutes. Use --variant to limit
+#             to one build tree.
 #   shim      Regenerate the TBB/boost::thread/libnoise/libjpeg shim headers
 #             (build.sh --shim-only) after editing TBB_HEADERS in build.sh.
-#   smoke     Run both harnesses against out/: run-slice.mjs + bridge-smoke.mjs.
+#   smoke     Run both harnesses against out/threaded and out/serial:
+#             run-slice.mjs + bridge-smoke.mjs (--variant to limit).
 #   test      vitest + typecheck for slicer-wasm and desktop.
 #   dev       Launch the Electron app in dev mode (pnpm --filter desktop dev).
 #   e2e       Playwright Electron e2e (pnpm --filter desktop test:e2e).
@@ -39,9 +43,8 @@
 # Options:
 #   -j N, --jobs N   Parallelism for ninja / b2 (quick/build/boost).
 #                    Default: ninja auto; BOOST_JOBS=4 as upstream.
-#   --profiles <dir> WASM_PROFILES_DIR override for `build`/`full`
-#                    (a curated dir = lighter .data bundle; default is the
-#                    full profiles tree).
+#   --variant threaded|serial|both
+#                    Build/verify one variant, or both (default: both).
 #   --no-env         Skip emsdk auto-activation (expect emcmake on PATH).
 #   -v, --verbose    set -x (print every command).
 #
@@ -56,15 +59,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 PKG="$ROOT/packages/slicer-wasm"
 WORK="$PKG/.work"
-BUILD_DIR="$WORK/build"
+# Variant trees follow packages/slicer-wasm/build.sh: .work/<variant>/build,
+# out/<variant>. OUT_DIR is the legacy single-artifact location kept in sync
+# for the threaded variant.
 OUT_DIR="$PKG/out"
 BOOST_STAGE="$WORK/deps/boost-1.84.0/stage-wasm64/lib"
 
 JOBS=""            # "" = toolchain default
-PROFILES_DIR=""    # "" = full bundle
 AUTO_ENV=1
+VARIANT=both
 
-usage() { sed -n '2,52p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,55p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # ---------------- emsdk auto-activation ----------------
 # Already on PATH (Homebrew emscripten, sourced emsdk env)? Use it as-is;
@@ -101,9 +106,12 @@ while [[ $# -gt 0 ]]; do
     -j|--jobs)
       [[ $# -ge 2 ]] || die "Option $1 requires an argument (see --help)"
       JOBS="$2"; shift 2 ;;
-    --profiles)
+    --variant)
       [[ $# -ge 2 ]] || die "Option $1 requires an argument (see --help)"
-      PROFILES_DIR="$2"; shift 2 ;;
+      VARIANT="$2"; shift 2
+      [[ "$VARIANT" == threaded || "$VARIANT" == serial || "$VARIANT" == both ]] || \
+        die "--variant must be 'threaded', 'serial' or 'both' (got '$VARIANT')"
+      ;;
     --no-env)    AUTO_ENV=0; shift ;;
     -v|--verbose) set -x; shift ;;
     -h|--help)   usage; exit 0 ;;
@@ -112,6 +120,36 @@ while [[ $# -gt 0 ]]; do
 done
 
 NINJA_JOBS=(); [[ -n "$JOBS" ]] && NINJA_JOBS=(-j "$JOBS")
+
+# ---------------- per-variant helpers ----------------
+# Incremental ninja + stage for ONE variant ($1 = threaded|serial).
+quick_variant() {
+  local v="$1" bd="$WORK/$1/build" outd="$PKG/out/$1"
+  [[ -d "$bd" ]] || die "No build tree at $bd — run: bash scripts/build.sh build"
+  log "Incremental: emmake ninja -C $bd orca_slice ${NINJA_JOBS[*]+"${NINJA_JOBS[*]}"}"
+  emmake ninja -C "$bd" orca_slice "${NINJA_JOBS[@]}"
+  for f in orca_slice.js orca_slice.wasm orca_slice.data; do
+    [[ -f "$bd/$f" ]] || die "Build did not produce $bd/$f"
+    cp -f "$bd/$f" "$outd/"
+  done
+  # threaded keeps the historical single-artifact location for existing Node
+  # smoke and Electron scripts; the dual entry point and Web host consume the
+  # explicit variant directories.
+  if [[ "$v" == threaded && "$outd" != "$OUT_DIR" ]]; then
+    mkdir -p "$OUT_DIR"
+    for f in orca_slice.js orca_slice.wasm orca_slice.data; do cp -f "$outd/$f" "$OUT_DIR/"; done
+  fi
+  log "Staged $v to $outd:"
+  ls -la "$outd"
+}
+
+# Harnesses against ONE variant ($1 = threaded|serial).
+smoke_variant() {
+  local v="$1" m="$PKG/out/$1/orca_slice.js"
+  [[ -f "$m" ]] || die "Missing $m — run: bash scripts/build.sh build"
+  ( cd "$PKG" && node harness/run-slice.mjs --module "out/$v/orca_slice.js" --stl fixtures/cube.stl --config fixtures/config.json )
+  ( cd "$PKG" && node harness/bridge-smoke.mjs "out/$v/orca_slice.js" fixtures/cube.stl )
+}
 
 case "$CMD" in
   # ---------------- env ----------------
@@ -146,16 +184,11 @@ case "$CMD" in
     log "Boost archives in $WORK/deps/boost-1.84.0/stage-wasm64/lib"
     ;;
 
-  # ---------------- full build.sh ----------------
+  # ---------------- dual-variant build (threaded + serial + stage) ----------------
   build)
     ensure_emsdk
     [[ -d "$BOOST_STAGE" ]] || die "Boost wasm64 archives missing ($BOOST_STAGE) — run: bash scripts/build.sh boost"
-    if [[ -n "$PROFILES_DIR" ]]; then
-      log "WASM_PROFILES_DIR=$PROFILES_DIR (lighter .data bundle)"
-      WASM_PROFILES_DIR="$PROFILES_DIR" bash "$PKG/build.sh"
-    else
-      bash "$PKG/build.sh"
-    fi
+    bash "$ROOT/scripts/build-wasm-dual.sh"
     ;;
 
   # ---------------- cold start ----------------
@@ -163,25 +196,18 @@ case "$CMD" in
     ensure_emsdk
     bash "$PKG/fetch-deps.sh"
     BOOST_JOBS="${JOBS:-4}" bash "$PKG/build-boost-wasm64.sh"
-    if [[ -n "$PROFILES_DIR" ]]; then
-      WASM_PROFILES_DIR="$PROFILES_DIR" bash "$PKG/build.sh"
-    else
-      bash "$PKG/build.sh"
-    fi
+    bash "$ROOT/scripts/build-wasm-dual.sh"
     ;;
 
-  # ---------------- incremental ninja loop ----------------
+  # ---------------- incremental ninja loop (both variants unless --variant) ----------------
   quick)
     ensure_emsdk
-    [[ -d "$BUILD_DIR" ]] || die "No build tree at $BUILD_DIR — run: bash scripts/build.sh build"
-    log "Incremental: emmake ninja -C $BUILD_DIR orca_slice ${NINJA_JOBS[*]+"${NINJA_JOBS[*]}"}"
-    emmake ninja -C "$BUILD_DIR" orca_slice "${NINJA_JOBS[@]}"
-    for f in orca_slice.js orca_slice.wasm orca_slice.data; do
-      [[ -f "$BUILD_DIR/$f" ]] || die "Build did not produce $BUILD_DIR/$f"
-      cp -f "$BUILD_DIR/$f" "$OUT_DIR/"
-    done
-    log "Staged to $OUT_DIR:"
-    ls -la "$OUT_DIR"
+    if [[ "$VARIANT" == both ]]; then
+      quick_variant threaded
+      quick_variant serial
+    else
+      quick_variant "$VARIANT"
+    fi
     ;;
 
   # ---------------- shim only ----------------
@@ -189,13 +215,17 @@ case "$CMD" in
     bash "$PKG/build.sh" --shim-only
     ;;
 
-  # ---------------- harnesses ----------------
+  # ---------------- harnesses (both variants unless --variant) ----------------
   smoke)
-    for f in out/orca_slice.js fixtures/cube.stl fixtures/config.json; do
+    for f in fixtures/cube.stl fixtures/config.json; do
       [[ -f "$PKG/$f" ]] || die "Missing $PKG/$f — run: bash scripts/build.sh build"
     done
-    ( cd "$PKG" && node harness/run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.json )
-    ( cd "$PKG" && node harness/bridge-smoke.mjs out/orca_slice.js fixtures/cube.stl )
+    if [[ "$VARIANT" == both ]]; then
+      smoke_variant threaded
+      smoke_variant serial
+    else
+      smoke_variant "$VARIANT"
+    fi
     ;;
 
   # ---------------- unit tests + typecheck ----------------

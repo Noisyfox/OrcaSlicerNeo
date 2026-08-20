@@ -37,6 +37,7 @@ async function launchApp() {
     ORCA_E2E: '1',
     ORCA_E2E_MODEL: MODEL_PATH,
     ORCA_E2E_EXPORT: exportPath,
+    ORCA_E2E_PRINTER: 'Creality Ender-3 0.4 nozzle',
   } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
@@ -49,30 +50,36 @@ async function launchApp() {
   return { app, page };
 }
 
-// Give the sidebar real scroll headroom (the mock panel almost fits at
-// 1280×600 — max scroll ≈ 73px, which makes scroll assertions vacuous: this
-// cost a false failure) and scroll the sparse_infill_pattern row to mid-list.
+// Give the sidebar real scroll headroom and scroll a real enum row to mid-list.
+// The compact mock calls this sparse_infill_pattern, while profile revisions
+// may rename or omit that option; selecting the first actual process enum
+// keeps the layout test tied to rendered controls rather than a fixture key.
 // The scroll container is the aside's inner overflow-y-auto div — the aside
 // itself is overflow-hidden so its border-radius clips the custom scrollbar
 // to the card's rounded corners (see AppShell.tsx).
 async function scrollRowToMidlist(page: Page) {
   const aside = page.locator('aside');
   const scroller = aside.locator(':scope > div');
+  // The real preset panel already has genuine scrollable content. Synthetic
+  // spacer nodes are retained only for the compact mock fixture; injecting
+  // nodes into the real React-owned scroll tree can invalidate Base UI's
+  // anchor observer while the popup is opening.
+  if (!REAL) {
+    await scroller.evaluate((el) => {
+      const mk = (h: number) => {
+        const d = document.createElement('div');
+        d.style.height = `${h}px`;
+        return d;
+      };
+      el.insertBefore(mk(700), el.firstChild);
+      el.appendChild(mk(600));
+    });
+  }
   await scroller.evaluate((el) => {
-    const mk = (h: number) => {
-      const d = document.createElement('div');
-      d.style.height = `${h}px`;
-      return d;
-    };
-    el.insertBefore(mk(700), el.firstChild);
-    el.appendChild(mk(600));
-  });
-  await scroller.evaluate((el) => {
-    const label = [...el.querySelectorAll('label')].find(
-      (l) => l.textContent.trim() === 'sparse_infill_pattern',
-    );
-    const row = label?.closest('div');
-    if (!row) throw new Error('sparse_infill_pattern row not found');
+    const triggers = el.querySelectorAll('[data-slot="select-trigger"]');
+    const trigger = triggers.item(triggers.length - 1);
+    const row = trigger?.closest('div.space-y-4, div.flex');
+    if (!row) throw new Error('real enum row not found');
     const rowTopInScroller = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
     const target = Math.min(el.scrollHeight - el.clientHeight, Math.max(0, rowTopInScroller + el.scrollTop - 300));
     el.scrollTop = target;
@@ -81,11 +88,7 @@ async function scrollRowToMidlist(page: Page) {
   return { aside, scroller };
 }
 
-const sparseTrigger = (page: Page) =>
-  page
-    .locator('aside label', { hasText: 'sparse_infill_pattern' })
-    .locator('xpath=ancestor::div[contains(@class,"space-y")][1]')
-    .locator('[data-slot="select-trigger"]');
+const sparseTrigger = (page: Page) => page.locator('aside [data-slot="select-trigger"]').last();
 
 test('select popup opens below the trigger and tracks it on sidebar scroll', async () => {
   const { app, page } = await launchApp();

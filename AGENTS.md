@@ -77,10 +77,15 @@ proved feasibility and contains reusable machinery:
   emscripten — then falls back to auto-activating an emsdk install;
   `--no-env` skips that). Subcommands
   `env deps boost build full quick shim smoke test dev e2e` wrap every step
-  below; `quick` is the incremental ninja loop for bridge changes. The driver
-  auto-activates emsdk (`C:\emsdk` first) and takes `-j N`, `--profiles <dir>`,
-  `--no-env`, `-v`. cmd gotchas for .bat edits (NoDefaultCurrentDirectoryInExePath,
-  paren-block escaping, CRLF): see `doc/2026-08-15-cmd-build-pipeline.md`.
+  below. `build`/`full` produce the production **dual-variant** set
+  (threaded + serial wasm64 via `scripts/build-wasm-dual.bat` /
+  `build-wasm-dual.sh`, staged into the renderer by `scripts/stage-wasm.mjs`);
+  `quick` is the incremental ninja loop for bridge changes, rebuilding both
+  variant trees by default (`--variant threaded|serial` limits it); `smoke`
+  runs the harnesses against both variants. The driver auto-activates emsdk
+  (`C:\emsdk` first) and takes `-j N`, `--variant`, `--no-env`, `-v`. cmd
+  gotchas for .bat edits (NoDefaultCurrentDirectoryInExePath, paren-block
+  escaping, CRLF): see `doc/2026-08-15-cmd-build-pipeline.md`.
 - WASM: `packages\slicer-wasm\build.bat` (cmd; `call <emsdk>\emsdk_env.bat`
   first, or use the driver; ~50 GB disk for the dep build)
 - Node smoke: `node packages/slicer-wasm/harness/run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.json`

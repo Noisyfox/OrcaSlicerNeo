@@ -24,11 +24,13 @@ set -euo pipefail
 PKG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 WORK_DIR="${WORK_DIR:-$PKG_DIR/.work}"            # gitignored scratch space
 ORCA_SRC="$PKG_DIR/cpp"                            # pinned submodule = the source
-SHIM_INCLUDE="$WORK_DIR/shim-include"              # generated tbb/*.h forwarding headers
-GEN_INCLUDE="$WORK_DIR/gen"                        # generated headers (libslic3r_version.h, openssl/md5.h)
-BUILD_DIR="$WORK_DIR/build"
-OUT_DIR="$PKG_DIR/out"
 WASM_THREADING="${WASM_THREADING:-1}"
+ARTIFACT_VARIANT="${WASM_ARTIFACT_VARIANT:-$([[ "$WASM_THREADING" == "0" ]] && echo serial || echo threaded)}"
+VARIANT_WORK_DIR="$WORK_DIR/$ARTIFACT_VARIANT"
+SHIM_INCLUDE="$VARIANT_WORK_DIR/shim-include"
+GEN_INCLUDE="$VARIANT_WORK_DIR/gen"
+BUILD_DIR="$VARIANT_WORK_DIR/build"
+OUT_DIR="${WASM_OUT_DIR:-$PKG_DIR/out/$ARTIFACT_VARIANT}"
 # Emscripten evaluates this expression in the runtime and creates one pthread
 # worker per available logical core. Callers can override it for profiling.
 WASM_PTHREAD_POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-navigator.hardwareConcurrency}"
@@ -127,6 +129,13 @@ apply_patches() {
 apply_patches
 
 mkdir -p "$WORK_DIR" "$OUT_DIR" "$GEN_INCLUDE"
+# fetch-deps.sh historically writes the OpenSSL compatibility header in the
+# shared work tree. Variant-specific CMake trees must receive the same header
+# or the serial/threaded builds diverge before compilation starts.
+if [[ -f "$WORK_DIR/gen/openssl/md5.h" && ! -f "$GEN_INCLUDE/openssl/md5.h" ]]; then
+  mkdir -p "$GEN_INCLUDE/openssl"
+  cp "$WORK_DIR/gen/openssl/md5.h" "$GEN_INCLUDE/openssl/md5.h"
+fi
 generate_shim
 
 # ---------------- Dependency staging ----------------
@@ -162,16 +171,9 @@ EOF
 } > /dev/null
 log "Wrote $GEN_INCLUDE/libslic3r_version.h (SLIC3R_VERSION=$(git -C "$ORCA_SRC" describe --tags --always 2>/dev/null || echo 0.0.0))"
 
-# ---------------- Full preset bundle (for orc_init) ----------------
-# M3: the full resources/profiles tree via --preload-file, mounted at /system
-# — the same location the M1 curated embed used, so PresetBundle::load_presets
-# and the harnesses are unchanged. With the full tree every third-party
-# filament inherits chain resolves, so the M1 curated fixpoint filter is gone.
-# Override WASM_PROFILES_DIR for a lighter local build (e.g. a curated dir);
-# CI and packaging always use the full tree.
-WASM_PROFILES_DIR="${WASM_PROFILES_DIR:-$ORCA_SRC/resources/profiles}"
+# Profile packages are installed by the runtime Worker before orc_init().
+# WASM only retains the distinct /info resource needed by the bridge.
 INFO_DIR="$ORCA_SRC/resources/info"
-log "Preset bundle: $WASM_PROFILES_DIR"
 # file_packager runs as a native exe under emcc on Windows (Git Bash) and
 # needs Windows paths. MSYS auto-converts plain args, but SKIPS args
 # containing ';' — the list separator in -DPRELOAD_FILES — so convert
@@ -179,7 +181,6 @@ log "Preset bundle: $WASM_PROFILES_DIR"
 # no-op and native paths are already correct. -m = forward-slash style
 # (F:/...), which Windows Python and CMake both accept.
 if command -v cygpath >/dev/null 2>&1; then
-  WASM_PROFILES_DIR="$(cygpath -m "$WASM_PROFILES_DIR")"
   INFO_DIR="$(cygpath -m "$INFO_DIR")"
 fi
 
@@ -196,7 +197,7 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DWASM_THREADING="$WASM_THREADING" \
   -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
   -DTBB_ROOT="$TBB_ROOT" \
-  -DPRELOAD_FILES="$WASM_PROFILES_DIR@/system;$INFO_DIR@/info" \
+  -DPRELOAD_FILES="$INFO_DIR@/info" \
   || die "CMake configure failed. Fix include paths / missing deps and re-run."
 
 log "Building (emmake ninja) — expect to iterate on compile errors"
@@ -208,13 +209,20 @@ emmake ninja -C "$BUILD_DIR" orca_slice || die "Build failed. Common next steps:
 
 # ---------------- Collect artifacts ----------------
 # Fail loudly: a missing artifact is a build defect, not a warning. The .data
-# is the --preload-file bundle (full profiles tree) — emcc emits it at link
+# is the --preload-file info bundle — emcc emits it at link
 # time, so absence here means the link step regressed. The listing below is
 # evidence in the CI log (size tells the curated vs full-bundle case apart).
 for f in orca_slice.js orca_slice.wasm orca_slice.data; do
   [[ -f "$BUILD_DIR/$f" ]] || die "Build did not produce $BUILD_DIR/$f — check the link step above"
   cp -f "$BUILD_DIR/$f" "$OUT_DIR/"
 done
+# Keep the historical single-artifact location for existing Node smoke and
+# Electron scripts when the default threaded build is run directly. The dual
+# entry point and Web host consume the explicit variant directories.
+if [[ "$ARTIFACT_VARIANT" == "threaded" && "$OUT_DIR" != "$PKG_DIR/out" ]]; then
+  mkdir -p "$PKG_DIR/out"
+  for f in orca_slice.js orca_slice.wasm orca_slice.data; do cp -f "$OUT_DIR/$f" "$PKG_DIR/out/"; done
+fi
 ls -la "$OUT_DIR"
 log "Done. Artifacts in $OUT_DIR/"
 log "Smoke test: node harness/run-slice.mjs --module out/orca_slice.js \\

@@ -1,0 +1,107 @@
+@import "tailwindcss";
+@source "./**/*.{ts,tsx}";
+
+/* The :root palette uses tw3-style HSL triplets ("0 0% 7%"), which are not
+   valid standalone colors — hsl() must be applied at the theme mapping,
+   mirroring the old tw3 config's colors: { background: "hsl(var(--background))" }. */
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  color-scheme: dark;
+  --background: 0 0% 9.4%;
+  --foreground: 0 0% 93%;
+  --card: 0 0% 10%;
+  --card-foreground: 0 0% 93%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 16%;
+  --secondary-foreground: 0 0% 93%;
+  --muted: 0 0% 16%;
+  --muted-foreground: 0 0% 60%;
+  --accent: 217 91% 60%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 20%;
+  --input: 0 0% 20%;
+  --ring: 217 91% 60%;
+  --radius: 0.5rem;
+}
+
+@layer base {
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+  html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+}
+
+/* Keep scrollbars dark and consistent with the app theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) hsl(var(--card));
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: hsl(var(--card));
+}
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--border));
+  border-radius: 5px;
+  border: 2px solid hsl(var(--card));
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground));
+}
+*::-webkit-scrollbar-corner {
+  background: hsl(var(--card));
+}
+
+/* base-mira theme utility: hide scrollbars on in-popup lists (combobox). */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Replaces tailwindcss-animate (tw3 plugin, incompatible with tw4):
+   enter/exit animation utilities for popover/dialog transitions. The
+   keyframes animate opacity only — animating transform would override the
+   positioner's inline transform, breaking anchoring mid-animation and
+   feeding the positioner's reposition loop (2026-08-16 popup hang). */
+@utility animate-in {
+  animation: enter 0.15s ease-out;
+}
+@utility animate-out {
+  animation: exit 0.15s ease-out;
+}
+@keyframes enter {
+  from { opacity: 0; }
+}
+@keyframes exit {
+  to { opacity: 0; }
+}

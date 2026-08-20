@@ -10,6 +10,12 @@ REM pristine (read-only, pinned SHA). No Git Bash required - pure cmd:
 REM emsdk_env.bat activation, emcmake/emmake .exe launchers, Windows
 REM git/cmake/ninja/tar.
 REM
+REM Variant-aware (mirrors build.sh): WASM_THREADING=1 builds the oneTBB
+REM pthread variant, =0 the serial TBB-shim variant; WASM_ARTIFACT_VARIANT
+REM names the tree. Each variant gets .work\<variant> and out\<variant>;
+REM the default threaded build also mirrors to out\ for legacy consumers.
+REM scripts\build-wasm-dual.bat drives both variants back to back.
+REM
 REM NOT push-button - the WASM build is an iteration surface. Re-run
 REM after each fix; steps are idempotent. See AGENTS.md "WASM Build
 REM Workflow" for the TBB_HEADERS / DROP_PATTERNS / stubs / API-drift
@@ -25,11 +31,21 @@ set "PKG_DIR=%~dp0"
 for %%i in ("%PKG_DIR%.") do set "PKG_DIR=%%~fi"
 if defined WORK_DIR (set "WORK_DIR=%WORK_DIR%") else (set "WORK_DIR=%PKG_DIR%\.work")
 set "ORCA_SRC=%PKG_DIR%\cpp"
-set "SHIM_INCLUDE=%WORK_DIR%\shim-include"
-set "GEN_INCLUDE=%WORK_DIR%\gen"
-set "BUILD_DIR=%WORK_DIR%\build"
-set "OUT_DIR=%PKG_DIR%\out"
+REM Variant selection (mirrors build.sh): WASM_THREADING picks the runtime
+REM (1 = oneTBB pthreads, 0 = serial TBB shim); WASM_ARTIFACT_VARIANT names
+REM the tree. Each variant gets its own work/build/out dirs so a serial build
+REM can never reuse pthread objects (or vice versa).
 if not defined WASM_THREADING set "WASM_THREADING=1"
+if defined WASM_ARTIFACT_VARIANT (
+  set "ARTIFACT_VARIANT=%WASM_ARTIFACT_VARIANT%"
+) else (
+  if "%WASM_THREADING%"=="0" (set "ARTIFACT_VARIANT=serial") else (set "ARTIFACT_VARIANT=threaded")
+)
+set "VARIANT_WORK_DIR=%WORK_DIR%\%ARTIFACT_VARIANT%"
+set "SHIM_INCLUDE=%VARIANT_WORK_DIR%\shim-include"
+set "GEN_INCLUDE=%VARIANT_WORK_DIR%\gen"
+set "BUILD_DIR=%VARIANT_WORK_DIR%\build"
+if defined WASM_OUT_DIR (set "OUT_DIR=%WASM_OUT_DIR%") else (set "OUT_DIR=%PKG_DIR%\out\%ARTIFACT_VARIANT%")
 REM Emscripten evaluates this expression in the runtime and creates one
 REM pthread worker per available logical core. Callers may override it.
 if not defined WASM_PTHREAD_POOL_SIZE set "WASM_PTHREAD_POOL_SIZE=navigator.hardwareConcurrency"
@@ -104,6 +120,13 @@ for %%p in ("%PKG_DIR%\patches\*.patch") do (
 if not exist "%WORK_DIR%" mkdir "%WORK_DIR%"
 if not exist "%OUT_DIR%" mkdir "%OUT_DIR%"
 if not exist "%GEN_INCLUDE%" mkdir "%GEN_INCLUDE%"
+REM fetch-deps.bat writes the OpenSSL compatibility header in the shared
+REM work tree. Variant-specific gen dirs must receive the same header or the
+REM serial/threaded builds diverge before compilation starts.
+if exist "%WORK_DIR%\gen\openssl\md5.h" if not exist "%GEN_INCLUDE%\openssl\md5.h" (
+  if not exist "%GEN_INCLUDE%\openssl" mkdir "%GEN_INCLUDE%\openssl"
+  copy /y "%WORK_DIR%\gen\openssl\md5.h" "%GEN_INCLUDE%\openssl\md5.h" >nul
+)
 
 :shim_only
 REM ---------------- Serial TBB shim (also the --shim-only path) ----------------
@@ -181,19 +204,14 @@ for /f "delims=" %%h in ('git -C "%ORCA_SRC%" rev-parse --short HEAD 2^>nul') do
 >> "%GEN_INCLUDE%\libslic3r_version.h" echo #endif
 echo [wasm] Wrote %GEN_INCLUDE%\libslic3r_version.h ^(SLIC3R_VERSION=%VER%^)
 
-REM ---------------- Full preset bundle (for orc_init) ----------------
-REM The full resources\profiles tree via --preload-file, mounted at /system.
-REM Override WASM_PROFILES_DIR for a lighter local build (e.g. a curated
-REM dir); CI and packaging always use the full tree.
-if not defined WASM_PROFILES_DIR set "WASM_PROFILES_DIR=%ORCA_SRC%\resources\profiles"
+REM Profiles are installed by the runtime Worker before orc_init().
+REM WASM only retains the distinct /info resource needed by the bridge.
 set "INFO_DIR=%ORCA_SRC%\resources\info"
-echo [wasm] Preset bundle: %WASM_PROFILES_DIR%
 REM file_packager runs as a native exe and needs forward-slash native paths.
 REM In cmd there is no MSYS ';' mangling to work around - just normalize
 REM backslashes so the CMake cache matches a Git Bash-configured tree too.
-set "PRELOAD_P=%WASM_PROFILES_DIR:\=/%"
 set "PRELOAD_I=%INFO_DIR:\=/%"
-set "PRELOAD_FILES=%PRELOAD_P%@/system;%PRELOAD_I%@/info"
+set "PRELOAD_FILES=%PRELOAD_I%@/info"
 set "ORCA_SRC_CM=%ORCA_SRC:\=/%"
 set "SHIM_CM=%SHIM_INCLUDE:\=/%"
 set "GEN_CM=%GEN_INCLUDE:\=/%"
@@ -234,7 +252,7 @@ if errorlevel 1 (
 
 REM ---------------- Collect artifacts ----------------
 REM Fail loudly: a missing artifact is a build defect, not a warning. The .data
-REM is the --preload-file bundle (full profiles tree) - emcc emits it at link
+REM is the --preload-file info bundle - emcc emits it at link
 REM time, so absence here means the link step regressed.
 for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do (
   if not exist "%BUILD_DIR%\%%f" (
@@ -243,7 +261,14 @@ for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do (
   )
   copy /y "%BUILD_DIR%\%%f" "%OUT_DIR%\" >nul
 )
+REM Keep the historical single-artifact location for existing Node smoke and
+REM Electron scripts when the default threaded build is run directly. The dual
+REM entry point and Web host consume the explicit variant directories.
+if /i not "%OUT_DIR%"=="%PKG_DIR%\out" if /i "%ARTIFACT_VARIANT%"=="threaded" (
+  if not exist "%PKG_DIR%\out" mkdir "%PKG_DIR%\out"
+  for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do copy /y "%OUT_DIR%\%%f" "%PKG_DIR%\out\" >nul
+)
 dir "%OUT_DIR%"
 echo [wasm] Done. Artifacts in %OUT_DIR%\
-echo [wasm] Smoke test: node harness\run-slice.mjs --module out\orca_slice.js --stl fixtures\cube.stl --config fixtures\config.json
+echo [wasm] Smoke test: node harness\run-slice.mjs --module out\%ARTIFACT_VARIANT%\orca_slice.js --stl fixtures\cube.stl --config fixtures\config.json
 exit /b 0

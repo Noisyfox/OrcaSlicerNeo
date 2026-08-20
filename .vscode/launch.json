@@ -5,7 +5,20 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Main Process",
+            "name": "Web Debug (Chrome)",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://localhost:5173",
+            "webRoot": "${workspaceFolder}/apps/web",
+            // Starts the Vite dev server (see .vscode/tasks.json) and waits
+            // for it to be ready before launching the browser.
+            "preLaunchTask": "web: vite dev server",
+            "presentation": {
+                "order": 0
+            }
+        },
+        {
+            "name": "Desktop Debug Main Process",
             "request": "launch",
             "runtimeArgs": [
                 "--filter",
@@ -23,7 +36,7 @@
             }
         },
         {
-            "name": "Debug Renderer Process",
+            "name": "Desktop Debug Renderer Process",
             "port": 9222,
             "request": "attach",
             "type": "chrome",
@@ -36,10 +49,10 @@
     ],
     "compounds": [
         {
-            "name": "Debug All",
+            "name": "Desktop Debug All",
             "configurations": [
-                "Debug Main Process",
-                "Debug Renderer Process"
+                "Desktop Debug Main Process",
+                "Desktop Debug Renderer Process"
             ],
             "presentation": {
                 "order": 1

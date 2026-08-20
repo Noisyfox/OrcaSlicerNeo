@@ -83,7 +83,7 @@ struct BridgeState {
         static_cast<std::size_t>(tbb_max_concurrency)};
     tbb::task_arena tbb_arena{tbb_max_concurrency};
 #endif
-    AppConfig   app_config;
+    AppConfig profile_config;
     PresetBundle presets;
     Model       model;
     Print       print;
@@ -161,7 +161,7 @@ json option_def_to_json(const ConfigOptionDef& def) {
     return j;
 }
 
-// --- M4: AppConfig fidelity -------------------------------------------
+// Internal profile visibility bootstrap; preferences remain host-owned.
 // The app config JSON (the fork's USE_JSON_CONFIG schema) is the single
 // source of truth for installed printers + selections; the renderer owns
 // it and persists it (see doc/2026-08-15-m4-preset-management-design.md).
@@ -175,7 +175,7 @@ json option_def_to_json(const ConfigOptionDef& def) {
 // Returns true when the JSON carried a "models" section (installed-state
 // is authoritative); false means "fresh config" → install everything.
 bool apply_app_config(const json& j) {
-    AppConfig& cfg = state().app_config;
+    AppConfig& cfg = state().profile_config;
     bool has_models = false;
     for (auto it = j.begin(); it != j.end(); ++it) {
         if (it.key() == "models" && it.value().is_array()) {
@@ -229,7 +229,7 @@ bool apply_app_config(const json& j) {
 // otherwise). Visibility is then recomputed via load_installed_printers —
 // the real mechanism (Preset.cpp:855), not a scan hack.
 void install_all_printers() {
-    AppConfig& cfg = state().app_config;
+    AppConfig& cfg = state().profile_config;
     for (const Preset& p : state().presets.printers) {  // begin()/end(): skips generated defaults
         if (p.vendor == nullptr) continue;
         const std::string model   = p.config.opt_string("printer_model");
@@ -257,7 +257,7 @@ void install_all_printers() {
 // load_selections tail (update_compatible + multi-material) then fixes
 // print/filament for the active machine.
 void reselect_after_app_config() {
-    const std::string initial = state().app_config.get("presets", PRESET_PRINTER_NAME);
+    const std::string initial = state().profile_config.get("presets", PRESET_PRINTER_NAME);
     bool selected = !initial.empty() &&
                     state().presets.printers.select_preset_by_name(initial, true);
     if (!selected) {
@@ -277,7 +277,7 @@ void reselect_after_app_config() {
 // paths as AppConfig::save() (models from the public vendors() map,
 // filaments as an array, presets key/values).
 json serialize_app_config() {
-    const AppConfig& cfg = state().app_config;
+    const AppConfig& cfg = state().profile_config;
     json j = json::object();
     if (cfg.has_section("presets"))
         for (const auto& kvp : cfg.get_section("presets"))
@@ -302,7 +302,7 @@ json serialize_app_config() {
     return j;
 }
 
-// Shared init body for orc_init / orc_set_app_config. The incoming JSON is
+// Shared initialization body. The incoming JSON is ignored legacy input.
 // the renderer's whole config — REPLACE the previous state, never merge:
 // a stale presets.machine from an earlier init could point at a printer that
 // is invisible under the new models section, and install_all_printers'
@@ -310,7 +310,7 @@ json serialize_app_config() {
 // section 4 crashed on this — the second init inherited section 3's
 // selection + the fresh-default's full vendor map.)
 void reset_app_config() {
-    AppConfig& cfg = state().app_config;
+    AppConfig& cfg = state().profile_config;
     cfg.set_vendors({});            // installed-state (m_vendors)
     cfg.clear_section("presets");   // selections
     cfg.clear_section("filaments"); // installed filaments
@@ -324,7 +324,7 @@ const char* init_with_app_config(const json& j) {
     // get_hrc_by_nozzle_type's benign parse-error path (M3 carry-forward).
     set_resources_dir("/");
     state().presets.setup_directories();
-    state().presets.load_presets(state().app_config, ForwardCompatibilitySubstitutionRule::Enable);
+    state().presets.load_presets(state().profile_config, ForwardCompatibilitySubstitutionRule::Enable);
     if (!has_models) {
         install_all_printers();
         reselect_after_app_config();
@@ -339,21 +339,9 @@ const char* init_with_app_config(const json& j) {
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* app_config_json) {
+EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* /*legacy_preferences_json*/) {
     try {
-        // M4: the app config (install-state + selections) comes from the
-        // renderer as JSON; see init_with_app_config. No argument = fresh
-        // config = install everything + round-5 baseline selection (the
-        // pre-M4 behavior, now via the real visibility mechanism).
-        json j = json::object();
-        if (app_config_json && *app_config_json) {
-            try {
-                j = json::parse(app_config_json);
-            } catch (const json::parse_error&) {
-                return error_json("invalid app config JSON");
-            }
-        }
-        return init_with_app_config(j);
+        return init_with_app_config(json::object());
     } catch (const std::exception& e) {
         // Error-path diagnostics only: these catch blocks are compiled in
         // (target_compile_options -fexceptions on orca_slice; emcc's default
@@ -365,44 +353,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* app_config_json) {
         // Non-std throw: never let a C++ exception cross the extern "C" seam
         // (it would surface in JS as an uncatchable CppException crash).
         fprintf(stderr, "orc_init caught (...) via catch-all\n");
-        return error_json("unknown C++ exception");
-    }
-}
-
-// Re-init with a new app config (the future install/uninstall path: the
-// renderer edits the "models" section and re-inits). Same body as orc_init.
-EMSCRIPTEN_KEEPALIVE const char* orc_set_app_config(const char* app_config_json) {
-    try {
-        if (!app_config_json || !*app_config_json)
-            return error_json("app config JSON required");
-        json j;
-        try {
-            j = json::parse(app_config_json);
-        } catch (const json::parse_error&) {
-            return error_json("invalid app config JSON");
-        }
-        return init_with_app_config(j);
-    } catch (const std::exception& e) {
-        return error_json(e.what());
-    } catch (...) {
-        // Non-std throw: never let a C++ exception cross the extern "C" seam
-        // (it would surface in JS as an uncatchable CppException crash).
-        return error_json("unknown C++ exception");
-    }
-}
-
-// The live app config in the persisted JSON schema (models/presets/
-// filaments) — the renderer's persistence contract.
-EMSCRIPTEN_KEEPALIVE const char* orc_get_app_config() {
-    try {
-        json j = serialize_app_config();
-        j["ok"] = true;
-        return dup_json(j.dump());
-    } catch (const std::exception& e) {
-        return error_json(e.what());
-    } catch (...) {
-        // Non-std throw: never let a C++ exception cross the extern "C" seam
-        // (it would surface in JS as an uncatchable CppException crash).
         return error_json("unknown C++ exception");
     }
 }
@@ -470,9 +420,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
             state().presets.update_compatible(PresetSelectCompatibleType::Always);
             state().presets.update_multi_material_filament_presets();
         }
-        state().app_config.set("presets", PRESET_PRINTER_NAME,  state().presets.printers.get_selected_preset_name());
-        state().app_config.set("presets", PRESET_PRINT_NAME,    state().presets.prints.get_selected_preset_name());
-        state().app_config.set("presets", PRESET_FILAMENT_NAME, state().presets.filaments.get_selected_preset_name());
         auto sel = [](const PresetCollection& c) {
             return json{{"name", c.get_selected_preset_name()},
                         {"idx",  c.get_selected_idx()}};
@@ -1106,11 +1053,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_dump_state() {
                {"prints",    sel(presets.prints)},
                {"filaments", sel(presets.filaments)},
                {"printers",  sel(presets.printers)}};
-        // M4: the app config's selection keys (what load_selections applies)
-        // + the selected printer's vendor triple.
-        j["app_config"] = {{"machine",  state().app_config.get("presets", PRESET_PRINTER_NAME)},
-                           {"process",  state().app_config.get("presets", PRESET_PRINT_NAME)},
-                           {"filament", state().app_config.get("presets", PRESET_FILAMENT_NAME)}};
         {
             const size_t pidx = presets.printers.get_selected_idx();
             if (pidx < presets.printers.size()) {

@@ -373,14 +373,13 @@ if(WASM_THREADING)
     -sMALLOC=mimalloc
   )
 endif()
-# Full vendor preset bundle (72 MB) via preload-file: the .data file is
-# streamed into MEMFS at module start and the heap grows (ALLOW_MEMORY_GROWTH)
-# — embed-file would bloat the wasm binary instead.
-# PRELOAD_FILES is a ;-separated list of `src@/dest` mounts (profiles tree
-# at /system, resources/info at /info for nozzle_info.json); each becomes its
-# own --preload-file link option.
+# Only non-profile runtime resources (currently resources/info) may be
+# preloaded. Profile packages are fetched and installed into MEMFS by JS.
 foreach(_pf IN LISTS PRELOAD_FILES)
   if(NOT "${_pf}" STREQUAL "")
+    if("${_pf}" MATCHES "resources[/\\]profiles|/profiles@")
+      message(FATAL_ERROR "Profile resources must be packaged separately; do not pass --preload-file for profiles")
+    endif()
     target_link_options(orca_slice PRIVATE "--preload-file=${_pf}")
   endif()
 endforeach()
