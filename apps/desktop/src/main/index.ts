@@ -4,7 +4,7 @@ import type { Server } from 'node:http';
 import { extname, join, sep } from 'node:path';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { Ipc, type FileDialogFilter, type AppConfigLoadResult } from '../shared/ipc';
+import { Ipc, type FileDialogFilter, type PreferencesLoadResult } from '../shared/ipc';
 
 // Linux containers/VMs without a DRM/VA-API device cannot start Chromium's
 // separate GPU process; Electron aborts with "GPU process isn't usable.
@@ -164,18 +164,20 @@ function registerIpc(): void {
     await writeFile(path, Buffer.from(bytes));
   });
 
-  ipcMain.handle(Ipc.appConfigLoad, async (): Promise<AppConfigLoadResult> => {
+  ipcMain.handle(Ipc.preferencesLoad, async (): Promise<PreferencesLoadResult> => {
     if (!preferencesPersisted()) return { found: false, json: null };
     try {
       const raw = await readFile(preferencesPath(), 'utf8');
       return { found: true, json: JSON.parse(raw) };
-    } catch {
-      // ENOENT (no config yet) and corrupt JSON both mean: fresh config.
+    } catch (error) {
+      // ENOENT and corrupt JSON both mean fresh preferences; keep the app
+      // usable while making the failure diagnosable in the host log.
+      console.error('preferences load failed; using defaults', error);
       return { found: false, json: null };
     }
   });
 
-  ipcMain.handle(Ipc.appConfigSave, async (_event, json: unknown): Promise<void> => {
+  ipcMain.handle(Ipc.preferencesSave, async (_event, json: unknown): Promise<void> => {
     if (!preferencesPersisted()) return;
     // Round-trip through stringify so a corrupt partial write can never be
     // served back to the bridge; atomic-ish via tmp + rename is overkill for

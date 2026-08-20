@@ -57,6 +57,7 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().selectedPrinter).toBe('P1S');
     expect(useSettingsStore.getState().selectedPrint).toBe('Standard');
     expect(useSettingsStore.getState().selectedFilament).toBe('Matte');
+    expect(useSettingsStore.getState().values).toEqual({});
   });
 });
 

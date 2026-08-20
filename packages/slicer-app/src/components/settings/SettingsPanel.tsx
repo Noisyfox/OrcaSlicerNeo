@@ -43,6 +43,9 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   const values = useSettingsStore((s) => s.values);
   const setValue = useSettingsStore((s) => s.setValue);
   const setError = useSlicerStore((s) => s.setError);
+  const setStatus = useSlicerStore((s) => s.setStatus);
+  const setLayers = useSlicerStore((s) => s.setLayers);
+  const setProgress = useSlicerStore((s) => s.setProgress);
 
   // Only render option keys the metadata actually declares (no duplicated
   // schema — PROCESS_KEYS is a render hint, not the schema).
@@ -58,6 +61,8 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       const r = await platform.runtime.selectPreset(kind, name);
       if (!r.ok) throw new Error(r.error ?? 'selectPreset failed');
       setSelections(r.printer.name, r.print.name, r.filament.name);
+      // A completed result belongs to the old profile combination.
+      setStatus('idle'); setLayers(0); setProgress(0); setError(null);
       const prefs = await platform.preferences.load();
       await platform.preferences.save({ ...prefs, selectedProfiles: {
         printer: r.printer.name, print: r.print.name, filament: r.filament.name,

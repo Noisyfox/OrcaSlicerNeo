@@ -47,7 +47,9 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     selectedFilament: filaments.find((p) => p.selected)?.name ?? '',
   }),
   setSelections: (selectedPrinter, selectedPrint, selectedFilament) =>
-    set({ selectedPrinter, selectedPrint, selectedFilament }),
+    // Profile changes replace the base configuration; renderer overrides from
+    // the previous profile must never leak into the next slice.
+    set({ selectedPrinter, selectedPrint, selectedFilament, values: {} }),
   setValue: (key, value) => set((s) => ({ values: { ...s.values, [key]: value } })),
   setValues: (values) => set({ values }),
   setModelLoaded: (modelLoaded) => set((s) => ({ modelLoaded, modelRevision: s.modelRevision + 1 })),

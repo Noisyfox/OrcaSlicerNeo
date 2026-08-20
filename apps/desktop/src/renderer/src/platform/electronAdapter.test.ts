@@ -4,7 +4,7 @@ import { createElectronAdapter } from './electronAdapter';
 function setup(overrides: Record<string, unknown> = {}) {
     const load = vi.fn(async () => ({ found: true, json: { version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320 } } }));
     const save = vi.fn(async () => {});
-    const host = { appConfig: { load, save }, platform: 'win32', ...overrides };
+    const host = { preferences: { load, save }, platform: 'win32', ...overrides };
     vi.stubGlobal('window', { orca: host });
     return { adapter: createElectronAdapter({} as never), load, save };
 }
@@ -50,10 +50,10 @@ describe('Electron adapter', () => {
     expect(adapter.chrome).toMatchObject({ kind: 'desktop', platform, dragRegion: true, macSafeInset: platform === 'darwin' });
   });
 
-  it('falls back to in-memory preferences when legacy AppConfig fails', async () => {
+  it('falls back to in-memory preferences when persistence fails', async () => {
     const load = vi.fn(async () => { throw new Error('unavailable'); });
     const save = vi.fn(async () => { throw new Error('unavailable'); });
-    const { adapter } = setup({ appConfig: { load, save } });
+    const { adapter } = setup({ preferences: { load, save } });
     const value = { version: 1 as const, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300 } };
     await adapter.preferences.save(value);
     await expect(adapter.preferences.load()).resolves.toEqual(value);

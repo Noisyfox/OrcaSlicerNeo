@@ -47,7 +47,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     preferences: {
       async load() {
         try {
-          const result = await host.appConfig.load();
+          const result = await host.preferences.load();
           inMemoryPreferences = normalizeUserPreferences(result.found ? result.json : null);
           return inMemoryPreferences;
         } catch (error) {
@@ -58,7 +58,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       async save(value) {
         const normalized = normalizeUserPreferences(value);
         inMemoryPreferences = normalized;
-        try { await host.appConfig.save(normalized); }
+        try { await host.preferences.save(normalized); }
         catch (error) { console.error('preferences save failed; keeping in-memory preferences', error); }
       },
     },

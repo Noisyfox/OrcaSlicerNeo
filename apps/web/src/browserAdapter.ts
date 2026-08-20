@@ -1,12 +1,25 @@
 import { normalizeUserPreferences, type PlatformCapabilities, type SlicerRuntime } from '@orca/platform-contract';
 
 export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabilities {
+  let inMemory = normalizeUserPreferences(null);
   return {
     models: { pick: pickModel },
     exports: { save: downloadGcode },
     preferences: {
-      async load() { try { return normalizeUserPreferences(JSON.parse(localStorage.getItem('orca-slicer-neo:preferences') ?? 'null')); } catch { return normalizeUserPreferences(null); } },
-      async save(value) { try { localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify(normalizeUserPreferences(value))); } catch { /* ephemeral fallback */ } },
+      async load() {
+        try {
+          const raw = localStorage.getItem('orca-slicer-neo:preferences');
+          inMemory = normalizeUserPreferences(raw === null ? null : JSON.parse(raw));
+        } catch (error) {
+          console.error('web preferences load failed; using in-memory preferences', error);
+        }
+        return inMemory;
+      },
+      async save(value) {
+        inMemory = normalizeUserPreferences(value);
+        try { localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify(inMemory)); }
+        catch (error) { console.error('web preferences save failed; keeping in-memory preferences', error); }
+      },
     },
     runtime,
     profiles: { fetch: async (relativePath) => {
