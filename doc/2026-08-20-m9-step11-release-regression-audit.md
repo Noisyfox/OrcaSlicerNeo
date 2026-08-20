@@ -24,24 +24,29 @@ set (66 packages), retaining per-package console progress from the installer:
 ```powershell
 scripts\build-windows.bat quick
 node packages/slicer-wasm/harness/profile-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js
+node packages/slicer-wasm/harness/profile-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js
 pnpm --filter web test:e2e:serial
 pnpm --filter web test:e2e:threaded
 pnpm --filter web test:non-root
 pnpm --filter desktop exec playwright test e2e/preferences-persistence.e2e.ts
+pnpm --filter desktop test:e2e:real
+pnpm --filter desktop exec playwright test e2e/packaged-real.e2e.ts
 ```
 
 The Windows quick build completed successfully. The serial real-module
-profile smoke wrote `out.gcode` and installed the profile packages. The serial
-and threaded Chrome E2E each passed their real import, profile, slice, layer,
-and export flow; the serial run also asserts the non-blocking serial fallback
-notice. The non-root static-host smoke passed. The Electron preference
-persistence E2E passed (one test).
+profile smoke and threaded real-module profile smoke each wrote `out.gcode`
+and installed the profile packages. The serial and threaded Chrome E2E each
+passed their real import, profile, slice, layer, and export flow; the serial
+run also asserts the non-blocking serial fallback notice. The non-root
+static-host smoke passed. The Electron preference persistence E2E passed (one
+test), and `pnpm --filter desktop test:e2e:real` passed all four tests in
+54.2 seconds.
 
-The packaged Electron real-runtime probe was added in `0977626` and reported
-one passing test against the loopback packaged application, including real
-threaded loader, wasm, data, import, slice, and export checks. Step 10's final
-serial status and static-host correction is `8452ba3`; the deterministic
-real-Electron E2E correction is `cd24f66`.
+The packaged Electron real-runtime probe was added in `0977626` and passed in
+this audit (one test, 14.7 seconds) against the loopback packaged application,
+including real threaded loader, wasm, data, import, slice, and export checks.
+Step 10's final serial status and static-host correction is `8452ba3`; the
+deterministic real-Electron E2E correction is `cd24f66`.
 
 ## Manual/environment-limited checks
 
