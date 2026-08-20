@@ -68,6 +68,7 @@ describe('useSlicerStore', () => {
     expect(s.progress).toBe(0);
     expect(s.layers).toBe(0);
     expect(s.error).toBeNull();
+    expect(s.resultExported).toBe(false);
 
     s.setStatus('slicing');
     s.setProgress(42);
@@ -80,5 +81,7 @@ describe('useSlicerStore', () => {
     expect(useSlicerStore.getState().error).toBe('boom');
     s.setError(null);
     expect(useSlicerStore.getState().error).toBeNull();
+    s.setResultExported(true);
+    expect(useSlicerStore.getState().resultExported).toBe(true);
   });
 });

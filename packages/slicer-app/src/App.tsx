@@ -20,6 +20,7 @@ export default function App() {
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const values = useSettingsStore((s) => s.values);
   const status = useSlicerStore((s) => s.status);
+  const resultExported = useSlicerStore((s) => s.resultExported);
   const [sceneInteraction, setSceneInteraction] = useState<SceneInteractionController | null>(null);
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
@@ -64,13 +65,15 @@ export default function App() {
   useEffect(() => {
     if (platform.chrome.kind !== 'web') return;
     const protect = (event: BeforeUnloadEvent) => {
-      if (!modelLoaded && status !== 'done' && Object.keys(values).length === 0) return;
+      const hasOverrides = Object.keys(values).some((key) => key !== 'modelPath');
+      const hasUnexportedResult = status === 'done' && !resultExported;
+      if (!modelLoaded && !hasOverrides && !hasUnexportedResult) return;
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', protect);
     return () => window.removeEventListener('beforeunload', protect);
-  }, [platform.chrome.kind, modelLoaded, status, values]);
+  }, [platform.chrome.kind, modelLoaded, resultExported, status, values]);
 
   // Keep the shared application inert until the worker has initialized the
   // core and every profile package has been installed. This is intentionally

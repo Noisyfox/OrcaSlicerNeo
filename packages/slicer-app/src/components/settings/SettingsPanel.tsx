@@ -46,6 +46,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   const setStatus = useSlicerStore((s) => s.setStatus);
   const setLayers = useSlicerStore((s) => s.setLayers);
   const setProgress = useSlicerStore((s) => s.setProgress);
+  const setResultExported = useSlicerStore((s) => s.setResultExported);
 
   // Only render option keys the metadata actually declares (no duplicated
   // schema — PROCESS_KEYS is a render hint, not the schema).
@@ -63,6 +64,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       setSelections(r.printer.name, r.print.name, r.filament.name);
       // A completed result belongs to the old profile combination.
       setStatus('idle'); setLayers(0); setProgress(0); setError(null);
+      setResultExported(false);
       const prefs = await platform.preferences.load();
       await platform.preferences.save({ ...prefs, selectedProfiles: {
         printer: r.printer.name, print: r.print.name, filament: r.filament.name,

@@ -1,6 +1,7 @@
 // apps/desktop/src/renderer/src/components/settings/OptionField.tsx
 import type { OptionMeta } from '@slicer/client';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSlicerStore } from '../../stores/useSlicerStore';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -9,6 +10,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 export function OptionField({ optionKey, meta }: { optionKey: string; meta: OptionMeta }) {
   const value = useSettingsStore((s) => s.values[optionKey] ?? meta.default ?? '');
   const setValue = useSettingsStore((s) => s.setValue);
+  const setStatus = useSlicerStore((s) => s.setStatus);
+  const setLayers = useSlicerStore((s) => s.setLayers);
+  const setProgress = useSlicerStore((s) => s.setProgress);
+  const setError = useSlicerStore((s) => s.setError);
+  const setResultExported = useSlicerStore((s) => s.setResultExported);
+  const change = (next: string) => {
+    setValue(optionKey, next);
+    // A settings override belongs to a new configuration. Invalidate the
+    // previous toolpath immediately so export/leave-warning state is honest.
+    setStatus('idle'); setLayers(0); setProgress(0); setError(null); setResultExported(false);
+  };
   const label = meta.label ?? optionKey;
 
   // Fixed-width label column (w-32) keeps the value column vertically aligned
@@ -23,7 +35,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
         <Checkbox
           id={optionKey}
           checked={value === '1'}
-          onCheckedChange={(checked) => setValue(optionKey, checked ? '1' : '0')}
+          onCheckedChange={(checked) => change(checked ? '1' : '0')}
         />
       </div>
     );
@@ -33,7 +45,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
     return (
       <div className={row}>
         <Label className={labelCls} title={label}>{label}</Label>
-        <Select value={value} onValueChange={(v) => v != null && setValue(optionKey, v)}>
+        <Select value={value} onValueChange={(v) => v != null && change(v)}>
           <SelectTrigger className="flex-1">
             <SelectValue placeholder={value} />
           </SelectTrigger>
@@ -59,7 +71,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
         max={meta.max}
         type={numeric ? 'number' : 'text'}
         step={meta.type === 'int' ? 1 : 'any'}
-        onChange={(e) => setValue(optionKey, e.target.value)}
+        onChange={(e) => change(e.target.value)}
         className="flex-1"
       />
     </div>

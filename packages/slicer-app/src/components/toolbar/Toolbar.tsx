@@ -16,6 +16,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
   const status = useSlicerStore((s) => s.status);
   const setSlicerStatus = useSlicerStore((s) => s.setStatus);
   const setError = useSlicerStore((s) => s.setError);
+  const setResultExported = useSlicerStore((s) => s.setResultExported);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   // Boot loads all three preset lists atomically (setPresets); until they
   // arrive (or if boot fails) Add Model stays disabled — a model without presets
@@ -40,6 +41,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
       // Only a successful add changes the plate. A dialog cancel or parse
       // failure must leave the existing scene and its sliced result intact.
       setSlicerStatus('idle');
+      setResultExported(false);
       // Shared state receives only the display name; host-private absolute
       // paths must never cross the platform boundary.
       useSettingsStore.getState().setValue('modelPath', file.displayName);
@@ -60,6 +62,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
       const r = await platform.runtime.clearModel();
       if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
       setSlicerStatus('idle');
+      setResultExported(false);
       useSettingsStore.getState().setModelLoaded(false);
       sceneInteraction?.resetForModel();
       setError(null);
@@ -117,6 +120,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
       return;
     }
     setSlicerStatus('slicing');
+    setResultExported(false);
     // A new slice clears the previous failure — the status bar must not keep
     // showing the old error while the new slice runs (or if it succeeds).
     setError(null);
@@ -150,6 +154,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
       const res = await platform.runtime.exportGcode();
       if (!res.ok) throw new Error(res.error ?? 'export failed');
       await platform.exports.save('output.gcode', res.bytes);
+      setResultExported(true);
     } catch (err) {
       setError(`export: ${errorText(err)}`);
       console.error('export failed:', err);
