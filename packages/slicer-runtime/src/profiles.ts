@@ -2,7 +2,13 @@ import type { OrcaModule } from '@slicer/client';
 
 export interface ProfilePackage { id: string; kind: 'core' | 'vendor'; path: string; }
 export interface ProfileManifest { version: 1; packages: ProfilePackage[]; }
-export interface ProfileSource { fetch(relativePath: string): Promise<Uint8Array>; }
+export interface ProfileSource { fetch(relativePath: string): Promise<Uint8Array | ReadableStream<Uint8Array>>; }
+
+export interface ProfileInstallProgress {
+  package: ProfilePackage;
+  index: number;
+  total: number;
+}
 
 async function bytes(response: Response): Promise<Uint8Array> {
   if (!response.ok) throw new Error(`profile fetch ${response.status}: ${response.url}`);
@@ -40,13 +46,32 @@ async function unzip(data: Uint8Array): Promise<Array<{ path: string; data: Uint
   return out;
 }
 
-export async function installProfiles(module: Pick<OrcaModule, 'FS'>, source: ProfileSource, manifestPath = 'manifest.json') {
-  const manifest = JSON.parse(new TextDecoder().decode(await source.fetch(manifestPath))) as ProfileManifest;
+async function readBytes(value: Uint8Array | ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  if (value instanceof Uint8Array) return value;
+  return new Uint8Array(await new Response(value).arrayBuffer());
+}
+
+export async function installProfiles(
+  module: Pick<OrcaModule, 'FS'>,
+  source: ProfileSource,
+  manifestPath = 'manifest.json',
+  onProgress?: (progress: ProfileInstallProgress) => void,
+) {
+  const manifest = JSON.parse(new TextDecoder().decode(await readBytes(await source.fetch(manifestPath)))) as ProfileManifest;
   if (manifest.version !== 1 || !Array.isArray(manifest.packages)) throw new Error('unsupported profile manifest');
   try { module.FS.mkdir?.('/system'); } catch { /* preload may already have mounted it */ }
-  for (const pkg of manifest.packages) {
+  const total = manifest.packages.length;
+  for (const [index, pkg] of manifest.packages.entries()) {
+    if (!pkg || (pkg.kind !== 'core' && pkg.kind !== 'vendor') || typeof pkg.id !== 'string' || typeof pkg.path !== 'string') {
+      throw new Error('invalid profile package manifest entry');
+    }
+    // Package paths are deployment-relative and IDs become MEMFS directory
+    // names. Reject traversal before either is fetched or mounted.
+    safeEntryPath(pkg.path);
+    safeEntryPath(pkg.id);
+    onProgress?.({ package: pkg, index, total });
     try {
-      const entries = await unzip(await source.fetch(pkg.path));
+      const entries = await unzip(await readBytes(await source.fetch(pkg.path)));
       // Preserve the virtual tree expected by libslic3r's PresetBundle.
       for (const entry of entries) {
         const relative = safeEntryPath(entry.path);
@@ -55,7 +80,10 @@ export async function installProfiles(module: Pick<OrcaModule, 'FS'>, source: Pr
         // `/system`, while OrcaFilamentLibrary and printer vendors land at
         // the exact tree consumed by PresetBundle.
         const mounted = pkg.kind === 'vendor' ? `${safeEntryPath(pkg.id)}/${relative}` : relative;
-        const fullPath = `/system/${mounted}`;
+        // Non-profile runtime data is occasionally carried in the core pack.
+        // Keep it at the path consumed by libslic3r instead of nesting it
+        // below /system (the packaged profile tree remains under /system).
+        const fullPath = mounted.startsWith('info/') ? `/${mounted}` : `/system/${mounted}`;
         mkdirParents(module.FS, fullPath.slice(0, fullPath.lastIndexOf('/')));
         module.FS.writeFile(fullPath, entry.data);
       }

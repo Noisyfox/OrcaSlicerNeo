@@ -56,6 +56,20 @@ describe('profile installer', () => {
     expect(dirs.has('/system/vendor/Vendor')).toBe(true);
   });
 
+  it('reports package progress and keeps core info files at /info', async () => {
+    const files = {
+      'manifest.json': manifest([{ id: 'core', kind: 'core', path: 'core.zip' }]),
+      'core.zip': zip([['machine.json', '{}'], ['info/nozzle_info.json', '{}']]),
+    };
+    const mounted = new Set<string>(); const progress: string[] = []; const dirs = new Set(['/']);
+    await installProfiles({ FS: {
+      mkdir: (path) => { if (dirs.has(path)) throw new Error('EEXIST'); dirs.add(path); },
+      writeFile: (path) => { mounted.add(path); }, readFile: () => new Uint8Array(),
+    } }, source(files), 'manifest.json', ({ package: pkg, index, total }) => progress.push(`${index}/${total}:${pkg.id}`));
+    expect(progress).toEqual(['0/1:core']);
+    expect([...mounted]).toEqual(['/system/machine.json', '/info/nozzle_info.json']);
+  });
+
   it('blocks on core failure but skips a failed vendor', async () => {
     const base = { 'manifest.json': manifest([
       { id: 'core', kind: 'core', path: 'core.zip' }, { id: 'vendor', kind: 'vendor', path: 'bad.zip' },
@@ -68,5 +82,13 @@ describe('profile installer', () => {
   it('rejects traversal paths (and treats a bad vendor as skippable)', async () => {
     const files = { 'manifest.json': manifest([{ id: 'core', kind: 'core', path: 'core.zip' }]), 'core.zip': zip([['../escape', 'x']]) };
     await expect(installProfiles({ FS: { mkdir: () => {}, writeFile: () => {}, readFile: () => new Uint8Array() } }, source(files))).rejects.toThrow(/unsafe profile path/);
+  });
+
+  it('accepts streamed package bytes from a browser-compatible source', async () => {
+    const files = { 'manifest.json': manifest([{ id: 'core', kind: 'core', path: 'core.zip' }]), 'core.zip': zip([['ok', '1']]) };
+    const streamed: ProfileSource = { fetch: async (path) => new ReadableStream({ start(controller) { controller.enqueue((files as Record<string, Uint8Array>)[path]); controller.close(); } }) };
+    const mounted = new Set<string>();
+    await installProfiles({ FS: { mkdir: () => {}, writeFile: (path) => mounted.add(path), readFile: () => new Uint8Array() } }, streamed);
+    expect(mounted).toContain('/system/ok');
   });
 });
