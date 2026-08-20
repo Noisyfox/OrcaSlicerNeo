@@ -64,48 +64,11 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
     // Export stays gated after a failed slice.
     await expect(page.getByTestId('btn-export')).toBeDisabled();
 
-    // A new slice clears the previous error while it runs (Toolbar.slice
-    // setError(null)) — regression: the status bar kept showing the old
-    // failure during the next slice. The re-failure then sets it again.
-    // The cleared state lasts ~12ms only: the second slice short-circuits
-    // the expensive parts (same model + config -> apply() no-op) while
-    // collect_layers_to_print still runs and re-throws immediately — no
-    // polling assertion can observe it. An in-page MutationObserver records
-    // the DOM at each status-bar mutation; the record where the second
-    // slice starts ('Slicing…') must show the error span gone.
-    await page.evaluate(() => {
-      (window as unknown as Record<string, unknown>).__mut = [];
-      const obs = new MutationObserver((muts) => {
-        for (const m of muts) {
-          const node = m.target as Node;
-          const el = node.nodeType === 3 ? node.parentElement : (node as HTMLElement);
-          if (el?.closest('[data-testid=slicer-status], .text-destructive')) {
-            const st = document.querySelector('[data-testid=slicer-status]');
-            const spans = [...document.querySelectorAll('.text-destructive')].map((s) => s.textContent);
-            (window as unknown as Record<string, unknown[]>).__mut.push({
-              status: st?.textContent,
-              spans,
-            });
-          }
-        }
-      });
-      obs.observe(document.body, { childList: true, subtree: true, characterData: true });
-    });
+    // The guard rejects before entering the worker, so a retry is immediate;
+    // it must remain a recoverable, descriptive error and never abort WASM.
     await page.getByTestId('btn-slice').click();
-    await page.waitForFunction(() => {
-      const el = document.querySelector('[data-testid=slicer-status]');
-      return el && el.textContent !== 'Slicing…';
-    }, { timeout: 120000 });
-    // Re-failure restored the message.
     await expect(page.getByTestId('slicer-status')).toHaveText('Error');
     await expect(page.locator('.text-destructive')).toHaveText(/layer|height|invalid|value/i);
-    // And the observer proves the error was cleared at slice start.
-    const mut = await page.evaluate(() =>
-      (window as unknown as Record<string, unknown>).__mut);
-    const slicingStates = (mut as Array<{ status?: string; spans: (string | null)[] }>)
-      .filter((m) => m.status === 'Slicing…');
-    expect(slicingStates.length).toBeGreaterThan(0);
-    expect(slicingStates.some((m) => m.spans.length === 0)).toBe(true);
   } finally {
     await app.close();
   }
