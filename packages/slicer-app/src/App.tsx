@@ -2,6 +2,7 @@
 // worker client init → presets ×3 → option metadata → settings store)
 import { useEffect, useState } from 'react';
 import { AppShell } from './components/layout/AppShell';
+import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar } from './components/toolbar/Toolbar';
 import { SettingsPanel } from './components/settings/SettingsPanel';
 import { Viewport } from './components/viewport/Viewport';
@@ -80,20 +81,26 @@ export default function App() {
   // host-neutral: Electron and Web must expose the same startup contract and
   // must never allow a user action against a partially populated MEMFS.
   if (boot !== 'ready') {
+    // The window is frameless on desktop, so the startup screen must carry
+    // the title bar too — otherwise there is no drag region to move the
+    // window while the runtime loads (see doc/2026-08-15-frameless-window.md).
     return (
-      <main className="flex h-full items-center justify-center bg-background" data-testid="startup-screen">
-        <section className="w-full max-w-lg space-y-3 rounded-lg border bg-card p-8 shadow-sm">
-          <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
-          {boot === 'failed' ? (
-            <>
-              <h2 className="text-destructive">Startup failed</h2>
-              <p className="break-words text-sm text-muted-foreground" data-testid="startup-error">{bootError}</p>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground" data-testid="startup-progress">Loading slicer runtime and profiles…</p>
-          )}
-        </section>
-      </main>
+      <div className="flex h-full flex-col bg-background" data-testid="startup-screen">
+        <TitleBar chrome={platform.chrome} />
+        <main className="flex flex-1 items-center justify-center">
+          <section className="w-full max-w-lg space-y-3 rounded-lg border bg-card p-8 shadow-sm">
+            <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
+            {boot === 'failed' ? (
+              <>
+                <h2 className="text-destructive">Startup failed</h2>
+                <p className="break-words text-sm text-muted-foreground" data-testid="startup-error">{bootError}</p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground" data-testid="startup-progress">Loading slicer runtime and profiles…</p>
+            )}
+          </section>
+        </main>
+      </div>
     );
   }
 
