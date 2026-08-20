@@ -113,8 +113,11 @@ export function createFetchProfileSource(base: string | URL): ProfileSource {
   return { fetch: async (path) => bytes(await fetch(new URL(path, root))) };
 }
 
-/** Resolve bundled profile assets against the host's configured deployment base. */
-export function resolveProfileBaseUrl(baseUrl: string, moduleUrl: string | URL): URL {
+/** Resolve the deployment root the host publishes static assets from (wasm/,
+ *  profiles/). Built bundles emit the worker chunk under assets/, so a
+ *  relative base ('.'/'./') anchors one level above the chunk; absolute bases
+ *  (dev servers, configured roots) resolve directly. */
+export function resolveDeploymentBase(baseUrl: string, moduleUrl: string | URL): URL {
   const deploymentBase = baseUrl === './' || baseUrl === '.'
     ? new URL('../', new URL(String(moduleUrl))).href
     : (baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
@@ -123,13 +126,12 @@ export function resolveProfileBaseUrl(baseUrl: string, moduleUrl: string | URL):
   // for site-root and subpath deployments alike.
   const Url = globalThis.URL;
   const moduleBase = new Url(String(moduleUrl));
-  return new Url('profiles/', new Url(deploymentBase, moduleBase));
+  return new Url(deploymentBase, moduleBase);
 }
 
-/** Resolve a host asset beside the deployment's worker chunk. */
-export function resolveModuleAssetUrl(relativePath: string, moduleUrl: string | URL): string {
-  const Url = globalThis.URL;
-  return new Url(relativePath, new Url(String(moduleUrl))).href;
+/** Resolve bundled profile assets against the host's configured deployment base. */
+export function resolveProfileBaseUrl(baseUrl: string, moduleUrl: string | URL): URL {
+  return new URL('profiles/', resolveDeploymentBase(baseUrl, moduleUrl));
 }
 
 function safeEntryPath(entry: string): string {

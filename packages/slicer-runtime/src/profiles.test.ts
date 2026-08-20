@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { installProfiles, resolveModuleAssetUrl, resolveProfileBaseUrl, type ProfileSource } from './profiles';
+import { installProfiles, resolveDeploymentBase, resolveProfileBaseUrl, type ProfileSource } from './profiles';
 
 function zip(entries: Array<[string, string]>): Uint8Array {
   const chunks: Uint8Array[] = [];
@@ -30,11 +30,20 @@ describe('profile installer', () => {
     expect(resolveProfileBaseUrl('./', 'https://host.test/orca/assets/worker.js').href).toBe('https://host.test/orca/profiles/');
   });
 
-  it('resolves worker assets beside the module on a deployment subpath', () => {
-    expect(resolveModuleAssetUrl('../wasm/orca_slice.js', 'https://host.test/orca/assets/worker.js'))
-      .toBe('https://host.test/orca/wasm/orca_slice.js');
-    expect(resolveModuleAssetUrl('../wasm/orca_slice.wasm', 'https://host.test/preview/orca/assets/worker.js'))
-      .toBe('https://host.test/preview/orca/wasm/orca_slice.wasm');
+  it('anchors host assets at the deployment root for built bundles and dev servers', () => {
+    // Built bundle: the worker chunk lives in assets/, one level below the
+    // root, so a relative base anchors above the chunk.
+    expect(resolveDeploymentBase('./', 'https://host.test/orca/assets/worker.js').href).toBe('https://host.test/orca/');
+    expect(resolveDeploymentBase('./', 'https://host.test/preview/orca/assets/worker.js').href).toBe('https://host.test/preview/orca/');
+    // Dev server: the shared package worker chunk is served outside the app
+    // root (/@fs/...); the absolute base reaches the public dir.
+    expect(resolveDeploymentBase('/', 'http://localhost:5173/@fs/D:/projects/OrcaSlicerNeo/packages/slicer-runtime/src/slicer/slicer.worker.ts').href).toBe('http://localhost:5173/');
+    expect(resolveDeploymentBase('/orca/', 'https://host.test/orca/assets/worker.js').href).toBe('https://host.test/orca/');
+    // The host's wasm artifacts publish under wasm/<variant>/ in that root.
+    expect(new URL('wasm/threaded/orca_slice.js', resolveDeploymentBase('/', 'http://localhost:5173/@fs/D:/projects/OrcaSlicerNeo/packages/slicer-runtime/src/slicer/slicer.worker.ts')).href)
+      .toBe('http://localhost:5173/wasm/threaded/orca_slice.js');
+    expect(new URL('wasm/serial/orca_slice.wasm', resolveDeploymentBase('./', 'https://host.test/orca/assets/worker.js')).href)
+      .toBe('https://host.test/orca/wasm/serial/orca_slice.wasm');
   });
 
   it('mounts every compact package before init', async () => {
