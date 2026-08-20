@@ -1,15 +1,16 @@
 import type { SlicerClient } from '@slicer/client';
 
-/** A model selected by a host. sourcePath is host-private and optional. */
+/** A model selected by a host. Host paths must never cross this boundary. */
 export interface ModelFile {
-  name: string;
+  displayName: string;
   bytes: Uint8Array;
-  sourcePath?: string;
 }
 
-export interface ModelPicker {
+export interface ModelImporter {
   pick(): Promise<ModelFile | null>;
 }
+/** @deprecated Use ModelImporter; retained as a naming bridge for host adapters. */
+export type ModelPicker = ModelImporter;
 
 export interface GcodeExporter {
   save(defaultName: string, bytes: Uint8Array): Promise<void>;
@@ -31,8 +32,12 @@ export interface UserPreferencesRepository {
   save(value: UserPreferences): Promise<void>;
 }
 
+export interface ProfilePackage { id: string; kind: 'core' | 'vendor'; path: string; }
+export interface ProfileManifest { version: 1; packages: ProfilePackage[]; }
+
+/** Supplies profile assets using deployment-relative URLs, never host paths. */
 export interface ProfileSource {
-  resolve(relativePath: string): string;
+  fetch(relativePath: string): Promise<Uint8Array | ReadableStream<Uint8Array>>;
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
@@ -60,7 +65,13 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   };
 }
 
-export type SlicerRuntime = SlicerClient;
+export type RuntimePhase = 'checking-capabilities' | 'loading-runtime' | 'installing-profiles' | 'ready' | 'unsupported' | 'failed';
+export interface RuntimeStatus { phase: RuntimePhase; message?: string; }
+
+/** The existing typed client, with lifecycle status added at the host boundary. */
+export interface SlicerRuntime extends SlicerClient {
+  readonly status?: RuntimeStatus;
+}
 
 export interface PlatformCapabilities {
   models: ModelPicker;
