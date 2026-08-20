@@ -1,12 +1,14 @@
 # M9 Step 0 — Shared-App Migration Baseline
 
 **Date:** 2026-08-20  
-**Baseline commit:** `0faeeba` (`test(m9): isolate mock and real electron fixtures`)  
+**Application state under test:** `0faeeba` (`test(m9): isolate mock and real electron fixtures`)  
 **Plan step:** [Web–Electron Shared Application implementation plan, §4](2026-08-19-web-electron-shared-implementation-plan.md)
 
-This note freezes the Electron behavior and host boundary immediately before
-the shared Web extraction. It records the observable contract only; it does
-not make AppConfig or Electron IPC a Web requirement.
+This note records the current reproducible Electron behavior and host boundary
+for M9 acceptance. It is not a historical pre-extraction snapshot: the
+shared-app extraction and later M9 work already exist in repository history.
+The note records the observable contract only; it does not make AppConfig or
+Electron IPC a Web requirement.
 
 ## Verification commands
 
@@ -21,12 +23,23 @@ pnpm --filter desktop test:e2e
 The first command runs the workspace Vitest suites, the second checks all
 workspace TypeScript projects, and the third builds the mock Electron app and
 runs the focused desktop E2E set (`app.e2e.ts`, `slice-error.e2e.ts`, and
-`select-scroll.e2e.ts`). A real-module run is an environment-dependent
-follow-up, not evidence for this mock baseline:
+`select-scroll.e2e.ts`). The current mock result is **3 passed, 1 skipped**;
+the skipped test is the intentionally skipped rejecting-model case in
+`slice-error.e2e.ts`.
+
+The package does not define a separate `test:e2e:real` script. The actual
+real-module command is:
 
 ```powershell
-pnpm --filter desktop test:e2e:real
+ORCA_E2E_REAL=1 pnpm --filter desktop test:e2e
 ```
+
+On the current baseline this real Electron run is **2 passed, 2 failed**.
+The passing tests are the scene-selection and slice-error cases. The full
+flow fails because the requested `Creality Ender-3 0.4 nozzle` profile is not
+present in the loaded fixture; the select-scroll test fails because the real
+sidebar has no scrollable range in this environment. These failures are
+recorded evidence, not green acceptance claims.
 
 ## Expected core flow and E2E coverage
 
