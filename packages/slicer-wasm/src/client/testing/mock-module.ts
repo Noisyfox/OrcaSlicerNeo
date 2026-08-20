@@ -132,8 +132,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     print: presetFixtures.print[0].name,
     filament: presetFixtures.filament[0].name,
   };
-  // The app-config JSON the bridge stores/returns (null = fresh config).
-  let appConfig: unknown = null;
 
   const identityTransform = () => ({
     offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1],
@@ -173,37 +171,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
-    orc_init(jsonStr?: string) {
-      if (jsonStr) {
-        try {
-          appConfig = JSON.parse(jsonStr);
-        } catch {
-          return 'invalid app config JSON';
-        }
-      }
+    orc_init(_legacyPreferencesJson?: string) {
       return {
         ok: true,
         prints: presetFixtures.print.length,
         filaments: presetFixtures.filament.length,
         printers: presetFixtures.printer.length,
       };
-    },
-    orc_set_app_config(jsonStr: string) {
-      if (!jsonStr) return 'app config JSON required';
-      try {
-        appConfig = JSON.parse(jsonStr);
-      } catch {
-        return 'invalid app config JSON';
-      }
-      return {
-        ok: true,
-        prints: presetFixtures.print.length,
-        filaments: presetFixtures.filament.length,
-        printers: presetFixtures.printer.length,
-      };
-    },
-    orc_get_app_config() {
-      return appConfig ? { ...(appConfig as object), ok: true } : { ok: true };
     },
     orc_get_presets(kind: string) {
       const list = presetFixtures[kind as PresetKind] ?? [];
@@ -372,8 +346,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- ccall dispatch with per-function signature conversion ----
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
     orc_init: { ret: 'number', args: ['string'] },
-    orc_set_app_config: { ret: 'number', args: ['string'] },
-    orc_get_app_config: { ret: 'number', args: [] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_presets: { ret: 'number', args: ['string'] },
     orc_get_option_metadata: { ret: 'number', args: [] },

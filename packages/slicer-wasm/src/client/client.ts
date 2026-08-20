@@ -68,9 +68,8 @@ export function createClient(
     async init(): Promise<InitResult> {
       const m = await module();
       await beforeInit?.(m);
-      // wasm64: every C param must receive a value — passing an empty string
-      // for the nullable app_config_json arg, never no args (undefined → BigInt
-      // conversion TypeError in the wasm64 wrapper).
+      // wasm64: every C param must receive a value; retain the ABI's ignored
+      // legacy string slot while preferences are owned by the host.
       return callJson(m, 'orc_init', ['string'], ['']) as InitResult;
     },
 

@@ -46,8 +46,7 @@ export interface InitResult {
 
 export interface PresetInfo {
   name: string;
-  /** Real set_visible_from_appconfig result (driven by the app config's
-   *  installed-state) — the picker's installed/available grouping. */
+  /** Real preset visibility result from the bundled profile state. */
   is_visible: boolean;
   is_default: boolean;
   /** vendor id, empty when the preset has no vendor profile */
