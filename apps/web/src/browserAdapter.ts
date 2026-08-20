@@ -9,20 +9,21 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
       async save(value) { try { localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify(normalizeUserPreferences(value))); } catch { /* ephemeral fallback */ } },
     },
     runtime,
-    profiles: { resolve: (relativePath) => {
+    profiles: { fetch: async (relativePath) => {
       const Url = globalThis.URL;
-      return new Url(relativePath, new Url(import.meta.env.BASE_URL, String(import.meta.url))).href;
+      const href = new Url(relativePath, new Url(import.meta.env.BASE_URL, String(import.meta.url))).href;
+      return new Uint8Array(await (await fetch(href)).arrayBuffer());
     } },
     chrome: { kind: 'web', platform: navigator.platform },
   };
 }
 
-export function pickModel(): Promise<{ name: string; bytes: Uint8Array } | null> {
+export function pickModel(): Promise<{ displayName: string; bytes: Uint8Array } | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file'; input.accept = '.stl,.3mf'; input.hidden = true;
     const cleanup = () => input.remove();
-    input.onchange = async () => { const file = input.files?.[0]; if (!file) { cleanup(); return resolve(null); } resolve({ name: file.name, bytes: new Uint8Array(await file.arrayBuffer()) }); cleanup(); };
+    input.onchange = async () => { const file = input.files?.[0]; if (!file) { cleanup(); return resolve(null); } resolve({ displayName: file.name, bytes: new Uint8Array(await file.arrayBuffer()) }); cleanup(); };
     input.addEventListener('cancel', () => { cleanup(); resolve(null); }, { once: true });
     document.body.append(input); input.click();
   });

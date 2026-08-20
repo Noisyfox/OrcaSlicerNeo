@@ -21,9 +21,8 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
         if (!path) return null;
         const bytes = new Uint8Array(await host.readFile(path));
         return {
-          name: path.split(/[\\/]/).pop() ?? path,
+          displayName: path.split(/[\\/]/).pop() ?? path,
           bytes,
-          sourcePath: path,
         };
       },
     },
@@ -53,11 +52,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       },
     },
     runtime,
-    profiles: {
-      // Step 1 preserves the existing Electron asset layout. The portable
-      // profile installer/source is intentionally introduced in step 3.
-      resolve: (relativePath) => relativePath,
-    },
+    profiles: { fetch: async (relativePath) => new Uint8Array(await (await fetch(relativePath)).arrayBuffer()) },
     chrome: { kind: 'desktop', platform: host.platform },
   };
 }

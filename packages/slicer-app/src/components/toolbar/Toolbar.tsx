@@ -30,7 +30,7 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
     const file = await platform.models.pick();
     if (!file) return;
     try {
-      const ext = file.name.split('.').pop() ?? 'stl';
+      const ext = file.displayName.split('.').pop() ?? 'stl';
       // A just-finished gesture persists its settled state on release. Wait
       // for that commit before the additive import refreshes the collection.
       const synced = await waitForSettledModelTransforms();
@@ -40,7 +40,9 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
       // Only a successful add changes the plate. A dialog cancel or parse
       // failure must leave the existing scene and its sliced result intact.
       setSlicerStatus('idle');
-      useSettingsStore.getState().setValue('modelPath', file.sourcePath ?? file.name);
+      // Shared state receives only the display name; host-private absolute
+      // paths must never cross the platform boundary.
+      useSettingsStore.getState().setValue('modelPath', file.displayName);
       useSettingsStore.getState().setModelLoaded(true);
       sceneInteraction?.resetForModel();
       setError(null);
