@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react-swc';
+import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -30,7 +31,11 @@ function webOnlyWasmLoader() {
 }
 
 export default defineConfig({
-  plugins: [react(), webOnlyWasmLoader()],
+  // Tailwind must be compiled here — the desktop host does it via
+  // @tailwindcss/postcss (apps/desktop/postcss.config.js); without either,
+  // the shared index.css' @theme/@apply/@utility directives pass through
+  // unprocessed and no utility classes are generated (2026-08-20).
+  plugins: [react(), tailwindcss(), webOnlyWasmLoader()],
   base: './',
   // The checked-in static profile bundle is host-neutral and is reused by
   // both static hosts; WASM artifact packaging remains Step 5.
