@@ -10,6 +10,12 @@ test('real Web flow: import → profile → slice → layer → G-code download'
   page.on('console', (msg) => console.log(`[browser:${msg.type()}] ${msg.text()}`));
   page.on('pageerror', (error) => console.log(`[browser:error] ${String(error)}`));
   await page.goto('/');
+  if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
+    await expect(page.getByTestId('serial-fallback-status')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('serial-fallback-status')).toContainText('serial wasm64 fallback');
+  } else {
+    await expect(page.getByTestId('serial-fallback-status')).toHaveCount(0);
+  }
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
   expect(await page.evaluate(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(false);

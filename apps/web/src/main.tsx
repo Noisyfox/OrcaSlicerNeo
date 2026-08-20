@@ -19,10 +19,15 @@ void startWebApp({
   // Deliberately import the runtime only after capability gating: importing
   // it constructs the Worker-backed client.
   loadRuntime: () => import('@orca/slicer-runtime'),
-  render: (loadedRuntime) => {
+  render: (loadedRuntime, state) => {
     const { slicerClient } = loadedRuntime as typeof import('@orca/slicer-runtime');
     THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1);
-    createRoot(document.getElementById('root')!).render(<React.StrictMode><PlatformProvider value={createBrowserAdapter(slicerClient)}><App /></PlatformProvider></React.StrictMode>);
+    createRoot(document.getElementById('root')!).render(<React.StrictMode><div className="web-app-shell">
+      {state.serialFallback && <aside className="web-serial-status" data-testid="serial-fallback-status" role="status">
+        Threaded WebAssembly is unavailable in this page, so OrcaSlicerNeo is running the serial wasm64 fallback.
+      </aside>}
+      <PlatformProvider value={createBrowserAdapter(slicerClient)}><App /></PlatformProvider>
+    </div></React.StrictMode>);
   },
   unsupported: (detail) => message('Unsupported environment', detail),
   failed: (error) => message('Startup failed', String(error)),
