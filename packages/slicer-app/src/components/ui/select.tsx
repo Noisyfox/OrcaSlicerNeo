@@ -83,6 +83,13 @@ function SelectContent({
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner
+        // The settings sidebar is its own scrolling container. Fixed
+        // positioning keeps the portal anchored to the trigger's viewport
+        // rect while that container scrolls; absolute positioning can retain
+        // the pre-scroll document rect and jump to the viewport edge.
+        positionMethod="fixed"
+        sticky
+        collisionAvoidance={{ side: "none", align: "shift", fallbackAxisSide: "none" }}
         side={side}
         sideOffset={sideOffset}
         align={align}

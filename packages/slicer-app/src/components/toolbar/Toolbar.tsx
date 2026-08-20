@@ -77,6 +77,26 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
     const values = Object.fromEntries(
       Object.entries(state.values).filter(([k]) => meta[k] !== undefined),
     );
+    // Reject impossible numeric values before entering libslic3r. Some
+    // low-level config paths (notably layer_height=0) abort the native/WASM
+    // runtime instead of returning a bridge error. Metadata is authoritative
+    // and already carries the same min/max constraints used by the controls.
+    for (const [key, value] of Object.entries(values)) {
+      const option = meta[key];
+      if (!option || !['float', 'int', 'percent', 'float_or_percent'].includes(option.type)) continue;
+      const numeric = Number.parseFloat(value.replace('%', ''));
+      if (!Number.isFinite(numeric)) {
+        setSlicerStatus('error');
+        setError(`${key} must be a number`);
+        return;
+      }
+      if (option.min !== undefined && numeric < option.min || option.max !== undefined && numeric > option.max) {
+        const bounds = [option.min, option.max].filter((bound) => bound !== undefined).join('–');
+        setSlicerStatus('error');
+        setError(`${key} must be between ${bounds}`);
+        return;
+      }
+    }
     // Apply all renderer-side CompositeIDs to the C++ Model at the slice
     // boundary. Interaction never waits on the worker.
     const synced = await syncModelTransforms(platform.runtime, glVolumeCollection.volumes);
