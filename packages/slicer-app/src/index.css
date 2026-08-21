@@ -1,53 +1,40 @@
 @import "tailwindcss";
 @source "./**/*.{ts,tsx}";
 
-/* The :root palette uses tw3-style HSL triplets ("0 0% 7%"), which are not
-   valid standalone colors — hsl() must be applied at the theme mapping,
-   mirroring the old tw3 config's colors: { background: "hsl(var(--background))" }. */
-@theme inline {
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+/* Native Tailwind v4 theme: palette values live directly in @theme as design
+   tokens, so utilities reference var(--color-*) and opacity modifiers go
+   through color-mix. The app is dark-only (color-scheme: dark below), so the
+   old tw3 shadcn indirection (@theme inline + :root HSL-triplet variables)
+   that existed to allow runtime variable overrides is not needed. */
+@theme {
+  --color-background: hsl(0 0% 9.4%);
+  --color-foreground: hsl(0 0% 93%);
+  --color-card: hsl(0 0% 10%);
+  --color-card-foreground: hsl(0 0% 93%);
+  --color-primary: hsl(217 91% 60%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-secondary: hsl(0 0% 16%);
+  --color-secondary-foreground: hsl(0 0% 93%);
+  --color-muted: hsl(0 0% 16%);
+  --color-muted-foreground: hsl(0 0% 60%);
+  --color-accent: hsl(217 91% 60%);
+  --color-accent-foreground: hsl(0 0% 100%);
+  --color-destructive: hsl(0 84% 60%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-border: hsl(0 0% 20%);
+  --color-input: hsl(0 0% 20%);
+  --color-ring: hsl(217 91% 60%);
+
+  /* Radius scale: 0.5rem base with ±4px/2px steps (matches Tailwind's
+     default radius scale, kept explicit to document the design intent). */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
 }
 
 :root {
   color-scheme: dark;
-  --background: 0 0% 9.4%;
-  --foreground: 0 0% 93%;
-  --card: 0 0% 10%;
-  --card-foreground: 0 0% 93%;
-  --primary: 217 91% 60%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 16%;
-  --secondary-foreground: 0 0% 93%;
-  --muted: 0 0% 16%;
-  --muted-foreground: 0 0% 60%;
-  --accent: 217 91% 60%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 20%;
-  --input: 0 0% 20%;
-  --ring: 217 91% 60%;
-  --radius: 0.5rem;
 }
 
 @layer base {
@@ -59,25 +46,25 @@
 /* Keep scrollbars dark and consistent with the app theme. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--border)) hsl(var(--card));
+  scrollbar-color: var(--color-border) var(--color-card);
 }
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-track {
-  background: hsl(var(--card));
+  background: var(--color-card);
 }
 *::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--border));
+  background-color: var(--color-border);
   border-radius: 5px;
-  border: 2px solid hsl(var(--card));
+  border: 2px solid var(--color-card);
 }
 *::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--muted-foreground));
+  background-color: var(--color-muted-foreground);
 }
 *::-webkit-scrollbar-corner {
-  background: hsl(var(--card));
+  background: var(--color-card);
 }
 
 /* base-mira theme utility: hide scrollbars on in-popup lists (combobox). */
