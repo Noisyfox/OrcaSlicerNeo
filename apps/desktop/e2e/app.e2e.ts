@@ -305,11 +305,36 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
           )
           .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
 
-      // Select the first instance. The panel shows its bounding-box center,
-      // rather than the instance offset, because it is an aggregate pivot.
+      // The Move toggle can only arm with a non-empty selection: it stays
+      // disabled while nothing is selected.
+      await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+
+      // Select the first instance. The move panel is part of the gizmo, so
+      // nothing appears yet: no panel, no gizmo, and the toolbar button stays
+      // unpressed.
       const cubeCenter = await project([10, 10, 10]);
       if (!cubeCenter) throw new Error('cube-center projection unavailable');
       await page.mouse.click(cubeCenter.x, cubeCenter.y);
+      await expect(page.getByTestId('move-panel')).toBeHidden();
+
+      // The gizmo never auto-activates on selection (gizmo toolbar design):
+      // hovering where the move-gizmo X shaft would sit still reads no axis,
+      // and the toolbar button stays unpressed.
+      const shaftPoint = await project([20, 10, 10]);
+      if (!shaftPoint) throw new Error('shaft projection unavailable');
+      await page.mouse.move(shaftPoint.x, shaftPoint.y);
+      await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'false');
+      await expect
+        .poll(() => page.evaluate(() =>
+          (window as unknown as { __orcaE2e?: { gizmoAxis?: () => string | null } }).__orcaE2e?.gizmoAxis?.() ?? null,
+        ), { timeout: 10_000 })
+        .toBeNull();
+
+      // Arm the gizmo from the toolbar — the move panel appears with it. The
+      // panel shows the aggregate bounding-box center, rather than the
+      // instance offset, because it is an aggregate pivot.
+      await page.getByTestId('gizmo-btn-move').click();
+      await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByTestId('move-panel')).toBeVisible();
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
 
@@ -361,16 +386,21 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       const xStart = await project([20, 10, 10]);
       const xEnd = await project([65, 10, 10]);
       if (!xStart || !xEnd) throw new Error('X-arrow projection unavailable');
-      await page.mouse.move(xStart.x, xStart.y);
+      // The gizmo has been armed from the toolbar since the first selection.
+      // TransformControls.axis only refreshes on a fresh pointermove, so
+      // re-approach the shaft until one lands on the rendered gizmo; the
+      // cursor always ends at xStart for the drag below.
       await expect
         .poll(
-          () =>
-            page.evaluate(
+          async () => {
+            await page.mouse.move(xStart.x, xStart.y);
+            return page.evaluate(
               () =>
                 (window as unknown as {
                   __orcaE2e?: { gizmoAxis?: () => string | null };
                 }).__orcaE2e?.gizmoAxis?.() ?? null,
-            ),
+            );
+          },
           { timeout: 10_000 },
         )
         .toBe('X');

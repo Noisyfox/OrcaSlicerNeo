@@ -310,6 +310,26 @@
 - **Step 11 delivered:** release/regression audit — see the M9 status block
   above for the evidence list (`doc/2026-08-20-m9-step11-release-regression-audit.md`).
 
+### Milestone 10 — Gizmo Toolbar
+
+> **Status: delivered 2026-08-21.** Gizmo activation is now explicit: a
+> horizontal toolbar overlaid on top of the 3D viewport carries a single
+> **Move** toggle; selecting an object no longer auto-opens the move gizmo,
+> and an emptied selection still auto-closes it. Arming requires a non-empty
+> selection — the toggle no-ops and the button is disabled otherwise. See
+> `doc/2026-08-21-gizmo-toolbar-design.md`.
+
+- Top-of-viewport overlay toolbar with a Move button (`aria-pressed` toggle).
+- The scene controller's `openGizmo` is toggle-only: selection never opens
+  it; clear / prune-to-empty / model reset still close it.
+- Arming is gated on a non-empty selection (`toggleGizmo` refuses, the button
+  is disabled) — amended 2026-08-21.
+- The sidebar move panel renders with the gizmo and hides with it (it is part
+  of the gizmo UI; previously it appeared on any selection) — amended
+  2026-08-21.
+- Rotate/scale gizmos, a Select button, and G/R/S/Esc shortcuts remain queued
+  in Post-v1 Expansion.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

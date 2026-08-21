@@ -210,6 +210,25 @@ cross-origin isolation is available, and serial WASM otherwise.
 - [x] Step 11 — release/regression audit
       (`doc/2026-08-20-m9-step11-release-regression-audit.md`)
 
+## Milestone 10: Gizmo Toolbar
+
+> [!info] Target: **2026-08-21** (delivered)
+>
+> Design: `doc/2026-08-21-gizmo-toolbar-design.md`. Gizmo activation moves
+> from auto-open-on-selection to an explicit toolbar toggle: a horizontal
+> toolbar overlaid on top of the viewport carries a single **Move** button
+> that arms/disarms the move gizmo. An emptied selection still auto-closes
+> the gizmo.
+
+- [x] Horizontal gizmo toolbar overlaid on top of the viewport
+- [x] Move toggle arms/disarms the gizmo; selection never auto-opens it, and
+      arming requires a non-empty selection (button disabled otherwise)
+- [x] Auto-close on empty selection (deselect / Clear Scene / model reset)
+- [x] The move panel renders with the gizmo — it is part of the gizmo UI and
+      hides with it (amended 2026-08-21; M5 showed it on any selection)
+- [x] Unit + Electron e2e coverage: no auto-activation on select, toolbar
+      arming, existing move-gizmo mechanics unchanged
+
 ## Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
