@@ -13,6 +13,16 @@ const useMock = import.meta.env.VITE_USE_MOCK === '1';
 const mockInstanceCount = Number(import.meta.env.VITE_MOCK_INSTANCE_COUNT ?? 1);
 const mockVolumeCount = Number(import.meta.env.VITE_MOCK_VOLUME_COUNT ?? 1);
 
+// The WASM module's boost::log severity filter is read from
+// globalThis.ORCA_LOG_LEVEL at orc_init (client forwards it; default "info").
+// Seed the worker-scope global from the env so a dev can set
+// VITE_LOG_LEVEL=debug without touching the DevTools worker console.
+// See doc/2026-08-21-wasm-boost-log.md.
+const envLogLevel = import.meta.env.VITE_LOG_LEVEL as string | undefined;
+if (envLogLevel) {
+  (globalThis as { ORCA_LOG_LEVEL?: string }).ORCA_LOG_LEVEL = envLogLevel;
+}
+
 const factory: OrcaModuleFactory = useMock
   ? async () => createMockModule({ instanceCount: mockInstanceCount, volumeCount: mockVolumeCount })
   : async () => {

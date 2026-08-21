@@ -12,7 +12,7 @@ import type {
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer,
   ClientToolpath, ToolpathFeature, ModelTransform,
-  ProgressMailbox,
+  ProgressMailbox, ReadLogResult,
 } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
@@ -86,9 +86,15 @@ export function createClient(
         }
       }
       await beforeInitPromise;
-      // wasm64: every C param must receive a value; retain the ABI's ignored
-      // legacy string slot while preferences are owned by the host.
-      return callJson(m, 'orc_init', ['string'], ['']) as InitResult;
+      // The orc_init JSON is the options payload: the bridge reads "log_level"
+      // from it to set the boost::log severity filter (default info when
+      // unset). The value comes from the global JS variable in the module's
+      // worker scope — see doc/2026-08-21-wasm-boost-log.md. wasm64: every C
+      // param must receive a value; the string always exists (possibly "{}").
+      const opts = {
+        log_level: (globalThis as { ORCA_LOG_LEVEL?: unknown }).ORCA_LOG_LEVEL,
+      };
+      return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
     },
 
     async getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList> {
@@ -209,6 +215,18 @@ export function createClient(
       if (!r.ok) return r as ExportGcodeResult;
       const bytes = m.FS.readFile('/out.gcode');
       return { ok: true, path: r.path ?? '/out.gcode', bytes };
+    },
+
+    async readLog(): Promise<ReadLogResult> {
+      const m = await module();
+      try {
+        const bytes = m.FS.readFile('/tmp/orca.log');
+        return { ok: true, path: '/tmp/orca.log', bytes };
+      } catch (error) {
+        // No log file yet (nothing was logged at or above the filter level,
+        // or init never ran) — report it, not throw.
+        return { ok: false, path: '/tmp/orca.log', bytes: new Uint8Array(0), error: String(error) };
+      }
     },
 
     async cancel(): Promise<CancelResult> {

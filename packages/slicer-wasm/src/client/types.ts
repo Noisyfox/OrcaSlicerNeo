@@ -171,6 +171,15 @@ export interface CancelResult {
   error?: string;
 }
 
+/** The bridge's boost::log file sink output (/tmp/orca.log in MEMFS). */
+export interface ReadLogResult {
+  ok: boolean;
+  path: string;
+  /** File bytes; empty when no log file exists yet (error set then). */
+  bytes: Uint8Array;
+  error?: string;
+}
+
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
@@ -193,4 +202,6 @@ export interface SlicerClient {
   getSliceResult(): Promise<ClientSliceResult>;
   exportGcode(): Promise<ExportGcodeResult>;
   cancel(): Promise<CancelResult>;
+  /** Read the C++ boost::log file sink output from MEMFS. */
+  readLog(): Promise<ReadLogResult>;
 }

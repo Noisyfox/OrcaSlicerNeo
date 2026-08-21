@@ -209,4 +209,64 @@ describe('SlicerClient bridge contract', () => {
     const r = await c.cancel();
     expect(r.ok).toBe(true);
   });
+
+  it('init forwards globalThis.ORCA_LOG_LEVEL in the options JSON', async () => {
+    let initJson = '';
+    const c = createClient(async () => {
+      const m = await createMockModule();
+      const orig = m.ccall.bind(m);
+      m.ccall = ((name: string, ret: string, argTypes: string[], args: unknown[]) => {
+        if (name === 'orc_init') initJson = String(args[0]);
+        return orig(name, ret, argTypes, args);
+      }) as typeof m.ccall;
+      return m;
+    });
+    const global = globalThis as { ORCA_LOG_LEVEL?: unknown };
+    global.ORCA_LOG_LEVEL = 'debug';
+    try {
+      const r = await c.init();
+      expect(r.ok).toBe(true);
+      expect(JSON.parse(initJson)).toEqual({ log_level: 'debug' });
+    } finally {
+      delete global.ORCA_LOG_LEVEL;
+    }
+  });
+
+  it('init omits log_level when the global is unset', async () => {
+    let initJson = '';
+    const c = createClient(async () => {
+      const m = await createMockModule();
+      const orig = m.ccall.bind(m);
+      m.ccall = ((name: string, ret: string, argTypes: string[], args: unknown[]) => {
+        if (name === 'orc_init') initJson = String(args[0]);
+        return orig(name, ret, argTypes, args);
+      }) as typeof m.ccall;
+      return m;
+    });
+    const global = globalThis as { ORCA_LOG_LEVEL?: unknown };
+    delete global.ORCA_LOG_LEVEL;
+    await c.init();
+    // The C++ bridge defaults to info when the key is absent.
+    expect(JSON.parse(initJson)).toEqual({});
+  });
+
+  it('readLog returns the MEMFS log file', async () => {
+    const c = createClient(async () => {
+      const m = await createMockModule();
+      m.FS.writeFile('/tmp/orca.log', new TextEncoder().encode('[2026-08-21 10:00:00.000000] [info] orc_init: bridge ready\n'));
+      return m;
+    });
+    const r = await c.readLog();
+    expect(r.ok).toBe(true);
+    expect(r.path).toBe('/tmp/orca.log');
+    expect(new TextDecoder().decode(r.bytes)).toContain('[info] orc_init: bridge ready');
+  });
+
+  it('readLog reports (not throws) when no log file exists', async () => {
+    const c = makeClient();
+    const r = await c.readLog();
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('ENOENT');
+    expect(r.bytes.length).toBe(0);
+  });
 });
