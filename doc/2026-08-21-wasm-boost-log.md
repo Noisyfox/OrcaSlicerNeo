@@ -30,7 +30,10 @@ it, so the bridge app path and the CLI/harness path behave identically:
 - **Formatter** (shared by both sinks):
   `[%Y-%m-%d %H:%M:%S.%f] [severity] message`.
 - **Severity filter** comes from a level string
-  (`trace|debug|info|warning|error|fatal`, default `info`).
+  (`trace|debug|info|warning|error|fatal`, default `info`). Both hosts
+  ship `VITE_LOG_LEVEL=warning` in their `.env` (committed), so the
+  shipped apps filter at warning; the C++ default remains `info` for
+  bare-`orc_init` callers.
 
 ### Level control
 
@@ -72,6 +75,7 @@ channel.
 - `packages/slicer-wasm/src/client/types.ts` — `ReadLogResult`, `SlicerClient.readLog`
 - `packages/slicer-runtime/src/slicer/slicer.worker.ts` — seed the global from
   `VITE_LOG_LEVEL` when set
+- `apps/desktop/.env` / `apps/web/.env` — shipped `VITE_LOG_LEVEL=warning`
 - `packages/slicer-wasm/harness/run-slice.mjs` — log spot-check
 - `apps/desktop`/`apps/web` worker entries — same env-var seed (if present)
 
