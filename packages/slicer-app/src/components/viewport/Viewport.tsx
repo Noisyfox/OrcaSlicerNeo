@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/viewport/Viewport.tsx
+// packages/slicer-app/src/components/viewport/Viewport.tsx
 import { Component, useCallback, useEffect, useRef, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { Canvas, events as createPointerEvents, type RootState } from '@react-three/fiber';

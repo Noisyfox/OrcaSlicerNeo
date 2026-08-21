@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/slicer/errors.test.ts
+// packages/slicer-runtime/src/slicer/errors.test.ts
 import { describe, expect, it } from 'vitest';
 import { errorText } from './errors';
 

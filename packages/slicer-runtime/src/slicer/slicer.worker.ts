@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/slicer/slicer.worker.ts
+// packages/slicer-runtime/src/slicer/slicer.worker.ts
 // ----------------------------------------------------------------
 // Worker entry (bundled by Vite as a module worker). The only file
 // in the app that imports the WASM module. VITE_USE_MOCK=1 swaps in

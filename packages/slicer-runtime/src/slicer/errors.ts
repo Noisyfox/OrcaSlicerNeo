@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/slicer/errors.ts
+// packages/slicer-runtime/src/slicer/errors.ts
 // User-facing slicer error text. Bridge errors arrive as plain strings
 // ({"error": "..."}); Toolbar wraps failures in Error for its control flow,
 // and String(err) on an Error yields "Error: <msg>" — but the status bar

@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx
+// packages/slicer-app/src/components/toolbar/Toolbar.tsx
 import { useState } from 'react';
 import { FolderPlus, Slice, Download, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';

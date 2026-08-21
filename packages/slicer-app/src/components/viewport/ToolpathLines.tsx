@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/viewport/ToolpathLines.tsx
+// packages/slicer-app/src/components/viewport/ToolpathLines.tsx
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';

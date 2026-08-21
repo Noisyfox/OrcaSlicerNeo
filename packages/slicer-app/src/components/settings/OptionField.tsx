@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/settings/OptionField.tsx
+// packages/slicer-app/src/components/settings/OptionField.tsx
 import type { OptionMeta } from '@slicer/client';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';

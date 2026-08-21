@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/viewport/Scene.tsx
+// packages/slicer-app/src/components/viewport/Scene.tsx
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';

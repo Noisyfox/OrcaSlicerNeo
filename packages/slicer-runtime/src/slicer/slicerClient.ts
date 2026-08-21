@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/slicer/slicerClient.ts
+// packages/slicer-runtime/src/slicer/slicerClient.ts
 // The app's one worker-backed SlicerClient. Worker created once,
 // transport = postMessage pair.
 import { createWorkerRuntime } from '../bootstrap';

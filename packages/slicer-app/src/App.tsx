@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/App.tsx (boot effect: app config load →
+// packages/slicer-app/src/App.tsx (boot effect: app config load →
 // worker client init → presets ×3 → option metadata → settings store)
 import { useEffect, useState } from 'react';
 import { AppShell } from './components/layout/AppShell';

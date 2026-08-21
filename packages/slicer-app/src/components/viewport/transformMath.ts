@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/viewport/transformMath.ts
+// packages/slicer-app/src/components/viewport/transformMath.ts
 // Pure display/input helpers for the scene-selection move panel.
 
 /** Parse a numeric input; null for anything non-finite. */

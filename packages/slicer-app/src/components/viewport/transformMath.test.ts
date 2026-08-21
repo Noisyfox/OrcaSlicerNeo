@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/viewport/transformMath.test.ts
+// packages/slicer-app/src/components/viewport/transformMath.test.ts
 import { describe, it, expect } from 'vitest';
 import {
   parseNumberInput,

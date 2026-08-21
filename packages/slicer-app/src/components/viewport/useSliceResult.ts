@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/viewport/useSliceResult.ts
+// packages/slicer-app/src/components/viewport/useSliceResult.ts
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { usePlatform } from '@orca/platform-contract';

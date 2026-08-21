@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/viewport/BedPlate.tsx
+// packages/slicer-app/src/components/viewport/BedPlate.tsx
 import * as THREE from 'three';
 import { Grid } from '@react-three/drei';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';

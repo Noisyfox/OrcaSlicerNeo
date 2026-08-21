@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/stores/useSettingsStore.test.ts
+// packages/slicer-app/src/stores/useSettingsStore.test.ts
 import { describe, it, expect } from 'vitest';
 import { useSettingsStore } from './useSettingsStore';
 

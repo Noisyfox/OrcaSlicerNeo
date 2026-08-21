@@ -1,4 +1,4 @@
-// apps/desktop/src/renderer/src/components/settings/SettingsPanel.tsx
+// packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { useMemo } from 'react';
 import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '../../stores/useSettingsStore';
