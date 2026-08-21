@@ -4,8 +4,6 @@
 // `declare global` to reach the real Window (classic env.d.ts gotcha).
 import type { FileDialogFilter, PreferencesLoadResult } from '../../shared/ipc';
 
-declare module '@orca/slicer-app-css';
-
 declare global {
   interface Window {
     orca: {
