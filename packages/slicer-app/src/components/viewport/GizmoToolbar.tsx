@@ -13,6 +13,9 @@ export function GizmoToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
   useSceneInteractionVersion(sceneInteraction ?? undefined);
   if (!sceneInteraction) return null;
   const armed = sceneInteraction.gizmo === 'move';
+  // The gizmo can only arm with a non-empty selection — the controller's
+  // toggleGizmo also refuses, and the button's disabled state surfaces it.
+  const disabled = sceneInteraction.selection.empty;
   return (
     <div
       className="absolute top-2 left-1/2 flex -translate-x-1/2 gap-1 rounded-md border bg-card/90 p-1 backdrop-blur"
@@ -23,6 +26,7 @@ export function GizmoToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
         size="icon"
         title="Move"
         aria-pressed={armed}
+        disabled={disabled}
         data-testid="gizmo-btn-move"
         className={cn(armed && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
         onClick={() => sceneInteraction.toggleGizmo()}

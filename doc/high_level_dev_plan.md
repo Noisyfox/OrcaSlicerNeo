@@ -315,12 +315,15 @@
 > **Status: delivered 2026-08-21.** Gizmo activation is now explicit: a
 > horizontal toolbar overlaid on top of the 3D viewport carries a single
 > **Move** toggle; selecting an object no longer auto-opens the move gizmo,
-> and an emptied selection still auto-closes it. See
+> and an emptied selection still auto-closes it. Arming requires a non-empty
+> selection — the toggle no-ops and the button is disabled otherwise. See
 > `doc/2026-08-21-gizmo-toolbar-design.md`.
 
 - Top-of-viewport overlay toolbar with a Move button (`aria-pressed` toggle).
 - The scene controller's `openGizmo` is toggle-only: selection never opens
   it; clear / prune-to-empty / model reset still close it.
+- Arming is gated on a non-empty selection (`toggleGizmo` refuses, the button
+  is disabled) — amended 2026-08-21.
 - Rotate/scale gizmos, a Select button, and G/R/S/Esc shortcuts remain queued
   in Post-v1 Expansion.
 

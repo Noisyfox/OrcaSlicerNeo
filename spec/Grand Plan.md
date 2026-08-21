@@ -221,7 +221,8 @@ cross-origin isolation is available, and serial WASM otherwise.
 > the gizmo.
 
 - [x] Horizontal gizmo toolbar overlaid on top of the viewport
-- [x] Move toggle arms/disarms the gizmo; selection never auto-opens it
+- [x] Move toggle arms/disarms the gizmo; selection never auto-opens it, and
+      arming requires a non-empty selection (button disabled otherwise)
 - [x] Auto-close on empty selection (deselect / Clear Scene / model reset)
 - [x] Unit + Electron e2e coverage: no auto-activation on select, toolbar
       arming, existing move-gizmo mechanics unchanged

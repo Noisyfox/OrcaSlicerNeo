@@ -47,18 +47,24 @@ describe('SceneInteractionController', () => {
     expect(controller.gizmo).toBeNull();
   });
 
-  it('arms and disarms the move gizmo with the toolbar toggle', () => {
+  it('can only arm the move gizmo with a non-empty selection', () => {
+    // An empty selection makes the toggle a no-op — the gizmo can only be
+    // activated while something is selected.
+    expect(controller.toggleGizmo()).toBe(false);
+    expect(controller.gizmo).toBeNull();
+
+    expect(controller.selectFromHit(volumes[0], false)).toBe(true);
     expect(controller.toggleGizmo()).toBe(true);
     expect(controller.gizmo).toBe('move');
-    // An armed gizmo with nothing selected renders nothing (no pivot), so it
-    // stays armed across a subsequent selection.
-    expect(controller.selectFromHit(volumes[0], false)).toBe(true);
+    // Arming never happens implicitly — even an additive selection while
+    // armed leaves the state exactly as toggled.
+    expect(controller.selectFromHit(volumes[2], true)).toBe(true);
     expect(controller.gizmo).toBe('move');
 
     expect(controller.toggleGizmo()).toBe(false);
     expect(controller.gizmo).toBeNull();
     // Selection changes never reopen a disarmed gizmo.
-    expect(controller.selectFromHit(volumes[2], true)).toBe(true);
+    expect(controller.selectFromHit(volumes[0], false)).toBe(true);
     expect(controller.gizmo).toBeNull();
   });
 

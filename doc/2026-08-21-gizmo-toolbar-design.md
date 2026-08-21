@@ -109,6 +109,15 @@ Scene (inside Canvas)
 
 ## Amendments
 
+### 2026-08-21 — arming requires a non-empty selection
+
+The Move toggle can only **arm** the gizmo while the selection is non-empty.
+`toggleGizmo()` returns false (no state change, no emit) on an empty
+selection, and the toolbar button is `disabled` until something is selected.
+Disarming is unaffected. This tightens the activation model above: the gizmo
+opens only via the toolbar toggle **and** only with a selection to act on
+(an armed gizmo with nothing selected would render nothing anyway — no pivot).
+
 ### 2026-08-21 — supersedes the M5 "no toolbar buttons" decision
 
 `doc/2026-08-16-move-gizmo-design.md` reserved a `tool` field in the settings

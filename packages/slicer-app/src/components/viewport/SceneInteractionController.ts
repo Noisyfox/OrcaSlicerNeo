@@ -47,10 +47,13 @@ export class SceneInteractionController {
   get owner(): PointerOwner { return this.pointerOwner; }
 
   /**
-   * Toggle the move gizmo on/off — the toolbar is its only opener. Selection
-   * never auto-opens a gizmo; an emptied selection auto-closes the armed one.
+   * Toggle the move gizmo on/off — the toolbar is its only opener, and it can
+   * only arm while something is selected (an empty selection makes the toggle
+   * a no-op). Selection never auto-opens a gizmo; an emptied selection
+   * auto-closes the armed one.
    */
   toggleGizmo(): boolean {
+    if (this.selection.empty) return false;
     this.openGizmo = this.openGizmo === 'move' ? null : 'move';
     this.emit();
     return this.openGizmo === 'move';

@@ -305,6 +305,10 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
           )
           .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
 
+      // The Move toggle can only arm with a non-empty selection: it stays
+      // disabled while nothing is selected.
+      await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+
       // Select the first instance. The panel shows its bounding-box center,
       // rather than the instance offset, because it is an aggregate pivot.
       const cubeCenter = await project([10, 10, 10]);
