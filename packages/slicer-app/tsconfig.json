@@ -1,1 +1,20 @@
-{ "compilerOptions": { "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "jsx": "react-jsx", "strict": true, "noEmit": true, "skipLibCheck": true, "lib": ["ES2022", "DOM", "DOM.Iterable"], "paths": { "@/*": ["./src/*"], "@orca/platform-contract": ["./../platform-contract/src/index.ts"], "@orca/slicer-runtime": ["./../slicer-runtime/src/index.ts"], "@slicer/client": ["./../slicer-wasm/src/client/index.ts"], "@slicer/testing": ["./../slicer-wasm/src/client/testing/mock-module.ts"] } }, "include": ["src"] }
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@orca/platform-contract": ["./../platform-contract/src/index.ts"],
+      "@orca/slicer-runtime": ["./../slicer-runtime/src/index.ts"],
+      "@slicer/client": ["./../slicer-wasm/src/client/index.ts"],
+      "@slicer/testing": ["./../slicer-wasm/src/client/testing/mock-module.ts"]
+    }
+  },
+  "include": ["src"]
+}

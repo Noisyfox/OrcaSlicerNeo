@@ -3,9 +3,22 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts", "./styles.css": "./src/index.css" },
-  "scripts": { "typecheck": "tsc --noEmit -p tsconfig.json", "test": "vitest run" },
-  "devDependencies": { "@types/react": "^19.2.18", "@types/react-dom": "^19.2.0", "@types/three": "^0.185.4", "typescript": "^7.0.2", "vite": "^7.3.6", "vitest": "^4.1.10" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/index.css"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.0",
+    "@types/three": "^0.185.4",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
+  },
   "dependencies": {
     "@orca/platform-contract": "workspace:*",
     "@orca/slicer-runtime": "workspace:*",
