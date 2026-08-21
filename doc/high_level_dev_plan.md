@@ -324,6 +324,9 @@
   it; clear / prune-to-empty / model reset still close it.
 - Arming is gated on a non-empty selection (`toggleGizmo` refuses, the button
   is disabled) — amended 2026-08-21.
+- The sidebar move panel renders with the gizmo and hides with it (it is part
+  of the gizmo UI; previously it appeared on any selection) — amended
+  2026-08-21.
 - Rotate/scale gizmos, a Select button, and G/R/S/Esc shortcuts remain queued
   in Post-v1 Expansion.
 

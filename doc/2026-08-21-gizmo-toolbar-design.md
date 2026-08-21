@@ -81,13 +81,14 @@ Scene (inside Canvas)
 
 ## Interaction
 
-- Clicking an object selects it; the move panel appears; **no gizmo**.
+- Clicking an object selects it; **no gizmo and no move panel** — the move
+  panel is part of the gizmo UI (amended 2026-08-21, below).
 - Clicking **Move** arms the gizmo (button highlights, `aria-pressed`); the
-  gizmo appears if something is selected.
-- Toggling Move off hides the gizmo; the selection persists.
+  gizmo **and the move panel** appear if something is selected.
+- Toggling Move off hides both; the selection persists.
 - With Move armed, clicking empty space (deselect), Clear Scene, or a model
-  reload auto-closes the gizmo; re-selecting does not reopen it — the user
-  toggles Move again.
+  reload auto-closes the gizmo (and with it the panel); re-selecting does not
+  reopen it — the user toggles Move again.
 
 ## Testing
 
@@ -97,10 +98,11 @@ Scene (inside Canvas)
     required for `beginGizmoDrag()`.
   - Existing gizmo-drag tests gain a `toggleGizmo()` before the drag setup.
 - **e2e (Playwright Electron, mock build)** — `apps/desktop/e2e/app.e2e.ts`:
-  - After the first selection, hover the shaft point and assert
-    `__orcaE2e.gizmoAxis` stays `null` (no auto-activation).
-  - Click `gizmo-btn-move` before the existing gizmo-axis / pointer-owner /
-    X-arrow-drag assertions.
+  - After the first selection, assert the move panel stays hidden (it rides
+    with the gizmo) and hover the shaft point — `__orcaE2e.gizmoAxis` stays
+    `null` (no auto-activation).
+  - Click `gizmo-btn-move`: the panel appears with the gizmo; the remaining
+    gizmo-axis / pointer-owner / X-arrow-drag assertions run armed.
 
 ## Docs & plan updates
 
@@ -108,6 +110,16 @@ Scene (inside Canvas)
 - `doc/high_level_dev_plan.md` — matching roadmap entry.
 
 ## Amendments
+
+### 2026-08-21 — the move panel rides with the gizmo
+
+The sidebar move panel is part of the move-gizmo UI: it renders only while
+the gizmo is armed (`MovePanel` returns null unless `gizmo === 'move'`), so
+it appears with the gizmo on the toolbar toggle and hides with it on disarm
+or an emptied selection. Because arming requires a non-empty selection (prior
+amendment), panel visibility exactly tracks gizmo visibility. This supersedes
+the M5 behavior where the panel appeared with any selection, independent of
+the gizmo.
 
 ### 2026-08-21 — arming requires a non-empty selection
 

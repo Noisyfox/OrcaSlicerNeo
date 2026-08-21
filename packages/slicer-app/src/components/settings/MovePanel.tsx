@@ -1,5 +1,8 @@
-// Scene-selection move panel. X/Y/Z are the aggregate selection pivot; a
-// numeric edit translates the whole selection by the corresponding delta.
+// The move panel is part of the move gizmo: it renders only while the gizmo
+// is armed, so it appears with the toolbar toggle and hides with it (on
+// disarm or an emptied selection — the same paths that hide the gizmo).
+// X/Y/Z are the aggregate selection pivot; a numeric edit translates the
+// whole selection by the corresponding delta.
 import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { Button } from '@/components/ui/button';
@@ -24,7 +27,9 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
 
   useEffect(() => { setDraft(null); }, [currentKey]);
 
-  if (!sceneInteraction || !current) return null;
+  // Arming requires a selection, so `gizmo === 'move'` also implies a pivot;
+  // the `current` guard stays as defense in depth.
+  if (!sceneInteraction || sceneInteraction.gizmo !== 'move' || !current) return null;
 
   const moveTo = (next: Vec3) => {
     if (sceneInteraction.moveSelectionToPivot(new THREE.Vector3(...next))) {

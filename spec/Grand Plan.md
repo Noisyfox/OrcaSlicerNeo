@@ -224,6 +224,8 @@ cross-origin isolation is available, and serial WASM otherwise.
 - [x] Move toggle arms/disarms the gizmo; selection never auto-opens it, and
       arming requires a non-empty selection (button disabled otherwise)
 - [x] Auto-close on empty selection (deselect / Clear Scene / model reset)
+- [x] The move panel renders with the gizmo — it is part of the gizmo UI and
+      hides with it (amended 2026-08-21; M5 showed it on any selection)
 - [x] Unit + Electron e2e coverage: no auto-activation on select, toolbar
       arming, existing move-gizmo mechanics unchanged
 
