@@ -630,6 +630,26 @@ test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
         y: pivotY + dy,
       }));
       await pollAxisAt(ringStart, 'Z');
+      // The hover reference axis line must pass through the live selection
+      // pivot, not the scene origin — three-stdlib anchors it at
+      // worldPositionStart (only captured at pointerdown), which the gizmo
+      // keeps synced to the pivot between drags.
+      await expect
+        .poll(async () => {
+          const line = await page.evaluate(() =>
+            (window as unknown as {
+              __orcaE2e?: { gizmoAxisLineWorldPosition?: () => [number, number, number] | null };
+            }).__orcaE2e?.gizmoAxisLineWorldPosition?.() ?? null,
+          );
+          const pivot = await page.evaluate(() =>
+            (window as unknown as {
+              __orcaE2e?: { selectionPivotWorld?: () => [number, number, number] | null };
+            }).__orcaE2e?.selectionPivotWorld?.() ?? null,
+          );
+          if (!line || !pivot) return false;
+          return line.every((component, axis) => Math.abs(component - pivot[axis]) < 1);
+        }, { timeout: 10_000 })
+        .toBe(true);
       await page.mouse.down();
       // Drag to a second point on the Z ring (left arc) for a substantial
       // rotation; the axis is locked once the drag starts, so the path

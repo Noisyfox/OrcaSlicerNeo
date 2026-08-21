@@ -200,6 +200,19 @@ Delivered as designed. Substantive findings worth remembering:
 - **Commit path:** rotate/scale commits reuse
   `persistSettledModelTransforms` → `setModelTransform` (no bridge/WASM
   changes — `setModelTransform` already carries rotation/scale/mirror).
+- **Hover axis-line anchor (three-stdlib quirk, fixed 2026-08-22):** the
+  reference line shown when hovering a rotation ring was anchored at the
+  scene origin until the first drag. Drei's `TransformControls` uses
+  three-stdlib 2.36.1, whose gizmo positions the `AXIS` helper at
+  `worldPositionStart` — a vector only captured at `pointerDown`, so before
+  any drag it stays `(0,0,0)`. The gizmo's `useFrame` now keeps
+  `worldPositionStart` synced to the live pivot while hovering (`axis !==
+  null && !dragging`); `pointerDown` re-captures it from the object's
+  matrixWorld at drag start, so the drag math is untouched. The e2e asserts
+  the axis line's world position equals the live selection pivot during
+  hover. Note the three/examples source (which anchors at `worldPosition`)
+  differs from the shipped three-stdlib implementation — always verify
+  against the installed package.
 
 ### Verification
 

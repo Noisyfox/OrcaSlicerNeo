@@ -47,20 +47,57 @@ export function TransformGizmo({ target, mode }: {
   // body drag while hovering a handle; beginGizmoDrag is the synchronous,
   // final ownership claim when the handle is pressed.
   useFrame(() => {
-    const axis = (tcRef.current as unknown as { axis: string | null } | null)?.axis ?? null;
+    const controls = tcRef.current as unknown as {
+      axis: string | null;
+      dragging?: boolean;
+      worldPositionStart: THREE.Vector3;
+      worldPosition: THREE.Vector3;
+    } | null;
+    const axis = controls?.axis ?? null;
     sceneInteraction.setGizmoGrabberHovered(axis !== null);
+    // three-stdlib's TransformControls anchors the hover axis helper (the
+    // reference line through a rotation ring) at worldPositionStart, which is
+    // only captured at pointerDown — before the first drag it stays at the
+    // scene origin, so the line points through the wrong point until the user
+    // starts rotating. Keep it on the live pivot between drags; pointerDown
+    // re-captures it from the object's matrixWorld at drag start, so this
+    // write never interferes with the drag math.
+    if (controls && axis !== null && !controls.dragging) {
+      controls.worldPositionStart.copy(controls.worldPosition);
+    }
   });
 
   // Test-only axis getter (mock/e2e builds). Scene owns the shared container.
   useEffect(() => {
     if (!(import.meta.env as { VITE_USE_MOCK?: string }).VITE_USE_MOCK) return;
-    const w = window as unknown as { __orcaE2e?: { gizmoAxis?: () => string | null } };
+    const w = window as unknown as {
+      __orcaE2e?: { gizmoAxis?: () => string | null; gizmoAxisLineWorldPosition?: () => [number, number, number] | null };
+    };
     if (!w.__orcaE2e) return;
     const readAxis = () => (tcRef.current as unknown as { axis: string | null } | null)?.axis ?? null;
-    w.__orcaE2e = { ...w.__orcaE2e, gizmoAxis: readAxis };
+    const readAxisLineWorldPosition = () => {
+      const controls = tcRef.current as unknown as {
+        _gizmo?: { helper?: { rotate?: { children?: THREE.Object3D[] } } };
+        worldPosition?: THREE.Vector3;
+      } | null;
+      // three-stdlib exposes the gizmo as `gizmo` (not `_gizmo`).
+      const gizmo = controls as unknown as {
+        gizmo?: { helper?: { rotate?: { children?: THREE.Object3D[] } } };
+      } | null;
+      const axis = gizmo?.gizmo?.helper?.rotate?.children?.find((child) => child.name === 'AXIS');
+      if (!axis) return null;
+      const world = new THREE.Vector3();
+      axis.getWorldPosition(world);
+      return [world.x, world.y, world.z] as [number, number, number];
+    };
+    w.__orcaE2e = {
+      ...w.__orcaE2e,
+      gizmoAxis: readAxis,
+      gizmoAxisLineWorldPosition: readAxisLineWorldPosition,
+    };
     return () => {
       if (w.__orcaE2e) {
-        const { gizmoAxis: _dropped, ...rest } = w.__orcaE2e;
+        const { gizmoAxis: _dropped, gizmoAxisLineWorldPosition: _line, ...rest } = w.__orcaE2e;
         w.__orcaE2e = rest;
       }
     };

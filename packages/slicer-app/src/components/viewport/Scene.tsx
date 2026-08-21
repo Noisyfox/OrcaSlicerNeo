@@ -53,6 +53,7 @@ function SceneContents() {
       __orcaE2e?: {
         projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null;
         projectSelectionPivot?: () => { x: number; y: number } | null;
+        selectionPivotWorld?: () => [number, number, number] | null;
         gizmoAxis?: () => string | null;
         pointerOwner?: () => 'none' | 'gizmo' | 'body';
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
@@ -77,6 +78,10 @@ function SceneContents() {
         const pivot = sceneInteraction.selectionPivot();
         return pivot ? projectPoint(pivot) : null;
       },
+      selectionPivotWorld() {
+        const pivot = sceneInteraction.selectionPivot();
+        return pivot ? [pivot.x, pivot.y, pivot.z] : null;
+      },
       pointerOwner: () => sceneInteraction.owner,
       // The e2e fixture's instance collection is deterministic, while a
       // headless Electron ray at the far instance can intermittently miss
@@ -93,6 +98,7 @@ function SceneContents() {
         const {
           projectWorldToScreen: _dropped,
           projectSelectionPivot: _pivot,
+          selectionPivotWorld: _pivotWorld,
           pointerOwner: _owner,
           selectMockInstance: _selection,
           ...rest
