@@ -5,6 +5,8 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { OptionField } from './OptionField';
 import { MovePanel } from './MovePanel';
+import { RotatePanel } from './RotatePanel';
+import { ScalePanel } from './ScalePanel';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
@@ -81,6 +83,8 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   return (
     <div className="space-y-4 p-3">
       <MovePanel sceneInteraction={sceneInteraction} />
+      <RotatePanel sceneInteraction={sceneInteraction} />
+      <ScalePanel sceneInteraction={sceneInteraction} />
       <section>
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
         <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} testId="preset-select" />

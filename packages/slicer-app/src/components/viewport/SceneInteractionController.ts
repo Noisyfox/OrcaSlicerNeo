@@ -59,6 +59,10 @@ export class SceneInteractionController {
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
+  /** Distinct selected instances — the panels' multi-selection display rule. */
+  get selectionInstanceCount(): number {
+    return this.selection.instanceKeys(this.getVolumes()).size;
+  }
 
   /**
    * Toggle a gizmo on/off — the toolbar is its only opener, and it can only
