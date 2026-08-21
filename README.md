@@ -146,6 +146,19 @@ pnpm --filter web test:e2e:serial   # Chrome e2e against the serial fallback
 pnpm --filter web test:non-root    # production build served from a subpath
 ```
 
+**Profile packages.** Both hosts' `predev` hooks stage the profile packages
+(manifest + core/vendor ZIPs) from `packages/profile-resources/dist` into the
+shared renderer public dir, so build them before starting the app or the e2e
+suites:
+
+```bash
+pnpm --filter @orca/profile-resources build
+```
+
+The app requires the core package at startup — a missing vendor package is
+skippable, a missing core package is fatal — so the staging hook fails (or
+warns in mock mode) when the packages are missing.
+
 **Web app prerequisites.** Unlike the Electron app, the browser host has no
 mock mode — build the WASM module first (`<driver> full` or `quick`; the
 `predev` hook stages it from `packages/slicer-wasm/out/` and warns instead of

@@ -8,7 +8,7 @@ import { zipSync } from 'fflate';
 
 const root = resolve(process.env.ORCA_REPO_ROOT ?? fileURLToPath(new URL('../../..', import.meta.url)));
 const source = resolve(process.env.ORCA_PROFILES_DIR ?? join(root, 'packages/slicer-wasm/cpp/resources/profiles'));
-const output = resolve(process.env.ORCA_PROFILE_OUTPUT ?? join(root, 'apps/desktop/public/profiles'));
+const output = resolve(process.env.ORCA_PROFILE_OUTPUT ?? join(root, 'packages/profile-resources/dist'));
 const version = process.env.ORCA_PROFILE_VERSION ?? 'upstream';
 if (!/^[A-Za-z0-9._-]+$/.test(version)) throw new Error(`invalid profile version: ${version}`);
 

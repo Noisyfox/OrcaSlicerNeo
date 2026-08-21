@@ -7,7 +7,7 @@ import createMockModule from './mock-module.mjs';
 
 const moduleArg = argv[2];
 const repoRoot = resolve(import.meta.dirname, '../../..');
-const profileRoot = resolve(argv[3] ?? `${repoRoot}/apps/desktop/public/profiles`);
+const profileRoot = resolve(argv[3] ?? `${repoRoot}/packages/profile-resources/dist`);
 const stlPath = resolve(argv[4] ?? `${repoRoot}/packages/slicer-wasm/fixtures/cube.stl`);
 const configPath = resolve(argv[5] ?? `${repoRoot}/packages/slicer-wasm/fixtures/config.json`);
 const factory = moduleArg ? await loadModuleFactory(moduleArg) : createMockModule;
