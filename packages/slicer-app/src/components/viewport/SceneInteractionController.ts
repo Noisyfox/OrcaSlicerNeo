@@ -45,6 +45,16 @@ export class SceneInteractionController {
 
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get owner(): PointerOwner { return this.pointerOwner; }
+
+  /**
+   * Toggle the move gizmo on/off — the toolbar is its only opener. Selection
+   * never auto-opens a gizmo; an emptied selection auto-closes the armed one.
+   */
+  toggleGizmo(): boolean {
+    this.openGizmo = this.openGizmo === 'move' ? null : 'move';
+    this.emit();
+    return this.openGizmo === 'move';
+  }
   get pointerStartsOnGizmo(): boolean { return this.pointerOrigin === 'gizmo'; }
   get activeDrag(): DragSnapshot | null { return this.drag; }
   get bodyDragEnabled(): boolean {
@@ -302,8 +312,10 @@ export class SceneInteractionController {
     }
   }
 
+  // Gizmos never auto-open on selection; a selection that empties (e.g. a
+  // model reload pruning stale IDs) auto-closes the armed gizmo.
   private syncGizmoToSelection(): void {
-    this.openGizmo = this.selection.empty ? null : 'move';
+    if (this.selection.empty) this.openGizmo = null;
   }
 
   private emit(): void {

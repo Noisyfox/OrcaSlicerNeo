@@ -38,13 +38,47 @@ describe('SceneInteractionController', () => {
     controller = new SceneInteractionController(() => volumes);
   });
 
-  it('keeps one move gizmo open for a non-empty selection and closes it when cleared', () => {
+  it('never auto-opens the gizmo on selection — the toggle is its only opener', () => {
     controller.selectFromHit(volumes[0], false);
-    expect(controller.gizmo).toBe('move');
+    expect(controller.gizmo).toBeNull();
     expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+
+    controller.selectFromHit(volumes[2], true);
+    expect(controller.gizmo).toBeNull();
+  });
+
+  it('arms and disarms the move gizmo with the toolbar toggle', () => {
+    expect(controller.toggleGizmo()).toBe(true);
+    expect(controller.gizmo).toBe('move');
+    // An armed gizmo with nothing selected renders nothing (no pivot), so it
+    // stays armed across a subsequent selection.
+    expect(controller.selectFromHit(volumes[0], false)).toBe(true);
+    expect(controller.gizmo).toBe('move');
+
+    expect(controller.toggleGizmo()).toBe(false);
+    expect(controller.gizmo).toBeNull();
+    // Selection changes never reopen a disarmed gizmo.
+    expect(controller.selectFromHit(volumes[2], true)).toBe(true);
+    expect(controller.gizmo).toBeNull();
+  });
+
+  it('auto-closes an armed gizmo when the selection is cleared', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.toggleGizmo();
+    expect(controller.gizmo).toBe('move');
 
     controller.clearSelection();
     expect(controller.gizmo).toBeNull();
+    expect(controller.owner).toBe('none');
+  });
+
+  it('refuses a gizmo drag while the gizmo is not toggled on', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.registerGizmoGrabberHitTest(() => true);
+
+    expect(controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent)).toBe(true);
+    expect(controller.pointerStartsOnGizmo).toBe(true);
+    expect(controller.beginGizmoDrag()).toBe(false);
     expect(controller.owner).toBe('none');
   });
 
@@ -52,6 +86,7 @@ describe('SceneInteractionController', () => {
     controller.selectFromHit(volumes[0], false);
     controller.selectFromHit(volumes[2], true);
     const pivot = controller.selectionPivot()!;
+    controller.toggleGizmo();
 
     controller.registerGizmoGrabberHitTest(() => true);
     controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
@@ -67,6 +102,7 @@ describe('SceneInteractionController', () => {
   it('keeps the complete selection when a gizmo drag ends over one member', () => {
     controller.selectFromHit(volumes[0], false);
     controller.selectFromHit(volumes[2], true);
+    controller.toggleGizmo();
     controller.registerGizmoGrabberHitTest(() => true);
     controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
 
@@ -126,6 +162,7 @@ describe('SceneInteractionController', () => {
 
   it('gives a gizmo grabber priority over body dragging', () => {
     controller.selectFromHit(volumes[0], false);
+    controller.toggleGizmo();
     controller.registerGizmoGrabberHitTest(() => true);
 
     expect(controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent)).toBe(true);
@@ -141,6 +178,7 @@ describe('SceneInteractionController', () => {
 
   it('keeps a body press when the cursor reaches a gizmo grabber before drag start', () => {
     controller.selectFromHit(volumes[0], false);
+    controller.toggleGizmo();
     controller.registerGizmoGrabberHitTest(() => false);
 
     // DragControls has not crossed its movement threshold yet, so there is
@@ -166,8 +204,10 @@ describe('SceneInteractionController', () => {
     ]);
   });
 
-  it('prunes stale selection IDs when a model reload replaces the collection', () => {
+  it('prunes stale selection IDs and auto-closes an armed gizmo when a model reload replaces the collection', () => {
     controller.selectFromHit(volumes[0], false);
+    controller.toggleGizmo();
+    expect(controller.gizmo).toBe('move');
     volumes = [makeVolume(1, 0, 0, [0, 0, 0])];
 
     expect(controller.pruneSelection()).toBe(true);
