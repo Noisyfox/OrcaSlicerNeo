@@ -75,3 +75,13 @@ stale `tailwind.config.js` pointer dropped — Tailwind v4 is CSS-first), and
 `packages/slicer-app/vite.config.ts` added for the package's own tooling
 (vitest picks it up; `__dirname` works because Vite injects it when bundling
 the config).
+
+Follow-up (7c66e9b): `packages/slicer-app/vite.config.ts` was deleted —
+Tailwind is a host-only concern, so neither the tailwind/react plugins nor
+the shared package should register them. The vitest `@` → `./src` alias it
+also supplied moved to `packages/slicer-app/vitest.config.ts`. One subtlety
+of that move: the package's `index.css` no longer imports `tailwindcss`
+itself, so a plugin-less consumer now fails silently (directives pass through
+unprocessed) instead of inlining the raw package css — the desktop host got
+the same built-css guard as web (`apps/desktop/scripts/check-renderer-css.mjs`,
+wired into `test:css` and `test:e2e`).

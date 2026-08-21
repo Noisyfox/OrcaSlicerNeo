@@ -6,6 +6,7 @@ The shared UI stylesheet is consumed by css-to-css composition: each host's
 own `styles.css` begins with
 
 ```css
+@import "tailwindcss";
 @import '@orca/slicer-app/styles.css';
 ```
 
@@ -13,6 +14,21 @@ and the host entry point imports only its own stylesheet
 (`import './styles.css'`). Vite's css pipeline resolves the bare specifier
 through the package's exports map
 (`"exports": { "./styles.css": "./src/index.css" }`); no alias is involved.
+
+## Update 2026-08-21 — Tailwind import moved to the hosts (7c66e9b)
+
+The package's `index.css` no longer imports `tailwindcss` itself: it is pure
+Tailwind v4 source (`@source`, `@theme`, `@apply`, `@utility`) and every
+consumer owns its own `@import "tailwindcss"` + `@tailwindcss/vite` plugin
+registration. Consequence: a consumer without the plugin no longer fails
+loudly — the directives pass through verbatim into the built css and browsers
+ignore them, so every utility class is dead with zero build diagnostics (the
+exact silent failure that hit the web host, doc/2026-08-20). Treat the plugin
+registration as part of the css contract.
+
+Same commit deleted `packages/slicer-app/vite.config.ts` (its react/tailwind
+plugins belonged to the hosts; vitest's `@` → `./src` alias now lives in the
+package's `vitest.config.ts`).
 
 ## Why — how we got here
 
@@ -37,10 +53,10 @@ through the package's exports map
   wildcard; no `allowArbitraryExtensions`, no per-file companion.
 - No alias for the package anywhere (vite, vitest, tsconfig `paths`) — both
   hosts resolve the js entry and the css subpath through node resolution.
-- Tailwind v4: the imported `index.css` is processed by the `@tailwindcss/vite`
-  plugin; its `@source` is relative to the css file, so it still covers
-  `packages/slicer-app/src`. Verified byte-identical compiled output
-  (`index-11QsX6C8.css`, 54.72 kB) before and after the change.
+- Tailwind v4: each host's `@import "tailwindcss"` is processed by its own
+  `@tailwindcss/vite` registration, which then compiles the imported package
+  `index.css`; the `@source "./**/*.{ts,tsx}"` is relative to the css file, so
+  it still covers `packages/slicer-app/src`.
 
 ## Gotchas
 
