@@ -229,12 +229,41 @@ cross-origin isolation is available, and serial WASM otherwise.
 - [x] Unit + Electron e2e coverage: no auto-activation on select, toolbar
       arming, existing move-gizmo mechanics unchanged
 
+## Milestone 11: Rotate & Scale Gizmos
+
+> [!info] Target: **2026-08-21** (delivered)
+>
+> Design: `doc/2026-08-21-rotate-scale-gizmos-design.md`. Rotate and scale
+> tools join the move gizmo: exclusive Move/Rotate/Scale toolbar toggles, a
+> shared `TransformGizmo` (drei `TransformControls` modes) on the aggregate
+> pivot, sidebar rotate/scale panels, and a scale world/local coordinate
+> toggle. The renderer's Euler order is aligned to the C++ slicer (`ZYX` =
+> `Rz·Ry·Rx`) so rotated objects render exactly as they slice.
+
+- [x] Rotate gizmo (world rings) — selection rotates rigidly around the
+      selection-center pivot; offsets orbit and rotations recompose (Euler
+      ZYX)
+- [x] Scale gizmo with world/local coordinate toggle (multi-selection forces
+      world and disables the toggle); per-axis + uniform center handles;
+      factors clamped to a positive floor
+- [x] Rotate panel: X/Y/Z degrees + Reset; multi-selection shows 0 and edits
+      are relative deltas
+- [x] Scale panel: World/Local toggle, factor % inputs, size mm inputs (the
+      dimensions the selection is scaled to), Reset; multi-selection shows
+      100% factors and the aggregate size
+- [x] Panel scale edits scale rigidly about the aggregate pivot (offsets
+      orbit), matching the gizmo and keeping the selection centered
+- [x] Euler-convention fix: `applyTransform`/`transformMatrix` compose
+      rotation with three.js order `ZYX`, matching `assemble_transform`
+- [x] Unit + Electron e2e coverage: rotate ring drag, scale shaft drag,
+      coord toggle, panels, resets, multi-selection display rules
+
 ## Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)
-- [ ] Gizmos: rotate/scale/cut/measure/arrange/orient (move delivered in
-      Milestone 5)
+- [ ] Gizmos: cut/measure/arrange/orient (move/rotate/scale delivered in
+      Milestones 5 + 11)
 - [x] Parallelism: upstream oneTBB + pthreads + COOP/COEP (design:
       `doc/2026-08-18-wasm-parallelism-design.md`) — delivered with M9
       step 10 as the default `threaded` artifact

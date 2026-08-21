@@ -162,3 +162,50 @@ owns quaternion/scale until release.
 - Cut/measure/arrange/orient gizmos; Select tool button; G/R/S/Esc
   shortcuts; rotation snapping; uniform-scale lock UX (center handle covers
   the common case).
+
+## Implementation notes (delivered 2026-08-21)
+
+Branch `dev/rotate-scale-gizmos` (commits `8aeac40`, `e2afc2b`, `1a1fffc`,
+`028c6ae`, plus this note and the plan updates).
+
+Delivered as designed. Substantive findings worth remembering:
+
+- **Euler order:** verified in the installed three r185 source that Euler
+  order `'ZYX'` produces exactly the C++ `Rz(z)·Ry(y)·Rx(x)` matrix from
+  `Geometry::assemble_transform` (unit test pins the matrix equality). The
+  renderer (`ModelMesh.applyTransform` group rotation + controller
+  `transformMatrix`) now uses `'ZYX'`; invisible for the all-zero rotations
+  in existing data.
+- **Scale mode is always local to the target** in three's TransformControls
+  (`const space = mode === 'scale' ? 'local' : this.space`). The world/local
+  toggle is implemented by driving the pivot's pre-drag quaternion: identity
+  for world, the single selected instance's world orientation for local.
+  `syncPivot` resets pivot rotation/scale between gestures (`owner ===
+  'none'`) and only writes position during a drag, so TransformControls'
+  start-capture is always clean.
+- **Rotate picker geometry:** the invisible picker rings that register `axis`
+  sit at 0.5× the handle scale (the `E` free-rotate ring at 0.75×), NOT at
+  the visible 1.0× ring. The e2e drags the Z ring through screen-space
+  candidate points (the projection of world-space ring points misses because
+  the perspective mapping is not uniform); the candidate offsets came from an
+  empirical axis sweep at the fixture's camera.
+- **Panel scale semantics:** factor and size edits scale the whole selection
+  rigidly about the aggregate pivot (offsets orbit), matching the gizmo drag
+  and the size edit — the selection stays visually centered. The first e2e
+  attempt exposed why this matters: the mock cube's local origin is at a
+  corner (geometry `[0,20]³`, offset `[0,0,0]`), so scaling about the offset
+  drifts the bbox center; Reset then restores scale but not the anchor. The
+  e2e aims gizmo drags at the live pivot via the mock-only
+  `__orcaE2e.projectSelectionPivot()` hook.
+- **Commit path:** rotate/scale commits reuse
+  `persistSettledModelTransforms` → `setModelTransform` (no bridge/WASM
+  changes — `setModelTransform` already carries rotation/scale/mirror).
+
+### Verification
+
+- `pnpm test` (all workspaces): 61/61 slicer-app tests incl. 34
+  controller/math tests; desktop suite passWithNoTests.
+- `pnpm typecheck` (all workspaces): clean.
+- `pnpm --filter desktop test:e2e`: 4 passed / 1 skipped (the `slice-error`
+  skip is `test.skip(!REAL)` in mock builds — static, intentional).
+- WASM quick build not required — no bridge or build-scaffold changes.
