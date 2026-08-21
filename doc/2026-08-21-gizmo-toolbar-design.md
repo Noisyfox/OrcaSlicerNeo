@@ -124,3 +124,42 @@ the controller's `openGizmo` remains the single source of truth.
 - Select tool button (explicit "no gizmo" mode is already the default state).
 - Keyboard shortcuts: G (move), Esc (close gizmo); R/S when those gizmos land.
 - Numeric rotate/scale panels in the sidebar.
+
+## Implementation notes (delivered 2026-08-21)
+
+Branch `feat/gizmo-toolbar` (commits `2f3cf2b`, `b52bea5`, `cfeae35`, `56b1e3e`,
+plus this note and the e2e update).
+
+Delivered as designed with one substantive bug found in e2e:
+
+- **Controller**: `toggleGizmo()` arms/disarms; `syncGizmoToSelection()` is
+  close-if-empty; `clearSelection()`/`resetForModel()` keep their existing
+  gizmo-close writes. Unit tests rewritten accordingly (14 pass) — see the
+  `SceneInteractionController.test.ts` test names for the pinned semantics.
+- **Toolbar**: `GizmoToolbar.tsx` renders outside the Canvas and subscribes via
+  the explicit-controller `useSceneInteractionVersion(sceneInteraction ?? undefined)`
+  overload (the `MovePanel` pattern), so the aria-pressed state and the
+  controller stay in sync without an R3F subscription.
+- **e2e race (the fix worth remembering)**: after arming via the toolbar
+  button, the original single `page.mouse.move(xStart)` then
+  `expect.poll(gizmoAxis).toBe('X')` failed with `axis` stuck at `null`.
+  Three's `TransformControls` registers a native `pointermove` listener on the
+  canvas and refreshes `axis` **only inside that handler** (three r185,
+  `onPointerHover` → `_intersect`), so one pointermove that arrives before the
+  gizmo's first demand-mode frame leaves `axis` `null` forever — no re-raycast
+  ever happens. Arming through a DOM button (outside the Canvas) is faster
+  than the old auto-open-on-canvas-click path (which had two polling
+  assertions' worth of settle before the mouse moved), so the single move
+  could win the race against the frame that mounts and matrices the gizmo.
+  Fix (test-side): poll `gizmoAxis` with a fresh `page.mouse.move(xStart)` on
+  each iteration — once a pointermove lands on a rendered gizmo the axis
+  registers, and the cursor always ends at `xStart` for the drag below. No app
+  change needed: a real user always generates fresh pointermoves after
+  arming, and each emit already invalidates the demand-mode canvas via
+  `syncPivot`.
+- **Verification**: `pnpm test` (14 controller + suite green), `pnpm typecheck`
+  (all workspaces), `pnpm --filter desktop test:e2e` — 3 passed / 1 skipped
+  (slice-error, intentional), including the updated gizmo test (no
+  auto-activation, toolbar arming, gizmo-axis drag, pointer-owner
+  arbitration, multi-instance move, slice sync, reset). WASM quick build not
+  required — no bridge or build-scaffold changes.
