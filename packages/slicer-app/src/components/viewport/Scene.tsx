@@ -7,7 +7,7 @@ import { BedPlate } from './BedPlate';
 import { GLVolumeMesh } from './ModelMesh';
 import { useSliceResult } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
-import { MoveGizmo } from './gizmo/MoveGizmo';
+import { TransformGizmo, type TransformGizmoMode } from './gizmo/TransformGizmo';
 import { glVolumeCollection } from './GLVolume';
 import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
@@ -105,13 +105,13 @@ function SceneContents() {
       {glVolumes.map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} />
       ))}
-      <SelectionMoveGizmo />
+      <SelectionTransformGizmo />
       {toolpath && <ToolpathLines data={toolpath} />}
     </>
   );
 }
 
-function SelectionMoveGizmo() {
+function SelectionTransformGizmo() {
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
   const invalidate = useThree((s) => s.invalidate);
@@ -126,6 +126,19 @@ function SelectionMoveGizmo() {
     const group = pivotRef.current;
     if (!group || !pivot) return;
     group.position.copy(pivot);
+    // Between gestures the pivot is a clean starting state: identity
+    // orientation/scale, except the scale gizmo's local mode, which aligns
+    // the handles to the single selected instance's axes. During an active
+    // gesture TransformControls owns quaternion/scale — only position is
+    // synced so the drag delta stays relative to its captured start.
+    if (sceneInteraction.owner === 'none') {
+      group.rotation.set(0, 0, 0);
+      group.scale.set(1, 1, 1);
+      if (sceneInteraction.gizmo === 'scale' && sceneInteraction.scaleSpace === 'local') {
+        const orientation = sceneInteraction.selectionOrientation();
+        if (orientation) group.quaternion.copy(orientation);
+      }
+    }
     // TransformControls reads its attached target during pointer processing;
     // make the pivot matrix current before the next drag event, not after a
     // React layout pass.
@@ -134,14 +147,24 @@ function SelectionMoveGizmo() {
   }, [invalidate, sceneInteraction]);
 
   useLayoutEffect(() => {
+    sceneInteraction.attachPivot(pivotRef.current);
     syncPivot();
-    return sceneInteraction.subscribe(syncPivot);
+    const unsubscribe = sceneInteraction.subscribe(syncPivot);
+    return () => {
+      unsubscribe();
+      sceneInteraction.attachPivot(null);
+    };
   }, [sceneInteraction, syncPivot]);
+
+  const mode: TransformGizmoMode | null =
+    sceneInteraction.gizmo === 'move' ? 'translate'
+      : sceneInteraction.gizmo === 'rotate' ? 'rotate'
+        : sceneInteraction.gizmo === 'scale' ? 'scale' : null;
 
   return (
     <>
       <group ref={attachPivot} />
-      {target && sceneInteraction.gizmo === 'move' && <MoveGizmo target={target} />}
+      {target && mode && <TransformGizmo target={target} mode={mode} />}
     </>
   );
 }

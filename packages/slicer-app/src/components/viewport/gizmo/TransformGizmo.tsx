@@ -1,6 +1,7 @@
-// The scene's sole move gizmo. TransformControls manipulates a non-rendering
-// aggregate-selection pivot; the scene controller applies that delta to every
-// selected instance. No GLVolume mesh owns a gizmo or gesture state.
+// The scene's sole transform gizmo. TransformControls manipulates a
+// non-rendering aggregate-selection pivot; the scene controller applies the
+// pivot's delta to every selected instance. One component, three modes —
+// translate (move), rotate, and scale (world/local per the scale panel).
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { TransformControls } from '@react-three/drei';
@@ -9,7 +10,12 @@ import { useSceneInteraction } from '../SceneInteractionContext';
 import { persistSettledModelTransforms } from '../../toolbar/persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';
 
-export function MoveGizmo({ target }: { target: THREE.Object3D }) {
+export type TransformGizmoMode = 'translate' | 'rotate' | 'scale';
+
+export function TransformGizmo({ target, mode }: {
+  target: THREE.Object3D;
+  mode: TransformGizmoMode;
+}) {
   const platform = usePlatform();
   const sceneInteraction = useSceneInteraction();
   const invalidate = useThree((s) => s.invalidate);
@@ -64,13 +70,19 @@ export function MoveGizmo({ target }: { target: THREE.Object3D }) {
     <TransformControls
       ref={tcRef}
       object={target}
-      mode="translate"
+      mode={mode}
       space="world"
       enabled={sceneInteraction.owner !== 'body'}
       onMouseDown={() => { sceneInteraction.beginGizmoDrag(); }}
       onObjectChange={() => {
         if (sceneInteraction.owner !== 'gizmo') return;
-        sceneInteraction.updateDragPivot(target.position);
+        // The controller computes the mode-specific delta from the pivot's
+        // full transform relative to the gesture's captured start.
+        sceneInteraction.updateGizmoTransform({
+          position: target.position,
+          quaternion: target.quaternion,
+          scale: target.scale,
+        });
         invalidate();
       }}
       onMouseUp={() => {

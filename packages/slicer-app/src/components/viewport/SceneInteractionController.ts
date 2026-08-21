@@ -3,14 +3,25 @@ import type { ModelTransform } from '@slicer/client';
 import type { Vec3 } from '../../lib/vec3';
 import { GLVolume } from './GLVolume';
 import { instanceKeyOf, Selection, type InstanceKey } from './Selection';
+import {
+  EULER_ORDER,
+  applyRotationDelta,
+  applyScaleDelta,
+  clampScale,
+  quatFromRotation,
+} from './transformDeltaMath';
 
-export type OpenGizmo = 'move' | null;
+export type OpenGizmo = 'move' | 'rotate' | 'scale' | null;
+/** Scale gizmo handle space; multi-selection always scales in world space. */
+export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body';
 type PointerOrigin = 'none' | 'gizmo' | 'non-gizmo';
 
 export interface DragSnapshot {
   readonly kind: Exclude<PointerOwner, 'none'>;
   readonly startPivot: THREE.Vector3;
+  readonly startQuaternion: THREE.Quaternion;
+  readonly startScale: THREE.Vector3;
   readonly startInstances: ReadonlyMap<InstanceKey, ModelTransform>;
 }
 
@@ -25,7 +36,9 @@ export class SceneInteractionController {
 
   private readonly listeners = new Set<() => void>();
   private openGizmo: OpenGizmo = null;
+  private scaleSpaceState: ScaleSpace = 'world';
   private pointerOwner: PointerOwner = 'none';
+  private pivot: THREE.Object3D | null = null;
   // DragControls deliberately waits for a small movement threshold before it
   // calls onDragStart. Keep the pointer-down hit result separately so a fast
   // move from a model body onto a handle cannot change that gesture into a
@@ -44,19 +57,54 @@ export class SceneInteractionController {
   }
 
   get gizmo(): OpenGizmo { return this.openGizmo; }
+  get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
 
   /**
-   * Toggle the move gizmo on/off — the toolbar is its only opener, and it can
-   * only arm while something is selected (an empty selection makes the toggle
-   * a no-op). Selection never auto-opens a gizmo; an emptied selection
-   * auto-closes the armed one.
+   * Toggle a gizmo on/off — the toolbar is its only opener, and it can only
+   * arm while something is selected (an empty selection makes the toggle a
+   * no-op). Toggling another mode while one is armed switches modes.
+   * Selection never auto-opens a gizmo; an emptied selection auto-closes the
+   * armed one.
    */
-  toggleGizmo(): boolean {
+  toggleGizmo(mode: Exclude<OpenGizmo, null>): boolean {
     if (this.selection.empty) return false;
-    this.openGizmo = this.openGizmo === 'move' ? null : 'move';
+    this.openGizmo = this.openGizmo === mode ? null : mode;
     this.emit();
-    return this.openGizmo === 'move';
+    return this.openGizmo === mode;
+  }
+
+  /**
+   * World/local handle space for the scale gizmo. Local requires exactly one
+   * selected instance (a group has no single orientation); the panel disables
+   * the toggle and the setter refuses local while multi-selected.
+   */
+  setScaleSpace(space: ScaleSpace): boolean {
+    if (space === 'local' && this.selection.instanceKeys(this.getVolumes()).size > 1) return false;
+    if (this.scaleSpaceState === space) return false;
+    this.scaleSpaceState = space;
+    this.emit();
+    return true;
+  }
+
+  /** The scene's gizmo pivot group; TransformControls manipulates it. */
+  attachPivot(pivot: THREE.Object3D | null): void {
+    this.pivot = pivot;
+  }
+
+  /**
+   * World orientation of the single selected instance (instance ZYX × volume
+   * ZYX), or null for a group or empty selection — the local scale handles
+   * align to it.
+   */
+  selectionOrientation(): THREE.Quaternion | null {
+    if (this.selection.instanceKeys(this.getVolumes()).size !== 1) return null;
+    const volumes = this.selectedVolumes();
+    if (volumes.length === 0) return null;
+    return new THREE.Quaternion().multiplyQuaternions(
+      quatFromRotation(volumes[0].instanceTransform.rotation),
+      quatFromRotation(volumes[0].volumeTransform.rotation),
+    );
   }
   get pointerStartsOnGizmo(): boolean { return this.pointerOrigin === 'gizmo'; }
   get activeDrag(): DragSnapshot | null { return this.drag; }
@@ -188,11 +236,44 @@ export class SceneInteractionController {
     return this.beginDrag('gizmo');
   }
 
-  /** Apply a world-space pivot position during an active gesture. */
+  /** Apply a world-space pivot position during a body gesture (translate). */
   updateDragPivot(nextPivot: THREE.Vector3): boolean {
     if (!this.drag) return false;
     const delta = nextPivot.clone().sub(this.drag.startPivot);
     this.applySnapshotDelta(this.drag.startInstances, delta);
+    this.emit();
+    return true;
+  }
+
+  /**
+   * Apply the gizmo target's full transform during an active gizmo gesture.
+   * The delta is always relative to the gesture's captured start, so the
+   * pivot needs no pre-drag reset for correctness (the scene resets it
+   * between gestures for clean gizmo rendering).
+   */
+  updateGizmoTransform(next: {
+    position: THREE.Vector3;
+    quaternion: THREE.Quaternion;
+    scale: THREE.Vector3;
+  }): boolean {
+    const drag = this.drag;
+    if (!drag || drag.kind !== 'gizmo') return false;
+    if (this.openGizmo === 'rotate') {
+      const deltaQuat = next.quaternion.clone().multiply(drag.startQuaternion.clone().invert());
+      this.applyRotationDeltaToSnapshot(drag.startInstances, drag.startPivot, deltaQuat);
+    } else if (this.openGizmo === 'scale') {
+      const factor: Vec3 = [
+        safeRatio(next.scale.x, drag.startScale.x),
+        safeRatio(next.scale.y, drag.startScale.y),
+        safeRatio(next.scale.z, drag.startScale.z),
+      ];
+      // The pivot's start orientation is the scale space: identity for world,
+      // the selection orientation for local.
+      this.applyScaleDeltaToSnapshot(drag.startInstances, drag.startPivot, factor, drag.startQuaternion);
+    } else {
+      const delta = next.position.clone().sub(drag.startPivot);
+      this.applySnapshotDelta(drag.startInstances, delta);
+    }
     this.emit();
     return true;
   }
@@ -259,6 +340,70 @@ export class SceneInteractionController {
     return this.moveSelectionBy(new THREE.Vector3(0, 0, -bounds.min.z));
   }
 
+  /** Rotate every selected instance by a componentwise Euler delta (radians). */
+  rotateSelectionBy(delta: Vec3): boolean {
+    if (this.selection.empty) return false;
+    const next = new Map<InstanceKey, ModelTransform>();
+    for (const [key, transform] of this.captureSelectedInstances()) {
+      const rotated = cloneTransform(transform);
+      rotated.rotation = [
+        transform.rotation[0] + delta[0],
+        transform.rotation[1] + delta[1],
+        transform.rotation[2] + delta[2],
+      ];
+      next.set(key, rotated);
+    }
+    this.applyInstanceTransforms(next);
+    this.emit();
+    return true;
+  }
+
+  /** Multiply every selected instance's scale by `factor` (clamped > 0). */
+  scaleSelectionBy(factor: Vec3): boolean {
+    if (this.selection.empty) return false;
+    const next = new Map<InstanceKey, ModelTransform>();
+    for (const [key, transform] of this.captureSelectedInstances()) {
+      const scaled = cloneTransform(transform);
+      scaled.scale = [
+        clampScale(transform.scale[0] * factor[0]),
+        clampScale(transform.scale[1] * factor[1]),
+        clampScale(transform.scale[2] * factor[2]),
+      ];
+      next.set(key, scaled);
+    }
+    this.applyInstanceTransforms(next);
+    this.emit();
+    return true;
+  }
+
+  /** Scale the selection so its bounding-box `axis` size becomes `size` mm. */
+  scaleSelectionToSize(axis: 0 | 1 | 2, size: number): boolean {
+    if (this.selection.empty || size <= 0) return false;
+    const bounds = this.selectionBounds();
+    if (!bounds) return false;
+    const pivot = this.selectionPivot();
+    if (!pivot) return false;
+    const current = bounds.getSize(new THREE.Vector3()).getComponent(axis);
+    if (current <= 1e-9) return false;
+    const factor = [1, 1, 1] as Vec3;
+    factor[axis] = size / current;
+    // Rigidly scale the whole selection about the aggregate pivot (offsets
+    // displace too), so the bbox dimension lands exactly on the target.
+    this.applyScaleDeltaToSnapshot(this.captureSelectedInstances(), pivot, factor, new THREE.Quaternion());
+    this.emit();
+    return true;
+  }
+
+  /** Restore the load-time rotation of every selected instance. */
+  resetSelectionRotation(): boolean {
+    return this.restoreSelectionProperty('rotation');
+  }
+
+  /** Restore the load-time scale of every selected instance. */
+  resetSelectionScale(): boolean {
+    return this.restoreSelectionProperty('scale');
+  }
+
   resetSelection(): boolean {
     const selected = this.selectedVolumes();
     if (selected.length === 0) return false;
@@ -279,6 +424,8 @@ export class SceneInteractionController {
     this.drag = {
       kind,
       startPivot: pivot,
+      startQuaternion: this.pivot?.quaternion.clone() ?? new THREE.Quaternion(),
+      startScale: this.pivot?.scale.clone() ?? new THREE.Vector3(1, 1, 1),
       startInstances: this.captureSelectedInstances(),
     };
     this.emit();
@@ -306,6 +453,47 @@ export class SceneInteractionController {
       next.set(key, moved);
     }
     this.applyInstanceTransforms(next);
+  }
+
+  private applyRotationDeltaToSnapshot(
+    snapshot: ReadonlyMap<InstanceKey, ModelTransform>,
+    pivot: THREE.Vector3,
+    deltaQuat: THREE.Quaternion,
+  ): void {
+    const next = new Map<InstanceKey, ModelTransform>();
+    for (const [key, transform] of snapshot) {
+      next.set(key, applyRotationDelta(transform, deltaQuat, pivot));
+    }
+    this.applyInstanceTransforms(next);
+  }
+
+  private applyScaleDeltaToSnapshot(
+    snapshot: ReadonlyMap<InstanceKey, ModelTransform>,
+    pivot: THREE.Vector3,
+    factor: Vec3,
+    spaceQuat: THREE.Quaternion,
+  ): void {
+    const next = new Map<InstanceKey, ModelTransform>();
+    for (const [key, transform] of snapshot) {
+      next.set(key, applyScaleDelta(transform, factor, pivot, spaceQuat));
+    }
+    this.applyInstanceTransforms(next);
+  }
+
+  private restoreSelectionProperty(property: 'rotation' | 'scale'): boolean {
+    const selected = this.selectedVolumes();
+    if (selected.length === 0) return false;
+    const next = new Map<InstanceKey, ModelTransform>();
+    for (const volume of selected) {
+      const key = instanceKeyOf(volume);
+      if (next.has(key)) continue;
+      const transform = cloneTransform(volume.instanceTransform);
+      transform[property] = [...volume.buffer.instanceTransform[property]] as Vec3;
+      next.set(key, transform);
+    }
+    this.applyInstanceTransforms(next);
+    this.emit();
+    return true;
   }
 
   private applyInstanceTransforms(transforms: ReadonlyMap<InstanceKey, ModelTransform>): void {
@@ -336,13 +524,17 @@ function worldBounds(volume: GLVolume): THREE.Box3 {
 function transformMatrix(transform: ModelTransform): THREE.Matrix4 {
   return new THREE.Matrix4().compose(
     new THREE.Vector3(...transform.offset),
-    new THREE.Quaternion().setFromEuler(new THREE.Euler(...transform.rotation)),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(...transform.rotation, EULER_ORDER)),
     new THREE.Vector3(
       transform.scale[0] * transform.mirror[0],
       transform.scale[1] * transform.mirror[1],
       transform.scale[2] * transform.mirror[2],
     ),
   );
+}
+
+function safeRatio(current: number, start: number): number {
+  return start === 0 ? 1 : current / start;
 }
 
 function cloneTransform(transform: ModelTransform): ModelTransform {
