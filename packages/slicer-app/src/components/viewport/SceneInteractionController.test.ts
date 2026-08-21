@@ -355,20 +355,25 @@ describe('SceneInteractionController', () => {
     }
   });
 
-  it('applies panel scale factors and size edits to the selection', () => {
+  it('applies panel scale factors and size edits rigidly about the pivot', () => {
     controller.selectFromHit(volumes[0], false);
     controller.selectFromHit(volumes[2], true);
     expect(controller.scaleSelectionBy([2, 1, 1])).toBe(true);
     expect(volumes.map((v) => v.instanceTransform.scale)).toEqual([
       [2, 1, 1], [2, 1, 1], [2, 1, 1], [2, 1, 1],
     ]);
+    // Rigid scaling about the aggregate pivot keeps the selection centered:
+    // instance 0's offset orbits from (0,0,0) to (-10,0,0) (X only).
+    expect(volumes[0].instanceTransform.offset).toEqual([-10, 0, 0]);
+    expect(volumes[2].instanceTransform.offset).toEqual([30, 5, 0]);
+    expect(controller.selectionBounds()!.getCenter(new THREE.Vector3()).x).toBeCloseTo(10, 8);
 
-    // The factor edit doubles the aggregate width first; the size edit then
-    // scales the (already doubled) selection so its X extent becomes 44.
-    const widthAfterFactor = controller.selectionBounds()!.getSize(new THREE.Vector3()).x;
-    expect(controller.scaleSelectionToSize(0, 44)).toBe(true);
-    expect(controller.selectionBounds()!.getSize(new THREE.Vector3()).x).toBeCloseTo(44, 8);
-    expect(volumes[0].instanceTransform.scale[0]).toBeCloseTo(2 * 44 / widthAfterFactor, 8);
+    // Aggregate width after the edit: union [-12,32] = 44 → target 22 halves
+    // it and returns the offsets to their starting points.
+    expect(controller.scaleSelectionToSize(0, 22)).toBe(true);
+    expect(controller.selectionBounds()!.getSize(new THREE.Vector3()).x).toBeCloseTo(22, 8);
+    expect(volumes[0].instanceTransform.scale[0]).toBeCloseTo(1, 8);
+    expect(volumes[0].instanceTransform.offset).toEqual([0, 0, 0]);
     expect(controller.scaleSelectionToSize(1, 0)).toBe(false);
   });
 

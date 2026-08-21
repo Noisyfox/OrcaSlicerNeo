@@ -458,3 +458,202 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
     await app.close();
   }
 });
+
+// Rotate/scale gizmos (M11): exclusive toolbar toggles, the rotate/scale
+// panels, the scale world/local coord toggle, and the multi-selection display
+// rules (0° rotate, 100% scale, coord toggle disabled). Gizmo drags use the
+// same axis-poll pattern as the move test; the rotate Z ring sits at the
+// gizmo radius (~63 mm at the default camera for the first cube's pivot).
+test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      await selectStableRealPrinter(page);
+      await page.getByTestId('btn-add-model').click();
+      if (REAL) await page.getByTestId('btn-add-model').click();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      if (REAL) {
+        // Real-artifact runs only prove the toolbar/panel surface; the mock
+        // path below owns the deterministic gizmo-drag assertions.
+        for (const id of ['gizmo-btn-move', 'gizmo-btn-rotate', 'gizmo-btn-scale']) {
+          await expect(page.getByTestId(id)).toBeVisible();
+          await expect(page.getByTestId(id)).toBeDisabled();
+        }
+        return;
+      }
+      const project = (p: [number, number, number]) =>
+        page
+          .evaluate(
+            (pt) =>
+              (window as unknown as {
+                __orcaE2e?: { projectWorldToScreen(q: [number, number, number]): { x: number; y: number } | null };
+              }).__orcaE2e?.projectWorldToScreen(pt),
+            p,
+          )
+          .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
+      const readAxis = () => page.evaluate(() =>
+        (window as unknown as { __orcaE2e?: { gizmoAxis?: () => string | null } }).__orcaE2e?.gizmoAxis?.() ?? null,
+      );
+      const pollAxisAt = async (points: Array<{ x: number; y: number }>, axis: string) => {
+        await expect
+          .poll(async () => {
+            for (const point of points) {
+              await page.mouse.move(point.x, point.y);
+              if ((await readAxis()) === axis) return axis;
+            }
+            return null;
+          }, { timeout: 10_000 })
+          .toBe(axis);
+      };
+
+      // All three gizmo toggles need a selection to arm.
+      for (const id of ['gizmo-btn-move', 'gizmo-btn-rotate', 'gizmo-btn-scale']) {
+        await expect(page.getByTestId(id)).toBeDisabled();
+      }
+
+      const cubeCenter = await project([10, 10, 10]);
+      if (!cubeCenter) throw new Error('cube-center projection unavailable');
+      await page.mouse.click(cubeCenter.x, cubeCenter.y);
+      // Selection alone opens nothing — panels ride with their gizmos.
+      for (const panel of ['move-panel', 'rotate-panel', 'scale-panel']) {
+        await expect(page.getByTestId(panel)).toBeHidden();
+      }
+
+      // Arm Scale first (before any rotation), so the world-axis shaft drag
+      // and the size/factor relationship stay axis-aligned.
+      await page.getByTestId('gizmo-btn-scale').click();
+      await expect(page.getByTestId('gizmo-btn-scale')).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.getByTestId('scale-panel')).toBeVisible();
+      await expect(page.getByTestId('rotate-panel')).toBeHidden();
+      await expect(page.getByTestId('scale-factor-x')).toHaveValue('100.0');
+      await expect(page.getByTestId('scale-size-x')).toHaveValue('20.000');
+
+      // Drag the X shaft like the move test: pivot + [10,0,0] → [45,10,10].
+      const xStart = await project([20, 10, 10]);
+      const xEnd = await project([45, 10, 10]);
+      if (!xStart || !xEnd) throw new Error('scale X-arrow projection unavailable');
+      await pollAxisAt([xStart], 'X');
+      await page.mouse.down();
+      await page.mouse.move(xEnd.x, xEnd.y, { steps: 5 });
+      await page.mouse.up();
+      await expect
+        .poll(async () => page.getByTestId('scale-factor-x').inputValue(), { timeout: 10_000 })
+        .not.toBe('100.0');
+      // Size = 20 mm × factor/100 — both inputs move together.
+      const factorPct = Number.parseFloat(await page.getByTestId('scale-factor-x').inputValue());
+      const sizeMm = Number.parseFloat(await page.getByTestId('scale-size-x').inputValue());
+      expect(Math.abs(sizeMm - factorPct / 5)).toBeLessThan(1);
+
+      // World/Local toggle: local is available for a single selection and
+      // flips back; both buttons keep the armed state in sync.
+      await page.getByTestId('scale-space-local').click();
+      await expect(page.getByTestId('scale-space-local')).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('scale-space-world')).toHaveAttribute('aria-pressed', 'false');
+      await page.getByTestId('scale-space-world').click();
+      await expect(page.getByTestId('scale-space-world')).toHaveAttribute('aria-pressed', 'true');
+
+      // Multi-selection forces world space and disables the coord toggle; the
+      // factor inputs fall back to the neutral 100%.
+      await expect(page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(1, true),
+      )).resolves.toBe(true);
+      await expect(page.getByTestId('scale-space-world')).toBeDisabled();
+      await expect(page.getByTestId('scale-space-local')).toBeDisabled();
+      await expect(page.getByTestId('scale-factor-x')).toHaveValue('100.0');
+      await expect(page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(1, true),
+      )).resolves.toBe(true);
+      await expect(page.getByTestId('scale-space-local')).toBeEnabled();
+
+      // Panel edits: factor input sets the absolute percent, size input sets
+      // the target dimension, Reset restores the original.
+      await page.getByTestId('scale-factor-x').fill('200');
+      await page.getByTestId('scale-factor-x').press('Enter');
+      await expect(page.getByTestId('scale-factor-x')).toHaveValue('200.0');
+      await expect(page.getByTestId('scale-size-x')).toHaveValue('40.000');
+      await page.getByTestId('scale-size-y').fill('60');
+      await page.getByTestId('scale-size-y').press('Enter');
+      await expect(page.getByTestId('scale-size-y')).toHaveValue('60.000');
+      await expect(page.getByTestId('scale-factor-y')).toHaveValue('300.0');
+      await page.getByTestId('scale-reset').click();
+      await expect(page.getByTestId('scale-factor-x')).toHaveValue('100.0');
+      await expect(page.getByTestId('scale-size-x')).toHaveValue('20.000');
+
+      // Rotate gizmo: exclusive with scale — arming rotate hides the scale
+      // panel. The Z ring (X-Y plane) projects to a screen ellipse around the
+      // CURRENT selection pivot (scale edits can move the anchor relative to
+      // a fixed world point, so aim at the live pivot, not the initial cube
+      // center).
+      await page.getByTestId('gizmo-btn-rotate').click();
+      await expect(page.getByTestId('gizmo-btn-rotate')).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.getByTestId('gizmo-btn-scale')).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.getByTestId('rotate-panel')).toBeVisible();
+      await expect(page.getByTestId('scale-panel')).toBeHidden();
+      await expect(page.getByTestId('rotate-x')).toHaveValue('0.0');
+      const pivotScreen = await page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { projectSelectionPivot?: () => { x: number; y: number } | null };
+        }).__orcaE2e?.projectSelectionPivot?.() ?? null,
+      );
+      if (!pivotScreen) throw new Error('selection-pivot projection unavailable');
+      const pivotX = box.x + pivotScreen.x;
+      const pivotY = box.y + pivotScreen.y;
+
+      // Re-approach the Z ring in SCREEN space until a pointermove lands on
+      // it, then drag along the ring. The invisible picker rings sit at
+      // 0.5× the handle scale; with the default camera the Z ring projects
+      // to a screen ellipse around the pivot (rightmost ≈ +98 px, top ≈
+      // +42 px) — projecting world-space ring points misses it because the
+      // perspective mapping is not uniform.
+      const ringCandidates = [
+        { dx: 42, dy: 42 },
+        { dx: 0, dy: 42 },
+        { dx: 70, dy: 42 },
+        { dx: -49, dy: 49 },
+        { dx: 98, dy: 0 },
+      ];
+      const ringStart = ringCandidates.map(({ dx, dy }) => ({
+        x: pivotX + dx,
+        y: pivotY + dy,
+      }));
+      await pollAxisAt(ringStart, 'Z');
+      await page.mouse.down();
+      // Drag to a second point on the Z ring (left arc) for a substantial
+      // rotation; the axis is locked once the drag starts, so the path
+      // between the two ring points only affects the rotation angle.
+      await page.mouse.move(pivotX - 84, pivotY + 14, { steps: 5 });
+      await page.mouse.up();
+      await expect
+        .poll(async () => page.getByTestId('rotate-z').inputValue(), { timeout: 10_000 })
+        .not.toBe('0.0');
+
+      // Panel edits set absolute degrees (single selection); garbage reverts.
+      await page.getByTestId('rotate-x').fill('90');
+      await page.getByTestId('rotate-x').press('Enter');
+      await expect(page.getByTestId('rotate-x')).toHaveValue('90.0');
+      await page.getByTestId('rotate-y').fill('nope');
+      await page.getByTestId('rotate-y').press('Enter');
+      await expect(page.getByTestId('rotate-y')).toHaveValue('0.0');
+      await page.getByTestId('rotate-reset').click();
+      await expect(page.getByTestId('rotate-x')).toHaveValue('0.0');
+    } catch (err) {
+      await diag.dump();
+      throw err;
+    }
+  } finally {
+    await app.close();
+  }
+});

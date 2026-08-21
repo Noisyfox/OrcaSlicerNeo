@@ -47,24 +47,35 @@ function SceneContents() {
   const size = useThree((s) => s.size);
   useEffect(() => {
     if (!(import.meta.env as { VITE_USE_MOCK?: string }).VITE_USE_MOCK) return;
-    // The container is shared with MoveGizmo (gizmoAxis), and per-key
+    // The container is shared with TransformGizmo (gizmoAxis), and per-key
     // cleanup leaves a partial behind — so every key is optional here.
     const w = window as unknown as {
       __orcaE2e?: {
         projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null;
+        projectSelectionPivot?: () => { x: number; y: number } | null;
         gizmoAxis?: () => string | null;
         pointerOwner?: () => 'none' | 'gizmo' | 'body';
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
       };
     };
-    // Scene owns the container but shares it with MoveGizmo (gizmoAxis) —
+    const projectPoint = (p: THREE.Vector3) => {
+      const v = p.clone().project(camera);
+      return { x: (v.x + 1) * 0.5 * size.width, y: (1 - v.y) * 0.5 * size.height };
+    };
+    // Scene owns the container but shares it with TransformGizmo (gizmoAxis) —
     // merge, and remove only our own key on cleanup, so a camera/size
     // re-run does not drop the gizmo's registration.
     w.__orcaE2e = {
       ...w.__orcaE2e,
       projectWorldToScreen(p) {
-        const v = new THREE.Vector3(p[0], p[1], p[2]).project(camera);
-        return { x: (v.x + 1) * 0.5 * size.width, y: (1 - v.y) * 0.5 * size.height };
+        return projectPoint(new THREE.Vector3(p[0], p[1], p[2]));
+      },
+      // The gizmo pivots at the CURRENT selection bounds center — after scale
+      // edits the anchor can move relative to a fixed world point, so the e2e
+      // aims at the live pivot.
+      projectSelectionPivot() {
+        const pivot = sceneInteraction.selectionPivot();
+        return pivot ? projectPoint(pivot) : null;
       },
       pointerOwner: () => sceneInteraction.owner,
       // The e2e fixture's instance collection is deterministic, while a
@@ -81,6 +92,7 @@ function SceneContents() {
       if (w.__orcaE2e) {
         const {
           projectWorldToScreen: _dropped,
+          projectSelectionPivot: _pivot,
           pointerOwner: _owner,
           selectMockInstance: _selection,
           ...rest

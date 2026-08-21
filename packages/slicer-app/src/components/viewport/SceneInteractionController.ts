@@ -7,7 +7,6 @@ import {
   EULER_ORDER,
   applyRotationDelta,
   applyScaleDelta,
-  clampScale,
   quatFromRotation,
 } from './transformDeltaMath';
 
@@ -365,17 +364,12 @@ export class SceneInteractionController {
   /** Multiply every selected instance's scale by `factor` (clamped > 0). */
   scaleSelectionBy(factor: Vec3): boolean {
     if (this.selection.empty) return false;
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const [key, transform] of this.captureSelectedInstances()) {
-      const scaled = cloneTransform(transform);
-      scaled.scale = [
-        clampScale(transform.scale[0] * factor[0]),
-        clampScale(transform.scale[1] * factor[1]),
-        clampScale(transform.scale[2] * factor[2]),
-      ];
-      next.set(key, scaled);
-    }
-    this.applyInstanceTransforms(next);
+    const pivot = this.selectionPivot();
+    if (!pivot) return false;
+    // Rigidly scale the whole selection about the aggregate pivot (offsets
+    // displace too), so the selection stays visually centered while its size
+    // changes — the same semantics as the size edit and the gizmo drag.
+    this.applyScaleDeltaToSnapshot(this.captureSelectedInstances(), pivot, factor, new THREE.Quaternion());
     this.emit();
     return true;
   }
@@ -385,17 +379,11 @@ export class SceneInteractionController {
     if (this.selection.empty || size <= 0) return false;
     const bounds = this.selectionBounds();
     if (!bounds) return false;
-    const pivot = this.selectionPivot();
-    if (!pivot) return false;
     const current = bounds.getSize(new THREE.Vector3()).getComponent(axis);
     if (current <= 1e-9) return false;
     const factor = [1, 1, 1] as Vec3;
     factor[axis] = size / current;
-    // Rigidly scale the whole selection about the aggregate pivot (offsets
-    // displace too), so the bbox dimension lands exactly on the target.
-    this.applyScaleDeltaToSnapshot(this.captureSelectedInstances(), pivot, factor, new THREE.Quaternion());
-    this.emit();
-    return true;
+    return this.scaleSelectionBy(factor);
   }
 
   /** Restore the load-time rotation of every selected instance. */
