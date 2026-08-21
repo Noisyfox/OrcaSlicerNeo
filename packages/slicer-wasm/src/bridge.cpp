@@ -39,6 +39,10 @@
 // included above).
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 
+#include <boost/log/trivial.hpp>
+
+#include "wasm_log.hpp"
+
 #ifdef ORCA_WASM_THREADING
 #include <tbb/global_control.h>
 #include <tbb/task_arena.h>
@@ -339,9 +343,30 @@ const char* init_with_app_config(const json& j) {
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* /*legacy_preferences_json*/) {
+EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
     try {
-        return init_with_app_config(json::object());
+        // The JSON is the options payload; only "log_level" is consumed today
+        // (the rest is the legacy preferences slot, still ignored — the
+        // renderer owns preferences and passes them through MEMFS profiles).
+        // The client forwards globalThis.ORCA_LOG_LEVEL here so the boost::log
+        // severity filter is controllable from JS (doc/2026-08-21-wasm-boost-log.md).
+        json opts = json::object();
+        if (options_json && *options_json) {
+            try { opts = json::parse(options_json); }
+            catch (...) { /* malformed options: keep defaults */ }
+        }
+        std::string log_level;
+        if (opts.is_object() && opts.contains("log_level") &&
+            opts["log_level"].is_string())
+            log_level = opts["log_level"].get<std::string>();
+        wasm_log::init_with_level(log_level);
+
+        const char* result = init_with_app_config(json::object());
+        // First bridge log record — proves the sink pipeline end-to-end
+        // (console + /tmp/orca.log).
+        BOOST_LOG_TRIVIAL(info) << "orc_init: bridge ready, log level "
+            << (log_level.empty() ? "info (default)" : log_level);
+        return result;
     } catch (const std::exception& e) {
         // Error-path diagnostics only: these catch blocks are compiled in
         // (target_compile_options -fexceptions on orca_slice; emcc's default

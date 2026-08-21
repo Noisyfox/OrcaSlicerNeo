@@ -18,9 +18,16 @@
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
+#include "wasm_log.hpp"
+
 using namespace Slic3r;
 
 int main(int argc, char** argv) {
+  // Boost.Log sinks (console + /tmp/orca.log) before any libslic3r work so
+  // the earliest records are captured. The level comes from the module's JS
+  // global (the Node harness sets globalThis.ORCA_LOG_LEVEL before callMain).
+  wasm_log::init_with_level(wasm_log::level_from_js_global());
+
   if (argc < 4) {
     std::fprintf(stderr, "usage: orca_slice <model.stl> <config.json> <out.gcode>\n");
     return 2;

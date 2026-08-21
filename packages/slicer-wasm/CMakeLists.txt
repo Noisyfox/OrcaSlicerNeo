@@ -318,7 +318,8 @@ target_compile_options(deps_core PRIVATE
 # ---- Module: bridge + CLI driver -> single WASM module ----
 # bridge.cpp is a Task-10 deliverable; the module links with the CLI driver
 # alone until it lands (the bridge smoke then picks it up automatically).
-set(ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp")
+set(ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
+                   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp")
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
   list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
 endif()
