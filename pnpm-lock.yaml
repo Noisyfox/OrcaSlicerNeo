@@ -166,6 +166,9 @@ importers:
       '@types/node':
         specifier: ^24.13.3
         version: 24.13.3
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -236,6 +239,9 @@ importers:
 
   packages/slicer-runtime:
     dependencies:
+      fflate:
+        specifier: ^0.8.3
+        version: 0.8.3
       slicer-wasm:
         specifier: workspace:*
         version: link:../slicer-wasm

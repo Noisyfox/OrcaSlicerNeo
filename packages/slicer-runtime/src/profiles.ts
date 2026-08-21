@@ -1,3 +1,4 @@
+import { unzipSync } from 'fflate';
 import type { OrcaModule } from '@slicer/client';
 
 export interface ProfilePackage { id: string; kind: 'core' | 'vendor'; path: string; }
@@ -17,39 +18,13 @@ async function bytes(response: Response): Promise<Uint8Array> {
   return data;
 }
 
-// Minimal browser/Worker ZIP reader. Stored entries are supported everywhere;
-// deflated entries use the standard CompressionStream available in Chromium.
-async function unzip(data: Uint8Array): Promise<Array<{ path: string; data: Uint8Array }>> {
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-  const out: Array<{ path: string; data: Uint8Array }> = [];
-  let localEntries = 0;
-  let p = 0;
-  while (p + 4 <= data.byteLength) {
-    const sig = view.getUint32(p, true); p += 4;
-    if (sig !== 0x04034b50) break;
-    localEntries++;
-    // `p` points just after the four-byte signature. Relative offsets are
-    // therefore version/flags/method at +0/+2/+4, sizes at +14/+18, and
-    // name/extra lengths at +22/+24.
-    const method = view.getUint16(p + 4, true);
-    const compressed = view.getUint32(p + 14, true);
-    const nameLength = view.getUint16(p + 22, true);
-    const extraLength = view.getUint16(p + 24, true);
-    const name = new TextDecoder().decode(data.subarray(p + 26, p + 26 + nameLength));
-    const start = p + 26 + nameLength + extraLength;
-    const payload = data.subarray(start, start + compressed);
-    if (payload.byteLength !== compressed) throw new Error('truncated ZIP entry');
-    let content = payload;
-    if (method === 8) {
-      if (typeof DecompressionStream === 'undefined') throw new Error('deflate ZIP unsupported');
-      const stream = new Blob([payload.slice().buffer as ArrayBuffer]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-      content = new Uint8Array(await new Response(stream).arrayBuffer());
-    } else if (method !== 0) throw new Error(`unsupported ZIP method ${method}`);
-    if (!name.endsWith('/')) out.push({ path: name, data: content });
-    p = start + compressed;
-  }
-  if (localEntries === 0) throw new Error('invalid ZIP archive');
-  return out;
+// fflate handles both stored and deflated entries; the packaging build
+// (packages/profile-resources) writes store-only archives.
+function unzip(data: Uint8Array): Array<{ path: string; data: Uint8Array }> {
+  const files = unzipSync(data);
+  return Object.entries(files)
+    .filter(([path]) => !path.endsWith('/'))
+    .map(([path, content]) => ({ path, data: content }));
 }
 
 async function readBytes(value: Uint8Array | ReadableStream<Uint8Array>): Promise<Uint8Array> {
@@ -80,7 +55,7 @@ export async function installProfiles(
     onProgress?.({ package: pkg, index, total });
     console.info('[profiles] package', JSON.stringify({ package: pkg.id, kind: pkg.kind, index: index + 1, total }));
     try {
-      const entries = await unzip(await readBytes(await source.fetch(pkg.path)));
+      const entries = unzip(await readBytes(await source.fetch(pkg.path)));
       // Preserve the virtual tree expected by libslic3r's PresetBundle.
       for (const entry of entries) {
         const relative = safeEntryPath(entry.path);
