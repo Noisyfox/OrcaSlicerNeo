@@ -31,10 +31,10 @@ function webOnlyWasmLoader() {
 }
 
 export default defineConfig({
-  // Tailwind must be compiled here — the desktop host does it via
-  // @tailwindcss/postcss (apps/desktop/postcss.config.js); without either,
-  // the shared index.css' @theme/@apply/@utility directives pass through
-  // unprocessed and no utility classes are generated (2026-08-20).
+  // Tailwind must be compiled in every host — without a plugin the shared
+  // index.css' @theme/@apply/@utility directives pass through unprocessed
+  // and no utility classes are generated (2026-08-20). The desktop host
+  // registers the same plugin in electron.vite.config.ts (2026-08-21).
   plugins: [react(), tailwindcss(), webOnlyWasmLoader()],
   base: './',
   // The checked-in static profile bundle is host-neutral and is reused by

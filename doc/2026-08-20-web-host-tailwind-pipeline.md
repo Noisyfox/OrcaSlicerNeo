@@ -62,3 +62,16 @@ keep-alive connection was open at exit.
 - `pnpm --filter web test:non-root` — build + smoke green (incl. new CSS
   assertion).
 - `pnpm --filter web test` (5 pass), `pnpm --filter web typecheck` — green.
+
+## Update 2026-08-21 — desktop unified onto the Vite plugin
+
+Commit `6ee4d95` retired the desktop PostCSS pipeline: `@tailwindcss/postcss`
+and `postcss` dropped from `apps/desktop/package.json`,
+`apps/desktop/postcss.config.js` deleted, `@tailwindcss/vite` registered in
+`apps/desktop/electron.vite.config.ts`. Both hosts now compile the shared
+Tailwind v4 source identically (the table above is historical). Alongside:
+`components.json` moved from `apps/desktop` to `packages/slicer-app` (its
+stale `tailwind.config.js` pointer dropped — Tailwind v4 is CSS-first), and
+`packages/slicer-app/vite.config.ts` added for the package's own tooling
+(vitest picks it up; `__dirname` works because Vite injects it when bundling
+the config).
