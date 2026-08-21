@@ -12,17 +12,19 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.0",
     "@types/three": "^0.185.4",
+    "@vitejs/plugin-react-swc": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^7.3.6",
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@base-ui/react": "^1.7.0",
     "@orca/platform-contract": "workspace:*",
     "@orca/slicer-runtime": "workspace:*",
-    "@base-ui/react": "^1.7.0",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
     "class-variance-authority": "^0.7.1",

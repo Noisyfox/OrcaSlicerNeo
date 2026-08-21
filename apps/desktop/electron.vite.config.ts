@@ -1,5 +1,6 @@
 import { defineConfig } from 'electron-vite';
 import react from '@vitejs/plugin-react-swc';
+import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,7 +13,7 @@ export default defineConfig({
   main: {},
   preload: {},
   renderer: {
-    plugins: [react()],
+    plugins: [react(), tailwindcss()],
     server: {
       headers: {
         // Dev counterpart of the prod CSP (main/index.ts): same directives,
