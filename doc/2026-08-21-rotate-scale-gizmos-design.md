@@ -213,12 +213,30 @@ Delivered as designed. Substantive findings worth remembering:
   hover. Note the three/examples source (which anchors at `worldPosition`)
   differs from the shipped three-stdlib implementation — always verify
   against the installed package.
+- **World scale on a rotated object (fixed 2026-08-22):** the data model
+  applies scale in the object's local (post-rotation) frame (`T·R·S`), so a
+  world-axis factor previously landed on the wrong local axis — a cube
+  rotated 90° about Z scaled its world-Y width when the world-X handle/factor
+  was used (world-X width unchanged). `applyScaleDelta` now converts the
+  world/space factor into the instance's local frame:
+  `f_eff = diag(R⁻¹ · spaceQuat · diag(factor) · spaceQuat⁻¹ · R)`. Exact for
+  axis-aligned rotations (the common 90°/180° case); non-uniform world scale
+  of an arbitrarily-rotated object is not representable as `T·R·S` (it would
+  shear), so the diagonal is the closest representation. Offset displacement
+  stays along the scale-space axes, keeping the bbox centered on the pivot.
+  Local mode (`spaceQuat` = object orientation) is unchanged (it already
+  collapses to the plain local factor).
+- **Drop to bed after rotation:** verified correct — it translates the
+  selection down by the current world bbox min-Z (computed from the rotated
+  geometry), so the lowest point lands on the plate. The reported failure was
+  a downstream effect of the world-scale corruption above; unit + e2e now pin
+  both a rotated world-scale regression and a floating rotated drop.
 
 ### Verification
 
-- `pnpm test` (all workspaces): 61/61 slicer-app tests incl. 34
+- `pnpm test` (all workspaces): 64/64 slicer-app tests incl. 37
   controller/math tests; desktop suite passWithNoTests.
 - `pnpm typecheck` (all workspaces): clean.
-- `pnpm --filter desktop test:e2e`: 4 passed / 1 skipped (the `slice-error`
+- `pnpm --filter desktop test:e2e`: 5 passed / 1 skipped (the `slice-error`
   skip is `test.skip(!REAL)` in mock builds — static, intentional).
 - WASM quick build not required — no bridge or build-scaffold changes.

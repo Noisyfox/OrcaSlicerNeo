@@ -66,13 +66,32 @@ export function applyScaleDelta(
   offset.y *= factor[1];
   offset.z *= factor[2];
   offset.applyQuaternion(spaceQuat).add(pivot);
+  // The data model applies scale in the object's LOCAL (post-rotation) frame
+  // (T·R·S). A WORLD-axis factor on a rotated object must first be converted
+  // into local factors, otherwise — e.g. a cube rotated 90° about Z — a
+  // world-X drag leaves the world-X width unchanged and scales the world-Y
+  // width instead. f_eff is the diagonal of the world scale operator
+  // expressed in the instance's local frame:
+  //   M = R⁻¹ · spaceQuat · diag(factor) · spaceQuat⁻¹ · R
+  // which is exact when the rotation axis aligns with a scaling axis (the
+  // common 90°/180° case). Non-uniform world scale of an arbitrarily-rotated
+  // object is not representable as T·R·S (it would shear); the diagonal is
+  // the closest representation.
+  const q = quatFromRotation(transform.rotation);
+  const m = new THREE.Matrix4()
+    .makeRotationFromQuaternion(q.clone().invert())
+    .multiply(new THREE.Matrix4().makeRotationFromQuaternion(spaceQuat))
+    .multiply(new THREE.Matrix4().makeScale(factor[0], factor[1], factor[2]))
+    .multiply(new THREE.Matrix4().makeRotationFromQuaternion(spaceQuat.clone().invert()))
+    .multiply(new THREE.Matrix4().makeRotationFromQuaternion(q));
+  const localFactor: [number, number, number] = [m.elements[0], m.elements[5], m.elements[10]];
   return {
     ...cloneTransform(transform),
     offset: [offset.x, offset.y, offset.z],
     scale: [
-      clampScale(transform.scale[0] * factor[0]),
-      clampScale(transform.scale[1] * factor[1]),
-      clampScale(transform.scale[2] * factor[2]),
+      clampScale(transform.scale[0] * localFactor[0]),
+      clampScale(transform.scale[1] * localFactor[1]),
+      clampScale(transform.scale[2] * localFactor[2]),
     ],
   };
 }

@@ -114,6 +114,19 @@ describe('applyScaleDelta', () => {
     expect(next.scale).toEqual([2, 1, 1]);
   });
 
+  it('applies a world-axis factor to the correct local axis when rotated', () => {
+    // Cube rotated 90° about Z: its local Y is world X, so a world-X ×2 must
+    // multiply the LOCAL Y scale (world-X width is otherwise untouched).
+    const rotation: Vec3 = [0, 0, Math.PI / 2];
+    const transform = makeTransform({ offset: [0, 0, 0], rotation, scale: [1, 1, 1] });
+    const pivot = new THREE.Vector3(0, 0, 0);
+    const next = applyScaleDelta(transform, [2, 1, 1], pivot, new THREE.Quaternion());
+    expect(next.scale).toEqual([1, 2, 1]);
+    // An unrotated object keeps the plain local factor (regression guard).
+    expect(applyScaleDelta(makeTransform({ scale: [1, 1, 1] }), [2, 1, 1], new THREE.Vector3(), new THREE.Quaternion()).scale)
+      .toEqual([2, 1, 1]);
+  });
+
   it('clamps scale factors to the positive floor', () => {
     const transform = makeTransform({ scale: [1, 1, 1] });
     const next = applyScaleDelta(transform, [-2, 0, 1], new THREE.Vector3(), new THREE.Quaternion());

@@ -386,4 +386,33 @@ describe('SceneInteractionController', () => {
     expect(controller.resetSelectionScale()).toBe(true);
     expect(volumes[0].instanceTransform.scale).toEqual([1, 1, 1]);
   });
+
+  it('drops a rotated, floating selection to the bed', () => {
+    // Tilt the single instance and lift it well off the plate so its world
+    // min-Z is clearly non-zero.
+    for (const volume of [volumes[0], volumes[1]]) {
+      volume.instanceTransform.offset = [10, 10, 30];
+      volume.instanceTransform.rotation = [Math.PI / 4, 0, 0];
+    }
+    controller.selectFromHit(volumes[0], false);
+    const before = controller.selectionBounds()!;
+    expect(before.min.z).toBeGreaterThan(0);
+
+    expect(controller.dropSelectionToBed()).toBe(true);
+    const after = controller.selectionBounds()!;
+    expect(after.min.z).toBeCloseTo(0, 8);
+  });
+
+  it('scales a rotated selection along the world axis', () => {
+    // Rotate 90° about Z — local Y becomes world X. A world-X ×2 must double
+    // the world bbox X size (not the local-X/Y swap the naive T·R·S gives).
+    for (const volume of [volumes[0], volumes[1]]) {
+      volume.instanceTransform.rotation = [0, 0, Math.PI / 2];
+    }
+    controller.selectFromHit(volumes[0], false);
+    const widthXBefore = controller.selectionBounds()!.getSize(new THREE.Vector3()).x;
+    expect(controller.scaleSelectionBy([2, 1, 1])).toBe(true);
+    const widthXAfter = controller.selectionBounds()!.getSize(new THREE.Vector3()).x;
+    expect(widthXAfter).toBeCloseTo(widthXBefore * 2, 8);
+  });
 });

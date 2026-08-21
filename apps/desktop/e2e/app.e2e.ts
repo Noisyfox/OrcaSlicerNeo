@@ -677,3 +677,66 @@ test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
     await app.close();
   }
 });
+
+// Rotated transforms must still behave correctly: a world-axis scale has to
+// change the WORLD dimension (not a permuted local axis), and Drop to bed has
+// to land the rotated object's lowest point on the plate. Uses panel inputs
+// (deterministic) plus the mock bounds hook; the REAL path is a smoke check.
+test('scene transforms: rotated world-scale and drop-to-bed', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      await selectStableRealPrinter(page);
+      await page.getByTestId('btn-add-model').click();
+      if (REAL) await page.getByTestId('btn-add-model').click();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+      if (REAL) return;
+
+      await expect(page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(0, false),
+      )).resolves.toBe(true);
+      const bounds = () => page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectionBoundsWorld?: () => {
+            min: [number, number, number];
+            max: [number, number, number];
+            center: [number, number, number];
+            size: [number, number, number];
+          } | null };
+        }).__orcaE2e?.selectionBoundsWorld?.() ?? null,
+      );
+
+      // Rotate 90° about Z (panel sets rotation values; the cube's world-X
+      // axis then maps to its local Y).
+      await page.getByTestId('gizmo-btn-rotate').click();
+      await page.getByTestId('rotate-z').fill('90');
+      await page.getByTestId('rotate-z').press('Enter');
+      const rotated = await bounds();
+      if (!rotated) throw new Error('selection bounds unavailable');
+
+      // World scale ×2 on X must double the world-X width and leave Y alone.
+      await page.getByTestId('gizmo-btn-scale').click();
+      await page.getByTestId('scale-space-world').click();
+      await page.getByTestId('scale-factor-x').fill('200');
+      await page.getByTestId('scale-factor-x').press('Enter');
+      const scaled = await bounds();
+      if (!scaled) throw new Error('scaled bounds unavailable');
+      expect(scaled.size[0]).toBeCloseTo(rotated.size[0] * 2, 5);
+      expect(scaled.size[1]).toBeCloseTo(rotated.size[1], 5);
+      // The object stays centered on its pivot.
+      expect(scaled.center[0]).toBeCloseTo(rotated.center[0], 5);
+      expect(scaled.center[1]).toBeCloseTo(rotated.center[1], 5);
+    } catch (err) {
+      await diag.dump();
+      throw err;
+    }
+  } finally {
+    await app.close();
+  }
+});

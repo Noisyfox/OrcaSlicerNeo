@@ -54,6 +54,12 @@ function SceneContents() {
         projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null;
         projectSelectionPivot?: () => { x: number; y: number } | null;
         selectionPivotWorld?: () => [number, number, number] | null;
+        selectionBoundsWorld?: () => {
+          min: [number, number, number];
+          max: [number, number, number];
+          center: [number, number, number];
+          size: [number, number, number];
+        } | null;
         gizmoAxis?: () => string | null;
         pointerOwner?: () => 'none' | 'gizmo' | 'body';
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
@@ -82,6 +88,20 @@ function SceneContents() {
         const pivot = sceneInteraction.selectionPivot();
         return pivot ? [pivot.x, pivot.y, pivot.z] : null;
       },
+      selectionBoundsWorld() {
+        const bounds = sceneInteraction.selectionBounds();
+        if (!bounds) return null;
+        const min = bounds.min;
+        const max = bounds.max;
+        const size = bounds.getSize(new THREE.Vector3());
+        const center = bounds.getCenter(new THREE.Vector3());
+        return {
+          min: [min.x, min.y, min.z],
+          max: [max.x, max.y, max.z],
+          center: [center.x, center.y, center.z],
+          size: [size.x, size.y, size.z],
+        };
+      },
       pointerOwner: () => sceneInteraction.owner,
       // The e2e fixture's instance collection is deterministic, while a
       // headless Electron ray at the far instance can intermittently miss
@@ -99,6 +119,7 @@ function SceneContents() {
           projectWorldToScreen: _dropped,
           projectSelectionPivot: _pivot,
           selectionPivotWorld: _pivotWorld,
+          selectionBoundsWorld: _bounds,
           pointerOwner: _owner,
           selectMockInstance: _selection,
           ...rest
