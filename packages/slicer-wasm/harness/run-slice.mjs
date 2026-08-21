@@ -11,8 +11,10 @@ import { pathToFileURL } from 'node:url';
 import { argv, chdir } from 'node:process';
 
 // Runs one slice against a module factory. `stagedFiles` maps MEMFS paths to
-// Uint8Array/Buffer contents; returns the exit code and output bytes.
-export async function runSlice({ createModule, stagedFiles, mainArgs, outputPath, onLog }) {
+// Uint8Array/Buffer contents; returns the exit code, output bytes, captured
+// console output, and (with `readFiles`) the named MEMFS files read back
+// after the run (null when absent).
+export async function runSlice({ createModule, stagedFiles, mainArgs, outputPath, readFiles = [], onLog }) {
   const logs = [];
   const record = (line) => {
     logs.push(line);
@@ -49,7 +51,16 @@ export async function runSlice({ createModule, stagedFiles, mainArgs, outputPath
     output = null;
   }
 
-  return { exitCode, output, logs };
+  const extraFiles = {};
+  for (const path of readFiles) {
+    try {
+      extraFiles[path] = Module.FS.readFile(path);
+    } catch {
+      extraFiles[path] = null;
+    }
+  }
+
+  return { exitCode, output, logs, extraFiles };
 }
 
 // Derives the MEMFS invocation from host fixture paths. main() and the
@@ -123,13 +134,21 @@ function parseArgs(args) {
 
 async function main() {
   const opts = parseArgs(argv.slice(2));
-  const { module, stl, config, out = '/out.gcode' } = opts;
+  const { module, stl, config, out = '/out.gcode', loglevel = 'info' } = opts;
   if (!module || !stl || !config) {
     console.error(
-      'usage: node run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.json'
+      'usage: node run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.json [--loglevel trace|debug|info|warning|error|fatal]'
     );
     process.exit(2);
   }
+
+  // Boost.Log spot-check (doc/2026-08-21-wasm-boost-log.md): slice_main reads
+  // globalThis.ORCA_LOG_LEVEL at main() to set the severity filter; the file
+  // sink writes every accepted record to /tmp/orca.log (MEMFS). Levels up to
+  // info guarantee records (libslic3r logs config parsing at info); for
+  // warning/error/fatal an empty file is legitimate, so the check is
+  // informational then.
+  globalThis.ORCA_LOG_LEVEL = loglevel;
 
   // Fixture paths must be absolutized BEFORE loadModuleFactory chdirs —
   // resolve() against the old CWD would silently join the module dir instead.
@@ -148,6 +167,7 @@ async function main() {
     },
     mainArgs: inv.mainArgs,
     outputPath: out,
+    readFiles: ['/tmp/orca.log'],
     onLog: (line) => console.error(`[wasm] ${line}`),
   });
 
@@ -155,7 +175,22 @@ async function main() {
   console.log(`exit code: ${result.exitCode}`);
   console.log(`gcode: ${check.ok ? `OK (${check.bytes} bytes, ${check.lineCount} lines)` : `FAIL (${check.reason})`}`);
   if (check.ok) spotCheckGcode(result.output);
-  process.exit(check.ok && result.exitCode === 0 ? 0 : 1);
+
+  // Boost.Log evidence: console records that match the C++ formatter's
+  // [%Y-%m-%d ...] prefix, and the file sink's MEMFS output.
+  const consoleRecords = result.logs.filter((l) => /^\[\d{4}-\d{2}-\d{2}/.test(l));
+  const logBytes = result.extraFiles['/tmp/orca.log'];
+  const logText = logBytes ? Buffer.from(logBytes).toString('utf8') : '';
+  const logLines = logText ? logText.split('\n').filter((l) => l.trim()) : [];
+  const strictLog = ['trace', 'debug', 'info'].includes(loglevel);
+  const logOk = logLines.length > 0;
+  console.log(`log: file ${logOk ? `OK (${logBytes.length} bytes, ${logLines.length} records)` : `FAIL (${logBytes ? 'no records' : 'no /tmp/orca.log'})`}; console records: ${consoleRecords.length}`);
+  if (logLines.length > 0) {
+    console.log('log: first records:');
+    console.log(logLines.slice(0, 3).join('\n'));
+  }
+
+  process.exit(check.ok && result.exitCode === 0 && (!strictLog || logOk) ? 0 : 1);
 }
 
 // Run as CLI only when invoked directly (not when imported by tests).
