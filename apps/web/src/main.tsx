@@ -1,7 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from '@orca/slicer-app';
-import '@orca/slicer-app-css';
 import { PlatformProvider } from '@orca/platform-contract';
 import { createBrowserAdapter } from './browserAdapter';
 import { detectWebCapabilities } from './capabilities';

@@ -46,8 +46,6 @@ export default defineConfig({
   preview: { headers: isolationHeaders() },
   resolve: { alias: {
     '@': root('../../packages/slicer-app/src'),
-    '@orca/slicer-app': root('../../packages/slicer-app/src/index.ts'),
-    '@orca/slicer-app-css': root('../../packages/slicer-app/src/index.css'),
     '@orca/slicer-runtime': root('../../packages/slicer-runtime/src/index.ts'),
     '@orca/platform-contract': root('../../packages/platform-contract/src/index.ts'),
     '@slicer/client': root('../../packages/slicer-wasm/src/client/index.ts'),

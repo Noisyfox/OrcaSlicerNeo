@@ -10,8 +10,6 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "paths": {
       "@/*": ["../../packages/slicer-app/src/*"],
-      "@orca/slicer-app": ["../../packages/slicer-app/src/index.ts"],
-      "@orca/slicer-app-css": ["../../packages/slicer-app/src/index.css"],
       "@orca/slicer-runtime": ["../../packages/slicer-runtime/src/index.ts"],
       "@orca/platform-contract": ["../../packages/platform-contract/src/index.ts"],
       "@slicer/client": ["../../packages/slicer-wasm/src/client/index.ts"],

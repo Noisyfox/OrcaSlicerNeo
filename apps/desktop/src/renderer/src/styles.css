@@ -1,0 +1,4 @@
+/* The shared UI stylesheet (Tailwind v4 source) — imported css-to-css so the
+   host's own stylesheet is the single css entry point. Vite resolves the bare
+   specifier through the package's exports map (no alias involved). */
+@import '@orca/slicer-app/styles.css';

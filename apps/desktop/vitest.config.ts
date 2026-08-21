@@ -16,7 +16,6 @@ export default defineConfig({
     alias: {
       // same aliases as electron.vite.config.ts (Task 4)
       '@': appRoot,
-      '@orca/slicer-app': resolve(appRoot, 'index.ts'),
       '@orca/slicer-runtime': resolve(runtimeRoot, 'index.ts'),
       '@orca/platform-contract': resolve(platformRoot, 'index.ts'),
       '@slicer/client': resolve(clientRoot, 'index.ts'),

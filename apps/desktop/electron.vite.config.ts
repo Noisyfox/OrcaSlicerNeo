@@ -32,11 +32,8 @@ export default defineConfig({
       alias: {
         '@renderer': appRoot,
         '@': appRoot,
-        '@orca/slicer-app': resolve(appRoot, 'index.ts'),
-        '@orca/slicer-app-css': resolve(appRoot, 'index.css'),
         '@orca/slicer-runtime': resolve(runtimeRoot, 'index.ts'),
         '@orca/platform-contract': resolve(platformRoot, 'index.ts'),
-        '@orca/slicer-app/styles.css': resolve(appRoot, 'index.css'),
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       },

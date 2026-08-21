@@ -1,3 +1,8 @@
+/* The shared UI stylesheet (Tailwind v4 source) — imported css-to-css so the
+   host's own stylesheet is the single css entry point. Vite resolves the bare
+   specifier through the package's exports map (no alias involved). */
+@import '@orca/slicer-app/styles.css';
+
 .web-startup { min-height: 100vh; display: grid; place-content: center; gap: .75rem; padding: 2rem; font-family: system-ui, sans-serif; background: #181818; color: #eee; }
 .web-startup a { color: #60a5fa; }
 /* height: 100% (not min-height) so the html→body→#root→shell chain stays

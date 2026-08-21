@@ -1,7 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from '@orca/slicer-app';
-import '@orca/slicer-app-css';
+import './styles.css';
 import { slicerClient } from '@orca/slicer-runtime';
 import { createElectronAdapter } from './platform/electronAdapter';
 import { PlatformProvider } from '@orca/platform-contract';
