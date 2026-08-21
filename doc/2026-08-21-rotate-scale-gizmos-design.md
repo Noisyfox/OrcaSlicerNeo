@@ -226,15 +226,22 @@ Delivered as designed. Substantive findings worth remembering:
   stays along the scale-space axes, keeping the bbox centered on the pivot.
   Local mode (`spaceQuat` = object orientation) is unchanged (it already
   collapses to the plain local factor).
-- **Drop to bed after rotation:** verified correct — it translates the
-  selection down by the current world bbox min-Z (computed from the rotated
-  geometry), so the lowest point lands on the plate. The reported failure was
-  a downstream effect of the world-scale corruption above; unit + e2e now pin
-  both a rotated world-scale regression and a floating rotated drop.
+- **Drop to bed uses the TRUE mesh min-Z (fixed 2026-08-22):** an
+  arbitrarily-rotated model floated because `selectionBounds()` transforms
+  each geometry's LOCAL axis-aligned bbox and takes the AABB of the result —
+  for a non-axis-aligned rotation that rotated box over-approximates the
+  model (it extends below the true low point), so dropping to it left the real
+  vertices above the plate (a cube fills its box, which is why the mock
+  fixture masked it). `dropSelectionToBed()` now computes the exact world
+  min-Z over the actual transformed vertices (a one-time O(vertices) pass on a
+  user action). The gizmo pivot and selection outline keep the loose AABB
+  (fast, and the standard center for the helper). The unit/e2e assertions use
+  the real geometry (including the reported (-16, 41.8, 163.8) rotation), not
+  the loose box.
 
 ### Verification
 
-- `pnpm test` (all workspaces): 64/64 slicer-app tests incl. 37
+- `pnpm test` (all workspaces): 65/65 slicer-app tests incl. 38
   controller/math tests; desktop suite passWithNoTests.
 - `pnpm typecheck` (all workspaces): clean.
 - `pnpm --filter desktop test:e2e`: 5 passed / 1 skipped (the `slice-error`

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import type { ModelObjectBuffer } from '@slicer/client';
 import { GLVolume } from './GLVolume';
 import { SceneInteractionController } from './SceneInteractionController';
+import { EULER_ORDER } from './transformDeltaMath';
 
 function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number, offset: [number, number, number]): GLVolume {
   const buffer: ModelObjectBuffer = {
@@ -22,6 +23,23 @@ function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number, o
     volumeTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
   };
   return new GLVolume(buffer);
+}
+
+/** True world min-Z over the volume's actual (instance-transformed) vertices. */
+function geometryMinZ(volume: GLVolume): number {
+  const matrix = new THREE.Matrix4().compose(
+    new THREE.Vector3(...volume.instanceTransform.offset),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(...volume.instanceTransform.rotation, EULER_ORDER)),
+    new THREE.Vector3(...volume.instanceTransform.scale),
+  );
+  const position = volume.geometry.getAttribute('position');
+  let minZ = Infinity;
+  const vertex = new THREE.Vector3();
+  for (let i = 0; i < position.count; i++) {
+    vertex.fromBufferAttribute(position, i).applyMatrix4(matrix);
+    if (vertex.z < minZ) minZ = vertex.z;
+  }
+  return minZ;
 }
 
 describe('SceneInteractionController', () => {
@@ -395,12 +413,29 @@ describe('SceneInteractionController', () => {
       volume.instanceTransform.rotation = [Math.PI / 4, 0, 0];
     }
     controller.selectFromHit(volumes[0], false);
-    const before = controller.selectionBounds()!;
-    expect(before.min.z).toBeGreaterThan(0);
-
     expect(controller.dropSelectionToBed()).toBe(true);
-    const after = controller.selectionBounds()!;
-    expect(after.min.z).toBeCloseTo(0, 8);
+    // The drop must land the ACTUAL mesh on the plate (min-Z over the real
+    // transformed vertices), not the loose local-bbox AABB which under-counts.
+    const trueMinZ = geometryMinZ(volumes[0]);
+    expect(trueMinZ).toBeCloseTo(0, 8);
+  });
+
+  it('drops an arbitrarily-rotated model onto the plate (reported angles)', () => {
+    // The exact rotation the user hit: a general (non-axis-aligned) Euler
+    // whose rotated local-bbox AABB extends below the true mesh low point.
+    const radians = (d: number) => (d * Math.PI) / 180;
+    for (const volume of [volumes[0], volumes[1]]) {
+      volume.instanceTransform.offset = [10, 10, 40];
+      volume.instanceTransform.rotation = [radians(-16), radians(41.8), radians(163.8)];
+    }
+    controller.selectFromHit(volumes[0], false);
+    // Before the drop the true mesh is clearly off the plate.
+    expect(geometryMinZ(volumes[0])).toBeGreaterThan(1);
+    expect(controller.dropSelectionToBed()).toBe(true);
+    // After the drop the ACTUAL vertices touch the plate (min-Z === 0), even
+    // though the loose AABB would still extend below zero.
+    expect(geometryMinZ(volumes[0])).toBeCloseTo(0, 6);
+    expect(geometryMinZ(volumes[1])).toBeCloseTo(0, 6);
   });
 
   it('scales a rotated selection along the world axis', () => {

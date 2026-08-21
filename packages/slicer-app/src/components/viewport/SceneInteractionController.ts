@@ -338,9 +338,15 @@ export class SceneInteractionController {
   }
 
   dropSelectionToBed(): boolean {
-    const bounds = this.selectionBounds();
-    if (!bounds) return false;
-    return this.moveSelectionBy(new THREE.Vector3(0, 0, -bounds.min.z));
+    if (this.selection.empty) return false;
+    const minZ = this.exactWorldMinZ();
+    if (!Number.isFinite(minZ)) return false;
+    // Drop uses the TRUE world min-Z over the actual transformed vertices,
+    // not the selection's loose AABB. The AABB of a rotated local bbox
+    // over-approximates the model (it extends below the low point), so
+    // dropping to it would leave an arbitrarily-rotated model floating above
+    // the plate.
+    return this.moveSelectionBy(new THREE.Vector3(0, 0, -minZ));
   }
 
   /** Rotate every selected instance by a componentwise Euler delta (radians). */
@@ -486,6 +492,21 @@ export class SceneInteractionController {
     this.applyInstanceTransforms(next);
     this.emit();
     return true;
+  }
+
+  /** True world min-Z over the actual vertices of every selected instance. */
+  private exactWorldMinZ(): number {
+    let minZ = Infinity;
+    const vertex = new THREE.Vector3();
+    for (const volume of this.selectedVolumes()) {
+      const matrix = transformMatrix(volume.instanceTransform).multiply(transformMatrix(volume.volumeTransform));
+      const position = volume.geometry.getAttribute('position');
+      for (let i = 0; i < position.count; i++) {
+        vertex.fromBufferAttribute(position, i).applyMatrix4(matrix);
+        if (vertex.z < minZ) minZ = vertex.z;
+      }
+    }
+    return minZ;
   }
 
   private applyInstanceTransforms(transforms: ReadonlyMap<InstanceKey, ModelTransform>): void {
