@@ -54,8 +54,8 @@
 #
 # emsdk vs PATH: if emcc/emcmake are already on PATH (Homebrew emscripten,
 # or an emsdk env already sourced), the script uses them as-is. Otherwise
-# it auto-activates an emsdk install (EMSDK, then common locations) —
-# disable with --no-env.
+# it auto-activates an emsdk install found via the EMSDK env var or
+# emsdk_env.sh on PATH — disable with --no-env.
 # ================================================================
 set -euo pipefail
 
@@ -78,26 +78,29 @@ usage() { sed -n '2,59p' "$0" | sed 's/^# \{0,1\}//'; }
 
 # ---------------- emsdk auto-activation ----------------
 # Already on PATH (Homebrew emscripten, sourced emsdk env)? Use it as-is;
-# else find an emsdk install and source emsdk_env.sh. --no-env skips the
-# search and requires emcmake on PATH.
+# else source emsdk_env.sh from the EMSDK env var, or found on PATH.
+# --no-env skips the search and requires emcmake on PATH.
 ensure_emsdk() {
   if command -v emcmake >/dev/null 2>&1; then
     log "emcc: $(emcc --version | head -1)"
     return 0
   fi
   [[ "$AUTO_ENV" == 1 ]] || die "emcmake not on PATH (pass --no-env only when emsdk is already active)."
-  local cand
-  for cand in "${EMSDK:-}" "$HOME/emsdk" "$HOME/src/emsdk" /opt/emsdk; do
-    if [[ -n "$cand" && -f "$cand/emsdk_env.sh" ]]; then
-      log "Activating emsdk at $cand"
-      # shellcheck disable=SC1090
-      source "$cand/emsdk_env.sh" >/dev/null 2>&1 || die "sourcing $cand/emsdk_env.sh failed"
-      command -v emcmake >/dev/null 2>&1 || die "emsdk_env.sh sourced but emcmake still missing"
-      log "emcc: $(emcc --version | head -1)"
-      return 0
-    fi
-  done
-  die "Emscripten not found. Install emsdk and 'source <emsdk>/emsdk_env.sh' (or brew install emscripten), or set EMSDK."
+  local emsdk_env=""
+  if [[ -n "${EMSDK:-}" && -f "$EMSDK/emsdk_env.sh" ]]; then
+    emsdk_env="$EMSDK/emsdk_env.sh"
+  elif command -v emsdk_env.sh >/dev/null 2>&1; then
+    emsdk_env="$(command -v emsdk_env.sh)"
+  fi
+  if [[ -n "$emsdk_env" ]]; then
+    log "Activating emsdk at $(dirname "$emsdk_env")"
+    # shellcheck disable=SC1090
+    source "$emsdk_env" >/dev/null 2>&1 || die "sourcing $emsdk_env failed"
+    command -v emcmake >/dev/null 2>&1 || die "emsdk_env.sh sourced but emcmake still missing"
+    log "emcc: $(emcc --version | head -1)"
+    return 0
+  fi
+  die "Emscripten not found. Set EMSDK to an emsdk install (containing emsdk_env.sh), put emsdk_env.sh on PATH, or add emcc/emcmake to PATH (e.g. brew install emscripten)."
 }
 
 log()  { printf '\033[1;36m[build]\033[0m %s\n' "$*"; }
@@ -170,14 +173,18 @@ case "$CMD" in
       echo "emsdk already active: emcc $(emcc --version | head -1)"
     else
       echo "emsdk NOT active. In your shell, run:"
-      for cand in "${EMSDK:-}" "$HOME/emsdk" "$HOME/src/emsdk" /opt/emsdk; do
-        if [[ -n "$cand" && -f "$cand/emsdk_env.sh" ]]; then
-          echo "  source $cand/emsdk_env.sh"
-          echo "(found at $cand — the script auto-activates it for other commands)"
-          exit 0
-        fi
-      done
+      if [[ -n "${EMSDK:-}" && -f "$EMSDK/emsdk_env.sh" ]]; then
+        echo "  source $EMSDK/emsdk_env.sh"
+        echo "(found at $EMSDK — the script auto-activates it for other commands)"
+        exit 0
+      fi
+      if command -v emsdk_env.sh >/dev/null 2>&1; then
+        echo "  source $(command -v emsdk_env.sh)"
+        echo "(found on PATH — the script auto-activates it for other commands)"
+        exit 0
+      fi
       echo "  source <emsdk-path>/emsdk_env.sh   # after installing emsdk"
+      echo "(or set EMSDK=<emsdk-path> and re-run — the script auto-activates it)"
       echo "(or brew install emscripten — then emcc/emcmake are on PATH, no emsdk needed)"
     fi
     ;;

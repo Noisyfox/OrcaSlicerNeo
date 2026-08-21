@@ -53,9 +53,10 @@ See [project_structure_and_guidelines.md](project_structure_and_guidelines.md) a
 - **Git** — the C++ core is a submodule
   (`packages/slicer-wasm/cpp` → `Noisyfox/OrcaSlicer`)
 - **Emscripten (emsdk)** — only needed for the WASM build. The build driver
-  auto-activates an emsdk install (`C:\emsdk` first on Windows; `$HOME/emsdk`
-  and friends on macOS/Linux), or uses `emcc`/`emcmake` already on PATH
-  (e.g. Homebrew emscripten). Run `<driver> env` to see the activation line.
+  uses `emcc`/`emcmake` already on PATH (e.g. Homebrew emscripten), or
+  auto-activates an emsdk install found via the `EMSDK` env var or
+  `emsdk_env.bat`/`emsdk_env.sh` on PATH. Run `<driver> env` to see the
+  activation line.
 - **CMake (≥ 3.20) and Ninja** — used by the WASM build (`emcmake cmake
   -G Ninja` configure, `emmake ninja` build) and the dep builds. emsdk
   bundles both, so auto-activation covers them; if you use an emscripten

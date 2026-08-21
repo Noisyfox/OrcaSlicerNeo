@@ -105,7 +105,8 @@ proved feasibility and contains reusable machinery:
   `quick` is the incremental ninja loop for bridge changes, rebuilding both
   variant trees by default (`--variant threaded|serial` limits it); `smoke`
   runs the harnesses against both variants. The driver auto-activates emsdk
-  (`C:\emsdk` first) and takes `-j N`, `--variant`, `--no-env`, `--debug`, `-v`.
+  (via the `EMSDK` env var or `emsdk_env` on PATH; emcc/emcmake on PATH are
+  used as-is) and takes `-j N`, `--variant`, `--no-env`, `--debug`, `-v`.
   `--debug` (or `WASM_DEBUG=1`) builds the libslic3r/bridge part with `-g -O0`
   so the module embeds DWARF for interactive source-level debugging in Chrome
   DevTools; deps (Boost/oneTBB/vendored) stay release without debug info — see

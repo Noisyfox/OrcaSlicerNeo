@@ -135,15 +135,14 @@ echo                    configured with it ^(checked, with a clear error^).
 echo   -v               echo on ^(print every command^).
 exit /b 0
 
-REM ---- locate an emsdk install (EMSDK env, then common locations) ----
+REM ---- locate an emsdk install: EMSDK env var, else emsdk_env.bat on PATH ----
 :find_emsdk
 set "EMSDK_DIR="
 if defined EMSDK if exist "%EMSDK%\emsdk_env.bat" set "EMSDK_DIR=%EMSDK%"
-if not defined EMSDK_DIR if exist "%USERPROFILE%\emsdk\emsdk_env.bat" set "EMSDK_DIR=%USERPROFILE%\emsdk"
-if not defined EMSDK_DIR if exist "C:\emsdk\emsdk_env.bat" set "EMSDK_DIR=C:\emsdk"
-if not defined EMSDK_DIR if exist "D:\emsdk\emsdk_env.bat" set "EMSDK_DIR=D:\emsdk"
-if not defined EMSDK_DIR if exist "%USERPROFILE%\src\emsdk\emsdk_env.bat" set "EMSDK_DIR=%USERPROFILE%\src\emsdk"
-if not defined EMSDK_DIR if exist "F:\emsdk\emsdk_env.bat" set "EMSDK_DIR=F:\emsdk"
+if not defined EMSDK_DIR (
+  for /f "delims=" %%i in ('where emsdk_env 2^>nul') do if not defined EMSDK_DIR set "EMSDK_DIR=%%~dpi"
+)
+if defined EMSDK_DIR if "%EMSDK_DIR:~-1%"=="\" set "EMSDK_DIR=%EMSDK_DIR:~0,-1%"
 exit /b 0
 
 :ensure_emsdk
@@ -159,7 +158,7 @@ if "%AUTO_ENV%"=="0" (
 )
 call :find_emsdk
 if not defined EMSDK_DIR (
-  echo [winbuild] ERROR: Emscripten not found. Install emsdk and re-run, or set EMSDK.
+  echo [winbuild] ERROR: Emscripten not found. Add emcc/emcmake to PATH, set EMSDK to an emsdk install, or add emsdk_env.bat to PATH.
   exit /b 1
 )
 echo [winbuild] Activating emsdk at %EMSDK_DIR%
@@ -190,7 +189,8 @@ if defined EMSDK_DIR (
   echo   call "%EMSDK_DIR%\emsdk_env.bat"
   echo ^(found at %EMSDK_DIR% - the other commands auto-activate it^)
 ) else (
-  echo   call ^<emsdk-path^>\emsdk_env.bat   after installing emsdk
+  echo   set "EMSDK=<path-to-emsdk>"   then re-run ^(the commands auto-activate it^)
+  echo   or add emcc/emcmake to PATH ^(e.g. call ^<emsdk^>\emsdk_env.bat^)
 )
 exit /b 0
 
