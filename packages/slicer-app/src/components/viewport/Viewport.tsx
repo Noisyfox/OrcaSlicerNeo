@@ -5,6 +5,7 @@ import { Canvas, events as createPointerEvents, type RootState } from '@react-th
 import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
+import { GizmoToolbar } from './GizmoToolbar';
 import type { SceneInteractionController } from './SceneInteractionController';
 import { filterBuildPlateOccludedIntersections } from './buildPlatePointerOcclusion';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
@@ -39,8 +40,9 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ onSceneInteractionChange }: {
+export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
   onSceneInteractionChange: (controller: SceneInteractionController | null) => void;
+  sceneInteraction: SceneInteractionController | null;
 }) {
   // Ref is only consumed as a prop target (drei Stats `parent`), never read
   // by this component — so it can be typed without the null union, which
@@ -159,6 +161,7 @@ export function Viewport({ onSceneInteractionChange }: {
         </Canvas>
       </ViewportErrorBoundary>
       <LayerScrubber />
+      <GizmoToolbar sceneInteraction={sceneInteraction} />
     </div>
   );
 }
