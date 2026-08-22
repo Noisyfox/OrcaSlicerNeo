@@ -977,7 +977,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         // surface: process_file/get_result signatures (Step 1).
         print.export_gcode("/out.gcode", nullptr, nullptr);
 
-        const size_t layers = print.objects().front()->layers().size();
         Slic3r::GCodeProcessorResult gcode_result;
         {
             Slic3r::GCodeProcessor processor;
@@ -985,6 +984,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             gcode_result = processor.get_result();
         }
         auto tp = bridge::build_toolpath(gcode_result);
+        // Layer count = max layer id present in the toolpath + 1. The gcode
+        // spans the whole plate, so this covers every object's height — the
+        // previous objects().front() cap hid taller objects' extra layers.
+        const size_t layers = tp.layerCount;
 
         // Feature palette (local id → name/color). build_toolpath assigns
         // ids 0..N-1 in order of first use; the features buffer holds those

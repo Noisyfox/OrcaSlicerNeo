@@ -9,6 +9,7 @@
 // Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/.
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 
+#include <algorithm>
 #include <map>
 #include <string>
 
@@ -40,6 +41,7 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
     ToolpathBuffers out;
     const auto& palette = feature_palette();
     std::map<ExtrusionRole, std::uint32_t> feature_ids;
+    std::uint32_t max_layer_id = 0;
     for (const auto& mv : result.moves) {
         // Drift at the pinned SHA: MoveVertex::extrusion_role is the
         // extrusion-role field (MoveVertex::type is the EMoveType move
@@ -50,7 +52,9 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
         out.positions.appendF32(static_cast<float>(mv.position.y()));
         out.positions.appendF32(static_cast<float>(mv.position.z()));
         // MoveVertex::layer_id is unsigned at the pinned SHA — no < 0 case.
-        out.layers.appendU32(static_cast<std::uint32_t>(mv.layer_id));
+        const std::uint32_t layer_id = static_cast<std::uint32_t>(mv.layer_id);
+        out.layers.appendU32(layer_id);
+        max_layer_id = std::max(max_layer_id, layer_id);
         auto fid = feature_ids.find(mv.extrusion_role);
         if (fid == feature_ids.end()) {
             fid = feature_ids.emplace(mv.extrusion_role, static_cast<std::uint32_t>(out.palette_used.size())).first;
@@ -58,6 +62,7 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
         }
         out.features.appendU32(fid->second);
     }
+    out.layerCount = out.layers.size > 0 ? static_cast<size_t>(max_layer_id) + 1 : 0;
     return out;
 }
 

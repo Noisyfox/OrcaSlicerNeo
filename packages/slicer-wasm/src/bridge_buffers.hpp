@@ -82,6 +82,11 @@ struct ToolpathBuffers {
     MallocBuffer positions;   // Float32 xyz per vertex
     MallocBuffer layers;      // Uint32 layer_id per vertex
     MallocBuffer features;    // Uint32 palette index per vertex
+    // Number of preview layers: max 0-based layer id in `layers` + 1
+    // (0 when no vertices were produced). The gcode spans every printed
+    // layer of the whole plate, so this is the total preview layer count
+    // even when objects on the plate differ in height.
+    size_t layerCount = 0;
     // Local palette: index into this vector == the id recorded in
     // `features`. Kept local (0..N-1) so the JSON feature list in
     // orc_get_slice_result lines up with the buffer values 1:1.
