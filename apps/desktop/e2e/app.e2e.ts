@@ -360,6 +360,8 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByTestId('move-panel')).toBeVisible();
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
+      // An opened gizmo takes over the selection visual — the box hides.
+      await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
 
       // Ctrl-select the second instance, then body-drag the first mesh away
       // from the aggregate gizmo. The panel proves the live DragControls path
@@ -372,9 +374,8 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
         }).__orcaE2e?.selectMockInstance?.(1, true),
       )).resolves.toBe(true);
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
-      // Multi-selection renders one box around the aggregate bounds.
-      await expect.poll(() => selectionBoxWorldSegments(page))
-        .toEqual({ min: [0, 0, 0], max: [70, 20, 20], segmentCount: 24 });
+      // Still hidden while the gizmo stays armed.
+      await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
       const bodyPivotBefore = await Promise.all(['x', 'y', 'z'].map((axis) =>
         page.getByTestId(`move-${axis}`).inputValue(),
       ));
@@ -695,6 +696,27 @@ test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
       await expect(page.getByTestId('rotate-y')).toHaveValue('0.0');
       await page.getByTestId('rotate-reset').click();
       await expect(page.getByTestId('rotate-x')).toHaveValue('0.0');
+
+      // Closing the gizmo (toggle off) restores the selection box.
+      await page.getByTestId('gizmo-btn-rotate').click();
+      await expect(page.getByTestId('gizmo-btn-rotate')).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.getByTestId('rotate-panel')).toBeHidden();
+      // It frames the CURRENT selection bounds (the gizmo edits above can
+      // legitimately move the pivot), still as one 24-segment box.
+      await expect
+        .poll(async () => {
+          const box = await selectionBoxWorldSegments(page);
+          const bounds = await page.evaluate(() =>
+            (window as unknown as {
+              __orcaE2e?: { selectionBoundsWorld?: () => { min: number[]; max: number[] } | null };
+            }).__orcaE2e?.selectionBoundsWorld?.() ?? null,
+          );
+          if (!box || !bounds) return false;
+          return box.segmentCount === 24
+            && box.min.every((v, i) => Math.abs(v - bounds.min[i]) < 1e-6)
+            && box.max.every((v, i) => Math.abs(v - bounds.max[i]) < 1e-6);
+        }, { timeout: 10_000 })
+        .toBe(true);
     } catch (err) {
       await diag.dump();
       throw err;

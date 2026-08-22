@@ -49,8 +49,12 @@ The look is taken from the pinned upstream source
   - subscribes through `useSceneInteractionVersion()`, so the box follows
     selection changes **and** live transform drags (every controller `emit`
     bumps the version);
-  - hides while a gizmo drag owns the pointer, mirroring the native
-    `!m_gizmos.is_running()` gate; body drags keep it visible and following.
+  - renders only while **no gizmo is open** — arming move/rotate/scale from
+    the toolbar hides the box (the gizmo takes over the selection visual),
+    and closing the gizmo restores it. This is a deliberate deviation from
+    the native `!m_gizmos.is_running()` gate, which hides the box only while
+    a gizmo drag is in progress. Body drags keep the box visible and
+    following.
 - `Scene.tsx` mounts `<SelectionBoundsBox />` right after the volume meshes,
   mirroring the native render order (opaque models → selection box → gizmos).
 

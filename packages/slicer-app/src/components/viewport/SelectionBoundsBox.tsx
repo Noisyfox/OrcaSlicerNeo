@@ -17,10 +17,10 @@ export function SelectionBoundsBox() {
   const invalidate = useThree((s) => s.invalidate);
 
   const bounds = sceneInteraction.selectionBounds();
-  // Native hides the box only while a gizmo drag is running; body drags keep
-  // it visible and following the selection.
-  const draggingGizmo = sceneInteraction.owner === 'gizmo';
-  const positions = bounds && !draggingGizmo ? selectionBoundsBoxPositions(bounds) : null;
+  // The box renders only while no gizmo is opened — an armed gizmo takes over
+  // the selection visual. Body drags keep it visible and following.
+  const gizmoOpen = sceneInteraction.gizmo !== null;
+  const positions = bounds && !gizmoOpen ? selectionBoundsBoxPositions(bounds) : null;
 
   const geometry = useMemo(() => {
     const geo = new THREE.BufferGeometry();
