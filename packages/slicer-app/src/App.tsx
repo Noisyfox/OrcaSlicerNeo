@@ -26,6 +26,25 @@ export default function App() {
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
 
+  // The app's only context menus are the 3D scene's own menu
+  // (SceneContextMenu, right-click on empty viewport space) and the native
+  // copy/paste menus on editable controls. Right-clicking empty space outside
+  // any editor — the toolbar row, settings sidebar, status bar — must not
+  // surface the browser/host default menu.
+  useEffect(() => {
+    const suppressEmptySpaceContextMenu = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      // Editable controls keep the native menu (copy/paste, spellcheck).
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      // The WebGL viewport owns its own scene context menu.
+      if (target.closest('canvas[data-engine^="three.js"]')) return;
+      event.preventDefault();
+    };
+    document.addEventListener('contextmenu', suppressEmptySpaceContextMenu, true);
+    return () => document.removeEventListener('contextmenu', suppressEmptySpaceContextMenu, true);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {

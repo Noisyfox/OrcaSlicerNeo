@@ -24,7 +24,7 @@ The app toolbar row then carries only Slice and Export.
 | Clear Scene placement | Right-click context menu on empty scene space | User request |
 | "Empty space" definition | The topmost scene raycast hit under the cursor is **not** a model body | The bed/plate and the background are empty; right-clicking a model keeps doing nothing |
 | Menu trigger timing | Open on right-button **release** without meaningful movement (4 px) | Right-drag still pans the camera (`OrbitControls` RIGHT=PAN); a context menu that opens on right-button-down would break panning |
-| Native context menu | Suppressed (`preventDefault`) for the whole canvas | The host/browser default menu must never appear inside the 3D scene |
+| Native context menu | Suppressed app-wide outside editors: the 3D canvas (which owns the scene menu) and editable controls (which keep copy/paste) are the only surfaces with a menu | Right-clicking empty space in the toolbar row, settings sidebar, or status bar must never surface the browser/host default menu |
 
 ## Flow
 
@@ -52,6 +52,11 @@ reset scene interaction. Disabled until the boot preset lists arrive.
    with no model loaded), reusing the shared `clearScene` action.
 5. The menu closes on an outside pointer press, Escape, or selecting the
    item.
+
+An app-level `contextmenu` capture guard (`App.tsx`) suppresses the native
+menu for any right-click on empty space that is not on the WebGL canvas and
+not on an editable control (`input` / `textarea` / `select` /
+`contenteditable`).
 
 ## Files
 
