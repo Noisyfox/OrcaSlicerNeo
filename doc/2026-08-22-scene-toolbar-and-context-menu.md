@@ -35,7 +35,10 @@ the shared `addModel(platform, sceneInteraction)` action extracted from the
 old `Toolbar` (`packages/slicer-app/src/components/toolbar/sceneActions.ts`):
 host file picker → wait for any settled transform commit → `runtime.addModel`
 → invalidate the sliced result, record the display name, flip `modelLoaded`,
-reset scene interaction. Disabled until the boot preset lists arrive.
+reset scene interaction. Disabled until the boot preset lists arrive. The
+scene right-click menu offers the same action as its **Add Model** entry
+(below Add Cube); there it is gated on slicing state only, matching the
+menu's Add Cube item.
 
 ### Clear Scene (context menu)
 
@@ -48,8 +51,10 @@ reset scene interaction. Disabled until the boot preset lists arrive.
    a model body.
 3. On right-button `pointerup`, if the pointer moved less than 4 px and the
    press did not start on a model body, the menu opens at the cursor.
-4. The menu shows a single **Clear Scene** item (disabled while slicing or
-   with no model loaded), reusing the shared `clearScene` action.
+4. The menu shows **Clear Scene** at the top, a separator, then **Add Cube**
+   and **Add Model**; Clear Scene reuses the shared `clearScene` action and
+   is disabled while slicing or with no model loaded, while the add items
+   are disabled only while slicing.
 5. The menu closes on an outside pointer press, Escape, or selecting the
    item.
 
@@ -65,7 +70,8 @@ not on an editable control (`input` / `textarea` / `select` /
 - `packages/slicer-app/src/components/viewport/GizmoToolbar.tsx` — Add Model
   button at the first position.
 - `packages/slicer-app/src/components/viewport/SceneContextMenu.tsx` — the
-  empty-space right-click menu.
+  empty-space right-click menu (Clear Scene / separator / Add Cube /
+  Add Model).
 - `packages/slicer-app/src/components/viewport/Viewport.tsx` — wraps the
   canvas with `SceneContextMenu`.
 - `packages/slicer-app/src/components/toolbar/Toolbar.tsx` — now Slice +
@@ -79,6 +85,8 @@ not on an editable control (`input` / `textarea` / `select` /
   the canvas), opens the context menu, and clears the scene through it.
 - Electron e2e: after Delete empties the plate, right-click opens the menu
   with **Clear Scene** disabled.
+- Electron e2e (mock + real): the context menu's **Add Model** entry
+  (`btn-ctx-add-model`) imports through the host picker and unlocks Slice.
 - `btn-add-model` keeps its test id in its new toolbar position, so the
   remaining add-model e2e paths (web, preferences, packaged smoke) are
   unchanged.

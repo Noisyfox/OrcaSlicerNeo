@@ -17,12 +17,13 @@ selectable, transformable, sliceable, and exportable.
 |---|---|---|
 | Primitive mesh source | A binary STL generated in the shared app and fed through the existing `runtime.addModel(bytes, 'stl')` path | The verified load pipeline (parse → `center_around_origin` → `ensure_on_bed` → add to the live `Model`) already places an STL cube exactly like OrcaSlicer's primitive: 20 mm, centered on X/Y, resting on the bed. No bridge, client, or WASM build changes — the cube works identically in mock, threaded, and serial builds. |
 | Cube dimensions | 20 × 20 × 20 mm (OrcaSlicer's default primitive size) | Matches OrcaSlicer's Add Cube default. |
-| Menu placement | **Add Cube** above **Clear Scene**, disabled while slicing | OrcaSlicer puts primitive creation at the top of the scene menu; the existing Clear Scene item stays below. |
+| Menu placement | **Clear Scene** first, then a separator, then **Add Cube** above **Add Model**; all disabled while slicing | User request: the destructive scene action sits at the top of the menu, separated from the add actions; OrcaSlicer's primitive/import entries follow it. |
 | Menu item naming | "Add Cube" (`btn-add-cube`) | Mirrors OrcaSlicer's menu label; the mock module's cube fixture is already 20 mm, so e2e assertions hold in both modes. |
 
 ## Flow
 
-`SceneContextMenu` renders a second menuitem. Clicking it calls the shared
+`SceneContextMenu` renders the Add Cube menuitem after Clear Scene +
+separator and before Add Model. Clicking it calls the shared
 `addCube(platform, sceneInteraction)` action in
 `packages/slicer-app/src/components/toolbar/sceneActions.ts`, which reuses the
 same post-add choreography as `addModel` (wait for any settled transform
@@ -44,8 +45,8 @@ watertight, so libslic3r's importer and the slicer treat it like any STL.
   watertightness, and orientation unit tests.
 - `packages/slicer-app/src/components/toolbar/sceneActions.ts` — extracted
   `addModelBytes` commit helper; new `addCube` action.
-- `packages/slicer-app/src/components/viewport/SceneContextMenu.tsx` — Add
-  Cube menuitem above Clear Scene.
+- `packages/slicer-app/src/components/viewport/SceneContextMenu.tsx` — menu
+  layout (Clear Scene / separator / Add Cube / Add Model).
 - `apps/desktop/e2e/app.e2e.ts` — context-menu Add Cube e2e coverage.
 
 ## Tests
@@ -54,7 +55,8 @@ watertight, so libslic3r's importer and the slicer treat it like any STL.
   exactly two triangles (watertight), positive signed volume (outward
   winding).
 - Electron e2e (mock + real): right-click empty scene space opens the menu;
-  **Add Cube** enables Slice; mock mode additionally selects the added
-  instance and asserts its world bounds are 20 mm.
+  **Add Cube** and the context-menu **Add Model** entry both enable Slice;
+  mock mode additionally selects the added instance and asserts its world
+  bounds are 20 mm.
 - `pnpm test` + `pnpm typecheck` (all workspaces) green; no WASM quick build
   needed — no bridge or build-scaffold changes.

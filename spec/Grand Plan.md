@@ -279,12 +279,17 @@ cross-origin isolation is available, and serial WASM otherwise.
 - [x] Clear Scene in the scene right-click menu on empty space (bed plate or
       background, not a model body); right-drag pan preserved; the native
       host/browser context menu is suppressed in the scene
-- [x] Add Cube in the scene right-click menu (above Clear Scene): appends
-      OrcaSlicer's 20 mm cube primitive through the standard model pipeline
-      (`doc/2026-08-22-scene-context-menu-add-cube.md`); no bridge changes
+- [x] Scene right-click menu layout: **Clear Scene** first, separator, then
+      **Add Cube** and **Add Model** (the latter reuses the host picker
+      import; `btn-ctx-add-model` in e2e)
+- [x] Add Cube in the scene right-click menu (after Clear Scene +
+      separator): appends OrcaSlicer's 20 mm cube primitive through the
+      standard model pipeline (`doc/2026-08-22-scene-context-menu-add-cube.md`);
+      no bridge changes
 - [x] Electron e2e: the full flow clears via the context menu; an emptied
-      plate shows the disabled menu item after Delete; Add Cube unlocks Slice
-      and (mock mode) reports a 20 mm selectable box
+      plate shows the disabled menu item after Delete; Add Cube and the
+      context-menu Add Model entry unlock Slice and (mock mode) report a
+      20 mm selectable box
 
 ## Post-v1 Expansion (queued, not yet scheduled)
 

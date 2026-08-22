@@ -323,6 +323,54 @@ test('scene context menu: Add Cube appends a 20 mm primitive', async () => {
   }
 });
 
+// The scene right-click menu's Add Model routes through the same host file
+// picker as the gizmo toolbar (ORCA_E2E_MODEL in e2e): Slice unlocks
+// immediately and (mock mode) the imported fixture is a selectable 20 mm box.
+test('scene context menu: Add Model imports through the host picker', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      await expect(page.getByTestId('btn-slice')).toBeDisabled();
+
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      const emptySpace = { x: box.x + box.width - 40, y: box.y + 40 };
+      await page.mouse.click(emptySpace.x, emptySpace.y, { button: 'right' });
+      await expect(page.getByTestId('ctx-menu')).toBeVisible();
+      await expect(page.getByTestId('btn-ctx-add-model')).toBeEnabled();
+      await page.getByTestId('btn-ctx-add-model').click();
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+
+      if (!REAL) {
+        // The mock's addModel fixture is the 20 mm cube: selecting the new
+        // instance must report 20 mm world bounds.
+        await expect.poll(() => page.evaluate(() =>
+          (window as unknown as {
+            __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
+          }).__orcaE2e?.selectMockInstance?.(0, false) ?? false,
+        )).toBe(true);
+        await expect.poll(() => page.evaluate(() => {
+          const bounds = (window as unknown as {
+            __orcaE2e?: { selectionBoundsWorld?: () => { size: [number, number, number] } | null };
+          }).__orcaE2e?.selectionBoundsWorld?.();
+          return bounds ? bounds.size : null;
+        })).toEqual([20, 20, 20]);
+      }
+    } catch (err) {
+      await diag.dump();
+      throw err;
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 // Scene-owned selection: a TransformControls handle wins over an overlapping
 // DragControls body, and the move panel edits the aggregate pivot for every
 // selected instance. The mock e2e fixture has two 20 mm instances at X=0/50.
