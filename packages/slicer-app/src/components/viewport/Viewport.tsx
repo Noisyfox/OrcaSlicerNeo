@@ -3,6 +3,7 @@ import { Component, useCallback, useEffect, useRef, useState, type ComponentProp
 import * as THREE from 'three';
 import { Canvas, events as createPointerEvents, type RootState } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
+import { BED_SIZE } from './BedPlate';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
@@ -15,6 +16,20 @@ import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { deleteSelectedObjects } from '../toolbar/deleteSelection';
+
+// Launch camera: look at the plate center (the bed spans [0, BED_SIZE]² in
+// XY with Z up), with the plate at 45° to the screen plane and its X axis
+// horizontal. For the plate plane (XY, normal Z) to make 45° with the screen
+// plane, the view direction sits at 45° elevation — f ∝ (0, 1, -1) from the
+// front −Y octant — and with camera up = Z the screen-right vector is
+// f × up ∝ (1, 0, 0), so X is exactly horizontal and points right.
+const CAMERA_TARGET: [number, number, number] = [BED_SIZE / 2, BED_SIZE / 2, 0];
+const CAMERA_DISTANCE = 450;
+const DEFAULT_CAMERA_POSITION: [number, number, number] = [
+  BED_SIZE / 2,
+  BED_SIZE / 2 - CAMERA_DISTANCE / Math.SQRT2,
+  CAMERA_DISTANCE / Math.SQRT2,
+];
 
 const viewportEvents: ComponentProps<typeof Canvas>['events'] = (state) => {
   const defaultEvents = createPointerEvents(state);
@@ -280,12 +295,12 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
             frameloop="demand"
             // Slicer convention: Z up (blue), X right, Y into screen. The camera
             // is born with up = (0,0,1) — THREE.Object3D.DefaultUp is set in
-            // main.tsx before the Canvas mounts, and fiber's default camera
-            // lookAt(0,0,0) uses this.up — so no per-camera up wiring here.
+            // main.tsx before the Canvas mounts — so no per-camera up wiring
+            // here. The launch view looks at the plate center with X horizontal
+            // and the plate at 45° to the screen plane (DEFAULT_CAMERA_POSITION
+            // above); the OrbitControls target below keeps that framing.
             // OrbitControls in three r185 takes its orbit axis from camera.up.
-            // position in the front (+X, -Y) octant so the initial view reads
-            // the convention: X right, Y into the screen, Z up.
-            camera={{ position: [200, -200, 160], fov: 45 }}
+            camera={{ position: DEFAULT_CAMERA_POSITION, fov: 45 }}
             dpr={[1, 2]}
             onCreated={(state) => {
               sceneStateRef.current = state;
@@ -306,6 +321,7 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
             <OrbitControls
               makeDefault
               enableDamping
+              target={CAMERA_TARGET}
               // LEFT = orbit, RIGHT = pan, MIDDLE = zoom. Body/gizmo drags
               // (DragControls dragConfig, MoveGizmo) disable orbit for the
               // gesture's duration.
