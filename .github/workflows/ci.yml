@@ -108,7 +108,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r test
       - run: pnpm -r typecheck
-      - run: pnpm --filter desktop build
+      - run: pnpm --filter @orca/desktop build
 
   e2e-mock:
     name: e2e (mock module)
@@ -122,7 +122,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: e2e — full v1 flow (mock-built app)
-        run: xvfb-run -a pnpm --filter desktop test:e2e
+        run: xvfb-run -a pnpm --filter @orca/desktop test:e2e
 
   e2e-real:
     name: e2e (real module)
@@ -144,7 +144,7 @@ jobs:
           path: packages/slicer-wasm/out
       - run: node scripts/stage-wasm.mjs
       - name: e2e — full v1 flow (real module, asserts G1 moves in exported gcode)
-        run: xvfb-run -a pnpm --filter desktop test:e2e:real
+        run: xvfb-run -a pnpm --filter @orca/desktop test:e2e:real
 
   package:
     name: Package (${{ matrix.name }})
@@ -180,7 +180,7 @@ jobs:
           path: packages/slicer-wasm/out
       - run: node scripts/stage-wasm.mjs
       - name: electron-builder (${{ matrix.name }})
-        run: pnpm --filter desktop package -- ${{ matrix.args }}
+        run: pnpm --filter @orca/desktop package -- ${{ matrix.args }}
       - name: Upload installer(s)
         uses: actions/upload-artifact@v7
         with:

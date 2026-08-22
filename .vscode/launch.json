@@ -25,7 +25,7 @@
             "request": "launch",
             "runtimeArgs": [
                 "--filter",
-                "desktop",
+                "@orca/desktop",
                 "dev",
                 "--sourcemap"
             ],

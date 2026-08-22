@@ -6,7 +6,7 @@
 //
 // Requires (run in order; public/wasm is gitignored so this never ships):
 //   node scripts/stage-stub-wasm.mjs    # plain-JS stub module → public/wasm/
-//   pnpm --filter desktop package:dir   # release/win-unpacked/ (no-mock build)
+//   pnpm --filter @orca/desktop package:dir   # release/win-unpacked/ (no-mock build)
 //   npx playwright test e2e/packaged.e2e.ts
 // CI e2e-real covers the same path with the real module in the dev build.
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';

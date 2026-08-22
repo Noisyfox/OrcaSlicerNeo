@@ -21,7 +21,7 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: 'pnpm --filter web build && pnpm --filter web preview --host 127.0.0.1',
+    command: 'pnpm --filter @orca/web build && pnpm --filter @orca/web preview --host 127.0.0.1',
     cwd: '../..',
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,

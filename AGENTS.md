@@ -116,8 +116,8 @@ proved feasibility and contains reusable machinery:
 - WASM: `packages\slicer-wasm\build.bat` (cmd; `call <emsdk>\emsdk_env.bat`
   first, or use the driver; ~50 GB disk for the dep build)
 - Node smoke: `node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json` (variants live under `out/{threaded,serial}/`)
-- App dev: `pnpm --filter desktop dev` (electron-vite) / `pnpm --filter web dev` (Vite). The `predev` hooks stage the WASM module and the profile packages into the shared renderer public dir; the profile packages must be built first via `pnpm --filter @orca/profile-resources build` (staging fails without them, or warns in mock mode)
-- e2e: `pnpm --filter desktop test:e2e` (Playwright Electron); `pnpm --filter web test:e2e:threaded` / `test:e2e:serial` (Playwright Chrome, real artifacts)
+- App dev: `pnpm --filter @orca/desktop dev` (electron-vite) / `pnpm --filter @orca/web dev` (Vite). The `predev` hooks stage the WASM module and the profile packages into the shared renderer public dir; the profile packages must be built first via `pnpm --filter @orca/profile-resources build` (staging fails without them, or warns in mock mode)
+- e2e: `pnpm --filter @orca/desktop test:e2e` (Playwright Electron); `pnpm --filter @orca/web test:e2e:threaded` / `test:e2e:serial` (Playwright Chrome, real artifacts)
 
 ## WASM Build Workflow (iterative — do not expect push-button)
 
@@ -173,7 +173,7 @@ The WASM build is an iteration surface, not a finished pipeline. When it fails:
    on macOS/Linux) whenever the WASM bridge, build scaffold, or generated
    artifacts are affected.
 4. Before handoff, run `pnpm test`, `pnpm typecheck`, the applicable quick
-   WASM build, and `pnpm --filter desktop test:e2e`. In a sandboxed execution
+   WASM build, and `pnpm --filter @orca/desktop test:e2e`. In a sandboxed execution
    environment, run Electron e2e with the required outside-sandbox approval.
    Report the actual result; a known intentionally skipped test must be named.
 

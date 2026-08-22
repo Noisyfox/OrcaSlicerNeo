@@ -115,7 +115,7 @@ bash scripts/build.sh quick -j 8
 Other driver subcommands: `deps` (fetch deps only), `boost` (Boost wasm64
 only), `build` (full build, requires Boost archives), `shim` (regenerate
 TBB/shim headers), `smoke` (run the Node harnesses against both variants in
-`out/`), `test` (slicer-wasm vitest + typecheck; the whole workspace runs via
+`out/`), `test` (@orca/slicer-wasm vitest + typecheck; the whole workspace runs via
 `pnpm -r test` / `pnpm -r typecheck`), `dev` (launch the Electron app),
 `e2e` (Playwright Electron), `env`, `help`.
 
@@ -134,16 +134,16 @@ both the `threaded` and `serial` variants)
 ### Run the app / tests
 
 ```bash
-pnpm --filter desktop dev      # Electron dev mode (also: <driver> dev)
-pnpm --filter web dev          # browser app — Vite dev server (http://localhost:5173)
-pnpm --filter web build        # production web build
-pnpm --filter web preview      # serve the production build locally
+pnpm --filter @orca/desktop dev      # Electron dev mode (also: <driver> dev)
+pnpm --filter @orca/web dev          # browser app — Vite dev server (http://localhost:5173)
+pnpm --filter @orca/web build        # production web build
+pnpm --filter @orca/web preview      # serve the production build locally
 pnpm -r test                   # vitest suites
 pnpm -r typecheck
-pnpm --filter desktop test:e2e # Playwright Electron e2e (also: <driver> e2e)
-pnpm --filter web test:e2e:threaded # Chrome e2e against the threaded wasm
-pnpm --filter web test:e2e:serial   # Chrome e2e against the serial fallback
-pnpm --filter web test:non-root    # production build served from a subpath
+pnpm --filter @orca/desktop test:e2e # Playwright Electron e2e (also: <driver> e2e)
+pnpm --filter @orca/web test:e2e:threaded # Chrome e2e against the threaded wasm
+pnpm --filter @orca/web test:e2e:serial   # Chrome e2e against the serial fallback
+pnpm --filter @orca/web test:non-root    # production build served from a subpath
 ```
 
 **Profile packages.** Both hosts' `predev` hooks stage the profile packages

@@ -170,7 +170,7 @@ desktop OrcaSlicer for the same profile (the spike's GO criterion).
    Windows or `scripts/build.sh quick` on macOS/Linux whenever changing the
    WASM bridge, its build scaffold, or generated artifacts.
 4. Before handoff, run `pnpm test`, `pnpm typecheck`, the applicable quick
-   WASM build, and `pnpm --filter desktop test:e2e`. Where the execution
+   WASM build, and `pnpm --filter @orca/desktop test:e2e`. Where the execution
    environment sandboxes Electron, obtain approval to run e2e outside that
    sandbox. Report the results, including any known intentional skips.
 

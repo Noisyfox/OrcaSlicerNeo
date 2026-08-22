@@ -9,7 +9,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm --filter desktop dev",
+    "dev": "pnpm --filter @orca/desktop dev",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "build:wasm": "bash packages/slicer-wasm/build.sh",

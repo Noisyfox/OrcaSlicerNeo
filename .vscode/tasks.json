@@ -4,7 +4,7 @@
         {
             "label": "web: vite dev server",
             "type": "shell",
-            "command": "pnpm --filter web dev",
+            "command": "pnpm --filter @orca/web dev",
             "isBackground": true,
             // The launch waits for the Vite readiness line before opening
             // the browser, so the first page load never races the server.

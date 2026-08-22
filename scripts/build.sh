@@ -35,9 +35,9 @@
 #             (build.sh --shim-only) after editing TBB_HEADERS in build.sh.
 #   smoke     Run both harnesses against out/threaded and out/serial:
 #             run-slice.mjs + bridge-smoke.mjs (--variant to limit).
-#   test      vitest + typecheck for slicer-wasm and desktop.
-#   dev       Launch the Electron app in dev mode (pnpm --filter desktop dev).
-#   e2e       Playwright Electron e2e (pnpm --filter desktop test:e2e).
+#   test      vitest + typecheck for @orca/slicer-wasm and @orca/desktop.
+#   dev       Launch the Electron app in dev mode (pnpm --filter @orca/desktop dev).
+#   e2e       Playwright Electron e2e (pnpm --filter @orca/desktop test:e2e).
 #   help      This help.
 #
 # Options:
@@ -257,19 +257,19 @@ case "$CMD" in
 
   # ---------------- unit tests + typecheck ----------------
   test)
-    pnpm --filter slicer-wasm test
-    pnpm --filter slicer-wasm typecheck
-    pnpm --filter desktop test
-    pnpm --filter desktop typecheck
+    pnpm --filter @orca/slicer-wasm test
+    pnpm --filter @orca/slicer-wasm typecheck
+    pnpm --filter @orca/desktop test
+    pnpm --filter @orca/desktop typecheck
     log "All tests + typechecks green."
     ;;
 
   # ---------------- electron app ----------------
   dev)
-    cd "$ROOT" && pnpm --filter desktop dev
+    cd "$ROOT" && pnpm --filter @orca/desktop dev
     ;;
   e2e)
-    cd "$ROOT" && pnpm --filter desktop test:e2e
+    cd "$ROOT" && pnpm --filter @orca/desktop test:e2e
     ;;
 
   # ---------------- help ----------------
