@@ -261,6 +261,27 @@ cross-origin isolation is available, and serial WASM otherwise.
       move/rotate/scale, Esc deselects all (closing the gizmo) — input fields
       and modifier combos are ignored
 
+## Milestone 12: Scene Toolbar Actions
+
+> [!info] Target: **2026-08-22** (delivered)
+>
+> Design/note: `doc/2026-08-22-scene-toolbar-and-context-menu.md`. The scene
+> actions move to OrcaSlicer's scene-surface placement: **Add Model** becomes
+> the first button of the top-of-viewport gizmo toolbar (it stays enabled on
+> an empty selection — importing onto an empty plate is the point), and
+> **Clear Scene** moves into a right-click context menu on the empty 3D scene
+> (opened by a clean right-click without drag, so right-drag panning still
+> works). The app toolbar row is left with Slice + Export.
+
+- [x] Add Model in the gizmo toolbar at the first position (icon-only with a
+      title/aria-label; test id `btn-add-model` unchanged); shared action
+      extracted to `toolbar/sceneActions.ts`
+- [x] Clear Scene in the scene right-click menu on empty space (bed plate or
+      background, not a model body); right-drag pan preserved; the native
+      host/browser context menu is suppressed in the scene
+- [x] Electron e2e: the full flow clears via the context menu; an emptied
+      plate shows the disabled menu item after Delete
+
 ## Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)

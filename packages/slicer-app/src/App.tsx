@@ -106,7 +106,7 @@ export default function App() {
 
   return (
     <AppShell
-      toolbar={<Toolbar sceneInteraction={sceneInteraction} />}
+      toolbar={<Toolbar />}
       settings={<SettingsPanel sceneInteraction={sceneInteraction} />}
       viewport={<Viewport onSceneInteractionChange={setSceneInteraction} sceneInteraction={sceneInteraction} />}
       status={<StatusBar />}

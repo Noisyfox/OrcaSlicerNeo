@@ -242,7 +242,12 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
       .toBe(false);
     await page.mouse.up();
 
-    // Clear Scene resets the model and invalidates the finished export.
+    // Clear Scene now lives in the scene context menu: right-click empty
+    // space (top-right of the canvas) and pick the item. It resets the model
+    // and invalidates the finished export.
+    const emptySpace = { x: box.x + box.width - 40, y: box.y + 40 };
+    await page.mouse.click(emptySpace.x, emptySpace.y, { button: 'right' });
+    await expect(page.getByTestId('ctx-menu')).toBeVisible();
     await page.getByTestId('btn-clear-scene').click();
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
     await expect(page.getByTestId('btn-export')).toBeDisabled();
@@ -804,7 +809,15 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
         }).__orcaE2e?.selectMockInstance?.(0, false),
       )).resolves.toBe(true);
       await page.keyboard.press('Delete');
+      // Clear Scene moved into the scene right-click menu; after the plate
+      // empties the item is present but disabled.
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+      await expect(page.getByTestId('ctx-menu')).toBeVisible();
       await expect(page.getByTestId('btn-clear-scene')).toBeDisabled();
+      await page.keyboard.press('Escape');
       await expect(page.getByTestId('btn-slice')).toBeDisabled();
     } catch (err) {
       await diag.dump();

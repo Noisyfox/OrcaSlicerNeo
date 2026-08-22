@@ -1,76 +1,27 @@
 // packages/slicer-app/src/components/toolbar/Toolbar.tsx
 import { useState } from 'react';
-import { FolderPlus, Slice, Download, Trash2 } from 'lucide-react';
+import { Slice, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { errorText } from '@orca/slicer-runtime';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms } from './syncModelTransforms';
-import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';
 
-export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
+// The scene actions (Add Model / Clear Scene) live elsewhere now: Add Model
+// in the gizmo toolbar and Clear Scene in the scene right-click menu (see
+// doc/2026-08-22-scene-toolbar-and-context-menu.md). This row is Slice and
+// Export only.
+export function Toolbar() {
   const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
   const setSlicerStatus = useSlicerStore((s) => s.setStatus);
   const setError = useSlicerStore((s) => s.setError);
   const setResultExported = useSlicerStore((s) => s.setResultExported);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
-  // Boot loads all three preset lists atomically (setPresets); until they
-  // arrive (or if boot fails) Add Model stays disabled — a model without presets
-  // can't be configured or sliced.
-  const presetsLoaded = useSettingsStore(
-    (s) => s.printers.length > 0 && s.prints.length > 0 && s.filaments.length > 0,
-  );
   const busy = status === 'slicing';
   const [exporting, setExporting] = useState(false);
-
-  async function addModel() {
-    const file = await platform.models.pick();
-    if (!file) return;
-    try {
-      const ext = file.displayName.split('.').pop() ?? 'stl';
-      // A just-finished gesture persists its settled state on release. Wait
-      // for that commit before the additive import refreshes the collection.
-      const synced = await waitForSettledModelTransforms();
-      if (!synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
-      const r = await platform.runtime.addModel(file.bytes, ext);
-      if (!r.ok) throw new Error(r.error ?? 'add failed');
-      // Only a successful add changes the plate. A dialog cancel or parse
-      // failure must leave the existing scene and its sliced result intact.
-      setSlicerStatus('idle');
-      setResultExported(false);
-      // Shared state receives only the display name; host-private absolute
-      // paths must never cross the platform boundary.
-      useSettingsStore.getState().setValue('modelPath', file.displayName);
-      useSettingsStore.getState().setModelLoaded(true);
-      sceneInteraction?.resetForModel();
-      setError(null);
-    } catch (err) {
-      // errorText unwraps "Error: <msg>" (String(err)); the status bar
-      // already prefixes "Error" (StatusBar statusText).
-      setError(errorText(err));
-      console.error('add model failed:', err);
-    }
-  }
-
-  async function clearScene() {
-    if (busy || !modelLoaded) return;
-    try {
-      const r = await platform.runtime.clearModel();
-      if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
-      setSlicerStatus('idle');
-      setResultExported(false);
-      useSettingsStore.getState().setModelLoaded(false);
-      sceneInteraction?.resetForModel();
-      setError(null);
-    } catch (err) {
-      setError(errorText(err));
-      console.error('clear scene failed:', err);
-    }
-  }
 
   async function slice() {
     if (busy) return;
@@ -165,12 +116,6 @@ export function Toolbar({ sceneInteraction }: { sceneInteraction: SceneInteracti
 
   return (
     <>
-      <Button size="sm" variant="secondary" onClick={addModel} disabled={!presetsLoaded} data-testid="btn-add-model">
-        <FolderPlus className="h-4 w-4" /> Add Model
-      </Button>
-      <Button size="sm" variant="secondary" onClick={clearScene} disabled={busy || !modelLoaded} data-testid="btn-clear-scene">
-        <Trash2 className="h-4 w-4" /> Clear Scene
-      </Button>
       <Button size="sm" variant="secondary" onClick={slice} disabled={busy || !modelLoaded} data-testid="btn-slice">
         <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
       </Button>

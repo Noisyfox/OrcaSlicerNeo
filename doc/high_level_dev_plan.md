@@ -359,6 +359,26 @@
   scale, Esc deselects all (which closes the gizmo); input fields and
   modifier combos are ignored.
 
+### Milestone 12 — Scene Toolbar Actions
+
+> **Status: delivered 2026-08-22.** The scene actions move to OrcaSlicer's
+> scene-surface placement: **Add Model** becomes the first button of the
+> top-of-viewport gizmo toolbar (it stays enabled with an empty selection —
+> importing onto an empty plate is the point), and **Clear Scene** moves into
+> a right-click context menu on the empty 3D scene. The menu opens only on a
+> clean right-click (press + release without movement), so right-drag
+> panning keeps working, and only when the press did not start on a model
+> body. The app toolbar row is left with Slice + Export. See
+> `doc/2026-08-22-scene-toolbar-and-context-menu.md`.
+
+- Add Model in the gizmo toolbar at the first position (icon-only with a
+  title/aria-label; test id `btn-add-model` unchanged); the shared `addModel`
+  action moved to `toolbar/sceneActions.ts`.
+- Clear Scene in the scene right-click menu on empty space; the native
+  host/browser context menu is suppressed for the whole canvas.
+- Electron e2e: the full flow clears via the context menu; an emptied plate
+  shows the disabled menu item after Delete.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

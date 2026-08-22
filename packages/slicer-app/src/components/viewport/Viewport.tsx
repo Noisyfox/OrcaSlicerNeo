@@ -6,6 +6,7 @@ import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/d
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
+import { SceneContextMenu } from './SceneContextMenu';
 import type { SceneInteractionController } from './SceneInteractionController';
 import { filterBuildPlateOccludedIntersections } from './buildPlatePointerOcclusion';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
@@ -138,66 +139,68 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
       }}
     >
       <ViewportErrorBoundary>
-        <Canvas
-          events={viewportEvents}
-          // Render only when something invalidates the frame (camera change,
-          // scene data update, resize) — never render continuously. See
-          // doc/2026-08-16-demand-render-viewport.md. OrbitControls in demand
-          // mode invalidates while interacting/damping; data-driven meshes
-          // invalidate via React re-render.
-          frameloop="demand"
-          // Slicer convention: Z up (blue), X right, Y into screen. The camera
-          // is born with up = (0,0,1) — THREE.Object3D.DefaultUp is set in
-          // main.tsx before the Canvas mounts, and fiber's default camera
-          // lookAt(0,0,0) uses this.up — so no per-camera up wiring here.
-          // OrbitControls in three r185 takes its orbit axis from camera.up.
-          // position in the front (+X, -Y) octant so the initial view reads
-          // the convention: X right, Y into the screen, Z up.
-          camera={{ position: [200, -200, 160], fov: 45 }}
-          dpr={[1, 2]}
-          onCreated={(state) => {
-            sceneStateRef.current = state;
-            updateRaycastingEnabled();
-          }}
-          onPointerMissed={() => {
-            sceneInteractionRef.current?.clearSelection();
-          }}
-        >
-          <color attach="background" args={['#0f172a']} />
-          {/* Perf overlay (fps/ms/memory), top-left corner of the scene.
-              drei appends the DOM to document.body unless given a `parent`
-              ref, and stats.js pins it inline as position:fixed — so anchor
-              it to the viewport container and force absolute (the container
-              is itself an absolute-positioned box). Click a panel to switch. */}
-          <Stats parent={viewportRef} className="absolute!" />
-          <Scene onControllerChange={handleSceneInteractionChange} />
-          <OrbitControls
-            makeDefault
-            enableDamping
-            // LEFT = orbit, RIGHT = pan, MIDDLE = zoom. Body/gizmo drags
-            // (DragControls dragConfig, MoveGizmo) disable orbit for the
-            // gesture's duration.
-            mouseButtons={{
-              LEFT: THREE.MOUSE.ROTATE,
-              MIDDLE: THREE.MOUSE.DOLLY,
-              RIGHT: THREE.MOUSE.PAN,
+        <SceneContextMenu sceneInteraction={sceneInteraction} sceneStateRef={sceneStateRef}>
+          <Canvas
+            events={viewportEvents}
+            // Render only when something invalidates the frame (camera change,
+            // scene data update, resize) — never render continuously. See
+            // doc/2026-08-16-demand-render-viewport.md. OrbitControls in demand
+            // mode invalidates while interacting/damping; data-driven meshes
+            // invalidate via React re-render.
+            frameloop="demand"
+            // Slicer convention: Z up (blue), X right, Y into screen. The camera
+            // is born with up = (0,0,1) — THREE.Object3D.DefaultUp is set in
+            // main.tsx before the Canvas mounts, and fiber's default camera
+            // lookAt(0,0,0) uses this.up — so no per-camera up wiring here.
+            // OrbitControls in three r185 takes its orbit axis from camera.up.
+            // position in the front (+X, -Y) octant so the initial view reads
+            // the convention: X right, Y into the screen, Z up.
+            camera={{ position: [200, -200, 160], fov: 45 }}
+            dpr={[1, 2]}
+            onCreated={(state) => {
+              sceneStateRef.current = state;
+              updateRaycastingEnabled();
             }}
-            // R3F's event manager tests every interactive mesh before it
-            // dispatches a pointer event. Disable that layer for the whole
-            // camera gesture so orbiting over a dense mesh remains smooth.
-            onStart={() => setCameraGestureActive(true)}
-            onEnd={() => setCameraGestureActive(false)}
-          />
-          {/* Orientation gizmo (X/Y/Z axes), bottom-left corner. GizmoHelper
-              renders the gizmo into an orthographic overlay (Hud portal);
-              head clicks tween the main camera to look along that axis.
-              Labels are plain X/Y/Z, so no Z-up remap is needed (unlike the
-              viewcube's Y-up face names). See
-              doc/2026-08-17-viewcube-gizmo.md. */}
-          <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
-            <GizmoViewport />
-          </GizmoHelper>
-        </Canvas>
+            onPointerMissed={() => {
+              sceneInteractionRef.current?.clearSelection();
+            }}
+          >
+            <color attach="background" args={['#0f172a']} />
+            {/* Perf overlay (fps/ms/memory), top-left corner of the scene.
+                drei appends the DOM to document.body unless given a `parent`
+                ref, and stats.js pins it inline as position:fixed — so anchor
+                it to the viewport container and force absolute (the container
+                is itself an absolute-positioned box). Click a panel to switch. */}
+            <Stats parent={viewportRef} className="absolute!" />
+            <Scene onControllerChange={handleSceneInteractionChange} />
+            <OrbitControls
+              makeDefault
+              enableDamping
+              // LEFT = orbit, RIGHT = pan, MIDDLE = zoom. Body/gizmo drags
+              // (DragControls dragConfig, MoveGizmo) disable orbit for the
+              // gesture's duration.
+              mouseButtons={{
+                LEFT: THREE.MOUSE.ROTATE,
+                MIDDLE: THREE.MOUSE.DOLLY,
+                RIGHT: THREE.MOUSE.PAN,
+              }}
+              // R3F's event manager tests every interactive mesh before it
+              // dispatches a pointer event. Disable that layer for the whole
+              // camera gesture so orbiting over a dense mesh remains smooth.
+              onStart={() => setCameraGestureActive(true)}
+              onEnd={() => setCameraGestureActive(false)}
+            />
+            {/* Orientation gizmo (X/Y/Z axes), bottom-left corner. GizmoHelper
+                renders the gizmo into an orthographic overlay (Hud portal);
+                head clicks tween the main camera to look along that axis.
+                Labels are plain X/Y/Z, so no Z-up remap is needed (unlike the
+                viewcube's Y-up face names). See
+                doc/2026-08-17-viewcube-gizmo.md. */}
+            <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
+              <GizmoViewport />
+            </GizmoHelper>
+          </Canvas>
+        </SceneContextMenu>
       </ViewportErrorBoundary>
       <LayerScrubber />
       <GizmoToolbar sceneInteraction={sceneInteraction} />
