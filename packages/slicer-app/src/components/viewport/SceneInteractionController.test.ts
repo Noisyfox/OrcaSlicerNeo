@@ -562,4 +562,44 @@ describe('SceneInteractionController', () => {
     const widthXAfter = controller.selectionBounds()!.getSize(new THREE.Vector3()).x;
     expect(widthXAfter).toBeCloseTo(widthXBefore * 2, 8);
   });
+
+  it('snaps the selection bounds to the actual vertices of a rotated model', () => {
+    // A slanted shape whose local AABB corners extend beyond the true mesh.
+    // The tetrahedron only occupies the [0,1]³ vertices it owns, so after a
+    // 45° X rotation the loose local-bbox AABB would reach z = √2 while the
+    // real mesh only tops out at ½√2. The selection box must use the real
+    // transformed vertices, exactly like OrcaSlicer's World reference system.
+    const buffer: ModelObjectBuffer = {
+      objectIdx: 0,
+      volumeIdx: 0,
+      instanceIdx: 0,
+      positions: new Float32Array([
+        0, 0, 0,
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1,
+      ]),
+      vertexCount: 4,
+      indices: new Uint32Array([0, 1, 2]),
+      indexCount: 3,
+      offset: [0, 0, 0],
+      instanceTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
+      volumeTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
+    };
+    const volume = new GLVolume(buffer);
+    volume.instanceTransform.rotation = [Math.PI / 4, 0, 0];
+    const c = new SceneInteractionController(() => [volume]);
+    c.selectFromHit(volume, false);
+
+    const bounds = c.selectionBounds()!;
+    const s = Math.SQRT1_2; // ½√2 ≈ 0.7071
+    // World-axis aligned (never rotates with the model) and tight to the real
+    // transformed vertices: z tops out at ½√2, not the loose box's √2.
+    expect(bounds.min.x).toBeCloseTo(0, 8);
+    expect(bounds.min.y).toBeCloseTo(-s, 8);
+    expect(bounds.min.z).toBeCloseTo(0, 8);
+    expect(bounds.max.x).toBeCloseTo(1, 8);
+    expect(bounds.max.y).toBeCloseTo(s, 8);
+    expect(bounds.max.z).toBeCloseTo(s, 8);
+  });
 });

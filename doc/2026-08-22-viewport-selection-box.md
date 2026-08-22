@@ -19,7 +19,15 @@ The look is taken from the pinned upstream source
 
 - The box is the union world AABB of all selected volumes
   (`Selection::get_bounding_box_in_current_reference_system`), rendered as a
-  single `GL_LINES` model.
+  single `GL_LINES` model. That world AABB is computed the way the native
+  `Selection::get_bounding_box_in_reference_system` (World reference system)
+  does: **every mesh vertex is transformed into world space** by the
+  instance·volume matrix and the axis-aligned min/max is accumulated. It does
+  **not** transform the 8 corners of the local bounding box — that would
+  over-approximate a rotated model and leave the bracket floating around it.
+  The result always stays axis-aligned with the world axes (it never rotates
+  with the model) and snaps to the model's true extremes, so it works for any
+  arbitrary Euler rotation.
 - It is drawn **white** in the 3D view (yellow in the assemble view).
 - Each of the 8 corners has three short segments running inward along X/Y/Z;
   a segment length is 20 % of the box size along that axis
@@ -39,7 +47,8 @@ The look is taken from the pinned upstream source
   24 line segments (48 vertices) of the native bracket pattern. Unit-tested.
 - `SelectionBoundsBox.tsx` — viewport component:
   - reads the existing aggregate `SceneInteractionController.selectionBounds()`
-    (already the union of all selected volumes' world AABBs);
+    (the union of all selected volumes' **tight** world AABBs over the actual
+    transformed vertices, see `GLVolume.getWorldBounds()`);
   - renders the segments as a plain `THREE.LineSegments` + white
     `LineBasicMaterial` (WebGL core line width is 1 px — a close match for the
     native 1.5 px geometry-shader lines);
@@ -62,6 +71,9 @@ The look is taken from the pinned upstream source
 
 - `selectionBoundsBox.test.ts`: segment count, corner positions, bracket
   lengths for a single box and for an aggregate (multi-selection) box.
+- `SceneInteractionController.test.ts`: the selection bounds snap to the
+  actual transformed vertices of an arbitrarily-rotated model (a 45° X rotation
+  of a slanted tetrahedron must top out at ½√2, not the loose local-bbox √2).
 - Desktop e2e (`apps/desktop/e2e/app.e2e.ts`, mock mode): the box appears
   after a click selection, becomes the single union box after Shift+drag
   multi-selection, collapses back to one instance's box after replace/clear,

@@ -418,11 +418,11 @@ export class SceneInteractionController {
     if (this.selection.empty) return false;
     const minZ = this.exactWorldMinZ();
     if (!Number.isFinite(minZ)) return false;
-    // Drop uses the TRUE world min-Z over the actual transformed vertices,
-    // not the selection's loose AABB. The AABB of a rotated local bbox
-    // over-approximates the model (it extends below the low point), so
-    // dropping to it would leave an arbitrarily-rotated model floating above
-    // the plate.
+    // Drop uses the TRUE world min-Z over the actual transformed vertices. It
+    // is computed directly rather than via selectionBounds() so the single
+    // scalar we need never builds the whole aggregate AABB. Both now agree
+    // because the selection AABB is tight to those same vertices (see
+    // GLVolume.getWorldBounds).
     return this.moveSelectionBy(new THREE.Vector3(0, 0, -minZ));
   }
 
@@ -676,10 +676,7 @@ export class SceneInteractionController {
 }
 
 function worldBounds(volume: GLVolume): THREE.Box3 {
-  if (!volume.geometry.boundingBox) volume.geometry.computeBoundingBox();
-  const instance = transformMatrix(volume.instanceTransform);
-  const part = transformMatrix(volume.volumeTransform);
-  return volume.geometry.boundingBox!.clone().applyMatrix4(instance.multiply(part));
+  return volume.getWorldBounds();
 }
 
 function transformMatrix(transform: ModelTransform): THREE.Matrix4 {
