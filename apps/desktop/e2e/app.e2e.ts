@@ -746,3 +746,54 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
     await app.close();
   }
 });
+
+// Gizmo keyboard shortcuts: G / R / S arm move/rotate/scale (toggle-style, so
+// they refuse with an empty selection), Esc closes the armed gizmo while
+// keeping the selection, and a second Esc deselects.
+test('scene transforms: gizmo keyboard shortcuts', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      await selectStableRealPrinter(page);
+      await page.getByTestId('btn-add-model').click();
+      if (REAL) await page.getByTestId('btn-add-model').click();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+      if (REAL) return;
+
+      await expect(page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(0, false),
+      )).resolves.toBe(true);
+
+      // R arms the rotate gizmo.
+      await page.keyboard.press('r');
+      await expect(page.getByTestId('rotate-panel')).toBeVisible();
+      await expect(page.getByTestId('gizmo-btn-rotate')).toHaveAttribute('aria-pressed', 'true');
+
+      // Esc closes it but keeps the selection.
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('rotate-panel')).toBeHidden();
+      await expect(page.getByTestId('gizmo-btn-rotate')).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.getByTestId('gizmo-btn-scale')).toBeEnabled();
+
+      // S arms scale, G switches to move, Esc closes.
+      await page.keyboard.press('s');
+      await expect(page.getByTestId('scale-panel')).toBeVisible();
+      await page.keyboard.press('g');
+      await expect(page.getByTestId('move-panel')).toBeVisible();
+      await expect(page.getByTestId('scale-panel')).toBeHidden();
+      await page.keyboard.press('Escape');
+      await expect(page.getByTestId('move-panel')).toBeHidden();
+    } catch (err) {
+      await diag.dump();
+      throw err;
+    }
+  } finally {
+    await app.close();
+  }
+});

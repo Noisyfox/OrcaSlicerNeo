@@ -254,6 +254,16 @@ describe('SceneInteractionController', () => {
     expect(controller.toggleGizmo('rotate')).toBe(false);
   });
 
+  it('closes the armed gizmo without clearing the selection (Esc)', () => {
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.toggleGizmo('move')).toBe(true);
+    expect(controller.closeGizmo()).toBe(true);
+    expect(controller.gizmo).toBeNull();
+    expect(controller.selection.empty).toBe(false);
+    // Closing an already-closed gizmo is a no-op.
+    expect(controller.closeGizmo()).toBe(false);
+  });
+
   it('forces world scale space while multi-selected', () => {
     controller.selectFromHit(volumes[0], false);
     expect(controller.setScaleSpace('local')).toBe(true);

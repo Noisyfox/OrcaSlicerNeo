@@ -76,6 +76,32 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
     cameraGestureActiveRef.current = active;
     updateRaycastingEnabled();
   }, [updateRaycastingEnabled]);
+
+  // Gizmo keyboard shortcuts: G / R / S arm the move / rotate / scale gizmo
+  // (toggle-style, like the toolbar buttons — they refuse with an empty
+  // selection), Esc closes the armed gizmo (a second Esc deselects). Inputs
+  // and modifier combos are ignored so shortcuts never hijack typing.
+  useEffect(() => {
+    if (!sceneInteraction) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        if (sceneInteraction.gizmo) sceneInteraction.closeGizmo();
+        else sceneInteraction.clearSelection();
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === 'g') sceneInteraction.toggleGizmo('move');
+      else if (key === 'r') sceneInteraction.toggleGizmo('rotate');
+      else if (key === 's') sceneInteraction.toggleGizmo('scale');
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [sceneInteraction]);
+
   return (
     <div
       ref={viewportRef}

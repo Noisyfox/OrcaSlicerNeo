@@ -257,6 +257,9 @@ cross-origin isolation is available, and serial WASM otherwise.
       rotation with three.js order `ZYX`, matching `assemble_transform`
 - [x] Unit + Electron e2e coverage: rotate ring drag, scale shaft drag,
       coord toggle, panels, resets, multi-selection display rules
+- [x] Gizmo keyboard shortcuts: G/R/S arm move/rotate/scale, Esc closes the
+      gizmo (keeping the selection; a second Esc deselects) — input fields
+      and modifier combos are ignored
 
 ## Post-v1 Expansion (queued, not yet scheduled)
 

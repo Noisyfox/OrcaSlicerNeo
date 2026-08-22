@@ -63,7 +63,8 @@ carries `rotation` and `scale`.
 | Scale panel | World/Local toggle + factor % + size mm + Reset; multi-select factors show 100%, edits relative; size shows aggregate bbox | User decision ("with inputs and reset, also the size current object is scaled to"; "100% instead") |
 | Panel value rule | Single selection shows real values; multi-selection shows a neutral baseline (0° / 100%); edits apply delta from the baseline | Preserves relative orientations/factors across a group |
 | Euler convention | Renderer uses `'ZYX'` everywhere instance/volume rotation is consumed | Matches C++ `Rz·Ry·Rx`; required for rotate correctness (latent mismatch, harmless today) |
-| Snap / shortcuts / rotate numeric follow-ups | Not in this milestone | M10 design queued them; only the panels the user pulled forward are added |
+| Snap | Not in this milestone | OrcaSlicer's snap increments are a later refinement |
+| Keyboard shortcuts | **G / R / S / Esc** (arm move/rotate/scale, close) | User scope request; toggle-style, Esc closes the gizmo while keeping the selection (a second Esc deselects) |
 | Git | No branch/commits (user note: "not a git repo, skipping") | Explicit user preference overrides the repo's default workflow for this task |
 
 ## Architecture
@@ -159,9 +160,8 @@ owns quaternion/scale until release.
 
 ## Follow-ups (not in this milestone)
 
-- Cut/measure/arrange/orient gizmos; Select tool button; G/R/S/Esc
-  shortcuts; rotation snapping; uniform-scale lock UX (center handle covers
-  the common case).
+- Cut/measure/arrange/orient gizmos; Select tool button; rotation snapping;
+  uniform-scale lock UX (center handle covers the common case).
 
 ## Implementation notes (delivered 2026-08-21)
 
@@ -254,6 +254,15 @@ Delivered as designed. Substantive findings worth remembering:
   (fast, and the standard center for the helper). The unit/e2e assertions use
   the real geometry (including the reported (-16, 41.8, 163.8) rotation), not
   the loose box.
+- **Gizmo keyboard shortcuts (2026-08-22):** `Viewport` registers a window
+  keydown handler — `G`/`R`/`S` toggle the move/rotate/scale gizmo
+  (`toggleGizmo(mode)`, which refuses on an empty selection, matching the
+  disabled toolbar buttons), and `Esc` closes the armed gizmo
+  (`closeGizmo()` keeps the selection; a second `Esc` calls
+  `clearSelection()`). Inputs/textarea/select/contenteditable targets and any
+  Ctrl/Cmd/Alt modifier are ignored so typing in the panels is never
+  hijacked. `closeGizmo()` is a controller method that disarms without
+  clearing the selection (distinct from the empty-selection auto-close).
 
 ### Verification
 
