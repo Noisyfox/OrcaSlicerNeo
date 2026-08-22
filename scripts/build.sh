@@ -142,7 +142,7 @@ quick_variant() {
     die "Tree $bd was configured without WASM_DEBUG — run: bash scripts/build.sh build --debug (reconfigures both variants)"
   fi
   log "Incremental: emmake ninja -C $bd orca_slice ${NINJA_JOBS[*]+"${NINJA_JOBS[*]}"}"
-  emmake ninja -C "$bd" orca_slice "${NINJA_JOBS[@]}"
+  emmake ninja -C "$bd" orca_slice ${NINJA_JOBS[@]+"${NINJA_JOBS[@]}"}
   for f in orca_slice.js orca_slice.wasm orca_slice.data; do
     [[ -f "$bd/$f" ]] || die "Build did not produce $bd/$f"
     cp -f "$bd/$f" "$outd/"
