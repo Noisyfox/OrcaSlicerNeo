@@ -795,6 +795,17 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('move-panel')).toBeHidden();
       await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+
+      // Del deletes the complete object behind the selection. The mock fixture
+      // holds a single object, so the plate empties and slice/clear disable.
+      await expect(page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(0, false),
+      )).resolves.toBe(true);
+      await page.keyboard.press('Delete');
+      await expect(page.getByTestId('btn-clear-scene')).toBeDisabled();
+      await expect(page.getByTestId('btn-slice')).toBeDisabled();
     } catch (err) {
       await diag.dump();
       throw err;
