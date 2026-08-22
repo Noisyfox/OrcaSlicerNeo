@@ -117,6 +117,21 @@ async function selectStableRealPrinter(page: Page): Promise<void> {
   await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
 }
 
+/** Rendered aggregate selection-box brackets (mock builds only). */
+function selectionBoxWorldSegments(page: Page) {
+  return page.evaluate(() =>
+    (window as unknown as {
+      __orcaE2e?: {
+        selectionBoxWorldSegments?: () => {
+          min: [number, number, number];
+          max: [number, number, number];
+          segmentCount: number;
+        } | null;
+      };
+    }).__orcaE2e?.selectionBoxWorldSegments?.() ?? null,
+  );
+}
+
 test('full v1 flow: add models → slice → preview → export gcode', async () => {
   const { app, exportPath } = await launchApp();
   try {
@@ -321,6 +336,9 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       if (!cubeCenter) throw new Error('cube-center projection unavailable');
       await page.mouse.click(cubeCenter.x, cubeCenter.y);
       await expect(page.getByTestId('move-panel')).toBeHidden();
+      // A plain click selection is framed by the white bracket box.
+      await expect.poll(() => selectionBoxWorldSegments(page), { timeout: 10_000 })
+        .toEqual({ min: [0, 0, 0], max: [20, 20, 20], segmentCount: 24 });
 
       // The gizmo never auto-activates on selection (gizmo toolbar design):
       // hovering where the move-gizmo X shaft would sit still reads no axis,
@@ -354,6 +372,9 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
         }).__orcaE2e?.selectMockInstance?.(1, true),
       )).resolves.toBe(true);
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
+      // Multi-selection renders one box around the aggregate bounds.
+      await expect.poll(() => selectionBoxWorldSegments(page))
+        .toEqual({ min: [0, 0, 0], max: [70, 20, 20], segmentCount: 24 });
       const bodyPivotBefore = await Promise.all(['x', 'y', 'z'].map((axis) =>
         page.getByTestId(`move-${axis}`).inputValue(),
       ));
@@ -785,6 +806,7 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       await expect(page.getByTestId('rotate-panel')).toBeHidden();
       await expect(page.getByTestId('gizmo-btn-rotate')).toHaveAttribute('aria-pressed', 'false');
       await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+      await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
 
       // Re-select, then S arms scale, M switches to move, Esc deselects.
       await expect(page.evaluate(() =>
@@ -891,6 +913,10 @@ test('scene selection: shift+drag box selection (replace, additive, clear)', asy
       await expect(page.getByTestId('box-select-marquee')).toBeHidden();
       await expect.poll(selectionCount, { timeout: 10_000 }).toBe(2);
       await expect(page.getByTestId('gizmo-btn-move')).toBeEnabled();
+      // ONE aggregate bracket box frames the union of both cubes, never a
+      // per-instance box — OrcaSlicer's selection renders a single bounds box.
+      await expect.poll(() => selectionBoxWorldSegments(page), { timeout: 10_000 })
+        .toEqual({ min: [0, 0, 0], max: [70, 20, 20], segmentCount: 24 });
 
       // A plain click on a member of the group keeps the complete selection —
       // the marquee gesture must not change click semantics.
@@ -908,10 +934,13 @@ test('scene selection: shift+drag box selection (replace, additive, clear)', asy
       await page.keyboard.up('Shift');
       await expect.poll(selectionCount).toBe(0);
       await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+      await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
 
       // Shift+Ctrl+drag over the second cube unions it with the first.
       await page.mouse.click(firstCenter.x, firstCenter.y);
       await expect.poll(selectionCount).toBe(1);
+      await expect.poll(() => selectionBoxWorldSegments(page))
+        .toEqual({ min: [0, 0, 0], max: [20, 20, 20], segmentCount: 24 });
       const secondStart = await project([52, -2, 10]);
       const secondEnd = await project([68, 22, 10]);
       if (!secondStart || !secondEnd) throw new Error('second-cube marquee projection unavailable');
@@ -924,6 +953,8 @@ test('scene selection: shift+drag box selection (replace, additive, clear)', asy
       await page.keyboard.up('Shift');
       await page.keyboard.up('Control');
       await expect.poll(selectionCount).toBe(2);
+      await expect.poll(() => selectionBoxWorldSegments(page))
+        .toEqual({ min: [0, 0, 0], max: [70, 20, 20], segmentCount: 24 });
 
       // A plain Shift+drag over the second cube replaces the selection.
       await page.keyboard.down('Shift');
@@ -933,6 +964,8 @@ test('scene selection: shift+drag box selection (replace, additive, clear)', asy
       await page.mouse.up();
       await page.keyboard.up('Shift');
       await expect.poll(selectionCount).toBe(1);
+      await expect.poll(() => selectionBoxWorldSegments(page))
+        .toEqual({ min: [50, 0, 0], max: [70, 20, 20], segmentCount: 24 });
     } catch (err) {
       await diag.dump();
       throw err;

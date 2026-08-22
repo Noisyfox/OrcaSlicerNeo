@@ -11,6 +11,7 @@ import { TransformGizmo, type TransformGizmoMode } from './gizmo/TransformGizmo'
 import { glVolumeCollection } from './GLVolume';
 import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
+import { SelectionBoundsBox } from './SelectionBoundsBox';
 
 export function Scene({ onControllerChange }: {
   onControllerChange: (controller: SceneInteractionController | null) => void;
@@ -147,6 +148,8 @@ function SceneContents() {
       {glVolumes.map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} />
       ))}
+      {/* Native render order: opaque models, then the selection box, then gizmos. */}
+      <SelectionBoundsBox />
       <SelectionTransformGizmo />
       {toolpath && <ToolpathLines data={toolpath} />}
     </>
