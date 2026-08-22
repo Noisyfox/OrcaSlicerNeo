@@ -48,6 +48,28 @@ export class Selection {
     return this.replace(this.volumesForInstance(hit, collection));
   }
 
+  /** Replace the selection with exactly these volume IDs (box-select result). */
+  replaceIds(ids: readonly string[]): boolean {
+    const next = new Set(ids);
+    if (next.size === this.selectedIds.size && [...next].every((id) => this.selectedIds.has(id))) {
+      return false;
+    }
+    this.selectedIds = next;
+    return true;
+  }
+
+  /** Union volume IDs into the selection (additive box select). */
+  addIds(ids: readonly string[]): boolean {
+    let changed = false;
+    for (const id of ids) {
+      if (!this.selectedIds.has(id)) {
+        this.selectedIds.add(id);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
   /**
    * Toggle the complete instance that contains `hit`. A partially stale
    * selection is treated as unselected and restored as a complete instance.
@@ -99,12 +121,7 @@ export class Selection {
   }
 
   private replace(volumes: readonly Pick<SelectableVolume, 'id'>[]): boolean {
-    const next = new Set(volumes.map((volume) => volume.id));
-    if (next.size === this.selectedIds.size && [...next].every((id) => this.selectedIds.has(id))) {
-      return false;
-    }
-    this.selectedIds = next;
-    return true;
+    return this.replaceIds(volumes.map((volume) => volume.id));
   }
 
   private volumesForInstance<T extends SelectableVolume>(hit: T, collection: readonly T[]): T[] {

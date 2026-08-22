@@ -827,3 +827,117 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
     await app.close();
   }
 });
+
+// Box selection (Shift+drag): a marquee selects the complete instances whose
+// projected bounds intersect it; Shift+Ctrl/Cmd unions; a Shift+drag over
+// empty space clears. The marquee element tracks the drag and disappears on
+// release, and plain clicks keep their existing semantics.
+test('scene selection: shift+drag box selection (replace, additive, clear)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      await selectStableRealPrinter(page);
+      await page.getByTestId('btn-add-model').click();
+      if (REAL) await page.getByTestId('btn-add-model').click();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      const selectionCount = () => page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectionInstanceCount?: () => number };
+        }).__orcaE2e?.selectionInstanceCount?.() ?? 0,
+      );
+      if (REAL) {
+        // Real-artifact runs only prove the gesture does not break the
+        // viewport; the mock path below owns the deterministic assertions.
+        await page.keyboard.down('Shift');
+        await page.mouse.move(box.x + box.width / 2 - 100, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 + 100, box.y + box.height / 2, { steps: 6 });
+        await page.mouse.up();
+        await page.keyboard.up('Shift');
+        return;
+      }
+      const project = (p: [number, number, number]) =>
+        page
+          .evaluate(
+            (pt) =>
+              (window as unknown as {
+                __orcaE2e?: { projectWorldToScreen(q: [number, number, number]): { x: number; y: number } | null };
+              }).__orcaE2e?.projectWorldToScreen(pt),
+            p,
+          )
+          .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
+
+      await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+
+      // Shift+drag around both fixture cubes (X∈[0,20] and X∈[50,70]).
+      const marqueeStart = await project([-2, -2, 10]);
+      const marqueeEnd = await project([72, 22, 10]);
+      if (!marqueeStart || !marqueeEnd) throw new Error('marquee projection unavailable');
+      await page.keyboard.down('Shift');
+      await page.mouse.move(marqueeStart.x, marqueeStart.y);
+      await page.mouse.down();
+      await page.mouse.move(marqueeEnd.x, marqueeEnd.y, { steps: 8 });
+      await expect(page.getByTestId('box-select-marquee')).toBeVisible();
+      await page.mouse.up();
+      await page.keyboard.up('Shift');
+      await expect(page.getByTestId('box-select-marquee')).toBeHidden();
+      await expect.poll(selectionCount, { timeout: 10_000 }).toBe(2);
+      await expect(page.getByTestId('gizmo-btn-move')).toBeEnabled();
+
+      // A plain click on a member of the group keeps the complete selection —
+      // the marquee gesture must not change click semantics.
+      const firstCenter = await project([10, 10, 10]);
+      if (!firstCenter) throw new Error('first cube projection unavailable');
+      await page.mouse.click(firstCenter.x, firstCenter.y);
+      await expect.poll(selectionCount).toBe(2);
+
+      // Shift+drag over empty space clears the selection.
+      await page.keyboard.down('Shift');
+      await page.mouse.move(box.x + box.width - 60, box.y + 40);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width - 100, box.y + 90, { steps: 6 });
+      await page.mouse.up();
+      await page.keyboard.up('Shift');
+      await expect.poll(selectionCount).toBe(0);
+      await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+
+      // Shift+Ctrl+drag over the second cube unions it with the first.
+      await page.mouse.click(firstCenter.x, firstCenter.y);
+      await expect.poll(selectionCount).toBe(1);
+      const secondStart = await project([52, -2, 10]);
+      const secondEnd = await project([68, 22, 10]);
+      if (!secondStart || !secondEnd) throw new Error('second-cube marquee projection unavailable');
+      await page.keyboard.down('Control');
+      await page.keyboard.down('Shift');
+      await page.mouse.move(secondStart.x, secondStart.y);
+      await page.mouse.down();
+      await page.mouse.move(secondEnd.x, secondEnd.y, { steps: 6 });
+      await page.mouse.up();
+      await page.keyboard.up('Shift');
+      await page.keyboard.up('Control');
+      await expect.poll(selectionCount).toBe(2);
+
+      // A plain Shift+drag over the second cube replaces the selection.
+      await page.keyboard.down('Shift');
+      await page.mouse.move(secondStart.x, secondStart.y);
+      await page.mouse.down();
+      await page.mouse.move(secondEnd.x, secondEnd.y, { steps: 6 });
+      await page.mouse.up();
+      await page.keyboard.up('Shift');
+      await expect.poll(selectionCount).toBe(1);
+    } catch (err) {
+      await diag.dump();
+      throw err;
+    }
+  } finally {
+    await app.close();
+  }
+});

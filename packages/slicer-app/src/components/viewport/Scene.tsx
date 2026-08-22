@@ -61,7 +61,8 @@ function SceneContents() {
           size: [number, number, number];
         } | null;
         gizmoAxis?: () => string | null;
-        pointerOwner?: () => 'none' | 'gizmo' | 'body';
+        pointerOwner?: () => 'none' | 'gizmo' | 'body' | 'box';
+        selectionInstanceCount?: () => number;
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
       };
     };
@@ -103,6 +104,7 @@ function SceneContents() {
         };
       },
       pointerOwner: () => sceneInteraction.owner,
+      selectionInstanceCount: () => sceneInteraction.selectionInstanceCount,
       // The e2e fixture's instance collection is deterministic, while a
       // headless Electron ray at the far instance can intermittently miss
       // after the first gizmo appears. Pointer selection is still covered by
@@ -121,6 +123,7 @@ function SceneContents() {
           selectionPivotWorld: _pivotWorld,
           selectionBoundsWorld: _bounds,
           pointerOwner: _owner,
+          selectionInstanceCount: _count,
           selectMockInstance: _selection,
           ...rest
         } = w.__orcaE2e;

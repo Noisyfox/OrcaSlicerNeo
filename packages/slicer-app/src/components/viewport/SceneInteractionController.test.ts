@@ -56,6 +56,11 @@ describe('SceneInteractionController', () => {
     controller = new SceneInteractionController(() => volumes);
   });
 
+  /** Identity world→screen projector: instance 0 spans [-1,1]², instance 1 [19,21]×[4,6]. */
+  function registerFlatProjector(): void {
+    controller.registerBoxSelectProjector((world) => ({ x: world.x, y: world.y }));
+  }
+
   it('never auto-opens the gizmo on selection — the toggle is its only opener', () => {
     controller.selectFromHit(volumes[0], false);
     expect(controller.gizmo).toBeNull();
@@ -163,6 +168,92 @@ describe('SceneInteractionController', () => {
 
     expect(controller.selectFromClick(volumes[0], false)).toBe(false);
     expect(controller.selectedVolumes()).toEqual(volumes);
+  });
+
+  it('claims a Shift+drag press for box selection and tracks the live marquee rect', () => {
+    expect(controller.beginBoxSelect({ x: 10, y: 10 }, false)).toBe(true);
+    expect(controller.owner).toBe('box');
+    expect(controller.boxSelectionRect).toEqual({ x: 10, y: 10, width: 0, height: 0 });
+
+    // A drag into the negative direction normalizes to a valid rect.
+    expect(controller.updateBoxSelect({ x: 2, y: 4 })).toBe(true);
+    expect(controller.boxSelectionRect).toEqual({ x: 2, y: 4, width: 8, height: 6 });
+    expect(controller.cancelBoxSelect()).toBe(true);
+    expect(controller.owner).toBe('none');
+    expect(controller.boxSelectionRect).toBeNull();
+  });
+
+  it('refuses to preempt a gizmo press or an active pointer owner', () => {
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+    expect(controller.beginBoxSelect({ x: 0, y: 0 }, false)).toBe(true);
+    // A second press while the box owns the pointer is refused.
+    expect(controller.beginBoxSelect({ x: 5, y: 5 }, false)).toBe(false);
+    // No projector is registered here, so the end finalizes without a hit.
+    expect(controller.endBoxSelect()).toBe(false);
+    expect(controller.owner).toBe('none');
+
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    expect(controller.beginBoxSelect({ x: 0, y: 0 }, false)).toBe(false);
+  });
+
+  it('box-selects the complete instances whose projected bounds intersect the marquee', () => {
+    registerFlatProjector();
+    controller.beginBoxSelect({ x: -5, y: -5 }, false);
+    controller.updateBoxSelect({ x: 5, y: 5 });
+
+    expect(controller.endBoxSelect()).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+
+    // A marquee over the second instance alone replaces the selection.
+    controller.beginBoxSelect({ x: 15, y: 0 }, false);
+    controller.updateBoxSelect({ x: 25, y: 10 });
+    expect(controller.endBoxSelect()).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[2], volumes[3]]);
+    expect(controller.selectionInstanceCount).toBe(1);
+  });
+
+  it('box-selects additively when the press carried Ctrl/Cmd', () => {
+    registerFlatProjector();
+    controller.selectFromHit(volumes[0], false);
+
+    controller.beginBoxSelect({ x: 15, y: 0 }, true);
+    controller.updateBoxSelect({ x: 25, y: 10 });
+    expect(controller.endBoxSelect()).toBe(true);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+  });
+
+  it('clears the selection when a replace marquee covers nothing', () => {
+    registerFlatProjector();
+    controller.selectFromHit(volumes[0], false);
+
+    controller.beginBoxSelect({ x: 100, y: 100 }, false);
+    controller.updateBoxSelect({ x: 120, y: 120 });
+    expect(controller.endBoxSelect()).toBe(true);
+    expect(controller.selection.empty).toBe(true);
+  });
+
+  it('leaves selection untouched without a registered projector', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.beginBoxSelect({ x: -5, y: -5 }, false);
+    controller.updateBoxSelect({ x: 5, y: 5 });
+
+    expect(controller.endBoxSelect()).toBe(false);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+  });
+
+  it('abandons an active marquee when the selection is cleared or the model resets', () => {
+    controller.beginBoxSelect({ x: 0, y: 0 }, false);
+    controller.updateBoxSelect({ x: 10, y: 10 });
+    expect(controller.clearSelection()).toBe(true);
+    expect(controller.boxSelectionRect).toBeNull();
+    expect(controller.owner).toBe('none');
+
+    controller.beginBoxSelect({ x: 0, y: 0 }, false);
+    controller.updateBoxSelect({ x: 10, y: 10 });
+    controller.resetForModel();
+    expect(controller.boxSelectionRect).toBeNull();
+    expect(controller.owner).toBe('none');
   });
 
   it('moves every selected instance by an equal body-drag delta', () => {

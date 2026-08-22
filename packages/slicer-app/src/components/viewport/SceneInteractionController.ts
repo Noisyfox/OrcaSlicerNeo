@@ -11,15 +11,22 @@ import {
   quatFromRotation,
   transformFromMatrix,
 } from './transformDeltaMath';
+import {
+  normalizeRect,
+  rectsOverlap,
+  unionRects,
+  type BoxPoint,
+  type BoxRect,
+} from './boxSelectionMath';
 
 export type OpenGizmo = 'move' | 'rotate' | 'scale' | null;
 /** Scale gizmo handle space; multi-selection always scales in world space. */
 export type ScaleSpace = 'world' | 'local';
-export type PointerOwner = 'none' | 'gizmo' | 'body';
+export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box';
 type PointerOrigin = 'none' | 'gizmo' | 'non-gizmo';
 
 export interface DragSnapshot {
-  readonly kind: Exclude<PointerOwner, 'none'>;
+  readonly kind: 'gizmo' | 'body';
   readonly startPivot: THREE.Vector3;
   readonly startQuaternion: THREE.Quaternion;
   readonly startScale: THREE.Vector3;
@@ -49,6 +56,8 @@ export class SceneInteractionController {
   private gizmoGrabberHitTest: ((event: PointerEvent) => boolean) | null = null;
   private suppressPostDragClick = false;
   private drag: DragSnapshot | null = null;
+  private boxSelect: { start: BoxPoint; current: BoxPoint; additive: boolean } | null = null;
+  private boxSelectProjector: ((world: THREE.Vector3) => BoxPoint | null) | null = null;
 
   constructor(private readonly getVolumes: () => readonly GLVolume[]) {}
 
@@ -173,9 +182,62 @@ export class SceneInteractionController {
   }
 
   clearSelection(): boolean {
-    const changed = this.selection.clear();
+    const selectionChanged = this.selection.clear();
     this.cancelDrag();
+    const boxAbandoned = this.abandonBoxSelect();
     this.openGizmo = null;
+    if (selectionChanged || boxAbandoned) this.emit();
+    return selectionChanged || boxAbandoned;
+  }
+
+  /** The live marquee rect (normalized, viewport CSS pixels) while box-selecting. */
+  get boxSelectionRect(): BoxRect | null {
+    return this.boxSelect ? normalizeRect(this.boxSelect.start, this.boxSelect.current) : null;
+  }
+
+  /** Register the viewport's world→screen projector; without one, end is a no-op. */
+  registerBoxSelectProjector(projector: ((world: THREE.Vector3) => BoxPoint | null) | null): void {
+    this.boxSelectProjector = projector;
+  }
+
+  /**
+   * Claim a Shift+drag press for box selection. Gizmo presses keep priority
+   * (a handle grab is never hijacked by the marquee), and a busy pointer
+   * (body/gizmo/box gesture) is never preempted.
+   */
+  beginBoxSelect(start: BoxPoint, additive: boolean): boolean {
+    if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
+    this.pointerOwner = 'box';
+    this.boxSelect = { start, current: { ...start }, additive };
+    this.emit();
+    return true;
+  }
+
+  /** Track the marquee's current corner during an active box gesture. */
+  updateBoxSelect(current: BoxPoint): boolean {
+    if (!this.boxSelect || this.pointerOwner !== 'box') return false;
+    this.boxSelect = { ...this.boxSelect, current: { ...current } };
+    this.emit();
+    return true;
+  }
+
+  /**
+   * Finish the gesture and apply the marquee selection — replace by default,
+   * union when the Shift press carried Ctrl/Cmd.
+   */
+  endBoxSelect(): boolean {
+    if (!this.boxSelect || this.pointerOwner !== 'box') return false;
+    const box = this.boxSelect;
+    const changed = this.applyBoxSelection(box.start, box.current, box.additive);
+    this.abandonBoxSelect();
+    this.syncGizmoToSelection();
+    this.emit();
+    return changed;
+  }
+
+  /** Drop an active marquee without selecting anything (cancel/Escape). */
+  cancelBoxSelect(): boolean {
+    const changed = this.abandonBoxSelect();
     if (changed) this.emit();
     return changed;
   }
@@ -222,7 +284,8 @@ export class SceneInteractionController {
 
   /** Clear all ephemeral scene interaction when a loaded collection is replaced. */
   resetForModel(): void {
-    const hadState = !this.selection.empty || this.openGizmo !== null || this.drag !== null || this.pointerOwner !== 'none';
+    const hadState = !this.selection.empty || this.openGizmo !== null || this.drag !== null
+      || this.pointerOwner !== 'none' || this.boxSelect !== null;
     this.selection.clear();
     this.openGizmo = null;
     this.drag = null;
@@ -230,6 +293,7 @@ export class SceneInteractionController {
     this.pointerOwner = 'none';
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
+    this.boxSelect = null;
     if (hadState) this.emit();
   }
 
@@ -307,9 +371,12 @@ export class SceneInteractionController {
 
   cancelDrag(): boolean {
     if (!this.drag) {
-      this.pointerOwner = 'none';
-      this.pointerOrigin = 'none';
-      this.gizmoGrabberHovered = false;
+      // An active box gesture owns the pointer; clearSelection abandons it
+      // explicitly instead of letting this drag-less reset clobber it.
+      if (this.pointerOwner === 'none') {
+        this.pointerOrigin = 'none';
+        this.gizmoGrabberHovered = false;
+      }
       return false;
     }
     this.applySnapshotDelta(this.drag.startInstances, new THREE.Vector3());
@@ -425,7 +492,7 @@ export class SceneInteractionController {
     return true;
   }
 
-  private beginDrag(kind: Exclude<PointerOwner, 'none'>): boolean {
+  private beginDrag(kind: 'gizmo' | 'body'): boolean {
     const pivot = this.selectionPivot();
     if (!pivot) return false;
     this.pointerOwner = kind;
@@ -447,6 +514,66 @@ export class SceneInteractionController {
       if (!transforms.has(key)) transforms.set(key, cloneTransform(volume.instanceTransform));
     }
     return transforms;
+  }
+
+  private applyBoxSelection(start: BoxPoint, current: BoxPoint, additive: boolean): boolean {
+    const rect = normalizeRect(start, current);
+    const projector = this.boxSelectProjector;
+    if (!projector) return false;
+    const perInstance = new Map<InstanceKey, BoxRect>();
+    for (const volume of this.getVolumes()) {
+      const projected = this.projectVolumeRect(volume, projector);
+      if (!projected) continue;
+      const key = instanceKeyOf(volume);
+      const existing = perInstance.get(key);
+      perInstance.set(key, existing ? unionRects(existing, projected) : projected);
+    }
+    const ids: string[] = [];
+    for (const volume of this.getVolumes()) {
+      const bounds = perInstance.get(instanceKeyOf(volume));
+      if (bounds && rectsOverlap(rect, bounds)) ids.push(volume.id);
+    }
+    return additive ? this.selection.addIds(ids) : this.selection.replaceIds(ids);
+  }
+
+  /** Project a volume's world AABB into a viewport rect (corners behind the
+   *  camera are skipped; fully-behind volumes contribute nothing). */
+  private projectVolumeRect(
+    volume: GLVolume,
+    projector: (world: THREE.Vector3) => BoxPoint | null,
+  ): BoxRect | null {
+    const bounds = worldBounds(volume);
+    const corner = new THREE.Vector3();
+    let projectedAny = false;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < 8; i++) {
+      corner.set(
+        i & 1 ? bounds.max.x : bounds.min.x,
+        i & 2 ? bounds.max.y : bounds.min.y,
+        i & 4 ? bounds.max.z : bounds.min.z,
+      );
+      const point = projector(corner);
+      if (!point) continue;
+      projectedAny = true;
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+    if (!projectedAny) return null;
+    return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+  }
+
+  private abandonBoxSelect(): boolean {
+    if (!this.boxSelect) return false;
+    this.boxSelect = null;
+    this.pointerOwner = 'none';
+    this.pointerOrigin = 'none';
+    this.gizmoGrabberHovered = false;
+    return true;
   }
 
   private applySnapshotDelta(snapshot: ReadonlyMap<InstanceKey, ModelTransform>, delta: THREE.Vector3): void {

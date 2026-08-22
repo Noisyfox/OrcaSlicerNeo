@@ -6,7 +6,7 @@ describe('isViewportRaycastingEnabled', () => {
     expect(isViewportRaycastingEnabled(false, 'none')).toBe(true);
   });
 
-  it.each(['body', 'gizmo'] as const)('disables picking while a %s drag owns the pointer', (owner) => {
+  it.each(['body', 'gizmo', 'box'] as const)('disables picking while a %s drag owns the pointer', (owner) => {
     expect(isViewportRaycastingEnabled(false, owner)).toBe(false);
   });
 
