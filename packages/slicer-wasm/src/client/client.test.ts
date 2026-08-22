@@ -91,6 +91,35 @@ describe('SlicerClient bridge contract', () => {
     expect((await c.getModelMesh()).error).toContain('no model loaded');
   });
 
+  it('deleteObjects removes whole objects, dedupes, and shifts remaining indices', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.addModel(new Uint8Array(4), 'stl');
+    const r = await c.deleteObjects([1, 0, 1]);
+    expect(r).toMatchObject({ ok: true, objects: 1, deleted: 2 });
+    const mesh = await c.getModelMesh();
+    expect(mesh.objects.map((o) => o.objectIdx)).toEqual([0]);
+  });
+
+  it('deleteObjects rejects empty or out-of-range index lists', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    expect((await c.deleteObjects([])).error).toContain('no object indices');
+    const outOfRange = await c.deleteObjects([5]);
+    expect(outOfRange.error).toContain('out of range');
+    expect((await c.getModelMesh()).objects).toHaveLength(1);
+  });
+
+  it('deleteObjects on the last object leaves an empty mesh', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.deleteObjects([0]);
+    const mesh = await c.getModelMesh();
+    expect(mesh.ok).toBe(true);
+    expect(mesh.objects).toHaveLength(0);
+  });
+
   it('setInstanceOffset round-trips x/y', async () => {
     const c = makeClient();
     const bytes = new Uint8Array([1, 2, 3, 4]);

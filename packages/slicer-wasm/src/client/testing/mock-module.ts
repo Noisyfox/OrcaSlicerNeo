@@ -216,6 +216,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sliced = false;
       return { ok: true };
     },
+    orc_delete_objects(indicesJson: string) {
+      const indices = JSON.parse(indicesJson ?? '[]') as unknown;
+      if (!Array.isArray(indices) || indices.length === 0) return { error: 'no object indices' };
+      const toDelete: number[] = [];
+      for (const item of indices) {
+        if (!Number.isInteger(item)) return { error: 'object index must be an integer' };
+        if (item < 0 || item >= objectTransforms.length) return { error: 'object index out of range' };
+        if (!toDelete.includes(item)) toDelete.push(item);
+      }
+      // Descending order keeps earlier indices valid while the arrays shrink.
+      toDelete.sort((a, b) => b - a);
+      for (const idx of toDelete) {
+        objectTransforms.splice(idx, 1);
+        objectVolumeTransforms.splice(idx, 1);
+      }
+      sliced = false;
+      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length };
+    },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
       if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
       objectTransforms[obj][inst].offset = [x, y, z];
@@ -351,6 +369,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
+    orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },

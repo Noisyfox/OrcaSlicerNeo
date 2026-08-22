@@ -7,6 +7,7 @@ export type {
   InitResult, PresetInfo, PresetList, SelectPresetResult,
   OptionMetadata, OptionMeta,
   LoadModelResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
+  DeleteObjectsResult,
   SliceResultStatus, ClientSliceResult, ClientToolpath,
   ToolpathFeature, ExportGcodeResult, CancelResult,
 } from './types';

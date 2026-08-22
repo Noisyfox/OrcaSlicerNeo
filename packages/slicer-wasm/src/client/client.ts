@@ -10,7 +10,7 @@ import type {
   InitResult, PresetList, SelectPresetResult,
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
-  ExportGcodeResult, CancelResult, ModelObjectBuffer,
+  ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox, ReadLogResult,
 } from './types';
@@ -169,6 +169,12 @@ export function createClient(
         };
       });
       return { ok: true, objects };
+    },
+
+    async deleteObjects(indices: number[]): Promise<DeleteObjectsResult> {
+      const m = await module();
+      return callJson(m, 'orc_delete_objects', ['string'],
+                      [JSON.stringify(indices)]) as DeleteObjectsResult;
     },
 
     async slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus> {

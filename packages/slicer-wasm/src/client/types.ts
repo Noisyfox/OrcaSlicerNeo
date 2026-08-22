@@ -140,6 +140,15 @@ export interface ModelMeshResult {
   error?: string;
 }
 
+export interface DeleteObjectsResult {
+  ok: boolean;
+  /** Remaining object count after the delete. */
+  objects?: number;
+  /** Number of objects actually removed (duplicates are ignored). */
+  deleted?: number;
+  error?: string;
+}
+
 export interface SliceResultStatus {
   ok: boolean;
   unrecognized_keys: string[];
@@ -208,6 +217,9 @@ export interface SlicerClient {
     instanceTransform: ModelTransform, volumeTransform: ModelTransform,
   ): Promise<{ ok: boolean; error?: string }>;
   getModelMesh(): Promise<ModelMeshResult>;
+  /** Delete whole objects by their original indices (as reported by
+   *  getModelMesh); indices shift after removal, so pass all at once. */
+  deleteObjects(indices: number[]): Promise<DeleteObjectsResult>;
   /** Select a preset by name; printer selection re-runs compatibility so
    *  print/filament follow the active machine. Reports all three selections. */
   selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<SelectPresetResult>;

@@ -562,6 +562,45 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     }
 }
 
+// Delete whole objects by their ORIGINAL indices (as reported by
+// orc_get_model_mesh / the renderer selection). Deleting in descending order
+// keeps earlier indices valid while Model.objects shrinks. A raw
+// Model::delete_object(size_t) has no bounds check at the pinned SHA, so the
+// indices are validated (and deduplicated) here before any mutation.
+EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* indices_json) {
+    try {
+        const json indices = json::parse(indices_json ? indices_json : "");
+        if (!indices.is_array() || indices.empty())
+            return error_json("no object indices");
+        const size_t object_count = state().model.objects.size();
+        std::vector<std::size_t> to_delete;
+        to_delete.reserve(indices.size());
+        for (const auto& item : indices) {
+            if (!item.is_number_integer())
+                return error_json("object index must be an integer");
+            const std::size_t idx = item.get<std::size_t>();
+            if (idx >= object_count)
+                return error_json("object index out of range");
+            to_delete.push_back(idx);
+        }
+        std::sort(to_delete.begin(), to_delete.end());
+        to_delete.erase(std::unique(to_delete.begin(), to_delete.end()), to_delete.end());
+        for (auto it = to_delete.rbegin(); it != to_delete.rend(); ++it)
+            state().model.delete_object(*it);
+        // A model mutation makes any existing Print/G-code result stale.
+        state().print.clear();
+        return dup_json(json{{"ok", true},
+                             {"objects", state().model.objects.size()},
+                             {"deleted", to_delete.size()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        // Non-std throw (M4 probe caught one escaping a partial-install
+        // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
 using progress_fn = void (*)(int, const char*);
 progress_fn g_progress = nullptr;
 
