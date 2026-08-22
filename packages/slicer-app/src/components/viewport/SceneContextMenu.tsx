@@ -14,19 +14,19 @@ import {
 } from 'react';
 import * as THREE from 'three';
 import type { RootState } from '@react-three/fiber';
-import { Trash2 } from 'lucide-react';
+import { Box, Trash2 } from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { clearScene } from '../toolbar/sceneActions';
+import { addCube, clearScene } from '../toolbar/sceneActions';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import type { SceneInteractionController } from './SceneInteractionController';
 
 const CLICK_MOVE_THRESHOLD_PX = 4;
-// Rough menu footprint (min-w-36 + padding/border, one item) used to keep a
+// Rough menu footprint (min-w-36 + padding/border, two items) used to keep a
 // right-click near the window edges from opening off-screen.
 const MENU_WIDTH_PX = 160;
-const MENU_HEIGHT_PX = 44;
+const MENU_HEIGHT_PX = 84;
 
 /**
  * Whether the scene's topmost raycast hit under the cursor is a model body.
@@ -121,6 +121,11 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     void clearScene(platform, sceneInteraction);
   }, [platform, sceneInteraction]);
 
+  const handleAddCube = useCallback(() => {
+    setPoint(null);
+    void addCube(platform, sceneInteraction);
+  }, [platform, sceneInteraction]);
+
   return (
     <div
       className="absolute inset-0 pointer-events-none"
@@ -138,6 +143,16 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
           className="pointer-events-auto fixed z-50 min-w-36 rounded-md border bg-card p-1 shadow-md"
           style={{ left: point.x, top: point.y }}
         >
+          <button
+            type="button"
+            role="menuitem"
+            data-testid="btn-add-cube"
+            disabled={busy}
+            onClick={handleAddCube}
+            className="flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-xs/relaxed text-foreground select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+          >
+            <Box className="size-3.5" /> Add Cube
+          </button>
           <button
             type="button"
             role="menuitem"
