@@ -119,6 +119,19 @@ export interface ModelTransform {
   rotation: [number, number, number];
   scale: [number, number, number];
   mirror: [number, number, number];
+  /**
+   * Optional full affine matrix (16 values, column-major, three.js layout).
+   * Authoritative when present — it can carry shear (e.g. a non-uniform world
+   * scale of a rotated object) that T·R·S cannot represent. The TRS fields
+   * above remain the closest decomposition for clean transforms and for the
+   * gizmo/panel display.
+   */
+  matrix?: [
+    number, number, number, number,
+    number, number, number, number,
+    number, number, number, number,
+    number, number, number, number,
+  ];
 }
 
 export interface ModelMeshResult {

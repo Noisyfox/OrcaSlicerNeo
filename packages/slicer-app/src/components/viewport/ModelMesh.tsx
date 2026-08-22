@@ -10,10 +10,24 @@ import type { GLVolume } from './GLVolume';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import { persistSettledModelTransforms } from '../toolbar/persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';
+import { EULER_ORDER } from './transformDeltaMath';
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
+  // A sheared transform cannot be split into position/quaternion/scale; apply
+  // its matrix directly so the mesh renders (and slices) exactly as stored.
+  if (transform.matrix) {
+    group.matrixAutoUpdate = false;
+    group.matrix.fromArray(transform.matrix);
+    group.matrixWorldNeedsUpdate = true;
+    return;
+  }
   const { offset, rotation, scale, mirror } = transform;
+  group.matrixAutoUpdate = true;
   group.position.set(...offset);
+  // Match the C++ slicer's Rz·Ry·Rx composition (see the rotate/scale design
+  // doc) — three's default XYZ order would render non-zero rotations
+  // differently from the sliced result.
+  group.rotation.order = EULER_ORDER;
   group.rotation.set(...rotation);
   group.scale.set(scale[0] * mirror[0], scale[1] * mirror[1], scale[2] * mirror[2]);
   // DragControls reads this matrix on the next pointer event. Keep it current

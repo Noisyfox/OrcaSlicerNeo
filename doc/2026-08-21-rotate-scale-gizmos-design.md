@@ -1,0 +1,279 @@
+# Rotate & Scale Gizmos Design
+
+Date: 2026-08-21
+Status: Approved (user Q&A, 2026-08-21)
+Scope: Milestone 11 — rotate and scale tools for the 3D viewport, extending
+the M10 gizmo toolbar and the M5 move-gizmo architecture. Includes the
+sidebar rotate/scale panels, a scale world/local coordinate toggle, and the
+Euler-convention alignment between the JS renderer and the C++ slicer.
+
+## Summary
+
+The move gizmo (M5) and its toolbar (M10) establish the pattern: a non-
+rendering aggregate-selection pivot is manipulated by drei `TransformControls`;
+the scene controller applies the pivot delta to every selected instance.
+
+This milestone:
+
+- **Rotate gizmo**: drei `TransformControls` mode `rotate`, world space —
+  X/Y/Z rings. The drag rotates the whole selection around the selection-
+  center pivot; each instance's offset orbits the pivot and its rotation
+  (Euler ZYX, radians) is recomposed from the world rotation delta.
+- **Scale gizmo**: drei `TransformControls` mode `scale` with a **world/local
+  coordinate toggle**. World (default): handles world-aligned, factors
+  written to instance `scale` componentwise (exact for unrotated objects;
+  OrcaSlicer-style local-factor approximation for rotated ones). Local:
+  handles align to the selected object's axes and factors apply exactly along
+  them. Multi-selection always scales in world coordinates and disables the
+  toggle.
+- **Gizmo toolbar**: three exclusive toggles — Move, Rotate, Scale.
+- **Sidebar panels** (render with their gizmo, like `MovePanel`):
+  - **Rotate panel**: X/Y/Z inputs in degrees + Reset. Single selection shows
+    the object's rotation; multi-selection shows **0** and edits apply as
+    relative deltas to every selected object.
+  - **Scale panel**: World/Local toggle, X/Y/Z scale-factor inputs (%), X/Y/Z
+    size inputs (mm, the dimensions the object is scaled to), Reset. Single
+    selection shows the actual factor/size; multi-selection shows **100%**
+    for factors (edits apply relatively) and the aggregate bounding-box size
+    for dimensions (edits scale the whole selection to that size).
+- **Euler-convention fix**: the renderer composes instance/volume rotation
+  with three.js Euler order `'ZYX'`, matching the C++ slicer's
+  `T · [Rz·Ry·Rx] · S` (`Geometry::assemble_transform`). Previously the
+  renderer used three's default `'XYZ'` — invisible while every rotation is
+  `[0,0,0]`, but a rotate gizmo would otherwise render differently from the
+  sliced result.
+
+No bridge/WASM changes: commits flow through the existing
+`persistSettledModelTransforms` → `setModelTransform` path, which already
+carries `rotation` and `scale`.
+
+## Key Decisions
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Gizmo tech | drei `TransformControls`, `mode` prop on a shared `TransformGizmo` | Same battle-tested machinery as move; one component, three modes |
+| Rotate space | **World only** (`space="world"`) | OrcaSlicer rotates around world axes; no rotate-space toggle requested |
+| Scale space | **Toggleable world/local**, default world | User requirement; implemented via the pivot's pre-drag orientation (TC scale is always local to the target) |
+| Multi-select scale space | **World, toggle disabled** | No single orientation exists for a group; user decision |
+| Rotate delta math | `offset' = pivot + R·(offset−pivot)`; `rotation' = eulerZYX(R·quatZYX(rotation))` | Rotates the selection rigidly around the aggregate pivot; data model stays `T·R·S` |
+| Scale delta math | `offset'` displaced along the scale-space axes around the pivot; `scale' = scale·factor`; rotation/mirror untouched | Scale factors are local-frame in the data model (`T·R·S`), so the rendered view equals the sliced result |
+| Negative/zero scale | Clamped to a small positive floor (1e-3) | `mirror` is the sanctioned flip mechanism; zero/negative scale would degenerate the mesh |
+| Toolbar | Move/Rotate/Scale exclusive toggles | Extends the M10 toolbar; arming still requires a non-empty selection |
+| Rotate panel | X/Y/Z degrees + Reset; multi-select shows 0, edits are relative deltas | OrcaSlicer-style manipulation panel; user decision |
+| Scale panel | World/Local toggle + factor % + size mm + Reset; multi-select factors show 100%, edits relative; size shows aggregate bbox | User decision ("with inputs and reset, also the size current object is scaled to"; "100% instead") |
+| Panel value rule | Single selection shows real values; multi-selection shows a neutral baseline (0° / 100%); edits apply delta from the baseline | Preserves relative orientations/factors across a group |
+| Euler convention | Renderer uses `'ZYX'` everywhere instance/volume rotation is consumed | Matches C++ `Rz·Ry·Rx`; required for rotate correctness (latent mismatch, harmless today) |
+| Snap | Not in this milestone | OrcaSlicer's snap increments are a later refinement |
+| Keyboard shortcuts | **M / R / S / Esc** (toggle move/rotate/scale, deselect all) | OrcaSlicer bindings; toggles like the toolbar buttons, Esc = deselect all (which closes the gizmo) |
+| Git | No branch/commits (user note: "not a git repo, skipping") | Explicit user preference overrides the repo's default workflow for this task |
+
+## Architecture
+
+```
+GizmoToolbar (overlay, outside Canvas)
+└─ Move | Rotate | Scale buttons ── toggleGizmo(mode) ──► Controller
+                                                         openGizmo: 'move'|'rotate'|'scale'|null
+                                                         scaleSpace: 'world'|'local'
+
+Scene (inside Canvas)
+└─ SelectionPivot (group)
+   └─ armed && <TransformGizmo mode target={pivot}/>   ← TC mutates pivot
+
+SettingsPanel
+├─ MovePanel    (gizmo === 'move')
+├─ RotatePanel  (gizmo === 'rotate')
+└─ ScalePanel   (gizmo === 'scale')   ← World/Local toggle, factors, size, Reset
+```
+
+### Transform delta math (`transformDeltaMath.ts`, pure)
+
+All gizmo/panel edits reduce to pure functions over `ModelTransform`:
+
+- `applyRotationDelta(transform, deltaQuat, pivot, spaceQuat)` —
+  `offset' = pivot + spaceQuat·(factor⊙(spaceQuat⁻¹·(offset−pivot)))` for
+  scale; for rotate `offset' = pivot + deltaQuat·(offset−pivot)` and
+  `rotation' = eulerZYX(deltaQuat · quatZYX(rotation))`.
+- `applyScaleDelta(transform, factor, pivot, spaceQuat)` —
+  `offset' = pivot + spaceQuat·(factor⊙(spaceQuat⁻¹·(offset−pivot)))`;
+  `scale' = scale·factor`; rotation/mirror unchanged. `spaceQuat` is identity
+  for world, the selection orientation for local.
+- Euler helpers: `quatZYX(rotation)`, `eulerZYX(quat)`, radians↔degrees.
+
+The controller captures the pivot's start quaternion/scale in
+`DragSnapshot`; deltas are `next·start⁻¹` so gestures are always relative to
+their own start.
+
+### Pivot orientation management (`Scene.tsx`)
+
+`syncPivot` writes the pivot position on every controller change and resets
+its rotation/scale **between gestures** (`owner === 'none'`):
+
+- rotate armed → pivot identity (world rings).
+- scale armed + world → pivot identity.
+- scale armed + local + exactly one instance selected → pivot quaternion =
+  the instance's world rotation (instance ZYX × volume ZYX), so TC's
+  local-mode handles align with the object axes.
+- multi-selection → identity (world), toggle disabled.
+
+During an active gesture `syncPivot` only writes position — TransformControls
+owns quaternion/scale until release.
+
+## Interaction
+
+- Clicking an object selects it; nothing opens automatically (M10 model).
+- **Rotate** armed: rings around the selection center; dragging a ring
+  rotates the selection rigidly around the pivot (offsets orbit + rotations
+  recompose). Release commits via `persistSettledModelTransforms`.
+- **Scale** armed: handles appear at the pivot; center handle = uniform,
+  shafts = per-axis; world or local per the panel toggle. Release commits.
+- Rotate/Scale panels appear with their gizmo and hide with it; the move
+  panel is unchanged.
+- Editing a rotate value with a single selection sets absolute degrees
+  (delta from the displayed value); multi-selection shows 0 and rotates all
+  selected objects by the entered delta. Editing scale factors/sizes behaves
+  the same with 100%/aggregate-size baselines. Reset restores the load-time
+  rotation/scale from `buffer.instanceTransform`.
+
+## Testing
+
+- **Unit (vitest)**:
+  - `transformDeltaMath.test.ts`: rotate delta (offset orbit + ZYX
+    recomposition round-trip), scale delta world/local, positive clamp,
+    display helpers (degrees, percent, size).
+  - `SceneInteractionController.test.ts`: `toggleGizmo(mode)` exclusivity;
+    rotate/scale drag deltas over multi-selection; `scaleSpace` setter with
+    multi-select world forcing; panel ops (rotate delta, factor %, size mm,
+    resets); existing move tests unchanged except the toggle signature.
+- **e2e (Playwright Electron, mock build)** — extend `app.e2e.ts`:
+  - Toolbar shows three buttons; arming each shows the right panel.
+  - Rotate: arm → drag a ring → rotate panel values change → slice sync.
+  - Scale: arm → drag a shaft → scale panel factor changes; World/Local
+    toggle flips; multi-select disables the toggle.
+  - Panel inputs commit (mock `setModelTransform` round-trip) and Reset.
+- **Typecheck** (CI). No WASM build — no bridge/build-scaffold changes.
+
+## Docs & plan updates
+
+- `spec/Grand Plan.md` — new "Rotate & Scale Gizmos" milestone entry.
+- `doc/high_level_dev_plan.md` — matching roadmap entry.
+- Implementation notes appended to this doc on delivery.
+
+## Follow-ups (not in this milestone)
+
+- Cut/measure/arrange/orient gizmos; Select tool button; rotation snapping;
+  uniform-scale lock UX (center handle covers the common case).
+
+## Implementation notes (delivered 2026-08-21)
+
+Branch `dev/rotate-scale-gizmos` (commits `8aeac40`, `e2afc2b`, `1a1fffc`,
+`028c6ae`, plus this note and the plan updates).
+
+Delivered as designed. Substantive findings worth remembering:
+
+- **Euler order:** verified in the installed three r185 source that Euler
+  order `'ZYX'` produces exactly the C++ `Rz(z)·Ry(y)·Rx(x)` matrix from
+  `Geometry::assemble_transform` (unit test pins the matrix equality). The
+  renderer (`ModelMesh.applyTransform` group rotation + controller
+  `transformMatrix`) now uses `'ZYX'`; invisible for the all-zero rotations
+  in existing data.
+- **Scale mode is always local to the target** in three's TransformControls
+  (`const space = mode === 'scale' ? 'local' : this.space`). The world/local
+  toggle is implemented by driving the pivot's pre-drag quaternion: identity
+  for world, the single selected instance's world orientation for local.
+  `syncPivot` resets pivot rotation/scale between gestures (`owner ===
+  'none'`) and only writes position during a drag, so TransformControls'
+  start-capture is always clean.
+- **Rotate picker geometry:** the invisible picker rings that register `axis`
+  sit at 0.5× the handle scale (the `E` free-rotate ring at 0.75×), NOT at
+  the visible 1.0× ring. The e2e drags the Z ring through screen-space
+  candidate points (the projection of world-space ring points misses because
+  the perspective mapping is not uniform); the candidate offsets came from an
+  empirical axis sweep at the fixture's camera.
+- **Panel scale semantics:** factor and size edits scale the whole selection
+  rigidly about the aggregate pivot (offsets orbit), matching the gizmo drag
+  and the size edit — the selection stays visually centered. The first e2e
+  attempt exposed why this matters: the mock cube's local origin is at a
+  corner (geometry `[0,20]³`, offset `[0,0,0]`), so scaling about the offset
+  drifts the bbox center; Reset then restores scale but not the anchor. The
+  e2e aims gizmo drags at the live pivot via the mock-only
+  `__orcaE2e.projectSelectionPivot()` hook.
+- **Commit path:** rotate/scale commits reuse
+  `persistSettledModelTransforms` → `setModelTransform` (no bridge/WASM
+  changes — `setModelTransform` already carries rotation/scale/mirror).
+- **Hover axis-line anchor (three-stdlib quirk, fixed 2026-08-22):** the
+  reference line shown when hovering a rotation ring was anchored at the
+  scene origin until the first drag. Drei's `TransformControls` uses
+  three-stdlib 2.36.1, whose gizmo positions the `AXIS` helper at
+  `worldPositionStart` — a vector only captured at `pointerDown`, so before
+  any drag it stays `(0,0,0)`. The gizmo's `useFrame` now keeps
+  `worldPositionStart` synced to the live pivot while hovering (`axis !==
+  null && !dragging`); `pointerDown` re-captures it from the object's
+  matrixWorld at drag start, so the drag math is untouched. The e2e asserts
+  the axis line's world position equals the live selection pivot during
+  hover. Note the three/examples source (which anchors at `worldPosition`)
+  differs from the shipped three-stdlib implementation — always verify
+  against the installed package.
+- **World scale on a rotated object (fixed 2026-08-22):** the data model
+  applies scale in the object's local (post-rotation) frame (`T·R·S`), so a
+  world-axis factor previously landed on the wrong local axis — a cube
+  rotated 90° about Z scaled its world-Y width when the world-X handle/factor
+  was used (world-X width unchanged). `applyScaleDelta` now converts the
+  world/space factor into the instance's local frame:
+  `f_eff = diag(R⁻¹ · spaceQuat · diag(factor) · spaceQuat⁻¹ · R)`. Exact for
+  axis-aligned rotations (the common 90°/180° case); non-uniform world scale
+  of an arbitrarily-rotated object is not representable as `T·R·S` (it would
+  shear), so the diagonal is the closest representation. Offset displacement
+  stays along the scale-space axes, keeping the bbox centered on the pivot.
+  Local mode (`spaceQuat` = object orientation) is unchanged (it already
+  collapses to the plain local factor).
+- **Shear via a full transform matrix (supersedes the diagonal above,
+  2026-08-22):** a non-uniform world scale of an arbitrarily-rotated object
+  cannot be stored as `T·R·S` (it would shear), so `ModelTransform` now
+  carries an optional full affine `matrix` (16 values, column-major) that is
+  authoritative when present. `Geometry::Transformation` already stores the
+  full matrix (`m_matrix`, `set_matrix`, `get_matrix`, `has_skew`) — no
+  libslic3r edit. The bridge (`transform_json`/`set_transform`) serializes and
+  applies the matrix; the client passes it through; the renderer builds the
+  mesh matrix from it when present, else `T·R·S`;
+  `applyScaleDelta` composes `T(pivot)·D·T(-pivot)·(T·R·S)` and stores the
+  matrix only when the result has shear (clean results stay TRS). Move/rotate
+  on a sheared transform compose into the matrix; per-property reset drops the
+  matrix so it isn't silently ignored. Verified with the reported
+  (-16, 41.8, 163.8) rotation: world-X ×2 doubles the world-X size while
+  world-Y/Z stay exact (mock round-trip in e2e; real-module slicing is the
+  bridge change + CI's real e2e).
+- **Drop to bed uses the TRUE mesh min-Z (fixed 2026-08-22):** an
+  arbitrarily-rotated model floated because `selectionBounds()` transforms
+  each geometry's LOCAL axis-aligned bbox and takes the AABB of the result —
+  for a non-axis-aligned rotation that rotated box over-approximates the
+  model (it extends below the true low point), so dropping to it left the real
+  vertices above the plate (a cube fills its box, which is why the mock
+  fixture masked it). `dropSelectionToBed()` now computes the exact world
+  min-Z over the actual transformed vertices (a one-time O(vertices) pass on a
+  user action). The gizmo pivot and selection outline keep the loose AABB
+  (fast, and the standard center for the helper). The unit/e2e assertions use
+  the real geometry (including the reported (-16, 41.8, 163.8) rotation), not
+  the loose box.
+- **Gizmo keyboard shortcuts (2026-08-22):** `Viewport` registers a window
+  keydown handler with OrcaSlicer's bindings — `M`/`R`/`S` toggle the move /
+  rotate / scale gizmo (`toggleGizmo(mode)`, which refuses on an empty
+  selection, matching the disabled toolbar buttons and OrcaSlicer's
+  "re-open same type closes" behaviour), and `Esc` calls `clearSelection()`
+  (deselect all, which also closes the gizmo — OrcaSlicer's Esc binding).
+  Inputs/textarea/select/contenteditable targets and any Ctrl/Cmd/Alt
+  modifier are ignored so typing in the panels is never hijacked.
+
+### Verification
+
+- `pnpm test` (all workspaces): 66/66 slicer-app tests incl. 39
+  controller/math tests; desktop suite passWithNoTests.
+- `pnpm typecheck` (all workspaces): clean.
+- `pnpm --filter desktop test:e2e`: 5 passed / 1 skipped (the `slice-error`
+  skip is `test.skip(!REAL)` in mock builds — static, intentional).
+- `scripts\build-windows.bat quick`: both wasm64 variants (threaded + serial)
+  compiled, linked, and staged — the bridge change (matrix serialization /
+  `set_matrix`) builds cleanly with the Emscripten toolchain. `smoke` passes the
+  bridge round-trip: `get_model_mesh` now returns the transform `matrix` and
+  slicing/export are unchanged. (Two `get_presets count=0` smoke checks fail
+  only because the standalone harness doesn't install the profile bundle into
+  MEMFS — the app does that in `runtime.init`; unrelated to this change.)

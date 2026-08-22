@@ -7,7 +7,7 @@ import { BedPlate } from './BedPlate';
 import { GLVolumeMesh } from './ModelMesh';
 import { useSliceResult } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
-import { MoveGizmo } from './gizmo/MoveGizmo';
+import { TransformGizmo, type TransformGizmoMode } from './gizmo/TransformGizmo';
 import { glVolumeCollection } from './GLVolume';
 import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
@@ -47,24 +47,60 @@ function SceneContents() {
   const size = useThree((s) => s.size);
   useEffect(() => {
     if (!(import.meta.env as { VITE_USE_MOCK?: string }).VITE_USE_MOCK) return;
-    // The container is shared with MoveGizmo (gizmoAxis), and per-key
+    // The container is shared with TransformGizmo (gizmoAxis), and per-key
     // cleanup leaves a partial behind — so every key is optional here.
     const w = window as unknown as {
       __orcaE2e?: {
         projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null;
+        projectSelectionPivot?: () => { x: number; y: number } | null;
+        selectionPivotWorld?: () => [number, number, number] | null;
+        selectionBoundsWorld?: () => {
+          min: [number, number, number];
+          max: [number, number, number];
+          center: [number, number, number];
+          size: [number, number, number];
+        } | null;
         gizmoAxis?: () => string | null;
         pointerOwner?: () => 'none' | 'gizmo' | 'body';
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
       };
     };
-    // Scene owns the container but shares it with MoveGizmo (gizmoAxis) —
+    const projectPoint = (p: THREE.Vector3) => {
+      const v = p.clone().project(camera);
+      return { x: (v.x + 1) * 0.5 * size.width, y: (1 - v.y) * 0.5 * size.height };
+    };
+    // Scene owns the container but shares it with TransformGizmo (gizmoAxis) —
     // merge, and remove only our own key on cleanup, so a camera/size
     // re-run does not drop the gizmo's registration.
     w.__orcaE2e = {
       ...w.__orcaE2e,
       projectWorldToScreen(p) {
-        const v = new THREE.Vector3(p[0], p[1], p[2]).project(camera);
-        return { x: (v.x + 1) * 0.5 * size.width, y: (1 - v.y) * 0.5 * size.height };
+        return projectPoint(new THREE.Vector3(p[0], p[1], p[2]));
+      },
+      // The gizmo pivots at the CURRENT selection bounds center — after scale
+      // edits the anchor can move relative to a fixed world point, so the e2e
+      // aims at the live pivot.
+      projectSelectionPivot() {
+        const pivot = sceneInteraction.selectionPivot();
+        return pivot ? projectPoint(pivot) : null;
+      },
+      selectionPivotWorld() {
+        const pivot = sceneInteraction.selectionPivot();
+        return pivot ? [pivot.x, pivot.y, pivot.z] : null;
+      },
+      selectionBoundsWorld() {
+        const bounds = sceneInteraction.selectionBounds();
+        if (!bounds) return null;
+        const min = bounds.min;
+        const max = bounds.max;
+        const size = bounds.getSize(new THREE.Vector3());
+        const center = bounds.getCenter(new THREE.Vector3());
+        return {
+          min: [min.x, min.y, min.z],
+          max: [max.x, max.y, max.z],
+          center: [center.x, center.y, center.z],
+          size: [size.x, size.y, size.z],
+        };
       },
       pointerOwner: () => sceneInteraction.owner,
       // The e2e fixture's instance collection is deterministic, while a
@@ -81,6 +117,9 @@ function SceneContents() {
       if (w.__orcaE2e) {
         const {
           projectWorldToScreen: _dropped,
+          projectSelectionPivot: _pivot,
+          selectionPivotWorld: _pivotWorld,
+          selectionBoundsWorld: _bounds,
           pointerOwner: _owner,
           selectMockInstance: _selection,
           ...rest
@@ -105,13 +144,13 @@ function SceneContents() {
       {glVolumes.map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} />
       ))}
-      <SelectionMoveGizmo />
+      <SelectionTransformGizmo />
       {toolpath && <ToolpathLines data={toolpath} />}
     </>
   );
 }
 
-function SelectionMoveGizmo() {
+function SelectionTransformGizmo() {
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
   const invalidate = useThree((s) => s.invalidate);
@@ -126,6 +165,19 @@ function SelectionMoveGizmo() {
     const group = pivotRef.current;
     if (!group || !pivot) return;
     group.position.copy(pivot);
+    // Between gestures the pivot is a clean starting state: identity
+    // orientation/scale, except the scale gizmo's local mode, which aligns
+    // the handles to the single selected instance's axes. During an active
+    // gesture TransformControls owns quaternion/scale — only position is
+    // synced so the drag delta stays relative to its captured start.
+    if (sceneInteraction.owner === 'none') {
+      group.rotation.set(0, 0, 0);
+      group.scale.set(1, 1, 1);
+      if (sceneInteraction.gizmo === 'scale' && sceneInteraction.scaleSpace === 'local') {
+        const orientation = sceneInteraction.selectionOrientation();
+        if (orientation) group.quaternion.copy(orientation);
+      }
+    }
     // TransformControls reads its attached target during pointer processing;
     // make the pivot matrix current before the next drag event, not after a
     // React layout pass.
@@ -134,14 +186,24 @@ function SelectionMoveGizmo() {
   }, [invalidate, sceneInteraction]);
 
   useLayoutEffect(() => {
+    sceneInteraction.attachPivot(pivotRef.current);
     syncPivot();
-    return sceneInteraction.subscribe(syncPivot);
+    const unsubscribe = sceneInteraction.subscribe(syncPivot);
+    return () => {
+      unsubscribe();
+      sceneInteraction.attachPivot(null);
+    };
   }, [sceneInteraction, syncPivot]);
+
+  const mode: TransformGizmoMode | null =
+    sceneInteraction.gizmo === 'move' ? 'translate'
+      : sceneInteraction.gizmo === 'rotate' ? 'rotate'
+        : sceneInteraction.gizmo === 'scale' ? 'scale' : null;
 
   return (
     <>
       <group ref={attachPivot} />
-      {target && sceneInteraction.gizmo === 'move' && <MoveGizmo target={target} />}
+      {target && mode && <TransformGizmo target={target} mode={mode} />}
     </>
   );
 }

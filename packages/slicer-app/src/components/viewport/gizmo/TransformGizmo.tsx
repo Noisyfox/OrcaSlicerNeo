@@ -1,6 +1,7 @@
-// The scene's sole move gizmo. TransformControls manipulates a non-rendering
-// aggregate-selection pivot; the scene controller applies that delta to every
-// selected instance. No GLVolume mesh owns a gizmo or gesture state.
+// The scene's sole transform gizmo. TransformControls manipulates a
+// non-rendering aggregate-selection pivot; the scene controller applies the
+// pivot's delta to every selected instance. One component, three modes —
+// translate (move), rotate, and scale (world/local per the scale panel).
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { TransformControls } from '@react-three/drei';
@@ -9,7 +10,12 @@ import { useSceneInteraction } from '../SceneInteractionContext';
 import { persistSettledModelTransforms } from '../../toolbar/persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';
 
-export function MoveGizmo({ target }: { target: THREE.Object3D }) {
+export type TransformGizmoMode = 'translate' | 'rotate' | 'scale';
+
+export function TransformGizmo({ target, mode }: {
+  target: THREE.Object3D;
+  mode: TransformGizmoMode;
+}) {
   const platform = usePlatform();
   const sceneInteraction = useSceneInteraction();
   const invalidate = useThree((s) => s.invalidate);
@@ -41,20 +47,57 @@ export function MoveGizmo({ target }: { target: THREE.Object3D }) {
   // body drag while hovering a handle; beginGizmoDrag is the synchronous,
   // final ownership claim when the handle is pressed.
   useFrame(() => {
-    const axis = (tcRef.current as unknown as { axis: string | null } | null)?.axis ?? null;
+    const controls = tcRef.current as unknown as {
+      axis: string | null;
+      dragging?: boolean;
+      worldPositionStart: THREE.Vector3;
+      worldPosition: THREE.Vector3;
+    } | null;
+    const axis = controls?.axis ?? null;
     sceneInteraction.setGizmoGrabberHovered(axis !== null);
+    // three-stdlib's TransformControls anchors the hover axis helper (the
+    // reference line through a rotation ring) at worldPositionStart, which is
+    // only captured at pointerDown — before the first drag it stays at the
+    // scene origin, so the line points through the wrong point until the user
+    // starts rotating. Keep it on the live pivot between drags; pointerDown
+    // re-captures it from the object's matrixWorld at drag start, so this
+    // write never interferes with the drag math.
+    if (controls && axis !== null && !controls.dragging) {
+      controls.worldPositionStart.copy(controls.worldPosition);
+    }
   });
 
   // Test-only axis getter (mock/e2e builds). Scene owns the shared container.
   useEffect(() => {
     if (!(import.meta.env as { VITE_USE_MOCK?: string }).VITE_USE_MOCK) return;
-    const w = window as unknown as { __orcaE2e?: { gizmoAxis?: () => string | null } };
+    const w = window as unknown as {
+      __orcaE2e?: { gizmoAxis?: () => string | null; gizmoAxisLineWorldPosition?: () => [number, number, number] | null };
+    };
     if (!w.__orcaE2e) return;
     const readAxis = () => (tcRef.current as unknown as { axis: string | null } | null)?.axis ?? null;
-    w.__orcaE2e = { ...w.__orcaE2e, gizmoAxis: readAxis };
+    const readAxisLineWorldPosition = () => {
+      const controls = tcRef.current as unknown as {
+        _gizmo?: { helper?: { rotate?: { children?: THREE.Object3D[] } } };
+        worldPosition?: THREE.Vector3;
+      } | null;
+      // three-stdlib exposes the gizmo as `gizmo` (not `_gizmo`).
+      const gizmo = controls as unknown as {
+        gizmo?: { helper?: { rotate?: { children?: THREE.Object3D[] } } };
+      } | null;
+      const axis = gizmo?.gizmo?.helper?.rotate?.children?.find((child) => child.name === 'AXIS');
+      if (!axis) return null;
+      const world = new THREE.Vector3();
+      axis.getWorldPosition(world);
+      return [world.x, world.y, world.z] as [number, number, number];
+    };
+    w.__orcaE2e = {
+      ...w.__orcaE2e,
+      gizmoAxis: readAxis,
+      gizmoAxisLineWorldPosition: readAxisLineWorldPosition,
+    };
     return () => {
       if (w.__orcaE2e) {
-        const { gizmoAxis: _dropped, ...rest } = w.__orcaE2e;
+        const { gizmoAxis: _dropped, gizmoAxisLineWorldPosition: _line, ...rest } = w.__orcaE2e;
         w.__orcaE2e = rest;
       }
     };
@@ -64,13 +107,19 @@ export function MoveGizmo({ target }: { target: THREE.Object3D }) {
     <TransformControls
       ref={tcRef}
       object={target}
-      mode="translate"
+      mode={mode}
       space="world"
       enabled={sceneInteraction.owner !== 'body'}
       onMouseDown={() => { sceneInteraction.beginGizmoDrag(); }}
       onObjectChange={() => {
         if (sceneInteraction.owner !== 'gizmo') return;
-        sceneInteraction.updateDragPivot(target.position);
+        // The controller computes the mode-specific delta from the pivot's
+        // full transform relative to the gesture's captured start.
+        sceneInteraction.updateGizmoTransform({
+          position: target.position,
+          quaternion: target.quaternion,
+          scale: target.scale,
+        });
         invalidate();
       }}
       onMouseUp={() => {

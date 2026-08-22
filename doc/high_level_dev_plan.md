@@ -330,6 +330,35 @@
 - Rotate/scale gizmos, a Select button, and G/R/S/Esc shortcuts remain queued
   in Post-v1 Expansion.
 
+### Milestone 11 — Rotate & Scale Gizmos
+
+> **Status: delivered 2026-08-21.** Rotate and scale tools join the move
+> gizmo with exclusive Move/Rotate/Scale toolbar toggles, a shared
+> `TransformGizmo` (drei `TransformControls` translate/rotate/scale modes),
+> sidebar rotate/scale panels, and a scale world/local coordinate toggle
+> (multi-selection forces world). The renderer now composes rotation with
+> three.js Euler order `ZYX` — identical to the C++ slicer's `Rz·Ry·Rx` — so
+> non-zero rotations render exactly as they slice. See
+> `doc/2026-08-21-rotate-scale-gizmos-design.md`.
+
+- Rotate gizmo: world-space rings; the selection rotates rigidly around the
+  selection-center pivot (offsets orbit, rotations recompose as Euler ZYX).
+- Scale gizmo: world/local toggle lives in the scale panel; local aligns the
+  handles to the single selected instance's axes, multi-selection falls back
+  to world and disables the toggle; factors clamp to a positive floor.
+- Rotate panel: X/Y/Z degrees + Reset; multi-selection shows 0 and edits are
+  relative deltas (0° baseline).
+- Scale panel: World/Local toggle, factor % (relative to original) and size
+  mm (the dimensions the selection is scaled to) inputs + Reset;
+  multi-selection shows 100% factors and the aggregate size.
+- Panel scale edits scale rigidly about the aggregate pivot so the selection
+  stays centered; size edits land the bbox dimension exactly on the target.
+- Rotate/scale commits flow through the existing `setModelTransform` path —
+  no bridge or WASM changes.
+- Gizmo keyboard shortcuts (OrcaSlicer bindings): M/R/S toggle move/rotate/
+  scale, Esc deselects all (which closes the gizmo); input fields and
+  modifier combos are ignored.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module
