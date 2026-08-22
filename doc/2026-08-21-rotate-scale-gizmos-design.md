@@ -270,4 +270,10 @@ Delivered as designed. Substantive findings worth remembering:
 - `pnpm typecheck` (all workspaces): clean.
 - `pnpm --filter desktop test:e2e`: 5 passed / 1 skipped (the `slice-error`
   skip is `test.skip(!REAL)` in mock builds — static, intentional).
-- WASM quick build not required — no bridge or build-scaffold changes.
+- `scripts\build-windows.bat quick`: both wasm64 variants (threaded + serial)
+  compiled, linked, and staged — the bridge change (matrix serialization /
+  `set_matrix`) builds cleanly with the Emscripten toolchain. `smoke` passes the
+  bridge round-trip: `get_model_mesh` now returns the transform `matrix` and
+  slicing/export are unchanged. (Two `get_presets count=0` smoke checks fail
+  only because the standalone harness doesn't install the profile bundle into
+  MEMFS — the app does that in `runtime.init`; unrelated to this change.)
