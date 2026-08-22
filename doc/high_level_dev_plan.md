@@ -376,8 +376,12 @@
   action moved to `toolbar/sceneActions.ts`.
 - Clear Scene in the scene right-click menu on empty space; the native
   host/browser context menu is suppressed for the whole canvas.
+- Add Cube in the same scene right-click menu (above Clear Scene): appends
+  OrcaSlicer's 20 mm cube primitive through the standard model pipeline —
+  no bridge or WASM changes (`doc/2026-08-22-scene-context-menu-add-cube.md`).
 - Electron e2e: the full flow clears via the context menu; an emptied plate
-  shows the disabled menu item after Delete.
+  shows the disabled menu item after Delete; Add Cube unlocks Slice and
+  (mock mode) reports a 20 mm selectable box.
 
 ## Cross-Cutting Practices
 
