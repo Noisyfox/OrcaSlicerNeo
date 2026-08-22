@@ -26,6 +26,8 @@ interface SettingsState {
   setValue: (key: string, value: string) => void;
   setValues: (values: Record<string, string>) => void;
   setModelLoaded: (v: boolean) => void;
+  /** Re-fetch the current model mesh (delete etc.) without toggling load state. */
+  refreshModel: () => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -53,4 +55,5 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   setValue: (key, value) => set((s) => ({ values: { ...s.values, [key]: value } })),
   setValues: (values) => set({ values }),
   setModelLoaded: (modelLoaded) => set((s) => ({ modelLoaded, modelRevision: s.modelRevision + 1 })),
+  refreshModel: () => set((s) => ({ modelRevision: s.modelRevision + 1 })),
 }));

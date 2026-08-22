@@ -9,6 +9,9 @@ import { GizmoToolbar } from './GizmoToolbar';
 import type { SceneInteractionController } from './SceneInteractionController';
 import { filterBuildPlateOccludedIntersections } from './buildPlatePointerOcclusion';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
+import { usePlatform } from '@orca/platform-contract';
+import { useSlicerStore } from '../../stores/useSlicerStore';
+import { deleteSelectedObjects } from '../toolbar/deleteSelection';
 
 const viewportEvents: ComponentProps<typeof Canvas>['events'] = (state) => {
   const defaultEvents = createPointerEvents(state);
@@ -44,6 +47,8 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
   onSceneInteractionChange: (controller: SceneInteractionController | null) => void;
   sceneInteraction: SceneInteractionController | null;
 }) {
+  const platform = usePlatform();
+  const slicing = useSlicerStore((s) => s.status === 'slicing');
   // Ref is only consumed as a prop target (drei Stats `parent`), never read
   // by this component — so it can be typed without the null union, which
   // React 19's RefObject<T> = { current: T } requires for assignability.
@@ -77,10 +82,11 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
     updateRaycastingEnabled();
   }, [updateRaycastingEnabled]);
 
-  // Gizmo keyboard shortcuts (OrcaSlicer bindings): M / R / S toggle the move /
-  // rotate / scale gizmo (like the toolbar buttons — they refuse with an empty
-  // selection), Esc deselects all (which also closes the gizmo). Inputs and
-  // modifier combos are ignored so shortcuts never hijack typing.
+  // Scene keyboard shortcuts (OrcaSlicer bindings): Del/Backspace delete the
+  // complete objects behind the current selection, M / R / S toggle the move /
+  // rotate / scale gizmo (they refuse with an empty selection), Esc deselects
+  // all (which also closes the gizmo). Inputs, modifier combos and active
+  // drags are ignored so shortcuts never hijack typing or a gesture.
   useEffect(() => {
     if (!sceneInteraction) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -92,6 +98,14 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
         sceneInteraction.clearSelection();
         return;
       }
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        if (slicing || sceneInteraction.owner !== 'none') return;
+        const indices = sceneInteraction.selectedObjectIndices();
+        if (indices.length === 0) return;
+        event.preventDefault();
+        void deleteSelectedObjects(platform.runtime, indices);
+        return;
+      }
       const key = event.key.toLowerCase();
       if (key === 'm') sceneInteraction.toggleGizmo('move');
       else if (key === 'r') sceneInteraction.toggleGizmo('rotate');
@@ -99,7 +113,7 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [sceneInteraction]);
+  }, [platform.runtime, sceneInteraction, slicing]);
 
   return (
     <div

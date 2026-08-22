@@ -96,6 +96,27 @@ describe('SceneInteractionController', () => {
     expect(controller.owner).toBe('none');
   });
 
+  it('reports unique sorted object indices behind the selection', () => {
+    const mixed = [
+      ...volumes,
+      makeVolume(1, 0, 0, [0, 0, 0]),
+      makeVolume(2, 0, 0, [0, 0, 0]),
+    ];
+    const c = new SceneInteractionController(() => mixed);
+    expect(c.selectedObjectIndices()).toEqual([]);
+
+    // Selecting an instance of object 0 expands to its complete instance.
+    c.selectFromHit(mixed[0], false);
+    expect(c.selectedObjectIndices()).toEqual([0]);
+
+    c.selectFromHit(mixed[4], true);
+    c.selectFromHit(mixed[5], true);
+    expect(c.selectedObjectIndices()).toEqual([0, 1, 2]);
+
+    c.clearSelection();
+    expect(c.selectedObjectIndices()).toEqual([]);
+  });
+
   it('refuses a gizmo drag while the gizmo is not toggled on', () => {
     controller.selectFromHit(volumes[0], false);
     controller.registerGizmoGrabberHitTest(() => true);

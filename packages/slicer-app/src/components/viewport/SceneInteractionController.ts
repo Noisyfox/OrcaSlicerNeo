@@ -129,6 +129,14 @@ export class SceneInteractionController {
     return this.selection.volumes(this.getVolumes());
   }
 
+  /** Unique object indices behind the current selection, sorted ascending.
+   *  Deleting removes the complete objects that own the selected instances. */
+  selectedObjectIndices(): number[] {
+    const indices = new Set<number>();
+    for (const volume of this.selectedVolumes()) indices.add(volume.buffer.objectIdx);
+    return [...indices].sort((a, b) => a - b);
+  }
+
   selectFromHit(hit: GLVolume, additive: boolean): boolean {
     const changed = additive
       ? this.selection.toggleFromHit(hit, this.getVolumes())
