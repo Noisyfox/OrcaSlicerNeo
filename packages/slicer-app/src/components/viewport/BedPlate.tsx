@@ -42,11 +42,12 @@ export function BedPlate() {
         sectionThickness={1}
         sectionColor="#475569"
         // drei's fade is measured from the camera's projection onto the
-        // grid plane. The default camera sits 283-420mm off the bed, so
-        // any finite fadeDistance (500 before; drei's default is 100)
-        // washes the whole grid to a fraction of its alpha from the
-        // default view. For a bounded bed grid the fade only ever hides
-        // the grid — never engage it.
+        // grid plane. The default camera sits ~320-545mm off the bed (see
+        // DEFAULT_CAMERA_POSITION in Viewport.tsx), so any finite
+        // fadeDistance (500 before; drei's default is 100) washes the whole
+        // grid to a fraction of its alpha from the default view. For a
+        // bounded bed grid the fade only ever hides the grid — never engage
+        // it.
         fadeDistance={Infinity}
         fadeStrength={1}
         infiniteGrid={false}
