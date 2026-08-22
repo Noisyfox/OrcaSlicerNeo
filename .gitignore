@@ -2,6 +2,9 @@
 node_modules/
 dist/
 out/
+# Playwright artifacts (both hosts)
+test-results/
+playwright-report/
 *.local
 .DS_Store
 packages/slicer-wasm/.work/
