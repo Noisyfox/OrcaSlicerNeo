@@ -322,12 +322,14 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
               makeDefault
               enableDamping
               target={CAMERA_TARGET}
-              // LEFT = orbit, RIGHT = pan, MIDDLE = zoom. Body/gizmo drags
-              // (DragControls dragConfig, MoveGizmo) disable orbit for the
-              // gesture's duration.
+              // LEFT = orbit, MIDDLE = pan, RIGHT = pan, wheel = zoom — the
+              // upstream OrcaSlicer drag defaults (see AppConfig.cpp
+              // `*_mouse_drag_action`). Body/gizmo drags (DragControls
+              // dragConfig, MoveGizmo) disable orbit for the gesture's
+              // duration.
               mouseButtons={{
                 LEFT: THREE.MOUSE.ROTATE,
-                MIDDLE: THREE.MOUSE.DOLLY,
+                MIDDLE: THREE.MOUSE.PAN,
                 RIGHT: THREE.MOUSE.PAN,
               }}
               // R3F's event manager tests every interactive mesh before it
