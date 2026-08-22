@@ -117,6 +117,21 @@ async function selectStableRealPrinter(page: Page): Promise<void> {
   await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
 }
 
+/** Rendered aggregate selection-box brackets (mock builds only). */
+function selectionBoxWorldSegments(page: Page) {
+  return page.evaluate(() =>
+    (window as unknown as {
+      __orcaE2e?: {
+        selectionBoxWorldSegments?: () => {
+          min: [number, number, number];
+          max: [number, number, number];
+          segmentCount: number;
+        } | null;
+      };
+    }).__orcaE2e?.selectionBoxWorldSegments?.() ?? null,
+  );
+}
+
 test('full v1 flow: add models → slice → preview → export gcode', async () => {
   const { app, exportPath } = await launchApp();
   try {
@@ -321,6 +336,9 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       if (!cubeCenter) throw new Error('cube-center projection unavailable');
       await page.mouse.click(cubeCenter.x, cubeCenter.y);
       await expect(page.getByTestId('move-panel')).toBeHidden();
+      // A plain click selection is framed by the white bracket box.
+      await expect.poll(() => selectionBoxWorldSegments(page), { timeout: 10_000 })
+        .toEqual({ min: [0, 0, 0], max: [20, 20, 20], segmentCount: 24 });
 
       // The gizmo never auto-activates on selection (gizmo toolbar design):
       // hovering where the move-gizmo X shaft would sit still reads no axis,
@@ -342,6 +360,8 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'true');
       await expect(page.getByTestId('move-panel')).toBeVisible();
       await expect(page.getByTestId('move-x')).toHaveValue('10.000');
+      // An opened gizmo takes over the selection visual — the box hides.
+      await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
 
       // Ctrl-select the second instance, then body-drag the first mesh away
       // from the aggregate gizmo. The panel proves the live DragControls path
@@ -354,6 +374,8 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
         }).__orcaE2e?.selectMockInstance?.(1, true),
       )).resolves.toBe(true);
       await expect(page.getByTestId('move-x')).toHaveValue('35.000');
+      // Still hidden while the gizmo stays armed.
+      await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
       const bodyPivotBefore = await Promise.all(['x', 'y', 'z'].map((axis) =>
         page.getByTestId(`move-${axis}`).inputValue(),
       ));
@@ -674,6 +696,27 @@ test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
       await expect(page.getByTestId('rotate-y')).toHaveValue('0.0');
       await page.getByTestId('rotate-reset').click();
       await expect(page.getByTestId('rotate-x')).toHaveValue('0.0');
+
+      // Closing the gizmo (toggle off) restores the selection box.
+      await page.getByTestId('gizmo-btn-rotate').click();
+      await expect(page.getByTestId('gizmo-btn-rotate')).toHaveAttribute('aria-pressed', 'false');
+      await expect(page.getByTestId('rotate-panel')).toBeHidden();
+      // It frames the CURRENT selection bounds (the gizmo edits above can
+      // legitimately move the pivot), still as one 24-segment box.
+      await expect
+        .poll(async () => {
+          const box = await selectionBoxWorldSegments(page);
+          const bounds = await page.evaluate(() =>
+            (window as unknown as {
+              __orcaE2e?: { selectionBoundsWorld?: () => { min: number[]; max: number[] } | null };
+            }).__orcaE2e?.selectionBoundsWorld?.() ?? null,
+          );
+          if (!box || !bounds) return false;
+          return box.segmentCount === 24
+            && box.min.every((v, i) => Math.abs(v - bounds.min[i]) < 1e-6)
+            && box.max.every((v, i) => Math.abs(v - bounds.max[i]) < 1e-6);
+        }, { timeout: 10_000 })
+        .toBe(true);
     } catch (err) {
       await diag.dump();
       throw err;
@@ -785,6 +828,7 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       await expect(page.getByTestId('rotate-panel')).toBeHidden();
       await expect(page.getByTestId('gizmo-btn-rotate')).toHaveAttribute('aria-pressed', 'false');
       await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+      await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
 
       // Re-select, then S arms scale, M switches to move, Esc deselects.
       await expect(page.evaluate(() =>
@@ -819,6 +863,131 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       await expect(page.getByTestId('btn-clear-scene')).toBeDisabled();
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('btn-slice')).toBeDisabled();
+    } catch (err) {
+      await diag.dump();
+      throw err;
+    }
+  } finally {
+    await app.close();
+  }
+});
+
+// Box selection (Shift+drag): a marquee selects the complete instances whose
+// projected bounds intersect it; Shift+Ctrl/Cmd unions; a Shift+drag over
+// empty space clears. The marquee element tracks the drag and disappears on
+// release, and plain clicks keep their existing semantics.
+test('scene selection: shift+drag box selection (replace, additive, clear)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      await selectStableRealPrinter(page);
+      await page.getByTestId('btn-add-model').click();
+      if (REAL) await page.getByTestId('btn-add-model').click();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      const selectionCount = () => page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectionInstanceCount?: () => number };
+        }).__orcaE2e?.selectionInstanceCount?.() ?? 0,
+      );
+      if (REAL) {
+        // Real-artifact runs only prove the gesture does not break the
+        // viewport; the mock path below owns the deterministic assertions.
+        await page.keyboard.down('Shift');
+        await page.mouse.move(box.x + box.width / 2 - 100, box.y + box.height / 2);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width / 2 + 100, box.y + box.height / 2, { steps: 6 });
+        await page.mouse.up();
+        await page.keyboard.up('Shift');
+        return;
+      }
+      const project = (p: [number, number, number]) =>
+        page
+          .evaluate(
+            (pt) =>
+              (window as unknown as {
+                __orcaE2e?: { projectWorldToScreen(q: [number, number, number]): { x: number; y: number } | null };
+              }).__orcaE2e?.projectWorldToScreen(pt),
+            p,
+          )
+          .then((s) => (s ? { x: box.x + s.x, y: box.y + s.y } : null));
+
+      await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+
+      // Shift+drag around both fixture cubes (X∈[0,20] and X∈[50,70]).
+      const marqueeStart = await project([-2, -2, 10]);
+      const marqueeEnd = await project([72, 22, 10]);
+      if (!marqueeStart || !marqueeEnd) throw new Error('marquee projection unavailable');
+      await page.keyboard.down('Shift');
+      await page.mouse.move(marqueeStart.x, marqueeStart.y);
+      await page.mouse.down();
+      await page.mouse.move(marqueeEnd.x, marqueeEnd.y, { steps: 8 });
+      await expect(page.getByTestId('box-select-marquee')).toBeVisible();
+      await page.mouse.up();
+      await page.keyboard.up('Shift');
+      await expect(page.getByTestId('box-select-marquee')).toBeHidden();
+      await expect.poll(selectionCount, { timeout: 10_000 }).toBe(2);
+      await expect(page.getByTestId('gizmo-btn-move')).toBeEnabled();
+      // ONE aggregate bracket box frames the union of both cubes, never a
+      // per-instance box — OrcaSlicer's selection renders a single bounds box.
+      await expect.poll(() => selectionBoxWorldSegments(page), { timeout: 10_000 })
+        .toEqual({ min: [0, 0, 0], max: [70, 20, 20], segmentCount: 24 });
+
+      // A plain click on a member of the group keeps the complete selection —
+      // the marquee gesture must not change click semantics.
+      const firstCenter = await project([10, 10, 10]);
+      if (!firstCenter) throw new Error('first cube projection unavailable');
+      await page.mouse.click(firstCenter.x, firstCenter.y);
+      await expect.poll(selectionCount).toBe(2);
+
+      // Shift+drag over empty space clears the selection.
+      await page.keyboard.down('Shift');
+      await page.mouse.move(box.x + box.width - 60, box.y + 40);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width - 100, box.y + 90, { steps: 6 });
+      await page.mouse.up();
+      await page.keyboard.up('Shift');
+      await expect.poll(selectionCount).toBe(0);
+      await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
+      await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
+
+      // Shift+Ctrl+drag over the second cube unions it with the first.
+      await page.mouse.click(firstCenter.x, firstCenter.y);
+      await expect.poll(selectionCount).toBe(1);
+      await expect.poll(() => selectionBoxWorldSegments(page))
+        .toEqual({ min: [0, 0, 0], max: [20, 20, 20], segmentCount: 24 });
+      const secondStart = await project([52, -2, 10]);
+      const secondEnd = await project([68, 22, 10]);
+      if (!secondStart || !secondEnd) throw new Error('second-cube marquee projection unavailable');
+      await page.keyboard.down('Control');
+      await page.keyboard.down('Shift');
+      await page.mouse.move(secondStart.x, secondStart.y);
+      await page.mouse.down();
+      await page.mouse.move(secondEnd.x, secondEnd.y, { steps: 6 });
+      await page.mouse.up();
+      await page.keyboard.up('Shift');
+      await page.keyboard.up('Control');
+      await expect.poll(selectionCount).toBe(2);
+      await expect.poll(() => selectionBoxWorldSegments(page))
+        .toEqual({ min: [0, 0, 0], max: [70, 20, 20], segmentCount: 24 });
+
+      // A plain Shift+drag over the second cube replaces the selection.
+      await page.keyboard.down('Shift');
+      await page.mouse.move(secondStart.x, secondStart.y);
+      await page.mouse.down();
+      await page.mouse.move(secondEnd.x, secondEnd.y, { steps: 6 });
+      await page.mouse.up();
+      await page.keyboard.up('Shift');
+      await expect.poll(selectionCount).toBe(1);
+      await expect.poll(() => selectionBoxWorldSegments(page))
+        .toEqual({ min: [50, 0, 0], max: [70, 20, 20], segmentCount: 24 });
     } catch (err) {
       await diag.dump();
       throw err;

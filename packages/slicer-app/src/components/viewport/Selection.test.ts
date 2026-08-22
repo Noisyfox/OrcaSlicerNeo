@@ -64,6 +64,27 @@ describe('Selection', () => {
     expect(selection.empty).toBe(true);
     expect(selection.clear()).toBe(false);
   });
+
+  it('replaces the selection with exactly the given volume IDs', () => {
+    const selection = new Selection();
+    selection.replaceFromHit(collection[0], collection);
+
+    expect(selection.replaceIds(['0:0:1', '0:1:1', '1:0:0'])).toBe(true);
+    expect([...selection.ids]).toEqual(['0:0:1', '0:1:1', '1:0:0']);
+    expect(selection.replaceIds(['0:0:1', '0:1:1', '1:0:0'])).toBe(false);
+    expect(selection.replaceIds([])).toBe(true);
+    expect(selection.empty).toBe(true);
+  });
+
+  it('unions volume IDs additively without touching the existing selection', () => {
+    const selection = new Selection();
+    selection.replaceFromHit(collection[0], collection);
+
+    expect(selection.addIds(['0:0:1', '0:1:1'])).toBe(true);
+    expect([...selection.ids]).toEqual(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
+    expect(selection.addIds(['0:0:1'])).toBe(false);
+    expect([...selection.ids]).toHaveLength(4);
+  });
 });
 
 describe('instanceKeyOf', () => {

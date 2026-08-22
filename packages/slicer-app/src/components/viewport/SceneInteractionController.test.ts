@@ -56,6 +56,11 @@ describe('SceneInteractionController', () => {
     controller = new SceneInteractionController(() => volumes);
   });
 
+  /** Identity world→screen projector: instance 0 spans [-1,1]², instance 1 [19,21]×[4,6]. */
+  function registerFlatProjector(): void {
+    controller.registerBoxSelectProjector((world) => ({ x: world.x, y: world.y }));
+  }
+
   it('never auto-opens the gizmo on selection — the toggle is its only opener', () => {
     controller.selectFromHit(volumes[0], false);
     expect(controller.gizmo).toBeNull();
@@ -163,6 +168,92 @@ describe('SceneInteractionController', () => {
 
     expect(controller.selectFromClick(volumes[0], false)).toBe(false);
     expect(controller.selectedVolumes()).toEqual(volumes);
+  });
+
+  it('claims a Shift+drag press for box selection and tracks the live marquee rect', () => {
+    expect(controller.beginBoxSelect({ x: 10, y: 10 }, false)).toBe(true);
+    expect(controller.owner).toBe('box');
+    expect(controller.boxSelectionRect).toEqual({ x: 10, y: 10, width: 0, height: 0 });
+
+    // A drag into the negative direction normalizes to a valid rect.
+    expect(controller.updateBoxSelect({ x: 2, y: 4 })).toBe(true);
+    expect(controller.boxSelectionRect).toEqual({ x: 2, y: 4, width: 8, height: 6 });
+    expect(controller.cancelBoxSelect()).toBe(true);
+    expect(controller.owner).toBe('none');
+    expect(controller.boxSelectionRect).toBeNull();
+  });
+
+  it('refuses to preempt a gizmo press or an active pointer owner', () => {
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+    expect(controller.beginBoxSelect({ x: 0, y: 0 }, false)).toBe(true);
+    // A second press while the box owns the pointer is refused.
+    expect(controller.beginBoxSelect({ x: 5, y: 5 }, false)).toBe(false);
+    // No projector is registered here, so the end finalizes without a hit.
+    expect(controller.endBoxSelect()).toBe(false);
+    expect(controller.owner).toBe('none');
+
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    expect(controller.beginBoxSelect({ x: 0, y: 0 }, false)).toBe(false);
+  });
+
+  it('box-selects the complete instances whose projected bounds intersect the marquee', () => {
+    registerFlatProjector();
+    controller.beginBoxSelect({ x: -5, y: -5 }, false);
+    controller.updateBoxSelect({ x: 5, y: 5 });
+
+    expect(controller.endBoxSelect()).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+
+    // A marquee over the second instance alone replaces the selection.
+    controller.beginBoxSelect({ x: 15, y: 0 }, false);
+    controller.updateBoxSelect({ x: 25, y: 10 });
+    expect(controller.endBoxSelect()).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[2], volumes[3]]);
+    expect(controller.selectionInstanceCount).toBe(1);
+  });
+
+  it('box-selects additively when the press carried Ctrl/Cmd', () => {
+    registerFlatProjector();
+    controller.selectFromHit(volumes[0], false);
+
+    controller.beginBoxSelect({ x: 15, y: 0 }, true);
+    controller.updateBoxSelect({ x: 25, y: 10 });
+    expect(controller.endBoxSelect()).toBe(true);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+  });
+
+  it('clears the selection when a replace marquee covers nothing', () => {
+    registerFlatProjector();
+    controller.selectFromHit(volumes[0], false);
+
+    controller.beginBoxSelect({ x: 100, y: 100 }, false);
+    controller.updateBoxSelect({ x: 120, y: 120 });
+    expect(controller.endBoxSelect()).toBe(true);
+    expect(controller.selection.empty).toBe(true);
+  });
+
+  it('leaves selection untouched without a registered projector', () => {
+    controller.selectFromHit(volumes[0], false);
+    controller.beginBoxSelect({ x: -5, y: -5 }, false);
+    controller.updateBoxSelect({ x: 5, y: 5 });
+
+    expect(controller.endBoxSelect()).toBe(false);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+  });
+
+  it('abandons an active marquee when the selection is cleared or the model resets', () => {
+    controller.beginBoxSelect({ x: 0, y: 0 }, false);
+    controller.updateBoxSelect({ x: 10, y: 10 });
+    expect(controller.clearSelection()).toBe(true);
+    expect(controller.boxSelectionRect).toBeNull();
+    expect(controller.owner).toBe('none');
+
+    controller.beginBoxSelect({ x: 0, y: 0 }, false);
+    controller.updateBoxSelect({ x: 10, y: 10 });
+    controller.resetForModel();
+    expect(controller.boxSelectionRect).toBeNull();
+    expect(controller.owner).toBe('none');
   });
 
   it('moves every selected instance by an equal body-drag delta', () => {
@@ -470,5 +561,45 @@ describe('SceneInteractionController', () => {
     expect(controller.scaleSelectionBy([2, 1, 1])).toBe(true);
     const widthXAfter = controller.selectionBounds()!.getSize(new THREE.Vector3()).x;
     expect(widthXAfter).toBeCloseTo(widthXBefore * 2, 8);
+  });
+
+  it('snaps the selection bounds to the actual vertices of a rotated model', () => {
+    // A slanted shape whose local AABB corners extend beyond the true mesh.
+    // The tetrahedron only occupies the [0,1]³ vertices it owns, so after a
+    // 45° X rotation the loose local-bbox AABB would reach z = √2 while the
+    // real mesh only tops out at ½√2. The selection box must use the real
+    // transformed vertices, exactly like OrcaSlicer's World reference system.
+    const buffer: ModelObjectBuffer = {
+      objectIdx: 0,
+      volumeIdx: 0,
+      instanceIdx: 0,
+      positions: new Float32Array([
+        0, 0, 0,
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1,
+      ]),
+      vertexCount: 4,
+      indices: new Uint32Array([0, 1, 2]),
+      indexCount: 3,
+      offset: [0, 0, 0],
+      instanceTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
+      volumeTransform: { offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] },
+    };
+    const volume = new GLVolume(buffer);
+    volume.instanceTransform.rotation = [Math.PI / 4, 0, 0];
+    const c = new SceneInteractionController(() => [volume]);
+    c.selectFromHit(volume, false);
+
+    const bounds = c.selectionBounds()!;
+    const s = Math.SQRT1_2; // ½√2 ≈ 0.7071
+    // World-axis aligned (never rotates with the model) and tight to the real
+    // transformed vertices: z tops out at ½√2, not the loose box's √2.
+    expect(bounds.min.x).toBeCloseTo(0, 8);
+    expect(bounds.min.y).toBeCloseTo(-s, 8);
+    expect(bounds.min.z).toBeCloseTo(0, 8);
+    expect(bounds.max.x).toBeCloseTo(1, 8);
+    expect(bounds.max.y).toBeCloseTo(s, 8);
+    expect(bounds.max.z).toBeCloseTo(s, 8);
   });
 });

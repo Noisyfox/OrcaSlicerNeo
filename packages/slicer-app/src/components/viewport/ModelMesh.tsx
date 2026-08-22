@@ -102,7 +102,9 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
       <group ref={volumeGroupRef}>
         <mesh
           geometry={data.geometry}
-          userData={{ orcaRaycastRole: MODEL_BODY_RAYCAST }}
+          // orcaVolume lets DOM-level pickers (Shift+click fallback in the
+          // viewport) map a raycast hit straight back to its GLVolume.
+          userData={{ orcaRaycastRole: MODEL_BODY_RAYCAST, orcaVolume: data }}
           onPointerDown={(event) => {
             if (event.nativeEvent.button !== 0) return;
             if (!sceneInteraction.pointerStartsOnGizmo) {

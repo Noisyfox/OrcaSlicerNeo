@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/viewport/Viewport.tsx
-import { Component, useCallback, useEffect, useRef, type ComponentProps, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
 import { Canvas, events as createPointerEvents, type RootState } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
@@ -8,7 +8,9 @@ import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
 import { SceneContextMenu } from './SceneContextMenu';
 import type { SceneInteractionController } from './SceneInteractionController';
-import { filterBuildPlateOccludedIntersections } from './buildPlatePointerOcclusion';
+import { filterBuildPlateOccludedIntersections, MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
+import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
+import type { GLVolume } from './GLVolume';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -58,6 +60,13 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
   const sceneStateRef = useRef<RootState | null>(null);
   const cameraGestureActiveRef = useRef(false);
   const unsubscribeSceneInteractionRef = useRef<(() => void) | null>(null);
+  const boxGestureRef = useRef<{
+    pointerId: number;
+    start: { x: number; y: number };
+    additive: boolean;
+    armed: boolean;
+  } | null>(null);
+  const detachBoxSelectRef = useRef<(() => void) | null>(null);
   const updateRaycastingEnabled = useCallback(() => {
     sceneStateRef.current?.setEvents({
       enabled: isViewportRaycastingEnabled(
@@ -66,17 +75,36 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
       ),
     });
   }, []);
+  const projectWorldToViewport = useCallback((world: THREE.Vector3) => {
+    const state = sceneStateRef.current;
+    if (!state) return null;
+    const projected = world.clone().project(state.camera);
+    // Corners behind the near plane project with flipped coordinates; skip
+    // them so a box that wraps around the camera cannot select phantom areas.
+    if (projected.z < -1 || projected.z > 1) return null;
+    return {
+      x: (projected.x + 1) * 0.5 * state.size.width,
+      y: (1 - projected.y) * 0.5 * state.size.height,
+    };
+  }, []);
   const handleSceneInteractionChange = useCallback((controller: SceneInteractionController | null) => {
     unsubscribeSceneInteractionRef.current?.();
     unsubscribeSceneInteractionRef.current = null;
     sceneInteractionRef.current = controller;
     if (controller) {
       unsubscribeSceneInteractionRef.current = controller.subscribe(updateRaycastingEnabled);
+      controller.registerBoxSelectProjector(projectWorldToViewport);
     }
     updateRaycastingEnabled();
     onSceneInteractionChange(controller);
-  }, [onSceneInteractionChange, updateRaycastingEnabled]);
-  useEffect(() => () => unsubscribeSceneInteractionRef.current?.(), []);
+  }, [onSceneInteractionChange, projectWorldToViewport, updateRaycastingEnabled]);
+  useEffect(() => {
+    return () => {
+      unsubscribeSceneInteractionRef.current?.();
+      detachBoxSelectRef.current?.();
+      boxGestureRef.current = null;
+    };
+  }, []);
 
   const setCameraGestureActive = useCallback((active: boolean) => {
     cameraGestureActiveRef.current = active;
@@ -116,16 +144,118 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [platform.runtime, sceneInteraction, slicing]);
 
+  const viewportPointOf = useCallback((clientX: number, clientY: number) => {
+    const rect = viewportRef.current.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }, []);
+
+  const canStartBoxSelect = useCallback((event: PointerEvent, grabbedGizmo: boolean): boolean => {
+    if (event.button !== 0 || !event.shiftKey || grabbedGizmo) return false;
+    // Only canvas presses start a marquee — overlay DOM (toolbar, scrubber,
+    // stats) keeps its own pointer behavior even while Shift is held.
+    const dom = sceneStateRef.current?.gl.domElement;
+    if (!dom) return false;
+    const target = event.target as Node | null;
+    return target !== null && (target === dom || dom.contains(target));
+  }, []);
+
+  const detachBoxSelectListeners = () => {
+    window.removeEventListener('pointermove', onWindowBoxPointerMove, true);
+    window.removeEventListener('pointerup', onWindowBoxPointerUp, true);
+    window.removeEventListener('pointercancel', onWindowBoxPointerCancel, true);
+    window.removeEventListener('blur', onWindowBoxBlur);
+    detachBoxSelectRef.current = null;
+  };
+
+  const startBoxSelectGesture = (event: PointerEvent) => {
+    boxGestureRef.current = {
+      pointerId: event.pointerId,
+      start: viewportPointOf(event.clientX, event.clientY),
+      additive: event.ctrlKey || event.metaKey,
+      armed: false,
+    };
+    detachBoxSelectRef.current = detachBoxSelectListeners;
+    window.addEventListener('pointermove', onWindowBoxPointerMove, true);
+    window.addEventListener('pointerup', onWindowBoxPointerUp, true);
+    window.addEventListener('pointercancel', onWindowBoxPointerCancel, true);
+    window.addEventListener('blur', onWindowBoxBlur);
+  };
+
+  const onWindowBoxPointerMove = (event: PointerEvent) => {
+    const gesture = boxGestureRef.current;
+    const controller = sceneInteractionRef.current;
+    if (!gesture || !controller || event.pointerId !== gesture.pointerId) return;
+    const point = viewportPointOf(event.clientX, event.clientY);
+    if (!gesture.armed) {
+      const dx = point.x - gesture.start.x;
+      const dy = point.y - gesture.start.y;
+      if (dx * dx + dy * dy <= BOX_SELECT_ARM_THRESHOLD_PX * BOX_SELECT_ARM_THRESHOLD_PX) return;
+      if (!controller.beginBoxSelect(gesture.start, gesture.additive)) {
+        boxGestureRef.current = null;
+        detachBoxSelectListeners();
+        return;
+      }
+      gesture.armed = true;
+    }
+    controller.updateBoxSelect(point);
+    event.preventDefault();
+  };
+
+  const onWindowBoxPointerUp = (event: PointerEvent) => {
+    const gesture = boxGestureRef.current;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    boxGestureRef.current = null;
+    detachBoxSelectListeners();
+    const controller = sceneInteractionRef.current;
+    if (!controller) return;
+    if (gesture.armed) {
+      controller.endBoxSelect();
+    } else {
+      // Shift without a drag is a click: mirror the normal click path so
+      // Shift+click keeps today's behavior (select the body, clear on empty).
+      const volume = pickTopmostModelVolume(sceneStateRef.current, gesture.start);
+      if (volume) controller.selectFromClick(volume, gesture.additive);
+      else controller.clearSelection();
+    }
+    controller.releasePointer();
+    setCameraGestureActive(false);
+  };
+
+  const onWindowBoxPointerCancel = (event: PointerEvent) => {
+    const gesture = boxGestureRef.current;
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    boxGestureRef.current = null;
+    detachBoxSelectListeners();
+    sceneInteractionRef.current?.cancelBoxSelect();
+    setCameraGestureActive(false);
+  };
+
+  const onWindowBoxBlur = () => {
+    if (!boxGestureRef.current) return;
+    boxGestureRef.current = null;
+    detachBoxSelectListeners();
+    sceneInteractionRef.current?.cancelBoxSelect();
+  };
+
   return (
     <div
       ref={viewportRef}
       className="absolute inset-0"
       data-testid="viewport"
       onPointerDownCapture={(event) => {
+        const native = event.nativeEvent;
         // Capture runs before three/drei target handlers. Recheck the live
         // picker here so a stale hover frame cannot start an overlapping body
         // drag before TransformControls claims its handle.
-        sceneInteractionRef.current?.resolveGizmoPointerDown(event.nativeEvent);
+        const grabbedGizmo = sceneInteractionRef.current?.resolveGizmoPointerDown(native) ?? false;
+        // Shift+drag is box selection: claim the press before OrbitControls
+        // or DragControls can start their own gesture. A gizmo grab keeps
+        // strict priority, and overlay DOM is never hijacked.
+        if (canStartBoxSelect(native, grabbedGizmo)) {
+          startBoxSelectGesture(native);
+          native.stopImmediatePropagation();
+          native.preventDefault();
+        }
       }}
       onPointerUpCapture={() => {
         // OrbitControls normally emits `end`, but reset here as well so a
@@ -202,8 +332,58 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
           </Canvas>
         </SceneContextMenu>
       </ViewportErrorBoundary>
+      <BoxSelectionOverlay sceneInteraction={sceneInteraction} />
       <LayerScrubber />
       <GizmoToolbar sceneInteraction={sceneInteraction} />
     </div>
   );
+}
+
+/** The screen-space marquee rendered while a Shift+drag box selection is live. */
+function BoxSelectionOverlay({ sceneInteraction }: {
+  sceneInteraction: SceneInteractionController | null;
+}) {
+  const [rect, setRect] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  useEffect(() => {
+    if (!sceneInteraction) {
+      setRect(null);
+      return;
+    }
+    const sync = () => setRect(sceneInteraction.boxSelectionRect);
+    sync();
+    return sceneInteraction.subscribe(sync);
+  }, [sceneInteraction]);
+  if (!rect) return null;
+  return (
+    <div
+      data-testid="box-select-marquee"
+      className="pointer-events-none absolute z-10 border border-sky-400/80 bg-sky-400/10"
+      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+    />
+  );
+}
+
+/** The topmost visible model body under a viewport-CSS point, or null. */
+function pickTopmostModelVolume(
+  state: RootState | null,
+  point: { x: number; y: number },
+): GLVolume | null {
+  if (!state) return null;
+  const rect = state.gl.domElement.getBoundingClientRect();
+  const nx = (point.x / rect.width) * 2 - 1;
+  const ny = -((point.y / rect.height) * 2) + 1;
+  if (nx < -1 || nx > 1 || ny < -1 || ny > 1) return null;
+  state.raycaster.setFromCamera(new THREE.Vector2(nx, ny), state.camera);
+  const hits = filterBuildPlateOccludedIntersections(
+    state.raycaster.intersectObjects(state.scene.children, true),
+  );
+  const hit = hits.find(
+    (h) => (h.object.userData as { orcaRaycastRole?: string }).orcaRaycastRole === MODEL_BODY_RAYCAST,
+  );
+  return (hit?.object.userData as { orcaVolume?: GLVolume } | undefined)?.orcaVolume ?? null;
 }
