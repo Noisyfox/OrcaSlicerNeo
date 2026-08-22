@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-22
 
-**Status:** In implementation
+**Status:** Implemented
 
 ## Goal
 
@@ -55,6 +55,10 @@ SlicerClient`) exposes it unchanged.
   remaining counts, and errors on invalid indices;
 - controller unit: `selectedObjectIndices()` returns unique object indices in
   selection order;
+- bridge smoke (`harness/bridge-smoke.mjs`, runs against the real WASM
+  artifact): out-of-range indices are rejected without mutation, and a
+  deduplicated original-index list removes the right objects (empty mesh when
+  the plate empties);
 - desktop e2e: extend the gizmo-keyboard test — select, press Delete, expect
   the model to disappear from the scene and the selection to clear.
 
@@ -64,3 +68,6 @@ SlicerClient`) exposes it unchanged.
   session.
 - Deleting a single instance of a multi-instance object is intentionally not
   exposed — native OrcaSlicer's Delete removes the whole object.
+- A stale toolpath after a model mutation persists exactly as it does after
+  Add Model / Clear Scene today (the slice result is not cleared); clearing it
+  is a separate slice-result lifecycle change.

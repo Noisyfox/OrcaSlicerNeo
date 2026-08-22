@@ -149,6 +149,44 @@ Module._free(restoredPtr);
 check('orc_add_model restores one object after clear', restored.ok === true && restored.objects === 1,
       JSON.stringify(restored));
 
+// 4c. delete whole objects by their ORIGINAL indices. The bridge deletes in
+// descending order so earlier indices stay valid while Model.objects shrinks;
+// duplicates are ignored; bounds are validated before any mutation.
+{
+  const secondPtr = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, secondPtr);
+  const two = callJson('orc_add_model', ['pointer', 'number', 'string'],
+                       [secondPtr, stl.length, 'stl']);
+  Module._free(secondPtr);
+  check('delete fixture has two objects', two.ok === true && two.objects === 2, JSON.stringify(two));
+
+  const bad = callJson('orc_delete_objects', ['string'], [JSON.stringify([2])]);
+  check('orc_delete_objects rejects an out-of-range index',
+        !bad.ok && /out of range/.test(bad.error ?? ''), JSON.stringify(bad));
+  const intact = callJson('orc_get_model_mesh', [], []);
+  check('rejected delete leaves the scene intact',
+        intact.ok === true && intact.objects?.length === 2, JSON.stringify(intact));
+
+  const del = callJson('orc_delete_objects', ['string'], [JSON.stringify([1, 0, 1])]);
+  check('orc_delete_objects removes deduped original indices',
+        del.ok === true && del.objects === 0 && del.deleted === 2, JSON.stringify(del));
+  const empty = callJson('orc_get_model_mesh', [], []);
+  check('empty scene reports an empty mesh', empty.ok === true && empty.objects?.length === 0,
+        JSON.stringify(empty));
+}
+
+// Restore a single cube so the existing slice/export checks keep their
+// one-object fixture.
+{
+  const restorePtr = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, restorePtr);
+  const restoredAgain = callJson('orc_add_model', ['pointer', 'number', 'string'],
+                                 [restorePtr, stl.length, 'stl']);
+  Module._free(restorePtr);
+  check('orc_add_model restores the slice fixture', restoredAgain.ok === true && restoredAgain.objects === 1,
+        JSON.stringify(restoredAgain));
+}
+
 // Copy [ptr, ptr+len) out of the heap and free it — mirrors the client's
 // heap.ts readBytes contract. wasm64: the module exports ONLY HEAPU8
 // (EXPORTED_RUNTIME_METHODS), so Module.HEAPF32/HEAPU32 are undefined — the
