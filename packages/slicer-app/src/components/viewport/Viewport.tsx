@@ -77,10 +77,10 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
     updateRaycastingEnabled();
   }, [updateRaycastingEnabled]);
 
-  // Gizmo keyboard shortcuts: G / R / S arm the move / rotate / scale gizmo
-  // (toggle-style, like the toolbar buttons — they refuse with an empty
-  // selection), Esc closes the armed gizmo (a second Esc deselects). Inputs
-  // and modifier combos are ignored so shortcuts never hijack typing.
+  // Gizmo keyboard shortcuts (OrcaSlicer bindings): M / R / S toggle the move /
+  // rotate / scale gizmo (like the toolbar buttons — they refuse with an empty
+  // selection), Esc deselects all (which also closes the gizmo). Inputs and
+  // modifier combos are ignored so shortcuts never hijack typing.
   useEffect(() => {
     if (!sceneInteraction) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -89,12 +89,11 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (sceneInteraction.gizmo) sceneInteraction.closeGizmo();
-        else sceneInteraction.clearSelection();
+        sceneInteraction.clearSelection();
         return;
       }
       const key = event.key.toLowerCase();
-      if (key === 'g') sceneInteraction.toggleGizmo('move');
+      if (key === 'm') sceneInteraction.toggleGizmo('move');
       else if (key === 'r') sceneInteraction.toggleGizmo('rotate');
       else if (key === 's') sceneInteraction.toggleGizmo('scale');
     };

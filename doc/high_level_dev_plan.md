@@ -355,8 +355,8 @@
   stays centered; size edits land the bbox dimension exactly on the target.
 - Rotate/scale commits flow through the existing `setModelTransform` path —
   no bridge or WASM changes.
-- Gizmo keyboard shortcuts: G/R/S arm move/rotate/scale, Esc closes the armed
-  gizmo (keeps the selection, a second Esc deselects); input fields and
+- Gizmo keyboard shortcuts (OrcaSlicer bindings): M/R/S toggle move/rotate/
+  scale, Esc deselects all (which closes the gizmo); input fields and
   modifier combos are ignored.
 
 ## Cross-Cutting Practices

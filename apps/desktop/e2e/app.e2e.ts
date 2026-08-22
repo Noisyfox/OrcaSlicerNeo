@@ -747,9 +747,9 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
   }
 });
 
-// Gizmo keyboard shortcuts: G / R / S arm move/rotate/scale (toggle-style, so
-// they refuse with an empty selection), Esc closes the armed gizmo while
-// keeping the selection, and a second Esc deselects.
+// Gizmo keyboard shortcuts (OrcaSlicer bindings): M / R / S toggle
+// move/rotate/scale (refusing with an empty selection), Esc deselects all
+// (which also closes the gizmo).
 test('scene transforms: gizmo keyboard shortcuts', async () => {
   const { app } = await launchApp();
   try {
@@ -775,20 +775,26 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       await expect(page.getByTestId('rotate-panel')).toBeVisible();
       await expect(page.getByTestId('gizmo-btn-rotate')).toHaveAttribute('aria-pressed', 'true');
 
-      // Esc closes it but keeps the selection.
+      // Esc deselects all, which closes the gizmo and empties the selection.
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('rotate-panel')).toBeHidden();
       await expect(page.getByTestId('gizmo-btn-rotate')).toHaveAttribute('aria-pressed', 'false');
-      await expect(page.getByTestId('gizmo-btn-scale')).toBeEnabled();
+      await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
 
-      // S arms scale, G switches to move, Esc closes.
+      // Re-select, then S arms scale, M switches to move, Esc deselects.
+      await expect(page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(0, false),
+      )).resolves.toBe(true);
       await page.keyboard.press('s');
       await expect(page.getByTestId('scale-panel')).toBeVisible();
-      await page.keyboard.press('g');
+      await page.keyboard.press('m');
       await expect(page.getByTestId('move-panel')).toBeVisible();
       await expect(page.getByTestId('scale-panel')).toBeHidden();
       await page.keyboard.press('Escape');
       await expect(page.getByTestId('move-panel')).toBeHidden();
+      await expect(page.getByTestId('gizmo-btn-move')).toBeDisabled();
     } catch (err) {
       await diag.dump();
       throw err;

@@ -64,7 +64,7 @@ carries `rotation` and `scale`.
 | Panel value rule | Single selection shows real values; multi-selection shows a neutral baseline (0° / 100%); edits apply delta from the baseline | Preserves relative orientations/factors across a group |
 | Euler convention | Renderer uses `'ZYX'` everywhere instance/volume rotation is consumed | Matches C++ `Rz·Ry·Rx`; required for rotate correctness (latent mismatch, harmless today) |
 | Snap | Not in this milestone | OrcaSlicer's snap increments are a later refinement |
-| Keyboard shortcuts | **G / R / S / Esc** (arm move/rotate/scale, close) | User scope request; toggle-style, Esc closes the gizmo while keeping the selection (a second Esc deselects) |
+| Keyboard shortcuts | **M / R / S / Esc** (toggle move/rotate/scale, deselect all) | OrcaSlicer bindings; toggles like the toolbar buttons, Esc = deselect all (which closes the gizmo) |
 | Git | No branch/commits (user note: "not a git repo, skipping") | Explicit user preference overrides the repo's default workflow for this task |
 
 ## Architecture
@@ -255,14 +255,13 @@ Delivered as designed. Substantive findings worth remembering:
   the real geometry (including the reported (-16, 41.8, 163.8) rotation), not
   the loose box.
 - **Gizmo keyboard shortcuts (2026-08-22):** `Viewport` registers a window
-  keydown handler — `G`/`R`/`S` toggle the move/rotate/scale gizmo
-  (`toggleGizmo(mode)`, which refuses on an empty selection, matching the
-  disabled toolbar buttons), and `Esc` closes the armed gizmo
-  (`closeGizmo()` keeps the selection; a second `Esc` calls
-  `clearSelection()`). Inputs/textarea/select/contenteditable targets and any
-  Ctrl/Cmd/Alt modifier are ignored so typing in the panels is never
-  hijacked. `closeGizmo()` is a controller method that disarms without
-  clearing the selection (distinct from the empty-selection auto-close).
+  keydown handler with OrcaSlicer's bindings — `M`/`R`/`S` toggle the move /
+  rotate / scale gizmo (`toggleGizmo(mode)`, which refuses on an empty
+  selection, matching the disabled toolbar buttons and OrcaSlicer's
+  "re-open same type closes" behaviour), and `Esc` calls `clearSelection()`
+  (deselect all, which also closes the gizmo — OrcaSlicer's Esc binding).
+  Inputs/textarea/select/contenteditable targets and any Ctrl/Cmd/Alt
+  modifier are ignored so typing in the panels is never hijacked.
 
 ### Verification
 

@@ -79,14 +79,6 @@ export class SceneInteractionController {
     return this.openGizmo === mode;
   }
 
-  /** Disarm the armed gizmo (Esc) without touching the selection. */
-  closeGizmo(): boolean {
-    if (this.openGizmo === null) return false;
-    this.openGizmo = null;
-    this.emit();
-    return true;
-  }
-
   /**
    * World/local handle space for the scale gizmo. Local requires exactly one
    * selected instance (a group has no single orientation); the panel disables
