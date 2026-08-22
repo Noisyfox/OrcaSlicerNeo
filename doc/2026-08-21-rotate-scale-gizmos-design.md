@@ -226,6 +226,22 @@ Delivered as designed. Substantive findings worth remembering:
   stays along the scale-space axes, keeping the bbox centered on the pivot.
   Local mode (`spaceQuat` = object orientation) is unchanged (it already
   collapses to the plain local factor).
+- **Shear via a full transform matrix (supersedes the diagonal above,
+  2026-08-22):** a non-uniform world scale of an arbitrarily-rotated object
+  cannot be stored as `T·R·S` (it would shear), so `ModelTransform` now
+  carries an optional full affine `matrix` (16 values, column-major) that is
+  authoritative when present. `Geometry::Transformation` already stores the
+  full matrix (`m_matrix`, `set_matrix`, `get_matrix`, `has_skew`) — no
+  libslic3r edit. The bridge (`transform_json`/`set_transform`) serializes and
+  applies the matrix; the client passes it through; the renderer builds the
+  mesh matrix from it when present, else `T·R·S`;
+  `applyScaleDelta` composes `T(pivot)·D·T(-pivot)·(T·R·S)` and stores the
+  matrix only when the result has shear (clean results stay TRS). Move/rotate
+  on a sheared transform compose into the matrix; per-property reset drops the
+  matrix so it isn't silently ignored. Verified with the reported
+  (-16, 41.8, 163.8) rotation: world-X ×2 doubles the world-X size while
+  world-Y/Z stay exact (mock round-trip in e2e; real-module slicing is the
+  bridge change + CI's real e2e).
 - **Drop to bed uses the TRUE mesh min-Z (fixed 2026-08-22):** an
   arbitrarily-rotated model floated because `selectionBounds()` transforms
   each geometry's LOCAL axis-aligned bbox and takes the AABB of the result —
@@ -241,7 +257,7 @@ Delivered as designed. Substantive findings worth remembering:
 
 ### Verification
 
-- `pnpm test` (all workspaces): 65/65 slicer-app tests incl. 38
+- `pnpm test` (all workspaces): 66/66 slicer-app tests incl. 39
   controller/math tests; desktop suite passWithNoTests.
 - `pnpm typecheck` (all workspaces): clean.
 - `pnpm --filter desktop test:e2e`: 5 passed / 1 skipped (the `slice-error`

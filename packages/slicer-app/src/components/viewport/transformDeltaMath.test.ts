@@ -10,6 +10,7 @@ import {
   clampScale,
   applyRotationDelta,
   applyScaleDelta,
+  matrixFromTransform,
 } from './transformDeltaMath';
 
 function makeTransform(partial?: Partial<ModelTransform>): ModelTransform {
@@ -134,4 +135,34 @@ describe('applyScaleDelta', () => {
     expect(next.scale[1]).toBe(MIN_SCALE);
     expect(next.scale[2]).toBe(1);
   });
+
+  it('stores a sheared matrix for a world scale of an arbitrarily-rotated object', () => {
+    // The exact rotation the user reported: scaling world-X ×2 must double the
+    // world-X size while leaving world-Y/Z sizes untouched. That requires
+    // shear, which the transform carries as a full `matrix`.
+    const deg = (d: number) => (d * Math.PI) / 180;
+    const rotation: Vec3 = [deg(-16), deg(41.8), deg(163.8)];
+    const transform = makeTransform({ offset: [0, 0, 0], rotation });
+    const before = worldSize(transform);
+    const next = applyScaleDelta(transform, [2, 1, 1], new THREE.Vector3(0, 0, 0), new THREE.Quaternion());
+    expect(next.matrix).toBeDefined();
+    const after = worldSize(next);
+    expect(after.x).toBeCloseTo(before.x * 2, 6);
+    expect(after.y).toBeCloseTo(before.y, 6);
+    expect(after.z).toBeCloseTo(before.z, 6);
+  });
 });
+
+/** World AABB size of a 20 mm cube under a ModelTransform (matrix-aware). */
+function worldSize(transform: ModelTransform): THREE.Vector3 {
+  const box = new THREE.Box3();
+  const m = matrixFromTransform(transform);
+  for (let x = 0; x <= 1; x++) {
+    for (let y = 0; y <= 1; y++) {
+      for (let z = 0; z <= 1; z++) {
+        box.expandByPoint(new THREE.Vector3(x * 20, y * 20, z * 20).applyMatrix4(m));
+      }
+    }
+  }
+  return box.getSize(new THREE.Vector3());
+}

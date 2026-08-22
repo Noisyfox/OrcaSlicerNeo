@@ -712,15 +712,19 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
         }).__orcaE2e?.selectionBoundsWorld?.() ?? null,
       );
 
-      // Rotate 90° about Z (panel sets rotation values; the cube's world-X
-      // axis then maps to its local Y).
+      // Rotate to the reported general angle. A world scale on this must now
+      // store an exact sheared affine matrix: world-X doubles, world-Y/Z stay.
       await page.getByTestId('gizmo-btn-rotate').click();
-      await page.getByTestId('rotate-z').fill('90');
+      await page.getByTestId('rotate-x').fill('-16');
+      await page.getByTestId('rotate-x').press('Enter');
+      await page.getByTestId('rotate-y').fill('41.8');
+      await page.getByTestId('rotate-y').press('Enter');
+      await page.getByTestId('rotate-z').fill('163.8');
       await page.getByTestId('rotate-z').press('Enter');
       const rotated = await bounds();
       if (!rotated) throw new Error('selection bounds unavailable');
 
-      // World scale ×2 on X must double the world-X width and leave Y alone.
+      // World scale ×2 on X must double the world-X width and leave Y/Z alone.
       await page.getByTestId('gizmo-btn-scale').click();
       await page.getByTestId('scale-space-world').click();
       await page.getByTestId('scale-factor-x').fill('200');
@@ -729,9 +733,11 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
       if (!scaled) throw new Error('scaled bounds unavailable');
       expect(scaled.size[0]).toBeCloseTo(rotated.size[0] * 2, 5);
       expect(scaled.size[1]).toBeCloseTo(rotated.size[1], 5);
+      expect(scaled.size[2]).toBeCloseTo(rotated.size[2], 5);
       // The object stays centered on its pivot.
       expect(scaled.center[0]).toBeCloseTo(rotated.center[0], 5);
       expect(scaled.center[1]).toBeCloseTo(rotated.center[1], 5);
+      expect(scaled.center[2]).toBeCloseTo(rotated.center[2], 5);
     } catch (err) {
       await diag.dump();
       throw err;

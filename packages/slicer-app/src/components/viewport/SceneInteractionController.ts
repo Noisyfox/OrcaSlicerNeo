@@ -4,10 +4,12 @@ import type { Vec3 } from '../../lib/vec3';
 import { GLVolume } from './GLVolume';
 import { instanceKeyOf, Selection, type InstanceKey } from './Selection';
 import {
-  EULER_ORDER,
   applyRotationDelta,
   applyScaleDelta,
+  matrixFromTransform,
+  normalizeTransform,
   quatFromRotation,
+  transformFromMatrix,
 } from './transformDeltaMath';
 
 export type OpenGizmo = 'move' | 'rotate' | 'scale' | null;
@@ -442,6 +444,14 @@ export class SceneInteractionController {
   private applySnapshotDelta(snapshot: ReadonlyMap<InstanceKey, ModelTransform>, delta: THREE.Vector3): void {
     const next = new Map<InstanceKey, ModelTransform>();
     for (const [key, transform] of snapshot) {
+      if (transform.matrix) {
+        const m = matrixFromTransform(transform);
+        m.elements[12] += delta.x;
+        m.elements[13] += delta.y;
+        m.elements[14] += delta.z;
+        next.set(key, normalizeTransform({ ...transformFromMatrix(m, transform) }));
+        continue;
+      }
       const moved = cloneTransform(transform);
       moved.offset = [
         transform.offset[0] + delta.x,
@@ -487,6 +497,9 @@ export class SceneInteractionController {
       if (next.has(key)) continue;
       const transform = cloneTransform(volume.instanceTransform);
       transform[property] = [...volume.buffer.instanceTransform[property]] as Vec3;
+      // A sheared transform's `matrix` is authoritative — a per-property reset
+      // must drop it, else the reset is silently ignored.
+      if (transform.matrix) delete transform.matrix;
       next.set(key, transform);
     }
     this.applyInstanceTransforms(next);
@@ -535,15 +548,7 @@ function worldBounds(volume: GLVolume): THREE.Box3 {
 }
 
 function transformMatrix(transform: ModelTransform): THREE.Matrix4 {
-  return new THREE.Matrix4().compose(
-    new THREE.Vector3(...transform.offset),
-    new THREE.Quaternion().setFromEuler(new THREE.Euler(...transform.rotation, EULER_ORDER)),
-    new THREE.Vector3(
-      transform.scale[0] * transform.mirror[0],
-      transform.scale[1] * transform.mirror[1],
-      transform.scale[2] * transform.mirror[2],
-    ),
-  );
+  return matrixFromTransform(transform);
 }
 
 function safeRatio(current: number, start: number): number {
@@ -556,5 +561,6 @@ function cloneTransform(transform: ModelTransform): ModelTransform {
     rotation: [...transform.rotation] as Vec3,
     scale: [...transform.scale] as Vec3,
     mirror: [...transform.mirror] as Vec3,
+    ...(transform.matrix ? { matrix: [...transform.matrix] as ModelTransform['matrix'] } : {}),
   };
 }

@@ -817,10 +817,19 @@ static json transform_json(const Slic3r::Geometry::Transformation& t) {
     const auto rotation = t.get_rotation();
     const auto scale = t.get_scaling_factor();
     const auto mirror = t.get_mirror();
-    return {{"offset", {offset.x(), offset.y(), offset.z()}},
+    const Slic3r::Matrix4d m = t.get_matrix().matrix();
+    json j = {{"offset", {offset.x(), offset.y(), offset.z()}},
             {"rotation", {rotation.x(), rotation.y(), rotation.z()}},
             {"scale", {scale.x(), scale.y(), scale.z()}},
             {"mirror", {mirror.x(), mirror.y(), mirror.z()}}};
+    // Emit the full affine matrix (column-major, three.js layout) so a
+    // sheared transform survives a JS-side load/reload round-trip. The TRS
+    // fields remain for clean transforms and the gizmo/panel display.
+    j["matrix"] = {m(0,0), m(1,0), m(2,0), m(3,0),
+                   m(0,1), m(1,1), m(2,1), m(3,1),
+                   m(0,2), m(1,2), m(2,2), m(3,2),
+                   m(0,3), m(1,3), m(2,3), m(3,3)};
+    return j;
 }
 
 static Slic3r::Vec3d transform_vec3(const json& transform, const char* key) {
@@ -831,6 +840,20 @@ static Slic3r::Vec3d transform_vec3(const json& transform, const char* key) {
 }
 
 static void set_transform(Slic3r::Geometry::Transformation& target, const json& transform) {
+    // A full matrix is authoritative — it can carry shear that T·R·S cannot.
+    // set_matrix stores the matrix verbatim; get_rotation/get_scaling_factor
+    // below decompose it for display, and the slicer consumes get_matrix().
+    if (transform.contains("matrix") && transform["matrix"].is_array()) {
+        const auto& a = transform["matrix"];
+        if (a.size() != 16)
+            throw std::runtime_error("transform.matrix must be 16 numbers");
+        Slic3r::Matrix4d m;
+        for (int col = 0; col < 4; ++col)
+            for (int row = 0; row < 4; ++row)
+                m(row, col) = a[col * 4 + row].get<double>();
+        target.set_matrix(Slic3r::Transform3d(m));
+        return;
+    }
     target.set_offset(transform_vec3(transform, "offset"));
     target.set_rotation(transform_vec3(transform, "rotation"));
     target.set_scaling_factor(transform_vec3(transform, "scale"));
