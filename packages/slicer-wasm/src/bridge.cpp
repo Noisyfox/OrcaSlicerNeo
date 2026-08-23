@@ -856,6 +856,47 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
     }
 }
 
+// Split a volume into its disconnected parts (upstream ModelVolume::split).
+// libslic3r assigns a NEW unique ID to the original volume and creates new
+// volume(s) for the remaining shells, so the caller's volumeId is now stale.
+// Return the freshly generated volume IDs plus the current structure so the
+// renderer can clear stale selection and re-read (spec §8 mutation flow).
+EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, double max_extruders, double remap_paint) {
+    try {
+        const auto id = to_object_id(volume_id);
+        if (!id) return error_json("volume id must be a positive integer");
+        ModelVolume* vol = find_volume_by_id(*id);
+        if (vol == nullptr) return error_json("volume not found");
+        if (!vol->is_splittable()) return error_json("volume is not splittable");
+
+        ModelObject* obj = vol->get_object();
+        // Capture the object's current volume IDs so the generated part IDs can
+        // be computed after the split (the original is re-IDed, so it is "new").
+        std::vector<std::size_t> before_ids;
+        for (const ModelVolume* v : obj->volumes)
+            before_ids.push_back(v->id().id);
+
+        const unsigned int max_ext = max_extruders > 0.0
+            ? static_cast<unsigned int>(max_extruders) : 1u;
+        const std::size_t parts = vol->split(max_ext, remap_paint != 0.0);
+
+        std::vector<std::size_t> new_volume_ids;
+        for (const ModelVolume* v : obj->volumes)
+            if (std::find(before_ids.begin(), before_ids.end(), v->id().id) == before_ids.end())
+                new_volume_ids.push_back(v->id().id);
+
+        state().print.clear();
+        return dup_json(json{{"ok", true},
+                             {"parts", parts},
+                             {"newVolumeIds", new_volume_ids},
+                             {"objects", model_structure_json()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 using progress_fn = void (*)(int, const char*);
 progress_fn g_progress = nullptr;
 

@@ -49,6 +49,8 @@ export interface MockModuleOptions {
   instanceCount?: number;
   /** Number of composite render volumes in each mock instance. */
   volumeCount?: number;
+  /** Number of parts a splittable volume yields on orc_split_volume_to_parts. */
+  splitParts?: number;
   /** Simulate the shared-memory mailbox transport used by the pthread build. */
   threaded?: boolean;
 }
@@ -140,6 +142,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   });
   const instanceCount = Math.max(1, Math.floor(opts.instanceCount ?? 1));
   const volumeCount = Math.max(1, Math.floor(opts.volumeCount ?? 1));
+  const splitParts = Math.max(1, Math.floor(opts.splitParts ?? 2));
   const createObjectTransforms = () => Array.from({ length: instanceCount }, (_, index) => ({
     ...identityTransform(),
     // Keep mock instances visibly separate so selection tests can hit each
@@ -367,6 +370,28 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sliced = false;
       return { ok: true, objects: buildStructure() };
     },
+    orc_split_volume_to_parts(volumeId: number, _maxExtruders: number, _remapPaint: number) {
+      for (let oi = 0; oi < volumeMeta.length; oi++) {
+        const vi = volumeMeta[oi].findIndex((v) => v.id === volumeId);
+        if (vi >= 0) {
+          const source = volumeMeta[oi][vi];
+          if (!source.isSplittable) return { error: 'volume is not splittable' };
+          const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
+          for (let p = 0; p < splitParts; p++) {
+            parts.push({ id: nextVolumeId++, name: `${source.name}_${p + 1}`, type: source.type, isSplittable: false });
+          }
+          volumeMeta[oi].splice(vi, 1, ...parts);
+          for (let ii = 0; ii < instanceCount; ii++) {
+            const transform = objectVolumeTransforms[oi][ii][vi];
+            objectVolumeTransforms[oi][ii].splice(vi, 1,
+              ...Array.from({ length: splitParts }, () => JSON.parse(JSON.stringify(transform))));
+          }
+          sliced = false;
+          return { ok: true, parts: splitParts, newVolumeIds: parts.map((p) => p.id), objects: buildStructure() };
+        }
+      }
+      return { error: 'volume not found' };
+    },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
       if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
       objectTransforms[obj][inst].offset = [x, y, z];
@@ -574,6 +599,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_clone_objects: { ret: 'number', args: ['string'] },
     orc_reorder_objects: { ret: 'number', args: ['number', 'number'] },
     orc_reorder_volumes: { ret: 'number', args: ['number', 'number', 'number'] },
+    orc_split_volume_to_parts: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_rename_object: { ret: 'number', args: ['number', 'string'] },
     orc_rename_volume: { ret: 'number', args: ['number', 'string'] },
     orc_set_volume_type: { ret: 'number', args: ['number', 'string'] },

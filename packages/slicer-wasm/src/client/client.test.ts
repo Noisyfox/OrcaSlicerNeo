@@ -411,6 +411,57 @@ describe('SlicerClient bridge contract', () => {
     });
   });
 
+  describe('Step 4a split volume to parts (stable ObjectID)', () => {
+    it('splits a splittable volume into fresh-ID parts and clears the old ID', async () => {
+      const c = createClient(async () => createMockModule({ splitParts: 3 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const originalId = objects[0].volumes[0].id;
+      const r = await c.splitVolumeToParts(originalId);
+      expect(r.ok).toBe(true);
+      expect(r.parts).toBe(3);
+      expect(r.newVolumeIds).toHaveLength(3);
+      // The original volume ID is now stale (re-IDed by the split).
+      const after = await c.getModelStructure();
+      expect(after.objects[0].volumes).toHaveLength(3);
+      expect(after.objects[0].volumes.map((v) => v.id)).toEqual(r.newVolumeIds);
+      expect(after.objects[0].volumes.map((v) => v.id)).not.toContain(originalId);
+      // The returned structure matches the re-read.
+      expect(r.objects?.[0].volumes.map((v) => v.id)).toEqual(after.objects[0].volumes.map((v) => v.id));
+    });
+
+    it('rejects a non-splittable volume', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      // In the mock only volume index 0 is splittable.
+      const volume = objects[0].volumes[1];
+      const res = await c.splitVolumeToParts(volume.id);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('not splittable');
+    });
+
+    it('rejects an unknown volume ID', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      const res = await c.splitVolumeToParts(999999);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('volume not found');
+    });
+
+    it('invalidates the slice result after a split', async () => {
+      const c = createClient(async () => createMockModule());
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.slice({});
+      expect((await c.getSliceResult()).ok).toBe(true);
+      const { objects } = await c.getModelStructure();
+      await c.splitVolumeToParts(objects[0].volumes[0].id);
+      const after = await c.getSliceResult();
+      expect(after.ok).toBeFalsy();
+      expect(after.error).toContain('no slice result');
+    });
+  });
+
   it('slice fires progress and returns unrecognized_keys', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');

@@ -541,3 +541,46 @@ check('slice error surfaces the real message, not the bare category',
       && boxSliced.error !== 'Errors' && boxSliced.error.includes('empty first layer'),
       JSON.stringify(boxSliced));
 
+// 10b. Step 4a: split a multi-shell volume into parts, then confirm the split
+// parts still slice to valid G-code.
+{
+  const multiPath = resolve(dirname(stlPath), 'multipart.stl');
+  const multi = await readFile(multiPath);
+  const mpPtr = Number(Module._malloc(multi.length));
+  Module.HEAPU8.set(multi, mpPtr);
+  callJson('orc_clear_model', [], []);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
+                          [mpPtr, multi.length, 'stl']);
+  Module._free(mpPtr);
+  check('multipart fixture loads', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
+
+  const s = callJson('orc_get_model_structure', [], []);
+  check('multipart volume is splittable',
+        s.ok === true && s.objects?.[0]?.volumes?.[0]?.isSplittable === true,
+        JSON.stringify(s.objects?.[0]?.volumes?.[0]?.isSplittable));
+  const vol = s.objects?.[0]?.volumes?.[0];
+  if (vol) {
+    const split = callJson('orc_split_volume_to_parts', ['number', 'number', 'number'], [vol.id, 1, 0]);
+    check('orc_split_volume_to_parts produces parts',
+          split.ok === true && split.parts >= 2
+          && Array.isArray(split.newVolumeIds) && split.newVolumeIds.length === split.parts,
+          JSON.stringify({ parts: split.parts, newVolumeIds: split.newVolumeIds }));
+    const afterSplit = callJson('orc_get_model_structure', [], []);
+    check('split parts appear with fresh IDs and the old ID is stale',
+          afterSplit.ok === true
+          && afterSplit.objects?.[0]?.volumes?.length === split.parts
+          && afterSplit.objects[0].volumes.every((v) => split.newVolumeIds.includes(v.id))
+          && !afterSplit.objects[0].volumes.some((v) => v.id === vol.id),
+          JSON.stringify(afterSplit.objects?.[0]?.volumes?.map((v) => v.id)));
+
+    const S = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+    check('split parts slice to valid G-code', S.ok === true, JSON.stringify(S));
+    if (S.ok) {
+      const g = validateGcode(Module.FS.readFile('/out.gcode'));
+      check('split parts G-code valid', g.ok, JSON.stringify(g));
+    }
+  } else {
+    check('multipart volume available', false, JSON.stringify(s).slice(0, 120));
+  }
+}
+

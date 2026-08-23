@@ -175,6 +175,18 @@ export interface ReorderStructureResult {
   error?: string;
 }
 
+/** Split-to-parts result: the freshly generated volume IDs + current structure. */
+export interface SplitVolumeResult {
+  ok: boolean;
+  /** Number of parts produced (1 means the volume was not split). */
+  parts?: number;
+  /** Generated volume IDs; the original volumeId is now stale. */
+  newVolumeIds?: number[];
+  /** Current structure after the split. */
+  objects?: ModelObjectStructure[];
+  error?: string;
+}
+
 /** Simple success/error payload returned by non-destructive metadata mutations. */
 export interface MutationResult {
   ok: boolean;
@@ -303,6 +315,8 @@ export interface SlicerClient {
   reorderObjects(fromObjectId: number, toObjectId: number): Promise<ReorderStructureResult>;
   /** Move a part to sit immediately before another within its object; returns current structure. */
   reorderVolumes(objectId: number, fromVolumeId: number, toVolumeId: number): Promise<ReorderStructureResult>;
+  /** Split a volume into its disconnected parts; returns the generated volume IDs. */
+  splitVolumeToParts(volumeId: number, maxExtruders?: number, remapPaint?: boolean): Promise<SplitVolumeResult>;
   /** Rename an object by its stable ObjectID. */
   renameObject(objectId: number, name: string): Promise<MutationResult>;
   /** Rename a specific part (volume) by its stable ObjectID. */
