@@ -385,6 +385,18 @@
   shows the disabled menu item after Delete; Add Cube and the context-menu
   Add Model entry unlock Slice and (mock mode) report a 20 mm selectable box.
 
+### Milestone 13 — Object List and Object Parts
+
+> **Status: planned.** The interactive design is recorded in
+> `spec/ObjectList-and-Parts.md`. The first version adds the shared object
+> tree and part/instance management over a thin `libslic3r` bridge:
+> `orc_get_model_structure()`, object/volume/instance rename, delete, clone,
+> split, assemble-to-multipart, change type, reorder, and printable state.
+> UI and slicing state use stable `ObjectID`; after each structural mutation
+> the shared app re-reads structure and mesh and restores selection where
+> possible. Mesh boolean, Add Part/Modifier, multi-plate, undo/redo, painting,
+> and extruder panels are deferred.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

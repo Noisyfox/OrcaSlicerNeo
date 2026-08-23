@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-23
 
-**Status:** Draft — interactive design in progress
+**Status:** Draft — design decisions captured, pending final review
 
 **Branch:** `dev/object-list-and-parts`
 
@@ -175,27 +175,82 @@ Every structural mutation follows the same choreography:
 6. Selection is restored by stable ID where possible, otherwise cleared.
 7. ObjectList and viewport re-render.
 
-## 9. Planned Bridge Direction
+## 9. Bridge Contract
 
-The final bridge API list is still being clarified. The intended shape is:
+The following bridge contract is the implementation baseline. Existing
+index-based transform APIs remain unchanged unless a later decision extends
+them.
 
-- `orc_get_model_structure()`
-- `orc_rename_object(id)`
-- `orc_rename_volume(id)`
-- `orc_set_volume_type(id, type)`
-- `orc_delete_objects(ids)`
-- `orc_delete_volumes(ids)`
-- `orc_clone_objects(ids)`
-- `orc_split_volume_to_parts(id)`
-- `orc_split_object_to_objects(id)`
-- `orc_merge_objects_to_multipart(ids)`
-- `orc_instances_to_separate_objects(...)`
-- `orc_set_instance_printable(instanceId, printable)`
-- `orc_reorder_objects(fromObjectId, toObjectId)`
-- `orc_reorder_volumes(objectId, fromVolumeId, toVolumeId)`
+### 9.1 Structure read
 
-Existing index-based transform APIs remain unchanged unless a later decision
-extends them.
+`orc_get_model_structure()` returns:
+
+```json
+{
+  "ok": true,
+  "objects": [
+    {
+      "id": 123,
+      "index": 0,
+      "name": "Cube",
+      "printable": true,
+      "instanceCount": 2,
+      "volumes": [
+        {
+          "id": 456,
+          "index": 0,
+          "name": "Cube",
+          "type": "model_part",
+          "isSplittable": true
+        }
+      ],
+      "instances": [
+        { "id": 789, "index": 0, "printable": true },
+        { "id": 790, "index": 1, "printable": false }
+      ]
+    }
+  ]
+}
+```
+
+Volume `type` is one of:
+
+```text
+model_part
+negative_volume
+parameter_modifier
+support_blocker
+support_enforcer
+```
+
+### 9.2 Operations
+
+```text
+orc_rename_object(objectId, name)
+orc_rename_volume(volumeId, name)
+orc_set_volume_type(volumeId, type)
+orc_delete_objects(objectIds[])
+orc_delete_volumes(volumeIds[])
+orc_clone_objects(objectIds[])
+orc_split_volume_to_parts(volumeId, maxExtruders, remapPaint)
+orc_split_object_to_objects(objectId, autoDrop)
+orc_merge_objects_to_multipart(objectIds[], name)
+orc_instances_to_separate_objects(objectId, instanceIds[])
+orc_set_object_printable(objectId, printable)
+orc_set_instance_printable(instanceId, printable)
+orc_reorder_objects(fromObjectId, toObjectId)
+orc_reorder_volumes(objectId, fromVolumeId, toVolumeId)
+```
+
+Simple operations return:
+
+```json
+{ "ok": true }
+```
+
+Creating operations additionally return the generated IDs, for example
+`newObjectIds`, `newVolumeIds`, or the single created `objectId`. Every
+function returns `{ "ok": false, "error": "..." }` on failure.
 
 ### Bridge calling convention
 
@@ -208,14 +263,7 @@ extends them.
 - `orc_get_model_structure()` takes no arguments and returns the complete
   object/part/instance tree.
 
-## 10. Open Questions
-
-The following items are still being clarified before this document moves from
-Draft to Approved:
-
-- Exact bridge function signatures and error contract.
-
-## 11. Relationship to Other Documents
+## 10. Relationship to Other Documents
 
 - Extends `spec/Web-Electron Shared Application Architecture.md`.
 - Implements a new major milestone beyond
