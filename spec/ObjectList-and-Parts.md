@@ -99,7 +99,17 @@ Object
   instance.
 - Settings and Layers nodes are omitted in the first version.
 
-## 5. Selection and UI Synchronization
+## 5. Sidebar Layout
+
+The first version places the ObjectList and SettingsPanel in the same existing
+left sidebar:
+
+- ObjectList is rendered above SettingsPanel.
+- ObjectList is scrollable and may be limited in height.
+- The existing resizable sidebar width preference continues to apply to the
+  shared sidebar.
+
+## 6. Selection and UI Synchronization
 
 The viewport `SceneInteractionController` remains the single source of truth
 for selection. ObjectList is a projection and command surface; it does not
@@ -119,7 +129,7 @@ Selection mapping:
 The renderer `Selection` must be extended from its current instance-only
 expansion to support object, volume, and instance expansion modes.
 
-## 6. Identity Model
+## 7. Identity Model
 
 UI and slicing state are synchronized with libslic3r stable identifiers, not
 only positional indices.
@@ -140,7 +150,7 @@ React. Native OrcaSlicer uses that mapping because it keeps a live wxDataView
 tree in sync; the shared React app instead uses stable IDs plus whole-structure
 refresh.
 
-## 7. Mutation Flow
+## 8. Mutation Flow
 
 Every structural mutation follows the same choreography:
 
@@ -153,7 +163,7 @@ Every structural mutation follows the same choreography:
 6. Selection is restored by stable ID where possible, otherwise cleared.
 7. ObjectList and viewport re-render.
 
-## 8. Planned Bridge Direction
+## 9. Planned Bridge Direction
 
 The final bridge API list is still being clarified. The intended shape is:
 
@@ -175,18 +185,17 @@ The final bridge API list is still being clarified. The intended shape is:
 Existing index-based transform APIs remain unchanged unless a later decision
 extends them.
 
-## 9. Open Questions
+## 10. Open Questions
 
 The following items are still being clarified before this document moves from
 Draft to Approved:
 
 - Exact bridge function signatures and error contract.
-- UI placement of ObjectList relative to SettingsPanel.
 - Per-instance row affordances for `printable` and `auto_drop`.
 - How selection restoration behaves when a structural operation replaces the
   selected object with newly generated objects.
 
-## 10. Relationship to Other Documents
+## 11. Relationship to Other Documents
 
 - Extends `spec/Web-Electron Shared Application Architecture.md`.
 - Implements a new major milestone beyond
