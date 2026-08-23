@@ -10,6 +10,7 @@ import {
   deleteVolumeInList,
   reorderObjectsInList,
   reorderVolumesInList,
+  separateInstancesInList,
 } from './structuralActions';
 
 const structure = {
@@ -25,6 +26,7 @@ function makeRuntime(): SlicerRuntime {
     mergeObjectsToMultipart: vi.fn(async () => ({ ok: true, objectId: 9 })),
     reorderObjects: vi.fn(async () => ({ ok: true, objects: [] })),
     reorderVolumes: vi.fn(async () => ({ ok: true, objects: [] })),
+    separateInstances: vi.fn(async () => ({ ok: true, newObjectIds: [21] })),
     getModelStructure: vi.fn(async () => structure),
   } as unknown as SlicerRuntime;
 }
@@ -76,6 +78,12 @@ describe('object list structural actions', () => {
     const runtime = makeRuntime();
     await reorderVolumesInList(runtime, 5, 20, 10);
     expect(runtime.reorderVolumes).toHaveBeenCalledWith(5, 20, 10);
+  });
+
+  it('separateInstancesInList promotes the selected instances into objects', async () => {
+    const runtime = makeRuntime();
+    await separateInstancesInList(runtime, 1, [20]);
+    expect(runtime.separateInstances).toHaveBeenCalledWith(1, [20]);
   });
 
   it('propagates a bridge error without refreshing', async () => {

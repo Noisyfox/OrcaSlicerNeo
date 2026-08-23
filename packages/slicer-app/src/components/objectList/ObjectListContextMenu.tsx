@@ -71,8 +71,6 @@ export function ObjectListContextMenu({ target, point, onClose, onRename }: {
         onClick={() => act(cloneObjectsInList(runtime, [o.id]))} />,
       <MenuItem key="split" label="Split to objects" testid="objectlist-split-objects"
         onClick={() => act(splitObjectToObjectsInList(runtime, o.id))} />,
-      <MenuItem key="separate" label="Separate instances" testid="objectlist-separate"
-        onClick={() => act(separateInstancesInList(runtime, o.id, o.instances.map((i) => i.id)))} />,
       <MenuItem key="delete" label="Delete" testid="objectlist-delete" danger
         onClick={() => act(deleteObjectsInList(runtime, [o.id]))} />,
     ];
@@ -93,6 +91,14 @@ export function ObjectListContextMenu({ target, point, onClose, onRename }: {
   } else if (target.kind === 'instance') {
     const inst = target.instance;
     items = [
+      // OrcaSlicer calls this "Set as an individual object": it promotes the
+      // right-clicked instance into its own top-level object. Only meaningful
+      // (and only possible — the Instances group is hidden for single-instance
+      // objects) when the object has more than one instance.
+      ...(target.object.instanceCount > 1 ? [(
+        <MenuItem key="individual" label="Set as an individual object" testid="objectlist-separate"
+          onClick={() => act(separateInstancesInList(runtime, target.object.id, [inst.id]))} />
+      )] : []),
       <MenuItem key="printable" label={inst.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
         onClick={() => act(setInstancePrintableInList(runtime, inst.id, !inst.printable))} />,
     ];

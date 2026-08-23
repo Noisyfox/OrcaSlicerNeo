@@ -64,7 +64,8 @@ Alternative rejected options:
 ### 3.3 Included instance operations
 
 - Select an instance.
-- Separate instances into individual objects.
+- Separate instances into individual objects (**Set as an individual object** in
+  the instance-row context menu).
 - Toggle an instance/object printable state.
 
 ### 3.4 Explicitly deferred
