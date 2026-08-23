@@ -331,7 +331,7 @@ test('object list: add instance via the context menu (mock)', async () => {
     const objectRow = list.locator('div[data-testid^="object-"]').first();
     // Expand to reveal the Instances group (the mock object starts with 2 instances).
     await list.locator('[data-testid^="object-expand-"]').first().click();
-    await expect(list.locator('[data-testid^="instances-"]')).toHaveCount(1);
+    await expect(list.locator('[data-testid^="instances-toggle-"]')).toHaveCount(1);
     await expect.poll(() => list.locator('[data-testid^="instance-"]').count()).toBe(2);
 
     // Add an instance via the object-row context menu (top-left of the row).
@@ -340,7 +340,7 @@ test('object list: add instance via the context menu (mock)', async () => {
 
     // The instance count grows from 2 to 3.
     await expect.poll(() => list.locator('[data-testid^="instance-"]').count()).toBe(3);
-    await expect(list.locator('[data-testid^="instances-"]')).toHaveCount(1);
+    await expect(list.locator('[data-testid^="instances-toggle-"]')).toHaveCount(1);
   } finally {
     await app.close();
   }

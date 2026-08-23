@@ -26,11 +26,13 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const structure = useObjectListStore((s) => s.structure);
   const loaded = useObjectListStore((s) => s.loaded);
   const expanded = useObjectListStore((s) => s.expanded);
+  const collapsedInstances = useObjectListStore((s) => s.collapsedInstances);
   const projection = useObjectListStore((s) => s.projection);
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
   const toggleExpanded = useObjectListStore((s) => s.toggleExpanded);
+  const toggleInstancesCollapsed = useObjectListStore((s) => s.toggleInstancesCollapsed);
   const clearStore = useObjectListStore((s) => s.clear);
   const [renaming, setRenaming] = useState<RenamingTarget>(null);
   const [draftName, setDraftName] = useState('');
@@ -209,8 +211,16 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                 ))}
                 {obj.instanceCount > 1 && (
                   <div data-testid={`instances-${obj.id}`} className="border-l pl-2">
-                    <div className="px-2 py-1 text-[0.65rem] text-muted-foreground">Instances</div>
-                    {obj.instances.map((inst) => (
+                    <button
+                      type="button"
+                      data-testid={`instances-toggle-${obj.id}`}
+                      onClick={() => toggleInstancesCollapsed(obj.id)}
+                      className="flex w-full items-center gap-1 rounded-sm px-2 py-1 text-left text-[0.65rem] text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent"
+                    >
+                      <span aria-hidden className="text-xs">{collapsedInstances[obj.id] ? '▸' : '▾'}</span>
+                      Instances
+                    </button>
+                    {!collapsedInstances[obj.id] && obj.instances.map((inst) => (
                       <div
                         key={inst.id}
                         data-testid={`instance-${inst.id}`}
