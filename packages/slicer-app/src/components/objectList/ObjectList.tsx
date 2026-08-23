@@ -161,7 +161,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             </Button>
             {isExpanded && (
               <div className="ml-4">
-                {obj.volumes.map((vol) => (
+                {obj.volumes.length > 1 && obj.volumes.map((vol) => (
                   <div
                     key={vol.id}
                     data-testid={`part-${vol.id}`}
