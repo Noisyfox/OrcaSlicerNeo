@@ -110,7 +110,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}>
       {structure.map((obj) => {
         const objectSelected = projection.objectIds.has(obj.id);
-        const isExpanded = !!expanded[obj.id];
+        const hasExpandable = obj.volumes.length > 1 || obj.instanceCount > 1;
+        const isExpanded = hasExpandable && !!expanded[obj.id];
         return (
           <div
             key={obj.id}
@@ -138,14 +139,16 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               data-state={objectSelected ? 'selected' : 'idle'}
               onClick={() => sceneInteraction?.selectComposite(obj.index)}
             >
-              <span
-                aria-hidden
-                data-testid={`object-expand-${obj.id}`}
-                className="mr-1 text-xs"
-                onClick={(e) => { e.stopPropagation(); toggleExpanded(obj.id); }}
-              >
-                {isExpanded ? '▾' : '▸'}
-              </span>
+              {hasExpandable && (
+                <span
+                  aria-hidden
+                  data-testid={`object-expand-${obj.id}`}
+                  className="mr-1 text-xs"
+                  onClick={(e) => { e.stopPropagation(); toggleExpanded(obj.id); }}
+                >
+                  {isExpanded ? '▾' : '▸'}
+                </span>
+              )}
               {renaming?.kind === 'object' && renaming.id === obj.id ? (
                 <input
                   data-testid={`object-name-input-${obj.id}`}
