@@ -109,6 +109,23 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes()).toEqual(volumes);
   });
 
+  it('classifies the selection like Orca (object/instance/part/mixed)', () => {
+    expect(controller.computeSelectionKind()).toBe('empty');
+
+    controller.selectVolumeIds(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
+    expect(controller.computeSelectionKind()).toBe('object');
+
+    controller.selectVolumeIds(['0:0:0', '0:1:0']);
+    expect(controller.computeSelectionKind()).toBe('instance');
+
+    controller.selectVolumeIds(['0:0:0']);
+    expect(controller.computeSelectionKind()).toBe('part');
+
+    // A part of instance 0 plus a part of instance 1 is Orca's Mixed.
+    controller.selectVolumeIds(['0:0:0', '0:0:1']);
+    expect(controller.computeSelectionKind()).toBe('mixed');
+  });
+
   it('can only arm the move gizmo with a non-empty selection', () => {
     // An empty selection makes the toggle a no-op — the gizmo can only be
     // activated while something is selected.

@@ -28,6 +28,8 @@ export type OpenGizmo = 'move' | 'rotate' | 'scale' | null;
 export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box';
 type PointerOrigin = 'none' | 'gizmo' | 'non-gizmo';
+/** OrcaSlicer's homogeneous selection classes (Selection.cpp update_type). */
+export type SelectionKind = 'empty' | 'object' | 'instance' | 'part' | 'mixed';
 
 /** How a drag/gizmo edit is applied: to the instance transform (whole instance)
  *  or to the volume transform of specific parts (part-scoped selection). */
@@ -195,6 +197,40 @@ export class SceneInteractionController {
     for (const volume of selected)
       if (volume.buffer.objectIdx !== objectIdx || volume.buffer.instanceIdx !== instance) return 0;
     return instance;
+  }
+
+  /** Classify the current selection as Orca does (Selection.cpp update_type):
+   *  whole object(s) -> 'object', whole instance(s) of one object -> 'instance',
+   *  a partial set of one instance -> 'part', anything else -> 'mixed'
+   *  (invalid for edits). */
+  computeSelectionKind(): SelectionKind {
+    const selected = this.selectedVolumes();
+    if (selected.length === 0) return 'empty';
+    const perInstance = new Map<string, { sel: number; total: number }>();
+    for (const volume of this.getVolumes()) {
+      const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
+      const rec = perInstance.get(key) ?? { sel: 0, total: 0 };
+      rec.total += 1;
+      if (this.selection.has(volume)) rec.sel += 1;
+      perInstance.set(key, rec);
+    }
+    const touched: string[] = [];
+    const touchedObjects = new Set<number>();
+    for (const [key, rec] of perInstance) {
+      if (rec.sel === 0) continue;
+      touched.push(key);
+      touchedObjects.add(Number(key.split(':')[0]));
+    }
+    const hasPartial = touched.some((key) => perInstance.get(key)!.sel < perInstance.get(key)!.total);
+    if (hasPartial) {
+      // A valid part selection is exactly one object + one instance, partially.
+      return touchedObjects.size === 1 && touched.length === 1 ? 'part' : 'mixed';
+    }
+    if (touchedObjects.size > 1) return 'object';
+    const objectIdx = [...touchedObjects][0];
+    const totalInstances = [...perInstance.keys()]
+      .filter((key) => Number(key.split(':')[0]) === objectIdx);
+    return touched.length === totalInstances.length ? 'object' : 'instance';
   }
 
   selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {

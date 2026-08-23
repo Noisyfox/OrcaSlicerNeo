@@ -287,6 +287,41 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
   }
 });
 
+// Ctrl+clicking an object then a part of another object must not create a
+// Mixed selection (Orca's mixed type is invalid).
+test('object list: refuses mixing object and part selection (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    const selectedInstances = () => page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { selectionInstanceCount?: () => number };
+      }).__orcaE2e?.selectionInstanceCount?.() ?? 0,
+    );
+
+    const objectRow = list.locator('div[data-testid^="object-"]').first();
+    await objectRow.click({ button: 'left', position: { x: 10, y: 4 } });
+    const before = await selectedInstances();
+    expect(before).toBeGreaterThan(1);
+
+    // Ctrl+click a part of the same object (object + part is Orca Mixed) — refused.
+    await list.locator('[data-testid^="part-"]').first().click({ modifiers: ['Control'] });
+    await expect.poll(selectedInstances).toBe(before);
+  } finally {
+    await app.close();
+  }
+});
+
 // Object list drag reorder (Step 9). Mock-only: add two objects, drag the second
 // onto the first, and assert the object order changes.
 test('object list: drag reorder objects (mock)', async () => {
