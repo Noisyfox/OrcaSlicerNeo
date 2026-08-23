@@ -126,6 +126,19 @@ describe('SceneInteractionController', () => {
     expect(controller.computeSelectionKind()).toBe('mixed');
   });
 
+  it('refuses additive viewport selection that would create Mixed (Orca)', () => {
+    controller.selectVolumeIds(['0:0:0', '0:1:0', '0:0:1', '0:1:1']); // whole object
+    expect(controller.computeSelectionKind()).toBe('object');
+    const before = controller.selectedVolumes().length;
+    // Ctrl+clicking a part of the full object would leave a partial instance ->
+    // Mixed -> refused.
+    expect(controller.selectComposite(0, 0, 0, true)).toBe(false);
+    expect(controller.selectedVolumes()).toHaveLength(before);
+    // Toggling a whole instance off is a valid object -> instance transition.
+    expect(controller.selectComposite(0, undefined, 1, true)).toBe(true);
+    expect(controller.computeSelectionKind()).toBe('instance');
+  });
+
   it('can only arm the move gizmo with a non-empty selection', () => {
     // An empty selection makes the toggle a no-op — the gizmo can only be
     // activated while something is selected.

@@ -7,7 +7,7 @@ import { buildSelectableRows, projectSelection, type SelectableRow } from './pro
 import { renameObjectInList, renamePartInList } from './actions';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
-import type { SceneInteractionController, SelectionKind } from '../viewport/SceneInteractionController';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 
@@ -120,53 +120,19 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     return true;
   }
 
-  /** Classify a set of selected volume IDs (Orca's update_type) against the
-   *  current structure: whole object(s) -> 'object', whole instance(s) of one
-   *  object -> 'instance', a partial set of one instance -> 'part', else 'mixed'. */
-  function classifySelectionIds(ids: Set<string>): SelectionKind {
-    if (ids.size === 0) return 'empty';
-    const perInstance = new Map<string, { sel: number; total: number }>();
-    for (const obj of structure) {
-      for (const inst of obj.instances) {
-        let sel = 0;
-        for (let vi = 0; vi < obj.volumes.length; vi++)
-          if (ids.has(`${obj.index}:${vi}:${inst.index}`)) sel++;
-        if (sel > 0) perInstance.set(`${obj.index}:${inst.index}`, { sel, total: obj.volumes.length });
-      }
-    }
-    const touched = [...perInstance.entries()];
-    const touchedObjects = new Set(touched.map(([key]) => Number(key.split(':')[0])));
-    const hasPartial = touched.some(([, rec]) => rec.sel < rec.total);
-    if (hasPartial)
-      return touchedObjects.size === 1 && touched.length === 1 ? 'part' : 'mixed';
-    if (touchedObjects.size > 1) return 'object';
-    const objectIdx = [...touchedObjects][0];
-    const totalInstances = structure.find((o) => o.index === objectIdx)?.instances.length ?? 0;
-    return touched.length === totalInstances ? 'object' : 'instance';
-  }
-
-  function currentSelectedIds(): Set<string> {
-    return new Set(sceneInteraction?.selectedVolumes().map((v) => v.id) ?? []);
-  }
-
-  /** Simulate a Ctrl toggle of `row` and refuse it if the result would be Orca's
-   *  `Mixed` (e.g. adding a part when the selection is a full object). */
+  /** Ctrl toggle of a row is allowed only if it keeps the selection homogeneous —
+   *  guarded by the controller (shared with the viewport). */
   function canToggleRow(row: SelectableRow, anchor: number): boolean {
-    const current = currentSelectedIds();
-    const target = rowVolumeIds(row, anchor);
-    const next = new Set(current);
-    const allIn = target.every((id) => current.has(id));
-    if (allIn) target.forEach((id) => next.delete(id));
-    else target.forEach((id) => next.add(id));
-    return classifySelectionIds(next) !== 'mixed';
+    if (!sceneInteraction) return true;
+    return sceneInteraction.canToggleVolumeIds(rowVolumeIds(row, anchor));
   }
 
-  /** Simulate a Shift+Ctrl union of `rows` and refuse it if it would be Mixed. */
+  /** Shift+Ctrl union of `rows` is allowed only if the range is homogeneous and
+   *  adding it keeps the selection homogeneous. */
   function canUnionRows(rows: SelectableRow[], anchor: number): boolean {
+    if (!sceneInteraction) return false;
     if (!isHomogeneousRange(rows)) return false;
-    const next = currentSelectedIds();
-    rows.forEach((r) => rowVolumeIds(r, anchor).forEach((id) => next.add(id)));
-    return classifySelectionIds(next) !== 'mixed';
+    return sceneInteraction.canAddVolumeIds(rows.flatMap((r) => rowVolumeIds(r, anchor)));
   }
 
   /** Row click with multi-select: Ctrl/Cmd toggles the row; Shift selects a

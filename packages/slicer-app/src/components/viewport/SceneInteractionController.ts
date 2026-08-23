@@ -204,39 +204,91 @@ export class SceneInteractionController {
    *  a partial set of one instance -> 'part', anything else -> 'mixed'
    *  (invalid for edits). */
   computeSelectionKind(): SelectionKind {
-    const selected = this.selectedVolumes();
-    if (selected.length === 0) return 'empty';
-    const perInstance = new Map<string, { sel: number; total: number }>();
+    return this.classifyVolumeIds(this.selectedVolumes().map((volume) => volume.id));
+  }
+
+  /** Classify an arbitrary set of GLVolume IDs (Orca's update_type) against the
+   *  live volume collection. Shared by the viewport and the ObjectList so the
+   *  homogeneity rule is enforced uniformly. */
+  classifyVolumeIds(ids: readonly string[]): SelectionKind {
+    const selectedSet = new Set(ids.filter((id) => id !== ''));
+    if (selectedSet.size === 0) return 'empty';
+    const perInstance = new Map<string, number>(); // total volumes per (obj, inst)
     for (const volume of this.getVolumes()) {
       const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
-      const rec = perInstance.get(key) ?? { sel: 0, total: 0 };
-      rec.total += 1;
-      if (this.selection.has(volume)) rec.sel += 1;
-      perInstance.set(key, rec);
+      perInstance.set(key, (perInstance.get(key) ?? 0) + 1);
     }
-    const touched: string[] = [];
+    const touched = new Map<string, number>(); // selected count per (obj, inst)
     const touchedObjects = new Set<number>();
-    for (const [key, rec] of perInstance) {
-      if (rec.sel === 0) continue;
-      touched.push(key);
-      touchedObjects.add(Number(key.split(':')[0]));
+    for (const id of selectedSet) {
+      const [oiStr, , iiStr] = id.split(':');
+      const key = `${oiStr}:${iiStr}`;
+      touched.set(key, (touched.get(key) ?? 0) + 1);
+      touchedObjects.add(Number(oiStr));
     }
-    const hasPartial = touched.some((key) => perInstance.get(key)!.sel < perInstance.get(key)!.total);
-    if (hasPartial) {
-      // A valid part selection is exactly one object + one instance, partially.
-      return touchedObjects.size === 1 && touched.length === 1 ? 'part' : 'mixed';
-    }
+    const hasPartial = [...touched].some(([key, sel]) => sel < (perInstance.get(key) ?? sel));
+    if (hasPartial)
+      return touchedObjects.size === 1 && touched.size === 1 ? 'part' : 'mixed';
     if (touchedObjects.size > 1) return 'object';
     const objectIdx = [...touchedObjects][0];
-    const totalInstances = [...perInstance.keys()]
-      .filter((key) => Number(key.split(':')[0]) === objectIdx);
-    return touched.length === totalInstances.length ? 'object' : 'instance';
+    const totalInstances = [...perInstance.keys()].filter((key) => Number(key.split(':')[0]) === objectIdx);
+    return touched.size === totalInstances.length ? 'object' : 'instance';
+  }
+
+  /** Whether applying `addIds`/`removeIds` to the current selection keeps it
+   *  homogeneous (Orca's `Mixed` is invalid for edits). */
+  wouldSelectionChangeBeMixed(addIds: readonly string[], removeIds: readonly string[]): boolean {
+    const next = new Set(this.selectedVolumes().map((volume) => volume.id));
+    removeIds.forEach((id) => next.delete(id));
+    addIds.forEach((id) => next.add(id));
+    return this.classifyVolumeIds([...next]) === 'mixed';
+  }
+
+  /** Whether toggling these volume IDs (add if not selected, remove if selected)
+   *  keeps the selection homogeneous. */
+  canToggleVolumeIds(ids: readonly string[]): boolean {
+    const current = new Set(this.selectedVolumes().map((volume) => volume.id));
+    const allIn = ids.every((id) => current.has(id));
+    return !this.wouldSelectionChangeBeMixed(allIn ? [] : ids, allIn ? ids : []);
+  }
+
+  /** Whether adding these volume IDs to the selection keeps it homogeneous. */
+  canAddVolumeIds(ids: readonly string[]): boolean {
+    return !this.wouldSelectionChangeBeMixed(ids, []);
+  }
+
+  /** The GLVolume IDs a click expands to for a given selection mode (Orca's
+   *  part selection is anchored to the clicked instance). */
+  private hitModeVolumeIds(hit: GLVolume, mode: SelectionMode): string[] {
+    if (mode === 'object') return this.getVolumes().filter((v) => v.buffer.objectIdx === hit.buffer.objectIdx).map((v) => v.id);
+    if (mode === 'volume')
+      return this.getVolumes().filter(
+        (v) => v.buffer.objectIdx === hit.buffer.objectIdx
+          && v.buffer.volumeIdx === hit.buffer.volumeIdx
+          && v.buffer.instanceIdx === hit.buffer.instanceIdx,
+      ).map((v) => v.id);
+    const key = instanceKeyOf(hit);
+    return this.getVolumes().filter((v) => instanceKeyOf(v) === key).map((v) => v.id);
+  }
+
+  /** The GLVolume IDs a composite target selects (object, part, or instance). */
+  private compositeVolumeIds(objectIdx: number, volumeIdx?: number, instanceIdx?: number): string[] {
+    if (volumeIdx !== undefined) {
+      const instIdx = instanceIdx ?? 0;
+      return this.getVolumes().filter(
+        (v) => v.buffer.objectIdx === objectIdx && v.buffer.volumeIdx === volumeIdx && v.buffer.instanceIdx === instIdx,
+      ).map((v) => v.id);
+    }
+    if (instanceIdx !== undefined)
+      return this.getVolumes().filter((v) => v.buffer.objectIdx === objectIdx && v.buffer.instanceIdx === instanceIdx).map((v) => v.id);
+    return this.getVolumes().filter((v) => v.buffer.objectIdx === objectIdx).map((v) => v.id);
   }
 
   selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
     // Alt modifies the click to select the individual part (volume), not the
     // whole instance — the workspace's per-click override of the selection mode.
     const mode = part ? 'volume' : this.selectionMode;
+    if (additive && !this.canToggleVolumeIds(this.hitModeVolumeIds(hit, mode))) return false;
     const changed = additive
       ? this.selection.toggleFromHit(hit, this.getVolumes(), mode)
       : this.selection.replaceFromHit(hit, this.getVolumes(), mode);
@@ -250,6 +302,7 @@ export class SceneInteractionController {
    * The caller resolves stable ObjectIDs to current indices first (spec §7).
    */
   selectComposite(objectIdx: number, volumeIdx?: number, instanceIdx?: number, additive = false): boolean {
+    if (additive && !this.canToggleVolumeIds(this.compositeVolumeIds(objectIdx, volumeIdx, instanceIdx))) return false;
     const changed = additive
       ? this.selection.toggleComposite(this.getVolumes(), { objectIdx, volumeIdx, instanceIdx })
       : this.selection.replaceComposite(this.getVolumes(), { objectIdx, volumeIdx, instanceIdx });
@@ -261,6 +314,7 @@ export class SceneInteractionController {
   /** Replace (or, when additive, union) the selection with raw volume IDs
    *  (used by the ObjectList's Shift-range multi-select). */
   selectVolumeIds(ids: readonly string[], additive = false): boolean {
+    if (additive && !this.canAddVolumeIds(ids)) return false;
     const changed = additive ? this.selection.addIds(ids) : this.selection.replaceIds(ids);
     this.syncGizmoToSelection();
     if (changed) this.emit();
@@ -673,6 +727,7 @@ export class SceneInteractionController {
       const bounds = perInstance.get(instanceKeyOf(volume));
       if (bounds && rectsOverlap(rect, bounds)) ids.push(volume.id);
     }
+    if (additive && !this.canAddVolumeIds(ids)) return false;
     return additive ? this.selection.addIds(ids) : this.selection.replaceIds(ids);
   }
 
