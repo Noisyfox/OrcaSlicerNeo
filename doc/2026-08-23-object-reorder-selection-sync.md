@@ -28,6 +28,17 @@ reloads the viewport mesh. Both the structure and the mesh are rebuilt from the
 same `Model::objects` order, so object/volume indices agree again and the
 selection-to-list projection is correct.
 
+## Part drag reorder
+
+Part rows are draggable, but the HTML5 `dragstart`/`drop` events bubbled up to
+the parent object row, whose `onDragStart` overwrote the dragged payload with
+`{kind:'object', …}`, so the part's `onDrop` guard (`kind === 'part'`) never
+matched and dropping a part onto another part was a no-op. The part row's
+`onDragStart`/`onDragOver`/`onDrop` now call `stopPropagation()` so the part drag
+is isolated from the object drag; `reorderVolumesInList` then moves the dropped
+part before its target. Part reorder is covered by the unit + live harness (the
+mock only has a single-part cube), so there is no mock e2e for it.
+
 ## Tradeoff
 
 As with any other mesh reload, the scene resets ephemeral selection/state

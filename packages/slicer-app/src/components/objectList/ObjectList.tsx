@@ -259,11 +259,16 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                     className="flex items-center gap-0.5"
                     draggable
                     onDragStart={(e) => {
+                      e.stopPropagation();
                       e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'part', objectId: obj.id, id: vol.id }));
                       e.dataTransfer.effectAllowed = 'move';
                     }}
-                    onDragOver={(e) => e.preventDefault()}
+                    onDragOver={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                    }}
                     onDrop={(e) => {
+                      e.stopPropagation();
                       e.preventDefault();
                       let dragged: { kind: string; objectId: number; id: number } | null = null;
                       try { dragged = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { /* ignore */ }
