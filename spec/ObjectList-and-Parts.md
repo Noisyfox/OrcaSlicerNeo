@@ -269,5 +269,7 @@ function returns `{ "ok": false, "error": "..." }` on failure.
 - Implements a new major milestone beyond
   `doc/2026-08-12-electron-gui-rewrite-design.md` and the delivered vertical
   slice.
+- Implementation is broken into independently verifiable steps in
+  `doc/2026-08-23-object-list-parts-implementation-plan.md`.
 - Will be linked from `spec/Grand Plan.md` and
   `doc/high_level_dev_plan.md` once approved.
