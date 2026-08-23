@@ -503,6 +503,37 @@ test('scene context menu: Add Model imports through the host picker', async () =
   }
 });
 
+// Right-clicking a model body must NOT open the empty-scene context menu. This
+// guards against the scenario where an always-on-top overlay (e.g. toolpath) or
+// a back-facing part makes the topmost body hit get misclassified as empty.
+test('scene context menu: right-click on a model body does not open the empty menu', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('viewport canvas has no bounding box');
+    const pt = await page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null };
+      }).__orcaE2e?.projectWorldToScreen?.([10, 10, 10]) ?? null,
+    );
+    if (!pt) throw new Error('world→screen projection unavailable');
+    await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
+    // The empty-scene menu must not appear over a model body.
+    await expect(page.getByTestId('ctx-menu')).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
 // Scene-owned selection: a TransformControls handle wins over an overlapping
 // DragControls body, and the move panel edits the aggregate pivot for every
 // selected instance. The mock e2e fixture has two 20 mm instances at X=0/50.

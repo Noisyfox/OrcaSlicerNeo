@@ -19,7 +19,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { addCube, addModel, clearScene } from '../toolbar/sceneActions';
-import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
+import { BUILD_PLATE_RAYCAST, MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import type { SceneInteractionController } from './SceneInteractionController';
 
 const CLICK_MOVE_THRESHOLD_PX = 4;
@@ -29,9 +29,12 @@ const MENU_WIDTH_PX = 160;
 const MENU_HEIGHT_PX = 132;
 
 /**
- * Whether the scene's topmost raycast hit under the cursor is a model body.
- * The bed plate, the background, and transient overlays (toolpath, gizmo
- * handles) are all "empty space" for the purpose of this menu.
+ * Whether the ray under the cursor reaches a model body. Transient overlays
+ * (toolpath lines, gizmo handles, selection box) have no raycast role and are
+ * skipped, so a model body underneath them still counts as "on a body". The bed
+ * plate is "empty space". This prevents a right-click on a part from opening the
+ * empty-scene menu just because an overlay (e.g. the always-on-top toolpath)
+ * happens to intersect in front of it, and lets a back-facing part be detected.
  */
 function topmostHitIsModelBody(state: RootState, clientX: number, clientY: number): boolean {
   const dom = state.gl.domElement;
@@ -47,7 +50,13 @@ function topmostHitIsModelBody(state: RootState, clientX: number, clientY: numbe
     state.camera,
   );
   const hits = state.raycaster.intersectObjects(state.scene.children, true);
-  return hits[0]?.object.userData.orcaRaycastRole === MODEL_BODY_RAYCAST;
+  for (const hit of hits) {
+    const role = (hit.object.userData as { orcaRaycastRole?: string }).orcaRaycastRole;
+    if (role === MODEL_BODY_RAYCAST) return true;
+    if (role === BUILD_PLATE_RAYCAST) return false;
+    // Objects without a role (toolpath, gizmo, …) are overlays — keep going.
+  }
+  return false;
 }
 
 export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: {

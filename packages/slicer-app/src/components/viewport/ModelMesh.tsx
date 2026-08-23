@@ -137,6 +137,7 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
             color={selected ? '#3b82f6' : '#cbd5e1'}
             roughness={0.6}
             metalness={0.1}
+            side={THREE.DoubleSide}
           />
         </mesh>
       </group>
