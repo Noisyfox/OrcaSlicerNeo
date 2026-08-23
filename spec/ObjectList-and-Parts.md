@@ -150,8 +150,6 @@ only positional indices.
 
 - `ObjectID` is the stable identity for `ModelObject`, `ModelVolume`, and
   `ModelInstance`.
-- `ObjectInstanceID` is the stable identity for a `(ModelObject, ModelInstance)`
-  composite.
 - Structure results expose both:
   - stable IDs for React keys and selection restoration;
   - current positional indices for operation dispatch and display.
@@ -192,8 +190,8 @@ The final bridge API list is still being clarified. The intended shape is:
 - `orc_split_object_to_objects(id)`
 - `orc_merge_objects_to_multipart(ids)`
 - `orc_instances_to_separate_objects(...)`
-- `orc_set_instance_printable(...)`
-- `orc_reorder_objects(fromIndex, toIndex)`
+- `orc_set_instance_printable(instanceId, printable)`
+- `orc_reorder_objects(fromObjectId, toObjectId)`
 - `orc_reorder_volumes(objectId, fromVolumeId, toVolumeId)`
 
 Existing index-based transform APIs remain unchanged unless a later decision
@@ -207,12 +205,6 @@ extends them.
   `{ "ok": false, "error": "..." }`.
 - Multi-selection operations receive JSON arrays of IDs.
 - `ObjectID` crosses the boundary as a JSON number.
-- `ObjectInstanceID` crosses as an object:
-
-```json
-{ "objectId": 123, "instanceId": 456 }
-```
-
 - `orc_get_model_structure()` takes no arguments and returns the complete
   object/part/instance tree.
 
