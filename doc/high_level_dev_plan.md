@@ -387,7 +387,7 @@
 
 ### Milestone 13 — Object List and Object Parts
 
-> **Status: planned.** The interactive design is recorded in
+> **Status: delivered.** The interactive design is recorded in
 > `spec/ObjectList-and-Parts.md`. The first version adds the shared object
 > tree and part/instance management over a thin `libslic3r` bridge:
 > `orc_get_model_structure()`, object/volume/instance rename, delete, clone,
@@ -396,6 +396,9 @@
 > the shared app re-reads structure and mesh and restores selection where
 > possible. Mesh boolean, Add Part/Modifier, multi-plate, undo/redo, painting,
 > and extruder panels are deferred.
+> Verification: unit tests, mock-module contract tests, live WASM smoke
+> (threaded + serial), Electron e2e (mock + real WASM), and Web e2e (threaded +
+> serial) all pass.
 
 ## Cross-Cutting Practices
 

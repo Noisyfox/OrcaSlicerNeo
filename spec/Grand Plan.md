@@ -293,22 +293,23 @@ cross-origin isolation is available, and serial WASM otherwise.
 
 ## Milestone 13: Object List and Object Parts
 
-> [!info] Status: **planned**
+> [!info] Status: **delivered**
 >
 > Design: [`ObjectList-and-Parts.md`](ObjectList-and-Parts.md)
+> Implementation: `doc/2026-08-23-object-list-parts-implementation-plan.md`
 
 Add the shared Object List and object-part management to both Electron and Web.
 The C++/WASM bridge owns all model-structure semantics; React renders the tree
 and drives structural operations through the typed client.
 
-- [ ] `orc_get_model_structure()` plus object/part/instance mutation bridge
+- [x] `orc_get_model_structure()` plus object/part/instance mutation bridge
       operations
-- [ ] Stable `ObjectID` identity and post-mutation structure/mesh refresh
-- [ ] Object/part/instance tree with rename, delete, clone, split, assemble,
+- [x] Stable `ObjectID` identity and post-mutation structure/mesh refresh
+- [x] Object/part/instance tree with rename, delete, clone, split, assemble,
       change type, reorder, and printable state
-- [ ] Viewport `object` / `volume` / `instance` selection modes and two-way
+- [x] Viewport `object` / `volume` / `instance` selection modes and two-way
       ObjectList selection sync
-- [ ] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage
+- [x] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage
 
 ## Post-v1 Expansion (queued, not yet scheduled)
 

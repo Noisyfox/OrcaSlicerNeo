@@ -2,7 +2,10 @@
 
 **Date:** 2026-08-23
 
-**Status:** Draft — design decisions captured, pending final review
+**Status:** Delivered. Design and implementation complete for the first version
+(see `doc/2026-08-23-object-list-parts-implementation-plan.md`). Deferred items
+(mesh boolean, Add Part/Modifier, multi-plate, undo/redo, painting, extruder
+panels) remain queued.
 
 **Branch:** `dev/object-list-and-parts`
 
