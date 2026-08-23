@@ -647,3 +647,34 @@ check('slice error surfaces the real message, not the bare category',
   check('assembled multipart slices to valid G-code', S.ok === true, JSON.stringify(S));
 }
 
+// 10e. Step 4d: separate instances into objects. The bridge has no op yet to add
+// instances, so this is a single-instance live smoke; the multi-instance
+// transform/one-object-per-instance behavior is pinned by the mock contract tests.
+{
+  callJson('orc_clear_model', [], []);
+  const p = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, p);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'], [p, stl.length, 'stl']);
+  Module._free(p);
+  check('separate-instances fixture loads', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
+
+  const s = callJson('orc_get_model_structure', [], []);
+  const obj = s.objects?.[0];
+  const inst = obj?.instances?.[0];
+  if (obj && inst) {
+    const sep = callJson('orc_instances_to_separate_objects', ['number', 'string'],
+                         [obj.id, JSON.stringify([inst.id])]);
+    check('separating the single instance creates one object',
+          sep.ok === true && Array.isArray(sep.newObjectIds)
+          && sep.newObjectIds.length === 1 && sep.objects === 2,
+          JSON.stringify(sep));
+    const after = callJson('orc_get_model_structure', [], []);
+    const newObj = after.objects?.find((o) => o.id === sep.newObjectIds[0]);
+    check('separated object carries a single instance with the source transform',
+          after.ok === true && newObj && newObj.instances?.length === 1,
+          JSON.stringify(newObj?.instances?.length));
+  } else {
+    check('separate-instances fixture structure', false, JSON.stringify(s).slice(0, 120));
+  }
+}
+

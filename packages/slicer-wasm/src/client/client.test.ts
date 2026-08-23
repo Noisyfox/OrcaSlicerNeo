@@ -541,6 +541,50 @@ describe('SlicerClient bridge contract', () => {
     });
   });
 
+  describe('Step 4d separate instances into objects (stable ObjectID)', () => {
+    it('creates one object per selected instance and drops them from the source', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 3 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const source = objects[0];
+      const [i0, i1, i2] = source.instances;
+      const r = await c.separateInstances(source.id, [i1.id, i2.id]);
+      expect(r.ok).toBe(true);
+      expect(r.newObjectIds).toHaveLength(2);
+      expect(r.objects).toBe(3); // source (1 instance left) + 2 new
+      const after = await c.getModelStructure();
+      expect(after.objects.map((o) => o.id)).toEqual(
+        expect.arrayContaining([source.id, ...r.newObjectIds]),
+      );
+      // The source kept only instance 0.
+      const kept = after.objects.find((o) => o.id === source.id);
+      expect(kept?.instances.map((i) => i.id)).toEqual([i0.id]);
+      // Each new object has exactly one instance.
+      for (const id of r.newObjectIds) {
+        const o = after.objects.find((x) => x.id === id);
+        expect(o?.instances).toHaveLength(1);
+      }
+    });
+
+    it('rejects an unknown instance ID', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const res = await c.separateInstances(objects[0].id, [999999]);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('instance not found');
+    });
+
+    it('rejects an empty instance list', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const res = await c.separateInstances(objects[0].id, []);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('no instance ids');
+    });
+  });
+
   it('slice fires progress and returns unrecognized_keys', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');

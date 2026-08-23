@@ -451,6 +451,35 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sliced = false;
       return { ok: true, objectId: newObjectId, objects: objectTransforms.length };
     },
+    orc_instances_to_separate_objects(objectId: number, instanceIdsJson: string) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      const ids = JSON.parse(instanceIdsJson ?? '[]') as unknown;
+      if (!Array.isArray(ids) || ids.length === 0) return { error: 'no instance ids' };
+      const newIds: number[] = [];
+      const toRemove: number[] = [];
+      for (const item of ids) {
+        if (!Number.isInteger(item) || item < 1) return { error: 'instance id must be a positive integer' };
+        const ii = instanceMeta[oi].findIndex((inst) => inst.id === item);
+        if (ii < 0) return { error: 'instance not found' };
+        if (!toRemove.includes(ii)) toRemove.push(ii);
+        const srcInst = instanceMeta[oi][ii];
+        objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[oi][ii]))]);
+        objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][ii]))]);
+        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable });
+        volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
+        instanceMeta.push([{ id: nextInstanceId++, printable: srcInst.printable }]);
+        newIds.push(objectMeta[objectMeta.length - 1].id);
+      }
+      toRemove.sort((a, b) => b - a);
+      for (const ii of toRemove) {
+        instanceMeta[oi].splice(ii, 1);
+        objectTransforms[oi].splice(ii, 1);
+        objectVolumeTransforms[oi].splice(ii, 1);
+      }
+      sliced = false;
+      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
+    },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
       if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
       objectTransforms[obj][inst].offset = [x, y, z];
@@ -661,6 +690,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_split_volume_to_parts: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_split_object_to_objects: { ret: 'number', args: ['number', 'number'] },
     orc_merge_objects_to_multipart: { ret: 'number', args: ['string', 'string'] },
+    orc_instances_to_separate_objects: { ret: 'number', args: ['number', 'string'] },
     orc_rename_object: { ret: 'number', args: ['number', 'string'] },
     orc_rename_volume: { ret: 'number', args: ['number', 'string'] },
     orc_set_volume_type: { ret: 'number', args: ['number', 'string'] },

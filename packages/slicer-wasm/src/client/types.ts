@@ -205,6 +205,15 @@ export interface MergeObjectsResult {
   error?: string;
 }
 
+/** Separate-instances result: the newly created per-instance object IDs. */
+export interface SeparateInstancesResult {
+  ok: boolean;
+  newObjectIds: number[];
+  /** Object count after separating. */
+  objects?: number;
+  error?: string;
+}
+
 /** Simple success/error payload returned by non-destructive metadata mutations. */
 export interface MutationResult {
   ok: boolean;
@@ -339,6 +348,8 @@ export interface SlicerClient {
   splitObjectToObjects(objectId: number, autoDrop?: boolean): Promise<SplitObjectResult>;
   /** Assemble objects into one multipart object; returns the new object's stable ID. */
   mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult>;
+  /** Separate selected instances into their own objects; returns the new object IDs. */
+  separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult>;
   /** Rename an object by its stable ObjectID. */
   renameObject(objectId: number, name: string): Promise<MutationResult>;
   /** Rename a specific part (volume) by its stable ObjectID. */

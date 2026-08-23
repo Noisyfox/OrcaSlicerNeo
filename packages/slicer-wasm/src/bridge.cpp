@@ -997,6 +997,59 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
     }
 }
 
+// Separate selected instances into individual objects (upstream
+// ObjectList::instances_to_separated_objects for the selected instances). Each
+// selected instance becomes a new object carrying a copy of the source volumes
+// and a single copied instance (preserving the instance transform). The selected
+// instances are then removed from the source object.
+EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object_id, const char* instance_ids_json) {
+    try {
+        const auto id = to_object_id(object_id);
+        if (!id) return error_json("object id must be a positive integer");
+        ModelObject* obj = find_object_by_id(*id);
+        if (obj == nullptr) return error_json("object not found");
+        const auto ids = parse_positive_id_array(json::parse(instance_ids_json ? instance_ids_json : ""));
+        if (!ids || ids->empty()) return error_json("no instance ids");
+
+        // Validate every instance ID resolves before mutating.
+        std::vector<std::size_t> to_remove;
+        to_remove.reserve(ids->size());
+        for (const std::size_t iid : *ids) {
+            bool found = false;
+            for (std::size_t i = 0; i < obj->instances.size(); ++i)
+                if (obj->instances[i]->id().id == iid) { to_remove.push_back(i); found = true; break; }
+            if (!found) return error_json("instance not found");
+        }
+
+        std::vector<std::size_t> new_object_ids;
+        for (const std::size_t iid : *ids) {
+            ModelInstance* src_inst = nullptr;
+            for (ModelInstance* inst : obj->instances)
+                if (inst->id().id == iid) { src_inst = inst; break; }
+            ModelObject* clone = state().model.add_object();
+            clone->name = obj->name;
+            for (const ModelVolume* vol : obj->volumes)
+                clone->add_volume(*vol);
+            clone->add_instance(*src_inst);
+            new_object_ids.push_back(clone->id().id);
+        }
+
+        // Remove the selected instances from the source (descending index).
+        std::sort(to_remove.rbegin(), to_remove.rend());
+        for (const std::size_t i : to_remove)
+            obj->delete_instance(i);
+
+        state().print.clear();
+        return dup_json(json{{"ok", true},
+                             {"newObjectIds", new_object_ids},
+                             {"objects", state().model.objects.size()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 using progress_fn = void (*)(int, const char*);
 progress_fn g_progress = nullptr;
 
