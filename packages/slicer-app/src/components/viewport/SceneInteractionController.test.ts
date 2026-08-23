@@ -632,3 +632,45 @@ describe('SceneInteractionController', () => {
     expect(bounds.max.z).toBeCloseTo(s, 8);
   });
 });
+
+describe('part-scoped (volume) transforms', () => {
+  let volumes: GLVolume[];
+  let controller: SceneInteractionController;
+
+  beforeEach(() => {
+    volumes = [
+      makeVolume(0, 0, 0, [0, 0, 0]),
+      makeVolume(0, 1, 0, [0, 0, 0]),
+      makeVolume(0, 0, 1, [20, 5, 0]),
+      makeVolume(0, 1, 1, [20, 5, 0]),
+    ];
+    controller = new SceneInteractionController(() => volumes);
+  });
+
+  it('detects a part-scoped selection from a volume composite', () => {
+    expect(controller.selectComposite(0, 1)).toBe(true);
+    expect(controller.isVolumeScopedSelection()).toBe(true);
+    expect(controller.selectComposite(0)).toBe(true);
+    expect(controller.isVolumeScopedSelection()).toBe(false);
+    expect(controller.selectComposite(0, undefined, 0)).toBe(true);
+    expect(controller.isVolumeScopedSelection()).toBe(false);
+  });
+
+  it('moves only the selected part, not the whole instance', () => {
+    controller.selectComposite(0, 1);
+    controller.moveSelectionBy(new THREE.Vector3(10, 0, 0));
+    // That part appears in both instances; both move, the sibling volumes and
+    // the instance transforms do not.
+    expect(volumes[1].volumeTransform.offset[0]).toBeCloseTo(10, 6);
+    expect(volumes[3].volumeTransform.offset[0]).toBeCloseTo(10, 6);
+    expect(volumes[0].volumeTransform.offset[0]).toBeCloseTo(0, 6);
+    expect(volumes[0].instanceTransform.offset[0]).toBeCloseTo(0, 6);
+  });
+
+  it('scales only the selected part', () => {
+    controller.selectComposite(0, 0);
+    controller.scaleSelectionBy([2, 1, 1]);
+    expect(volumes[0].volumeTransform.scale[0]).toBeCloseTo(2, 6);
+    expect(volumes[1].volumeTransform.scale[0]).toBeCloseTo(1, 6);
+  });
+});

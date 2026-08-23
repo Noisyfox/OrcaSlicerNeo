@@ -6,10 +6,14 @@ import { instanceKeyOf, Selection, type InstanceKey, type SelectionMode } from '
 import {
   applyRotationDelta,
   applyScaleDelta,
+  clampScale,
   matrixFromTransform,
   normalizeTransform,
   quatFromRotation,
+  rotateMatrixAroundPivot,
+  scaleMatrixAroundPivot,
   transformFromMatrix,
+  translateMatrix,
 } from './transformDeltaMath';
 import {
   normalizeRect,
@@ -25,12 +29,18 @@ export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box';
 type PointerOrigin = 'none' | 'gizmo' | 'non-gizmo';
 
+/** How a drag/gizmo edit is applied: to the instance transform (whole instance)
+ *  or to the volume transform of specific parts (part-scoped selection). */
+export type DragTargetEntry =
+  | { kind: 'instance'; instanceKey: InstanceKey; transform: ModelTransform }
+  | { kind: 'volume'; volume: GLVolume; volumeTransform: ModelTransform; instanceTransform: ModelTransform };
+
 export interface DragSnapshot {
   readonly kind: 'gizmo' | 'body';
   readonly startPivot: THREE.Vector3;
   readonly startQuaternion: THREE.Quaternion;
   readonly startScale: THREE.Vector3;
-  readonly startInstances: ReadonlyMap<InstanceKey, ModelTransform>;
+  readonly startTargets: DragTargetEntry[];
 }
 
 /**
@@ -154,6 +164,24 @@ export class SceneInteractionController {
     const indices = new Set<number>();
     for (const volume of this.selectedVolumes()) indices.add(volume.buffer.objectIdx);
     return [...indices].sort((a, b) => a - b);
+  }
+
+  /** True when the selection is part-scoped: some instance has only a subset of
+   *  its volumes selected. This makes drag/gizmo edits apply to the VOLUME
+   *  transforms (moving only the selected parts), not the instance transform. */
+  isVolumeScopedSelection(): boolean {
+    const selected = this.selectedVolumes();
+    if (selected.length === 0) return false;
+    const per = new Map<string, { sel: number; total: number }>();
+    for (const volume of this.getVolumes()) {
+      const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
+      const rec = per.get(key) ?? { sel: 0, total: 0 };
+      rec.total += 1;
+      if (this.selection.has(volume)) rec.sel += 1;
+      per.set(key, rec);
+    }
+    for (const rec of per.values()) if (rec.sel > 0 && rec.sel < rec.total) return true;
+    return false;
   }
 
   selectFromHit(hit: GLVolume, additive: boolean): boolean {
@@ -340,7 +368,7 @@ export class SceneInteractionController {
   updateDragPivot(nextPivot: THREE.Vector3): boolean {
     if (!this.drag) return false;
     const delta = nextPivot.clone().sub(this.drag.startPivot);
-    this.applySnapshotDelta(this.drag.startInstances, delta);
+    this.applySnapshotDelta(this.drag.startTargets, delta);
     this.emit();
     return true;
   }
@@ -360,7 +388,7 @@ export class SceneInteractionController {
     if (!drag || drag.kind !== 'gizmo') return false;
     if (this.openGizmo === 'rotate') {
       const deltaQuat = next.quaternion.clone().multiply(drag.startQuaternion.clone().invert());
-      this.applyRotationDeltaToSnapshot(drag.startInstances, drag.startPivot, deltaQuat);
+      this.applyRotationDeltaToSnapshot(drag.startTargets, drag.startPivot, deltaQuat);
     } else if (this.openGizmo === 'scale') {
       const factor: Vec3 = [
         safeRatio(next.scale.x, drag.startScale.x),
@@ -369,10 +397,10 @@ export class SceneInteractionController {
       ];
       // The pivot's start orientation is the scale space: identity for world,
       // the selection orientation for local.
-      this.applyScaleDeltaToSnapshot(drag.startInstances, drag.startPivot, factor, drag.startQuaternion);
+      this.applyScaleDeltaToSnapshot(drag.startTargets, drag.startPivot, factor, drag.startQuaternion);
     } else {
       const delta = next.position.clone().sub(drag.startPivot);
-      this.applySnapshotDelta(drag.startInstances, delta);
+      this.applySnapshotDelta(drag.startTargets, delta);
     }
     this.emit();
     return true;
@@ -402,7 +430,7 @@ export class SceneInteractionController {
       }
       return false;
     }
-    this.applySnapshotDelta(this.drag.startInstances, new THREE.Vector3());
+    this.applySnapshotDelta(this.drag.startTargets, new THREE.Vector3());
     this.drag = null;
     this.pointerOwner = 'none';
     this.pointerOrigin = 'none';
@@ -432,7 +460,7 @@ export class SceneInteractionController {
 
   moveSelectionBy(delta: THREE.Vector3): boolean {
     if (this.selection.empty) return false;
-    this.applySnapshotDelta(this.captureSelectedInstances(), delta);
+    this.applySnapshotDelta(this.captureDragTargets(), delta);
     this.emit();
     return true;
   }
@@ -452,17 +480,25 @@ export class SceneInteractionController {
   /** Rotate every selected instance by a componentwise Euler delta (radians). */
   rotateSelectionBy(delta: Vec3): boolean {
     if (this.selection.empty) return false;
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const [key, transform] of this.captureSelectedInstances()) {
-      const rotated = cloneTransform(transform);
-      rotated.rotation = [
-        transform.rotation[0] + delta[0],
-        transform.rotation[1] + delta[1],
-        transform.rotation[2] + delta[2],
-      ];
-      next.set(key, rotated);
-    }
-    this.applyInstanceTransforms(next);
+    const next = this.captureDragTargets().map((entry) => {
+      if (entry.kind === 'instance') {
+        const rotated = cloneTransform(entry.transform);
+        rotated.rotation = [
+          entry.transform.rotation[0] + delta[0],
+          entry.transform.rotation[1] + delta[1],
+          entry.transform.rotation[2] + delta[2],
+        ];
+        return { ...entry, transform: rotated };
+      }
+      const instance = matrixFromTransform(entry.instanceTransform);
+      // Apply the rotation as a world delta about the selection pivot, then solve
+      // the volume back out so only the selected part rotates.
+      const world = instance.clone().multiply(matrixFromTransform(entry.volumeTransform));
+      const pivot = this.selectionPivot() ?? new THREE.Vector3();
+      const newWorld = rotateMatrixAroundPivot(world, quatFromRotation(delta), pivot);
+      return { ...entry, volumeTransform: transformFromMatrix(instance.clone().invert().multiply(newWorld), entry.volumeTransform) };
+    });
+    this.applyTargetTransforms(next);
     this.emit();
     return true;
   }
@@ -475,7 +511,7 @@ export class SceneInteractionController {
     // Rigidly scale the whole selection about the aggregate pivot (offsets
     // displace too), so the selection stays visually centered while its size
     // changes — the same semantics as the size edit and the gizmo drag.
-    this.applyScaleDeltaToSnapshot(this.captureSelectedInstances(), pivot, factor, new THREE.Quaternion());
+    this.applyScaleDeltaToSnapshot(this.captureDragTargets(), pivot, factor, new THREE.Quaternion());
     this.emit();
     return true;
   }
@@ -505,12 +541,14 @@ export class SceneInteractionController {
   resetSelection(): boolean {
     const selected = this.selectedVolumes();
     if (selected.length === 0) return false;
-    const initial = new Map<InstanceKey, ModelTransform>();
-    for (const volume of selected) {
-      const key = instanceKeyOf(volume);
-      if (!initial.has(key)) initial.set(key, cloneTransform(volume.buffer.instanceTransform));
-    }
-    this.applyInstanceTransforms(initial);
+    const next = this.captureDragTargets().map((entry) => {
+      if (entry.kind === 'instance') {
+        const volume = this.getVolumes().find((v) => instanceKeyOf(v) === entry.instanceKey);
+        return { ...entry, transform: volume ? cloneTransform(volume.buffer.instanceTransform) : entry.transform };
+      }
+      return { ...entry, volumeTransform: cloneTransform(entry.volume.buffer.volumeTransform) };
+    });
+    this.applyTargetTransforms(next);
     this.emit();
     return true;
   }
@@ -524,19 +562,36 @@ export class SceneInteractionController {
       startPivot: pivot,
       startQuaternion: this.pivot?.quaternion.clone() ?? new THREE.Quaternion(),
       startScale: this.pivot?.scale.clone() ?? new THREE.Vector3(1, 1, 1),
-      startInstances: this.captureSelectedInstances(),
+      startTargets: this.captureDragTargets(),
     };
     this.emit();
     return true;
   }
 
-  private captureSelectedInstances(): Map<InstanceKey, ModelTransform> {
-    const transforms = new Map<InstanceKey, ModelTransform>();
+  /**
+   * Capture the transforms to edit for the current selection. A part-scoped
+   * selection edits the volume transforms (only the selected parts move); an
+   * instance/object selection edits the instance transforms (whole instances
+   * move). This is the single place that decides the edit scope.
+   */
+  private captureDragTargets(): DragTargetEntry[] {
+    if (this.isVolumeScopedSelection()) {
+      return this.selectedVolumes().map((volume) => ({
+        kind: 'volume',
+        volume,
+        volumeTransform: cloneTransform(volume.volumeTransform),
+        instanceTransform: cloneTransform(volume.instanceTransform),
+      }));
+    }
+    const seen = new Set<InstanceKey>();
+    const entries: DragTargetEntry[] = [];
     for (const volume of this.selectedVolumes()) {
       const key = instanceKeyOf(volume);
-      if (!transforms.has(key)) transforms.set(key, cloneTransform(volume.instanceTransform));
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({ kind: 'instance', instanceKey: key, transform: cloneTransform(volume.instanceTransform) });
     }
-    return transforms;
+    return entries;
   }
 
   private applyBoxSelection(start: BoxPoint, current: BoxPoint, additive: boolean): boolean {
@@ -599,68 +654,77 @@ export class SceneInteractionController {
     return true;
   }
 
-  private applySnapshotDelta(snapshot: ReadonlyMap<InstanceKey, ModelTransform>, delta: THREE.Vector3): void {
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const [key, transform] of snapshot) {
-      if (transform.matrix) {
-        const m = matrixFromTransform(transform);
-        m.elements[12] += delta.x;
-        m.elements[13] += delta.y;
-        m.elements[14] += delta.z;
-        next.set(key, normalizeTransform({ ...transformFromMatrix(m, transform) }));
-        continue;
+  private applySnapshotDelta(snapshot: DragTargetEntry[], delta: THREE.Vector3): void {
+    const next = snapshot.map((entry) => {
+      if (entry.kind === 'instance') {
+        const transform = entry.transform;
+        if (transform.matrix) {
+          const m = matrixFromTransform(transform);
+          m.elements[12] += delta.x;
+          m.elements[13] += delta.y;
+          m.elements[14] += delta.z;
+          return { ...entry, transform: normalizeTransform({ ...transformFromMatrix(m, transform) }) };
+        }
+        const moved = cloneTransform(transform);
+        moved.offset = [
+          transform.offset[0] + delta.x,
+          transform.offset[1] + delta.y,
+          transform.offset[2] + delta.z,
+        ];
+        return { ...entry, transform: moved };
       }
-      const moved = cloneTransform(transform);
-      moved.offset = [
-        transform.offset[0] + delta.x,
-        transform.offset[1] + delta.y,
-        transform.offset[2] + delta.z,
-      ];
-      next.set(key, moved);
-    }
-    this.applyInstanceTransforms(next);
+      const volume = this.solveVolumeWorldDelta(entry, (world) => translateMatrix(world, delta));
+      return { ...entry, volumeTransform: volume };
+    });
+    this.applyTargetTransforms(next);
   }
 
   private applyRotationDeltaToSnapshot(
-    snapshot: ReadonlyMap<InstanceKey, ModelTransform>,
+    snapshot: DragTargetEntry[],
     pivot: THREE.Vector3,
     deltaQuat: THREE.Quaternion,
   ): void {
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const [key, transform] of snapshot) {
-      next.set(key, applyRotationDelta(transform, deltaQuat, pivot));
-    }
-    this.applyInstanceTransforms(next);
+    const next = snapshot.map((entry) => {
+      if (entry.kind === 'instance') return { ...entry, transform: applyRotationDelta(entry.transform, deltaQuat, pivot) };
+      const volume = this.solveVolumeWorldDelta(entry, (world) => rotateMatrixAroundPivot(world, deltaQuat, pivot));
+      return { ...entry, volumeTransform: volume };
+    });
+    this.applyTargetTransforms(next);
   }
 
   private applyScaleDeltaToSnapshot(
-    snapshot: ReadonlyMap<InstanceKey, ModelTransform>,
+    snapshot: DragTargetEntry[],
     pivot: THREE.Vector3,
     factor: Vec3,
     spaceQuat: THREE.Quaternion,
   ): void {
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const [key, transform] of snapshot) {
-      next.set(key, applyScaleDelta(transform, factor, pivot, spaceQuat));
-    }
-    this.applyInstanceTransforms(next);
+    const next = snapshot.map((entry) => {
+      if (entry.kind === 'instance') return { ...entry, transform: applyScaleDelta(entry.transform, factor, pivot, spaceQuat) };
+      const out = this.solveVolumeWorldDelta(entry, (world) => scaleMatrixAroundPivot(world, factor, pivot, spaceQuat));
+      return { ...entry, volumeTransform: { ...out, scale: out.scale.map((s) => clampScale(Math.abs(s))) as Vec3 } };
+    });
+    this.applyTargetTransforms(next);
   }
 
   private restoreSelectionProperty(property: 'rotation' | 'scale'): boolean {
     const selected = this.selectedVolumes();
     if (selected.length === 0) return false;
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const volume of selected) {
-      const key = instanceKeyOf(volume);
-      if (next.has(key)) continue;
-      const transform = cloneTransform(volume.instanceTransform);
-      transform[property] = [...volume.buffer.instanceTransform[property]] as Vec3;
-      // A sheared transform's `matrix` is authoritative — a per-property reset
-      // must drop it, else the reset is silently ignored.
+    const next = this.captureDragTargets().map((entry) => {
+      if (entry.kind === 'instance') {
+        const volume = this.getVolumes().find((v) => instanceKeyOf(v) === entry.instanceKey);
+        const transform = cloneTransform(entry.transform);
+        if (volume) transform[property] = [...volume.buffer.instanceTransform[property]] as Vec3;
+        // A sheared transform's `matrix` is authoritative — a per-property reset
+        // must drop it, else the reset is silently ignored.
+        if (transform.matrix) delete transform.matrix;
+        return { ...entry, transform };
+      }
+      const transform = cloneTransform(entry.volumeTransform);
+      transform[property] = [...entry.volume.buffer.volumeTransform[property]] as Vec3;
       if (transform.matrix) delete transform.matrix;
-      next.set(key, transform);
-    }
-    this.applyInstanceTransforms(next);
+      return { ...entry, volumeTransform: transform };
+    });
+    this.applyTargetTransforms(next);
     this.emit();
     return true;
   }
@@ -680,10 +744,31 @@ export class SceneInteractionController {
     return minZ;
   }
 
-  private applyInstanceTransforms(transforms: ReadonlyMap<InstanceKey, ModelTransform>): void {
-    for (const volume of this.getVolumes()) {
-      const transform = transforms.get(instanceKeyOf(volume));
-      if (transform) volume.instanceTransform = cloneTransform(transform);
+  /** Solve a part-scoped (volume) edit: apply a world-space delta to the volume's
+   *  world matrix (instance·volume) and back the volume transform out, leaving the
+   *  instance transform untouched. */
+  private solveVolumeWorldDelta(
+    entry: Extract<DragTargetEntry, { kind: 'volume' }>,
+    worldApply: (world: THREE.Matrix4) => THREE.Matrix4,
+  ): ModelTransform {
+    const instance = matrixFromTransform(entry.instanceTransform);
+    const world = instance.clone().multiply(matrixFromTransform(entry.volumeTransform));
+    const newWorld = worldApply(world);
+    return transformFromMatrix(instance.clone().invert().multiply(newWorld), entry.volumeTransform);
+  }
+
+  private applyTargetTransforms(entries: DragTargetEntry[]): void {
+    if (entries.length === 0) return;
+    if (entries[0].kind === 'instance') {
+      for (const volume of this.getVolumes()) {
+        for (const entry of entries) {
+          if (entry.kind === 'instance' && entry.instanceKey === instanceKeyOf(volume)) {
+            volume.instanceTransform = cloneTransform(entry.transform);
+          }
+        }
+      }
+    } else {
+      for (const entry of entries) if (entry.kind === 'volume') entry.volume.volumeTransform = cloneTransform(entry.volumeTransform);
     }
   }
 
