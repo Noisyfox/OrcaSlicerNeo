@@ -170,6 +170,49 @@ describe('SlicerClient bridge contract', () => {
     expect(after.objects.filter((o) => o.instanceIdx === 1).map((o) => o.offset)).toEqual([[75, 0, 0], [75, 0, 0]]);
   });
 
+  describe('getModelStructure bridge contract', () => {
+    it('returns the object/part/instance tree with stable IDs', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2, volumeCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const r = await c.getModelStructure();
+      expect(r.ok).toBe(true);
+      expect(r.objects).toHaveLength(1);
+      const obj = r.objects[0];
+      expect(obj).toMatchObject({
+        index: 0, name: 'Object 1', printable: true, instanceCount: 2,
+      });
+      expect(obj.id).toBeGreaterThan(0);
+      expect(obj.volumes).toHaveLength(2);
+      expect(obj.instances).toHaveLength(2);
+      expect(obj.volumes[0]).toMatchObject({
+        index: 0, name: 'Part 1', type: 'model_part', isSplittable: true,
+      });
+      expect(obj.volumes[0].id).toBeGreaterThan(0);
+      expect(obj.instances[0]).toMatchObject({ index: 0, printable: true });
+      expect(obj.instances[0].id).toBeGreaterThan(0);
+    });
+
+    it('returns an empty tree before any model is loaded', async () => {
+      const c = makeClient();
+      const r = await c.getModelStructure();
+      expect(r.ok).toBe(true);
+      expect(r.objects).toEqual([]);
+    });
+
+    it('keeps stable IDs after deleting an earlier object', async () => {
+      const c = createClient(async () => createMockModule());
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      const before = await c.getModelStructure();
+      const keptId = before.objects[1].id;
+      await c.deleteObjects([0]);
+      const after = await c.getModelStructure();
+      expect(after.objects).toHaveLength(1);
+      expect(after.objects[0].id).toBe(keptId);
+      expect(after.objects[0].index).toBe(0);
+    });
+  });
+
   it('slice fires progress and returns unrecognized_keys', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');

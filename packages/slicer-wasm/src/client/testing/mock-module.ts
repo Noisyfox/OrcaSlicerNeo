@@ -7,6 +7,8 @@
 // Also usable in the app's dev fallback worker (VITE_USE_MOCK=1).
 // ----------------------------------------------------------------
 
+import type { VolumeType } from '../types';
+
 export interface MockFeature {
   id: number;
   name: string;
@@ -150,6 +152,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   );
   let objectTransforms: Array<ReturnType<typeof createObjectTransforms>> = [];
   let objectVolumeTransforms: Array<ReturnType<typeof createObjectVolumeTransforms>> = [];
+  // --- stable model structure metadata (mirrors bridge.cpp) ---
+  // The mock tracks stable ObjectIDs per object/volume/instance so
+  // getModelStructure / selection-restoration tests behave like the real
+  // bridge. IDs are minted once at add/delete and do not shift across
+  // structural mutations.
+  let nextObjectId = 1000;
+  let nextVolumeId = 2000;
+  let nextInstanceId = 3000;
+  let objectMeta: Array<{ id: number; name: string; printable: boolean }> = [];
+  let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }>> = [];
+  let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
   let sliced = false;
   let progressCallback = 0;
@@ -206,12 +219,26 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       modelLoaded = true;
       objectTransforms.push(createObjectTransforms());
       objectVolumeTransforms.push(createObjectVolumeTransforms());
+      objectMeta.push({ id: nextObjectId++, name: `Object ${objectTransforms.length}`, printable: true });
+      volumeMeta.push(Array.from({ length: volumeCount }, (_, vi) => ({
+        id: nextVolumeId++,
+        name: `Part ${vi + 1}`,
+        type: 'model_part' as VolumeType,
+        isSplittable: vi === 0,
+      })));
+      instanceMeta.push(Array.from({ length: instanceCount }, (_, ii) => ({
+        id: nextInstanceId++,
+        printable: true,
+      })));
       sliced = false;
       return { ok: true, objects: objectTransforms.length, instances: objectTransforms.length * instanceCount };
     },
     orc_clear_model() {
       objectTransforms = [];
       objectVolumeTransforms = [];
+      objectMeta = [];
+      volumeMeta = [];
+      instanceMeta = [];
       modelLoaded = false;
       sliced = false;
       return { ok: true };
@@ -230,6 +257,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (const idx of toDelete) {
         objectTransforms.splice(idx, 1);
         objectVolumeTransforms.splice(idx, 1);
+        objectMeta.splice(idx, 1);
+        volumeMeta.splice(idx, 1);
+        instanceMeta.splice(idx, 1);
       }
       sliced = false;
       return { ok: true, objects: objectTransforms.length, deleted: toDelete.length };
@@ -288,6 +318,30 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           };
           })),
         ),
+      };
+    },
+    orc_get_model_structure() {
+      return {
+        ok: true,
+        objects: objectTransforms.map((_instances, oi) => ({
+          id: objectMeta[oi].id,
+          index: oi,
+          name: objectMeta[oi].name,
+          printable: objectMeta[oi].printable,
+          instanceCount,
+          volumes: volumeMeta[oi].map((v, vi) => ({
+            id: v.id,
+            index: vi,
+            name: v.name,
+            type: v.type,
+            isSplittable: v.isSplittable,
+          })),
+          instances: instanceMeta[oi].map((i, ii) => ({
+            id: i.id,
+            index: ii,
+            printable: i.printable,
+          })),
+        })),
       };
     },
     orc_set_progress_callback(ptr: number) {
@@ -373,6 +427,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
+    orc_get_model_structure: { ret: 'number', args: [] },
     orc_set_progress_callback: { ret: 'void', args: ['pointer'] },
     orc_get_threading_info: { ret: 'number', args: [] },
     orc_get_progress_mailbox: { ret: 'number', args: [] },

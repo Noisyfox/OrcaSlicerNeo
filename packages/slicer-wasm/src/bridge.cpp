@@ -948,6 +948,69 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
     }
 }
 
+// Volume types cross the boundary with the spec's stable snake_case strings
+// (spec/ObjectList-and-Parts.md §9.1). ModelVolume::type_to_string uses the
+// upstream BBS names ("normal_part"/"negative_part"/"modifier_part"), which
+// differ from the bridge contract, so map explicitly here.
+static const char* volume_type_string(const ModelVolumeType t) {
+    switch (t) {
+        case ModelVolumeType::MODEL_PART:         return "model_part";
+        case ModelVolumeType::NEGATIVE_VOLUME:    return "negative_volume";
+        case ModelVolumeType::PARAMETER_MODIFIER: return "parameter_modifier";
+        case ModelVolumeType::SUPPORT_BLOCKER:    return "support_blocker";
+        case ModelVolumeType::SUPPORT_ENFORCER:   return "support_enforcer";
+        default:                                  return "model_part";
+    }
+}
+
+// Read-only model structure: objects, their parts (volumes), and instances.
+// Returns stable ObjectIDs (for React keys and selection restoration) plus
+// current positional indices (for operation dispatch and display). Read-only,
+// so it does not invalidate the current Print.
+EMSCRIPTEN_KEEPALIVE const char* orc_get_model_structure() {
+    try {
+        auto& model = state().model;
+        json objects = json::array();
+        for (size_t oi = 0; oi < model.objects.size(); ++oi) {
+            const auto& obj = model.objects[oi];
+            json volumes = json::array();
+            for (size_t vi = 0; vi < obj->volumes.size(); ++vi) {
+                const auto& vol = obj->volumes[vi];
+                volumes.push_back(json{
+                    {"id",            vol->id().id},
+                    {"index",         vi},
+                    {"name",          vol->name},
+                    {"type",          volume_type_string(vol->type())},
+                    {"isSplittable",  vol->is_splittable()},
+                });
+            }
+            json instances = json::array();
+            for (size_t ii = 0; ii < obj->instances.size(); ++ii) {
+                const auto& inst = obj->instances[ii];
+                instances.push_back(json{
+                    {"id",        inst->id().id},
+                    {"index",     ii},
+                    {"printable", inst->printable},
+                });
+            }
+            objects.push_back(json{
+                {"id",            obj->id().id},
+                {"index",         oi},
+                {"name",          obj->name},
+                {"printable",     obj->printable},
+                {"instanceCount", obj->instances.size()},
+                {"volumes",       std::move(volumes)},
+                {"instances",     std::move(instances)},
+            });
+        }
+        return dup_json(json{{"ok", true}, {"objects", std::move(objects)}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
     try {
         auto& model = state().model;

@@ -11,6 +11,7 @@ import type {
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
+  ModelStructureResult,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox, ReadLogResult,
 } from './types';
@@ -169,6 +170,11 @@ export function createClient(
         };
       });
       return { ok: true, objects };
+    },
+
+    async getModelStructure(): Promise<ModelStructureResult> {
+      const m = await module();
+      return callJson(m, 'orc_get_model_structure', [], []) as ModelStructureResult;
     },
 
     async deleteObjects(indices: number[]): Promise<DeleteObjectsResult> {

@@ -149,6 +149,48 @@ export interface DeleteObjectsResult {
   error?: string;
 }
 
+/** Volume kinds as reported by the bridge structure read (spec §9.1). */
+export type VolumeType =
+  | 'model_part'
+  | 'negative_volume'
+  | 'parameter_modifier'
+  | 'support_blocker'
+  | 'support_enforcer';
+
+export interface ModelVolumeStructure {
+  /** Stable ObjectID for React keys and selection restoration. */
+  id: number;
+  /** Current positional index within the object (for operation dispatch). */
+  index: number;
+  name: string;
+  type: VolumeType;
+  /** Whether this volume can be split into multiple parts. */
+  isSplittable: boolean;
+}
+
+export interface ModelInstanceStructure {
+  id: number;
+  index: number;
+  printable: boolean;
+}
+
+export interface ModelObjectStructure {
+  id: number;
+  index: number;
+  name: string;
+  /** Object-level flag; distinct from per-instance `printable`. */
+  printable: boolean;
+  instanceCount: number;
+  volumes: ModelVolumeStructure[];
+  instances: ModelInstanceStructure[];
+}
+
+export interface ModelStructureResult {
+  ok: boolean;
+  objects: ModelObjectStructure[];
+  error?: string;
+}
+
 export interface SliceResultStatus {
   ok: boolean;
   unrecognized_keys: string[];
@@ -217,6 +259,8 @@ export interface SlicerClient {
     instanceTransform: ModelTransform, volumeTransform: ModelTransform,
   ): Promise<{ ok: boolean; error?: string }>;
   getModelMesh(): Promise<ModelMeshResult>;
+  /** Read the complete object/part/instance tree with stable IDs. */
+  getModelStructure(): Promise<ModelStructureResult>;
   /** Delete whole objects by their original indices (as reported by
    *  getModelMesh); indices shift after removal, so pass all at once. */
   deleteObjects(indices: number[]): Promise<DeleteObjectsResult>;
