@@ -141,16 +141,14 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               data-state={objectSelected ? 'selected' : 'idle'}
               onClick={() => sceneInteraction?.selectComposite(obj.index)}
             >
-              {hasExpandable && (
-                <span
-                  aria-hidden
-                  data-testid={`object-expand-${obj.id}`}
-                  className="mr-1 text-xs"
-                  onClick={(e) => { e.stopPropagation(); toggleExpanded(obj.id); }}
-                >
-                  {isExpanded ? '▾' : '▸'}
-                </span>
-              )}
+              <span
+                aria-hidden
+                data-testid={hasExpandable ? `object-expand-${obj.id}` : undefined}
+                className="mr-1 inline-block w-3 shrink-0 text-center text-xs"
+                onClick={hasExpandable ? (e) => { e.stopPropagation(); toggleExpanded(obj.id); } : undefined}
+              >
+                {hasExpandable ? (isExpanded ? '▾' : '▸') : ''}
+              </span>
               {renaming?.kind === 'object' && renaming.id === obj.id ? (
                 <input
                   data-testid={`object-name-input-${obj.id}`}
