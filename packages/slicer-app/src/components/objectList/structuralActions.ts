@@ -58,8 +58,8 @@ export async function separateInstancesInList(runtime: SlicerRuntime, objectId: 
   return { ok: true };
 }
 
-export async function reorderObjectsInList(runtime: SlicerRuntime, fromObjectId: number, toObjectId: number): Promise<MutationOutcome> {
-  const r = await runtime.reorderObjects(fromObjectId, toObjectId);
+export async function reorderObjectsInList(runtime: SlicerRuntime, fromObjectId: number, toIndex: number): Promise<MutationOutcome> {
+  const r = await runtime.reorderObjects(fromObjectId, toIndex);
   if (!r.ok) return { ok: false, error: r.error };
   // Reordering objects changes their positional indices. The viewport mesh
   // buffers are keyed by those indices, so reload them to keep the scene, the
@@ -69,8 +69,8 @@ export async function reorderObjectsInList(runtime: SlicerRuntime, fromObjectId:
   return { ok: true };
 }
 
-export async function reorderVolumesInList(runtime: SlicerRuntime, objectId: number, fromVolumeId: number, toVolumeId: number): Promise<MutationOutcome> {
-  const r = await runtime.reorderVolumes(objectId, fromVolumeId, toVolumeId);
+export async function reorderVolumesInList(runtime: SlicerRuntime, objectId: number, fromVolumeId: number, toIndex: number): Promise<MutationOutcome> {
+  const r = await runtime.reorderVolumes(objectId, fromVolumeId, toIndex);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
   return { ok: true };

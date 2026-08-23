@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { ModelObjectStructure } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -184,6 +184,21 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     setLastSelectedKey(null);
   }
 
+  /** Dropping onto the list's empty space (below the last row) moves the dragged
+   *  object or part to the END of its list. Row drops are handled (and their
+   *  propagation stopped) by the row itself and never reach here. */
+  function handleListDropToEnd(event: ReactDragEvent) {
+    event.preventDefault();
+    let dragged: { kind?: string; objectId?: number; id?: number } | null = null;
+    try { dragged = JSON.parse(event.dataTransfer.getData('text/plain')); } catch { /* ignore */ }
+    if (dragged?.kind === 'object' && dragged.id !== undefined) {
+      void reorderObjectsInList(platform.runtime, dragged.id, structure.length);
+    } else if (dragged?.kind === 'part' && dragged.objectId !== undefined && dragged.id !== undefined) {
+      const obj = structure.find((o) => o.id === dragged.objectId);
+      if (obj) void reorderVolumesInList(platform.runtime, dragged.objectId, dragged.id, obj.volumes.length);
+    }
+  }
+
   if (!modelLoaded || !loaded) {
     return (
       <div data-testid="object-list" onContextMenu={(e) => openContextMenu(e, { kind: 'list' })} className="px-2 pb-2 text-xs text-muted-foreground">
@@ -194,7 +209,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
 
   return (
     <div data-testid="object-list" className="max-h-56 overflow-y-auto border-b px-2 py-2"
-      onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}>
+      onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleListDropToEnd}>
       {structure.map((obj) => {
         const objectSelected = projection.objectIds.has(obj.id);
         const hasExpandable = obj.volumes.length > 1 || obj.instanceCount > 1;
@@ -210,11 +227,12 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
+              e.stopPropagation();
               e.preventDefault();
               let dragged: { kind: string; id: number } | null = null;
               try { dragged = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { /* ignore */ }
               if (dragged?.kind === 'object' && dragged.id !== obj.id) {
-                void reorderObjectsInList(platform.runtime, dragged.id, obj.id);
+                void reorderObjectsInList(platform.runtime, dragged.id, obj.index);
               }
             }}
             onContextMenu={(e) => openContextMenu(e, { kind: 'object', object: obj })}
@@ -273,7 +291,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       let dragged: { kind: string; objectId: number; id: number } | null = null;
                       try { dragged = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { /* ignore */ }
                       if (dragged?.kind === 'part' && dragged.objectId === obj.id && dragged.id !== vol.id) {
-                        void reorderVolumesInList(platform.runtime, obj.id, dragged.id, vol.id);
+                        void reorderVolumesInList(platform.runtime, obj.id, dragged.id, vol.index);
                       }
                     }}
                     onContextMenu={(e) => { e.stopPropagation(); openContextMenu(e, { kind: 'part', object: obj, volume: vol }); }}

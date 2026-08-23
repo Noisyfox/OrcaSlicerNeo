@@ -366,35 +366,57 @@ describe('SlicerClient bridge contract', () => {
       expect(clone.instances.map((i) => i.id)).not.toContain(source.instances[0].id);
     });
 
-    it('reorderObjects moves an object immediately before another', async () => {
+    it('reorderObjects moves an object to a destination index', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
       await c.addModel(new Uint8Array(4), 'stl');
       await c.addModel(new Uint8Array(4), 'stl');
       const before = await c.getModelStructure();
       const [a, b, d] = before.objects;
-      const r = await c.reorderObjects(d.id, a.id);
+      const r = await c.reorderObjects(d.id, a.index);
       expect(r.ok).toBe(true);
       expect(r.objects.map((o) => o.index)).toEqual([0, 1, 2]);
       expect(r.objects.map((o) => o.id)).toEqual([d.id, a.id, b.id]);
     });
 
-    it('reorderVolumes moves a part before another within its object', async () => {
+    it('reorderObjects appends an object when toIndex == object count', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      const before = await c.getModelStructure();
+      const [a, b, d] = before.objects;
+      const r = await c.reorderObjects(a.id, before.objects.length);
+      expect(r.ok).toBe(true);
+      expect(r.objects.map((o) => o.id)).toEqual([b.id, d.id, a.id]);
+    });
+
+    it('reorderVolumes moves a part to a destination index within its object', async () => {
       const c = createClient(async () => createMockModule({ volumeCount: 3 }));
       await c.addModel(new Uint8Array(4), 'stl');
       const { objects } = await c.getModelStructure();
       const [v0, v1, v2] = objects[0].volumes;
-      const r = await c.reorderVolumes(objects[0].id, v2.id, v0.id);
+      const r = await c.reorderVolumes(objects[0].id, v2.id, v0.index);
       expect(r.ok).toBe(true);
       expect(r.objects[0].volumes.map((v) => v.id)).toEqual([v2.id, v0.id, v1.id]);
+    });
+
+    it('reorderVolumes appends a part when toIndex == volume count', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 3 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const [v0, v1, v2] = objects[0].volumes;
+      const r = await c.reorderVolumes(objects[0].id, v0.id, objects[0].volumes.length);
+      expect(r.ok).toBe(true);
+      expect(r.objects[0].volumes.map((v) => v.id)).toEqual([v1.id, v2.id, v0.id]);
     });
 
     it('reorder rejects unknown object/volume IDs', async () => {
       const c = makeClient();
       await c.addModel(new Uint8Array(4), 'stl');
       const { objects } = await c.getModelStructure();
-      expect((await c.reorderObjects(999999, objects[0].id)).error).toContain('object not found');
-      expect((await c.reorderVolumes(objects[0].id, 999999, objects[0].volumes[0].id)).error).toContain('volume not found');
+      expect((await c.reorderObjects(999999, 0)).error).toContain('object not found');
+      expect((await c.reorderVolumes(objects[0].id, 999999, 0)).error).toContain('volume not found');
     });
 
     it('deleteObjects invalidates the slice result', async () => {

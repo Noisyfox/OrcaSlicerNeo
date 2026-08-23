@@ -72,13 +72,13 @@ describe('object list structural actions', () => {
     expect(runtime.mergeObjectsToMultipart).toHaveBeenCalledWith([1, 2], 'Asm');
   });
 
-  it('reorderObjectsInList calls the bridge with stable IDs', async () => {
+  it('reorderObjectsInList calls the bridge with the source object ID and a destination index', async () => {
     const runtime = makeRuntime();
     await reorderObjectsInList(runtime, 2, 1);
     expect(runtime.reorderObjects).toHaveBeenCalledWith(2, 1);
   });
 
-  it('reorderVolumesInList calls the bridge with the object and volume IDs', async () => {
+  it('reorderVolumesInList calls the bridge with the object/volume IDs and a destination index', async () => {
     const runtime = makeRuntime();
     await reorderVolumesInList(runtime, 5, 20, 10);
     expect(runtime.reorderVolumes).toHaveBeenCalledWith(5, 20, 10);

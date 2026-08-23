@@ -203,12 +203,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     }));
   }
 
-  // Move element `from` to "immediately before" the element at `to` (the bridge
-  // reorder semantics). `to` must be re-located after the removal.
-  function moveBefore<T>(arr: T[], from: number, to: number) {
+  // Move element `from` so it ends up at final index `toIndex` (0-based);
+  // `toIndex == arr.length` (or beyond) appends it to the end. Matches the
+  // bridge's destination-index reorder semantics.
+  function moveToIndex<T>(arr: T[], from: number, toIndex: number) {
+    if (arr.length <= 1) return;
+    const target = Math.min(Math.max(toIndex, 0), arr.length - 1);
+    if (from === target) return;
     const [el] = arr.splice(from, 1);
-    const toAfter = to > from ? to - 1 : to;
-    arr.splice(toAfter, 0, el);
+    arr.splice(target, 0, el);
   }
 
   // ---- the bridge functions ----
@@ -343,30 +346,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sliced = false;
       return { ok: true, newObjectIds, objects: objectTransforms.length };
     },
-    orc_reorder_objects(fromObjectId: number, toObjectId: number) {
+    orc_reorder_objects(fromObjectId: number, toIndex: number) {
       const fromIdx = objectMeta.findIndex((o) => o.id === fromObjectId);
-      const toIdx = objectMeta.findIndex((o) => o.id === toObjectId);
-      if (fromIdx < 0 || toIdx < 0) return { error: 'object not found' };
-      if (fromIdx !== toIdx) {
-        moveBefore(objectTransforms, fromIdx, toIdx);
-        moveBefore(objectVolumeTransforms, fromIdx, toIdx);
-        moveBefore(objectMeta, fromIdx, toIdx);
-        moveBefore(volumeMeta, fromIdx, toIdx);
-        moveBefore(instanceMeta, fromIdx, toIdx);
-      }
+      if (fromIdx < 0) return { error: 'object not found' };
+      moveToIndex(objectTransforms, fromIdx, toIndex);
+      moveToIndex(objectVolumeTransforms, fromIdx, toIndex);
+      moveToIndex(objectMeta, fromIdx, toIndex);
+      moveToIndex(volumeMeta, fromIdx, toIndex);
+      moveToIndex(instanceMeta, fromIdx, toIndex);
       sliced = false;
       return { ok: true, objects: buildStructure() };
     },
-    orc_reorder_volumes(objectId: number, fromVolumeId: number, toVolumeId: number) {
+    orc_reorder_volumes(objectId: number, fromVolumeId: number, toIndex: number) {
       const oi = objectMeta.findIndex((o) => o.id === objectId);
       if (oi < 0) return { error: 'object not found' };
       const fromIdx = volumeMeta[oi].findIndex((v) => v.id === fromVolumeId);
-      const toIdx = volumeMeta[oi].findIndex((v) => v.id === toVolumeId);
-      if (fromIdx < 0 || toIdx < 0) return { error: 'volume not found' };
-      if (fromIdx !== toIdx) {
-        moveBefore(volumeMeta[oi], fromIdx, toIdx);
-        for (let ii = 0; ii < instanceCount; ii++) moveBefore(objectVolumeTransforms[oi][ii], fromIdx, toIdx);
-      }
+      if (fromIdx < 0) return { error: 'volume not found' };
+      moveToIndex(volumeMeta[oi], fromIdx, toIndex);
+      for (let ii = 0; ii < instanceCount; ii++) moveToIndex(objectVolumeTransforms[oi][ii], fromIdx, toIndex);
       sliced = false;
       return { ok: true, objects: buildStructure() };
     },

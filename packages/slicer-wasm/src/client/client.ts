@@ -197,16 +197,16 @@ export function createClient(
                       [JSON.stringify(objectIds)]) as CloneObjectsResult;
     },
 
-    async reorderObjects(fromObjectId: number, toObjectId: number): Promise<ReorderStructureResult> {
+    async reorderObjects(fromObjectId: number, toIndex: number): Promise<ReorderStructureResult> {
       const m = await module();
       return callJson(m, 'orc_reorder_objects', ['number', 'number'],
-                      [fromObjectId, toObjectId]) as ReorderStructureResult;
+                      [fromObjectId, toIndex]) as ReorderStructureResult;
     },
 
-    async reorderVolumes(objectId: number, fromVolumeId: number, toVolumeId: number): Promise<ReorderStructureResult> {
+    async reorderVolumes(objectId: number, fromVolumeId: number, toIndex: number): Promise<ReorderStructureResult> {
       const m = await module();
       return callJson(m, 'orc_reorder_volumes', ['number', 'number', 'number'],
-                      [objectId, fromVolumeId, toVolumeId]) as ReorderStructureResult;
+                      [objectId, fromVolumeId, toIndex]) as ReorderStructureResult;
     },
 
     async splitVolumeToParts(volumeId: number, maxExtruders = 1, remapPaint = false): Promise<SplitVolumeResult> {

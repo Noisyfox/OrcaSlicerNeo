@@ -781,32 +781,28 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) 
     }
 }
 
-// Reorder the plate/list by stable ObjectIDs. "from" is moved to sit
-// immediately before "to"; relative order of every other object is preserved.
-// Returns the current structure so the renderer can refresh in one round-trip.
-EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double to_obj_id) {
+// Reorder the plate/list by a stable ObjectID and a DESTINATION INDEX. The
+// object with `from_obj_id` is moved so it sits at `to_index` (0-based) in the
+// final list; `to_index == object_count` (or anything >= count) appends it at
+// the end. Returns the current structure for a single refresh round-trip.
+EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double to_index) {
     try {
         const auto from_id = to_object_id(from_obj_id);
-        const auto to_id = to_object_id(to_obj_id);
-        if (!from_id || !to_id) return error_json("object id must be a positive integer");
+        if (!from_id) return error_json("object id must be a positive integer");
+        if (to_index < 0) return error_json("target index must be >= 0");
         auto& objs = state().model.objects;
-        std::size_t from_idx = objs.size();
-        std::size_t to_idx = objs.size();
-        for (std::size_t i = 0; i < objs.size(); ++i) {
-            if (objs[i]->id().id == *from_id) from_idx = i;
-            if (objs[i]->id().id == *to_id)   to_idx = i;
-        }
-        if (from_idx == objs.size() || to_idx == objs.size())
-            return error_json("object not found");
-        if (from_idx != to_idx) {
+        const std::size_t count = objs.size();
+        std::size_t from_idx = count;
+        for (std::size_t i = 0; i < count; ++i)
+            if (objs[i]->id().id == *from_id) { from_idx = i; break; }
+        if (from_idx == count) return error_json("object not found");
+        const std::size_t dest = static_cast<std::size_t>(to_index);
+        // Destination final index; to_index == count (or beyond) appends last.
+        const std::size_t target = dest >= count ? count - 1 : dest;
+        if (from_idx != target) {
             ModelObject* from_obj = objs[from_idx];
             objs.erase(objs.begin() + static_cast<std::ptrdiff_t>(from_idx));
-            // Re-locate "to" after the removal, then place "from" before it.
-            for (std::size_t i = 0; i < objs.size(); ++i)
-                if (objs[i]->id().id == *to_id) {
-                    objs.insert(objs.begin() + static_cast<std::ptrdiff_t>(i), from_obj);
-                    break;
-                }
+            objs.insert(objs.begin() + static_cast<std::ptrdiff_t>(target), from_obj);
         }
         state().print.clear();
         return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
@@ -817,34 +813,29 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double 
     }
 }
 
-// Reorder parts within an object by stable ObjectIDs. Mirrors reorder_objects:
-// "from" volume moves immediately before "to" volume; returns current structure.
-EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double from_volume_id, double to_volume_id) {
+// Reorder parts within an object by a stable volume ID and a DESTINATION INDEX.
+// `to_index == volume_count` (or beyond) appends the part at the end; otherwise
+// it is moved so it sits at `to_index` in the final list.
+EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double from_volume_id, double to_index) {
     try {
         const auto obj_id = to_object_id(object_id);
         const auto from_id = to_object_id(from_volume_id);
-        const auto to_id = to_object_id(to_volume_id);
-        if (!obj_id || !from_id || !to_id)
-            return error_json("id must be a positive integer");
+        if (!obj_id || !from_id) return error_json("id must be a positive integer");
+        if (to_index < 0) return error_json("target index must be >= 0");
         ModelObject* obj = find_object_by_id(*obj_id);
         if (obj == nullptr) return error_json("object not found");
         auto& vols = obj->volumes;
-        std::size_t from_idx = vols.size();
-        std::size_t to_idx = vols.size();
-        for (std::size_t i = 0; i < vols.size(); ++i) {
-            if (vols[i]->id().id == *from_id) from_idx = i;
-            if (vols[i]->id().id == *to_id)   to_idx = i;
-        }
-        if (from_idx == vols.size() || to_idx == vols.size())
-            return error_json("volume not found");
-        if (from_idx != to_idx) {
+        const std::size_t count = vols.size();
+        std::size_t from_idx = count;
+        for (std::size_t i = 0; i < count; ++i)
+            if (vols[i]->id().id == *from_id) { from_idx = i; break; }
+        if (from_idx == count) return error_json("volume not found");
+        const std::size_t dest = static_cast<std::size_t>(to_index);
+        const std::size_t target = dest >= count ? count - 1 : dest;
+        if (from_idx != target) {
             ModelVolume* from_vol = vols[from_idx];
             vols.erase(vols.begin() + static_cast<std::ptrdiff_t>(from_idx));
-            for (std::size_t i = 0; i < vols.size(); ++i)
-                if (vols[i]->id().id == *to_id) {
-                    vols.insert(vols.begin() + static_cast<std::ptrdiff_t>(i), from_vol);
-                    break;
-                }
+            vols.insert(vols.begin() + static_cast<std::ptrdiff_t>(target), from_vol);
         }
         obj->invalidate_bounding_box();
         state().print.clear();

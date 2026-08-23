@@ -352,10 +352,10 @@ export interface SlicerClient {
   deleteVolumes(volumeIds: number[]): Promise<DeleteVolumesResult>;
   /** Clone whole objects; returns the new stable ObjectIDs. */
   cloneObjects(objectIds: number[]): Promise<CloneObjectsResult>;
-  /** Move an object to sit immediately before another; returns current structure. */
-  reorderObjects(fromObjectId: number, toObjectId: number): Promise<ReorderStructureResult>;
-  /** Move a part to sit immediately before another within its object; returns current structure. */
-  reorderVolumes(objectId: number, fromVolumeId: number, toVolumeId: number): Promise<ReorderStructureResult>;
+  /** Move an object to a destination index (0-based; index == count appends last); returns current structure. */
+  reorderObjects(fromObjectId: number, toIndex: number): Promise<ReorderStructureResult>;
+  /** Move a part to a destination index within its object (0-based; index == count appends last); returns current structure. */
+  reorderVolumes(objectId: number, fromVolumeId: number, toIndex: number): Promise<ReorderStructureResult>;
   /** Split a volume into its disconnected parts; returns the generated volume IDs. */
   splitVolumeToParts(volumeId: number, maxExtruders?: number, remapPaint?: boolean): Promise<SplitVolumeResult>;
   /** Split an object into one object per connected shell; returns the generated object IDs. */
