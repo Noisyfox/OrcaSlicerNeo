@@ -70,6 +70,35 @@ describe('SceneInteractionController', () => {
     expect(controller.gizmo).toBeNull();
   });
 
+  it('selectFromHit expands per the active selection mode', () => {
+    expect(controller.setSelectionMode('object')).toBe(true);
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+
+    expect(controller.setSelectionMode('volume')).toBe(true);
+    controller.selectFromHit(volumes[1], false);
+    expect(controller.selectedVolumes()).toEqual([volumes[1], volumes[3]]);
+  });
+
+  it('setSelectionMode is a no-op when the mode is unchanged', () => {
+    expect(controller.setSelectionMode('instance')).toBe(false);
+  });
+
+  it('selectComposite selects a target by object, volume, or instance width', () => {
+    expect(controller.selectComposite(0)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+
+    expect(controller.selectComposite(0, 1)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[1], volumes[3]]);
+
+    expect(controller.selectComposite(0, undefined, 0)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+
+    // Additive toggle of the target instance clears it.
+    expect(controller.selectComposite(0, undefined, 0, true)).toBe(true);
+    expect(controller.selectedVolumes()).toHaveLength(0);
+  });
+
   it('can only arm the move gizmo with a non-empty selection', () => {
     // An empty selection makes the toggle a no-op — the gizmo can only be
     // activated while something is selected.

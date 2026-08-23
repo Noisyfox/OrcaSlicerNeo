@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
 import type { Vec3 } from '../../lib/vec3';
 import { GLVolume } from './GLVolume';
-import { instanceKeyOf, Selection, type InstanceKey } from './Selection';
+import { instanceKeyOf, Selection, type InstanceKey, type SelectionMode } from './Selection';
 import {
   applyRotationDelta,
   applyScaleDelta,
@@ -43,6 +43,7 @@ export class SceneInteractionController {
   readonly selection = new Selection();
 
   private readonly listeners = new Set<() => void>();
+  private selectionModeState: SelectionMode = 'instance';
   private openGizmo: OpenGizmo = null;
   private scaleSpaceState: ScaleSpace = 'world';
   private pointerOwner: PointerOwner = 'none';
@@ -69,9 +70,18 @@ export class SceneInteractionController {
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
+  get selectionMode(): SelectionMode { return this.selectionModeState; }
   /** Distinct selected instances — the panels' multi-selection display rule. */
   get selectionInstanceCount(): number {
     return this.selection.instanceKeys(this.getVolumes()).size;
+  }
+
+  /** Set how a canvas click expands selection (object / volume / instance). */
+  setSelectionMode(mode: SelectionMode): boolean {
+    if (this.selectionModeState === mode) return false;
+    this.selectionModeState = mode;
+    this.emit();
+    return true;
   }
 
   /**
@@ -148,8 +158,21 @@ export class SceneInteractionController {
 
   selectFromHit(hit: GLVolume, additive: boolean): boolean {
     const changed = additive
-      ? this.selection.toggleFromHit(hit, this.getVolumes())
-      : this.selection.replaceFromHit(hit, this.getVolumes());
+      ? this.selection.toggleFromHit(hit, this.getVolumes(), this.selectionMode)
+      : this.selection.replaceFromHit(hit, this.getVolumes(), this.selectionMode);
+    this.syncGizmoToSelection();
+    if (changed) this.emit();
+    return changed;
+  }
+
+  /**
+   * Select the volumes matching a composite target (object list row click).
+   * The caller resolves stable ObjectIDs to current indices first (spec §7).
+   */
+  selectComposite(objectIdx: number, volumeIdx?: number, instanceIdx?: number, additive = false): boolean {
+    const changed = additive
+      ? this.selection.toggleComposite(this.getVolumes(), { objectIdx, volumeIdx, instanceIdx })
+      : this.selection.replaceComposite(this.getVolumes(), { objectIdx, volumeIdx, instanceIdx });
     this.syncGizmoToSelection();
     if (changed) this.emit();
     return changed;
