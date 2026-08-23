@@ -199,6 +199,23 @@ The final bridge API list is still being clarified. The intended shape is:
 Existing index-based transform APIs remain unchanged unless a later decision
 extends them.
 
+### Bridge calling convention
+
+- One `extern "C"` function per operation.
+- JSON-in / JSON-out.
+- Every function returns either `{ "ok": true, ... }` or
+  `{ "ok": false, "error": "..." }`.
+- Multi-selection operations receive JSON arrays of IDs.
+- `ObjectID` crosses the boundary as a JSON number.
+- `ObjectInstanceID` crosses as an object:
+
+```json
+{ "objectId": 123, "instanceId": 456 }
+```
+
+- `orc_get_model_structure()` takes no arguments and returns the complete
+  object/part/instance tree.
+
 ## 10. Open Questions
 
 The following items are still being clarified before this document moves from
