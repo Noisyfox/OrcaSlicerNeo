@@ -69,8 +69,12 @@ export function ObjectListContextMenu({ target, point, onClose, onRename }: {
         onClick={() => act(setObjectPrintableInList(runtime, o.id, !o.printable))} />,
       <MenuItem key="clone" label="Clone" testid="objectlist-clone"
         onClick={() => act(cloneObjectsInList(runtime, [o.id]))} />,
-      <MenuItem key="split" label="Split to objects" testid="objectlist-split-objects"
-        onClick={() => act(splitObjectToObjectsInList(runtime, o.id))} />,
+      // Orca shows Split to objects only when the object is splittable (multiple
+      // volumes, or a volume with disconnected shells).
+      ...(o.volumes.length > 1 || o.volumes.some((vol) => vol.isSplittable) ? [(
+        <MenuItem key="split" label="Split to objects" testid="objectlist-split-objects"
+          onClick={() => act(splitObjectToObjectsInList(runtime, o.id))} />
+      )] : []),
       <MenuItem key="delete" label="Delete" testid="objectlist-delete" danger
         onClick={() => act(deleteObjectsInList(runtime, [o.id]))} />,
     ];
@@ -79,8 +83,11 @@ export function ObjectListContextMenu({ target, point, onClose, onRename }: {
     items = [
       <MenuItem key="rename" label="Rename" testid="objectlist-rename"
         onClick={() => { onRename('part', v.id, v.name); onClose(); }} />,
-      <MenuItem key="split" label="Split to parts" testid="objectlist-split-parts"
-        onClick={() => act(splitVolumeToPartsInList(runtime, v.id))} />,
+      // Orca shows Split to parts only for a volume with disconnected shells.
+      ...(v.isSplittable ? [(
+        <MenuItem key="split" label="Split to parts" testid="objectlist-split-parts"
+          onClick={() => act(splitVolumeToPartsInList(runtime, v.id))} />
+      )] : []),
       <MenuItem key="delete" label="Delete part" testid="objectlist-delete" danger
         onClick={() => act(deleteVolumeInList(runtime, v.id))} />,
       ...VOLUME_TYPES.filter((t) => t !== v.type).map((t) => (

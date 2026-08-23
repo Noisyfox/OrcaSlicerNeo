@@ -21,6 +21,9 @@ the scene context menu.
 - "Set as an individual object" (OrcaSlicer's label for separating instances)
   appears only on an instance row of a multi-instance object and promotes that
   single instance into its own top-level object.
+- "Split to parts" appears only for a volume whose mesh has disconnected shells
+  (`isSplittable`), and "Split to objects" only for a splittable object (multiple
+  volumes or a splittable volume) — matching Orca.
 - "Assemble all" is available from the object row menu (and the list-level menu
   on right-clicking empty list space).
 - The e2e tests were updated to drive the actions through the context menu.
