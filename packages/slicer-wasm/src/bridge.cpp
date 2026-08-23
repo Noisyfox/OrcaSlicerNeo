@@ -937,6 +937,66 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
     }
 }
 
+// Assemble objects into a single multipart object (upstream ObjectList::merge
+// "Assemble"). Each source object's volumes are copied into a new object, with
+// the source's first-instance transform composed into each volume transform; the
+// new object carries one instance. Returns the new object's stable ID.
+EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* object_ids_json, const char* name_cstr) {
+    try {
+        const json j = json::parse(object_ids_json ? object_ids_json : "");
+        const auto ids = parse_positive_id_array(j);
+        if (!ids) return error_json("no object ids");
+        std::vector<ModelObject*> sources;
+        for (const std::size_t id : *ids) {
+            ModelObject* obj = find_object_by_id(id);
+            if (obj == nullptr) return error_json("object not found");
+            sources.push_back(obj);
+        }
+
+        auto& model = state().model;
+        ModelObject* new_obj = model.add_object();
+        new_obj->name = (name_cstr && *name_cstr) ? name_cstr : "Assembly";
+
+        bool first_instance = true;
+        for (ModelObject* src : sources) {
+            if (first_instance) {
+                // A single instance whose (identity) transform is combined into
+                // each volume's matrix below.
+                new_obj->add_instance();
+                first_instance = false;
+            }
+            const Transform3d src_matrix =
+                src->instances.empty() ? Transform3d::Identity()
+                                       : src->instances[0]->get_transformation().get_matrix();
+            for (const ModelVolume* vol : src->volumes) {
+                ModelVolume* new_vol = new_obj->add_volume(*vol);
+                new_vol->set_transformation(src_matrix * new_vol->get_matrix());
+            }
+        }
+        if (first_instance) {
+            // No source volume/instance path executed (all sources had no volumes);
+            // give the assembly a single default instance so it is renderable.
+            new_obj->add_instance();
+        }
+        new_obj->sort_volumes(true);
+
+        // Remove the source objects from the live model.
+        std::sort(sources.begin(), sources.end());
+        sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
+        for (ModelObject* src : sources)
+            model.delete_object(src);
+
+        state().print.clear();
+        return dup_json(json{{"ok", true},
+                             {"objectId", new_obj->id().id},
+                             {"objects", model.objects.size()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 using progress_fn = void (*)(int, const char*);
 progress_fn g_progress = nullptr;
 

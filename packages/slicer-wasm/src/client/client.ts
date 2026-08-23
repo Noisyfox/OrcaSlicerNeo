@@ -12,7 +12,8 @@ import type {
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
-  ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult, VolumeType,
+  ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
+  MergeObjectsResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox, ReadLogResult,
 } from './types';
@@ -218,6 +219,12 @@ export function createClient(
       const m = await module();
       return callJson(m, 'orc_split_object_to_objects', ['number', 'number'],
                       [objectId, autoDrop ? 1 : 0]) as SplitObjectResult;
+    },
+
+    async mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult> {
+      const m = await module();
+      return callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
+                      [JSON.stringify(objectIds), name]) as MergeObjectsResult;
     },
 
     async renameObject(objectId: number, name: string): Promise<MutationResult> {

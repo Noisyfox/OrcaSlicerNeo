@@ -618,3 +618,32 @@ check('slice error surfaces the real message, not the bare category',
   }
 }
 
+// 10d. Step 4c: assemble separate objects into a multipart object.
+{
+  callJson('orc_clear_model', [], []);
+  const p1 = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, p1);
+  const l1 = callJson('orc_add_model', ['pointer', 'number', 'string'], [p1, stl.length, 'stl']);
+  Module._free(p1);
+  const p2 = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, p2);
+  const l2 = callJson('orc_add_model', ['pointer', 'number', 'string'], [p2, stl.length, 'stl']);
+  Module._free(p2);
+  check('assemble fixture has two objects', l1.ok === true && l2.ok === true && l2.objects === 2, JSON.stringify(l2));
+
+  const s = callJson('orc_get_model_structure', [], []);
+  const ids = s.objects.map((o) => o.id);
+  const merged = callJson('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(ids), 'Assembly']);
+  check('assemble produces a single multipart object',
+        merged.ok === true && merged.objectId > 0 && merged.objects === 1, JSON.stringify(merged));
+  const after = callJson('orc_get_model_structure', [], []);
+  const assembled = after.objects?.[0];
+  check('assembled object carries both volumes and the source objects are gone',
+        after.ok === true && after.objects?.length === 1
+        && assembled?.volumes?.length === 2 && assembled.name === 'Assembly',
+        JSON.stringify({ id: assembled?.id, name: assembled?.name, volumes: assembled?.volumes?.length }));
+
+  const S = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+  check('assembled multipart slices to valid G-code', S.ok === true, JSON.stringify(S));
+}
+

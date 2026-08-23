@@ -415,6 +415,42 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sliced = false;
       return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
     },
+    orc_merge_objects_to_multipart(objectIdsJson: string, name: string) {
+      const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
+      if (!Array.isArray(ids) || ids.length === 0) return { error: 'no object ids' };
+      const srcIdxs: number[] = [];
+      for (const item of ids) {
+        if (!Number.isInteger(item) || item < 1) return { error: 'object id must be a positive integer' };
+        const oi = objectMeta.findIndex((o) => o.id === item);
+        if (oi < 0) return { error: 'object not found' };
+        if (!srcIdxs.includes(oi)) srcIdxs.push(oi);
+      }
+      const newObjectId = nextObjectId++;
+      const newName = (typeof name === 'string' && name.length > 0) ? name : 'Assembly';
+      const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
+      const newVolTransforms: Array<ReturnType<typeof identityTransform>> = [];
+      for (const oi of srcIdxs) {
+        for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
+          newVolumes.push({ id: nextVolumeId++, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type, isSplittable: false });
+          newVolTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0][vi])) as ReturnType<typeof identityTransform>);
+        }
+      }
+      objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[srcIdxs[0]][0]))]);
+      objectVolumeTransforms.push([newVolTransforms]);
+      objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable });
+      volumeMeta.push(newVolumes);
+      instanceMeta.push([{ id: nextInstanceId++, printable: instanceMeta[srcIdxs[0]][0].printable }]);
+      srcIdxs.sort((a, b) => b - a);
+      for (const oi of srcIdxs) {
+        objectTransforms.splice(oi, 1);
+        objectVolumeTransforms.splice(oi, 1);
+        objectMeta.splice(oi, 1);
+        volumeMeta.splice(oi, 1);
+        instanceMeta.splice(oi, 1);
+      }
+      sliced = false;
+      return { ok: true, objectId: newObjectId, objects: objectTransforms.length };
+    },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
       if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
       objectTransforms[obj][inst].offset = [x, y, z];
@@ -624,6 +660,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_reorder_volumes: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_split_volume_to_parts: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_split_object_to_objects: { ret: 'number', args: ['number', 'number'] },
+    orc_merge_objects_to_multipart: { ret: 'number', args: ['string', 'string'] },
     orc_rename_object: { ret: 'number', args: ['number', 'string'] },
     orc_rename_volume: { ret: 'number', args: ['number', 'string'] },
     orc_set_volume_type: { ret: 'number', args: ['number', 'string'] },

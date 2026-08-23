@@ -498,6 +498,49 @@ describe('SlicerClient bridge contract', () => {
     });
   });
 
+  describe('Step 4c merge objects to multipart (stable ObjectID)', () => {
+    it('assembles objects into one multipart object and removes the sources', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2, instanceCount: 1 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      const before = await c.getModelStructure();
+      const [a, b] = before.objects;
+      const r = await c.mergeObjectsToMultipart([a.id, b.id], 'Assembly');
+      expect(r.ok).toBe(true);
+      expect(r.objectId).toBeGreaterThan(0);
+      expect(r.objects).toBe(1);
+      const after = await c.getModelStructure();
+      expect(after.objects).toHaveLength(1);
+      expect(after.objects[0].id).toBe(r.objectId);
+      expect(after.objects[0].name).toBe('Assembly');
+      // One object per source source volume: 2 + 2.
+      expect(after.objects[0].volumes).toHaveLength(4);
+      expect(after.objects.map((o) => o.id)).not.toContain(a.id);
+      expect(after.objects.map((o) => o.id)).not.toContain(b.id);
+    });
+
+    it('rejects an unknown object ID', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      const res = await c.mergeObjectsToMultipart([999999], 'X');
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('object not found');
+    });
+
+    it('invalidates the slice result after assembly', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.slice({});
+      expect((await c.getSliceResult()).ok).toBe(true);
+      const { objects } = await c.getModelStructure();
+      await c.mergeObjectsToMultipart([objects[0].id, objects[1].id], 'Asm');
+      const after = await c.getSliceResult();
+      expect(after.ok).toBeFalsy();
+      expect(after.error).toContain('no slice result');
+    });
+  });
+
   it('slice fires progress and returns unrecognized_keys', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');

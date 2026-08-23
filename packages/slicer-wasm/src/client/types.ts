@@ -196,6 +196,15 @@ export interface SplitObjectResult {
   error?: string;
 }
 
+/** Assemble result: the newly created multipart object's stable ID. */
+export interface MergeObjectsResult {
+  ok: boolean;
+  objectId?: number;
+  /** Object count after assembling. */
+  objects?: number;
+  error?: string;
+}
+
 /** Simple success/error payload returned by non-destructive metadata mutations. */
 export interface MutationResult {
   ok: boolean;
@@ -328,6 +337,8 @@ export interface SlicerClient {
   splitVolumeToParts(volumeId: number, maxExtruders?: number, remapPaint?: boolean): Promise<SplitVolumeResult>;
   /** Split an object into one object per connected shell; returns the generated object IDs. */
   splitObjectToObjects(objectId: number, autoDrop?: boolean): Promise<SplitObjectResult>;
+  /** Assemble objects into one multipart object; returns the new object's stable ID. */
+  mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult>;
   /** Rename an object by its stable ObjectID. */
   renameObject(objectId: number, name: string): Promise<MutationResult>;
   /** Rename a specific part (volume) by its stable ObjectID. */
