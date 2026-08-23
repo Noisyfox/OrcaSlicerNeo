@@ -34,7 +34,7 @@ exclusions; this implements them.
 
 ## Verification
 
-- `@orca/slicer-app` test: 136 pass (updated part/volume assertions to
+- `@orca/slicer-app` test: 137 pass (updated part/volume assertions to
   single-instance anchoring; added row-kind and object+instance-mixable
   assertions); typecheck clean.
 - Desktop mock e2e: 16 passed, 1 skipped (Ctrl/Shift multi-select, part flows;

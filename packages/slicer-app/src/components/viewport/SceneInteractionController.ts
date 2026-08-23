@@ -313,7 +313,8 @@ export class SceneInteractionController {
 
   /**
    * Select the volumes matching a composite target (object list row click).
-   * The caller resolves stable ObjectIDs to current indices first (spec §7).
+   * The caller passes current object/volume/instance indices (resolved from
+   * stable ObjectIDs by the list/spec §7 as needed).
    */
   selectComposite(objectIdx: number, volumeIdx?: number, instanceIdx?: number, additive = false): boolean {
     if (additive && !this.canToggleVolumeIds(this.compositeVolumeIds(objectIdx, volumeIdx, instanceIdx))) return false;

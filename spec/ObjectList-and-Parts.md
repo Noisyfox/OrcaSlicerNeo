@@ -124,16 +124,18 @@ maintain a second parallel selection model.
 Selection mapping:
 
 - Object row: selects all GL volumes of the object.
-- Part row: selects every GL volume for the `(objectIdx, volumeIdx)` composite.
+- Part row: selects the volume for `(objectIdx, volumeIdx)` within the
+  selection's single instance (Orca anchors a part to one instance — never across
+  all instances).
 - Instance row: selects every GL volume for the `(objectIdx, instanceIdx)`
   composite.
 - Viewport selection updates ObjectList highlighting in reverse.
 - Ctrl/Cmd is additive/toggle selection in both surfaces.
-- Shift remains reserved for viewport box selection.
+- Shift selects a contiguous range in the ObjectList and is also the viewport
+  box-selection modifier (Shift+drag).
 - Empty selection clears ObjectList highlighting.
 
-The renderer `Selection` must be extended from its current instance-only
-expansion to support object, volume, and instance expansion modes.
+The renderer `Selection` supports object, volume, and instance expansion modes.
 
 ### 6.1 Selection modes follow OrcaSlicer
 
@@ -295,8 +297,8 @@ orc_merge_objects_to_multipart(objectIds[], name)
 orc_instances_to_separate_objects(objectId, instanceIds[])
 orc_set_object_printable(objectId, printable)
 orc_set_instance_printable(instanceId, printable)
-orc_reorder_objects(fromObjectId, toObjectId)
-orc_reorder_volumes(objectId, fromVolumeId, toVolumeId)
+orc_reorder_objects(fromObjectId, toIndex)
+orc_reorder_volumes(objectId, fromVolumeId, toIndex)
 ```
 
 Simple operations return:

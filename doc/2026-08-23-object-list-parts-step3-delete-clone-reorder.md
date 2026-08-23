@@ -19,8 +19,8 @@ harness checks:
 | `orc_delete_objects(objectIds[])` | `deleteObjects` | Delete whole objects by ID |
 | `orc_delete_volumes(volumeIds[])` | `deleteVolumes` | Delete parts by ID (with guard) |
 | `orc_clone_objects(objectIds[])` | `cloneObjects` | Clone objects; returns new IDs |
-| `orc_reorder_objects(fromObjectId, toObjectId)` | `reorderObjects` | Move an object before another |
-| `orc_reorder_volumes(objectId, fromVolumeId, toVolumeId)` | `reorderVolumes` | Move a part before another |
+| `orc_reorder_objects(fromObjectId, toIndex)` | `reorderObjects` | Move an object to a destination index |
+| `orc_reorder_volumes(objectId, fromVolumeId, toIndex)` | `reorderVolumes` | Move a part to a destination index |
 
 ## Key decisions
 
@@ -48,11 +48,12 @@ the clones.
 
 ### Reorder semantics
 
-`(from, to)` moves `from` to sit **immediately before `to`**, preserving the
-relative order of every other entity. Reorders return the current structure
-(`{ok, objects}`) so the renderer can refresh in one round trip. The reorder rule
-is deliberately documented because the spec leaves the drop direction implicit;
-the Step 9 drag UI can choose the direction by passing the appropriate `from`/`to`.
+`(from, toIndex)` moves `from` so it sits at the 0-based **destination index**
+`toIndex` in the final list, preserving the relative order of every other entity;
+`toIndex == count` (or anything ≥ count) appends the item last. Reorders return
+the current structure (`{ok, objects}`) so the renderer can refresh in one round
+trip. The step-9 drag UI passes the dropped-on row's index, or `count` when the
+item is dropped on the list's empty space to append it at the end.
 
 ### Print invalidation
 
