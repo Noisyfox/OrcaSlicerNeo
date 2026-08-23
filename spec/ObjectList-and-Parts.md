@@ -129,6 +129,10 @@ Selection mapping:
 The renderer `Selection` must be extended from its current instance-only
 expansion to support object, volume, and instance expansion modes.
 
+Instance rows show a printable toggle. Object rows show an aggregate printable
+state that toggles every instance of that object. `auto_drop` is not exposed in
+the first version.
+
 ## 7. Identity Model
 
 UI and slicing state are synchronized with libslic3r stable identifiers, not
@@ -191,7 +195,6 @@ The following items are still being clarified before this document moves from
 Draft to Approved:
 
 - Exact bridge function signatures and error contract.
-- Per-instance row affordances for `printable` and `auto_drop`.
 - How selection restoration behaves when a structural operation replaces the
   selected object with newly generated objects.
 
