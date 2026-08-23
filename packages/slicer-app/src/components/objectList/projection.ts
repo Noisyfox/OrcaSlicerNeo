@@ -13,6 +13,11 @@ export const EMPTY_PROJECTION: SelectionProjection = {
   instanceIds: new Set(),
 };
 
+/** The ObjectList row kind that last drove a selection, used to pick the row
+ *  level a fully-selected object is highlighted at (object row vs. its Instances
+ *  group list). */
+export type HighlightLevel = 'object' | 'instances' | 'instance' | 'part';
+
 /** A selectable ObjectList row in tree reading order (object, then parts, then instances). */
 export interface SelectableRow {
   key: string;
@@ -68,6 +73,7 @@ export function buildSelectableRows(structure: ModelObjectStructure[]): Selectab
 export function projectSelection(
   structure: ModelObjectStructure[],
   selected: ReadonlyArray<{ objectIdx: number; volumeIdx: number; instanceIdx: number }>,
+  levelByObject?: Readonly<Record<number, HighlightLevel>>,
 ): SelectionProjection {
   const objectIds = new Set<number>();
   const volumeIds = new Set<number>();
@@ -104,7 +110,15 @@ export function projectSelection(
     const objSel = objSelected.get(obj.index) ?? 0;
     if (objSel === 0) continue;
     if (objSel === objTotal.get(obj.index)) {
-      objectIds.add(objIdByIndex.get(obj.index)!);
+      // A fully-selected object, selected via its Instances group, is highlighted
+      // at the instance level (the group represents all instances). Otherwise the
+      // object row is the most-relative highlight.
+      if (levelByObject?.[obj.index] === 'instances' && obj.instances.length > 1) {
+        for (const inst of obj.instances)
+          instanceIds.add(instIdByIndex.get(`${obj.index}:${inst.index}`)!);
+      } else {
+        objectIds.add(objIdByIndex.get(obj.index)!);
+      }
       continue;
     }
 

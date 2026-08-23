@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import type { ModelObjectStructure } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
@@ -26,13 +27,13 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const structure = useObjectListStore((s) => s.structure);
   const loaded = useObjectListStore((s) => s.loaded);
   const expanded = useObjectListStore((s) => s.expanded);
-  const collapsedInstances = useObjectListStore((s) => s.collapsedInstances);
+  const highlightLevel = useObjectListStore((s) => s.highlightLevel);
   const projection = useObjectListStore((s) => s.projection);
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
   const toggleExpanded = useObjectListStore((s) => s.toggleExpanded);
-  const toggleInstancesCollapsed = useObjectListStore((s) => s.toggleInstancesCollapsed);
+  const setHighlightLevel = useObjectListStore((s) => s.setHighlightLevel);
   const clearStore = useObjectListStore((s) => s.clear);
   const [renaming, setRenaming] = useState<RenamingTarget>(null);
   const [draftName, setDraftName] = useState('');
@@ -62,11 +63,11 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   useEffect(() => {
     if (!sceneInteraction) return;
     const update = () => setProjection(
-      projectSelection(structure, sceneInteraction.selectedVolumes().map((v) => v.buffer)),
+      projectSelection(structure, sceneInteraction.selectedVolumes().map((v) => v.buffer), highlightLevel),
     );
     update();
     return sceneInteraction.subscribe(update);
-  }, [sceneInteraction, structure, setProjection]);
+  }, [sceneInteraction, structure, highlightLevel, setProjection]);
 
   useEffect(() => {
     if (!ctx) return;
@@ -139,6 +140,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
    *  contiguous range from the previous (non-shift) selection to this row. */
   function handleRowClick(row: SelectableRow, ctrl: boolean, shift: boolean) {
     if (!sceneInteraction) return;
+    setHighlightLevel(row.target.objectIdx, row.kind);
     const anchor = sceneInteraction.getSelectionInstanceAnchor(row.target.objectIdx);
     if (shift && lastSelectedKey) {
       const lastIndex = flatRows.findIndex((r) => r.key === lastSelectedKey);
@@ -167,6 +169,17 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       ctrl,
     );
     setLastSelectedKey(row.key);
+  }
+
+  /** Clicking the Instances group line selects every instance of the object
+   *  (an instance is a full object at that level) and highlights them as the
+   *  Instances group rather than collapsing the list. */
+  function handleInstancesGroupClick(obj: ModelObjectStructure, ctrl: boolean) {
+    if (!sceneInteraction) return;
+    setHighlightLevel(obj.index, 'instances');
+    sceneInteraction.selectComposite(obj.index, undefined, undefined, ctrl);
+    // The group has no single-row anchor; clear the Shift range start.
+    setLastSelectedKey(null);
   }
 
   if (!modelLoaded || !loaded) {
@@ -285,17 +298,18 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                 ))}
                 {obj.instanceCount > 1 && (
                   <div data-testid={`instances-${obj.id}`} className="border-l pl-2">
-                    <button
-                      type="button"
-                      data-testid={`instances-toggle-${obj.id}`}
-                      onClick={() => toggleInstancesCollapsed(obj.id)}
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      data-testid={`instances-select-${obj.id}`}
                       onContextMenu={(e) => e.stopPropagation()}
-                      className="flex w-full items-center gap-1 rounded-sm px-2 py-1 text-left text-[0.65rem] text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent"
+                      className={`w-full justify-start ${obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'bg-accent text-accent-foreground' : ''}`}
+                      data-state={obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}
+                      onClick={(e) => handleInstancesGroupClick(obj, e.ctrlKey || e.metaKey)}
                     >
-                      <span aria-hidden className="text-xs">{collapsedInstances[obj.id] ? '▸' : '▾'}</span>
                       Instances
-                    </button>
-                    {!collapsedInstances[obj.id] && obj.instances.map((inst) => (
+                    </Button>
+                    {obj.instances.map((inst) => (
                       <div
                         key={inst.id}
                         data-testid={`instance-${inst.id}`}

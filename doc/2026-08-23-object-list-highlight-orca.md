@@ -65,7 +65,8 @@ requirement that an instance is a full object as well.
 resolved **per object** so a mix of full objects and full instances renders
 correctly:
 
-- a fully selected object (all volumes x instances) → its object row;
+- a fully selected object (all volumes x instances) → its object row, **unless it
+  was selected via the `Instances` group line**, in which case its instance rows;
 - a not-fully-selected object whose touched instances are whole → those instance
   row(s);
 - a partial set of one instance → the selected volume row(s);
@@ -74,6 +75,14 @@ correctly:
 For `{a full instance of object A, the full object B}` this highlights A's
 instance row and B's object row — the single-part object is no longer missed
 (the previous global gating left it un-highlighted).
+
+The `Instances` group under a multi-instance object is **not collapseable**. Its
+header line is a select control: clicking it selects every instance of the object
+(Orca's `itInstanceRoot` → parent object), and the ObjectList records a per-object
+"row kind that last drove selection" (`highlightLevel`) so the projection shows
+the instance rows for that group selection while an object-row selection still
+shows the object row. This mirrors Orca's `root_is_selected` / `m_selection_mode`
+granularity.
 
 ## Deliberate divergence from Orca's raw update_selections
 
@@ -89,7 +98,8 @@ when the selection is built in the scene instead.
 
 ## Verification
 
-- `@orca/slicer-app` test: 136 pass (added the object+instance mixable case and
-  the per-object mixed highlight case); typecheck clean.
+- `@orca/slicer-app` test: 137 pass (added the object+instance mixable case, the
+  per-object mixed highlight case and the `Instances`-group highlight case);
+  typecheck clean.
 - Desktop mock e2e: 16 passed, 1 skipped (slice-error requires a rejecting
   model fixture).

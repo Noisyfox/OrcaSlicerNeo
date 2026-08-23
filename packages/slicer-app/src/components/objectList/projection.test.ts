@@ -41,6 +41,22 @@ describe('projectSelection', () => {
     expect([...p.instanceIds]).toEqual([]);
   });
 
+  it('highlights the instance rows when a full object is selected via its Instances group', () => {
+    const p = projectSelection(
+      structure,
+      [
+        { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 },
+        { objectIdx: 0, volumeIdx: 1, instanceIdx: 0 },
+        { objectIdx: 0, volumeIdx: 0, instanceIdx: 1 },
+        { objectIdx: 0, volumeIdx: 1, instanceIdx: 1 },
+      ],
+      { 0: 'instances' },
+    );
+    expect([...p.objectIds]).toEqual([]);
+    expect([...p.volumeIds]).toEqual([]);
+    expect([...p.instanceIds]).toEqual([20, 21]);
+  });
+
   it('highlights only the instance rows when a whole instance is selected', () => {
     const p = projectSelection(structure, [
       { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 },

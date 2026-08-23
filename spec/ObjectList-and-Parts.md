@@ -100,7 +100,8 @@ Object
 - Parts are direct children of the object.
 - `Instances` is a group under the object, after all parts.
 - The `Instances` group is shown only when the object has more than one
-  instance.
+  instance. It is not collapseable; its header line is a select control that
+  selects every instance of the object (see §6.1).
 - Settings and Layers nodes are omitted in the first version.
 
 ## 5. Sidebar Layout
@@ -173,9 +174,12 @@ Consequently the renderer `Selection`:
 ObjectList highlighting is a projection of the viewport selection to the
 **most-relative** row, resolved **per object** (spec §6): a fully selected object
 highlights its object row (even when the object has several instances — see the
-divergence note), a not-fully-selected object highlights its whole-instance
-rows, and a partial instance highlights only its selected volume rows. So a mix
-of a full object and a full instance highlights each at its own level. See
+divergence note) **unless it was selected via the `Instances` group line**, which
+highlights its instance rows instead; a not-fully-selected object highlights its
+whole-instance rows; and a partial instance highlights only its selected volume
+rows. So a mix of a full object and a full instance highlights each at its own
+level, and the page records a per-object "row kind that last drove selection" to
+choose between the object row and the `Instances` group. See
 `doc/2026-08-23-object-list-highlight-orca.md` for the Orca cross-check and the
 one deliberate divergence (a fully-selected multi-instance object is highlighted
 as its object row, whereas Orca's `update_selections()` would otherwise list its
