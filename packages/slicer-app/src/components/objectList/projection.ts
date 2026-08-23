@@ -94,30 +94,46 @@ export function projectSelection(
     }
   }
 
-  // Most-relative level highlight: if whole objects are selected and nothing is
-  // partial, highlight the object rows; else whole instances -> instance rows;
-  // else only the selected volumes of a partially-selected instance.
-  const touchedObjects = [...objSelected.entries()].filter(([, sel]) => sel > 0);
-  const allObjectsFull = touchedObjects.length > 0 && touchedObjects.every(([idx, sel]) => sel === objTotal.get(idx));
-  const anyPartialInstance = [...instSelected.entries()].some(([key, sel]) => sel > 0 && sel < (instTotal.get(key) ?? sel));
+  // Most-relative level highlight, resolved PER OBJECT so that a full object and
+  // a full instance (both Instance-mode) may be mixed: each touched object is
+  // highlighted at its own most-relative level.
+  //   full object (all its volumes x instances) -> object row;
+  //   full instance(s) of a not-fully-selected object -> instance row(s);
+  //   a partial set of one instance -> the selected volume row(s).
+  for (const obj of structure) {
+    const objSel = objSelected.get(obj.index) ?? 0;
+    if (objSel === 0) continue;
+    if (objSel === objTotal.get(obj.index)) {
+      objectIds.add(objIdByIndex.get(obj.index)!);
+      continue;
+    }
 
-  if (allObjectsFull && !anyPartialInstance) {
-    for (const [idx] of touchedObjects) objectIds.add(objIdByIndex.get(idx)!);
-    return { objectIds, volumeIds, instanceIds };
-  }
-  const touchedInstances = [...instSelected.entries()].filter(([, sel]) => sel > 0);
-  if (touchedInstances.length > 0 && touchedInstances.every(([key, sel]) => sel === (instTotal.get(key) ?? sel))) {
-    for (const [key] of touchedInstances) instanceIds.add(instIdByIndex.get(key)!);
-    return { objectIds, volumeIds, instanceIds };
-  }
-  // Partial instance(s): highlight the selected volumes of those partial instances.
-  for (const sel of selected) {
-    const key = `${sel.objectIdx}:${sel.instanceIdx}`;
-    const selCount = instSelected.get(key) ?? 0;
-    const total = instTotal.get(key) ?? 0;
-    if (selCount > 0 && selCount < total) {
-      const vid = volIdByIndex.get(`${sel.objectIdx}:${sel.volumeIdx}`);
-      if (vid !== undefined) volumeIds.add(vid);
+    const fullInstanceIds: number[] = [];
+    let anyPartialInstance = false;
+    for (const inst of obj.instances) {
+      const key = `${obj.index}:${inst.index}`;
+      const sel = instSelected.get(key) ?? 0;
+      if (sel === 0) continue;
+      if (sel === instTotal.get(key)) fullInstanceIds.push(instIdByIndex.get(key)!);
+      else anyPartialInstance = true;
+    }
+
+    if (anyPartialInstance) {
+      // Part selection (one instance, partial): highlight only its selected
+      // volumes. A partial instance mixed with a full instance is Orca's Mixed
+      // and is never produced by the guard.
+      for (const sel of selected) {
+        if (sel.objectIdx !== obj.index) continue;
+        const key = `${sel.objectIdx}:${sel.instanceIdx}`;
+        const selCount = instSelected.get(key) ?? 0;
+        const total = instTotal.get(key) ?? selCount;
+        if (selCount > 0 && selCount < total) {
+          const vid = volIdByIndex.get(`${sel.objectIdx}:${sel.volumeIdx}`);
+          if (vid !== undefined) volumeIds.add(vid);
+        }
+      }
+    } else {
+      for (const id of fullInstanceIds) instanceIds.add(id);
     }
   }
   return { objectIds, volumeIds, instanceIds };

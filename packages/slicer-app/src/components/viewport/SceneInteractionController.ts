@@ -207,76 +207,46 @@ export class SceneInteractionController {
     return this.classifyVolumeIds(this.selectedVolumes().map((volume) => volume.id));
   }
 
-  /** Classify an arbitrary set of GLVolume IDs (Orca's update_type) against the
-   *  live volume collection. Shared by the viewport and the ObjectList so the
-   *  homogeneity rule is enforced uniformly. Modifiers, SLA-helper volumes and
+  /** Classify an arbitrary set of GLVolume IDs by MODE against the live volume
+   *  collection. Shared by the viewport and the ObjectList so the homogeneity
+   *  rule is enforced uniformly. An instance is a full object at the instance
+   *  level, so a full instance and a full object live in `Instance` mode and may
+   *  be mixed. Only a part (`Volume` mode) is restricted: it is anchored to a
+   *  single instance, and mixing it with an instance/object, or spanning several
+   *  instances, is Orca's `Mixed` (invalid for edits). Modifiers / SLA helpers /
    *  the wipe tower are not special-cased here (the ObjectList treats them as
-   *  ordinary volumes), so this maps to Orca's Single/MultipleFullObject,
-   *  Single/MultipleFullInstance and Single/MultipleVolume types only. */
+   *  ordinary volumes). */
   classifyVolumeIds(ids: readonly string[]): SelectionKind {
     const selectedSet = new Set(ids.filter((id) => id !== ''));
     if (selectedSet.size === 0) return 'empty';
 
     const perInstance = new Map<string, number>(); // total volumes per (obj, inst)
-    const objInstances = new Map<number, Set<number>>(); // object idx -> instance idx set
     for (const volume of this.getVolumes()) {
-      const oi = volume.buffer.objectIdx;
-      const key = `${oi}:${volume.buffer.instanceIdx}`;
+      const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
       perInstance.set(key, (perInstance.get(key) ?? 0) + 1);
-      const set = objInstances.get(oi) ?? new Set<number>();
-      set.add(volume.buffer.instanceIdx);
-      objInstances.set(oi, set);
     }
-    // Every instance of an object instantiates the same volumes, so the first
-    // (obj, inst) key yields the object's volume count (Orca's volumes_count).
-    const objVolumeCount = new Map<number, number>();
-    for (const [key, count] of perInstance) {
-      const oi = Number(key.split(':')[0]);
-      if (!objVolumeCount.has(oi)) objVolumeCount.set(oi, count);
-    }
-    const volCount = (oi: number) => objVolumeCount.get(oi) ?? 0;
-    const instCount = (oi: number) => objInstances.get(oi)?.size ?? 0;
 
     const touched = new Map<string, number>(); // selected count per (obj, inst)
     const touchedObjects = new Set<number>();
     for (const id of selectedSet) {
       const [oiStr, , iiStr] = id.split(':');
-      const oi = Number(oiStr);
       const key = `${oiStr}:${iiStr}`;
       touched.set(key, (touched.get(key) ?? 0) + 1);
-      touchedObjects.add(oi);
-    }
-    const selCount = selectedSet.size;
-
-    if (touchedObjects.size === 1) {
-      // Orca: single object branch (Selection.cpp update_type).
-      const oi = [...touchedObjects][0];
-      const vc = volCount(oi);
-      const ic = instCount(oi);
-      const selectedInstCount = new Set(
-        [...touched.keys()]
-          .filter((key) => Number(key.split(':')[0]) === oi)
-          .map((key) => Number(key.split(':')[1])),
-      ).size;
-      if (selCount === 1) {
-        if (vc * ic === 1) return 'object'; // SingleFullObject (single part & instance)
-        if (vc === 1) return 'instance'; // SingleFullInstance (one volume per instance)
-        return 'part'; // SingleVolume
-      }
-      if (vc * ic === selCount) return 'object'; // SingleFullObject
-      if (selectedInstCount === 1) {
-        if (vc === selCount) return 'instance'; // SingleFullInstance
-        return 'part'; // MultipleVolume (no modifiers present)
-      }
-      if (selectedInstCount > 1 && selectedInstCount * vc === selCount) return 'instance'; // MultipleFullInstance
-      return 'mixed';
+      touchedObjects.add(Number(oiStr));
     }
 
-    // Orca: multiple objects. FullObject only when EVERY touched object is
-    // selected in full (sels_cntr == m_list.size()); otherwise Mixed.
-    let selsCntr = 0;
-    for (const oi of touchedObjects) selsCntr += volCount(oi) * instCount(oi);
-    return selsCntr === selCount ? 'object' : 'mixed';
+    // Mode homogeneity: a partial instance is the only thing that can be part-
+    // scoped. It is valid only as a lone part set (one object, one instance).
+    const hasPartial = [...touched].some(([key, sel]) => sel < (perInstance.get(key) ?? sel));
+    if (hasPartial)
+      return touchedObjects.size === 1 && touched.size === 1 ? 'part' : 'mixed';
+
+    // No partial instance -> everything is a whole instance (an instance is a
+    // full object at that level), so full instances and full objects may mix.
+    if (touchedObjects.size > 1) return 'object';
+    const objectIdx = [...touchedObjects][0];
+    const totalInstances = [...perInstance.keys()].filter((key) => Number(key.split(':')[0]) === objectIdx);
+    return touched.size === totalInstances.length ? 'object' : 'instance';
   }
 
   /** Whether applying `addIds`/`removeIds` to the current selection keeps it

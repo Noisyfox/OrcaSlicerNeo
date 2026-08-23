@@ -149,10 +149,12 @@ Excluded combinations (Orca's exclusions, which the shared app must respect):
   `Selection::add()` in `Volume` mode rejects a volume whose `instance_idx()`
   differs from the selection's sole instance. The shared app must not select a
   part across all instances at once.
-- Selections are **type-homogeneous**: a single part/modifier, several parts of
-  one instance, whole instance(s), or whole object(s). A selection that mixes
-  part-level + instance-level + object-level entries is Orca's `Mixed` and is
-  treated as invalid — no edit/transform is applied.
+- Selections are **mode-homogeneous**. `Instance` mode covers whole instances
+  *and* whole objects (an instance is a full object at that level), so a full
+  instance and a full object may be mixed. `Volume` mode covers parts/modifiers
+  and is valid only as a lone set within one instance. A part-level entry mixed
+  with an instance/object-level entry, or parts spanning several instances, is
+  Orca's `Mixed` and is treated as invalid — no edit/transform is applied.
 - The mode is derived from content: a full object/instance selection forces
   `Instance` mode; parts/modifiers use `Volume` mode.
 
@@ -163,16 +165,17 @@ Consequently the renderer `Selection`:
 - uses `Volume` mode for part rows, resolved against a single instance anchor,
 - keeps collection multi-select (Ctrl toggle / Shift range) within a homogeneous
   type when the equivalent Orca selection would be valid, and refuses an invalid
-  mix. `classifyVolumeIds()` mirrors Orca's `update_type()`: a multi-object
-  selection is `object` only when **every touched object is fully selected**
-  (`sum(volumes*instances) == selected`); otherwise it is `Mixed` and refused
-  (e.g. a full instance of a multi-instance object plus another object).
+  mix. `classifyVolumeIds()` is mode-based: no partial instance anywhere → every
+  touched whole instance/object is valid (`object`/`instance`, and these may be
+  mixed); a partial instance is `part` only as a lone single-instance set,
+  otherwise `Mixed` and refused (e.g. a part mixed with a full instance).
 
 ObjectList highlighting is a projection of the viewport selection to the
-**most-relative** row per selection type (spec §6): a whole object highlights its
-object row (even when the object has several instances — see the divergence
-note), a whole instance highlights its instance row, and a partial selection of
-one instance highlights the selected volume rows only. See
+**most-relative** row, resolved **per object** (spec §6): a fully selected object
+highlights its object row (even when the object has several instances — see the
+divergence note), a not-fully-selected object highlights its whole-instance
+rows, and a partial instance highlights only its selected volume rows. So a mix
+of a full object and a full instance highlights each at its own level. See
 `doc/2026-08-23-object-list-highlight-orca.md` for the Orca cross-check and the
 one deliberate divergence (a fully-selected multi-instance object is highlighted
 as its object row, whereas Orca's `update_selections()` would otherwise list its

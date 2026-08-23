@@ -126,7 +126,7 @@ describe('SceneInteractionController', () => {
     expect(controller.computeSelectionKind()).toBe('mixed');
   });
 
-  it('classifies a multi-object selection as Mixed unless every object is fully selected (Orca)', () => {
+  it('allows mixing a full instance and a full object (both Instance-mode)', () => {
     // A second, single-part/single-instance object (index 1) alongside the two-
     // volume/two-instance object (index 0) from the shared fixture.
     const multiVolumes = [
@@ -135,19 +135,17 @@ describe('SceneInteractionController', () => {
     ];
     const multi = new SceneInteractionController(() => multiVolumes);
 
-    // A full instance of object 0 plus the whole object 1: Orca's update_type
-    // sums vol*inst per touched object (4 + 1 = 5) which is != selected (3),
-    // so it is Mixed, NOT 'object'.
-    expect(multi.classifyVolumeIds(['0:0:0', '0:1:0', '1:0:0'])).toBe('mixed');
+    // A full instance of object 0 plus the whole object 1 is all Instance-mode
+    // (an instance is a full object at that level), so it is valid, NOT Mixed.
+    expect(multi.classifyVolumeIds(['0:0:0', '0:1:0', '1:0:0'])).toBe('object');
 
-    // The same guard that refuses Mixed must refuse the additive toggle.
+    // The guard therefore allows the additive toggle.
     multi.selectVolumeIds(['0:0:0', '0:1:0']);
     expect(multi.computeSelectionKind()).toBe('instance');
-    const before = multi.selectedVolumes().length;
-    expect(multi.selectComposite(1, 0, 0, true)).toBe(false);
-    expect(multi.selectedVolumes()).toHaveLength(before);
+    expect(multi.selectComposite(1, 0, 0, true)).toBe(true);
+    expect(multi.computeSelectionKind()).toBe('object');
 
-    // Selecting both objects in full is Orca's MultipleFullObject -> 'object'.
+    // Selecting both objects in full is also 'object'.
     expect(multi.selectVolumeIds(['0:0:0', '0:1:0', '0:0:1', '0:1:1', '1:0:0'])).toBe(true);
     expect(multi.computeSelectionKind()).toBe('object');
   });
@@ -209,9 +207,6 @@ describe('SceneInteractionController', () => {
     c.selectFromHit(mixed[0], false);
     expect(c.selectedObjectIndices()).toEqual([0]);
 
-    // Add the whole object 0 (its other instance), then the other two single-
-    // part objects: Orca's MultipleFullObject, so the guard keeps it valid.
-    c.selectFromHit(mixed[2], true); // object 0 instance 1
     c.selectFromHit(mixed[4], true);
     c.selectFromHit(mixed[5], true);
     expect(c.selectedObjectIndices()).toEqual([0, 1, 2]);

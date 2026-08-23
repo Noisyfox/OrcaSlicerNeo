@@ -64,6 +64,21 @@ describe('projectSelection', () => {
     expect([...p.instanceIds]).toEqual([]);
   });
 
+  it('highlights a full instance and a full object at their own most-relative rows', () => {
+    // A full instance of object 0 (both volumes, instance 0) plus the whole
+    // single-part object 1: both are Instance-mode and mixable. Object 0 is not
+    // fully selected (only one of its two instances), so it highlights its
+    // instance row; object 1 is fully selected, so it highlights its object row.
+    const p = projectSelection(structure, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 },
+      { objectIdx: 0, volumeIdx: 1, instanceIdx: 0 },
+      { objectIdx: 1, volumeIdx: 0, instanceIdx: 0 },
+    ]);
+    expect([...p.objectIds]).toEqual([2]);
+    expect([...p.volumeIds]).toEqual([]);
+    expect([...p.instanceIds]).toEqual([20]);
+  });
+
   it('ignores indices that are out of range for the current structure', () => {
     const p = projectSelection(structure, [{ objectIdx: 9, volumeIdx: 0, instanceIdx: 0 }]);
     expect([...p.objectIds]).toEqual([]);

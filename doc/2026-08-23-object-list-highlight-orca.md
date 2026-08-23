@@ -31,32 +31,49 @@ and documents the one deliberate divergence.
     row *is* the object row, because no separate part row exists).
   - Mixed → a per-volume scatter (never editable).
 
-## The shared classifier now mirrors update_type
+## The shared classifier is mode-based
 
 `SceneInteractionController.classifyVolumeIds()` maps `ids` to
-`'object' | 'instance' | 'part' | 'mixed' | 'empty'`. The multi-object branch
-previously returned `'object'` whenever no instance was partial; that is NOT
-Orca's rule. Orca sums `volumes_count * instances_count` over every touched
-object (`sels_cntr`) and returns `MultipleFullObject` only when
-`sels_cntr + sla == m_list.size()`, i.e. **every touched object is fully
-selected**; otherwise it is `Mixed`.
+`'object' | 'instance' | 'part' | 'mixed' | 'empty'`. The homogeneity rule is
+**mode-based**, matching Orca's two `EMode`s:
 
-So `{a full instance of a multi-instance object, another object}` is Orca's
-`Mixed` (not `'object'`). The classifier now returns `'mixed'` for it and the
-homogeneity guard refuses the selection, matching Orca's exclusions. This also
-removes a real highlight bug: previously that selection could be created and
-the single-part object's row was left un-highlighted (its volume row does not
-exist as a separate row).
+- An **instance is a full object at the instance level**, so a full instance and
+  a full object are both `Instance`-mode and **may be mixed**.
+- A **part** is `Volume`-mode and is valid only as a lone set within a single
+  instance. Mixing it with an instance/object, or spanning several instances, is
+  Orca's `Mixed` (invalid for edits) and is refused by the guard.
 
-## The highlight projection (most-relative level)
+So `{a full instance of a multi-instance object, another object}` is valid — it
+is `'object'` (all whole-instance selections) — and:
 
-`projectSelection()` maps a valid (homogeneous) selection to its most-relative
-row:
+- a full instance of a multi-instance object alone is `'instance'`;
+- all instances of a single object are `'object'`;
+- a lone partial part set is `'part'`;
+- a part mixed with a full instance/object, or parts across instances, is
+  `'mixed'` and refused.
 
-- whole object(s) → the object row(s);
-- whole instance(s) → the instance row(s);
+Earlier in this branch the classifier had been tightened to Orca's granular
+`update_type` `sels_cntr` rule, which wrongly classified the object+instance mix
+as `Mixed`; that has been reverted. The mode-based rule (which also matched
+Orca's `Selection::add`: `Volume` mode resets on a different object/instance,
+`Instance` mode appends across objects) is the correct one, and matches the
+requirement that an instance is a full object as well.
+
+## The highlight projection (most-relative level, per object)
+
+`projectSelection()` maps the viewport selection to its most-relative row,
+resolved **per object** so a mix of full objects and full instances renders
+correctly:
+
+- a fully selected object (all volumes x instances) → its object row;
+- a not-fully-selected object whose touched instances are whole → those instance
+  row(s);
 - a partial set of one instance → the selected volume row(s);
 - empty → nothing.
+
+For `{a full instance of object A, the full object B}` this highlights A's
+instance row and B's object row — the single-part object is no longer missed
+(the previous global gating left it un-highlighted).
 
 ## Deliberate divergence from Orca's raw update_selections
 
@@ -72,7 +89,7 @@ when the selection is built in the scene instead.
 
 ## Verification
 
-- `@orca/slicer-app` test: 135 pass (added multi-object Mixed classifier case
-  and multi-full-object projection case); typecheck clean.
+- `@orca/slicer-app` test: 136 pass (added the object+instance mixable case and
+  the per-object mixed highlight case); typecheck clean.
 - Desktop mock e2e: 16 passed, 1 skipped (slice-error requires a rejecting
   model fixture).
