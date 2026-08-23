@@ -11,6 +11,7 @@ import type {
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
+  DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   ModelStructureResult, MutationResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox, ReadLogResult,
@@ -177,10 +178,34 @@ export function createClient(
       return callJson(m, 'orc_get_model_structure', [], []) as ModelStructureResult;
     },
 
-    async deleteObjects(indices: number[]): Promise<DeleteObjectsResult> {
+    async deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult> {
       const m = await module();
       return callJson(m, 'orc_delete_objects', ['string'],
-                      [JSON.stringify(indices)]) as DeleteObjectsResult;
+                      [JSON.stringify(objectIds)]) as DeleteObjectsResult;
+    },
+
+    async deleteVolumes(volumeIds: number[]): Promise<DeleteVolumesResult> {
+      const m = await module();
+      return callJson(m, 'orc_delete_volumes', ['string'],
+                      [JSON.stringify(volumeIds)]) as DeleteVolumesResult;
+    },
+
+    async cloneObjects(objectIds: number[]): Promise<CloneObjectsResult> {
+      const m = await module();
+      return callJson(m, 'orc_clone_objects', ['string'],
+                      [JSON.stringify(objectIds)]) as CloneObjectsResult;
+    },
+
+    async reorderObjects(fromObjectId: number, toObjectId: number): Promise<ReorderStructureResult> {
+      const m = await module();
+      return callJson(m, 'orc_reorder_objects', ['number', 'number'],
+                      [fromObjectId, toObjectId]) as ReorderStructureResult;
+    },
+
+    async reorderVolumes(objectId: number, fromVolumeId: number, toVolumeId: number): Promise<ReorderStructureResult> {
+      const m = await module();
+      return callJson(m, 'orc_reorder_volumes', ['number', 'number', 'number'],
+                      [objectId, fromVolumeId, toVolumeId]) as ReorderStructureResult;
     },
 
     async renameObject(objectId: number, name: string): Promise<MutationResult> {

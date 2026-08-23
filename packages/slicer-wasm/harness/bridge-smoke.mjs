@@ -149,9 +149,8 @@ Module._free(restoredPtr);
 check('orc_add_model restores one object after clear', restored.ok === true && restored.objects === 1,
       JSON.stringify(restored));
 
-// 4c. delete whole objects by their ORIGINAL indices. The bridge deletes in
-// descending order so earlier indices stay valid while Model.objects shrinks;
-// duplicates are ignored; bounds are validated before any mutation.
+// 4c. delete whole objects by their stable ObjectIDs. Requests are validated
+// before any mutation and deduplicated; a bad ID leaves the scene intact.
 {
   const secondPtr = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, secondPtr);
@@ -160,15 +159,20 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
   Module._free(secondPtr);
   check('delete fixture has two objects', two.ok === true && two.objects === 2, JSON.stringify(two));
 
-  const bad = callJson('orc_delete_objects', ['string'], [JSON.stringify([2])]);
-  check('orc_delete_objects rejects an out-of-range index',
-        !bad.ok && /out of range/.test(bad.error ?? ''), JSON.stringify(bad));
+  const twoStruct = callJson('orc_get_model_structure', [], []);
+  check('structure read for delete', twoStruct.ok === true && twoStruct.objects?.length === 2,
+        JSON.stringify(twoStruct));
+  const ids = twoStruct.objects.map((o) => o.id);
+
+  const bad = callJson('orc_delete_objects', ['string'], [JSON.stringify([999999999])]);
+  check('orc_delete_objects rejects an unknown object ID',
+        !bad.ok && /object not found/.test(bad.error ?? ''), JSON.stringify(bad));
   const intact = callJson('orc_get_model_mesh', [], []);
   check('rejected delete leaves the scene intact',
         intact.ok === true && intact.objects?.length === 2, JSON.stringify(intact));
 
-  const del = callJson('orc_delete_objects', ['string'], [JSON.stringify([1, 0, 1])]);
-  check('orc_delete_objects removes deduped original indices',
+  const del = callJson('orc_delete_objects', ['string'], [JSON.stringify([ids[1], ids[0], ids[1]])]);
+  check('orc_delete_objects removes deduped stable IDs',
         del.ok === true && del.objects === 0 && del.deleted === 2, JSON.stringify(del));
   const empty = callJson('orc_get_model_mesh', [], []);
   check('empty scene reports an empty mesh', empty.ok === true && empty.objects?.length === 0,
@@ -256,6 +260,67 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
     // Restore names so later slice/export checks are unaffected.
     callJson('orc_rename_object', ['number', 'string'], [obj.id, originalName]);
     callJson('orc_rename_volume', ['number', 'string'], [vol.id, originalVolName]);
+  }
+}
+
+// 4e. Step 3: delete by stable ID, clone, and reorder. The single-cube fixture
+// has one solid part, so delete_volumes is exercised via the last-solid-part
+// guard (a positive multi-part delete/reorder is covered by the mock contract
+// tests). The scene is restored to the original single cube afterwards.
+{
+  const s = callJson('orc_get_model_structure', [], []);
+  check('structure read for step 3', s.ok === true && s.objects?.length === 1,
+        JSON.stringify(s));
+  if (s.ok && s.objects?.length === 1) {
+    const source = s.objects[0];
+    const volume = source.volumes[0];
+
+    const cloned = callJson('orc_clone_objects', ['string'], [JSON.stringify([source.id])]);
+    check('orc_clone_objects mints a new ObjectID',
+          cloned.ok === true && Array.isArray(cloned.newObjectIds)
+          && cloned.newObjectIds.length === 1
+          && cloned.newObjectIds[0] !== source.id && cloned.objects === 2,
+          JSON.stringify(cloned));
+    const cloneId = cloned.newObjectIds[0];
+    const afterClone = callJson('orc_get_model_structure', [], []);
+    const clone = afterClone.objects?.find((o) => o.id === cloneId);
+    check('clone carries fresh sub-entity IDs',
+          clone && clone.volumes[0].id !== source.volumes[0].id,
+          JSON.stringify(clone?.volumes?.[0]));
+
+    const reordered = callJson('orc_reorder_objects', ['number', 'number'], [cloneId, source.id]);
+    check('orc_reorder_objects returns the reordered structure',
+          reordered.ok === true && Array.isArray(reordered.objects)
+          && reordered.objects[0].id === cloneId && reordered.objects[1].id === source.id,
+          JSON.stringify(reordered.objects?.map((o) => o.id)));
+
+    // The cube's only part is the last solid part: it cannot be deleted.
+    const volDel = callJson('orc_delete_volumes', ['string'], [JSON.stringify([volume.id])]);
+    check('volume delete rejects the last solid part',
+          !volDel.ok && /last solid part/.test(volDel.error ?? ''), JSON.stringify(volDel));
+    const volDelAfter = callJson('orc_get_model_structure', [], []);
+    check('rejected volume delete leaves the part',
+          volDelAfter.ok === true && volDelAfter.objects?.[0]?.volumes?.length === 1,
+          JSON.stringify(volDelAfter.objects?.[0]?.volumes));
+
+    // Non-destructive reorder of a single volume is a no-op that still returns structure.
+    const volReorder = callJson('orc_reorder_volumes', ['number', 'number', 'number'],
+                                [source.id, volume.id, volume.id]);
+    const volSource = volReorder.objects?.find((o) => o.id === source.id);
+    check('orc_reorder_volumes no-ops on a single part',
+          volReorder.ok === true && volSource
+          && volSource.volumes[0].id === volume.id,
+          JSON.stringify(volSource?.volumes?.[0]?.id));
+
+    const delClone = callJson('orc_delete_objects', ['string'], [JSON.stringify([cloneId])]);
+    check('orc_delete_objects removes the clone by ID',
+          delClone.ok === true && delClone.objects === 1 && delClone.deleted === 1,
+          JSON.stringify(delClone));
+    const restoredScene = callJson('orc_get_model_structure', [], []);
+    check('scene restored to a single object',
+          restoredScene.ok === true && restoredScene.objects?.length === 1
+          && restoredScene.objects[0].id === source.id,
+          JSON.stringify(restoredScene.objects?.length));
   }
 }
 

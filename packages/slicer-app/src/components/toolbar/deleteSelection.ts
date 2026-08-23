@@ -24,7 +24,21 @@ export async function deleteSelectedObjects(
     // object that is about to disappear (same discipline as Add Model).
     const synced = await waitForSettledModelTransforms();
     if (!synced.ok) return synced;
-    const r = await runtime.deleteObjects(objectIndices);
+    // The bridge resolves objects by stable ObjectID, not positional index. Map
+    // the viewport's object indices to the current structure's object IDs first
+    // (spec/ObjectList-and-Parts.md §7). A stale index that no longer maps to a
+    // live object fails closed rather than deleting the wrong entity.
+    const structure = await runtime.getModelStructure();
+    const idByIndex = new Map(structure.objects.map((o) => [o.index, o.id]));
+    const objectIds = objectIndices
+      .map((i) => idByIndex.get(i))
+      .filter((id): id is number => id !== undefined);
+    if (objectIds.length === 0) {
+      const msg = 'selection no longer matches the model';
+      useSlicerStore.getState().setError(msg);
+      return { ok: false, error: msg };
+    }
+    const r = await runtime.deleteObjects(objectIds);
     if (!r.ok) throw new Error(r.error ?? 'delete failed');
     const slicer = useSlicerStore.getState();
     const settings = useSettingsStore.getState();

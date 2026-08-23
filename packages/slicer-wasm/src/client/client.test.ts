@@ -96,25 +96,28 @@ describe('SlicerClient bridge contract', () => {
     await c.addModel(new Uint8Array(4), 'stl');
     await c.addModel(new Uint8Array(4), 'stl');
     await c.addModel(new Uint8Array(4), 'stl');
-    const r = await c.deleteObjects([1, 0, 1]);
+    const { objects } = await c.getModelStructure();
+    const ids = objects.map((o) => o.id);
+    const r = await c.deleteObjects([ids[1], ids[0], ids[1]]);
     expect(r).toMatchObject({ ok: true, objects: 1, deleted: 2 });
     const mesh = await c.getModelMesh();
     expect(mesh.objects.map((o) => o.objectIdx)).toEqual([0]);
   });
 
-  it('deleteObjects rejects empty or out-of-range index lists', async () => {
+  it('deleteObjects rejects empty lists and unknown object IDs', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
-    expect((await c.deleteObjects([])).error).toContain('no object indices');
-    const outOfRange = await c.deleteObjects([5]);
-    expect(outOfRange.error).toContain('out of range');
+    expect((await c.deleteObjects([])).error).toContain('no object ids');
+    const missing = await c.deleteObjects([5]);
+    expect(missing.error).toContain('object not found');
     expect((await c.getModelMesh()).objects).toHaveLength(1);
   });
 
   it('deleteObjects on the last object leaves an empty mesh', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
-    await c.deleteObjects([0]);
+    const { objects } = await c.getModelStructure();
+    await c.deleteObjects([objects[0].id]);
     const mesh = await c.getModelMesh();
     expect(mesh.ok).toBe(true);
     expect(mesh.objects).toHaveLength(0);
@@ -205,7 +208,7 @@ describe('SlicerClient bridge contract', () => {
       await c.addModel(new Uint8Array(4), 'stl');
       const before = await c.getModelStructure();
       const keptId = before.objects[1].id;
-      await c.deleteObjects([0]);
+      await c.deleteObjects([before.objects[0].id]);
       const after = await c.getModelStructure();
       expect(after.objects).toHaveLength(1);
       expect(after.objects[0].id).toBe(keptId);
@@ -306,6 +309,102 @@ describe('SlicerClient bridge contract', () => {
       expect((await c.getSliceResult()).ok).toBe(true);
       const { objects } = await c.getModelStructure();
       await c.renameObject(objects[0].id, 'Renamed');
+      const after = await c.getSliceResult();
+      expect(after.ok).toBeFalsy();
+      expect(after.error).toContain('no slice result');
+    });
+  });
+
+  describe('Step 3 delete, clone, and reorder (stable ObjectID)', () => {
+    it('deleteVolumes removes specific parts by ID and leaves the rest', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const [v0, v1] = objects[0].volumes;
+      const r = await c.deleteVolumes([v1.id]);
+      expect(r).toMatchObject({ ok: true, deleted: 1, objects: 1 });
+      const after = await c.getModelStructure();
+      expect(after.objects[0].volumes).toHaveLength(1);
+      expect(after.objects[0].volumes[0].id).toBe(v0.id);
+    });
+
+    it('deleteVolumes rejects removing the last solid part', async () => {
+      const c = createClient(async () => createMockModule());
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const res = await c.deleteVolumes([objects[0].volumes[0].id]);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('last solid part');
+      expect((await c.getModelStructure()).objects[0].volumes).toHaveLength(1);
+    });
+
+    it('deleteVolumes rejects an unknown volume ID', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      const res = await c.deleteVolumes([999999]);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('volume not found');
+    });
+
+    it('cloneObjects mints fresh stable IDs for the clones', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2, instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const before = await c.getModelStructure();
+      const source = before.objects[0];
+      const r = await c.cloneObjects([source.id]);
+      expect(r.ok).toBe(true);
+      expect(r.newObjectIds).toHaveLength(1);
+      expect(r.objects).toBe(2);
+      expect(r.newObjectIds[0]).not.toBe(source.id);
+      const after = await c.getModelStructure();
+      expect(after.objects).toHaveLength(2);
+      const clone = after.objects[1];
+      expect(clone.id).toBe(r.newObjectIds[0]);
+      expect(clone.name).toBe(source.name);
+      // Clone volumes/instances get fresh IDs too.
+      expect(clone.volumes.map((v) => v.id)).not.toContain(source.volumes[0].id);
+      expect(clone.instances.map((i) => i.id)).not.toContain(source.instances[0].id);
+    });
+
+    it('reorderObjects moves an object immediately before another', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      const before = await c.getModelStructure();
+      const [a, b, d] = before.objects;
+      const r = await c.reorderObjects(d.id, a.id);
+      expect(r.ok).toBe(true);
+      expect(r.objects.map((o) => o.index)).toEqual([0, 1, 2]);
+      expect(r.objects.map((o) => o.id)).toEqual([d.id, a.id, b.id]);
+    });
+
+    it('reorderVolumes moves a part before another within its object', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 3 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const [v0, v1, v2] = objects[0].volumes;
+      const r = await c.reorderVolumes(objects[0].id, v2.id, v0.id);
+      expect(r.ok).toBe(true);
+      expect(r.objects[0].volumes.map((v) => v.id)).toEqual([v2.id, v0.id, v1.id]);
+    });
+
+    it('reorder rejects unknown object/volume IDs', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      expect((await c.reorderObjects(999999, objects[0].id)).error).toContain('object not found');
+      expect((await c.reorderVolumes(objects[0].id, 999999, objects[0].volumes[0].id)).error).toContain('volume not found');
+    });
+
+    it('deleteObjects invalidates the slice result', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.slice({});
+      expect((await c.getSliceResult()).ok).toBe(true);
+      const { objects } = await c.getModelStructure();
+      await c.deleteObjects([objects[0].id]);
       const after = await c.getSliceResult();
       expect(after.ok).toBeFalsy();
       expect(after.error).toContain('no slice result');

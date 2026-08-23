@@ -5,7 +5,16 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { deleteSelectedObjects } from './deleteSelection';
 
 function makeRuntime(deleteObjects: SlicerRuntime['deleteObjects']): SlicerRuntime {
-  return { deleteObjects } as unknown as SlicerRuntime;
+  return {
+    deleteObjects,
+    getModelStructure: async () => ({
+      ok: true,
+      objects: [
+        { index: 0, id: 101 },
+        { index: 1, id: 202 },
+      ],
+    }),
+  } as unknown as SlicerRuntime;
 }
 
 describe('deleteSelectedObjects', () => {
@@ -26,7 +35,7 @@ describe('deleteSelectedObjects', () => {
     const deleteObjects = vi.fn(async () => ({ ok: true, objects: 2, deleted: 1 }));
     const r = await deleteSelectedObjects(makeRuntime(deleteObjects), [0]);
     expect(r.ok).toBe(true);
-    expect(deleteObjects).toHaveBeenCalledWith([0]);
+    expect(deleteObjects).toHaveBeenCalledWith([101]);
     expect(useSlicerStore.getState().status).toBe('idle');
     expect(useSlicerStore.getState().resultExported).toBe(false);
     expect(useSlicerStore.getState().error).toBeNull();
@@ -42,10 +51,19 @@ describe('deleteSelectedObjects', () => {
   });
 
   it('reports a failed delete and records the bridge error', async () => {
-    const deleteObjects = vi.fn(async () => ({ ok: false, error: 'object index out of range' }));
+    const deleteObjects = vi.fn(async () => ({ ok: false, error: 'object not found' }));
+    const r = await deleteSelectedObjects(makeRuntime(deleteObjects), [0]);
+    expect(r.ok).toBe(false);
+    expect(deleteObjects).toHaveBeenCalledWith([101]);
+    expect(useSlicerStore.getState().error).toBe('object not found');
+  });
+
+  it('fails closed when the selection no longer maps to a live object', async () => {
+    const deleteObjects = vi.fn(async () => ({ ok: true }));
     const r = await deleteSelectedObjects(makeRuntime(deleteObjects), [9]);
     expect(r.ok).toBe(false);
-    expect(deleteObjects).toHaveBeenCalledWith([9]);
-    expect(useSlicerStore.getState().error).toBe('object index out of range');
+    expect(r.error).toContain('no longer matches');
+    expect(deleteObjects).not.toHaveBeenCalled();
+    expect(useSlicerStore.getState().error).toContain('no longer matches');
   });
 });

@@ -149,6 +149,32 @@ export interface DeleteObjectsResult {
   error?: string;
 }
 
+/** Multi-delete of parts by stable ObjectID. */
+export interface DeleteVolumesResult {
+  ok: boolean;
+  /** Remaining object count after the delete. */
+  objects?: number;
+  /** Number of volumes actually removed (duplicates are ignored). */
+  deleted?: number;
+  error?: string;
+}
+
+/** Clone result: the freshly minted stable ObjectIDs of the clones. */
+export interface CloneObjectsResult {
+  ok: boolean;
+  newObjectIds: number[];
+  /** Object count after cloning. */
+  objects?: number;
+  error?: string;
+}
+
+/** Reorder operations return the current structure in the same shape as getModelStructure. */
+export interface ReorderStructureResult {
+  ok: boolean;
+  objects: ModelObjectStructure[];
+  error?: string;
+}
+
 /** Simple success/error payload returned by non-destructive metadata mutations. */
 export interface MutationResult {
   ok: boolean;
@@ -267,9 +293,16 @@ export interface SlicerClient {
   getModelMesh(): Promise<ModelMeshResult>;
   /** Read the complete object/part/instance tree with stable IDs. */
   getModelStructure(): Promise<ModelStructureResult>;
-  /** Delete whole objects by their original indices (as reported by
-   *  getModelMesh); indices shift after removal, so pass all at once. */
-  deleteObjects(indices: number[]): Promise<DeleteObjectsResult>;
+  /** Delete whole objects by their stable ObjectIDs. */
+  deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult>;
+  /** Delete specific parts (volumes) by their stable ObjectIDs. */
+  deleteVolumes(volumeIds: number[]): Promise<DeleteVolumesResult>;
+  /** Clone whole objects; returns the new stable ObjectIDs. */
+  cloneObjects(objectIds: number[]): Promise<CloneObjectsResult>;
+  /** Move an object to sit immediately before another; returns current structure. */
+  reorderObjects(fromObjectId: number, toObjectId: number): Promise<ReorderStructureResult>;
+  /** Move a part to sit immediately before another within its object; returns current structure. */
+  reorderVolumes(objectId: number, fromVolumeId: number, toVolumeId: number): Promise<ReorderStructureResult>;
   /** Rename an object by its stable ObjectID. */
   renameObject(objectId: number, name: string): Promise<MutationResult>;
   /** Rename a specific part (volume) by its stable ObjectID. */

@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -341,6 +342,127 @@ const char* init_with_app_config(const json& j) {
                          {"printers",  state().presets.printers.size()}}.dump());
 }
 
+// ObjectID crosses the boundary as a JSON number. Wasm64 sizes are 64-bit, so
+// the client passes a JS Number (double); validate it is a positive integer
+// before narrowing to size_t. A valid ObjectID is strictly positive (ObjectID.hpp).
+static std::optional<std::size_t> to_object_id(const double v) {
+    if (!std::isfinite(v) || v < 1.0 || std::floor(v) != v)
+        return std::nullopt;
+    return static_cast<std::size_t>(v);
+}
+
+// Parse a JSON array of positive integral ObjectIDs. Deduplicates preserving
+// input order (clone preserves the requested order; delete ignores order).
+// Returns nullopt for any malformed entry or an empty array.
+static std::optional<std::vector<std::size_t>> parse_positive_id_array(const json& j) {
+    if (!j.is_array() || j.empty()) return std::nullopt;
+    std::vector<std::size_t> out;
+    out.reserve(j.size());
+    for (const auto& item : j) {
+        if (!item.is_number()) return std::nullopt;
+        const double v = item.get<double>();
+        if (!std::isfinite(v) || v < 1.0 || std::floor(v) != v) return std::nullopt;
+        const std::size_t id = static_cast<std::size_t>(v);
+        if (std::find(out.begin(), out.end(), id) == out.end())
+            out.push_back(id);
+    }
+    return out;
+}
+
+// Stable-ID resolution against the live Model. IDs are globally unique across
+// objects/volumes/instances (ObjectBase::generate_new_id), so each helper scans
+// the whole model rather than assuming a particular ObjectID space ordering.
+static ModelObject* find_object_by_id(const std::size_t id) {
+    auto& model = state().model;
+    for (auto& obj : model.objects)
+        if (obj->id().id == id) return obj;
+    return nullptr;
+}
+
+static ModelVolume* find_volume_by_id(const std::size_t id) {
+    auto& model = state().model;
+    for (auto& obj : model.objects)
+        for (auto& vol : obj->volumes)
+            if (vol->id().id == id) return vol;
+    return nullptr;
+}
+
+static ModelInstance* find_instance_by_id(const std::size_t id) {
+    auto& model = state().model;
+    for (auto& obj : model.objects)
+        for (auto& inst : obj->instances)
+            if (inst->id().id == id) return inst;
+    return nullptr;
+}
+
+// Volume types cross the boundary with the spec's stable snake_case strings
+// (spec/ObjectList-and-Parts.md §9.1). ModelVolume::type_to_string uses the
+// upstream BBS names ("normal_part"/"negative_part"/"modifier_part"), which
+// differ from the bridge contract, so map explicitly here.
+static const char* volume_type_string(const ModelVolumeType t) {
+    switch (t) {
+        case ModelVolumeType::MODEL_PART:         return "model_part";
+        case ModelVolumeType::NEGATIVE_VOLUME:    return "negative_volume";
+        case ModelVolumeType::PARAMETER_MODIFIER: return "parameter_modifier";
+        case ModelVolumeType::SUPPORT_BLOCKER:    return "support_blocker";
+        case ModelVolumeType::SUPPORT_ENFORCER:   return "support_enforcer";
+        default:                                  return "model_part";
+    }
+}
+
+// Reverse of volume_type_string: spec snake_case string -> ModelVolumeType.
+// Returns nullopt for an unknown string so orc_set_volume_type can reject it.
+static std::optional<ModelVolumeType> volume_type_from_string(const std::string& s) {
+    if (s == "model_part")         return ModelVolumeType::MODEL_PART;
+    if (s == "negative_volume")    return ModelVolumeType::NEGATIVE_VOLUME;
+    if (s == "parameter_modifier") return ModelVolumeType::PARAMETER_MODIFIER;
+    if (s == "support_blocker")    return ModelVolumeType::SUPPORT_BLOCKER;
+    if (s == "support_enforcer")   return ModelVolumeType::SUPPORT_ENFORCER;
+    return std::nullopt;
+}
+
+// Serialize the complete object/part/instance tree. Shared by
+// orc_get_model_structure (read-only) and the reorder operations, which return
+// the current structure after moving entities. Returns the "objects" array so
+// callers wrap it with their own ok/error envelope.
+static json model_structure_json() {
+    auto& model = state().model;
+    json objects = json::array();
+    for (size_t oi = 0; oi < model.objects.size(); ++oi) {
+        const auto& obj = model.objects[oi];
+        json volumes = json::array();
+        for (size_t vi = 0; vi < obj->volumes.size(); ++vi) {
+            const auto& vol = obj->volumes[vi];
+            volumes.push_back(json{
+                {"id",            vol->id().id},
+                {"index",         vi},
+                {"name",          vol->name},
+                {"type",          volume_type_string(vol->type())},
+                {"isSplittable",  vol->is_splittable()},
+            });
+        }
+        json instances = json::array();
+        for (size_t ii = 0; ii < obj->instances.size(); ++ii) {
+            const auto& inst = obj->instances[ii];
+            instances.push_back(json{
+                {"id",        inst->id().id},
+                {"index",     ii},
+                {"printable", inst->printable},
+            });
+        }
+        objects.push_back(json{
+            {"id",            obj->id().id},
+            {"index",         oi},
+            {"name",          obj->name},
+            {"printable",     obj->printable},
+            {"instanceCount", obj->instances.size()},
+            {"volumes",       std::move(volumes)},
+            {"instances",     std::move(instances)},
+        });
+    }
+    return objects;
+}
+
 }  // namespace
 
 extern "C" {
@@ -564,41 +686,172 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     }
 }
 
-// Delete whole objects by their ORIGINAL indices (as reported by
-// orc_get_model_mesh / the renderer selection). Deleting in descending order
-// keeps earlier indices valid while Model.objects shrinks. A raw
-// Model::delete_object(size_t) has no bounds check at the pinned SHA, so the
-// indices are validated (and deduplicated) here before any mutation.
-EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* indices_json) {
+// Delete whole objects by their stable ObjectIDs (spec §9.2). The renderer
+// selection and object list use IDs, not positional indices — a structural
+// mutation elsewhere cannot silently shift the target. All IDs are validated
+// before any mutation so a bad request leaves the scene intact.
+EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json) {
     try {
-        const json indices = json::parse(indices_json ? indices_json : "");
-        if (!indices.is_array() || indices.empty())
-            return error_json("no object indices");
-        const size_t object_count = state().model.objects.size();
-        std::vector<std::size_t> to_delete;
-        to_delete.reserve(indices.size());
-        for (const auto& item : indices) {
-            if (!item.is_number_integer())
-                return error_json("object index must be an integer");
-            const std::size_t idx = item.get<std::size_t>();
-            if (idx >= object_count)
-                return error_json("object index out of range");
-            to_delete.push_back(idx);
-        }
-        std::sort(to_delete.begin(), to_delete.end());
-        to_delete.erase(std::unique(to_delete.begin(), to_delete.end()), to_delete.end());
-        for (auto it = to_delete.rbegin(); it != to_delete.rend(); ++it)
-            state().model.delete_object(*it);
-        // A model mutation makes any existing Print/G-code result stale.
+        const json j = json::parse(object_ids_json ? object_ids_json : "");
+        const auto ids = parse_positive_id_array(j);
+        if (!ids) return error_json("no object ids");
+        // Validate every ID resolves, so a malformed request does not partially delete.
+        for (const std::size_t id : *ids)
+            if (find_object_by_id(id) == nullptr)
+                return error_json("object not found");
+        for (const std::size_t id : *ids)
+            state().model.delete_object(ObjectID(id));
         state().print.clear();
         return dup_json(json{{"ok", true},
                              {"objects", state().model.objects.size()},
-                             {"deleted", to_delete.size()}}.dump());
+                             {"deleted", ids->size()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Delete specific parts (volumes) by their stable ObjectIDs. Enforces the
+// upstream last-solid-part guard: a volume that is the only MODEL_PART of its
+// object cannot be deleted. All IDs are resolved and guarded before any
+// mutation, so a bad request leaves the scene intact.
+EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json) {
+    try {
+        const json j = json::parse(volume_ids_json ? volume_ids_json : "");
+        const auto ids = parse_positive_id_array(j);
+        if (!ids) return error_json("no volume ids");
+        std::vector<std::pair<ModelObject*, ModelVolume*>> targets;
+        for (const std::size_t id : *ids) {
+            ModelVolume* vol = find_volume_by_id(id);
+            if (vol == nullptr) return error_json("volume not found");
+            if (vol->is_the_only_one_part())
+                return error_json("deleting the last solid part is not allowed");
+            targets.emplace_back(vol->get_object(), vol);
+        }
+        // delete_volume(idx) shifts the object's own volume indices, so group
+        // by object and remove in descending index order within each object.
+        std::map<ModelObject*, std::vector<std::size_t>> by_object;
+        for (const auto& [obj, vol] : targets) {
+            for (std::size_t vi = 0; vi < obj->volumes.size(); ++vi)
+                if (obj->volumes[vi] == vol) { by_object[obj].push_back(vi); break; }
+        }
+        for (auto& [obj, indexes] : by_object) {
+            std::sort(indexes.rbegin(), indexes.rend());
+            for (const std::size_t idx : indexes)
+                obj->delete_volume(idx);
+        }
+        state().print.clear();
+        return dup_json(json{{"ok", true},
+                             {"objects", state().model.objects.size()},
+                             {"deleted", ids->size()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Clone whole objects by stable ObjectIDs. libslic3r's add_object(const
+// ModelObject&) performs ModelObject::new_clone, assigning fresh recursive IDs
+// to the clone. The new stable IDs are returned so the renderer can restore
+// selection to the cloned objects (spec §9.2).
+EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) {
+    try {
+        const json j = json::parse(object_ids_json ? object_ids_json : "");
+        const auto ids = parse_positive_id_array(j);
+        if (!ids) return error_json("no object ids");
+        std::vector<std::size_t> new_object_ids;
+        for (const std::size_t id : *ids) {
+            ModelObject* obj = find_object_by_id(id);
+            if (obj == nullptr) return error_json("object not found");
+            ModelObject* clone = state().model.add_object(*obj);
+            new_object_ids.push_back(clone->id().id);
+        }
+        state().print.clear();
+        return dup_json(json{{"ok", true},
+                             {"newObjectIds", new_object_ids},
+                             {"objects", state().model.objects.size()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Reorder the plate/list by stable ObjectIDs. "from" is moved to sit
+// immediately before "to"; relative order of every other object is preserved.
+// Returns the current structure so the renderer can refresh in one round-trip.
+EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double to_obj_id) {
+    try {
+        const auto from_id = to_object_id(from_obj_id);
+        const auto to_id = to_object_id(to_obj_id);
+        if (!from_id || !to_id) return error_json("object id must be a positive integer");
+        auto& objs = state().model.objects;
+        std::size_t from_idx = objs.size();
+        std::size_t to_idx = objs.size();
+        for (std::size_t i = 0; i < objs.size(); ++i) {
+            if (objs[i]->id().id == *from_id) from_idx = i;
+            if (objs[i]->id().id == *to_id)   to_idx = i;
+        }
+        if (from_idx == objs.size() || to_idx == objs.size())
+            return error_json("object not found");
+        if (from_idx != to_idx) {
+            ModelObject* from_obj = objs[from_idx];
+            objs.erase(objs.begin() + static_cast<std::ptrdiff_t>(from_idx));
+            // Re-locate "to" after the removal, then place "from" before it.
+            for (std::size_t i = 0; i < objs.size(); ++i)
+                if (objs[i]->id().id == *to_id) {
+                    objs.insert(objs.begin() + static_cast<std::ptrdiff_t>(i), from_obj);
+                    break;
+                }
+        }
+        state().print.clear();
+        return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Reorder parts within an object by stable ObjectIDs. Mirrors reorder_objects:
+// "from" volume moves immediately before "to" volume; returns current structure.
+EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double from_volume_id, double to_volume_id) {
+    try {
+        const auto obj_id = to_object_id(object_id);
+        const auto from_id = to_object_id(from_volume_id);
+        const auto to_id = to_object_id(to_volume_id);
+        if (!obj_id || !from_id || !to_id)
+            return error_json("id must be a positive integer");
+        ModelObject* obj = find_object_by_id(*obj_id);
+        if (obj == nullptr) return error_json("object not found");
+        auto& vols = obj->volumes;
+        std::size_t from_idx = vols.size();
+        std::size_t to_idx = vols.size();
+        for (std::size_t i = 0; i < vols.size(); ++i) {
+            if (vols[i]->id().id == *from_id) from_idx = i;
+            if (vols[i]->id().id == *to_id)   to_idx = i;
+        }
+        if (from_idx == vols.size() || to_idx == vols.size())
+            return error_json("volume not found");
+        if (from_idx != to_idx) {
+            ModelVolume* from_vol = vols[from_idx];
+            vols.erase(vols.begin() + static_cast<std::ptrdiff_t>(from_idx));
+            for (std::size_t i = 0; i < vols.size(); ++i)
+                if (vols[i]->id().id == *to_id) {
+                    vols.insert(vols.begin() + static_cast<std::ptrdiff_t>(i), from_vol);
+                    break;
+                }
+        }
+        obj->invalidate_bounding_box();
+        state().print.clear();
+        return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
         return error_json("unknown C++ exception");
     }
 }
@@ -950,108 +1203,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
     }
 }
 
-// Volume types cross the boundary with the spec's stable snake_case strings
-// (spec/ObjectList-and-Parts.md §9.1). ModelVolume::type_to_string uses the
-// upstream BBS names ("normal_part"/"negative_part"/"modifier_part"), which
-// differ from the bridge contract, so map explicitly here.
-static const char* volume_type_string(const ModelVolumeType t) {
-    switch (t) {
-        case ModelVolumeType::MODEL_PART:         return "model_part";
-        case ModelVolumeType::NEGATIVE_VOLUME:    return "negative_volume";
-        case ModelVolumeType::PARAMETER_MODIFIER: return "parameter_modifier";
-        case ModelVolumeType::SUPPORT_BLOCKER:    return "support_blocker";
-        case ModelVolumeType::SUPPORT_ENFORCER:   return "support_enforcer";
-        default:                                  return "model_part";
-    }
-}
-
-// Reverse of volume_type_string: spec snake_case string -> ModelVolumeType.
-// Returns nullopt for an unknown string so orc_set_volume_type can reject it.
-static std::optional<ModelVolumeType> volume_type_from_string(const std::string& s) {
-    if (s == "model_part")         return ModelVolumeType::MODEL_PART;
-    if (s == "negative_volume")    return ModelVolumeType::NEGATIVE_VOLUME;
-    if (s == "parameter_modifier") return ModelVolumeType::PARAMETER_MODIFIER;
-    if (s == "support_blocker")    return ModelVolumeType::SUPPORT_BLOCKER;
-    if (s == "support_enforcer")   return ModelVolumeType::SUPPORT_ENFORCER;
-    return std::nullopt;
-}
-
-// ObjectID crosses the boundary as a JSON number. Wasm64 sizes are 64-bit, so
-// the client passes a JS Number (double); validate it is a positive integer
-// before narrowing to size_t. A valid ObjectID is strictly positive (ObjectID.hpp).
-static std::optional<std::size_t> to_object_id(const double v) {
-    if (!std::isfinite(v) || v < 1.0 || std::floor(v) != v)
-        return std::nullopt;
-    return static_cast<std::size_t>(v);
-}
-
-// Stable-ID resolution against the live Model. IDs are globally unique across
-// objects/volumes/instances (ObjectBase::generate_new_id), so each helper scans
-// the whole model rather than assuming a particular ObjectID space ordering.
-static ModelObject* find_object_by_id(const std::size_t id) {
-    auto& model = state().model;
-    for (auto& obj : model.objects)
-        if (obj->id().id == id) return obj;
-    return nullptr;
-}
-
-static ModelVolume* find_volume_by_id(const std::size_t id) {
-    auto& model = state().model;
-    for (auto& obj : model.objects)
-        for (auto& vol : obj->volumes)
-            if (vol->id().id == id) return vol;
-    return nullptr;
-}
-
-static ModelInstance* find_instance_by_id(const std::size_t id) {
-    auto& model = state().model;
-    for (auto& obj : model.objects)
-        for (auto& inst : obj->instances)
-            if (inst->id().id == id) return inst;
-    return nullptr;
-}
-
 // Read-only model structure: objects, their parts (volumes), and instances.
 // Returns stable ObjectIDs (for React keys and selection restoration) plus
 // current positional indices (for operation dispatch and display). Read-only,
 // so it does not invalidate the current Print.
 EMSCRIPTEN_KEEPALIVE const char* orc_get_model_structure() {
     try {
-        auto& model = state().model;
-        json objects = json::array();
-        for (size_t oi = 0; oi < model.objects.size(); ++oi) {
-            const auto& obj = model.objects[oi];
-            json volumes = json::array();
-            for (size_t vi = 0; vi < obj->volumes.size(); ++vi) {
-                const auto& vol = obj->volumes[vi];
-                volumes.push_back(json{
-                    {"id",            vol->id().id},
-                    {"index",         vi},
-                    {"name",          vol->name},
-                    {"type",          volume_type_string(vol->type())},
-                    {"isSplittable",  vol->is_splittable()},
-                });
-            }
-            json instances = json::array();
-            for (size_t ii = 0; ii < obj->instances.size(); ++ii) {
-                const auto& inst = obj->instances[ii];
-                instances.push_back(json{
-                    {"id",        inst->id().id},
-                    {"index",     ii},
-                    {"printable", inst->printable},
-                });
-            }
-            objects.push_back(json{
-                {"id",            obj->id().id},
-                {"index",         oi},
-                {"name",          obj->name},
-                {"printable",     obj->printable},
-                {"instanceCount", obj->instances.size()},
-                {"volumes",       std::move(volumes)},
-                {"instances",     std::move(instances)},
-            });
-        }
-        return dup_json(json{{"ok", true}, {"objects", std::move(objects)}}.dump());
+        return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
