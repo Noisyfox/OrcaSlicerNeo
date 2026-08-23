@@ -28,11 +28,13 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const loaded = useObjectListStore((s) => s.loaded);
   const expanded = useObjectListStore((s) => s.expanded);
   const highlightLevel = useObjectListStore((s) => s.highlightLevel);
+  const collapsedInstances = useObjectListStore((s) => s.collapsedInstances);
   const projection = useObjectListStore((s) => s.projection);
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
   const toggleExpanded = useObjectListStore((s) => s.toggleExpanded);
+  const toggleInstancesCollapsed = useObjectListStore((s) => s.toggleInstancesCollapsed);
   const setHighlightLevel = useObjectListStore((s) => s.setHighlightLevel);
   const clearStore = useObjectListStore((s) => s.clear);
   const [renaming, setRenaming] = useState<RenamingTarget>(null);
@@ -307,9 +309,17 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       data-state={obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}
                       onClick={(e) => handleInstancesGroupClick(obj, e.ctrlKey || e.metaKey)}
                     >
+                      <span
+                        aria-hidden
+                        data-testid={`instances-toggle-${obj.id}`}
+                        className="mr-1 inline-block w-3 shrink-0 text-center text-xs"
+                        onClick={(e) => { e.stopPropagation(); toggleInstancesCollapsed(obj.id); }}
+                      >
+                        {collapsedInstances[obj.id] ? '▸' : '▾'}
+                      </span>
                       Instances
                     </Button>
-                    {obj.instances.map((inst) => (
+                    {!collapsedInstances[obj.id] && obj.instances.map((inst) => (
                       <div
                         key={inst.id}
                         data-testid={`instance-${inst.id}`}

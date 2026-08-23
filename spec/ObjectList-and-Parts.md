@@ -100,8 +100,9 @@ Object
 - Parts are direct children of the object.
 - `Instances` is a group under the object, after all parts.
 - The `Instances` group is shown only when the object has more than one
-  instance. It is not collapseable; its header line is a select control that
-  selects every instance of the object (see §6.1).
+  instance. Like the object line, it has an expand/collapse caret that toggles
+  the instance sub-list; clicking the header label selects every instance of the
+  object (see §6.1).
 - Settings and Layers nodes are omitted in the first version.
 
 ## 5. Sidebar Layout

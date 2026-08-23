@@ -76,13 +76,13 @@ For `{a full instance of object A, the full object B}` this highlights A's
 instance row and B's object row — the single-part object is no longer missed
 (the previous global gating left it un-highlighted).
 
-The `Instances` group under a multi-instance object is **not collapseable**. Its
-header line is a select control: clicking it selects every instance of the object
-(Orca's `itInstanceRoot` → parent object), and the ObjectList records a per-object
-"row kind that last drove selection" (`highlightLevel`) so the projection shows
-the instance rows for that group selection while an object-row selection still
-shows the object row. This mirrors Orca's `root_is_selected` / `m_selection_mode`
-granularity.
+The `Instances` group under a multi-instance object has an expand/collapse caret
+like the object line (which toggles the instance sub-list). Clicking the group's
+header label selects every instance of the object (Orca's `itInstanceRoot` →
+parent object), and the ObjectList records a per-object "row kind that last drove
+selection" (`highlightLevel`) so the projection shows the instance rows for that
+group selection while an object-row selection still shows the object row. This
+mirrors Orca's `root_is_selected` / `m_selection_mode` granularity.
 
 ## Deliberate divergence from Orca's raw update_selections
 
