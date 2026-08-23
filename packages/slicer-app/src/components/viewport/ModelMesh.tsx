@@ -121,6 +121,7 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
             selectedOnPointerDownRef.current = sceneInteraction.prepareBodyDragFromPointerDown(
               data,
               event.nativeEvent.ctrlKey || event.nativeEvent.metaKey,
+              event.nativeEvent.altKey,
             );
           }}
           onClick={(event) => {
@@ -130,7 +131,11 @@ export function GLVolumeMesh({ data }: { data: GLVolume }) {
               return;
             }
             if (sceneInteraction.owner !== 'none') return;
-            sceneInteraction.selectFromClick(data, event.nativeEvent.ctrlKey || event.nativeEvent.metaKey);
+            sceneInteraction.selectFromClick(
+              data,
+              event.nativeEvent.ctrlKey || event.nativeEvent.metaKey,
+              event.nativeEvent.altKey,
+            );
           }}
         >
           <meshStandardMaterial

@@ -184,10 +184,13 @@ export class SceneInteractionController {
     return false;
   }
 
-  selectFromHit(hit: GLVolume, additive: boolean): boolean {
+  selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
+    // Alt modifies the click to select the individual part (volume), not the
+    // whole instance — the workspace's per-click override of the selection mode.
+    const mode = part ? 'volume' : this.selectionMode;
     const changed = additive
-      ? this.selection.toggleFromHit(hit, this.getVolumes(), this.selectionMode)
-      : this.selection.replaceFromHit(hit, this.getVolumes(), this.selectionMode);
+      ? this.selection.toggleFromHit(hit, this.getVolumes(), mode)
+      : this.selection.replaceFromHit(hit, this.getVolumes(), mode);
     this.syncGizmoToSelection();
     if (changed) this.emit();
     return changed;
@@ -211,25 +214,26 @@ export class SceneInteractionController {
    * A gizmo-origin press retains strict priority even if its ray also reaches
    * a model mesh.
    */
-  prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean): boolean {
+  prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
     // A drag that starts on a member of an existing multi-selection must move
     // the complete group. Leave selection unchanged while DragControls
     // decides whether this press turns into a drag.
-    if (!additive && this.selection.has(hit)) return false;
-    return this.selectFromHit(hit, additive);
+    if (!additive && !part && this.selection.has(hit)) return false;
+    return this.selectFromHit(hit, additive, part);
   }
 
   /** Preserve a multi-selection when the browser dispatches click after drag end. */
-  selectFromClick(hit: GLVolume, additive: boolean): boolean {
+  selectFromClick(hit: GLVolume, additive: boolean, part = false): boolean {
     if (this.suppressPostDragClick) {
       this.suppressPostDragClick = false;
       return false;
     }
     // Plain clicks on an existing member keep the complete selection. Ctrl or
-    // Cmd remains the explicit gesture for toggling a selected member.
-    if (!additive && this.selection.has(hit)) return false;
-    return this.selectFromHit(hit, additive);
+    // Cmd remains the explicit gesture for toggling a selected member; Alt
+    // explicitly narrows to the part.
+    if (!additive && !part && this.selection.has(hit)) return false;
+    return this.selectFromHit(hit, additive, part);
   }
 
   clearSelection(): boolean {

@@ -656,6 +656,14 @@ describe('part-scoped (volume) transforms', () => {
     expect(controller.isVolumeScopedSelection()).toBe(false);
   });
 
+  it('Alt+click (part) selects the individual volume composite', () => {
+    expect(controller.selectFromHit(volumes[0], false, true)).toBe(true);
+    // Part mode selects that volume across all its instances, which is a
+    // part-scoped selection (so a subsequent drag moves only the part).
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[2]]);
+    expect(controller.isVolumeScopedSelection()).toBe(true);
+  });
+
   it('moves only the selected part, not the whole instance', () => {
     controller.selectComposite(0, 1);
     controller.moveSelectionBy(new THREE.Vector3(10, 0, 0));
