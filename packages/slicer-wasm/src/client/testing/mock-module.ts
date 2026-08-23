@@ -485,7 +485,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (oi < 0) return { error: 'object not found' };
       const instance = { id: nextInstanceId++, printable: true };
       instanceMeta[oi].push(instance);
-      objectTransforms[oi].push(JSON.parse(JSON.stringify(objectTransforms[oi][objectTransforms[oi].length - 1])));
+      const lastTransform = objectTransforms[oi][objectTransforms[oi].length - 1];
+      const newTransform = JSON.parse(JSON.stringify(lastTransform));
+      newTransform.offset[0] += 50;
+      objectTransforms[oi].push(newTransform);
       objectVolumeTransforms[oi].push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0])));
       sliced = false;
       return { ok: true, objectId, instanceId: instance.id };

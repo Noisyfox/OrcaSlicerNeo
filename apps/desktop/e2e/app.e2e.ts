@@ -314,6 +314,38 @@ test('object list: drag reorder objects (mock)', async () => {
   }
 });
 
+// Add instance via the object-row context menu (Step: add/remove instance).
+test('object list: add instance via the context menu (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    const objectRow = list.locator('div[data-testid^="object-"]').first();
+    // Expand to reveal the Instances group (the mock object starts with 2 instances).
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    await expect(list.locator('[data-testid^="instances-"]')).toHaveCount(1);
+    await expect.poll(() => list.locator('[data-testid^="instance-"]').count()).toBe(2);
+
+    // Add an instance via the object-row context menu (top-left of the row).
+    await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
+    await list.getByTestId('objectlist-add-instance').click();
+
+    // The instance count grows from 2 to 3.
+    await expect.poll(() => list.locator('[data-testid^="instance-"]').count()).toBe(3);
+    await expect(list.locator('[data-testid^="instances-"]')).toHaveCount(1);
+  } finally {
+    await app.close();
+  }
+});
+
 // Object list structural actions (Step 8): clone, assemble, delete. Mock-only.
 test('object list: clone, assemble, delete (structural, mock)', async () => {
   const { app } = await launchApp();

@@ -1050,16 +1050,25 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
     }
 }
 
-// Add a new default instance to an object. libslic3r's add_instance() (no args)
-// creates a fresh instance with identity transform; the renderer can later move
-// it. Returns the new stable instance ID.
+// Add a new instance to an object. libslic3r's add_instance() (no args) stacks
+// it at the object origin (identity), overlapping instance 0 — which reads as
+// "nothing happened". Place it visibly to the right of the existing instances
+// (object width + a gap, along X) so the copy is immediately visible and can be
+// moved. Returns the new stable instance ID.
 EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
     try {
         const auto id = to_object_id(object_id);
         if (!id) return error_json("object id must be a positive integer");
         ModelObject* obj = find_object_by_id(*id);
         if (obj == nullptr) return error_json("object not found");
+        const BoundingBoxf3& bbox = obj->bounding_box_exact();
+        const double width = static_cast<double>(bbox.size().x());
+        const double step = width > 0.0 ? width + 30.0 : 30.0;
+        const Slic3r::Vec3d base = obj->instances.empty()
+            ? Slic3r::Vec3d(0, 0, 0)
+            : obj->instances.back()->get_offset();
         ModelInstance* inst = obj->add_instance();
+        inst->set_offset(Slic3r::Vec3d(base.x() + step, base.y(), base.z()));
         state().print.clear();
         return dup_json(json{{"ok", true},
                              {"objectId", obj->id().id},
