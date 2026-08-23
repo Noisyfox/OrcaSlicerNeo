@@ -215,6 +215,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       type="button"
                       data-testid={`instances-toggle-${obj.id}`}
                       onClick={() => toggleInstancesCollapsed(obj.id)}
+                      onContextMenu={(e) => e.stopPropagation()}
                       className="flex w-full items-center gap-1 rounded-sm px-2 py-1 text-left text-[0.65rem] text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent"
                     >
                       <span aria-hidden className="text-xs">{collapsedInstances[obj.id] ? '▸' : '▾'}</span>
