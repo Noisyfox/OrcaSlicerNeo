@@ -193,7 +193,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       index: oi,
       name: objectMeta[oi].name,
       printable: objectMeta[oi].printable,
-      instanceCount,
+      instanceCount: instanceMeta[oi].length,
       volumes: volumeMeta[oi].map((v, vi) => ({
         id: v.id, index: vi, name: v.name, type: v.type, isSplittable: v.isSplittable,
       })),
@@ -480,6 +480,28 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sliced = false;
       return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
     },
+    orc_add_instance(objectId: number) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      const instance = { id: nextInstanceId++, printable: true };
+      instanceMeta[oi].push(instance);
+      objectTransforms[oi].push(JSON.parse(JSON.stringify(objectTransforms[oi][objectTransforms[oi].length - 1])));
+      objectVolumeTransforms[oi].push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0])));
+      sliced = false;
+      return { ok: true, objectId, instanceId: instance.id };
+    },
+    orc_remove_instance(objectId: number, instanceId: number) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      if (instanceMeta[oi].length <= 1) return { error: 'cannot remove the last instance' };
+      const ii = instanceMeta[oi].findIndex((inst) => inst.id === instanceId);
+      if (ii < 0) return { error: 'instance not found' };
+      instanceMeta[oi].splice(ii, 1);
+      objectTransforms[oi].splice(ii, 1);
+      objectVolumeTransforms[oi].splice(ii, 1);
+      sliced = false;
+      return { ok: true };
+    },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
       if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
       objectTransforms[obj][inst].offset = [x, y, z];
@@ -691,6 +713,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_split_object_to_objects: { ret: 'number', args: ['number', 'number'] },
     orc_merge_objects_to_multipart: { ret: 'number', args: ['string', 'string'] },
     orc_instances_to_separate_objects: { ret: 'number', args: ['number', 'string'] },
+    orc_add_instance: { ret: 'number', args: ['number'] },
+    orc_remove_instance: { ret: 'number', args: ['number', 'number'] },
     orc_rename_object: { ret: 'number', args: ['number', 'string'] },
     orc_rename_volume: { ret: 'number', args: ['number', 'string'] },
     orc_set_volume_type: { ret: 'number', args: ['number', 'string'] },

@@ -678,3 +678,40 @@ check('slice error surfaces the real message, not the bare category',
   }
 }
 
+// 10f. add / remove instance.
+{
+  callJson('orc_clear_model', [], []);
+  const p = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, p);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'], [p, stl.length, 'stl']);
+  Module._free(p);
+  check('add-instance fixture loads', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
+  const s = callJson('orc_get_model_structure', [], []);
+  const obj = s.objects?.[0];
+  if (obj) {
+    const added = callJson('orc_add_instance', ['number'], [obj.id]);
+    check('orc_add_instance adds an instance',
+          added.ok === true && added.instanceId > 0 && added.instanceId !== obj.instances[0].id,
+          JSON.stringify(added));
+    const afterAdd = callJson('orc_get_model_structure', [], []);
+    check('instance count grows',
+          afterAdd.ok === true && afterAdd.objects?.[0]?.instanceCount === 2
+          && afterAdd.objects[0].instances.length === 2,
+          JSON.stringify(afterAdd.objects?.[0]?.instanceCount));
+
+    const removed = callJson('orc_remove_instance', ['number', 'number'], [obj.id, added.instanceId]);
+    check('orc_remove_instance removes the instance', removed.ok === true, JSON.stringify(removed));
+    const afterRemove = callJson('orc_get_model_structure', [], []);
+    check('instance count restored',
+          afterRemove.ok === true && afterRemove.objects?.[0]?.instanceCount === 1,
+          JSON.stringify(afterRemove.objects?.[0]?.instanceCount));
+
+    const last = afterRemove.objects?.[0]?.instances?.[0];
+    const badRemove = callJson('orc_remove_instance', ['number', 'number'], [obj.id, last.id]);
+    check('last instance cannot be removed',
+          !badRemove.ok && /last instance/.test(badRemove.error ?? ''), JSON.stringify(badRemove));
+  } else {
+    check('add-instance fixture structure', false, JSON.stringify(s).slice(0, 120));
+  }
+}
+

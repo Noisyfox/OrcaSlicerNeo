@@ -2,10 +2,12 @@ import type { ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure
 import { usePlatform } from '@orca/platform-contract';
 import { useObjectListStore } from './useObjectListStore';
 import {
+  addInstanceInList,
   assembleObjectsInList,
   cloneObjectsInList,
   deleteObjectsInList,
   deleteVolumeInList,
+  removeInstanceInList,
   separateInstancesInList,
   splitObjectToObjectsInList,
   splitVolumeToPartsInList,
@@ -23,8 +25,8 @@ const VOLUME_TYPES: VolumeType[] = [
   'support_blocker', 'support_enforcer',
 ];
 
-function MenuItem({ label, testid, onClick, danger }: {
-  label: string; testid: string; onClick: () => void; danger?: boolean;
+function MenuItem({ label, testid, onClick, danger, disabled }: {
+  label: string; testid: string; onClick: () => void; danger?: boolean; disabled?: boolean;
 }) {
   return (
     <button
@@ -32,9 +34,10 @@ function MenuItem({ label, testid, onClick, danger }: {
       role="menuitem"
       data-testid={testid}
       onClick={onClick}
+      disabled={disabled}
       className={`flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-xs/relaxed select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground ${
         danger ? 'text-destructive hover:text-destructive' : ''
-      }`}
+      } disabled:pointer-events-none disabled:opacity-50`}
     >
       {label}
     </button>
@@ -75,6 +78,15 @@ export function ObjectListContextMenu({ target, point, onClose, onRename }: {
         <MenuItem key="split" label="Split to objects" testid="objectlist-split-objects"
           onClick={() => act(splitObjectToObjectsInList(runtime, o.id))} />
       )] : []),
+      <MenuItem key="add-instance" label="Add instance" testid="objectlist-add-instance"
+        onClick={() => act(addInstanceInList(runtime, o.id))} />,
+      // Remove the last instance; an object must keep at least one instance.
+      <MenuItem key="remove-instance" label="Remove instance" testid="objectlist-remove-instance"
+        disabled={o.instanceCount <= 1}
+        onClick={() => {
+          const last = o.instances[o.instances.length - 1];
+          if (last) void act(removeInstanceInList(runtime, o.id, last.id));
+        }} />,
       <MenuItem key="delete" label="Delete" testid="objectlist-delete" danger
         onClick={() => act(deleteObjectsInList(runtime, [o.id]))} />,
     ];

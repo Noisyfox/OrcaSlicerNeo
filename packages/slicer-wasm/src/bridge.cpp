@@ -1050,6 +1050,52 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
     }
 }
 
+// Add a new default instance to an object. libslic3r's add_instance() (no args)
+// creates a fresh instance with identity transform; the renderer can later move
+// it. Returns the new stable instance ID.
+EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
+    try {
+        const auto id = to_object_id(object_id);
+        if (!id) return error_json("object id must be a positive integer");
+        ModelObject* obj = find_object_by_id(*id);
+        if (obj == nullptr) return error_json("object not found");
+        ModelInstance* inst = obj->add_instance();
+        state().print.clear();
+        return dup_json(json{{"ok", true},
+                             {"objectId", obj->id().id},
+                             {"instanceId", inst->id().id}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Remove a specific instance from an object by stable ID. The last remaining
+// instance cannot be removed (an object must keep at least one instance).
+EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double instance_id) {
+    try {
+        const auto id = to_object_id(object_id);
+        const auto iid = to_object_id(instance_id);
+        if (!id || !iid) return error_json("id must be a positive integer");
+        ModelObject* obj = find_object_by_id(*id);
+        if (obj == nullptr) return error_json("object not found");
+        if (obj->instances.size() <= 1) return error_json("cannot remove the last instance");
+        for (std::size_t i = 0; i < obj->instances.size(); ++i) {
+            if (obj->instances[i]->id().id == *iid) {
+                obj->delete_instance(i);
+                state().print.clear();
+                return dup_json(json{{"ok", true}}.dump());
+            }
+        }
+        return error_json("instance not found");
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 using progress_fn = void (*)(int, const char*);
 progress_fn g_progress = nullptr;
 

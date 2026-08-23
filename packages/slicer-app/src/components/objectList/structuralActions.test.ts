@@ -4,10 +4,12 @@ import { useObjectListStore } from './useObjectListStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import {
+  addInstanceInList,
   assembleObjectsInList,
   cloneObjectsInList,
   deleteObjectsInList,
   deleteVolumeInList,
+  removeInstanceInList,
   reorderObjectsInList,
   reorderVolumesInList,
   separateInstancesInList,
@@ -27,6 +29,8 @@ function makeRuntime(): SlicerRuntime {
     reorderObjects: vi.fn(async () => ({ ok: true, objects: [] })),
     reorderVolumes: vi.fn(async () => ({ ok: true, objects: [] })),
     separateInstances: vi.fn(async () => ({ ok: true, newObjectIds: [21] })),
+    addInstance: vi.fn(async () => ({ ok: true, objectId: 1, instanceId: 22 })),
+    removeInstance: vi.fn(async () => ({ ok: true })),
     getModelStructure: vi.fn(async () => structure),
   } as unknown as SlicerRuntime;
 }
@@ -84,6 +88,18 @@ describe('object list structural actions', () => {
     const runtime = makeRuntime();
     await separateInstancesInList(runtime, 1, [20]);
     expect(runtime.separateInstances).toHaveBeenCalledWith(1, [20]);
+  });
+
+  it('addInstanceInList adds an instance and refreshes', async () => {
+    const runtime = makeRuntime();
+    await addInstanceInList(runtime, 1);
+    expect(runtime.addInstance).toHaveBeenCalledWith(1);
+  });
+
+  it('removeInstanceInList removes the instance and refreshes', async () => {
+    const runtime = makeRuntime();
+    await removeInstanceInList(runtime, 1, 22);
+    expect(runtime.removeInstance).toHaveBeenCalledWith(1, 22);
   });
 
   it('propagates a bridge error without refreshing', async () => {

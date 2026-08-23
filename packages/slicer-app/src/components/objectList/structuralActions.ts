@@ -71,3 +71,17 @@ export async function reorderVolumesInList(runtime: SlicerRuntime, objectId: num
   await refreshAfterModelMutation(runtime);
   return { ok: true };
 }
+
+export async function addInstanceInList(runtime: SlicerRuntime, objectId: number): Promise<MutationOutcome> {
+  const r = await runtime.addInstance(objectId);
+  if (!r.ok) return { ok: false, error: r.error };
+  await refreshAfterModelMutation(runtime, true);
+  return { ok: true };
+}
+
+export async function removeInstanceInList(runtime: SlicerRuntime, objectId: number, instanceId: number): Promise<MutationOutcome> {
+  const r = await runtime.removeInstance(objectId, instanceId);
+  if (!r.ok) return { ok: false, error: r.error };
+  await refreshAfterModelMutation(runtime, true);
+  return { ok: true };
+}

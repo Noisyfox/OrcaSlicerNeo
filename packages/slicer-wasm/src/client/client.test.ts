@@ -585,6 +585,50 @@ describe('SlicerClient bridge contract', () => {
     });
   });
 
+  describe('add / remove instance (stable ObjectID)', () => {
+    it('addInstance mints a new instance and grows the instance count', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const beforeIds = objects[0].instances.map((i) => i.id);
+      const r = await c.addInstance(objects[0].id);
+      expect(r.ok).toBe(true);
+      expect(r.instanceId).toBeGreaterThan(0);
+      const after = await c.getModelStructure();
+      expect(after.objects[0].instanceCount).toBe(3);
+      expect(after.objects[0].instances.map((i) => i.id)).toEqual([...beforeIds, r.instanceId]);
+    });
+
+    it('removeInstance removes a specific instance', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const [first, second] = objects[0].instances;
+      expect((await c.removeInstance(objects[0].id, second.id)).ok).toBe(true);
+      const after = await c.getModelStructure();
+      expect(after.objects[0].instanceCount).toBe(1);
+      expect(after.objects[0].instances.map((i) => i.id)).toEqual([first.id]);
+    });
+
+    it('removeInstance rejects removing the last instance', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 1 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const res = await c.removeInstance(objects[0].id, objects[0].instances[0].id);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('last instance');
+    });
+
+    it('removeInstance rejects an unknown instance ID', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const res = await c.removeInstance(objects[0].id, 999999);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('instance not found');
+    });
+  });
+
   it('slice fires progress and returns unrecognized_keys', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');

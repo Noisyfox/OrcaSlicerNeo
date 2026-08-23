@@ -9,7 +9,7 @@ export type {
   LoadModelResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
   ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
-  MergeObjectsResult, SeparateInstancesResult, MutationResult,
+  MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
   ModelInstanceStructure, VolumeType,
   SliceResultStatus, ClientSliceResult, ClientToolpath,

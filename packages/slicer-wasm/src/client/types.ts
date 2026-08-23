@@ -214,6 +214,20 @@ export interface SeparateInstancesResult {
   error?: string;
 }
 
+/** Add-instance result: the freshly minted stable instance ID. */
+export interface AddInstanceResult {
+  ok: boolean;
+  objectId?: number;
+  instanceId?: number;
+  error?: string;
+}
+
+/** Remove-instance result. */
+export interface RemoveInstanceResult {
+  ok: boolean;
+  error?: string;
+}
+
 /** Simple success/error payload returned by non-destructive metadata mutations. */
 export interface MutationResult {
   ok: boolean;
@@ -350,6 +364,10 @@ export interface SlicerClient {
   mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult>;
   /** Separate selected instances into their own objects; returns the new object IDs. */
   separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult>;
+  /** Add a new default instance to an object; returns the new instance ID. */
+  addInstance(objectId: number): Promise<AddInstanceResult>;
+  /** Remove a specific instance from an object by stable ID. */
+  removeInstance(objectId: number, instanceId: number): Promise<RemoveInstanceResult>;
   /** Rename an object by its stable ObjectID. */
   renameObject(objectId: number, name: string): Promise<MutationResult>;
   /** Rename a specific part (volume) by its stable ObjectID. */
