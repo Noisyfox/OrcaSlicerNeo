@@ -133,6 +133,38 @@ Selection mapping:
 The renderer `Selection` must be extended from its current instance-only
 expansion to support object, volume, and instance expansion modes.
 
+### 6.1 Selection modes follow OrcaSlicer
+
+The selection model follows OrcaSlicer's `Selection`
+(`src/slic3r/GUI/Selection.{hpp,cpp}`). There are **only two selection modes**,
+`Volume` (part) and `Instance`; an **object selection is not a third mode** — it
+is the `Instance`-mode selection of every volume of an object's instances
+(Orca's `SingleFullObject` / `MultipleFullObject`).
+
+Excluded combinations (Orca's exclusions, which the shared app must respect):
+
+- **Part (volume) selection is anchored to a single instance.** A part is
+  resolved within the current selection's instance (Orca:
+  `get_volume_idxs_from_volume(obj, instance_idx_from_selection_or_0, vol)`), and
+  `Selection::add()` in `Volume` mode rejects a volume whose `instance_idx()`
+  differs from the selection's sole instance. The shared app must not select a
+  part across all instances at once.
+- Selections are **type-homogeneous**: a single part/modifier, several parts of
+  one instance, whole instance(s), or whole object(s). A selection that mixes
+  part-level + instance-level + object-level entries is Orca's `Mixed` and is
+  treated as invalid — no edit/transform is applied.
+- The mode is derived from content: a full object/instance selection forces
+  `Instance` mode; parts/modifiers use `Volume` mode.
+
+Consequently the renderer `Selection`:
+
+- uses `Instance` mode for instance and object rows (object = all instances of
+  the object),
+- uses `Volume` mode for part rows, resolved against a single instance anchor,
+- keeps collection multi-select (Ctrl toggle / Shift range) within a homogeneous
+  type when the equivalent Orca selection would be valid, and refuses an invalid
+  mix.
+
 Instance rows show a printable toggle. Object rows show an aggregate printable
 state that toggles every instance of that object. `auto_drop` is not exposed in
 the first version.
