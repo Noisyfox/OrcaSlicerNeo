@@ -11,7 +11,7 @@ import type {
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
-  ModelStructureResult,
+  ModelStructureResult, MutationResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox, ReadLogResult,
 } from './types';
@@ -181,6 +181,36 @@ export function createClient(
       const m = await module();
       return callJson(m, 'orc_delete_objects', ['string'],
                       [JSON.stringify(indices)]) as DeleteObjectsResult;
+    },
+
+    async renameObject(objectId: number, name: string): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_rename_object', ['number', 'string'],
+                      [objectId, name]) as MutationResult;
+    },
+
+    async renameVolume(volumeId: number, name: string): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_rename_volume', ['number', 'string'],
+                      [volumeId, name]) as MutationResult;
+    },
+
+    async setVolumeType(volumeId: number, type: VolumeType): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_set_volume_type', ['number', 'string'],
+                      [volumeId, type]) as MutationResult;
+    },
+
+    async setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_set_object_printable', ['number', 'number'],
+                      [objectId, printable ? 1 : 0]) as MutationResult;
+    },
+
+    async setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_set_instance_printable', ['number', 'number'],
+                      [instanceId, printable ? 1 : 0]) as MutationResult;
     },
 
     async slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus> {

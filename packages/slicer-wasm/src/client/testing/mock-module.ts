@@ -344,6 +344,67 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         })),
       };
     },
+    orc_rename_object(objectId: number, name: string) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      if (typeof name !== 'string' || name.length === 0) return { error: 'name is required' };
+      objectMeta[oi].name = name;
+      sliced = false;
+      return { ok: true };
+    },
+    orc_rename_volume(volumeId: number, name: string) {
+      for (let oi = 0; oi < volumeMeta.length; oi++) {
+        const vi = volumeMeta[oi].findIndex((v) => v.id === volumeId);
+        if (vi >= 0) {
+          if (typeof name !== 'string' || name.length === 0) return { error: 'name is required' };
+          volumeMeta[oi][vi].name = name;
+          sliced = false;
+          return { ok: true };
+        }
+      }
+      return { error: 'volume not found' };
+    },
+    orc_set_volume_type(volumeId: number, type: string) {
+      const valid: VolumeType[] = [
+        'model_part', 'negative_volume', 'parameter_modifier',
+        'support_blocker', 'support_enforcer',
+      ];
+      if (!valid.includes(type as VolumeType)) return { error: 'invalid volume type' };
+      for (let oi = 0; oi < volumeMeta.length; oi++) {
+        const vi = volumeMeta[oi].findIndex((v) => v.id === volumeId);
+        if (vi >= 0) {
+          const vol = volumeMeta[oi][vi];
+          if (vol.type === 'model_part' && type !== 'model_part') {
+            const modelPartCount = volumeMeta[oi].filter((v) => v.type === 'model_part').length;
+            if (modelPartCount === 1) return { error: 'changing the last solid part is not allowed' };
+          }
+          vol.type = type as VolumeType;
+          sliced = false;
+          return { ok: true };
+        }
+      }
+      return { error: 'volume not found' };
+    },
+    orc_set_object_printable(objectId: number, printable: number) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      const value = printable !== 0;
+      objectMeta[oi].printable = value;
+      for (const inst of instanceMeta[oi]) inst.printable = value;
+      sliced = false;
+      return { ok: true };
+    },
+    orc_set_instance_printable(instanceId: number, printable: number) {
+      for (let oi = 0; oi < instanceMeta.length; oi++) {
+        const ii = instanceMeta[oi].findIndex((inst) => inst.id === instanceId);
+        if (ii >= 0) {
+          instanceMeta[oi][ii].printable = printable !== 0;
+          sliced = false;
+          return { ok: true };
+        }
+      }
+      return { error: 'instance not found' };
+    },
     orc_set_progress_callback(ptr: number) {
       progressCallback = ptr;
     },
@@ -424,6 +485,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
+    orc_rename_object: { ret: 'number', args: ['number', 'string'] },
+    orc_rename_volume: { ret: 'number', args: ['number', 'string'] },
+    orc_set_volume_type: { ret: 'number', args: ['number', 'string'] },
+    orc_set_object_printable: { ret: 'number', args: ['number', 'number'] },
+    orc_set_instance_printable: { ret: 'number', args: ['number', 'number'] },
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },

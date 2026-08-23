@@ -16,11 +16,13 @@
 #include <array>
 #include <atomic>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -963,6 +965,52 @@ static const char* volume_type_string(const ModelVolumeType t) {
     }
 }
 
+// Reverse of volume_type_string: spec snake_case string -> ModelVolumeType.
+// Returns nullopt for an unknown string so orc_set_volume_type can reject it.
+static std::optional<ModelVolumeType> volume_type_from_string(const std::string& s) {
+    if (s == "model_part")         return ModelVolumeType::MODEL_PART;
+    if (s == "negative_volume")    return ModelVolumeType::NEGATIVE_VOLUME;
+    if (s == "parameter_modifier") return ModelVolumeType::PARAMETER_MODIFIER;
+    if (s == "support_blocker")    return ModelVolumeType::SUPPORT_BLOCKER;
+    if (s == "support_enforcer")   return ModelVolumeType::SUPPORT_ENFORCER;
+    return std::nullopt;
+}
+
+// ObjectID crosses the boundary as a JSON number. Wasm64 sizes are 64-bit, so
+// the client passes a JS Number (double); validate it is a positive integer
+// before narrowing to size_t. A valid ObjectID is strictly positive (ObjectID.hpp).
+static std::optional<std::size_t> to_object_id(const double v) {
+    if (!std::isfinite(v) || v < 1.0 || std::floor(v) != v)
+        return std::nullopt;
+    return static_cast<std::size_t>(v);
+}
+
+// Stable-ID resolution against the live Model. IDs are globally unique across
+// objects/volumes/instances (ObjectBase::generate_new_id), so each helper scans
+// the whole model rather than assuming a particular ObjectID space ordering.
+static ModelObject* find_object_by_id(const std::size_t id) {
+    auto& model = state().model;
+    for (auto& obj : model.objects)
+        if (obj->id().id == id) return obj;
+    return nullptr;
+}
+
+static ModelVolume* find_volume_by_id(const std::size_t id) {
+    auto& model = state().model;
+    for (auto& obj : model.objects)
+        for (auto& vol : obj->volumes)
+            if (vol->id().id == id) return vol;
+    return nullptr;
+}
+
+static ModelInstance* find_instance_by_id(const std::size_t id) {
+    auto& model = state().model;
+    for (auto& obj : model.objects)
+        for (auto& inst : obj->instances)
+            if (inst->id().id == id) return inst;
+    return nullptr;
+}
+
 // Read-only model structure: objects, their parts (volumes), and instances.
 // Returns stable ObjectIDs (for React keys and selection restoration) plus
 // current positional indices (for operation dispatch and display). Read-only,
@@ -1004,6 +1052,115 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_structure() {
             });
         }
         return dup_json(json{{"ok", true}, {"objects", std::move(objects)}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// -------------------------------------------------------------------------
+// Step 2: non-destructive model metadata operations (stable ObjectID input).
+// Every successful mutation invalidates the current Print/G-code result so
+// the renderer cannot continue to display a stale slice. Resolving by stable
+// IDs (rather than positional indices) means a structural mutation elsewhere
+// cannot silently target the wrong entity — see spec/ObjectList-and-Parts.md §7.
+// -------------------------------------------------------------------------
+
+EMSCRIPTEN_KEEPALIVE const char* orc_rename_object(double object_id, const char* name_cstr) {
+    try {
+        const auto id = to_object_id(object_id);
+        if (!id) return error_json("object id must be a positive integer");
+        if (name_cstr == nullptr) return error_json("name is required");
+        ModelObject* obj = find_object_by_id(*id);
+        if (obj == nullptr) return error_json("object not found");
+        obj->name = name_cstr;
+        // A rename does not change geometry, but it does change the object's
+        // reported name; the existing Print/G-code is still considered stale.
+        state().print.clear();
+        return dup_json(json{{"ok", true}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_rename_volume(double volume_id, const char* name_cstr) {
+    try {
+        const auto id = to_object_id(volume_id);
+        if (!id) return error_json("volume id must be a positive integer");
+        if (name_cstr == nullptr) return error_json("name is required");
+        ModelVolume* vol = find_volume_by_id(*id);
+        if (vol == nullptr) return error_json("volume not found");
+        vol->name = name_cstr;
+        state().print.clear();
+        return dup_json(json{{"ok", true}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const char* type_cstr) {
+    try {
+        const auto id = to_object_id(volume_id);
+        if (!id) return error_json("volume id must be a positive integer");
+        if (type_cstr == nullptr) return error_json("type is required");
+        const auto new_type = volume_type_from_string(type_cstr);
+        if (!new_type) return error_json("invalid volume type");
+        ModelVolume* vol = find_volume_by_id(*id);
+        if (vol == nullptr) return error_json("volume not found");
+        // Upstream last-solid-part guard (GUI_ObjectList): refuse to turn the
+        // only MODEL_PART into a non-print volume.
+        if (*new_type != ModelVolumeType::MODEL_PART && vol->is_the_only_one_part())
+            return error_json("changing the last solid part is not allowed");
+        vol->set_type(*new_type);
+        // The type changes which volumes compose the print mesh; drop the cached
+        // object bounds so a later getModelMesh / slice recomputes them.
+        vol->get_object()->invalidate_bounding_box();
+        state().print.clear();
+        return dup_json(json{{"ok", true}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, double printable) {
+    try {
+        const auto id = to_object_id(object_id);
+        if (!id) return error_json("object id must be a positive integer");
+        ModelObject* obj = find_object_by_id(*id);
+        if (obj == nullptr) return error_json("object not found");
+        // Object row toggles are an aggregate: set the object-level gate AND
+        // every instance so the per-instance rows and ModelInstance::is_printable()
+        // stay consistent (model_object->printable is an extra gate that would
+        // otherwise disagree with the per-instance flags).
+        const bool value = printable != 0.0;
+        obj->printable = value;
+        for (auto& inst : obj->instances)
+            inst->printable = value;
+        state().print.clear();
+        return dup_json(json{{"ok", true}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, double printable) {
+    try {
+        const auto id = to_object_id(instance_id);
+        if (!id) return error_json("instance id must be a positive integer");
+        ModelInstance* inst = find_instance_by_id(*id);
+        if (inst == nullptr) return error_json("instance not found");
+        inst->printable = printable != 0.0;
+        state().print.clear();
+        return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

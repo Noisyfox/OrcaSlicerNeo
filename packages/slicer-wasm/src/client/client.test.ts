@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { createMockModule } from './testing/mock-module';
 import { createClient } from './client';
-import type { ModelTransform } from './types';
+import type { ModelTransform, VolumeType } from './types';
 
 function makeClient() {
   return createClient(async () => createMockModule());
@@ -210,6 +210,105 @@ describe('SlicerClient bridge contract', () => {
       expect(after.objects).toHaveLength(1);
       expect(after.objects[0].id).toBe(keptId);
       expect(after.objects[0].index).toBe(0);
+    });
+  });
+
+  describe('Step 2 metadata mutations (stable ObjectID)', () => {
+    it('renameObject renames an object by stable ID', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const id = objects[0].id;
+      expect((await c.renameObject(id, 'Renamed')).ok).toBe(true);
+      const after = await c.getModelStructure();
+      expect(after.objects[0]).toMatchObject({ id, name: 'Renamed' });
+    });
+
+    it('renameVolume renames a specific part by stable ID', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const volume = objects[0].volumes[1];
+      expect((await c.renameVolume(volume.id, 'Left wall')).ok).toBe(true);
+      const after = await c.getModelStructure();
+      expect(after.objects[0].volumes[1]).toMatchObject({ id: volume.id, name: 'Left wall' });
+    });
+
+    it('setVolumeType changes a non-last-model-part type', async () => {
+      const c = createClient(async () => createMockModule({ volumeCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const volume = objects[0].volumes[0];
+      expect((await c.setVolumeType(volume.id, 'negative_volume')).ok).toBe(true);
+      const after = await c.getModelStructure();
+      expect(after.objects[0].volumes[0]).toMatchObject({ id: volume.id, type: 'negative_volume' });
+      // The other part is untouched.
+      expect(after.objects[0].volumes[1].type).toBe('model_part');
+    });
+
+    it('setVolumeType rejects changing the last solid part', async () => {
+      const c = createClient(async () => createMockModule());
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const volume = objects[0].volumes[0];
+      const res = await c.setVolumeType(volume.id, 'negative_volume');
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('last solid part');
+      const after = await c.getModelStructure();
+      expect(after.objects[0].volumes[0].type).toBe('model_part');
+    });
+
+    it('setVolumeType rejects an unknown type string', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const res = await c.setVolumeType(objects[0].volumes[0].id, 'not_a_type' as VolumeType);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('invalid volume type');
+    });
+
+    it('setObjectPrintable toggles the object gate and every instance', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      expect(objects[0].printable).toBe(true);
+      expect((await c.setObjectPrintable(objects[0].id, false)).ok).toBe(true);
+      const after = await c.getModelStructure();
+      expect(after.objects[0].printable).toBe(false);
+      expect(after.objects[0].instances.every((i) => i.printable === false)).toBe(true);
+    });
+
+    it('setInstancePrintable toggles a single instance only', async () => {
+      const c = createClient(async () => createMockModule({ instanceCount: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const [first, second] = objects[0].instances;
+      expect((await c.setInstancePrintable(second.id, false)).ok).toBe(true);
+      const after = await c.getModelStructure();
+      expect(after.objects[0].instances[0]).toMatchObject({ id: first.id, printable: true });
+      expect(after.objects[0].instances[1]).toMatchObject({ id: second.id, printable: false });
+    });
+
+    it('reports not-found for unknown IDs and guards blank names', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      const missing = 99999;
+      expect((await c.renameObject(missing, 'x')).error).toContain('object not found');
+      expect((await c.renameVolume(missing, 'x')).error).toContain('volume not found');
+      expect((await c.setInstancePrintable(missing, true)).error).toContain('instance not found');
+      expect((await c.renameObject((await c.getModelStructure()).objects[0].id, '')).error).toContain('name is required');
+    });
+
+    it('invalidates the slice result after a non-destructive mutation', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.slice({});
+      expect((await c.getSliceResult()).ok).toBe(true);
+      const { objects } = await c.getModelStructure();
+      await c.renameObject(objects[0].id, 'Renamed');
+      const after = await c.getSliceResult();
+      expect(after.ok).toBeFalsy();
+      expect(after.error).toContain('no slice result');
     });
   });
 

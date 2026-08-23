@@ -187,6 +187,78 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
         JSON.stringify(restoredAgain));
 }
 
+// 4d. Step 2: non-destructive metadata operations resolve by stable ObjectID.
+// The loaded cube is a single solid part, so set_volume_type must be rejected
+// by the last-solid-part guard (a positive type change with a multi-part object
+// is exercised by the mock-module contract tests). Names and printable state
+// are restored afterwards so the slice/export checks keep their fixture.
+{
+  const structure = callJson('orc_get_model_structure', [], []);
+  check('structure read before metadata ops', structure.ok === true && structure.objects?.length === 1,
+        JSON.stringify(structure));
+  if (structure.ok && structure.objects?.length === 1) {
+    const obj = structure.objects[0];
+    const vol = obj.volumes[0];
+    const inst = obj.instances[0];
+    const originalName = obj.name;
+    const originalVolName = vol.name;
+
+    const renamed = callJson('orc_rename_object', ['number', 'string'], [obj.id, 'Renamed Object']);
+    check('orc_rename_object ok', renamed.ok === true, JSON.stringify(renamed));
+    const afterRename = callJson('orc_get_model_structure', [], []);
+    check('object renames by stable ID',
+          afterRename.ok === true && afterRename.objects?.[0]?.name === 'Renamed Object',
+          JSON.stringify(afterRename.objects?.[0]?.name));
+
+    const renamedVol = callJson('orc_rename_volume', ['number', 'string'], [vol.id, 'Renamed Part']);
+    check('orc_rename_volume ok', renamedVol.ok === true, JSON.stringify(renamedVol));
+    const afterRenameVol = callJson('orc_get_model_structure', [], []);
+    check('volume renames by stable ID',
+          afterRenameVol.ok === true && afterRenameVol.objects?.[0]?.volumes?.[0]?.name === 'Renamed Part',
+          JSON.stringify(afterRenameVol.objects?.[0]?.volumes?.[0]?.name));
+
+    // Single solid part: turning it into a non-print volume is refused.
+    const badType = callJson('orc_set_volume_type', ['number', 'string'], [vol.id, 'negative_volume']);
+    check('last-solid-part guard rejects the type change',
+          !badType.ok && /last solid part/.test(badType.error ?? ''),
+          JSON.stringify(badType));
+    const afterBadType = callJson('orc_get_model_structure', [], []);
+    check('rejected type change leaves the part untouched',
+          afterBadType.ok === true && afterBadType.objects?.[0]?.volumes?.[0]?.type === 'model_part',
+          JSON.stringify(afterBadType.objects?.[0]?.volumes?.[0]?.type));
+
+    const unprintable = callJson('orc_set_object_printable', ['number', 'number'], [obj.id, 0]);
+    check('orc_set_object_printable(false) ok', unprintable.ok === true, JSON.stringify(unprintable));
+    const afterUnprintable = callJson('orc_get_model_structure', [], []);
+    check('object toggle flips the object gate and every instance',
+          afterUnprintable.ok === true && afterUnprintable.objects?.[0]?.printable === false
+          && afterUnprintable.objects?.[0]?.instances.every((i) => i.printable === false),
+          JSON.stringify(afterUnprintable.objects?.[0]));
+    const reprinted = callJson('orc_set_object_printable', ['number', 'number'], [obj.id, 1]);
+    check('orc_set_object_printable(true) restores the fixture', reprinted.ok === true, JSON.stringify(reprinted));
+
+    const instOff = callJson('orc_set_instance_printable', ['number', 'number'], [inst.id, 0]);
+    check('orc_set_instance_printable(false) ok', instOff.ok === true, JSON.stringify(instOff));
+    const afterInstOff = callJson('orc_get_model_structure', [], []);
+    check('instance toggle flips exactly the target instance',
+          afterInstOff.ok === true && afterInstOff.objects?.[0]?.instances?.[0]?.printable === false,
+          JSON.stringify(afterInstOff.objects?.[0]?.instances?.[0]));
+    const instOn = callJson('orc_set_instance_printable', ['number', 'number'], [inst.id, 1]);
+    check('orc_set_instance_printable(true) restores the fixture', instOn.ok === true, JSON.stringify(instOn));
+
+    const badObject = callJson('orc_rename_object', ['number', 'string'], [999999999, 'nope']);
+    check('rename rejects an unknown object ID', !badObject.ok && /object not found/.test(badObject.error ?? ''),
+          JSON.stringify(badObject));
+    const badTypeStr = callJson('orc_set_volume_type', ['number', 'string'], [vol.id, 'not_a_type']);
+    check('set type rejects an unknown type string', !badTypeStr.ok && /invalid volume type/.test(badTypeStr.error ?? ''),
+          JSON.stringify(badTypeStr));
+
+    // Restore names so later slice/export checks are unaffected.
+    callJson('orc_rename_object', ['number', 'string'], [obj.id, originalName]);
+    callJson('orc_rename_volume', ['number', 'string'], [vol.id, originalVolName]);
+  }
+}
+
 // Copy [ptr, ptr+len) out of the heap and free it — mirrors the client's
 // heap.ts readBytes contract. wasm64: the module exports ONLY HEAPU8
 // (EXPORTED_RUNTIME_METHODS), so Module.HEAPF32/HEAPU32 are undefined — the

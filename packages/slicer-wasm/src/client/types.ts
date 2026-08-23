@@ -149,6 +149,12 @@ export interface DeleteObjectsResult {
   error?: string;
 }
 
+/** Simple success/error payload returned by non-destructive metadata mutations. */
+export interface MutationResult {
+  ok: boolean;
+  error?: string;
+}
+
 /** Volume kinds as reported by the bridge structure read (spec §9.1). */
 export type VolumeType =
   | 'model_part'
@@ -264,6 +270,16 @@ export interface SlicerClient {
   /** Delete whole objects by their original indices (as reported by
    *  getModelMesh); indices shift after removal, so pass all at once. */
   deleteObjects(indices: number[]): Promise<DeleteObjectsResult>;
+  /** Rename an object by its stable ObjectID. */
+  renameObject(objectId: number, name: string): Promise<MutationResult>;
+  /** Rename a specific part (volume) by its stable ObjectID. */
+  renameVolume(volumeId: number, name: string): Promise<MutationResult>;
+  /** Change a part's type among the spec's VolumeType strings. */
+  setVolumeType(volumeId: number, type: VolumeType): Promise<MutationResult>;
+  /** Toggle the object-level printable gate and every one of its instances. */
+  setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult>;
+  /** Toggle a single instance's printable state by its stable ObjectID. */
+  setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult>;
   /** Select a preset by name; printer selection re-runs compatibility so
    *  print/filament follow the active machine. Reports all three selections. */
   selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<SelectPresetResult>;
