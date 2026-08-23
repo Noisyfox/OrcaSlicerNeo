@@ -1,34 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { usePlatform } from '@orca/platform-contract';
-import type { VolumeType } from '@slicer/client';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
 import { useObjectListStore } from './useObjectListStore';
 import { projectSelection } from './projection';
-import {
-  changePartTypeInList,
-  renameObjectInList,
-  renamePartInList,
-  setInstancePrintableInList,
-  setObjectPrintableInList,
-} from './actions';
-import {
-  assembleObjectsInList,
-  cloneObjectsInList,
-  deleteObjectsInList,
-  deleteVolumeInList,
-  separateInstancesInList,
-  reorderObjectsInList,
-  reorderVolumesInList,
-  splitObjectToObjectsInList,
-  splitVolumeToPartsInList,
-} from './structuralActions';
+import { renameObjectInList, renamePartInList } from './actions';
+import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
+import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-
-const VOLUME_TYPES: VolumeType[] = [
-  'model_part', 'negative_volume', 'parameter_modifier',
-  'support_blocker', 'support_enforcer',
-];
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 
@@ -36,9 +15,9 @@ type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: numbe
  * The Object List tree (spec §4/§6): objects, their parts, and an Instances
  * group for multi-instance objects, rendered above the SettingsPanel. The
  * viewport SceneInteractionController is the single source of truth for
- * selection; this component is a projection + command surface. Step 7 wires the
- * non-destructive metadata actions (rename, part type, printable) through the
- * bridge via the unified post-mutation refresh in actions.ts.
+ * selection; this component is a projection + command surface. Row actions
+ * (rename, type, printable, delete, clone, split, assemble, separate) live in a
+ * right-click context menu, mirroring the scene context menu.
  */
 export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const platform = usePlatform();
@@ -55,8 +34,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const clearStore = useObjectListStore((s) => s.clear);
   const [renaming, setRenaming] = useState<RenamingTarget>(null);
   const [draftName, setDraftName] = useState('');
+  const [ctx, setCtx] = useState<{ target: ObjectListCtxTarget; point: { x: number; y: number } } | null>(null);
 
-  // Read the structure when the model loads or a revision bump occurs.
   useEffect(() => {
     let disposed = false;
     if (!modelLoaded) {
@@ -76,8 +55,6 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     return () => { disposed = true; };
   }, [modelLoaded, modelRevision, platform.runtime, setStructure, setLoaded, clearStore]);
 
-  // Two-way sync: recompute the selection projection whenever the controller
-  // emits a selection change. The controller stays the source of truth.
   useEffect(() => {
     if (!sceneInteraction) return;
     const update = () => setProjection(
@@ -86,6 +63,24 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     update();
     return sceneInteraction.subscribe(update);
   }, [sceneInteraction, structure, setProjection]);
+
+  useEffect(() => {
+    if (!ctx) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const el = event.target as Node;
+      if (el instanceof Element && el.closest('[data-testid="objectlist-ctx-menu"]')) return;
+      setCtx(null);
+    };
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setCtx(null); };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => { document.removeEventListener('pointerdown', onPointerDown, true); document.removeEventListener('keydown', onKeyDown); };
+  }, [ctx]);
+
+  function openContextMenu(event: ReactMouseEvent, target: ObjectListCtxTarget) {
+    event.preventDefault();
+    setCtx({ target, point: { x: event.clientX, y: event.clientY } });
+  }
 
   async function commitRename() {
     if (!renaming) return;
@@ -97,25 +92,22 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     setRenaming(null);
   }
 
+  const startRename = (kind: 'object' | 'part', id: number, currentName: string) => {
+    setRenaming({ kind, id });
+    setDraftName(currentName);
+  };
+
   if (!modelLoaded || !loaded) {
     return (
-      <div data-testid="object-list" className="px-2 pb-2 text-xs text-muted-foreground">
+      <div data-testid="object-list" onContextMenu={(e) => openContextMenu(e, { kind: 'list' })} className="px-2 pb-2 text-xs text-muted-foreground">
         No objects
       </div>
     );
   }
 
   return (
-    <div data-testid="object-list" className="max-h-56 overflow-y-auto border-b px-2 py-2">
-      <Button
-        size="xs"
-        variant="outline"
-        data-testid="objectlist-assemble"
-        className="mb-1 w-full"
-        onClick={() => void assembleObjectsInList(platform.runtime, structure.map((o) => o.id))}
-      >
-        Assemble all
-      </Button>
+    <div data-testid="object-list" className="max-h-56 overflow-y-auto border-b px-2 py-2"
+      onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}>
       {structure.map((obj) => {
         const objectSelected = projection.objectIds.has(obj.id);
         const isExpanded = !!expanded[obj.id];
@@ -137,91 +129,42 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                 void reorderObjectsInList(platform.runtime, dragged.id, obj.id);
               }
             }}
+            onContextMenu={(e) => openContextMenu(e, { kind: 'object', object: obj })}
           >
-            <div className="flex items-center gap-0.5">
-              <Button
-                variant="ghost"
-                size="xs"
-                className="flex-1 justify-start"
-                data-state={objectSelected ? 'selected' : 'idle'}
-                onClick={() => sceneInteraction?.selectComposite(obj.index)}
+            <Button
+              variant="ghost"
+              size="xs"
+              className="w-full justify-start"
+              data-state={objectSelected ? 'selected' : 'idle'}
+              onClick={() => sceneInteraction?.selectComposite(obj.index)}
+            >
+              <span
+                aria-hidden
+                data-testid={`object-expand-${obj.id}`}
+                className="mr-1 text-xs"
+                onClick={(e) => { e.stopPropagation(); toggleExpanded(obj.id); }}
               >
-                <span
-                  aria-hidden
-                  data-testid={`object-expand-${obj.id}`}
-                  className="mr-1 text-xs"
-                  onClick={(e) => { e.stopPropagation(); toggleExpanded(obj.id); }}
-                >
-                  {isExpanded ? '▾' : '▸'}
-                </span>
-                {renaming?.kind === 'object' && renaming.id === obj.id ? (
-                  <input
-                    data-testid={`object-name-input-${obj.id}`}
-                    value={draftName}
-                    autoFocus
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => setDraftName(e.target.value)}
-                    onBlur={commitRename}
-                    onKeyDown={(e) => { if (e.key === 'Enter') void commitRename(); }}
-                    className="w-32 rounded border bg-background px-1 text-xs"
-                  />
-                ) : obj.name}
-              </Button>
-              <button
-                data-testid={`object-printable-${obj.id}`}
-                aria-pressed={obj.printable}
-                onClick={() => void setObjectPrintableInList(platform.runtime, obj.id, !obj.printable)}
-                className="rounded border px-1 text-[0.6rem]"
-                title={obj.printable ? 'Printable' : 'Unprintable'}
-              >
-                {obj.printable ? 'P' : 'U'}
-              </button>
-              <button
-                data-testid={`object-rename-${obj.id}`}
-                onClick={() => { setRenaming({ kind: 'object', id: obj.id }); setDraftName(obj.name); }}
-                className="rounded border px-1 text-[0.6rem]"
-                title="Rename"
-              >
-                ✎
-              </button>
-              <button
-                data-testid={`object-delete-${obj.id}`}
-                onClick={() => void deleteObjectsInList(platform.runtime, [obj.id])}
-                className="rounded border px-1 text-[0.6rem]"
-                title="Delete"
-              >
-                ⌫
-              </button>
-              <button
-                data-testid={`object-clone-${obj.id}`}
-                onClick={() => void cloneObjectsInList(platform.runtime, [obj.id])}
-                className="rounded border px-1 text-[0.6rem]"
-                title="Clone"
-              >
-                ⧉
-              </button>
-              <button
-                data-testid={`object-split-objects-${obj.id}`}
-                onClick={() => void splitObjectToObjectsInList(platform.runtime, obj.id)}
-                className="rounded border px-1 text-[0.6rem]"
-                title="Split to objects"
-              >
-                ⤢
-              </button>
-              <button
-                data-testid={`object-separate-${obj.id}`}
-                onClick={() => void separateInstancesInList(platform.runtime, obj.id, obj.instances.map((i) => i.id))}
-                className="rounded border px-1 text-[0.6rem]"
-                title="Separate instances"
-              >
-                ⊞
-              </button>
-            </div>
+                {isExpanded ? '▾' : '▸'}
+              </span>
+              {renaming?.kind === 'object' && renaming.id === obj.id ? (
+                <input
+                  data-testid={`object-name-input-${obj.id}`}
+                  value={draftName}
+                  autoFocus
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setDraftName(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void commitRename(); }}
+                  className="w-32 rounded border bg-background px-1 text-xs"
+                />
+              ) : obj.name}
+            </Button>
             {isExpanded && (
               <div className="ml-4">
                 {obj.volumes.map((vol) => (
                   <div
                     key={vol.id}
+                    data-testid={`part-${vol.id}`}
                     className="flex items-center gap-0.5"
                     draggable
                     onDragStart={(e) => {
@@ -237,6 +180,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         void reorderVolumesInList(platform.runtime, obj.id, dragged.id, vol.id);
                       }
                     }}
+                    onContextMenu={(e) => { e.stopPropagation(); openContextMenu(e, { kind: 'part', object: obj, volume: vol }); }}
                   >
                     <Button
                       variant="ghost"
@@ -258,45 +202,18 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         />
                       ) : vol.name}
                     </Button>
-                    <select
-                      data-testid={`part-type-${vol.id}`}
-                      value={vol.type}
-                      onChange={(e) => void changePartTypeInList(platform.runtime, vol.id, e.target.value as VolumeType)}
-                      className="h-5 rounded border bg-background px-0.5 text-[0.6rem]"
-                    >
-                      {VOLUME_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                    <button
-                      data-testid={`part-rename-${vol.id}`}
-                      onClick={() => { setRenaming({ kind: 'part', id: vol.id }); setDraftName(vol.name); }}
-                      className="rounded border px-1 text-[0.6rem]"
-                      title="Rename"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      data-testid={`part-split-${vol.id}`}
-                      onClick={() => void splitVolumeToPartsInList(platform.runtime, vol.id)}
-                      className="rounded border px-1 text-[0.6rem]"
-                      title="Split to parts"
-                    >
-                      ⤢
-                    </button>
-                    <button
-                      data-testid={`part-delete-${vol.id}`}
-                      onClick={() => void deleteVolumeInList(platform.runtime, vol.id)}
-                      className="rounded border px-1 text-[0.6rem]"
-                      title="Delete part"
-                    >
-                      ⌫
-                    </button>
                   </div>
                 ))}
                 {obj.instanceCount > 1 && (
                   <div data-testid={`instances-${obj.id}`} className="border-l pl-2">
                     <div className="px-2 py-1 text-[0.65rem] text-muted-foreground">Instances</div>
                     {obj.instances.map((inst) => (
-                      <div key={inst.id} className="flex items-center gap-0.5">
+                      <div
+                        key={inst.id}
+                        data-testid={`instance-${inst.id}`}
+                        className="flex items-center gap-0.5"
+                        onContextMenu={(e) => { e.stopPropagation(); openContextMenu(e, { kind: 'instance', object: obj, instance: inst }); }}
+                      >
                         <Button
                           size="xs"
                           variant="ghost"
@@ -306,15 +223,6 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         >
                           {`Instance ${inst.index + 1}`}
                         </Button>
-                        <button
-                          data-testid={`instance-printable-${inst.id}`}
-                          aria-pressed={inst.printable}
-                          onClick={() => void setInstancePrintableInList(platform.runtime, inst.id, !inst.printable)}
-                          className="rounded border px-1 text-[0.6rem]"
-                          title={inst.printable ? 'Printable' : 'Unprintable'}
-                        >
-                          {inst.printable ? 'P' : 'U'}
-                        </button>
                       </div>
                     ))}
                   </div>
@@ -324,6 +232,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
           </div>
         );
       })}
+      {ctx && (
+        <ObjectListContextMenu target={ctx.target} point={ctx.point} onClose={() => setCtx(null)} onRename={startRename} />
+      )}
     </div>
   );
 }

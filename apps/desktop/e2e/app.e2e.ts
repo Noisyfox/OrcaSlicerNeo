@@ -329,18 +329,22 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     const objectCount = () => list.locator('[data-testid^="object-expand-"]').count();
+    const objectRow = () => list.locator('div[data-testid^="object-"]').first();
 
-    // Clone produces a second object row.
-    await list.locator('[data-testid^="object-clone-"]').first().click();
+    // Clone via the row context menu.
+    await objectRow().click({ button: 'right' });
+    await list.getByTestId('objectlist-clone').click();
     await expect.poll(objectCount).toBeGreaterThan(1);
 
-    // Assemble all into one multipart object.
+    // Assemble all via the row context menu.
+    await objectRow().click({ button: 'right' });
     await list.getByTestId('objectlist-assemble').click();
     await expect(list).toContainText('Assembly');
     await expect.poll(objectCount).toBe(1);
 
-    // Delete empties the list.
-    await list.locator('[data-testid^="object-delete-"]').first().click();
+    // Delete the single object via the row context menu.
+    await objectRow().click({ button: 'right' });
+    await list.getByTestId('objectlist-delete').click();
     await expect(list).toContainText('No objects');
   } finally {
     await app.close();
@@ -348,7 +352,7 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
 });
 
 // Object list metadata actions (Step 7): rename, part-type control, printable
-// toggle, then a successful slice. Mock-only (REAL returns after the smoke).
+// toggle, then a successful slice — all through the row context menu.
 test('object list: rename, printable, and slice (mock)', async () => {
   const { app } = await launchApp();
   try {
@@ -362,28 +366,37 @@ test('object list: rename, printable, and slice (mock)', async () => {
 
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
+    const objectRow = list.locator('div[data-testid^="object-"]').first();
 
-    // Rename the object via the inline input.
-    await list.locator('[data-testid^="object-rename-"]').first().click();
+    // Rename via the row context menu (the menu closes and an inline input appears).
+    await objectRow.click({ button: 'right' });
+    await list.getByTestId('objectlist-rename').click();
     const nameInput = list.locator('[data-testid^="object-name-input-"]').first();
     await nameInput.fill('My Cube');
     await nameInput.press('Enter');
     await expect(list).toContainText('My Cube');
 
-    // Expand the object so its part rows are visible.
+    // Expand to reveal part rows.
     await list.locator('[data-testid^="object-expand-"]').first().click();
 
-    // The part-type control is wired (a successful multi-part change is covered
-    // by the unit tests + live harness; the mock cube is a single solid part).
-    await expect(list.locator('[data-testid^="part-type-"]').first()).toBeVisible();
+    // The part row's context menu carries the type-change control (a successful
+    // multi-part change is covered by the unit tests + live harness; the mock
+    // cube is a single solid part).
+    const partRow = list.locator('[data-testid^="part-"]').first();
+    await partRow.click({ button: 'right' });
+    await expect(list.getByTestId('objectlist-split-parts')).toBeVisible();
+    await expect(list.locator('[data-testid^="objectlist-type-"]').first()).toBeVisible();
+    await page.keyboard.press('Escape');
 
-    // Toggle the object printable off, then back on.
-    const printable = list.locator('[data-testid^="object-printable-"]').first();
-    await expect(printable).toHaveAttribute('aria-pressed', 'true');
-    await printable.click();
-    await expect(printable).toHaveAttribute('aria-pressed', 'false');
-    await printable.click();
-    await expect(printable).toHaveAttribute('aria-pressed', 'true');
+    // Toggle the object printable off, then back on, via the context menu.
+    // Click near the row's top-left (the object name button) — once expanded,
+    // the row box spans the part rows, so its center would right-click a part.
+    await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
+    await list.getByTestId('objectlist-printable').click();
+    await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
+    await expect(list.getByTestId('objectlist-printable')).toHaveText('Mark printable');
+    await list.getByTestId('objectlist-printable').click();
+    await expect(list.getByTestId('objectlist-ctx-menu')).toBeHidden();
 
     // The metadata edits invalidate any prior slice; a fresh slice succeeds.
     await page.getByTestId('btn-slice').click();
