@@ -22,21 +22,46 @@ const structure: ModelObjectStructure[] = [
 ];
 
 describe('projectSelection', () => {
-  it('projects a selected instance onto its object/volume/instance IDs', () => {
+  it('highlights only a part row when a single part is selected', () => {
     const p = projectSelection(structure, [{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }]);
-    expect([...p.objectIds]).toEqual([1]);
+    expect([...p.objectIds]).toEqual([]);
     expect([...p.volumeIds]).toEqual([10]);
+    expect([...p.instanceIds]).toEqual([]);
+  });
+
+  it('highlights only the object rows when whole objects are selected', () => {
+    const p = projectSelection(structure, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 },
+      { objectIdx: 0, volumeIdx: 1, instanceIdx: 0 },
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 1 },
+      { objectIdx: 0, volumeIdx: 1, instanceIdx: 1 },
+    ]);
+    expect([...p.objectIds]).toEqual([1]);
+    expect([...p.volumeIds]).toEqual([]);
+    expect([...p.instanceIds]).toEqual([]);
+  });
+
+  it('highlights only the instance rows when a whole instance is selected', () => {
+    const p = projectSelection(structure, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 },
+      { objectIdx: 0, volumeIdx: 1, instanceIdx: 0 },
+    ]);
+    expect([...p.objectIds]).toEqual([]);
+    expect([...p.volumeIds]).toEqual([]);
     expect([...p.instanceIds]).toEqual([20]);
   });
 
-  it('projects several selected volumes', () => {
+  it('highlights the object row for each fully-selected object in a multi-object selection', () => {
     const p = projectSelection(structure, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 },
+      { objectIdx: 0, volumeIdx: 1, instanceIdx: 0 },
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 1 },
       { objectIdx: 0, volumeIdx: 1, instanceIdx: 1 },
       { objectIdx: 1, volumeIdx: 0, instanceIdx: 0 },
     ]);
-    expect([...p.objectIds].sort()).toEqual([1, 2]);
-    expect([...p.volumeIds].sort()).toEqual([11, 12]);
-    expect([...p.instanceIds].sort()).toEqual([21, 22]);
+    expect([...p.objectIds].sort((a, b) => a - b)).toEqual([1, 2]);
+    expect([...p.volumeIds]).toEqual([]);
+    expect([...p.instanceIds]).toEqual([]);
   });
 
   it('ignores indices that are out of range for the current structure', () => {
@@ -49,7 +74,7 @@ describe('projectSelection', () => {
   it('returns a stable selection projection after a reload', () => {
     const before = projectSelection(structure, [{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }]);
     const after = projectSelection(structure, [{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }]);
-    expect([...before.objectIds]).toEqual([...after.objectIds]);
+    expect([...before.volumeIds]).toEqual([...after.volumeIds]);
   });
 });
 

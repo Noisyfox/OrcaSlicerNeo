@@ -163,7 +163,20 @@ Consequently the renderer `Selection`:
 - uses `Volume` mode for part rows, resolved against a single instance anchor,
 - keeps collection multi-select (Ctrl toggle / Shift range) within a homogeneous
   type when the equivalent Orca selection would be valid, and refuses an invalid
-  mix.
+  mix. `classifyVolumeIds()` mirrors Orca's `update_type()`: a multi-object
+  selection is `object` only when **every touched object is fully selected**
+  (`sum(volumes*instances) == selected`); otherwise it is `Mixed` and refused
+  (e.g. a full instance of a multi-instance object plus another object).
+
+ObjectList highlighting is a projection of the viewport selection to the
+**most-relative** row per selection type (spec §6): a whole object highlights its
+object row (even when the object has several instances — see the divergence
+note), a whole instance highlights its instance row, and a partial selection of
+one instance highlights the selected volume rows only. See
+`doc/2026-08-23-object-list-highlight-orca.md` for the Orca cross-check and the
+one deliberate divergence (a fully-selected multi-instance object is highlighted
+as its object row, whereas Orca's `update_selections()` would otherwise list its
+instance rows).
 
 Instance rows show a printable toggle. Object rows show an aggregate printable
 state that toggles every instance of that object. `auto_drop` is not exposed in

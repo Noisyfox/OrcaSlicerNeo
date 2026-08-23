@@ -24,11 +24,17 @@ exclusions; this implements them.
   object (which would be Orca's `Mixed`, invalid for edits). Ctrl+click still
   toggles a single row; the mode is derived from content (full object/instance =
   Instance; parts = Volume).
+- `classifyVolumeIds()` mirrors Orca's `update_type()` exactly: a multi-object
+  selection is `object` only when every touched object is fully selected
+  (`sum(volumes*instances) == selected`), otherwise it is `Mixed` and refused —
+  see `doc/2026-08-23-object-list-highlight-orca.md`.
 - `buildSelectableRows` rows now carry a `kind` and part rows default to
   instance 0; the ObjectList re-anchors them to the focused instance.
 
 ## Verification
 
-- `@orca/slicer-app` test: 130 pass (updated part/volume assertions to
-  single-instance anchoring; added row-kind assertions); typecheck clean.
-- Desktop mock e2e: 15 passed, 1 skipped (Ctrl/Shift multi-select, part flows).
+- `@orca/slicer-app` test: 135 pass (updated part/volume assertions to
+  single-instance anchoring; added row-kind and multi-object `Mixed`
+  assertions); typecheck clean.
+- Desktop mock e2e: 16 passed, 1 skipped (Ctrl/Shift multi-select, part flows;
+  slice-error needs a rejecting-model fixture).

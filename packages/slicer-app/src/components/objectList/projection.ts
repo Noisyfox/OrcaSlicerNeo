@@ -72,14 +72,53 @@ export function projectSelection(
   const objectIds = new Set<number>();
   const volumeIds = new Set<number>();
   const instanceIds = new Set<number>();
+  if (selected.length === 0) return { objectIds, volumeIds, instanceIds };
+
+  const objIdByIndex = new Map<number, number>();
+  const volIdByIndex = new Map<string, number>();
+  const instIdByIndex = new Map<string, number>();
+  const objTotal = new Map<number, number>();
+  const objSelected = new Map<number, number>();
+  const instTotal = new Map<string, number>();
+  const instSelected = new Map<string, number>();
+  for (const obj of structure) {
+    objIdByIndex.set(obj.index, obj.id);
+    obj.volumes.forEach((vol, vi) => volIdByIndex.set(`${obj.index}:${vi}`, vol.id));
+    obj.instances.forEach((inst, ii) => instIdByIndex.set(`${obj.index}:${ii}`, inst.id));
+    objTotal.set(obj.index, obj.volumes.length * obj.instances.length);
+    objSelected.set(obj.index, selected.filter((s) => s.objectIdx === obj.index).length);
+    for (const inst of obj.instances) {
+      const key = `${obj.index}:${inst.index}`;
+      instTotal.set(key, obj.volumes.length);
+      instSelected.set(key, selected.filter((s) => s.objectIdx === obj.index && s.instanceIdx === inst.index).length);
+    }
+  }
+
+  // Most-relative level highlight: if whole objects are selected and nothing is
+  // partial, highlight the object rows; else whole instances -> instance rows;
+  // else only the selected volumes of a partially-selected instance.
+  const touchedObjects = [...objSelected.entries()].filter(([, sel]) => sel > 0);
+  const allObjectsFull = touchedObjects.length > 0 && touchedObjects.every(([idx, sel]) => sel === objTotal.get(idx));
+  const anyPartialInstance = [...instSelected.entries()].some(([key, sel]) => sel > 0 && sel < (instTotal.get(key) ?? sel));
+
+  if (allObjectsFull && !anyPartialInstance) {
+    for (const [idx] of touchedObjects) objectIds.add(objIdByIndex.get(idx)!);
+    return { objectIds, volumeIds, instanceIds };
+  }
+  const touchedInstances = [...instSelected.entries()].filter(([, sel]) => sel > 0);
+  if (touchedInstances.length > 0 && touchedInstances.every(([key, sel]) => sel === (instTotal.get(key) ?? sel))) {
+    for (const [key] of touchedInstances) instanceIds.add(instIdByIndex.get(key)!);
+    return { objectIds, volumeIds, instanceIds };
+  }
+  // Partial instance(s): highlight the selected volumes of those partial instances.
   for (const sel of selected) {
-    const obj = structure[sel.objectIdx];
-    if (!obj) continue;
-    objectIds.add(obj.id);
-    const vol = obj.volumes[sel.volumeIdx];
-    if (vol) volumeIds.add(vol.id);
-    const inst = obj.instances[sel.instanceIdx];
-    if (inst) instanceIds.add(inst.id);
+    const key = `${sel.objectIdx}:${sel.instanceIdx}`;
+    const selCount = instSelected.get(key) ?? 0;
+    const total = instTotal.get(key) ?? 0;
+    if (selCount > 0 && selCount < total) {
+      const vid = volIdByIndex.get(`${sel.objectIdx}:${sel.volumeIdx}`);
+      if (vid !== undefined) volumeIds.add(vid);
+    }
   }
   return { objectIds, volumeIds, instanceIds };
 }
