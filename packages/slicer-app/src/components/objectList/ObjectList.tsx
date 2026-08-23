@@ -137,7 +137,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             <Button
               variant="ghost"
               size="xs"
-              className="w-full justify-start"
+              className={`w-full justify-start ${objectSelected ? 'bg-accent text-accent-foreground' : ''}`}
               data-state={objectSelected ? 'selected' : 'idle'}
               onClick={() => sceneInteraction?.selectComposite(obj.index)}
             >
@@ -188,7 +188,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                     <Button
                       variant="ghost"
                       size="xs"
-                      className="flex-1 justify-start pl-5"
+                      className={`flex-1 justify-start pl-5 ${projection.volumeIds.has(vol.id) ? 'bg-accent text-accent-foreground' : ''}`}
                       data-state={projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
                       onClick={() => sceneInteraction?.selectComposite(obj.index, vol.index)}
                     >
@@ -229,7 +229,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         <Button
                           size="xs"
                           variant="ghost"
-                          className="flex-1 justify-start pl-5"
+                          className={`flex-1 justify-start pl-5 ${projection.instanceIds.has(inst.id) ? 'bg-accent text-accent-foreground' : ''}`}
                           data-state={projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
                           onClick={() => sceneInteraction?.selectComposite(obj.index, undefined, inst.index)}
                         >
