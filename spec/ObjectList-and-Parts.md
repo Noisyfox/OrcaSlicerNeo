@@ -45,6 +45,7 @@ Alternative rejected options:
 - Split to Objects.
 - Assemble selected objects into a multipart object (`ObjectList::merge(true)`
   semantics, upstream menu “Assemble”).
+- Reorder objects in the list (`orc_reorder_objects`).
 
 ### 3.2 Included part/volume operations
 
@@ -55,6 +56,7 @@ Alternative rejected options:
   `PARAMETER_MODIFIER`, `SUPPORT_BLOCKER`, and `SUPPORT_ENFORCER`, with the
   upstream last-solid-part guard.
 - Split a part into parts (`ModelVolume::split`).
+- Reorder parts inside an object (`orc_reorder_volumes`).
 
 ### 3.3 Included instance operations
 
@@ -75,7 +77,6 @@ Alternative rejected options:
 - Undo/redo.
 - Painting, layer ranges, brim points, cut connectors.
 - Extruder/color editing panels.
-- ObjectList drag reorder: pending clarification (see Open Questions).
 
 ## 4. Object List Tree Shape
 
@@ -168,6 +169,8 @@ The final bridge API list is still being clarified. The intended shape is:
 - `orc_merge_objects_to_multipart(ids)`
 - `orc_instances_to_separate_objects(...)`
 - `orc_set_instance_printable(...)`
+- `orc_reorder_objects(fromIndex, toIndex)`
+- `orc_reorder_volumes(objectId, fromVolumeId, toVolumeId)`
 
 Existing index-based transform APIs remain unchanged unless a later decision
 extends them.
@@ -177,7 +180,6 @@ extends them.
 The following items are still being clarified before this document moves from
 Draft to Approved:
 
-- Whether ObjectList drag reorder is included in the first version.
 - Exact bridge function signatures and error contract.
 - UI placement of ObjectList relative to SettingsPanel.
 - Per-instance row affordances for `printable` and `auto_drop`.
