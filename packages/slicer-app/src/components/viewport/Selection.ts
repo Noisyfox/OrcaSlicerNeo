@@ -159,20 +159,30 @@ export class Selection {
 
   private volumesForMode<T extends SelectableVolume>(hit: T, collection: readonly T[], mode: SelectionMode): T[] {
     if (mode === 'object') return collection.filter((v) => v.buffer.objectIdx === hit.buffer.objectIdx);
+    // Orca anchors a part (volume) selection to a single instance — the one that
+    // was clicked — never across all instances of the object.
     if (mode === 'volume') return collection.filter(
-      (v) => v.buffer.objectIdx === hit.buffer.objectIdx && v.buffer.volumeIdx === hit.buffer.volumeIdx,
+      (v) => v.buffer.objectIdx === hit.buffer.objectIdx
+        && v.buffer.volumeIdx === hit.buffer.volumeIdx
+        && v.buffer.instanceIdx === hit.buffer.instanceIdx,
     );
     const key = instanceKeyOf(hit);
     return collection.filter((v) => instanceKeyOf(v) === key);
   }
 
   private volumesForTarget<T extends SelectableVolume>(collection: readonly T[], target: { objectIdx: number; volumeIdx?: number; instanceIdx?: number }): T[] {
-    if (target.instanceIdx !== undefined) {
-      return collection.filter((v) => v.buffer.objectIdx === target.objectIdx && v.buffer.instanceIdx === target.instanceIdx);
-    }
-    if (target.volumeIdx !== undefined) {
-      return collection.filter((v) => v.buffer.objectIdx === target.objectIdx && v.buffer.volumeIdx === target.volumeIdx);
-    }
+    // A part target carries a volumeIdx + the single instance it belongs to
+    // (Orca's part selection is anchored to one instance).
+    if (target.volumeIdx !== undefined)
+      return collection.filter(
+        (v) => v.buffer.objectIdx === target.objectIdx
+          && v.buffer.volumeIdx === target.volumeIdx
+          && v.buffer.instanceIdx === (target.instanceIdx ?? 0),
+      );
+    if (target.instanceIdx !== undefined)
+      return collection.filter(
+        (v) => v.buffer.objectIdx === target.objectIdx && v.buffer.instanceIdx === target.instanceIdx,
+      );
     return collection.filter((v) => v.buffer.objectIdx === target.objectIdx);
   }
 }

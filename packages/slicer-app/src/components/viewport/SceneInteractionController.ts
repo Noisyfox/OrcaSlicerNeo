@@ -184,6 +184,19 @@ export class SceneInteractionController {
     return false;
   }
 
+  /** The single instance of `objectIdx` the current selection is focused on, or 0
+   *  when the selection is empty or spans multiple instances. This anchors a
+   *  ObjectList part-row selection to one instance (Orca's `get_instance_idx()`
+   *  behaviour for part selections). */
+  getSelectionInstanceAnchor(objectIdx: number): number {
+    const selected = this.selectedVolumes();
+    if (selected.length === 0) return 0;
+    const instance = selected[0].buffer.instanceIdx;
+    for (const volume of selected)
+      if (volume.buffer.objectIdx !== objectIdx || volume.buffer.instanceIdx !== instance) return 0;
+    return instance;
+  }
+
   selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
     // Alt modifies the click to select the individual part (volume), not the
     // whole instance — the workspace's per-click override of the selection mode.

@@ -101,26 +101,51 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     setDraftName(currentName);
   };
 
+  /** The volume IDs a row selects, re-anchoring a part row to the selection's
+   *  single instance (Orca: a part is never selected across all instances). */
+  function rowVolumeIds(row: SelectableRow, anchor: number): string[] {
+    if (row.kind === 'part') return [`${row.target.objectIdx}:${row.target.volumeIdx}:${anchor}`];
+    return row.volumeIds;
+  }
+
+  /** A multi-select range is valid (type-homogeneous, like Orca) only when all
+   *  rows share the same kind, and part rows all belong to one object (so they
+   *  stay within one instance's parts — MultipleVolume). Anything else is Orca's
+   *  `Mixed` and must be refused. */
+  function isHomogeneousRange(rows: SelectableRow[]): boolean {
+    const kinds = new Set(rows.map((r) => r.kind));
+    if (kinds.size !== 1) return false;
+    if (rows[0].kind === 'part')
+      return new Set(rows.map((r) => r.target.objectIdx)).size === 1;
+    return true;
+  }
+
   /** Row click with multi-select: Ctrl/Cmd toggles the row; Shift selects a
    *  contiguous range from the previous (non-shift) selection to this row. */
   function handleRowClick(row: SelectableRow, ctrl: boolean, shift: boolean) {
     if (!sceneInteraction) return;
+    const anchor = sceneInteraction.getSelectionInstanceAnchor(row.target.objectIdx);
     if (shift && lastSelectedKey) {
       const lastIndex = flatRows.findIndex((r) => r.key === lastSelectedKey);
       const rowIndex = flatRows.findIndex((r) => r.key === row.key);
       if (lastIndex >= 0 && rowIndex >= 0) {
         const lo = Math.min(lastIndex, rowIndex);
         const hi = Math.max(lastIndex, rowIndex);
-        const ids = flatRows.slice(lo, hi + 1).flatMap((r) => r.volumeIds);
-        sceneInteraction.selectVolumeIds(ids, ctrl);
-        // Keep the anchor so a repeated Shift extends from the same start.
-        return;
+        const range = flatRows.slice(lo, hi + 1);
+        if (isHomogeneousRange(range)) {
+          const ids = range.flatMap((r) => rowVolumeIds(r, anchor));
+          sceneInteraction.selectVolumeIds(ids, ctrl);
+          // Keep the anchor so a repeated Shift extends from the same start.
+          return;
+        }
+        // A mixed-kind range is invalid (Orca Mixed) — fall through to a plain
+        // single-row selection below.
       }
     }
     sceneInteraction.selectComposite(
       row.target.objectIdx,
       row.target.volumeIdx,
-      row.target.instanceIdx,
+      row.kind === 'part' ? anchor : row.target.instanceIdx,
       ctrl,
     );
     setLastSelectedKey(row.key);

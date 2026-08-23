@@ -94,10 +94,10 @@ describe('Selection expansion modes', () => {
     expect([...selection.ids]).toEqual(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
   });
 
-  it('volume mode expands a hit to every instance of that volume', () => {
+  it('volume mode anchors the part to the clicked instance (Orca)', () => {
     const selection = new Selection();
     expect(selection.replaceFromHit(collection[1], collection, 'volume')).toBe(true);
-    expect([...selection.ids]).toEqual(['0:1:0', '0:1:1']);
+    expect([...selection.ids]).toEqual(['0:1:0']);
   });
 
   it('toggleFromHit respects the expansion mode', () => {
@@ -115,7 +115,8 @@ describe('Selection expansion modes', () => {
     expect([...selection.ids]).toEqual(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
 
     expect(selection.replaceComposite(collection, { objectIdx: 0, volumeIdx: 1 })).toBe(true);
-    expect([...selection.ids]).toEqual(['0:1:0', '0:1:1']);
+    // A part target is anchored to one instance (default 0 when not given).
+    expect([...selection.ids]).toEqual(['0:1:0']);
 
     expect(selection.replaceComposite(collection, { objectIdx: 0, instanceIdx: 0 })).toBe(true);
     expect([...selection.ids]).toEqual(['0:0:0', '0:1:0']);

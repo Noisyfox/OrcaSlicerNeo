@@ -77,7 +77,8 @@ describe('SceneInteractionController', () => {
 
     expect(controller.setSelectionMode('volume')).toBe(true);
     controller.selectFromHit(volumes[1], false);
-    expect(controller.selectedVolumes()).toEqual([volumes[1], volumes[3]]);
+    // Orca: a part selection is anchored to the clicked instance.
+    expect(controller.selectedVolumes()).toEqual([volumes[1]]);
   });
 
   it('setSelectionMode is a no-op when the mode is unchanged', () => {
@@ -89,7 +90,8 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes()).toEqual(volumes);
 
     expect(controller.selectComposite(0, 1)).toBe(true);
-    expect(controller.selectedVolumes()).toEqual([volumes[1], volumes[3]]);
+    // A part target is anchored to instance 0 (default) in Orca.
+    expect(controller.selectedVolumes()).toEqual([volumes[1]]);
 
     expect(controller.selectComposite(0, undefined, 0)).toBe(true);
     expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
@@ -666,19 +668,19 @@ describe('part-scoped (volume) transforms', () => {
 
   it('Alt+click (part) selects the individual volume composite', () => {
     expect(controller.selectFromHit(volumes[0], false, true)).toBe(true);
-    // Part mode selects that volume across all its instances, which is a
-    // part-scoped selection (so a subsequent drag moves only the part).
-    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[2]]);
+    // Orca: a part is anchored to the clicked instance (a single volume), which
+    // is a part-scoped selection so a subsequent drag moves only that part.
+    expect(controller.selectedVolumes()).toEqual([volumes[0]]);
     expect(controller.isVolumeScopedSelection()).toBe(true);
   });
 
   it('moves only the selected part, not the whole instance', () => {
     controller.selectComposite(0, 1);
     controller.moveSelectionBy(new THREE.Vector3(10, 0, 0));
-    // That part appears in both instances; both move, the sibling volumes and
-    // the instance transforms do not.
+    // The selected part (instance 0's part 1) moves; the other instance's copy
+    // of the same part, the sibling volumes, and the instance transforms do not.
     expect(volumes[1].volumeTransform.offset[0]).toBeCloseTo(10, 6);
-    expect(volumes[3].volumeTransform.offset[0]).toBeCloseTo(10, 6);
+    expect(volumes[3].volumeTransform.offset[0]).toBeCloseTo(0, 6);
     expect(volumes[0].volumeTransform.offset[0]).toBeCloseTo(0, 6);
     expect(volumes[0].instanceTransform.offset[0]).toBeCloseTo(0, 6);
   });

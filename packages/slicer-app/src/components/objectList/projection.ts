@@ -16,7 +16,10 @@ export const EMPTY_PROJECTION: SelectionProjection = {
 /** A selectable ObjectList row in tree reading order (object, then parts, then instances). */
 export interface SelectableRow {
   key: string;
-  /** The GLVolume ID strings (`objectIdx:volumeIdx:instanceIdx`) this row selects. */
+  kind: 'object' | 'part' | 'instance';
+  /** The GLVolume ID strings (`objectIdx:volumeIdx:instanceIdx`) this row selects.
+   *  Part rows use instance 0; the caller re-anchors them with the selection's
+   *  single instance (Orca anchors a part to one instance). */
   volumeIds: string[];
   target: { objectIdx: number; volumeIdx?: number; instanceIdx?: number };
 }
@@ -31,12 +34,15 @@ export function buildSelectableRows(structure: ModelObjectStructure[]): Selectab
     const objectIds: string[] = [];
     for (let vi = 0; vi < volCount; vi++)
       for (let ii = 0; ii < instCount; ii++) objectIds.push(`${oi}:${vi}:${ii}`);
-    rows.push({ key: `obj:${oi}`, volumeIds: objectIds, target: { objectIdx: oi } });
+    rows.push({ key: `obj:${oi}`, kind: 'object', volumeIds: objectIds, target: { objectIdx: oi } });
     if (volCount > 1) {
       for (let vi = 0; vi < volCount; vi++)
         rows.push({
           key: `vol:${oi}:${vi}`,
-          volumeIds: Array.from({ length: instCount }, (_, ii) => `${oi}:${vi}:${ii}`),
+          kind: 'part',
+          // Instance 0 as the static fallback; the caller re-anchors to the
+          // current selection's single instance.
+          volumeIds: [`${oi}:${vi}:0`],
           target: { objectIdx: oi, volumeIdx: vi },
         });
     }
@@ -44,6 +50,7 @@ export function buildSelectableRows(structure: ModelObjectStructure[]): Selectab
       for (let ii = 0; ii < instCount; ii++)
         rows.push({
           key: `inst:${oi}:${ii}`,
+          kind: 'instance',
           volumeIds: Array.from({ length: volCount }, (_, vi) => `${oi}:${vi}:${ii}`),
           target: { objectIdx: oi, instanceIdx: ii },
         });
