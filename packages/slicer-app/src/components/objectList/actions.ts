@@ -33,6 +33,7 @@ export async function refreshAfterModelMutation(
   if (structure.ok && structure.objects) {
     useObjectListStore.getState().setStructure(structure.objects);
     useObjectListStore.getState().setLoaded(true);
+    if (structure.objects.length === 0) useSettingsStore.getState().setModelLoaded(false);
   }
 }
 

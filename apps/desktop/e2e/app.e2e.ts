@@ -287,6 +287,39 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
   }
 });
 
+// Object list structural actions (Step 8): clone, assemble, delete. Mock-only.
+test('object list: clone, assemble, delete (structural, mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    const objectCount = () => list.locator('[data-testid^="object-expand-"]').count();
+
+    // Clone produces a second object row.
+    await list.locator('[data-testid^="object-clone-"]').first().click();
+    await expect.poll(objectCount).toBeGreaterThan(1);
+
+    // Assemble all into one multipart object.
+    await list.getByTestId('objectlist-assemble').click();
+    await expect(list).toContainText('Assembly');
+    await expect.poll(objectCount).toBe(1);
+
+    // Delete empties the list.
+    await list.locator('[data-testid^="object-delete-"]').first().click();
+    await expect(list).toContainText('No objects');
+  } finally {
+    await app.close();
+  }
+});
+
 // Object list metadata actions (Step 7): rename, part-type control, printable
 // toggle, then a successful slice. Mock-only (REAL returns after the smoke).
 test('object list: rename, printable, and slice (mock)', async () => {

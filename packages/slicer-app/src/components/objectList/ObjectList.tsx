@@ -12,6 +12,15 @@ import {
   setInstancePrintableInList,
   setObjectPrintableInList,
 } from './actions';
+import {
+  assembleObjectsInList,
+  cloneObjectsInList,
+  deleteObjectsInList,
+  deleteVolumeInList,
+  separateInstancesInList,
+  splitObjectToObjectsInList,
+  splitVolumeToPartsInList,
+} from './structuralActions';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 
 const VOLUME_TYPES: VolumeType[] = [
@@ -96,6 +105,15 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
 
   return (
     <div data-testid="object-list" className="max-h-56 overflow-y-auto border-b px-2 py-2">
+      <Button
+        size="xs"
+        variant="outline"
+        data-testid="objectlist-assemble"
+        className="mb-1 w-full"
+        onClick={() => void assembleObjectsInList(platform.runtime, structure.map((o) => o.id))}
+      >
+        Assemble all
+      </Button>
       {structure.map((obj) => {
         const objectSelected = projection.objectIds.has(obj.id);
         const isExpanded = !!expanded[obj.id];
@@ -147,6 +165,38 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               >
                 ✎
               </button>
+              <button
+                data-testid={`object-delete-${obj.id}`}
+                onClick={() => void deleteObjectsInList(platform.runtime, [obj.id])}
+                className="rounded border px-1 text-[0.6rem]"
+                title="Delete"
+              >
+                ⌫
+              </button>
+              <button
+                data-testid={`object-clone-${obj.id}`}
+                onClick={() => void cloneObjectsInList(platform.runtime, [obj.id])}
+                className="rounded border px-1 text-[0.6rem]"
+                title="Clone"
+              >
+                ⧉
+              </button>
+              <button
+                data-testid={`object-split-objects-${obj.id}`}
+                onClick={() => void splitObjectToObjectsInList(platform.runtime, obj.id)}
+                className="rounded border px-1 text-[0.6rem]"
+                title="Split to objects"
+              >
+                ⤢
+              </button>
+              <button
+                data-testid={`object-separate-${obj.id}`}
+                onClick={() => void separateInstancesInList(platform.runtime, obj.id, obj.instances.map((i) => i.id))}
+                className="rounded border px-1 text-[0.6rem]"
+                title="Separate instances"
+              >
+                ⊞
+              </button>
             </div>
             {isExpanded && (
               <div className="ml-4">
@@ -187,6 +237,22 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       title="Rename"
                     >
                       ✎
+                    </button>
+                    <button
+                      data-testid={`part-split-${vol.id}`}
+                      onClick={() => void splitVolumeToPartsInList(platform.runtime, vol.id)}
+                      className="rounded border px-1 text-[0.6rem]"
+                      title="Split to parts"
+                    >
+                      ⤢
+                    </button>
+                    <button
+                      data-testid={`part-delete-${vol.id}`}
+                      onClick={() => void deleteVolumeInList(platform.runtime, vol.id)}
+                      className="rounded border px-1 text-[0.6rem]"
+                      title="Delete part"
+                    >
+                      ⌫
                     </button>
                   </div>
                 ))}
