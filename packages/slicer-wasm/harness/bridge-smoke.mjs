@@ -584,3 +584,37 @@ check('slice error surfaces the real message, not the bare category',
   }
 }
 
+// 10c. Step 4b: split a multi-shell object into one object per shell.
+{
+  const multiPath = resolve(dirname(stlPath), 'multipart.stl');
+  const multi = await readFile(multiPath);
+  const mpPtr = Number(Module._malloc(multi.length));
+  Module.HEAPU8.set(multi, mpPtr);
+  callJson('orc_clear_model', [], []);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
+                          [mpPtr, multi.length, 'stl']);
+  Module._free(mpPtr);
+  check('multipart loads for object split', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
+
+  const s = callJson('orc_get_model_structure', [], []);
+  const obj = s.objects?.[0];
+  if (obj) {
+    const split = callJson('orc_split_object_to_objects', ['number', 'number'], [obj.id, 0]);
+    check('orc_split_object_to_objects produces one object per shell',
+          split.ok === true && Array.isArray(split.newObjectIds)
+          && split.newObjectIds.length >= 2 && split.objects === 2,
+          JSON.stringify(split));
+    const after = callJson('orc_get_model_structure', [], []);
+    check('split objects carry fresh IDs and the source is gone',
+          after.ok === true && after.objects?.length === 2
+          && after.objects.every((o) => split.newObjectIds.includes(o.id))
+          && !after.objects.some((o) => o.id === obj.id),
+          JSON.stringify(after.objects?.map((o) => o.id)));
+
+    const S = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+    check('split objects slice to valid G-code', S.ok === true, JSON.stringify(S));
+  } else {
+    check('multipart object available', false, JSON.stringify(s).slice(0, 120));
+  }
+}
+

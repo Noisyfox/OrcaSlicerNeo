@@ -187,6 +187,15 @@ export interface SplitVolumeResult {
   error?: string;
 }
 
+/** Split-object-to-objects result: the freshly generated object IDs. */
+export interface SplitObjectResult {
+  ok: boolean;
+  newObjectIds: number[];
+  /** Object count after splitting. */
+  objects?: number;
+  error?: string;
+}
+
 /** Simple success/error payload returned by non-destructive metadata mutations. */
 export interface MutationResult {
   ok: boolean;
@@ -317,6 +326,8 @@ export interface SlicerClient {
   reorderVolumes(objectId: number, fromVolumeId: number, toVolumeId: number): Promise<ReorderStructureResult>;
   /** Split a volume into its disconnected parts; returns the generated volume IDs. */
   splitVolumeToParts(volumeId: number, maxExtruders?: number, remapPaint?: boolean): Promise<SplitVolumeResult>;
+  /** Split an object into one object per connected shell; returns the generated object IDs. */
+  splitObjectToObjects(objectId: number, autoDrop?: boolean): Promise<SplitObjectResult>;
   /** Rename an object by its stable ObjectID. */
   renameObject(objectId: number, name: string): Promise<MutationResult>;
   /** Rename a specific part (volume) by its stable ObjectID. */

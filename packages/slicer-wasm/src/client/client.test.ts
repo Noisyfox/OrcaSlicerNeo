@@ -462,6 +462,42 @@ describe('SlicerClient bridge contract', () => {
     });
   });
 
+  describe('Step 4b split object to objects (stable ObjectID)', () => {
+    it('mints fresh object IDs for the split objects', async () => {
+      const c = createClient(async () => createMockModule({ splitParts: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      const { objects } = await c.getModelStructure();
+      const originalId = objects[0].id;
+      const r = await c.splitObjectToObjects(originalId);
+      expect(r.ok).toBe(true);
+      expect(r.newObjectIds).toHaveLength(2);
+      expect(r.objects).toBe(2);
+      const after = await c.getModelStructure();
+      expect(after.objects.map((o) => o.id)).toEqual(r.newObjectIds);
+      expect(after.objects.map((o) => o.id)).not.toContain(originalId);
+    });
+
+    it('rejects an unknown object ID', async () => {
+      const c = makeClient();
+      await c.addModel(new Uint8Array(4), 'stl');
+      const res = await c.splitObjectToObjects(999999);
+      expect(res.ok).toBeFalsy();
+      expect(res.error).toContain('object not found');
+    });
+
+    it('invalidates the slice result after a split', async () => {
+      const c = createClient(async () => createMockModule({ splitParts: 2 }));
+      await c.addModel(new Uint8Array(4), 'stl');
+      await c.slice({});
+      expect((await c.getSliceResult()).ok).toBe(true);
+      const { objects } = await c.getModelStructure();
+      await c.splitObjectToObjects(objects[0].id);
+      const after = await c.getSliceResult();
+      expect(after.ok).toBeFalsy();
+      expect(after.error).toContain('no slice result');
+    });
+  });
+
   it('slice fires progress and returns unrecognized_keys', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');

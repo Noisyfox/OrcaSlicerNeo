@@ -12,7 +12,7 @@ import type {
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
-  ModelStructureResult, MutationResult, SplitVolumeResult, VolumeType,
+  ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox, ReadLogResult,
 } from './types';
@@ -212,6 +212,12 @@ export function createClient(
       const m = await module();
       return callJson(m, 'orc_split_volume_to_parts', ['number', 'number', 'number'],
                       [volumeId, maxExtruders, remapPaint ? 1 : 0]) as SplitVolumeResult;
+    },
+
+    async splitObjectToObjects(objectId: number, autoDrop = false): Promise<SplitObjectResult> {
+      const m = await module();
+      return callJson(m, 'orc_split_object_to_objects', ['number', 'number'],
+                      [objectId, autoDrop ? 1 : 0]) as SplitObjectResult;
     },
 
     async renameObject(objectId: number, name: string): Promise<MutationResult> {

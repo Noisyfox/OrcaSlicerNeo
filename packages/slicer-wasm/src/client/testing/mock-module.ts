@@ -392,6 +392,29 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       return { error: 'volume not found' };
     },
+    orc_split_object_to_objects(objectId: number, _autoDrop: number) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      if (volumeMeta[oi].length === 1 && !volumeMeta[oi][0].isSplittable) return { error: 'object is not splittable' };
+      const newIds: number[] = [];
+      const srcVolume = volumeMeta[oi][0];
+      const srcInstance = instanceMeta[oi][0];
+      for (let p = 0; p < splitParts; p++) {
+        objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
+        objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0]))]);
+        objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable });
+        volumeMeta.push([{ id: nextVolumeId++, name: srcVolume.name, type: srcVolume.type, isSplittable: false }]);
+        instanceMeta.push([{ id: nextInstanceId++, printable: srcInstance.printable }]);
+        newIds.push(objectMeta[objectMeta.length - 1].id);
+      }
+      objectTransforms.splice(oi, 1);
+      objectVolumeTransforms.splice(oi, 1);
+      objectMeta.splice(oi, 1);
+      volumeMeta.splice(oi, 1);
+      instanceMeta.splice(oi, 1);
+      sliced = false;
+      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
+    },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
       if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
       objectTransforms[obj][inst].offset = [x, y, z];
@@ -600,6 +623,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_reorder_objects: { ret: 'number', args: ['number', 'number'] },
     orc_reorder_volumes: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_split_volume_to_parts: { ret: 'number', args: ['number', 'number', 'number'] },
+    orc_split_object_to_objects: { ret: 'number', args: ['number', 'number'] },
     orc_rename_object: { ret: 'number', args: ['number', 'string'] },
     orc_rename_volume: { ret: 'number', args: ['number', 'string'] },
     orc_set_volume_type: { ret: 'number', args: ['number', 'string'] },

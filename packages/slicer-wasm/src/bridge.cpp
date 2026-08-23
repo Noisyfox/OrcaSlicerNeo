@@ -897,6 +897,46 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
     }
 }
 
+// Split an object into one object per disconnected shell (upstream
+// ObjectList::split_to_objects). ModelObject::split adds the new objects to the
+// live model and fills new_objects; the bridge then removes the source object.
+// Returns the freshly generated object IDs plus the current structure so the
+// renderer can restore selection to the new objects. autoDrop is accepted for
+// signature parity (the spec exposes it) but the auto_drop bed-drop has no
+// first-version UI and is left to the host callers.
+EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, double auto_drop) {
+    try {
+        const auto id = to_object_id(object_id);
+        if (!id) return error_json("object id must be a positive integer");
+        ModelObject* obj = find_object_by_id(*id);
+        if (obj == nullptr) return error_json("object not found");
+        const bool splittable = obj->volumes.size() > 1
+            || (obj->volumes.size() == 1 && obj->volumes[0]->is_splittable());
+        if (!splittable) return error_json("object is not splittable");
+
+        ModelObjectPtrs new_objects;
+        obj->split(&new_objects, /*remap_paint=*/false);
+        // Remove the source; the split objects now own the geometry.
+        state().model.delete_object(ObjectID(*id));
+
+        std::vector<std::size_t> new_object_ids;
+        for (const ModelObject* o : new_objects)
+            new_object_ids.push_back(o->id().id);
+
+        if (auto_drop != 0.0)
+            state().model.adjust_min_z();
+
+        state().print.clear();
+        return dup_json(json{{"ok", true},
+                             {"newObjectIds", new_object_ids},
+                             {"objects", state().model.objects.size()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 using progress_fn = void (*)(int, const char*);
 progress_fn g_progress = nullptr;
 
