@@ -288,7 +288,8 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
           clone && clone.volumes[0].id !== source.volumes[0].id,
           JSON.stringify(clone?.volumes?.[0]));
 
-    const reordered = callJson('orc_reorder_objects', ['number', 'number'], [cloneId, source.id]);
+    // reorder takes a DESTINATION INDEX (0-based); index 0 places the clone first.
+    const reordered = callJson('orc_reorder_objects', ['number', 'number'], [cloneId, 0]);
     check('orc_reorder_objects returns the reordered structure',
           reordered.ok === true && Array.isArray(reordered.objects)
           && reordered.objects[0].id === cloneId && reordered.objects[1].id === source.id,
@@ -303,9 +304,9 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
           volDelAfter.ok === true && volDelAfter.objects?.[0]?.volumes?.length === 1,
           JSON.stringify(volDelAfter.objects?.[0]?.volumes));
 
-    // Non-destructive reorder of a single volume is a no-op that still returns structure.
+    // Non-destructive reorder of a single volume (already at index 0) still returns structure.
     const volReorder = callJson('orc_reorder_volumes', ['number', 'number', 'number'],
-                                [source.id, volume.id, volume.id]);
+                                [source.id, volume.id, 0]);
     const volSource = volReorder.objects?.find((o) => o.id === source.id);
     check('orc_reorder_volumes no-ops on a single part',
           volReorder.ok === true && volSource
