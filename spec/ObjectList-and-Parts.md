@@ -133,6 +133,16 @@ Instance rows show a printable toggle. Object rows show an aggregate printable
 state that toggles every instance of that object. `auto_drop` is not exposed in
 the first version.
 
+Selection restoration after a mutation follows three rules:
+
+- Non-destructive operations (rename, change type, reorder, printable toggle)
+  restore the previous selection by stable ID.
+- Operations that create new entities (Split to Objects, Assemble, Clone,
+  Separate Instances, Split to Parts) select the newly created objects or
+  parts and remove vanished nodes from selection.
+- Delete moves selection to the next visible sibling, then the parent object,
+  or clears selection when neither remains.
+
 ## 7. Identity Model
 
 UI and slicing state are synchronized with libslic3r stable identifiers, not
@@ -195,8 +205,6 @@ The following items are still being clarified before this document moves from
 Draft to Approved:
 
 - Exact bridge function signatures and error contract.
-- How selection restoration behaves when a structural operation replaces the
-  selected object with newly generated objects.
 
 ## 11. Relationship to Other Documents
 
