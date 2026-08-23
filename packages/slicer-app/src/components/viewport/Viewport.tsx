@@ -15,7 +15,7 @@ import type { GLVolume } from './GLVolume';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../stores/useSlicerStore';
-import { deleteSelectedObjects } from '../toolbar/deleteSelection';
+import { deleteSelection } from '../toolbar/deleteSelection';
 
 // Launch camera: look at the plate center (the bed spans [0, BED_SIZE]² in
 // XY with Z up), with the plate at 45° to the screen plane and its X axis
@@ -144,10 +144,9 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
         if (slicing || sceneInteraction.owner !== 'none') return;
-        const indices = sceneInteraction.selectedObjectIndices();
-        if (indices.length === 0) return;
+        if (sceneInteraction.selectedObjectIndices().length === 0) return;
         event.preventDefault();
-        void deleteSelectedObjects(platform.runtime, indices);
+        void deleteSelection(platform.runtime, sceneInteraction);
         return;
       }
       const key = event.key.toLowerCase();

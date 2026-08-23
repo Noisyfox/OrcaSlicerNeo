@@ -1,52 +1,82 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
+import type { ModelObjectStructure } from '@slicer/client';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 
 export type DeleteSelectionResult = { ok: boolean; error?: string };
 
+/** Unique selected volume IDs across every instance (a volume is shared by the object's instances). */
+function collectSelectedVolumeIds(
+  objects: ModelObjectStructure[],
+  selected: readonly { buffer: { objectIdx: number; volumeIdx: number } }[],
+): number[] {
+  const ids = new Map<string, number>();
+  for (const volume of selected) {
+    const obj = objects[volume.buffer.objectIdx];
+    const vol = obj?.volumes[volume.buffer.volumeIdx];
+    if (vol) ids.set(`${volume.buffer.objectIdx}:${volume.buffer.volumeIdx}`, vol.id);
+  }
+  return [...ids.values()];
+}
+
+function collectSelectedObjectIds(objects: ModelObjectStructure[], objectIndices: number[]): number[] {
+  const idByIndex = new Map(objects.map((o) => [o.index, o.id] as const));
+  return objectIndices.flatMap((i) => {
+    const id = idByIndex.get(i);
+    return id === undefined ? [] : [id];
+  });
+}
+
 /**
- * Delete the complete objects that own the current selection (selection is
- * instance-based; native OrcaSlicer's Delete removes whole objects).
- *
- * A successful delete invalidates the sliced result and refreshes the
- * viewport model: an empty plate flips `modelLoaded` off (slice/clear
- * disable), otherwise the loader re-fetches the mesh on a revision bump.
+ * Delete the current selection. When the selection is part-scoped (some instance
+ * has only a subset of its volumes selected), it deletes the selected PARTS
+ * (volumes); otherwise it deletes the whole objects behind the selection. Each
+ * delete invalidates the slice/export result and refreshes the structure + mesh.
  */
-export async function deleteSelectedObjects(
+export async function deleteSelection(
   runtime: SlicerRuntime,
-  objectIndices: number[],
+  sceneInteraction: SceneInteractionController,
 ): Promise<DeleteSelectionResult> {
-  if (objectIndices.length === 0) return { ok: true };
+  const selected = sceneInteraction.selectedVolumes();
+  const objectIndices = sceneInteraction.selectedObjectIndices();
+  if (selected.length === 0 || objectIndices.length === 0) return { ok: true };
   try {
-    // A just-finished drag commits its settled transforms on pointer release;
-    // wait for that commit so a delete cannot race a transform sync for an
-    // object that is about to disappear (same discipline as Add Model).
     const synced = await waitForSettledModelTransforms();
     if (!synced.ok) return synced;
-    // The bridge resolves objects by stable ObjectID, not positional index. Map
-    // the viewport's object indices to the current structure's object IDs first
-    // (spec/ObjectList-and-Parts.md §7). A stale index that no longer maps to a
-    // live object fails closed rather than deleting the wrong entity.
     const structure = await runtime.getModelStructure();
-    const idByIndex = new Map(structure.objects.map((o) => [o.index, o.id]));
-    const objectIds = objectIndices
-      .map((i) => idByIndex.get(i))
-      .filter((id): id is number => id !== undefined);
-    if (objectIds.length === 0) {
-      const msg = 'selection no longer matches the model';
+    if (!structure.ok || !structure.objects) {
+      const msg = structure.error ?? 'structure unavailable';
       useSlicerStore.getState().setError(msg);
       return { ok: false, error: msg };
     }
-    const r = await runtime.deleteObjects(objectIds);
-    if (!r.ok) throw new Error(r.error ?? 'delete failed');
+    const volumeScoped = sceneInteraction.isVolumeScopedSelection();
+    let result: { ok: boolean; objects?: number; error?: string };
+    if (volumeScoped) {
+      const volumeIds = collectSelectedVolumeIds(structure.objects, selected);
+      if (volumeIds.length === 0) {
+        const msg = 'selection no longer matches the model';
+        useSlicerStore.getState().setError(msg);
+        return { ok: false, error: msg };
+      }
+      result = await runtime.deleteVolumes(volumeIds);
+    } else {
+      const objectIds = collectSelectedObjectIds(structure.objects, objectIndices);
+      if (objectIds.length === 0) {
+        const msg = 'selection no longer matches the model';
+        useSlicerStore.getState().setError(msg);
+        return { ok: false, error: msg };
+      }
+      result = await runtime.deleteObjects(objectIds);
+    }
+    if (!result.ok) throw new Error(result.error ?? 'delete failed');
     const slicer = useSlicerStore.getState();
     const settings = useSettingsStore.getState();
-    // A model mutation makes any completed slice/G-code result stale.
     slicer.setStatus('idle');
     slicer.setResultExported(false);
     slicer.setError(null);
-    if ((r.objects ?? 0) === 0) settings.setModelLoaded(false);
+    if ((result.objects ?? 0) === 0) settings.setModelLoaded(false);
     else settings.refreshModel();
     return { ok: true };
   } catch (err) {
