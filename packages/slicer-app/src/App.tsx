@@ -5,6 +5,7 @@ import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar } from './components/toolbar/Toolbar';
 import { SettingsPanel } from './components/settings/SettingsPanel';
+import { ObjectList } from './components/objectList/ObjectList';
 import { Viewport } from './components/viewport/Viewport';
 import { StatusBar } from './components/status/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
@@ -126,7 +127,10 @@ export default function App() {
   return (
     <AppShell
       toolbar={<Toolbar />}
-      settings={<SettingsPanel sceneInteraction={sceneInteraction} />}
+      settings={<>
+        <ObjectList sceneInteraction={sceneInteraction} />
+        <SettingsPanel sceneInteraction={sceneInteraction} />
+      </>}
       viewport={<Viewport onSceneInteractionChange={setSceneInteraction} sceneInteraction={sceneInteraction} />}
       status={<StatusBar />}
     />

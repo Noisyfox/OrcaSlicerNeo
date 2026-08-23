@@ -117,6 +117,18 @@ async function selectStableRealPrinter(page: Page): Promise<void> {
   await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
 }
 
+/** Select a mock instance once the model's mock volumes are live (the Slice
+ *  button enables on modelLoaded, which can precede the async mesh fetch, so a
+ *  bare selectMockInstance can race the GL volume collection). */
+async function selectMockInstance(page: Page, instanceIdx: number, additive = false): Promise<void> {
+  await expect.poll(() => page.evaluate(([idx, add]) =>
+    (window as unknown as {
+      __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
+    }).__orcaE2e?.selectMockInstance?.(idx, add) ?? false,
+    [instanceIdx, additive] as [number, boolean],
+  )).toBe(true);
+}
+
 /** Rendered aggregate selection-box brackets (mock builds only). */
 function selectionBoxWorldSegments(page: Page) {
   return page.evaluate(() =>
@@ -840,11 +852,7 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
       if (REAL) return;
 
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(0, false),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 0, false);
       const bounds = () => page.evaluate(() =>
         (window as unknown as {
           __orcaE2e?: { selectionBoundsWorld?: () => {
@@ -908,11 +916,7 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
       if (REAL) return;
 
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(0, false),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 0, false);
 
       // R arms the rotate gizmo.
       await page.keyboard.press('r');
@@ -927,11 +931,7 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
 
       // Re-select, then S arms scale, M switches to move, Esc deselects.
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(0, false),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 0, false);
       await page.keyboard.press('s');
       await expect(page.getByTestId('scale-panel')).toBeVisible();
       await page.keyboard.press('m');
@@ -943,11 +943,7 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
 
       // Del deletes the complete object behind the selection. The mock fixture
       // holds a single object, so the plate empties and slice/clear disable.
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(0, false),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 0, false);
       await page.keyboard.press('Delete');
       // Clear Scene moved into the scene right-click menu; after the plate
       // empties the item is present but disabled.

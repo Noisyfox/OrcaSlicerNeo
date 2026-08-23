@@ -7,7 +7,11 @@ export type {
   InitResult, PresetInfo, PresetList, SelectPresetResult,
   OptionMetadata, OptionMeta,
   LoadModelResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
-  DeleteObjectsResult,
+  DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
+  ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
+  MergeObjectsResult, SeparateInstancesResult, MutationResult,
+  ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
+  ModelInstanceStructure, VolumeType,
   SliceResultStatus, ClientSliceResult, ClientToolpath,
   ToolpathFeature, ExportGcodeResult, CancelResult,
 } from './types';
