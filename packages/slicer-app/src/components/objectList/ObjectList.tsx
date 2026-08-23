@@ -1,16 +1,33 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
+import type { VolumeType } from '@slicer/client';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
 import { useObjectListStore } from './useObjectListStore';
 import { projectSelection } from './projection';
+import {
+  changePartTypeInList,
+  renameObjectInList,
+  renamePartInList,
+  setInstancePrintableInList,
+  setObjectPrintableInList,
+} from './actions';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+
+const VOLUME_TYPES: VolumeType[] = [
+  'model_part', 'negative_volume', 'parameter_modifier',
+  'support_blocker', 'support_enforcer',
+];
+
+type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 
 /**
  * The Object List tree (spec §4/§6): objects, their parts, and an Instances
  * group for multi-instance objects, rendered above the SettingsPanel. The
  * viewport SceneInteractionController is the single source of truth for
- * selection; this component is a projection + command surface.
+ * selection; this component is a projection + command surface. Step 7 wires the
+ * non-destructive metadata actions (rename, part type, printable) through the
+ * bridge via the unified post-mutation refresh in actions.ts.
  */
 export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const platform = usePlatform();
@@ -25,6 +42,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const setProjection = useObjectListStore((s) => s.setProjection);
   const toggleExpanded = useObjectListStore((s) => s.toggleExpanded);
   const clearStore = useObjectListStore((s) => s.clear);
+  const [renaming, setRenaming] = useState<RenamingTarget>(null);
+  const [draftName, setDraftName] = useState('');
 
   // Read the structure when the model loads or a revision bump occurs.
   useEffect(() => {
@@ -57,6 +76,16 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     return sceneInteraction.subscribe(update);
   }, [sceneInteraction, structure, setProjection]);
 
+  async function commitRename() {
+    if (!renaming) return;
+    const name = draftName.trim();
+    if (name) {
+      if (renaming.kind === 'object') await renameObjectInList(platform.runtime, renaming.id, name);
+      else await renamePartInList(platform.runtime, renaming.id, name);
+    }
+    setRenaming(null);
+  }
+
   if (!modelLoaded || !loaded) {
     return (
       <div data-testid="object-list" className="px-2 pb-2 text-xs text-muted-foreground">
@@ -72,46 +101,119 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
         const isExpanded = !!expanded[obj.id];
         return (
           <div key={obj.id} data-testid={`object-${obj.id}`}>
-            <Button
-              variant="ghost"
-              size="xs"
-              className="w-full justify-start"
-              data-state={objectSelected ? 'selected' : 'idle'}
-              onClick={() => sceneInteraction?.selectComposite(obj.index)}
-            >
-              <span aria-hidden className="mr-1 text-xs" onClick={() => toggleExpanded(obj.id)}>
-                {isExpanded ? '▾' : '▸'}
-              </span>
-              {obj.name}
-            </Button>
+            <div className="flex items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="xs"
+                className="flex-1 justify-start"
+                data-state={objectSelected ? 'selected' : 'idle'}
+                onClick={() => sceneInteraction?.selectComposite(obj.index)}
+              >
+                <span
+                  aria-hidden
+                  data-testid={`object-expand-${obj.id}`}
+                  className="mr-1 text-xs"
+                  onClick={(e) => { e.stopPropagation(); toggleExpanded(obj.id); }}
+                >
+                  {isExpanded ? '▾' : '▸'}
+                </span>
+                {renaming?.kind === 'object' && renaming.id === obj.id ? (
+                  <input
+                    data-testid={`object-name-input-${obj.id}`}
+                    value={draftName}
+                    autoFocus
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => setDraftName(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void commitRename(); }}
+                    className="w-32 rounded border bg-background px-1 text-xs"
+                  />
+                ) : obj.name}
+              </Button>
+              <button
+                data-testid={`object-printable-${obj.id}`}
+                aria-pressed={obj.printable}
+                onClick={() => void setObjectPrintableInList(platform.runtime, obj.id, !obj.printable)}
+                className="rounded border px-1 text-[0.6rem]"
+                title={obj.printable ? 'Printable' : 'Unprintable'}
+              >
+                {obj.printable ? 'P' : 'U'}
+              </button>
+              <button
+                data-testid={`object-rename-${obj.id}`}
+                onClick={() => { setRenaming({ kind: 'object', id: obj.id }); setDraftName(obj.name); }}
+                className="rounded border px-1 text-[0.6rem]"
+                title="Rename"
+              >
+                ✎
+              </button>
+            </div>
             {isExpanded && (
               <div className="ml-4">
                 {obj.volumes.map((vol) => (
-                  <Button
-                    key={vol.id}
-                    variant="ghost"
-                    size="xs"
-                    className="w-full justify-start pl-5"
-                    data-state={projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
-                    onClick={() => sceneInteraction?.selectComposite(obj.index, vol.index)}
-                  >
-                    {vol.name}
-                  </Button>
+                  <div key={vol.id} className="flex items-center gap-0.5">
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="flex-1 justify-start pl-5"
+                      data-state={projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
+                      onClick={() => sceneInteraction?.selectComposite(obj.index, vol.index)}
+                    >
+                      {renaming?.kind === 'part' && renaming.id === vol.id ? (
+                        <input
+                          data-testid={`part-name-input-${vol.id}`}
+                          value={draftName}
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setDraftName(e.target.value)}
+                          onBlur={commitRename}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void commitRename(); }}
+                          className="w-28 rounded border bg-background px-1 text-xs"
+                        />
+                      ) : vol.name}
+                    </Button>
+                    <select
+                      data-testid={`part-type-${vol.id}`}
+                      value={vol.type}
+                      onChange={(e) => void changePartTypeInList(platform.runtime, vol.id, e.target.value as VolumeType)}
+                      className="h-5 rounded border bg-background px-0.5 text-[0.6rem]"
+                    >
+                      {VOLUME_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    <button
+                      data-testid={`part-rename-${vol.id}`}
+                      onClick={() => { setRenaming({ kind: 'part', id: vol.id }); setDraftName(vol.name); }}
+                      className="rounded border px-1 text-[0.6rem]"
+                      title="Rename"
+                    >
+                      ✎
+                    </button>
+                  </div>
                 ))}
                 {obj.instanceCount > 1 && (
                   <div data-testid={`instances-${obj.id}`} className="border-l pl-2">
                     <div className="px-2 py-1 text-[0.65rem] text-muted-foreground">Instances</div>
                     {obj.instances.map((inst) => (
-                      <Button
-                        key={inst.id}
-                        size="xs"
-                        variant="ghost"
-                        className="w-full justify-start pl-5"
-                        data-state={projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
-                        onClick={() => sceneInteraction?.selectComposite(obj.index, undefined, inst.index)}
-                      >
-                        {`Instance ${inst.index + 1}`}
-                      </Button>
+                      <div key={inst.id} className="flex items-center gap-0.5">
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          className="flex-1 justify-start pl-5"
+                          data-state={projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
+                          onClick={() => sceneInteraction?.selectComposite(obj.index, undefined, inst.index)}
+                        >
+                          {`Instance ${inst.index + 1}`}
+                        </Button>
+                        <button
+                          data-testid={`instance-printable-${inst.id}`}
+                          aria-pressed={inst.printable}
+                          onClick={() => void setInstancePrintableInList(platform.runtime, inst.id, !inst.printable)}
+                          className="rounded border px-1 text-[0.6rem]"
+                          title={inst.printable ? 'Printable' : 'Unprintable'}
+                        >
+                          {inst.printable ? 'P' : 'U'}
+                        </button>
+                      </div>
                     ))}
                   </div>
                 )}

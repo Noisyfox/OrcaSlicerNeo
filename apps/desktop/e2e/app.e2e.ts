@@ -287,6 +287,53 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
   }
 });
 
+// Object list metadata actions (Step 7): rename, part-type control, printable
+// toggle, then a successful slice. Mock-only (REAL returns after the smoke).
+test('object list: rename, printable, and slice (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+
+    // Rename the object via the inline input.
+    await list.locator('[data-testid^="object-rename-"]').first().click();
+    const nameInput = list.locator('[data-testid^="object-name-input-"]').first();
+    await nameInput.fill('My Cube');
+    await nameInput.press('Enter');
+    await expect(list).toContainText('My Cube');
+
+    // Expand the object so its part rows are visible.
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+
+    // The part-type control is wired (a successful multi-part change is covered
+    // by the unit tests + live harness; the mock cube is a single solid part).
+    await expect(list.locator('[data-testid^="part-type-"]').first()).toBeVisible();
+
+    // Toggle the object printable off, then back on.
+    const printable = list.locator('[data-testid^="object-printable-"]').first();
+    await expect(printable).toHaveAttribute('aria-pressed', 'true');
+    await printable.click();
+    await expect(printable).toHaveAttribute('aria-pressed', 'false');
+    await printable.click();
+    await expect(printable).toHaveAttribute('aria-pressed', 'true');
+
+    // The metadata edits invalidate any prior slice; a fresh slice succeeds.
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await expect(page.getByTestId('btn-export')).toBeEnabled();
+  } finally {
+    await app.close();
+  }
+});
+
 // The scene right-click menu's Add Cube appends OrcaSlicer's 20 mm cube
 // primitive through the regular model pipeline: Slice unlocks immediately
 // and (mock mode) the added instance is a selectable 20 mm box.
