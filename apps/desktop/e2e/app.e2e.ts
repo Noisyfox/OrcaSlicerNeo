@@ -346,6 +346,46 @@ test('object list: add instance via the context menu (mock)', async () => {
   }
 });
 
+// Object list multi-select: Ctrl toggles a row; Shift selects a contiguous range.
+test('object list: ctrl and shift multi-select (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    const instanceRows = list.locator('[data-testid^="instance-"]');
+    await expect(instanceRows).toHaveCount(2);
+    const instanceCount = () => page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { selectionInstanceCount?: () => number };
+      }).__orcaE2e?.selectionInstanceCount?.() ?? 0,
+    );
+
+    // Ctrl+click both instances -> both selected (additive toggle).
+    await instanceRows.nth(0).click();
+    await instanceRows.nth(1).click({ modifiers: ['Control'] });
+    await expect.poll(instanceCount).toBe(2);
+    // Ctrl+click the first again -> toggled off.
+    await instanceRows.nth(0).click({ modifiers: ['Control'] });
+    await expect.poll(instanceCount).toBe(1);
+
+    // Shift-range between the two instance rows selects both.
+    await instanceRows.nth(0).click();
+    await instanceRows.nth(1).click({ modifiers: ['Shift'] });
+    await expect.poll(instanceCount).toBe(2);
+  } finally {
+    await app.close();
+  }
+});
+
 // Object list structural actions (Step 8): clone, assemble, delete. Mock-only.
 test('object list: clone, assemble, delete (structural, mock)', async () => {
   const { app } = await launchApp();

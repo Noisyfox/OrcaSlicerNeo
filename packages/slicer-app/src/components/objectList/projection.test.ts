@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelObjectStructure } from '@slicer/client';
-import { projectSelection } from './projection';
+import { buildSelectableRows, projectSelection } from './projection';
 
 const structure: ModelObjectStructure[] = [
   {
@@ -50,5 +50,34 @@ describe('projectSelection', () => {
     const before = projectSelection(structure, [{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }]);
     const after = projectSelection(structure, [{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }]);
     expect([...before.objectIds]).toEqual([...after.objectIds]);
+  });
+});
+
+describe('buildSelectableRows', () => {
+  it('produces the tree reading order with the row volume IDs', () => {
+    const rows = buildSelectableRows(structure);
+    expect(rows.map((r) => r.key)).toEqual([
+      'obj:0',
+      'vol:0:0', 'vol:0:1',
+      'inst:0:0', 'inst:0:1',
+      'obj:1',
+    ]);
+    // Object 0 selects every volume×instance; each part selects that volume
+    // across its instances; each instance selects all volumes of that instance.
+    expect(rows[0].volumeIds).toEqual(['0:0:0', '0:0:1', '0:1:0', '0:1:1']);
+    expect(rows[1].volumeIds).toEqual(['0:0:0', '0:0:1']);
+    expect(rows[2].volumeIds).toEqual(['0:1:0', '0:1:1']);
+    expect(rows[3].volumeIds).toEqual(['0:0:0', '0:1:0']);
+    // Single-part, single-instance object has no child rows.
+    expect(rows[5].volumeIds).toEqual(['1:0:0']);
+  });
+
+  it('omits part/instance rows for single-part/single-instance objects', () => {
+    const single: ModelObjectStructure[] = [{
+      id: 1, index: 0, name: 'One', printable: true, instanceCount: 1,
+      volumes: [{ id: 10, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+      instances: [{ id: 20, index: 0, printable: true }],
+    }];
+    expect(buildSelectableRows(single).map((r) => r.key)).toEqual(['obj:0']);
   });
 });

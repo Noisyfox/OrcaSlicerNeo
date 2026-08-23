@@ -13,6 +13,45 @@ export const EMPTY_PROJECTION: SelectionProjection = {
   instanceIds: new Set(),
 };
 
+/** A selectable ObjectList row in tree reading order (object, then parts, then instances). */
+export interface SelectableRow {
+  key: string;
+  /** The GLVolume ID strings (`objectIdx:volumeIdx:instanceIdx`) this row selects. */
+  volumeIds: string[];
+  target: { objectIdx: number; volumeIdx?: number; instanceIdx?: number };
+}
+
+/** Build the flat list of selectable rows (pre-order): object, then its part rows
+ *  (only when multi-volume), then its instance rows (only when multi-instance). */
+export function buildSelectableRows(structure: ModelObjectStructure[]): SelectableRow[] {
+  const rows: SelectableRow[] = [];
+  structure.forEach((obj, oi) => {
+    const volCount = obj.volumes.length;
+    const instCount = obj.instances.length;
+    const objectIds: string[] = [];
+    for (let vi = 0; vi < volCount; vi++)
+      for (let ii = 0; ii < instCount; ii++) objectIds.push(`${oi}:${vi}:${ii}`);
+    rows.push({ key: `obj:${oi}`, volumeIds: objectIds, target: { objectIdx: oi } });
+    if (volCount > 1) {
+      for (let vi = 0; vi < volCount; vi++)
+        rows.push({
+          key: `vol:${oi}:${vi}`,
+          volumeIds: Array.from({ length: instCount }, (_, ii) => `${oi}:${vi}:${ii}`),
+          target: { objectIdx: oi, volumeIdx: vi },
+        });
+    }
+    if (instCount > 1) {
+      for (let ii = 0; ii < instCount; ii++)
+        rows.push({
+          key: `inst:${oi}:${ii}`,
+          volumeIds: Array.from({ length: volCount }, (_, vi) => `${oi}:${vi}:${ii}`),
+          target: { objectIdx: oi, instanceIdx: ii },
+        });
+    }
+  });
+  return rows;
+}
+
 /**
  * Project the viewport's selected GL volumes (index composites) onto the current
  * structure's stable IDs so the ObjectList can highlight the matching rows. The

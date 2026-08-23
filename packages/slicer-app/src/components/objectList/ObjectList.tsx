@@ -1,9 +1,9 @@
-import { useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
 import { useObjectListStore } from './useObjectListStore';
-import { projectSelection } from './projection';
+import { buildSelectableRows, projectSelection, type SelectableRow } from './projection';
 import { renameObjectInList, renamePartInList } from './actions';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
@@ -37,6 +37,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const [renaming, setRenaming] = useState<RenamingTarget>(null);
   const [draftName, setDraftName] = useState('');
   const [ctx, setCtx] = useState<{ target: ObjectListCtxTarget; point: { x: number; y: number } } | null>(null);
+  const [lastSelectedKey, setLastSelectedKey] = useState<string | null>(null);
+  const flatRows = useMemo(() => buildSelectableRows(structure), [structure]);
 
   useEffect(() => {
     let disposed = false;
@@ -99,6 +101,31 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     setDraftName(currentName);
   };
 
+  /** Row click with multi-select: Ctrl/Cmd toggles the row; Shift selects a
+   *  contiguous range from the previous (non-shift) selection to this row. */
+  function handleRowClick(row: SelectableRow, ctrl: boolean, shift: boolean) {
+    if (!sceneInteraction) return;
+    if (shift && lastSelectedKey) {
+      const lastIndex = flatRows.findIndex((r) => r.key === lastSelectedKey);
+      const rowIndex = flatRows.findIndex((r) => r.key === row.key);
+      if (lastIndex >= 0 && rowIndex >= 0) {
+        const lo = Math.min(lastIndex, rowIndex);
+        const hi = Math.max(lastIndex, rowIndex);
+        const ids = flatRows.slice(lo, hi + 1).flatMap((r) => r.volumeIds);
+        sceneInteraction.selectVolumeIds(ids, ctrl);
+        // Keep the anchor so a repeated Shift extends from the same start.
+        return;
+      }
+    }
+    sceneInteraction.selectComposite(
+      row.target.objectIdx,
+      row.target.volumeIdx,
+      row.target.instanceIdx,
+      ctrl,
+    );
+    setLastSelectedKey(row.key);
+  }
+
   if (!modelLoaded || !loaded) {
     return (
       <div data-testid="object-list" onContextMenu={(e) => openContextMenu(e, { kind: 'list' })} className="px-2 pb-2 text-xs text-muted-foreground">
@@ -139,7 +166,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               size="xs"
               className={`w-full justify-start ${objectSelected ? 'bg-accent text-accent-foreground' : ''}`}
               data-state={objectSelected ? 'selected' : 'idle'}
-              onClick={() => sceneInteraction?.selectComposite(obj.index)}
+              onClick={(e) => {
+                const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
+                if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);
+              }}
             >
               <span
                 aria-hidden
@@ -190,7 +220,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       size="xs"
                       className={`flex-1 justify-start pl-5 ${projection.volumeIds.has(vol.id) ? 'bg-accent text-accent-foreground' : ''}`}
                       data-state={projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
-                      onClick={() => sceneInteraction?.selectComposite(obj.index, vol.index)}
+                      onClick={(e) => {
+                        const row = flatRows.find((r) => r.key === `vol:${obj.index}:${vol.index}`);
+                        if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);
+                      }}
                     >
                       {renaming?.kind === 'part' && renaming.id === vol.id ? (
                         <input
@@ -231,7 +264,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                           variant="ghost"
                           className={`flex-1 justify-start pl-5 ${projection.instanceIds.has(inst.id) ? 'bg-accent text-accent-foreground' : ''}`}
                           data-state={projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
-                          onClick={() => sceneInteraction?.selectComposite(obj.index, undefined, inst.index)}
+                          onClick={(e) => {
+                            const row = flatRows.find((r) => r.key === `inst:${obj.index}:${inst.index}`);
+                            if (row) handleRowClick(row, e.ctrlKey || e.metaKey, e.shiftKey);
+                          }}
                         >
                           {`Instance ${inst.index + 1}`}
                         </Button>

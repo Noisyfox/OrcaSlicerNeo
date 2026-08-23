@@ -99,6 +99,14 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes()).toHaveLength(0);
   });
 
+  it('selectVolumeIds replaces or unions raw volume IDs', () => {
+    expect(controller.selectVolumeIds(['0:0:0', '0:1:0'])).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+    // Additive union of the other instance's volumes.
+    expect(controller.selectVolumeIds(['0:0:1', '0:1:1'], true)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+  });
+
   it('can only arm the move gizmo with a non-empty selection', () => {
     // An empty selection makes the toggle a no-op — the gizmo can only be
     // activated while something is selected.

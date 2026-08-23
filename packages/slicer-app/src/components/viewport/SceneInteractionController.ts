@@ -209,6 +209,15 @@ export class SceneInteractionController {
     return changed;
   }
 
+  /** Replace (or, when additive, union) the selection with raw volume IDs
+   *  (used by the ObjectList's Shift-range multi-select). */
+  selectVolumeIds(ids: readonly string[], additive = false): boolean {
+    const changed = additive ? this.selection.addIds(ids) : this.selection.replaceIds(ids);
+    this.syncGizmoToSelection();
+    if (changed) this.emit();
+    return changed;
+  }
+
   /**
    * Prepare a body press before DragControls begins its thresholded gesture.
    * A gizmo-origin press retains strict priority even if its ray also reaches
