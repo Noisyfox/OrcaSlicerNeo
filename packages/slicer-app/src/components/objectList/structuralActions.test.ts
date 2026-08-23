@@ -8,6 +8,8 @@ import {
   cloneObjectsInList,
   deleteObjectsInList,
   deleteVolumeInList,
+  reorderObjectsInList,
+  reorderVolumesInList,
 } from './structuralActions';
 
 const structure = {
@@ -21,6 +23,8 @@ function makeRuntime(): SlicerRuntime {
     deleteVolumes: vi.fn(async () => ({ ok: true, deleted: 1 })),
     cloneObjects: vi.fn(async () => ({ ok: true, newObjectIds: [2] })),
     mergeObjectsToMultipart: vi.fn(async () => ({ ok: true, objectId: 9 })),
+    reorderObjects: vi.fn(async () => ({ ok: true, objects: [] })),
+    reorderVolumes: vi.fn(async () => ({ ok: true, objects: [] })),
     getModelStructure: vi.fn(async () => structure),
   } as unknown as SlicerRuntime;
 }
@@ -60,6 +64,18 @@ describe('object list structural actions', () => {
     const runtime = makeRuntime();
     await assembleObjectsInList(runtime, [1, 2], 'Asm');
     expect(runtime.mergeObjectsToMultipart).toHaveBeenCalledWith([1, 2], 'Asm');
+  });
+
+  it('reorderObjectsInList calls the bridge with stable IDs', async () => {
+    const runtime = makeRuntime();
+    await reorderObjectsInList(runtime, 2, 1);
+    expect(runtime.reorderObjects).toHaveBeenCalledWith(2, 1);
+  });
+
+  it('reorderVolumesInList calls the bridge with the object and volume IDs', async () => {
+    const runtime = makeRuntime();
+    await reorderVolumesInList(runtime, 5, 20, 10);
+    expect(runtime.reorderVolumes).toHaveBeenCalledWith(5, 20, 10);
   });
 
   it('propagates a bridge error without refreshing', async () => {

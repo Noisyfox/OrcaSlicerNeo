@@ -287,6 +287,33 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
   }
 });
 
+// Object list drag reorder (Step 9). Mock-only: add two objects, drag the second
+// onto the first, and assert the object order changes.
+test('object list: drag reorder objects (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    const rows = list.locator('div[data-testid^="object-"]');
+    await expect(rows).toHaveCount(2);
+
+    const firstBefore = (await rows.nth(0).innerText());
+    await rows.nth(1).dragTo(rows.nth(0));
+    await expect.poll(() => rows.nth(0).innerText()).not.toBe(firstBefore);
+  } finally {
+    await app.close();
+  }
+});
+
 // Object list structural actions (Step 8): clone, assemble, delete. Mock-only.
 test('object list: clone, assemble, delete (structural, mock)', async () => {
   const { app } = await launchApp();

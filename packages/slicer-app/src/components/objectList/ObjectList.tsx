@@ -18,6 +18,8 @@ import {
   deleteObjectsInList,
   deleteVolumeInList,
   separateInstancesInList,
+  reorderObjectsInList,
+  reorderVolumesInList,
   splitObjectToObjectsInList,
   splitVolumeToPartsInList,
 } from './structuralActions';
@@ -118,7 +120,24 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
         const objectSelected = projection.objectIds.has(obj.id);
         const isExpanded = !!expanded[obj.id];
         return (
-          <div key={obj.id} data-testid={`object-${obj.id}`}>
+          <div
+            key={obj.id}
+            data-testid={`object-${obj.id}`}
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'object', id: obj.id }));
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              let dragged: { kind: string; id: number } | null = null;
+              try { dragged = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { /* ignore */ }
+              if (dragged?.kind === 'object' && dragged.id !== obj.id) {
+                void reorderObjectsInList(platform.runtime, dragged.id, obj.id);
+              }
+            }}
+          >
             <div className="flex items-center gap-0.5">
               <Button
                 variant="ghost"
@@ -201,7 +220,24 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             {isExpanded && (
               <div className="ml-4">
                 {obj.volumes.map((vol) => (
-                  <div key={vol.id} className="flex items-center gap-0.5">
+                  <div
+                    key={vol.id}
+                    className="flex items-center gap-0.5"
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'part', objectId: obj.id, id: vol.id }));
+                      e.dataTransfer.effectAllowed = 'move';
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      let dragged: { kind: string; objectId: number; id: number } | null = null;
+                      try { dragged = JSON.parse(e.dataTransfer.getData('text/plain')); } catch { /* ignore */ }
+                      if (dragged?.kind === 'part' && dragged.objectId === obj.id && dragged.id !== vol.id) {
+                        void reorderVolumesInList(platform.runtime, obj.id, dragged.id, vol.id);
+                      }
+                    }}
+                  >
                     <Button
                       variant="ghost"
                       size="xs"
