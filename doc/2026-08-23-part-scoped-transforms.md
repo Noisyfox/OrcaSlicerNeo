@@ -27,14 +27,6 @@ The existing pre-slice transform synchronization already persists both the
 instance and volume transforms per composite via `syncModelTransforms`, so a
 part-scoped edit reaches the bridge unchanged.
 
-## Verification
-
-- Unit tests: 3 new part-scoped cases in `SceneInteractionController.test.ts`
-  (volume-scope detection, part-only move, part-only scale). `pnpm --filter
-  @orca/slicer-app test` -> 122 tests pass; typecheck clean.
-- Desktop mock e2e (12 passed, 1 skipped), desktop real-WASM e2e (13 passed), and
-  Web e2e (threaded + serial) all pass.
-
 ## Notes
 
 - An e2e that drags a selected part is not added because the mock fixture is a

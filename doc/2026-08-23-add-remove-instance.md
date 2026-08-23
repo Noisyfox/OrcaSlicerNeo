@@ -28,10 +28,3 @@ and mesh reload).
 - `structuralActions.ts`: `addInstanceInList`, `removeInstanceInList`.
 - Real-WASM smoke: `bridge-smoke.mjs` checks add (instance count 1→2), remove
   (2→1), and the last-instance guard.
-
-## Verification
-
-- `@orca/slicer-wasm` test: 68 pass (4 new add/remove cases).
-- `@orca/slicer-app` test: 127 pass (2 new action cases); typecheck clean.
-- Live WASM smoke (threaded + serial): add/remove checks pass.
-- Desktop mock e2e: 13 passed, 1 skipped.

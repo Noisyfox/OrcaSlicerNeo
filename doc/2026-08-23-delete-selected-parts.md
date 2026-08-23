@@ -22,11 +22,3 @@ selection-scope-aware:
 
 Both paths wait for settled transforms, invalidate the slice/export, refresh the
 structure + mesh, and flip `modelLoaded` off when the plate empties.
-
-## Verification
-
-- `deleteSelection.test.ts`: 6 cases (part-scoped volume delete, object delete,
-  empty no-op, empties plate, guard error, stale selection fails closed).
-- `pnpm --filter @orca/slicer-app test` -> 125 tests pass; typecheck clean.
-- Desktop mock e2e (13 passed, 1 skipped) — the existing Delete keyboard test
-  (object/instance selection) still empties the plate.

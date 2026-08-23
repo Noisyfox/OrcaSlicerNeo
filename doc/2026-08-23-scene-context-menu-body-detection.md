@@ -29,11 +29,3 @@ detected as a body at all.
   "on a body"; the bed plate is "empty space".
 - The model body meshes are rendered/raycast with `side: THREE.DoubleSide`, so a
   part is selectable and detectable regardless of its winding.
-
-## Verification
-
-- Added a desktop e2e: right-click a model body (via the world→screen projection
-  hook) and assert the empty-scene menu does not open.
-- Desktop mock e2e: 13 passed, 1 skipped.
-- Desktop real-WASM e2e: 14 passed.
-- Web e2e (threaded + serial): both pass.

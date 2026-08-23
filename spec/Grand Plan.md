@@ -296,7 +296,9 @@ cross-origin isolation is available, and serial WASM otherwise.
 > [!info] Status: **delivered**
 >
 > Design: [`ObjectList-and-Parts.md`](ObjectList-and-Parts.md)
-> Implementation: `doc/2026-08-23-object-list-parts-implementation-plan.md`
+> Behaviour notes: `doc/2026-08-23-orca-selection-mode.md`,
+> `doc/2026-08-23-object-list-highlight-orca.md`,
+> `doc/2026-08-23-object-reorder-selection-sync.md`
 
 Add the shared Object List and object-part management to both Electron and Web.
 The C++/WASM bridge owns all model-structure semantics; React renders the tree

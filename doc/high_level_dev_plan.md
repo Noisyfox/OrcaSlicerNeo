@@ -393,9 +393,10 @@
 > `orc_get_model_structure()`, object/volume/instance rename, delete, clone,
 > split, assemble-to-multipart, change type, reorder, and printable state.
 > UI and slicing state use stable `ObjectID`; after each structural mutation
-> the shared app re-reads structure and mesh and restores selection where
-> possible. Mesh boolean, Add Part/Modifier, multi-plate, undo/redo, painting,
-> and extruder panels are deferred.
+> the shared app re-reads structure and mesh. Selection is currently cleared on a
+> mutation's mesh reload (stable-ID restoration is a later refinement, per spec
+> §6). Mesh boolean, Add Part/Modifier, multi-plate, undo/redo, painting, and
+> extruder panels are deferred.
 > Verification: unit tests, mock-module contract tests, live WASM smoke
 > (threaded + serial), Electron e2e (mock + real WASM), and Web e2e (threaded +
 > serial) all pass.

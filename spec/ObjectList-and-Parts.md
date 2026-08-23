@@ -2,10 +2,9 @@
 
 **Date:** 2026-08-23
 
-**Status:** Delivered. Design and implementation complete for the first version
-(see `doc/2026-08-23-object-list-parts-implementation-plan.md`). Deferred items
-(mesh boolean, Add Part/Modifier, multi-plate, undo/redo, painting, extruder
-panels) remain queued.
+**Status:** Delivered. Design and implementation complete for the first version.
+Deferred items (mesh boolean, Add Part/Modifier, multi-plate, undo/redo,
+painting, extruder panels) remain queued.
 
 **Branch:** `dev/object-list-and-parts`
 
@@ -192,7 +191,9 @@ Instance rows show a printable toggle. Object rows show an aggregate printable
 state that toggles every instance of that object. `auto_drop` is not exposed in
 the first version.
 
-Selection restoration after a mutation follows three rules:
+Selection restoration after a mutation is designed to follow three rules (the
+current implementation clears selection on a mutation's mesh reload; restoring
+it by stable ID is a later refinement):
 
 - Non-destructive operations (rename, change type, reorder, printable toggle)
   restore the previous selection by stable ID.
@@ -212,8 +213,9 @@ only positional indices.
 - Structure results expose both:
   - stable IDs for React keys and selection restoration;
   - current positional indices for operation dispatch and display.
-- Structural mutations may shift indices; after any mutation, the UI re-reads
-  the structure and mesh and restores selection by stable ID where possible.
+- Structural mutations may shift indices; after any mutation, the UI re-reads the
+  structure and mesh. Selection is currently cleared on the reload (stable-ID
+  restoration is the later refinement described above).
 
 This deliberately avoids replicating upstream wxWidgets'
 `m_ui_and_3d_volume_maps`, incremental tree edits, and UI-index bookkeeping in
@@ -328,7 +330,8 @@ function returns `{ "ok": false, "error": "..." }` on failure.
 - Implements a new major milestone beyond
   `doc/2026-08-12-electron-gui-rewrite-design.md` and the delivered vertical
   slice.
-- Implementation is broken into independently verifiable steps in
-  `doc/2026-08-23-object-list-parts-implementation-plan.md`.
+- The interactive behaviour and selection model follow OrcaSlicer (see
+  `doc/2026-08-23-orca-selection-mode.md`, `doc/2026-08-23-object-list-highlight-orca.md`
+  and `doc/2026-08-23-object-reorder-selection-sync.md`).
 - Will be linked from `spec/Grand Plan.md` and
   `doc/high_level_dev_plan.md` once approved.

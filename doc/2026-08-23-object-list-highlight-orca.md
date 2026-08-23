@@ -95,11 +95,3 @@ to make it more readable." Clicking the object row is the normal way to reach a
 full-object selection, and Orca keeps the object row in that interactive path
 (`root_is_selected`), so the two agree in practice; this is a readability choice
 when the selection is built in the scene instead.
-
-## Verification
-
-- `@orca/slicer-app` test: 137 pass (added the object+instance mixable case, the
-  per-object mixed highlight case and the `Instances`-group highlight case);
-  typecheck clean.
-- Desktop mock e2e: 16 passed, 1 skipped (slice-error requires a rejecting
-  model fixture).

@@ -27,10 +27,3 @@ the scene context menu.
 - "Assemble all" is available from the object row menu (and the list-level menu
   on right-clicking empty list space).
 - The e2e tests were updated to drive the actions through the context menu.
-
-## Verification
-
-- slicer-app unit tests (119) + typecheck pass.
-- Desktop mock e2e: 12 passed, 1 skipped.
-- Desktop real-WASM e2e: 13 passed.
-- Web e2e (threaded + serial): both pass.

@@ -31,11 +31,3 @@ exclusions; this implements them.
   see `doc/2026-08-23-object-list-highlight-orca.md`.
 - `buildSelectableRows` rows now carry a `kind` and part rows default to
   instance 0; the ObjectList re-anchors them to the focused instance.
-
-## Verification
-
-- `@orca/slicer-app` test: 137 pass (updated part/volume assertions to
-  single-instance anchoring; added row-kind and object+instance-mixable
-  assertions); typecheck clean.
-- Desktop mock e2e: 16 passed, 1 skipped (Ctrl/Shift multi-select, part flows;
-  slice-error needs a rejecting-model fixture).

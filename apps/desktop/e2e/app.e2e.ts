@@ -322,7 +322,7 @@ test('object list: refuses mixing object and part selection (mock)', async () =>
   }
 });
 
-// Object list drag reorder (Step 9). Mock-only: add two objects, drag the second
+// Object list drag reorder. Mock-only: add two objects, drag the second
 // onto the first, and assert the object order changes.
 test('object list: drag reorder objects (mock)', async () => {
   const { app } = await launchApp();
@@ -421,7 +421,7 @@ test('object list: ctrl and shift multi-select (mock)', async () => {
   }
 });
 
-// Object list structural actions (Step 8): clone, assemble, delete. Mock-only.
+// Object list structural actions: clone, assemble, delete. Mock-only.
 test('object list: clone, assemble, delete (structural, mock)', async () => {
   const { app } = await launchApp();
   try {
@@ -458,7 +458,7 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
   }
 });
 
-// Object list metadata actions (Step 7): rename, part-type control, printable
+// Object list metadata actions: rename, part-type control, printable
 // toggle, then a successful slice — all through the row context menu.
 test('object list: rename, printable, and slice (mock)', async () => {
   const { app } = await launchApp();
