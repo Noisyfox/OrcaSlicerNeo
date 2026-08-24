@@ -155,7 +155,7 @@ describe('SlicerClient bridge contract', () => {
     expect(mesh.objects[0].indices[0]).toBe(0);
   });
 
-  it('mock fixture can expose independently transformable instances', async () => {
+  it('mock fixture keeps instance placement independent while sharing part transforms', async () => {
     const c = createClient(async () => createMockModule({ instanceCount: 2, volumeCount: 2 }));
     await c.addModel(new Uint8Array(4), 'stl');
     const before = await c.getModelMesh();
@@ -171,6 +171,30 @@ describe('SlicerClient bridge contract', () => {
     const after = await c.getModelMesh();
     expect(after.objects.filter((o) => o.instanceIdx === 0).map((o) => o.offset)).toEqual([[0, 0, 0], [0, 0, 0]]);
     expect(after.objects.filter((o) => o.instanceIdx === 1).map((o) => o.offset)).toEqual([[75, 0, 0], [75, 0, 0]]);
+
+    const volume = { offset: [3, 4, 5] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
+    const instance = { offset: [75, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
+    expect((await c.setModelTransform(0, 1, 1, instance, volume)).ok).toBe(true);
+    const transformed = await c.getModelMesh();
+    expect(transformed.objects.filter((o) => o.volumeIdx === 1).map((o) => o.volumeTransform)).toEqual([volume, volume]);
+    expect(transformed.objects.find((o) => o.instanceIdx === 0 && o.volumeIdx === 0)?.instanceTransform.offset).toEqual([0, 0, 0]);
+    expect(transformed.objects.find((o) => o.instanceIdx === 1 && o.volumeIdx === 1)?.instanceTransform).toEqual(instance);
+  });
+
+  it('allows transforming an instance added after model load and keeps it in the mesh', async () => {
+    const c = createClient(async () => createMockModule());
+    await c.addModel(new Uint8Array(4), 'stl');
+    const { objects } = await c.getModelStructure();
+    const add = await c.addInstance(objects[0].id);
+    expect(add.ok).toBe(true);
+    const addedInstance = { offset: [123, 4, 5] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
+    const addedVolume = { offset: [7, 8, 9] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
+    expect((await c.setModelTransform(0, 0, 1, addedInstance, addedVolume)).ok).toBe(true);
+    const mesh = await c.getModelMesh();
+    expect(mesh.objects).toHaveLength(2);
+    expect(mesh.objects.find((o) => o.instanceIdx === 1)).toMatchObject({
+      offset: [123, 4, 5], instanceTransform: addedInstance, volumeTransform: addedVolume,
+    });
   });
 
   describe('getModelStructure bridge contract', () => {

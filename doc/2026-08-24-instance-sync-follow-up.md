@@ -20,3 +20,11 @@ or changing printable/type state while a snapshot is still pending could apply
 that snapshot to a different entity. A failed settled sync aborts the ObjectList
 mutation and leaves the bridge untouched; callers receive the failed
 `MutationOutcome` for display and retry handling.
+
+The client mock follows the same model shape. It stores instance placement
+transforms per object instance, but stores each part transform once per object
+volume and returns that shared value for every rendered instance. Structural
+operations derive bounds from the live per-object arrays, so an instance added
+after load can be transformed and returned by `getModelMesh` even when the
+initial fixture had one instance. Focused client tests cover add → transform →
+mesh persistence and propagation of a part transform to all instances.

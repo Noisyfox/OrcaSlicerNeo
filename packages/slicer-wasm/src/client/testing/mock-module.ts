@@ -45,9 +45,9 @@ export interface MockModuleOptions {
   sliceFixture?: MockSliceFixture;
   metadataKeys?: Record<string, { type: string; enum_values?: string[] }>;
   printErr?: (msg: string) => void;
-  /** Number of separately transformable instances exposed by getModelMesh. */
+  /** Number of instances initially exposed by getModelMesh. */
   instanceCount?: number;
-  /** Number of composite render volumes in each mock instance. */
+  /** Number of composite render volumes initially present in each object. */
   volumeCount?: number;
   /** Number of parts a splittable volume yields on orc_split_volume_to_parts. */
   splitParts?: number;
@@ -149,9 +149,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     // one without a model fixture that depends on the native build.
     offset: [index * 50, 0, 0],
   }));
+  // A ModelVolume belongs to the object, not to an instance.  Its transform
+  // is therefore shared by every instance of that object, just as in the
+  // native model.  Instance placement remains per-instance in
+  // objectTransforms above.
   const createObjectVolumeTransforms = () => Array.from(
-    { length: instanceCount },
-    () => Array.from({ length: volumeCount }, () => identityTransform()),
+    { length: volumeCount },
+    () => identityTransform(),
   );
   let objectTransforms: Array<ReturnType<typeof createObjectTransforms>> = [];
   let objectVolumeTransforms: Array<ReturnType<typeof createObjectVolumeTransforms>> = [];
@@ -263,7 +267,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         printable: true,
       })));
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.length * instanceCount };
+      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
     },
     orc_clear_model() {
       objectTransforms = [];
@@ -323,7 +327,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       toDelete.sort((a, b) => (a.oi !== b.oi ? a.oi - b.oi : b.vi - a.vi));
       for (const { oi, vi } of toDelete) {
         volumeMeta[oi].splice(vi, 1);
-        for (let ii = 0; ii < instanceCount; ii++) objectVolumeTransforms[oi][ii].splice(vi, 1);
+        objectVolumeTransforms[oi].splice(vi, 1);
       }
       sliced = false;
       return { ok: true, objects: objectTransforms.length, deleted: toDelete.length };
@@ -363,7 +367,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const fromIdx = volumeMeta[oi].findIndex((v) => v.id === fromVolumeId);
       if (fromIdx < 0) return { error: 'volume not found' };
       moveToIndex(volumeMeta[oi], fromIdx, toIndex);
-      for (let ii = 0; ii < instanceCount; ii++) moveToIndex(objectVolumeTransforms[oi][ii], fromIdx, toIndex);
+      moveToIndex(objectVolumeTransforms[oi], fromIdx, toIndex);
       sliced = false;
       return { ok: true, objects: buildStructure() };
     },
@@ -378,11 +382,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
             parts.push({ id: nextVolumeId++, name: `${source.name}_${p + 1}`, type: source.type, isSplittable: false });
           }
           volumeMeta[oi].splice(vi, 1, ...parts);
-          for (let ii = 0; ii < instanceCount; ii++) {
-            const transform = objectVolumeTransforms[oi][ii][vi];
-            objectVolumeTransforms[oi][ii].splice(vi, 1,
-              ...Array.from({ length: splitParts }, () => JSON.parse(JSON.stringify(transform))));
-          }
+          const transform = objectVolumeTransforms[oi][vi];
+          objectVolumeTransforms[oi].splice(vi, 1,
+            ...Array.from({ length: splitParts }, () => JSON.parse(JSON.stringify(transform))));
           sliced = false;
           return { ok: true, parts: splitParts, newVolumeIds: parts.map((p) => p.id), objects: buildStructure() };
         }
@@ -429,11 +431,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (const oi of srcIdxs) {
         for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
           newVolumes.push({ id: nextVolumeId++, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type, isSplittable: false });
-          newVolTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0][vi])) as ReturnType<typeof identityTransform>);
+          newVolTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][vi])) as ReturnType<typeof identityTransform>);
         }
       }
       objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[srcIdxs[0]][0]))]);
-      objectVolumeTransforms.push([newVolTransforms]);
+      objectVolumeTransforms.push(newVolTransforms);
       objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable });
       volumeMeta.push(newVolumes);
       instanceMeta.push([{ id: nextInstanceId++, printable: instanceMeta[srcIdxs[0]][0].printable }]);
@@ -462,7 +464,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         if (!toRemove.includes(ii)) toRemove.push(ii);
         const srcInst = instanceMeta[oi][ii];
         objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[oi][ii]))]);
-        objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][ii]))]);
+        objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
         objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable });
         volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
         instanceMeta.push([{ id: nextInstanceId++, printable: srcInst.printable }]);
@@ -472,7 +474,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (const ii of toRemove) {
         instanceMeta[oi].splice(ii, 1);
         objectTransforms[oi].splice(ii, 1);
-        objectVolumeTransforms[oi].splice(ii, 1);
       }
       sliced = false;
       return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
@@ -486,7 +487,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const newTransform = JSON.parse(JSON.stringify(lastTransform));
       newTransform.offset[0] += 50;
       objectTransforms[oi].push(newTransform);
-      objectVolumeTransforms[oi].push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0])));
       sliced = false;
       return { ok: true, objectId, instanceId: instance.id };
     },
@@ -498,19 +498,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (ii < 0) return { error: 'instance not found' };
       instanceMeta[oi].splice(ii, 1);
       objectTransforms[oi].splice(ii, 1);
-      objectVolumeTransforms[oi].splice(ii, 1);
       sliced = false;
       return { ok: true };
     },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
-      if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
+      if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= objectTransforms[obj].length) return { error: 'no such instance' };
       objectTransforms[obj][inst].offset = [x, y, z];
       return { ok: true };
     },
     orc_set_model_transform(obj: number, volume: number, inst: number, instanceJson: string, volumeJson: string) {
-      if (obj < 0 || obj >= objectTransforms.length || volume < 0 || volume >= volumeCount || inst < 0 || inst >= instanceCount) return { error: 'no such composite id' };
+      if (obj < 0 || obj >= objectTransforms.length || volume < 0 || volume >= objectVolumeTransforms[obj].length || inst < 0 || inst >= objectTransforms[obj].length) return { error: 'no such composite id' };
       objectTransforms[obj][inst] = JSON.parse(instanceJson);
-      objectVolumeTransforms[obj][inst][volume] = JSON.parse(volumeJson);
+      objectVolumeTransforms[obj][volume] = JSON.parse(volumeJson);
       return { ok: true };
     },
     orc_get_model_mesh() {
@@ -535,7 +534,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         // composite must own distinct allocations even though the geometry
         // itself is identical.
         objects: objectTransforms.flatMap((instances, object_idx) => instances.flatMap((instanceTransform, instance_idx) =>
-          Array.from({ length: volumeCount }, (_, volume_idx) => {
+          objectVolumeTransforms[object_idx].map((_volumeTransform, volume_idx) => {
           const vptr = malloc(verts.length * 3 * 4);
           const iptr = malloc(tris.length * 3 * 4);
           const vo = vptr / 4;
@@ -552,7 +551,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
             index_count: tris.length * 3,
             offset: instanceTransform.offset,
             instance_transform: instanceTransform,
-            volume_transform: objectVolumeTransforms[object_idx][instance_idx][volume_idx],
+            volume_transform: objectVolumeTransforms[object_idx][volume_idx],
           };
           })),
         ),
