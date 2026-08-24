@@ -50,11 +50,10 @@ already holds ≥ 2 full objects — the same rule as the list.
   `buildPlatePointerOcclusion.ts` so both the viewport click path and the
   context-menu press can share it (Viewport imports SceneContextMenu, so the
   menu cannot import from Viewport).
-- Rename in the scene opens a small modal `ObjectRenameDialog` (the viewport
-  has no row to edit inline) that commits through the same
-  `renameObjectInList` helper as the list, keeping the single-volume part-name
-  sync behavior identical. The scene menu passes only `object` targets; the
+- The scene menu passes `showRename={false}`: the viewport has no inline
+  editor, so Rename is dropped from the scene menu entirely (an earlier modal
+  `ObjectRenameDialog` was removed again for the same reason; the object list
+  keeps its inline rename). The scene menu passes only `object` targets; the
   part/instance scene menus are follow-up work.
-- e2e: right-click on a body now asserts the object menu (and that the empty
-  menu does not appear); a new test renames an object through the scene dialog
-  (Enter commits, Escape cancels) and checks the object list reflects it.
+- e2e: right-click on a body asserts the object menu (that the empty menu
+  does not appear, and that Rename is absent).

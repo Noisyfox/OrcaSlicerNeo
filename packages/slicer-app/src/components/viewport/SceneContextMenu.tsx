@@ -2,8 +2,8 @@
 // camera (OrbitControls RIGHT=PAN), so a menu opens only when the right
 // button is pressed and released without meaningful movement (a click).
 // A click that starts on a model body opens the object context menu (the
-// same menu as the object list's object rows — rename, printable, clone,
-// split, instances, delete); any other click opens the empty-scene menu.
+// same menu as the object list's object rows, minus Rename — the viewport
+// has no inline editor for it); any other click opens the empty-scene menu.
 // The native host/browser context menu is suppressed for the whole canvas.
 import {
   useCallback,
@@ -23,7 +23,6 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { addCube, addModel, clearScene } from '../toolbar/sceneActions';
 import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
 import { useObjectListStore } from '../objectList/useObjectListStore';
-import { ObjectRenameDialog } from './ObjectRenameDialog';
 import { pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import type { GLVolume } from './GLVolume';
 import type { SceneInteractionController } from './SceneInteractionController';
@@ -45,7 +44,6 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [menuObject, setMenuObject] = useState<ModelObjectStructure | null>(null);
-  const [renaming, setRenaming] = useState<{ id: number; currentName: string } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const pressRef = useRef<{ x: number; y: number; pointerId: number; hitVolume: GLVolume | null } | null>(null);
 
@@ -85,7 +83,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
   }, []);
 
   const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 2 || !sceneStateRef.current || renaming) return;
+    if (event.button !== 2 || !sceneStateRef.current) return;
     const rect = sceneStateRef.current.gl.domElement.getBoundingClientRect();
     pressRef.current = {
       x: event.clientX,
@@ -96,7 +94,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
         y: event.clientY - rect.top,
       }),
     };
-  }, [sceneStateRef, renaming]);
+  }, [sceneStateRef]);
 
   const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const press = pressRef.current;
@@ -126,12 +124,6 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     setPoint(clampedPoint);
   }, []);
 
-  const startRename = useCallback((kind: 'object' | 'part', id: number, currentName: string) => {
-    if (kind !== 'object') return;
-    closeMenu();
-    setRenaming({ id, currentName });
-  }, [closeMenu]);
-
   const handlePointerCancel = useCallback(() => {
     pressRef.current = null;
   }, []);
@@ -160,19 +152,12 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
       onPointerCancel={handlePointerCancel}
     >
       {children}
-      {renaming && (
-        <ObjectRenameDialog
-          objectId={renaming.id}
-          currentName={renaming.currentName}
-          onClose={() => setRenaming(null)}
-        />
-      )}
       {point && menuObject && (
         <ObjectListContextMenu
           target={{ kind: 'object', object: menuObject }}
           point={point}
           onClose={closeMenu}
-          onRename={startRename}
+          showRename={false}
         />
       )}
       {point && !menuObject && (

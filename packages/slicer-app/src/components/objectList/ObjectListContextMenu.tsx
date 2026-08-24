@@ -44,11 +44,14 @@ function MenuItem({ label, testid, onClick, danger, disabled }: {
   );
 }
 
-export function ObjectListContextMenu({ target, point, onClose, onRename }: {
+export function ObjectListContextMenu({ target, point, onClose, onRename, showRename = true }: {
   target: ObjectListCtxTarget;
   point: { x: number; y: number };
   onClose: () => void;
-  onRename: (kind: 'object' | 'part', id: number, currentName: string) => void;
+  onRename?: (kind: 'object' | 'part', id: number, currentName: string) => void;
+  // Some surfaces (e.g. the scene object menu) have no rename editor; the
+  // item is dropped entirely rather than shown and disabled.
+  showRename?: boolean;
 }) {
   const platform = usePlatform();
   const runtime = platform.runtime;
@@ -70,8 +73,10 @@ export function ObjectListContextMenu({ target, point, onClose, onRename }: {
     const o = target.object;
     items = [
       ...(assembleItem ? [assembleItem] : []),
-      <MenuItem key="rename" label="Rename" testid="objectlist-rename"
-        onClick={() => { onRename('object', o.id, o.name); onClose(); }} />,
+      ...(showRename ? [(
+        <MenuItem key="rename" label="Rename" testid="objectlist-rename"
+          onClick={() => { onRename?.('object', o.id, o.name); onClose(); }} />
+      )] : []),
       <MenuItem key="printable" label={o.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
         onClick={() => act(setObjectPrintableInList(runtime, o.id, !o.printable))} />,
       <MenuItem key="clone" label="Clone" testid="objectlist-clone"
@@ -97,8 +102,10 @@ export function ObjectListContextMenu({ target, point, onClose, onRename }: {
   } else if (target.kind === 'part') {
     const { object: o, volume: v } = target;
     items = [
-      <MenuItem key="rename" label="Rename" testid="objectlist-rename"
-        onClick={() => { onRename('part', v.id, v.name); onClose(); }} />,
+      ...(showRename ? [(
+        <MenuItem key="rename" label="Rename" testid="objectlist-rename"
+          onClick={() => { onRename?.('part', v.id, v.name); onClose(); }} />
+      )] : []),
       // Orca shows Split to parts only for a volume with disconnected shells.
       ...(v.isSplittable ? [(
         <MenuItem key="split" label="Split to parts" testid="objectlist-split-parts"
