@@ -35,3 +35,26 @@ the scene context menu.
   the selected objects. With no multi-selection the menu has no assemble item,
   and an empty list-level menu is not shown at all.
 - The e2e tests were updated to drive the actions through the context menu.
+
+## Scene object context menu (updated 2026-08-24)
+
+Right-clicking a model body in the 3D viewport opens the same object-row
+context menu as the object list (`ObjectListContextMenu` with an `object`
+target), resolved from the raycast hit's GLVolume `buffer.objectIdx` via the
+store structure. Right-clicking anywhere else (bed plate, empty space) keeps
+the existing empty-scene menu. Right-clicking never changes the selection, so
+the selection-driven "Assemble" item appears only when the scene selection
+already holds ≥ 2 full objects — the same rule as the list.
+
+- `pickTopmostModelVolume` moved from `Viewport.tsx` into
+  `buildPlatePointerOcclusion.ts` so both the viewport click path and the
+  context-menu press can share it (Viewport imports SceneContextMenu, so the
+  menu cannot import from Viewport).
+- Rename in the scene opens a small modal `ObjectRenameDialog` (the viewport
+  has no row to edit inline) that commits through the same
+  `renameObjectInList` helper as the list, keeping the single-volume part-name
+  sync behavior identical. The scene menu passes only `object` targets; the
+  part/instance scene menus are follow-up work.
+- e2e: right-click on a body now asserts the object menu (and that the empty
+  menu does not appear); a new test renames an object through the scene dialog
+  (Enter commits, Escape cancels) and checks the object list reflects it.

@@ -1,4 +1,6 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
+import type { RootState } from '@react-three/fiber';
+import type { GLVolume } from './GLVolume';
 
 export const BUILD_PLATE_RAYCAST = 'build-plate-raycast';
 export const MODEL_BODY_RAYCAST = 'model-body-raycast';
@@ -30,4 +32,24 @@ export function filterBuildPlateOccludedIntersections<T extends RaycastIntersect
       || !hasRaycastRole(hit.object, MODEL_BODY_RAYCAST)
       || hit.distance <= plateDistance;
   });
+}
+
+/** The topmost visible model body under a viewport-CSS point, or null. */
+export function pickTopmostModelVolume(
+  state: RootState | null,
+  point: { x: number; y: number },
+): GLVolume | null {
+  if (!state) return null;
+  const rect = state.gl.domElement.getBoundingClientRect();
+  const nx = (point.x / rect.width) * 2 - 1;
+  const ny = -((point.y / rect.height) * 2) + 1;
+  if (nx < -1 || nx > 1 || ny < -1 || ny > 1) return null;
+  state.raycaster.setFromCamera(new THREE.Vector2(nx, ny), state.camera);
+  const hits = filterBuildPlateOccludedIntersections(
+    state.raycaster.intersectObjects(state.scene.children, true),
+  );
+  const hit = hits.find(
+    (h) => (h.object.userData as { orcaRaycastRole?: string }).orcaRaycastRole === MODEL_BODY_RAYCAST,
+  );
+  return (hit?.object.userData as { orcaVolume?: GLVolume } | undefined)?.orcaVolume ?? null;
 }

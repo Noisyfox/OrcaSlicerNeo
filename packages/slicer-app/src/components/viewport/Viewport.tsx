@@ -9,9 +9,8 @@ import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
 import { SceneContextMenu } from './SceneContextMenu';
 import type { SceneInteractionController } from './SceneInteractionController';
-import { filterBuildPlateOccludedIntersections, MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
+import { filterBuildPlateOccludedIntersections, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
-import type { GLVolume } from './GLVolume';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -385,22 +384,3 @@ function BoxSelectionOverlay({ sceneInteraction }: {
   );
 }
 
-/** The topmost visible model body under a viewport-CSS point, or null. */
-function pickTopmostModelVolume(
-  state: RootState | null,
-  point: { x: number; y: number },
-): GLVolume | null {
-  if (!state) return null;
-  const rect = state.gl.domElement.getBoundingClientRect();
-  const nx = (point.x / rect.width) * 2 - 1;
-  const ny = -((point.y / rect.height) * 2) + 1;
-  if (nx < -1 || nx > 1 || ny < -1 || ny > 1) return null;
-  state.raycaster.setFromCamera(new THREE.Vector2(nx, ny), state.camera);
-  const hits = filterBuildPlateOccludedIntersections(
-    state.raycaster.intersectObjects(state.scene.children, true),
-  );
-  const hit = hits.find(
-    (h) => (h.object.userData as { orcaRaycastRole?: string }).orcaRaycastRole === MODEL_BODY_RAYCAST,
-  );
-  return (hit?.object.userData as { orcaVolume?: GLVolume } | undefined)?.orcaVolume ?? null;
-}

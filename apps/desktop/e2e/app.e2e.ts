@@ -646,10 +646,12 @@ test('scene context menu: Add Model imports through the host picker', async () =
   }
 });
 
-// Right-clicking a model body must NOT open the empty-scene context menu. This
-// guards against the scenario where an always-on-top overlay (e.g. toolpath) or
-// a back-facing part makes the topmost body hit get misclassified as empty.
-test('scene context menu: right-click on a model body does not open the empty menu', async () => {
+// Right-clicking a model body opens the object context menu (the same menu as
+// the object list's object rows) — never the empty-scene menu. The empty menu
+// staying closed guards against the scenario where an always-on-top overlay
+// (e.g. toolpath) or a back-facing part makes the topmost body hit get
+// misclassified as empty space.
+test('scene context menu: right-click on a model body opens the object menu', async () => {
   const { app } = await launchApp();
   try {
     const page = await app.firstWindow();
@@ -670,8 +672,81 @@ test('scene context menu: right-click on a model body does not open the empty me
     );
     if (!pt) throw new Error('world→screen projection unavailable');
     await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
-    // The empty-scene menu must not appear over a model body.
+    // The empty-scene menu must not appear over a model body; the object menu
+    // (same testid as the list's) carries the object-row actions instead.
     await expect(page.getByTestId('ctx-menu')).toHaveCount(0);
+    const objectMenu = page.getByTestId('objectlist-ctx-menu');
+    await expect(objectMenu).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-rename')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-printable')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-clone')).toBeVisible();
+    // The e2e mock fixture is a two-volume, two-instance object — splittable.
+    await expect(objectMenu.getByTestId('objectlist-split-objects')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-add-instance')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-remove-instance')).toBeEnabled();
+    // Right-clicking does not change the selection, and nothing was selected
+    // before the press, so the selection-driven Assemble item is absent.
+    await expect(objectMenu.getByTestId('objectlist-assemble')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(objectMenu).toBeHidden();
+  } finally {
+    await app.close();
+  }
+});
+
+// The scene object menu's Rename opens a modal dialog (the viewport has no row
+// to edit inline); committing renames the object through the same helper as
+// the list, so the object list reflects it. The e2e mock fixture is a
+// two-volume object — Orca syncs the part name only for single-volume objects
+// (covered by the actions unit tests), so the parts keep their names here.
+test('scene context menu: rename an object from the viewport dialog', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('viewport canvas has no bounding box');
+    const pt = await page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null };
+      }).__orcaE2e?.projectWorldToScreen?.([10, 10, 10]) ?? null,
+    );
+    if (!pt) throw new Error('world→screen projection unavailable');
+    const list = page.getByTestId('object-list');
+
+    // Open the object menu and choose Rename; the modal dialog appears.
+    await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
+    await expect(page.getByTestId('objectlist-ctx-menu')).toBeVisible();
+    await page.getByTestId('objectlist-rename').click();
+    const dialog = page.getByTestId('rename-object-dialog');
+    await expect(dialog).toBeVisible();
+
+    // Commit with Enter: dialog closes, the object list shows the new name.
+    const nameInput = page.getByTestId('rename-object-input');
+    await nameInput.fill('Scene Cube');
+    await nameInput.press('Enter');
+    await expect(dialog).toBeHidden();
+    await expect(list).toContainText('Scene Cube');
+    // Multi-volume object: the parts keep their fixture names (expand first —
+    // part rows render only when the object is expanded).
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    await expect(list.locator('[data-testid^="part-"]').first()).toContainText('Part 1');
+
+    // Escape cancels a later rename without touching the name.
+    await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
+    await expect(page.getByTestId('objectlist-ctx-menu')).toBeVisible();
+    await page.getByTestId('objectlist-rename').click();
+    await expect(dialog).toBeVisible();
+    await nameInput.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(list).toContainText('Scene Cube');
   } finally {
     await app.close();
   }
