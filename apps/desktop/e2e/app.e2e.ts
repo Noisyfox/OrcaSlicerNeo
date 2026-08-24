@@ -650,7 +650,8 @@ test('scene context menu: Add Model imports through the host picker', async () =
 // the object list's object rows) — never the empty-scene menu. The empty menu
 // staying closed guards against the scenario where an always-on-top overlay
 // (e.g. toolpath) or a back-facing part makes the topmost body hit get
-// misclassified as empty space.
+// misclassified as empty space. The right-click also selects the object, but
+// leaves the selection untouched when the clicked volume is already selected.
 test('scene context menu: right-click on a model body opens the object menu', async () => {
   const { app } = await launchApp();
   try {
@@ -671,6 +672,8 @@ test('scene context menu: right-click on a model body opens the object menu', as
       }).__orcaE2e?.projectWorldToScreen?.([10, 10, 10]) ?? null,
     );
     if (!pt) throw new Error('world→screen projection unavailable');
+    const list = page.getByTestId('object-list');
+    const objectRows = list.locator('div[data-testid^="object-"]');
     await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
     // The empty-scene menu must not appear over a model body; the object menu
     // (same testid as the list's) carries the object-row actions instead.
@@ -686,11 +689,27 @@ test('scene context menu: right-click on a model body opens the object menu', as
     await expect(objectMenu.getByTestId('objectlist-split-objects')).toBeVisible();
     await expect(objectMenu.getByTestId('objectlist-add-instance')).toBeVisible();
     await expect(objectMenu.getByTestId('objectlist-remove-instance')).toBeEnabled();
-    // Right-clicking does not change the selection, and nothing was selected
-    // before the press, so the selection-driven Assemble item is absent.
+    // The right-click selected the object (the first list row shows selected).
+    await expect(objectRows.first().locator('button[data-state="selected"]')).toBeVisible();
+    // With a single object selected the selection-driven Assemble item is
+    // absent (needs ≥ 2 full objects).
     await expect(objectMenu.getByTestId('objectlist-assemble')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(objectMenu).toBeHidden();
+
+    // Right-clicking a body that is already selected must not change the
+    // selection: with two objects fully selected, a right-click on a body
+    // keeps both rows selected and Assemble is offered.
+    await objectRows.nth(0).click({ button: 'right' });
+    await list.getByTestId('objectlist-clone').click();
+    await expect.poll(() => objectRows.count()).toBeGreaterThan(1);
+    await objectRows.nth(0).click();
+    await objectRows.nth(1).click({ modifiers: ['Control'] });
+    await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
+    await expect(objectMenu).toBeVisible();
+    await expect(objectRows.nth(0).locator('button[data-state="selected"]')).toBeVisible();
+    await expect(objectRows.nth(1).locator('button[data-state="selected"]')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-assemble')).toBeVisible();
   } finally {
     await app.close();
   }

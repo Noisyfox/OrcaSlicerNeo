@@ -3,8 +3,11 @@
 // button is pressed and released without meaningful movement (a click).
 // A click that starts on a model body opens the object context menu (the
 // same menu as the object list's object rows, minus Rename — the viewport
-// has no inline editor for it); any other click opens the empty-scene menu.
-// The native host/browser context menu is suppressed for the whole canvas.
+// has no inline editor for it) and selects the object — unless the clicked
+// volume is already selected, in which case the selection is left untouched
+// (a plain left-click on an existing selection member keeps the group).
+// Any other click opens the empty-scene menu. The native host/browser
+// context menu is suppressed for the whole canvas.
 import {
   useCallback,
   useEffect,
@@ -110,11 +113,24 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     if (press.hitVolume) {
       // Resolve the hit GLVolume's object from the structure (objectIdx is the
       // positional index); the menu logic is identical to the object list's
-      // object-row menu. Right-clicking never changes the selection.
+      // object-row menu.
       const obj = useObjectListStore.getState().structure.find(
         (o) => o.index === press.hitVolume!.buffer.objectIdx,
       );
       if (obj) {
+        // Right-click selects the object — unless the clicked volume is
+        // already selected, in which case the selection is left untouched
+        // (like a plain left-click on an existing selection member keeps the
+        // group, so a right-click never collapses a multi-selection).
+        const hit = press.hitVolume;
+        const clickedSelected = sceneInteraction?.selectedVolumes().some((v) =>
+          v.buffer.objectIdx === hit.buffer.objectIdx
+          && v.buffer.volumeIdx === hit.buffer.volumeIdx
+          && v.buffer.instanceIdx === hit.buffer.instanceIdx,
+        );
+        if (sceneInteraction && !clickedSelected) {
+          sceneInteraction.selectComposite(hit.buffer.objectIdx, undefined, undefined, false);
+        }
         setMenuObject(obj);
         setPoint(clampedPoint);
         return;
@@ -122,7 +138,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     }
     setMenuObject(null);
     setPoint(clampedPoint);
-  }, []);
+  }, [sceneInteraction]);
 
   const handlePointerCancel = useCallback(() => {
     pressRef.current = null;
