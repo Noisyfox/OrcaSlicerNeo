@@ -111,6 +111,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'] },
     };
 
+  // The OrcaSlicer "Add Primitive" menu set (GUI_Factories.cpp
+  // append_submenu_add_generic): the shapes the native bridge's orc_add_shape
+  // can build.
+  const SUPPORTED_PRIMITIVES = ['Cube', 'Cylinder', 'Sphere', 'Cone', 'Disc', 'Torus'];
+
   // ---- M4 preset fixtures (enriched bridge shape; Afinia is a hidden
   // "not installed" entry so the picker's grouping is testable) ----
   type PresetKind = 'printer' | 'print' | 'filament';
@@ -167,7 +172,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let nextObjectId = 1000;
   let nextVolumeId = 2000;
   let nextInstanceId = 3000;
-  let objectMeta: Array<{ id: number; name: string; printable: boolean }> = [];
+  let objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }> = [];
   let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }>> = [];
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
@@ -216,6 +221,131 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (from === target) return;
     const [el] = arr.splice(from, 1);
     arr.splice(target, 0, el);
+  }
+
+  // Port of the libslic3r primitive builders (TriangleMesh.cpp its_make_*)
+  // parameterized like Orca's create_mesh (GUI_ObjectList.cpp) so per-type
+  // vertex/index counts match the native bridge at the app's 20 mm side:
+  // Cube 8/36, Cylinder 362/2160, Sphere 16022/96120, Cone 182/1080,
+  // Disc 362/2160, Torus 14400/86400. Every other object (file imports,
+  // splits, assemblies) keeps the canonical 20 mm cube, as before.
+  function primitiveMesh(type: string | undefined) {
+    const CUBE_VERTS = [
+      [20, 20, 0], [20, 0, 0], [0, 0, 0], [0, 20, 0],
+      [20, 20, 20], [0, 20, 20], [0, 0, 20], [20, 0, 20],
+    ];
+    const CUBE_TRIS = [
+      [0, 1, 2], [0, 2, 3], [4, 5, 6], [4, 6, 7], [0, 4, 7], [0, 7, 1],
+      [1, 7, 6], [1, 6, 2], [2, 6, 5], [2, 5, 3], [4, 0, 3], [4, 3, 5],
+    ];
+    const side = 20;
+    if (type === 'Cylinder' || type === 'Disc') {
+      // its_make_cylinder(r, h, fa): centers at z = 0 and z = h, ring points
+      // Eigen::Rotation2Df(angle) * (0, r) => (-r·sin a, r·cos a).
+      const r = 0.5 * side;
+      const h = type === 'Disc' ? 0.2 : side;
+      const n = Math.ceil((2 * Math.PI) / ((2 * Math.PI) / 180));
+      const step = (2 * Math.PI) / n;
+      const verts: number[][] = [[0, 0, 0], [0, 0, h]];
+      const tris: number[][] = [];
+      for (let i = 0; i < n; i++) {
+        const x = -r * Math.sin(step * i);
+        const y = r * Math.cos(step * i);
+        verts.push([x, y, 0], [x, y, h]);
+      }
+      for (let i = 1; i < n; i++) {
+        const id = 2 + i * 2 + 1;
+        tris.push([0, id - 1, id - 3], [id, 1, id - 2], [id, id - 2, id - 3], [id, id - 3, id - 1]);
+      }
+      const id = verts.length - 1;
+      tris.push([0, 2, id - 1], [3, 1, id], [id, 2, 3], [id, id - 1, 2]);
+      return { verts, tris };
+    }
+    if (type === 'Cone') {
+      const r = 0.5 * side;
+      const fa = (2 * Math.PI) / 180;
+      const verts: number[][] = [[0, 0, 0], [0, 0, side]];
+      const tris: number[][] = [];
+      for (let angle = 0; angle < 2 * Math.PI; angle += fa) {
+        verts.push([r * Math.cos(angle), r * Math.sin(angle), 0]);
+        if (angle > 0) {
+          tris.push([0, verts.length - 1, verts.length - 2], [1, verts.length - 2, verts.length - 1]);
+        }
+      }
+      tris.push([0, 2, verts.length - 1], [1, verts.length - 1, 2]);
+      return { verts, tris };
+    }
+    if (type === 'Torus') {
+      // its_make_torus(r, h, fa): n_major == n_minor == ceil(2·π/fa).
+      const r = 0.5 * side;
+      const tube = 0.125 * side;
+      const n = Math.ceil((2 * Math.PI) / (Math.PI / 60));
+      const step = (2 * Math.PI) / n;
+      const verts: number[][] = [];
+      const tris: number[][] = [];
+      for (let i = 0; i < n; i++) {
+        const ma = step * i;
+        for (let j = 0; j < n; j++) {
+          const na = step * j;
+          const ring = r + tube * Math.cos(na);
+          verts.push([ring * Math.cos(ma), ring * Math.sin(ma), tube * Math.sin(na)]);
+        }
+      }
+      for (let i = 0; i < n; i++) {
+        const inext = (i + 1) % n;
+        for (let j = 0; j < n; j++) {
+          const jnext = (j + 1) % n;
+          const v0 = i * n + j;
+          const v1 = inext * n + j;
+          const v2 = inext * n + jnext;
+          const v3 = i * n + jnext;
+          tris.push([v0, v1, v2], [v0, v2, v3]);
+        }
+      }
+      return { verts, tris };
+    }
+    if (type === 'Sphere') {
+      const radius = 0.5 * side;
+      const fa = Math.PI / 90;
+      const sectorCount = Math.ceil((2 * Math.PI) / fa);
+      const stackCount = Math.ceil(Math.PI / fa);
+      const sectorStep = (2 * Math.PI) / sectorCount;
+      const stackStep = Math.PI / stackCount;
+      const verts: number[][] = [];
+      for (let i = 0; i <= stackCount; i++) {
+        const stackAngle = 0.5 * Math.PI - stackStep * i;
+        const xy = radius * Math.cos(stackAngle);
+        const z = radius * Math.sin(stackAngle);
+        if (i === 0 || i === stackCount) verts.push([xy, 0, z]);
+        else for (let j = 0; j < sectorCount; j++) {
+          const sectorAngle = sectorStep * j;
+          verts.push([xy * Math.cos(sectorAngle), xy * Math.sin(sectorAngle), z]);
+        }
+      }
+      const tris: number[][] = [];
+      for (let i = 0; i < stackCount; i++) {
+        let k1 = i === 0 ? 0 : 1 + (i - 1) * sectorCount;
+        const k1_first = k1;
+        let k2 = i === 0 ? 1 : k1 + sectorCount;
+        const k2_first = k2;
+        for (let j = 0; j < sectorCount; j++) {
+          let k1_next = k1;
+          let k2_next = k2;
+          if (i !== 0) {
+            k1_next = j + 1 === sectorCount ? k1_first : k1 + 1;
+            tris.push([k1, k2, k1_next]);
+          }
+          if (i + 1 !== stackCount) {
+            k2_next = j + 1 === sectorCount ? k2_first : k2 + 1;
+            tris.push([k1_next, k2, k2_next]);
+          }
+          k1 = k1_next;
+          k2 = k2_next;
+        }
+      }
+      return { verts, tris };
+    }
+    return { verts: CUBE_VERTS, tris: CUBE_TRIS };
   }
 
   // ---- the bridge functions ----
@@ -270,15 +400,17 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
     },
     orc_add_shape(type: string, name?: string) {
-      if (type !== 'Cube') return { error: `unsupported primitive type: ${type}` };
+      if (!SUPPORTED_PRIMITIVES.includes(type)) return { error: `unsupported primitive type: ${type}` };
       const shapeName = name || type;
       // Mirror the native bridge: the primitive is built in the engine, and
       // the object + its single part are named after the primitive label.
-      // A cube is one closed shell, so it is not splittable into parts.
+      // Every shape is one closed shell, so it is not splittable into parts.
+      // The object records its type so orc_get_model_mesh returns the
+      // per-shape geometry (primitiveMesh below).
       modelLoaded = true;
       objectTransforms.push(createObjectTransforms());
       objectVolumeTransforms.push([identityTransform()]);
-      objectMeta.push({ id: nextObjectId++, name: shapeName, printable: true });
+      objectMeta.push({ id: nextObjectId++, name: shapeName, printable: true, primitive: type });
       volumeMeta.push([{ id: nextVolumeId++, name: shapeName, type: 'model_part' as VolumeType, isSplittable: false }]);
       instanceMeta.push(Array.from({ length: instanceCount }, (_, ii) => ({
         id: nextInstanceId++,
@@ -360,7 +492,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         if (oi < 0) return { error: 'object not found' };
         objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
-        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable });
+        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
         volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
         instanceMeta.push(instanceMeta[oi].map((i) => ({ ...i, id: nextInstanceId++ })));
         newObjectIds.push(objectMeta[objectMeta.length - 1].id);
@@ -483,7 +615,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         const srcInst = instanceMeta[oi][ii];
         objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[oi][ii]))]);
         objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
-        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable });
+        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable, primitive: objectMeta[oi].primitive });
         volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
         instanceMeta.push([{ id: nextInstanceId++, printable: srcInst.printable }]);
         newIds.push(objectMeta[objectMeta.length - 1].id);
@@ -532,20 +664,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_get_model_mesh() {
       if (!modelLoaded) return { error: 'no model loaded' };
-      // 20 mm cube (8 verts, 12 tris) in LOCAL coordinates — the bridge
-      // contract (bridge.cpp orc_get_model_mesh) reports the instance offset
-      // separately, and the renderer applies it as the group position. (The
-      // offset used to be baked into the vertices too, which double-offset
-      // the cube after a committed move + reload; offset 0 hid it.)
-      const verts = [
-        [0, 0, 0], [20, 0, 0], [20, 20, 0], [0, 20, 0],
-        [0, 0, 20], [20, 0, 20], [20, 20, 20], [0, 20, 20],
-      ];
-      const tris = [
-        [0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7],
-        [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
-        [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7],
-      ];
+      // Local coordinates — the bridge contract (bridge.cpp
+      // orc_get_model_mesh) reports the instance offset separately, and the
+      // renderer applies it as the group position. (The offset used to be
+      // baked into the vertices too, which double-offset the cube after a
+      // committed move + reload; offset 0 hid it.) File-import fixtures are
+      // the 20 mm cube (8 verts, 12 tris); primitives return their own
+      // geometry from primitiveMesh.
       return {
         ok: true,
         // The client frees every returned pair of heap buffers, so each
@@ -553,6 +678,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         // itself is identical.
         objects: objectTransforms.flatMap((instances, object_idx) => instances.flatMap((instanceTransform, instance_idx) =>
           objectVolumeTransforms[object_idx].map((_volumeTransform, volume_idx) => {
+          // Primitives return their built geometry; other objects the cube.
+          const { verts, tris } = primitiveMesh(objectMeta[object_idx]?.primitive);
           const vptr = malloc(verts.length * 3 * 4);
           const iptr = malloc(tris.length * 3 * 4);
           const vo = vptr / 4;

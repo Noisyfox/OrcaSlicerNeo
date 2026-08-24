@@ -20,12 +20,17 @@ import {
   type ReactNode,
 } from 'react';
 import type { RootState } from '@react-three/fiber';
-import { Box, FolderPlus, Trash2 } from 'lucide-react';
+import {
+  Box, ChevronRight, Circle, Cone, Cylinder, Disc3, Donut, FolderPlus, Shapes, Trash2,
+  type LucideIcon,
+} from 'lucide-react';
 import { usePlatform } from '@orca/platform-contract';
 import type { ModelObjectStructure } from '@slicer/client';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { addCube, addModel, clearScene } from '../toolbar/sceneActions';
+import {
+  addModel, addPrimitive, clearScene, PRIMITIVE_TYPES, type PrimitiveType,
+} from '../toolbar/sceneActions';
 import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { pickTopmostModelVolume } from './buildPlatePointerOcclusion';
@@ -34,10 +39,22 @@ import type { SceneInteractionController } from './SceneInteractionController';
 
 const CLICK_MOVE_THRESHOLD_PX = 4;
 // Rough menu footprints (min-w + padding/border, items + separator) used to
-// keep a right-click near the window edges from opening off-screen.
+// keep a right-click near the window edges from opening off-screen. The
+// primitive flyout mirrors the menu, so near the right edge it flips to the
+// left of the menu (the clamp alone would let it overflow the viewport).
 const MENU_WIDTH_PX = 160;
 const MENU_HEIGHT_PX = 132;
 const OBJECT_MENU_HEIGHT_PX = 300;
+// Icon per primitive matching the engine's label; the labels equal the
+// shapes' type strings (OrcaSlicer's menu items are the localized labels).
+const PRIMITIVE_ICONS: Record<PrimitiveType, LucideIcon> = {
+  Cube: Box,
+  Cylinder: Cylinder,
+  Sphere: Circle,
+  Cone: Cone,
+  Disc: Disc3,
+  Torus: Donut,
+};
 
 export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: {
   sceneInteraction: SceneInteractionController | null;
@@ -49,12 +66,17 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [menuObject, setMenuObject] = useState<ModelObjectStructure | null>(null);
+  const [primitiveOpen, setPrimitiveOpen] = useState(false);
+  // Near the right window edge the primitive flyout opens to the left of the
+  // menu; the edge clamp (MENU_WIDTH_PX) fits the menu itself, not the flyout.
+  const [flipPrimitive, setFlipPrimitive] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const pressRef = useRef<{ x: number; y: number; pointerId: number; hitVolume: GLVolume | null } | null>(null);
 
   const closeMenu = useCallback(() => {
     setPoint(null);
     setMenuObject(null);
+    setPrimitiveOpen(false);
   }, []);
 
   // Outside press (capture, so it wins over R3F), Escape, or selecting the
@@ -112,6 +134,8 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
       x: Math.min(event.clientX, window.innerWidth - MENU_WIDTH_PX),
       y: Math.min(event.clientY, window.innerHeight - (press.hitVolume ? OBJECT_MENU_HEIGHT_PX : MENU_HEIGHT_PX)),
     };
+    setPrimitiveOpen(false);
+    setFlipPrimitive(clampedPoint.x > window.innerWidth - 2 * MENU_WIDTH_PX);
     if (press.hitVolume) {
       // Resolve the hit GLVolume's object from the structure (objectIdx is the
       // positional index); the menu logic is identical to the object list's
@@ -153,9 +177,9 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     void clearScene(platform, sceneInteraction);
   }, [platform, sceneInteraction, closeMenu]);
 
-  const handleAddCube = useCallback(() => {
+  const handleAddPrimitive = useCallback((type: PrimitiveType) => {
     closeMenu();
-    void addCube(platform, sceneInteraction);
+    void addPrimitive(platform, sceneInteraction, type);
   }, [platform, sceneInteraction, closeMenu]);
 
   const handleAddModel = useCallback(() => {
@@ -199,16 +223,46 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
             <Trash2 className="size-3.5" /> Clear Scene
           </button>
           <div role="separator" className="my-1 h-px bg-border" />
+          {/* Add Primitive: the flyout mirrors OrcaSlicer's submenu (the same
+              shape set, in the same order — GUI_Factories.cpp
+              append_submenu_add_generic, ModelVolumeType::INVALID). */}
           <button
             type="button"
             role="menuitem"
-            data-testid="btn-add-cube"
+            data-testid="btn-add-primitive"
             disabled={busy}
-            onClick={handleAddCube}
+            onClick={() => setPrimitiveOpen((open) => !open)}
             className="flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-xs/relaxed text-foreground select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
           >
-            <Box className="size-3.5" /> Add Cube
+            <Shapes className="size-3.5" /> Add Primitive
+            <ChevronRight className="ml-auto size-3.5" />
           </button>
+          {primitiveOpen && (
+            <div
+              data-testid="ctx-primitive-menu"
+              role="menu"
+              className={`pointer-events-auto absolute top-0 z-50 min-w-36 rounded-md border bg-card p-1 shadow-md ${
+                flipPrimitive ? 'right-full -mr-1' : 'left-full ml-1'
+              }`}
+            >
+              {PRIMITIVE_TYPES.map((type) => {
+                const Icon = PRIMITIVE_ICONS[type];
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    role="menuitem"
+                    data-testid={`btn-add-${type.toLowerCase()}`}
+                    disabled={busy}
+                    onClick={() => handleAddPrimitive(type)}
+                    className="flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-xs/relaxed text-foreground select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    <Icon className="size-3.5" /> {type}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <button
             type="button"
             role="menuitem"

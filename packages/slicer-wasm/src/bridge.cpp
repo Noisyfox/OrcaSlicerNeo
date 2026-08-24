@@ -672,25 +672,41 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
     }
 }
 
-// OrcaSlicer primes are created in the engine and added to the model
+// OrcaSlicer primitives are created in the engine and added to the model
 // directly (ObjectList::load_shape_object → create_mesh → load_mesh_object),
 // never through a file: no staging, no basename-derived names, no extension.
-// Mirror that here: the mesh is built with its_make_cube and the object and
-// its single part are named after the primitive label. The GUI canvas helpers
-// (nearest-empty-cell placement, snapshot) are not compiled into the WASM
-// build, so the shape lands at the current scene origin, resting on the bed —
-// the same result the staged STL import used to produce.
+// Mirror that here: the mesh is built with the same libslic3r builders and
+// the same step angles as Orca's create_mesh (GUI_ObjectList.cpp), and the
+// object and its single part are named after the primitive label — the six
+// shapes the scene menu's "Add Primitive" submenu offers. The GUI canvas
+// helpers (nearest-empty-cell placement, cooling orientation, snapshot) are
+// not compiled into the WASM build, so the shape lands at the current scene
+// origin, resting on the bed — the same result the staged STL import used
+// to produce.
 EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* name) {
     try {
         const std::string type_str = type ? type : "";
-        if (type_str != "Cube")
-            return error_json("unsupported primitive type: " + type_str);
         const std::string object_name = (name && *name) ? name : type_str;
-        // App-sized cube: OrcaSlicer sizes primes at 10% of the max bed size
-        // (get_size_proportional_to_max_bed_size); keep the app's established
-        // 20 mm so the primitive renders like the well-tested cube path.
+        // App-sized primitive: OrcaSlicer sizes shapes at 10% of the max bed
+        // size (get_size_proportional_to_max_bed_size); keep the app's
+        // established 20 mm so primitives render like the well-tested cube
+        // path. Orca's create_mesh proportions from `side` are preserved.
         const double side = 20.0;
-        TriangleMesh mesh = TriangleMesh(its_make_cube(side, side, side));
+        TriangleMesh mesh;
+        if (type_str == "Cube")
+            mesh = TriangleMesh(its_make_cube(side, side, side));
+        else if (type_str == "Cylinder")
+            mesh = TriangleMesh(its_make_cylinder(0.5 * side, side));
+        else if (type_str == "Sphere")
+            mesh = TriangleMesh(its_make_sphere(0.5 * side, PI / 90));
+        else if (type_str == "Cone")
+            mesh = TriangleMesh(its_make_cone(0.5 * side, side));
+        else if (type_str == "Disc")
+            mesh = TriangleMesh(its_make_cylinder(0.5 * side, 0.2f));
+        else if (type_str == "Torus")
+            mesh = TriangleMesh(its_make_torus(0.5 * side, 0.125 * side, PI / 60));
+        else
+            return error_json("unsupported primitive type: " + type_str);
         const BoundingBoxf3 bb = mesh.bounding_box();
 
         ModelObject* new_object = state().model.add_object();

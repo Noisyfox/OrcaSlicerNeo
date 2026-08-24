@@ -649,48 +649,67 @@ test('object list: rename, printable, and slice (mock)', async () => {
   }
 });
 
-// The scene right-click menu's Add Cube appends OrcaSlicer's 20 mm cube
-// primitive through the regular model pipeline: Slice unlocks immediately
-// and (mock mode) the added instance is a selectable 20 mm box.
-test('scene context menu: Add Cube appends a 20 mm primitive', async () => {
+// The scene right-click menu's Add Primitive submenu appends OrcaSlicer's
+// engine-built shapes through the regular model pipeline: Slice unlocks
+// immediately and (mock mode) the added instance is a selectable 20 mm body.
+test('scene context menu: Add Primitive submenu appends engine-built shapes', async () => {
   const { app } = await launchApp();
   try {
     const page = await app.firstWindow();
     const diag = attachRendererDiagnostics(page);
     await page.setViewportSize({ width: 1280, height: 800 });
+    const openContextMenu = async () => {
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+      await expect(page.getByTestId('ctx-menu')).toBeVisible();
+    };
+    const addPrimitive = async (testId: string) => {
+      await expect(page.getByTestId('btn-add-primitive')).toBeEnabled();
+      await page.getByTestId('btn-add-primitive').click();
+      await expect(page.getByTestId('ctx-primitive-menu')).toBeVisible();
+      await page.getByTestId(testId).click();
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+    };
+    const assertInstanceBounds = async (instanceIdx: number, label: string) => {
+      // Mock mode: select the added instance through the e2e hook and read
+      // its world bounds; both shape types must report 20 mm across.
+      await expect.poll(() => page.evaluate((idx) =>
+        (window as unknown as {
+          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
+        }).__orcaE2e?.selectMockInstance?.(idx, false) ?? false, instanceIdx,
+      )).toBe(true);
+      await expect.poll(() => page.evaluate(() => {
+        const bounds = (window as unknown as {
+          __orcaE2e?: { selectionBoundsWorld?: () => { size: [number, number, number] } | null };
+        }).__orcaE2e?.selectionBoundsWorld?.();
+        return bounds ? bounds.size : null;
+      })).toEqual([20, 20, 20]);
+      // The engine names the primitive's object and part after the label, so
+      // the object list shows it like OrcaSlicer's Add Primitive. Scope to the
+      // list's row elements so the object-list container itself can't count
+      // as a row (same :not exclusion as the other row selections above).
+      await expect(
+        page.getByTestId('object-list')
+          .locator('div[data-testid^="object-"]:not([data-testid="object-list"])')
+          .nth(instanceIdx),
+      ).toContainText(label);
+    };
     try {
       await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
       await expect(page.getByTestId('btn-slice')).toBeDisabled();
 
-      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
-      const box = await canvas.boundingBox();
-      if (!box) throw new Error('viewport canvas has no bounding box');
-      const emptySpace = { x: box.x + box.width - 40, y: box.y + 40 };
-      await page.mouse.click(emptySpace.x, emptySpace.y, { button: 'right' });
-      await expect(page.getByTestId('ctx-menu')).toBeVisible();
-      await expect(page.getByTestId('btn-add-cube')).toBeEnabled();
-      await page.getByTestId('btn-add-cube').click();
-      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+      await openContextMenu();
+      await addPrimitive('btn-add-cube');
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+      if (!REAL) await assertInstanceBounds(0, 'Cube');
 
-      if (!REAL) {
-        // The mock's addModel fixture is the 20 mm cube: selecting the new
-        // instance must report 20 mm world bounds.
-        await expect.poll(() => page.evaluate(() =>
-          (window as unknown as {
-            __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
-          }).__orcaE2e?.selectMockInstance?.(0, false) ?? false,
-        )).toBe(true);
-        await expect.poll(() => page.evaluate(() => {
-          const bounds = (window as unknown as {
-            __orcaE2e?: { selectionBoundsWorld?: () => { size: [number, number, number] } | null };
-          }).__orcaE2e?.selectionBoundsWorld?.();
-          return bounds ? bounds.size : null;
-        })).toEqual([20, 20, 20]);
-        // The engine names the primitive's object and part "Cube", so the
-        // object list shows it like OrcaSlicer's Add Cube primitive.
-        await expect(page.locator('[data-testid^="object-"]').first()).toContainText('Cube');
-      }
+      // The submenu also offers the rest of OrcaSlicer's primitive set.
+      await openContextMenu();
+      await addPrimitive('btn-add-sphere');
+      if (!REAL) await assertInstanceBounds(1, 'Sphere');
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     } catch (err) {
       await diag.dump();
       throw err;

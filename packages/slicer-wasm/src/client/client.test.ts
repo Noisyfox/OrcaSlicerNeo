@@ -81,14 +81,23 @@ describe('SlicerClient bridge contract', () => {
     expect(r.objects).toBe(1);
   });
 
-  it('addShape builds an engine primitive named object and part (Add Cube)', async () => {
-    const c = makeClient();
-    await c.addShape('Cube', 'Cube');
-    const s = await c.getModelStructure();
-    expect(s.ok).toBe(true);
-    expect(s.objects?.[0].name).toBe('Cube');
-    expect(s.objects?.[0].volumes[0].name).toBe('Cube');
-    expect((await c.getModelMesh()).objects?.[0].vertexCount).toBe(8);
+  it('addShape builds every primitive with the engine tessellation', async () => {
+    // Vertex counts mirror the libslic3r builders at OrcaSlicer's step
+    // angles (the native bridge's orc_add_shape — see bridge-smoke).
+    const EXPECTED: Array<[string, number]> = [
+      ['Cube', 8], ['Cylinder', 362], ['Sphere', 16022],
+      ['Cone', 183], ['Disc', 362], ['Torus', 14400],
+    ];
+    for (const [type, vertexCount] of EXPECTED) {
+      const c = makeClient();
+      await c.addShape(type, type);
+      const s = await c.getModelStructure();
+      expect(s.ok).toBe(true);
+      expect(s.objects?.[0].name).toBe(type);
+      expect(s.objects?.[0].volumes[0].name).toBe(type);
+      const m = await c.getModelMesh();
+      expect(m.objects?.[0].vertexCount).toBe(vertexCount);
+    }
   });
 
   it('addShape defaults the name to the primitive type', async () => {

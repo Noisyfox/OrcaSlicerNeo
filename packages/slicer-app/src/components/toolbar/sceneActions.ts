@@ -1,7 +1,7 @@
-// Shared Add Model / Add Cube / Clear Scene actions. They moved out of the
-// app toolbar row (Add Model → gizmo toolbar, Add Cube + Clear Scene → scene
-// context menu), but the store/runtime choreography is identical for every
-// surface that invokes them, so they live here once.
+// Shared Add Model / Add Primitive / Clear Scene actions. They moved out of
+// the app toolbar row (Add Model → gizmo toolbar, Add Primitive + Clear
+// Scene → scene context menu), but the store/runtime choreography is
+// identical for every surface that invokes them, so they live here once.
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -62,23 +62,30 @@ export async function addModel(
   }
 }
 
+// The OrcaSlicer "Add Primitive" submenu set (GUI_Factories.cpp
+// append_submenu_add_generic with ModelVolumeType::INVALID): the shapes
+// orc_add_shape can build. Text/SVG remain desktop-host features (they open
+// the text/SVG gizmos), and are not in the WASM build.
+export const PRIMITIVE_TYPES = ['Cube', 'Cylinder', 'Sphere', 'Cone', 'Disc', 'Torus'] as const;
+export type PrimitiveType = (typeof PRIMITIVE_TYPES)[number];
+
 /**
- * Append a cube primitive to the live scene exactly like OrcaSlicer's Add
- * Cube: the engine builds the mesh (its_make_cube) and adds the object and
- * its part named "Cube" — no staging file, no filename-derived names
- * (bridge.cpp orc_add_shape mirrors ObjectList::load_shape_object →
- * create_mesh → load_mesh_object).
+ * Append an OrcaSlicer primitive to the live scene exactly like OrcaSlicer's
+ * Add Primitive: the engine builds the mesh (bridge.cpp orc_add_shape
+ * mirrors ObjectList::load_shape_object → create_mesh → load_mesh_object)
+ * and adds the object and its part named after the primitive — no staging
+ * file, no filename-derived names.
  */
-export async function addCube(
+export async function addPrimitive(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
+  type: PrimitiveType,
 ): Promise<void> {
   try {
-    await commitAdded(platform, sceneInteraction, 'Cube',
-      () => platform.runtime.addShape('Cube', 'Cube'));
+    await commitAdded(platform, sceneInteraction, type, () => platform.runtime.addShape(type));
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
-    console.error('add cube failed:', err);
+    console.error(`add primitive failed: ${type}`, err);
   }
 }
 
