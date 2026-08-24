@@ -49,6 +49,10 @@ the scene context menu.
   the selected objects. With no multi-selection the menu has no assemble item,
   and an empty list-level menu is not shown at all.
 - The e2e tests were updated to drive the actions through the context menu.
+- Hovering a selected row keeps it visibly blue: the row's selected style
+  (`bg-accent`) previously fell back to the ghost button's `hover:bg-muted`
+  while hovered, muting it to gray; selected rows now tint to `bg-accent/85`
+  on hover (updated 2026-08-24).
 
 ## Scene object context menu (updated 2026-08-24)
 

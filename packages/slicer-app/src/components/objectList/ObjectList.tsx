@@ -282,7 +282,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             <Button
               variant="ghost"
               size="xs"
-              className={`w-full justify-start ${objectSelected ? 'bg-accent text-accent-foreground' : ''}`}
+              className={`w-full justify-start ${objectSelected ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
               data-state={objectSelected ? 'selected' : 'idle'}
               onClick={(e) => {
                 const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
@@ -345,7 +345,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                     <Button
                       variant="ghost"
                       size="xs"
-                      className={`flex-1 justify-start pl-5 ${projection.volumeIds.has(vol.id) ? 'bg-accent text-accent-foreground' : ''}`}
+                      className={`flex-1 justify-start pl-5 ${projection.volumeIds.has(vol.id) ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
                       data-state={projection.volumeIds.has(vol.id) ? 'selected' : 'idle'}
                       onClick={(e) => {
                         const row = flatRows.find((r) => r.key === `vol:${obj.index}:${vol.index}`);
@@ -386,7 +386,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                           setLastSelectedKey(null);
                         }
                       }}
-                      className={`w-full justify-start ${obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'bg-accent text-accent-foreground' : ''}`}
+                      className={`w-full justify-start ${obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
                       data-state={obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}
                       onClick={(e) => handleInstancesGroupClick(obj, e.ctrlKey || e.metaKey)}
                     >
@@ -414,7 +414,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         <Button
                           size="xs"
                           variant="ghost"
-                          className={`flex-1 justify-start pl-5 ${projection.instanceIds.has(inst.id) ? 'bg-accent text-accent-foreground' : ''}`}
+                          className={`flex-1 justify-start pl-5 ${projection.instanceIds.has(inst.id) ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
                           data-state={projection.instanceIds.has(inst.id) ? 'selected' : 'idle'}
                           onClick={(e) => {
                             const row = flatRows.find((r) => r.key === `inst:${obj.index}:${inst.index}`);
