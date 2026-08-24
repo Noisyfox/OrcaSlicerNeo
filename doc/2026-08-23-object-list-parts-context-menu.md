@@ -16,6 +16,13 @@ the scene context menu.
   Escape, or item selection). Nested row `onContextMenu` handlers call
   `stopPropagation` so a part/instance row right-click does not bubble to the
   enclosing object row.
+- A row right-click also selects its target exactly like a left-click would
+  (the menu then shows the freshly selected state): an unselected object row
+  selects the whole object, an instance row its instance, a part row its
+  anchored part, and the Instances group line its object's instances. When the
+  row's volumes are already fully selected the selection is left untouched —
+  the same guard as the scene's right-click, so a right-click never collapses
+  a multi-selection (updated 2026-08-24).
 - Rename opens an inline text input (the context menu "Rename" item), matching
   the previous behavior. Renaming a single-volume object also renames its only
   part to the same name (Orca behavior); multi-volume objects keep their part

@@ -438,6 +438,12 @@ test('object list: ctrl and shift multi-select (mock)', async () => {
     await instanceRows.nth(0).click();
     await instanceRows.nth(1).click({ modifiers: ['Shift'] });
     await expect.poll(instanceCount).toBe(2);
+
+    // Right-click on an already-selected row keeps the whole selection
+    // (scene-matching guard: never collapse a multi-selection).
+    await instanceRows.nth(1).click({ button: 'right' });
+    await expect.poll(instanceCount).toBe(2);
+    await page.keyboard.press('Escape');
   } finally {
     await app.close();
   }
@@ -465,9 +471,21 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     await list.getByTestId('objectlist-clone').click();
     await expect.poll(objectCount).toBeGreaterThan(1);
 
-    // Assemble is selection-driven: with no multi-selection (the clone clears
-    // the selection) the menu carries no assemble item — the old "Assemble
-    // all" is gone.
+    // Right-click selection mirrors the scene: a right-click on an unselected
+    // row selects it exactly like a left-click would, so the row highlights.
+    const rows = list.locator('div[data-testid^="object-"]');
+    await page.keyboard.press('Escape');
+    await rows.nth(0).click({ button: 'right', position: { x: 40, y: 4 } });
+    await expect(rows.nth(0).locator('> button[data-state="selected"]')).toBeVisible();
+    await expect(rows.nth(1).locator('> button[data-state="selected"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await rows.nth(1).click({ button: 'right', position: { x: 40, y: 4 } });
+    await expect(rows.nth(1).locator('> button[data-state="selected"]')).toBeVisible();
+    await expect(rows.nth(0).locator('> button[data-state="selected"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // Assemble is selection-driven: with no multi-selection the menu carries
+    // no assemble item — the old "Assemble all" is gone.
     await objectRow().click({ button: 'right' });
     await expect(list.getByTestId('objectlist-assemble')).toBeHidden();
 
@@ -722,6 +740,15 @@ test('scene context menu: right-click on a model body opens the object menu', as
     // With a single object selected the selection-driven Assemble item is
     // absent (needs ≥ 2 full objects).
     await expect(objectMenu.getByTestId('objectlist-assemble')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(objectMenu).toBeHidden();
+
+    // List rows right-click-select with the same granularity as the scene:
+    // right-clicking an instance row selects only that instance (exactly one
+    // instance row highlights, the object row stays unselected).
+    await list.locator('[data-testid^="instance-"]').first().click({ button: 'right' });
+    await expect(list.locator('[data-testid^="instance-"] button[data-state="selected"]')).toHaveCount(1);
+    await expect(objectRows.first().locator('> button[data-state="selected"]')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await expect(objectMenu).toBeHidden();
 

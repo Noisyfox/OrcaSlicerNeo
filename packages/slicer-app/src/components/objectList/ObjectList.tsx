@@ -184,6 +184,40 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     setLastSelectedKey(null);
   }
 
+  /** The row's target volumes are already fully selected (the row shows
+   *  highlighted)? Mirrors the scene's right-click guard, which keeps the
+   *  selection when the clicked volume is already selected. */
+  function rowFullySelected(row: SelectableRow, anchor: number): boolean {
+    if (!sceneInteraction) return true;
+    const ids = rowVolumeIds(row, anchor);
+    if (ids.length === 0) return true;
+    const selected = sceneInteraction.selectedVolumes();
+    return ids.every((id) => selected.some((v) => v.id === id));
+  }
+
+  /** Right-click selection, matching the scene (a scene right-click selects the
+   *  clicked instance unless the clicked volume is already selected). At row
+   *  granularity: select the row's target exactly like a left-click would, but
+   *  leave the selection untouched when the row is already fully selected — a
+   *  right-click never collapses a multi-selection. The menu opens afterwards
+   *  (via `openContextMenu`) so its items see the freshly selected state. */
+  function handleRowContextMenu(event: ReactMouseEvent, row: SelectableRow, target: ObjectListCtxTarget) {
+    if (sceneInteraction) {
+      const anchor = sceneInteraction.getSelectionInstanceAnchor(row.target.objectIdx);
+      if (!rowFullySelected(row, anchor)) {
+        setHighlightLevel(row.target.objectIdx, row.kind);
+        sceneInteraction.selectComposite(
+          row.target.objectIdx,
+          row.target.volumeIdx,
+          row.kind === 'part' ? anchor : row.target.instanceIdx,
+          false,
+        );
+        setLastSelectedKey(row.key);
+      }
+    }
+    openContextMenu(event, target);
+  }
+
   /** Dropping onto the list's empty space (below the last row) moves the dragged
    *  object or part to the END of its list. Row drops are handled (and their
    *  propagation stopped) by the row itself and never reach here. */
@@ -240,7 +274,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                 void reorderObjectsInList(platform.runtime, dragged.id, obj.index);
               }
             }}
-            onContextMenu={(e) => openContextMenu(e, { kind: 'object', object: obj })}
+            onContextMenu={(e) => {
+              const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
+              if (row) handleRowContextMenu(e, row, { kind: 'object', object: obj });
+            }}
           >
             <Button
               variant="ghost"
@@ -299,7 +336,11 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         void reorderVolumesInList(platform.runtime, obj.id, dragged.id, vol.index);
                       }
                     }}
-                    onContextMenu={(e) => { e.stopPropagation(); openContextMenu(e, { kind: 'part', object: obj, volume: vol }); }}
+                    onContextMenu={(e) => {
+                      e.stopPropagation();
+                      const row = flatRows.find((r) => r.key === `vol:${obj.index}:${vol.index}`);
+                      if (row) handleRowContextMenu(e, row, { kind: 'part', object: obj, volume: vol });
+                    }}
                   >
                     <Button
                       variant="ghost"
@@ -332,7 +373,19 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       size="xs"
                       variant="ghost"
                       data-testid={`instances-select-${obj.id}`}
-                      onContextMenu={(e) => e.stopPropagation()}
+                      onContextMenu={(e) => {
+                        // Select all instances like the group's click does
+                        // (guarded like the rows: never collapse a selection
+                        // that already holds them). No menu opens here.
+                        e.stopPropagation();
+                        if (!sceneInteraction) return;
+                        const objRow = flatRows.find((r) => r.key === `obj:${obj.index}`);
+                        if (objRow && !rowFullySelected(objRow, 0)) {
+                          setHighlightLevel(obj.index, 'instances');
+                          sceneInteraction.selectComposite(obj.index, undefined, undefined, false);
+                          setLastSelectedKey(null);
+                        }
+                      }}
                       className={`w-full justify-start ${obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'bg-accent text-accent-foreground' : ''}`}
                       data-state={obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}
                       onClick={(e) => handleInstancesGroupClick(obj, e.ctrlKey || e.metaKey)}
@@ -352,7 +405,11 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         key={inst.id}
                         data-testid={`instance-${inst.id}`}
                         className="flex items-center gap-0.5"
-                        onContextMenu={(e) => { e.stopPropagation(); openContextMenu(e, { kind: 'instance', object: obj, instance: inst }); }}
+                        onContextMenu={(e) => {
+                          e.stopPropagation();
+                          const row = flatRows.find((r) => r.key === `inst:${obj.index}:${inst.index}`);
+                          if (row) handleRowContextMenu(e, row, { kind: 'instance', object: obj, instance: inst });
+                        }}
                       >
                         <Button
                           size="xs"
