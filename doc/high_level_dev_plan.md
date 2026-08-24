@@ -1,4 +1,4 @@
-# High Level Development Plan (updated 2026-08-20)
+# High Level Development Plan (updated 2026-08-24)
 
 ## Context
 
@@ -384,6 +384,23 @@
 - Electron e2e: the full flow clears via the context menu; an emptied plate
   shows the disabled menu item after Delete; Add Cube and the context-menu
   Add Model entry unlock Slice and (mock mode) report a 20 mm selectable box.
+
+### Milestone 13 — Object List and Object Parts
+
+> **Status: delivered.** The interactive design is recorded in
+> `spec/ObjectList-and-Parts.md`. The first version adds the shared object
+> tree and part/instance management over a thin `libslic3r` bridge:
+> `orc_get_model_structure()`, object/volume/instance rename, delete, clone,
+> split, assemble-to-multipart, change type, reorder, add/remove instance,
+> and printable state.
+> UI and slicing state use stable `ObjectID`; after each structural mutation
+> the shared app re-reads structure and mesh. Selection is currently cleared on a
+> mutation's mesh reload (stable-ID restoration is a later refinement, per spec
+> §6). Mesh boolean, Add Part/Modifier, multi-plate, undo/redo, painting, and
+> extruder panels are deferred.
+> Verification: unit tests, mock-module contract tests, live WASM smoke
+> (threaded + serial), Electron e2e (mock + real WASM), and Web e2e (threaded +
+> serial) all pass.
 
 ## Cross-Cutting Practices
 

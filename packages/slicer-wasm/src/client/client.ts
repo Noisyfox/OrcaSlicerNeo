@@ -11,6 +11,9 @@ import type {
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
+  DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
+  ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
+  MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox, ReadLogResult,
 } from './types';
@@ -171,10 +174,104 @@ export function createClient(
       return { ok: true, objects };
     },
 
-    async deleteObjects(indices: number[]): Promise<DeleteObjectsResult> {
+    async getModelStructure(): Promise<ModelStructureResult> {
+      const m = await module();
+      return callJson(m, 'orc_get_model_structure', [], []) as ModelStructureResult;
+    },
+
+    async deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult> {
       const m = await module();
       return callJson(m, 'orc_delete_objects', ['string'],
-                      [JSON.stringify(indices)]) as DeleteObjectsResult;
+                      [JSON.stringify(objectIds)]) as DeleteObjectsResult;
+    },
+
+    async deleteVolumes(volumeIds: number[]): Promise<DeleteVolumesResult> {
+      const m = await module();
+      return callJson(m, 'orc_delete_volumes', ['string'],
+                      [JSON.stringify(volumeIds)]) as DeleteVolumesResult;
+    },
+
+    async cloneObjects(objectIds: number[]): Promise<CloneObjectsResult> {
+      const m = await module();
+      return callJson(m, 'orc_clone_objects', ['string'],
+                      [JSON.stringify(objectIds)]) as CloneObjectsResult;
+    },
+
+    async reorderObjects(fromObjectId: number, toIndex: number): Promise<ReorderStructureResult> {
+      const m = await module();
+      return callJson(m, 'orc_reorder_objects', ['number', 'number'],
+                      [fromObjectId, toIndex]) as ReorderStructureResult;
+    },
+
+    async reorderVolumes(objectId: number, fromVolumeId: number, toIndex: number): Promise<ReorderStructureResult> {
+      const m = await module();
+      return callJson(m, 'orc_reorder_volumes', ['number', 'number', 'number'],
+                      [objectId, fromVolumeId, toIndex]) as ReorderStructureResult;
+    },
+
+    async splitVolumeToParts(volumeId: number, maxExtruders = 1, remapPaint = false): Promise<SplitVolumeResult> {
+      const m = await module();
+      return callJson(m, 'orc_split_volume_to_parts', ['number', 'number', 'number'],
+                      [volumeId, maxExtruders, remapPaint ? 1 : 0]) as SplitVolumeResult;
+    },
+
+    async splitObjectToObjects(objectId: number, autoDrop = false): Promise<SplitObjectResult> {
+      const m = await module();
+      return callJson(m, 'orc_split_object_to_objects', ['number', 'number'],
+                      [objectId, autoDrop ? 1 : 0]) as SplitObjectResult;
+    },
+
+    async mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult> {
+      const m = await module();
+      return callJson(m, 'orc_merge_objects_to_multipart', ['string', 'string'],
+                      [JSON.stringify(objectIds), name]) as MergeObjectsResult;
+    },
+
+    async separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult> {
+      const m = await module();
+      return callJson(m, 'orc_instances_to_separate_objects', ['number', 'string'],
+                      [objectId, JSON.stringify(instanceIds)]) as SeparateInstancesResult;
+    },
+
+    async addInstance(objectId: number): Promise<AddInstanceResult> {
+      const m = await module();
+      return callJson(m, 'orc_add_instance', ['number'], [objectId]) as AddInstanceResult;
+    },
+
+    async removeInstance(objectId: number, instanceId: number): Promise<RemoveInstanceResult> {
+      const m = await module();
+      return callJson(m, 'orc_remove_instance', ['number', 'number'],
+                      [objectId, instanceId]) as RemoveInstanceResult;
+    },
+
+    async renameObject(objectId: number, name: string): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_rename_object', ['number', 'string'],
+                      [objectId, name]) as MutationResult;
+    },
+
+    async renameVolume(volumeId: number, name: string): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_rename_volume', ['number', 'string'],
+                      [volumeId, name]) as MutationResult;
+    },
+
+    async setVolumeType(volumeId: number, type: VolumeType): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_set_volume_type', ['number', 'string'],
+                      [volumeId, type]) as MutationResult;
+    },
+
+    async setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_set_object_printable', ['number', 'number'],
+                      [objectId, printable ? 1 : 0]) as MutationResult;
+    },
+
+    async setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult> {
+      const m = await module();
+      return callJson(m, 'orc_set_instance_printable', ['number', 'number'],
+                      [instanceId, printable ? 1 : 0]) as MutationResult;
     },
 
     async slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus> {

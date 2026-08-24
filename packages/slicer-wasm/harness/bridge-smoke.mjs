@@ -149,9 +149,8 @@ Module._free(restoredPtr);
 check('orc_add_model restores one object after clear', restored.ok === true && restored.objects === 1,
       JSON.stringify(restored));
 
-// 4c. delete whole objects by their ORIGINAL indices. The bridge deletes in
-// descending order so earlier indices stay valid while Model.objects shrinks;
-// duplicates are ignored; bounds are validated before any mutation.
+// 4c. delete whole objects by their stable ObjectIDs. Requests are validated
+// before any mutation and deduplicated; a bad ID leaves the scene intact.
 {
   const secondPtr = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, secondPtr);
@@ -160,15 +159,20 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
   Module._free(secondPtr);
   check('delete fixture has two objects', two.ok === true && two.objects === 2, JSON.stringify(two));
 
-  const bad = callJson('orc_delete_objects', ['string'], [JSON.stringify([2])]);
-  check('orc_delete_objects rejects an out-of-range index',
-        !bad.ok && /out of range/.test(bad.error ?? ''), JSON.stringify(bad));
+  const twoStruct = callJson('orc_get_model_structure', [], []);
+  check('structure read for delete', twoStruct.ok === true && twoStruct.objects?.length === 2,
+        JSON.stringify(twoStruct));
+  const ids = twoStruct.objects.map((o) => o.id);
+
+  const bad = callJson('orc_delete_objects', ['string'], [JSON.stringify([999999999])]);
+  check('orc_delete_objects rejects an unknown object ID',
+        !bad.ok && /object not found/.test(bad.error ?? ''), JSON.stringify(bad));
   const intact = callJson('orc_get_model_mesh', [], []);
   check('rejected delete leaves the scene intact',
         intact.ok === true && intact.objects?.length === 2, JSON.stringify(intact));
 
-  const del = callJson('orc_delete_objects', ['string'], [JSON.stringify([1, 0, 1])]);
-  check('orc_delete_objects removes deduped original indices',
+  const del = callJson('orc_delete_objects', ['string'], [JSON.stringify([ids[1], ids[0], ids[1]])]);
+  check('orc_delete_objects removes deduped stable IDs',
         del.ok === true && del.objects === 0 && del.deleted === 2, JSON.stringify(del));
   const empty = callJson('orc_get_model_mesh', [], []);
   check('empty scene reports an empty mesh', empty.ok === true && empty.objects?.length === 0,
@@ -185,6 +189,140 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
   Module._free(restorePtr);
   check('orc_add_model restores the slice fixture', restoredAgain.ok === true && restoredAgain.objects === 1,
         JSON.stringify(restoredAgain));
+}
+
+// 4d. Step 2: non-destructive metadata operations resolve by stable ObjectID.
+// The loaded cube is a single solid part, so set_volume_type must be rejected
+// by the last-solid-part guard (a positive type change with a multi-part object
+// is exercised by the mock-module contract tests). Names and printable state
+// are restored afterwards so the slice/export checks keep their fixture.
+{
+  const structure = callJson('orc_get_model_structure', [], []);
+  check('structure read before metadata ops', structure.ok === true && structure.objects?.length === 1,
+        JSON.stringify(structure));
+  if (structure.ok && structure.objects?.length === 1) {
+    const obj = structure.objects[0];
+    const vol = obj.volumes[0];
+    const inst = obj.instances[0];
+    const originalName = obj.name;
+    const originalVolName = vol.name;
+
+    const renamed = callJson('orc_rename_object', ['number', 'string'], [obj.id, 'Renamed Object']);
+    check('orc_rename_object ok', renamed.ok === true, JSON.stringify(renamed));
+    const afterRename = callJson('orc_get_model_structure', [], []);
+    check('object renames by stable ID',
+          afterRename.ok === true && afterRename.objects?.[0]?.name === 'Renamed Object',
+          JSON.stringify(afterRename.objects?.[0]?.name));
+
+    const renamedVol = callJson('orc_rename_volume', ['number', 'string'], [vol.id, 'Renamed Part']);
+    check('orc_rename_volume ok', renamedVol.ok === true, JSON.stringify(renamedVol));
+    const afterRenameVol = callJson('orc_get_model_structure', [], []);
+    check('volume renames by stable ID',
+          afterRenameVol.ok === true && afterRenameVol.objects?.[0]?.volumes?.[0]?.name === 'Renamed Part',
+          JSON.stringify(afterRenameVol.objects?.[0]?.volumes?.[0]?.name));
+
+    // Single solid part: turning it into a non-print volume is refused.
+    const badType = callJson('orc_set_volume_type', ['number', 'string'], [vol.id, 'negative_volume']);
+    check('last-solid-part guard rejects the type change',
+          !badType.ok && /last solid part/.test(badType.error ?? ''),
+          JSON.stringify(badType));
+    const afterBadType = callJson('orc_get_model_structure', [], []);
+    check('rejected type change leaves the part untouched',
+          afterBadType.ok === true && afterBadType.objects?.[0]?.volumes?.[0]?.type === 'model_part',
+          JSON.stringify(afterBadType.objects?.[0]?.volumes?.[0]?.type));
+
+    const unprintable = callJson('orc_set_object_printable', ['number', 'number'], [obj.id, 0]);
+    check('orc_set_object_printable(false) ok', unprintable.ok === true, JSON.stringify(unprintable));
+    const afterUnprintable = callJson('orc_get_model_structure', [], []);
+    check('object toggle flips the object gate and every instance',
+          afterUnprintable.ok === true && afterUnprintable.objects?.[0]?.printable === false
+          && afterUnprintable.objects?.[0]?.instances.every((i) => i.printable === false),
+          JSON.stringify(afterUnprintable.objects?.[0]));
+    const reprinted = callJson('orc_set_object_printable', ['number', 'number'], [obj.id, 1]);
+    check('orc_set_object_printable(true) restores the fixture', reprinted.ok === true, JSON.stringify(reprinted));
+
+    const instOff = callJson('orc_set_instance_printable', ['number', 'number'], [inst.id, 0]);
+    check('orc_set_instance_printable(false) ok', instOff.ok === true, JSON.stringify(instOff));
+    const afterInstOff = callJson('orc_get_model_structure', [], []);
+    check('instance toggle flips exactly the target instance',
+          afterInstOff.ok === true && afterInstOff.objects?.[0]?.instances?.[0]?.printable === false,
+          JSON.stringify(afterInstOff.objects?.[0]?.instances?.[0]));
+    const instOn = callJson('orc_set_instance_printable', ['number', 'number'], [inst.id, 1]);
+    check('orc_set_instance_printable(true) restores the fixture', instOn.ok === true, JSON.stringify(instOn));
+
+    const badObject = callJson('orc_rename_object', ['number', 'string'], [999999999, 'nope']);
+    check('rename rejects an unknown object ID', !badObject.ok && /object not found/.test(badObject.error ?? ''),
+          JSON.stringify(badObject));
+    const badTypeStr = callJson('orc_set_volume_type', ['number', 'string'], [vol.id, 'not_a_type']);
+    check('set type rejects an unknown type string', !badTypeStr.ok && /invalid volume type/.test(badTypeStr.error ?? ''),
+          JSON.stringify(badTypeStr));
+
+    // Restore names so later slice/export checks are unaffected.
+    callJson('orc_rename_object', ['number', 'string'], [obj.id, originalName]);
+    callJson('orc_rename_volume', ['number', 'string'], [vol.id, originalVolName]);
+  }
+}
+
+// 4e. Step 3: delete by stable ID, clone, and reorder. The single-cube fixture
+// has one solid part, so delete_volumes is exercised via the last-solid-part
+// guard (a positive multi-part delete/reorder is covered by the mock contract
+// tests). The scene is restored to the original single cube afterwards.
+{
+  const s = callJson('orc_get_model_structure', [], []);
+  check('structure read for step 3', s.ok === true && s.objects?.length === 1,
+        JSON.stringify(s));
+  if (s.ok && s.objects?.length === 1) {
+    const source = s.objects[0];
+    const volume = source.volumes[0];
+
+    const cloned = callJson('orc_clone_objects', ['string'], [JSON.stringify([source.id])]);
+    check('orc_clone_objects mints a new ObjectID',
+          cloned.ok === true && Array.isArray(cloned.newObjectIds)
+          && cloned.newObjectIds.length === 1
+          && cloned.newObjectIds[0] !== source.id && cloned.objects === 2,
+          JSON.stringify(cloned));
+    const cloneId = cloned.newObjectIds[0];
+    const afterClone = callJson('orc_get_model_structure', [], []);
+    const clone = afterClone.objects?.find((o) => o.id === cloneId);
+    check('clone carries fresh sub-entity IDs',
+          clone && clone.volumes[0].id !== source.volumes[0].id,
+          JSON.stringify(clone?.volumes?.[0]));
+
+    // reorder takes a DESTINATION INDEX (0-based); index 0 places the clone first.
+    const reordered = callJson('orc_reorder_objects', ['number', 'number'], [cloneId, 0]);
+    check('orc_reorder_objects returns the reordered structure',
+          reordered.ok === true && Array.isArray(reordered.objects)
+          && reordered.objects[0].id === cloneId && reordered.objects[1].id === source.id,
+          JSON.stringify(reordered.objects?.map((o) => o.id)));
+
+    // The cube's only part is the last solid part: it cannot be deleted.
+    const volDel = callJson('orc_delete_volumes', ['string'], [JSON.stringify([volume.id])]);
+    check('volume delete rejects the last solid part',
+          !volDel.ok && /last solid part/.test(volDel.error ?? ''), JSON.stringify(volDel));
+    const volDelAfter = callJson('orc_get_model_structure', [], []);
+    check('rejected volume delete leaves the part',
+          volDelAfter.ok === true && volDelAfter.objects?.[0]?.volumes?.length === 1,
+          JSON.stringify(volDelAfter.objects?.[0]?.volumes));
+
+    // Non-destructive reorder of a single volume (already at index 0) still returns structure.
+    const volReorder = callJson('orc_reorder_volumes', ['number', 'number', 'number'],
+                                [source.id, volume.id, 0]);
+    const volSource = volReorder.objects?.find((o) => o.id === source.id);
+    check('orc_reorder_volumes no-ops on a single part',
+          volReorder.ok === true && volSource
+          && volSource.volumes[0].id === volume.id,
+          JSON.stringify(volSource?.volumes?.[0]?.id));
+
+    const delClone = callJson('orc_delete_objects', ['string'], [JSON.stringify([cloneId])]);
+    check('orc_delete_objects removes the clone by ID',
+          delClone.ok === true && delClone.objects === 1 && delClone.deleted === 1,
+          JSON.stringify(delClone));
+    const restoredScene = callJson('orc_get_model_structure', [], []);
+    check('scene restored to a single object',
+          restoredScene.ok === true && restoredScene.objects?.length === 1
+          && restoredScene.objects[0].id === source.id,
+          JSON.stringify(restoredScene.objects?.length));
+  }
 }
 
 // Copy [ptr, ptr+len) out of the heap and free it — mirrors the client's
@@ -403,4 +541,185 @@ check('slice error surfaces the real message, not the bare category',
       !boxSliced.ok && typeof boxSliced.error === 'string'
       && boxSliced.error !== 'Errors' && boxSliced.error.includes('empty first layer'),
       JSON.stringify(boxSliced));
+
+// 10b. Step 4a: split a multi-shell volume into parts, then confirm the split
+// parts still slice to valid G-code.
+{
+  const multiPath = resolve(dirname(stlPath), 'multipart.stl');
+  const multi = await readFile(multiPath);
+  const mpPtr = Number(Module._malloc(multi.length));
+  Module.HEAPU8.set(multi, mpPtr);
+  callJson('orc_clear_model', [], []);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
+                          [mpPtr, multi.length, 'stl']);
+  Module._free(mpPtr);
+  check('multipart fixture loads', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
+
+  const s = callJson('orc_get_model_structure', [], []);
+  check('multipart volume is splittable',
+        s.ok === true && s.objects?.[0]?.volumes?.[0]?.isSplittable === true,
+        JSON.stringify(s.objects?.[0]?.volumes?.[0]?.isSplittable));
+  const vol = s.objects?.[0]?.volumes?.[0];
+  if (vol) {
+    const split = callJson('orc_split_volume_to_parts', ['number', 'number', 'number'], [vol.id, 1, 0]);
+    check('orc_split_volume_to_parts produces parts',
+          split.ok === true && split.parts >= 2
+          && Array.isArray(split.newVolumeIds) && split.newVolumeIds.length === split.parts,
+          JSON.stringify({ parts: split.parts, newVolumeIds: split.newVolumeIds }));
+    const afterSplit = callJson('orc_get_model_structure', [], []);
+    check('split parts appear with fresh IDs and the old ID is stale',
+          afterSplit.ok === true
+          && afterSplit.objects?.[0]?.volumes?.length === split.parts
+          && afterSplit.objects[0].volumes.every((v) => split.newVolumeIds.includes(v.id))
+          && !afterSplit.objects[0].volumes.some((v) => v.id === vol.id),
+          JSON.stringify(afterSplit.objects?.[0]?.volumes?.map((v) => v.id)));
+
+    const S = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+    check('split parts slice to valid G-code', S.ok === true, JSON.stringify(S));
+    if (S.ok) {
+      const g = validateGcode(Module.FS.readFile('/out.gcode'));
+      check('split parts G-code valid', g.ok, JSON.stringify(g));
+    }
+  } else {
+    check('multipart volume available', false, JSON.stringify(s).slice(0, 120));
+  }
+}
+
+// 10c. Step 4b: split a multi-shell object into one object per shell.
+{
+  const multiPath = resolve(dirname(stlPath), 'multipart.stl');
+  const multi = await readFile(multiPath);
+  const mpPtr = Number(Module._malloc(multi.length));
+  Module.HEAPU8.set(multi, mpPtr);
+  callJson('orc_clear_model', [], []);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
+                          [mpPtr, multi.length, 'stl']);
+  Module._free(mpPtr);
+  check('multipart loads for object split', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
+
+  const s = callJson('orc_get_model_structure', [], []);
+  const obj = s.objects?.[0];
+  if (obj) {
+    const split = callJson('orc_split_object_to_objects', ['number', 'number'], [obj.id, 0]);
+    check('orc_split_object_to_objects produces one object per shell',
+          split.ok === true && Array.isArray(split.newObjectIds)
+          && split.newObjectIds.length >= 2 && split.objects === 2,
+          JSON.stringify(split));
+    const after = callJson('orc_get_model_structure', [], []);
+    check('split objects carry fresh IDs and the source is gone',
+          after.ok === true && after.objects?.length === 2
+          && after.objects.every((o) => split.newObjectIds.includes(o.id))
+          && !after.objects.some((o) => o.id === obj.id),
+          JSON.stringify(after.objects?.map((o) => o.id)));
+
+    const S = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+    check('split objects slice to valid G-code', S.ok === true, JSON.stringify(S));
+  } else {
+    check('multipart object available', false, JSON.stringify(s).slice(0, 120));
+  }
+}
+
+// 10d. Step 4c: assemble separate objects into a multipart object.
+{
+  callJson('orc_clear_model', [], []);
+  const p1 = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, p1);
+  const l1 = callJson('orc_add_model', ['pointer', 'number', 'string'], [p1, stl.length, 'stl']);
+  Module._free(p1);
+  const p2 = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, p2);
+  const l2 = callJson('orc_add_model', ['pointer', 'number', 'string'], [p2, stl.length, 'stl']);
+  Module._free(p2);
+  check('assemble fixture has two objects', l1.ok === true && l2.ok === true && l2.objects === 2, JSON.stringify(l2));
+
+  const s = callJson('orc_get_model_structure', [], []);
+  const ids = s.objects.map((o) => o.id);
+  const merged = callJson('orc_merge_objects_to_multipart', ['string', 'string'], [JSON.stringify(ids), 'Assembly']);
+  check('assemble produces a single multipart object',
+        merged.ok === true && merged.objectId > 0 && merged.objects === 1, JSON.stringify(merged));
+  const after = callJson('orc_get_model_structure', [], []);
+  const assembled = after.objects?.[0];
+  check('assembled object carries both volumes and the source objects are gone',
+        after.ok === true && after.objects?.length === 1
+        && assembled?.volumes?.length === 2 && assembled.name === 'Assembly',
+        JSON.stringify({ id: assembled?.id, name: assembled?.name, volumes: assembled?.volumes?.length }));
+
+  const S = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+  check('assembled multipart slices to valid G-code', S.ok === true, JSON.stringify(S));
+}
+
+// 10e. Step 4d: separate instances into objects. The bridge has no op yet to add
+// instances, so this is a single-instance live smoke; the multi-instance
+// transform/one-object-per-instance behavior is pinned by the mock contract tests.
+{
+  callJson('orc_clear_model', [], []);
+  const p = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, p);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'], [p, stl.length, 'stl']);
+  Module._free(p);
+  check('separate-instances fixture loads', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
+
+  const s = callJson('orc_get_model_structure', [], []);
+  const obj = s.objects?.[0];
+  const inst = obj?.instances?.[0];
+  if (obj && inst) {
+    const sep = callJson('orc_instances_to_separate_objects', ['number', 'string'],
+                         [obj.id, JSON.stringify([inst.id])]);
+    check('separating the single instance creates one object',
+          sep.ok === true && Array.isArray(sep.newObjectIds)
+          && sep.newObjectIds.length === 1 && sep.objects === 2,
+          JSON.stringify(sep));
+    const after = callJson('orc_get_model_structure', [], []);
+    const newObj = after.objects?.find((o) => o.id === sep.newObjectIds[0]);
+    check('separated object carries a single instance with the source transform',
+          after.ok === true && newObj && newObj.instances?.length === 1,
+          JSON.stringify(newObj?.instances?.length));
+  } else {
+    check('separate-instances fixture structure', false, JSON.stringify(s).slice(0, 120));
+  }
+}
+
+// 10f. add / remove instance.
+{
+  callJson('orc_clear_model', [], []);
+  const p = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, p);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'], [p, stl.length, 'stl']);
+  Module._free(p);
+  check('add-instance fixture loads', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
+  const s = callJson('orc_get_model_structure', [], []);
+  const obj = s.objects?.[0];
+  if (obj) {
+    const added = callJson('orc_add_instance', ['number'], [obj.id]);
+    check('orc_add_instance adds an instance',
+          added.ok === true && added.instanceId > 0 && added.instanceId !== obj.instances[0].id,
+          JSON.stringify(added));
+    const afterAdd = callJson('orc_get_model_structure', [], []);
+    check('instance count grows',
+          afterAdd.ok === true && afterAdd.objects?.[0]?.instanceCount === 2
+          && afterAdd.objects[0].instances.length === 2,
+          JSON.stringify(afterAdd.objects?.[0]?.instanceCount));
+
+    const removed = callJson('orc_remove_instance', ['number', 'number'], [obj.id, added.instanceId]);
+    check('orc_remove_instance removes the instance', removed.ok === true, JSON.stringify(removed));
+    const afterRemove = callJson('orc_get_model_structure', [], []);
+    check('instance count restored',
+          afterRemove.ok === true && afterRemove.objects?.[0]?.instanceCount === 1,
+          JSON.stringify(afterRemove.objects?.[0]?.instanceCount));
+
+    const last = afterRemove.objects?.[0]?.instances?.[0];
+    const badRemove = callJson('orc_remove_instance', ['number', 'number'], [obj.id, last.id]);
+    check('last instance cannot be removed',
+          !badRemove.ok && /last instance/.test(badRemove.error ?? ''), JSON.stringify(badRemove));
+  } else {
+    check('add-instance fixture structure', false, JSON.stringify(s).slice(0, 120));
+  }
+}
+
+// Keep the harness useful in CI: a run that printed one or more FAIL checks
+// must not be reported as successful merely because the script reached EOF.
+if (failures > 0) {
+  console.error(`bridge smoke failed: ${failures} check(s)`);
+  process.exitCode = 1;
+}
 

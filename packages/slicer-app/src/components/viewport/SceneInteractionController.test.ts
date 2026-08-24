@@ -70,6 +70,99 @@ describe('SceneInteractionController', () => {
     expect(controller.gizmo).toBeNull();
   });
 
+  it('selectFromHit expands per the active selection mode', () => {
+    expect(controller.setSelectionMode('object')).toBe(true);
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+
+    expect(controller.setSelectionMode('volume')).toBe(true);
+    controller.selectFromHit(volumes[1], false);
+    // Orca: a part selection is anchored to the clicked instance.
+    expect(controller.selectedVolumes()).toEqual([volumes[1]]);
+  });
+
+  it('setSelectionMode is a no-op when the mode is unchanged', () => {
+    expect(controller.setSelectionMode('instance')).toBe(false);
+  });
+
+  it('selectComposite selects a target by object, volume, or instance width', () => {
+    expect(controller.selectComposite(0)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+
+    expect(controller.selectComposite(0, 1)).toBe(true);
+    // A part target is anchored to instance 0 (default) in Orca.
+    expect(controller.selectedVolumes()).toEqual([volumes[1]]);
+
+    expect(controller.selectComposite(0, undefined, 0)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+
+    // Additive toggle of the target instance clears it.
+    expect(controller.selectComposite(0, undefined, 0, true)).toBe(true);
+    expect(controller.selectedVolumes()).toHaveLength(0);
+  });
+
+  it('selectVolumeIds replaces or unions raw volume IDs', () => {
+    expect(controller.selectVolumeIds(['0:0:0', '0:1:0'])).toBe(true);
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+    // Additive union of the other instance's volumes.
+    expect(controller.selectVolumeIds(['0:0:1', '0:1:1'], true)).toBe(true);
+    expect(controller.selectedVolumes()).toEqual(volumes);
+  });
+
+  it('classifies the selection like Orca (object/instance/part/mixed)', () => {
+    expect(controller.computeSelectionKind()).toBe('empty');
+
+    controller.selectVolumeIds(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
+    expect(controller.computeSelectionKind()).toBe('object');
+
+    controller.selectVolumeIds(['0:0:0', '0:1:0']);
+    expect(controller.computeSelectionKind()).toBe('instance');
+
+    controller.selectVolumeIds(['0:0:0']);
+    expect(controller.computeSelectionKind()).toBe('part');
+
+    // A part of instance 0 plus a part of instance 1 is Orca's Mixed.
+    controller.selectVolumeIds(['0:0:0', '0:0:1']);
+    expect(controller.computeSelectionKind()).toBe('mixed');
+  });
+
+  it('allows mixing a full instance and a full object (both Instance-mode)', () => {
+    // A second, single-part/single-instance object (index 1) alongside the two-
+    // volume/two-instance object (index 0) from the shared fixture.
+    const multiVolumes = [
+      ...volumes,
+      makeVolume(1, 0, 0, [40, 0, 0]),
+    ];
+    const multi = new SceneInteractionController(() => multiVolumes);
+
+    // A full instance of object 0 plus the whole object 1 is all Instance-mode
+    // (an instance is a full object at that level), so it is valid, NOT Mixed.
+    expect(multi.classifyVolumeIds(['0:0:0', '0:1:0', '1:0:0'])).toBe('object');
+
+    // The guard therefore allows the additive toggle.
+    multi.selectVolumeIds(['0:0:0', '0:1:0']);
+    expect(multi.computeSelectionKind()).toBe('instance');
+    expect(multi.selectComposite(1, 0, 0, true)).toBe(true);
+    expect(multi.computeSelectionKind()).toBe('object');
+
+    // Selecting both objects in full is also 'object'.
+    expect(multi.selectVolumeIds(['0:0:0', '0:1:0', '0:0:1', '0:1:1', '1:0:0'])).toBe(true);
+    expect(multi.computeSelectionKind()).toBe('object');
+  });
+
+  it('refuses additive viewport selection that would create Mixed (Orca)', () => {
+    controller.selectVolumeIds(['0:0:0', '0:1:0', '0:0:1', '0:1:1']); // whole object
+    expect(controller.computeSelectionKind()).toBe('object');
+    const before = controller.selectedVolumes().length;
+    // Ctrl+clicking a part of the full object would leave a partial instance ->
+    // Mixed -> refused.
+    expect(controller.selectComposite(0, 0, 0, true)).toBe(false);
+    expect(controller.selectedVolumes()).toHaveLength(before);
+    // Toggling a whole instance off is a valid object -> instance transition.
+    expect(controller.selectComposite(0, undefined, 1, true)).toBe(true);
+    expect(controller.computeSelectionKind()).toBe('instance');
+  });
+
   it('can only arm the move gizmo with a non-empty selection', () => {
     // An empty selection makes the toggle a no-op — the gizmo can only be
     // activated while something is selected.
@@ -485,6 +578,40 @@ describe('SceneInteractionController', () => {
     }
   });
 
+  it('shares instance scale and X/Y rotation while preserving each Z rotation', () => {
+    for (const volume of [volumes[0], volumes[1]]) {
+      volume.instanceTransform.rotation = [0, 0, 0.3];
+    }
+    for (const volume of [volumes[2], volumes[3]]) {
+      volume.instanceTransform.rotation = [0, 0, -0.4];
+    }
+
+    // Select only instance 0. Orca synchronizes the other instance's linear
+    // transform, but keeps its independent world-Z rotation.
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.scaleSelectionBy([2, 2, 2])).toBe(true);
+    expect(volumes[0].instanceTransform.scale).toEqual([2, 2, 2]);
+    for (const scale of volumes[2].instanceTransform.scale) expect(scale).toBeCloseTo(2, 8);
+    expect(volumes[0].instanceTransform.rotation[2]).toBeCloseTo(0.3, 8);
+    expect(volumes[2].instanceTransform.rotation[2]).toBeCloseTo(-0.4, 8);
+
+    expect(controller.rotateSelectionBy([0.2, 0, 0])).toBe(true);
+    expect(volumes[0].instanceTransform.rotation[0]).toBeCloseTo(0.2, 8);
+    expect(volumes[2].instanceTransform.rotation[0]).toBeCloseTo(0.2, 8);
+    expect(volumes[0].instanceTransform.rotation[2]).toBeCloseTo(0.3, 8);
+    expect(volumes[2].instanceTransform.rotation[2]).toBeCloseTo(-0.4, 8);
+  });
+
+  it('does not synchronize other instances for a Z-only rotation', () => {
+    for (const volume of [volumes[0], volumes[1]]) volume.instanceTransform.rotation = [0, 0, 0.3];
+    for (const volume of [volumes[2], volumes[3]]) volume.instanceTransform.rotation = [0, 0, -0.4];
+    controller.selectFromHit(volumes[0], false);
+
+    expect(controller.rotateSelectionBy([0, 0, 0.5])).toBe(true);
+    expect(volumes[0].instanceTransform.rotation[2]).toBeCloseTo(0.8, 8);
+    expect(volumes[2].instanceTransform.rotation[2]).toBeCloseTo(-0.4, 8);
+  });
+
   it('applies panel scale factors and size edits rigidly about the pivot', () => {
     controller.selectFromHit(volumes[0], false);
     controller.selectFromHit(volumes[2], true);
@@ -601,5 +728,61 @@ describe('SceneInteractionController', () => {
     expect(bounds.max.x).toBeCloseTo(1, 8);
     expect(bounds.max.y).toBeCloseTo(s, 8);
     expect(bounds.max.z).toBeCloseTo(s, 8);
+  });
+});
+
+describe('part-scoped (volume) transforms', () => {
+  let volumes: GLVolume[];
+  let controller: SceneInteractionController;
+
+  beforeEach(() => {
+    volumes = [
+      makeVolume(0, 0, 0, [0, 0, 0]),
+      makeVolume(0, 1, 0, [0, 0, 0]),
+      makeVolume(0, 0, 1, [20, 5, 0]),
+      makeVolume(0, 1, 1, [20, 5, 0]),
+    ];
+    controller = new SceneInteractionController(() => volumes);
+  });
+
+  it('detects a part-scoped selection from a volume composite', () => {
+    expect(controller.selectComposite(0, 1)).toBe(true);
+    expect(controller.isVolumeScopedSelection()).toBe(true);
+    expect(controller.selectComposite(0)).toBe(true);
+    expect(controller.isVolumeScopedSelection()).toBe(false);
+    expect(controller.selectComposite(0, undefined, 0)).toBe(true);
+    expect(controller.isVolumeScopedSelection()).toBe(false);
+  });
+
+  it('Alt+click (part) selects the individual volume composite', () => {
+    expect(controller.selectFromHit(volumes[0], false, true)).toBe(true);
+    // Orca: a part is anchored to the clicked instance (a single volume), which
+    // is a part-scoped selection so a subsequent drag moves only that part.
+    expect(controller.selectedVolumes()).toEqual([volumes[0]]);
+    expect(controller.isVolumeScopedSelection()).toBe(true);
+  });
+
+  it('moves only the selected part, not the whole instance', () => {
+    const instanceTransforms = volumes.map((volume) => structuredClone(volume.instanceTransform));
+    controller.selectComposite(0, 1);
+    controller.moveSelectionBy(new THREE.Vector3(10, 0, 0));
+    // The selected part's ModelVolume transform is shared by every instance;
+    // the sibling part and all per-instance transforms remain unchanged.
+    expect(volumes[1].volumeTransform.offset[0]).toBeCloseTo(10, 6);
+    expect(volumes[3].volumeTransform.offset[0]).toBeCloseTo(10, 6);
+    expect(volumes[0].volumeTransform.offset[0]).toBeCloseTo(0, 6);
+    expect(volumes[2].volumeTransform.offset[0]).toBeCloseTo(0, 6);
+    expect(volumes.map((volume) => volume.instanceTransform)).toEqual(instanceTransforms);
+  });
+
+  it('scales every instance copy of the selected part', () => {
+    const instanceTransforms = volumes.map((volume) => structuredClone(volume.instanceTransform));
+    controller.selectComposite(0, 0);
+    controller.scaleSelectionBy([2, 1, 1]);
+    expect(volumes[0].volumeTransform.scale[0]).toBeCloseTo(2, 6);
+    expect(volumes[2].volumeTransform.scale[0]).toBeCloseTo(2, 6);
+    expect(volumes[1].volumeTransform.scale[0]).toBeCloseTo(1, 6);
+    expect(volumes[3].volumeTransform.scale[0]).toBeCloseTo(1, 6);
+    expect(volumes.map((volume) => volume.instanceTransform)).toEqual(instanceTransforms);
   });
 });

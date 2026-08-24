@@ -2,14 +2,18 @@ import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
 import type { Vec3 } from '../../lib/vec3';
 import { GLVolume } from './GLVolume';
-import { instanceKeyOf, Selection, type InstanceKey } from './Selection';
+import { instanceKeyOf, Selection, type InstanceKey, type SelectionMode } from './Selection';
 import {
   applyRotationDelta,
   applyScaleDelta,
+  clampScale,
   matrixFromTransform,
   normalizeTransform,
   quatFromRotation,
+  rotateMatrixAroundPivot,
+  scaleMatrixAroundPivot,
   transformFromMatrix,
+  translateMatrix,
 } from './transformDeltaMath';
 import {
   normalizeRect,
@@ -24,13 +28,21 @@ export type OpenGizmo = 'move' | 'rotate' | 'scale' | null;
 export type ScaleSpace = 'world' | 'local';
 export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box';
 type PointerOrigin = 'none' | 'gizmo' | 'non-gizmo';
+/** OrcaSlicer's homogeneous selection classes (Selection.cpp update_type). */
+export type SelectionKind = 'empty' | 'object' | 'instance' | 'part' | 'mixed';
+
+/** How a drag/gizmo edit is applied: to the instance transform (whole instance)
+ *  or to the volume transform of specific parts (part-scoped selection). */
+export type DragTargetEntry =
+  | { kind: 'instance'; instanceKey: InstanceKey; transform: ModelTransform }
+  | { kind: 'volume'; volume: GLVolume; volumeTransform: ModelTransform; instanceTransform: ModelTransform };
 
 export interface DragSnapshot {
   readonly kind: 'gizmo' | 'body';
   readonly startPivot: THREE.Vector3;
   readonly startQuaternion: THREE.Quaternion;
   readonly startScale: THREE.Vector3;
-  readonly startInstances: ReadonlyMap<InstanceKey, ModelTransform>;
+  readonly startTargets: DragTargetEntry[];
 }
 
 /**
@@ -43,6 +55,7 @@ export class SceneInteractionController {
   readonly selection = new Selection();
 
   private readonly listeners = new Set<() => void>();
+  private selectionModeState: SelectionMode = 'instance';
   private openGizmo: OpenGizmo = null;
   private scaleSpaceState: ScaleSpace = 'world';
   private pointerOwner: PointerOwner = 'none';
@@ -69,9 +82,18 @@ export class SceneInteractionController {
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
+  get selectionMode(): SelectionMode { return this.selectionModeState; }
   /** Distinct selected instances — the panels' multi-selection display rule. */
   get selectionInstanceCount(): number {
     return this.selection.instanceKeys(this.getVolumes()).size;
+  }
+
+  /** Set how a canvas click expands selection (object / volume / instance). */
+  setSelectionMode(mode: SelectionMode): boolean {
+    if (this.selectionModeState === mode) return false;
+    this.selectionModeState = mode;
+    this.emit();
+    return true;
   }
 
   /**
@@ -146,10 +168,169 @@ export class SceneInteractionController {
     return [...indices].sort((a, b) => a - b);
   }
 
-  selectFromHit(hit: GLVolume, additive: boolean): boolean {
+  /** True when the selection is part-scoped: some instance has only a subset of
+   *  its volumes selected. This makes drag/gizmo edits apply to the VOLUME
+   *  transforms (moving only the selected parts), not the instance transform. */
+  isVolumeScopedSelection(): boolean {
+    const selected = this.selectedVolumes();
+    if (selected.length === 0) return false;
+    const per = new Map<string, { sel: number; total: number }>();
+    for (const volume of this.getVolumes()) {
+      const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
+      const rec = per.get(key) ?? { sel: 0, total: 0 };
+      rec.total += 1;
+      if (this.selection.has(volume)) rec.sel += 1;
+      per.set(key, rec);
+    }
+    for (const rec of per.values()) if (rec.sel > 0 && rec.sel < rec.total) return true;
+    return false;
+  }
+
+  /** The single instance of `objectIdx` the current selection is focused on, or 0
+   *  when the selection is empty or spans multiple instances. This anchors a
+   *  ObjectList part-row selection to one instance (Orca's `get_instance_idx()`
+   *  behaviour for part selections). */
+  getSelectionInstanceAnchor(objectIdx: number): number {
+    const selected = this.selectedVolumes();
+    if (selected.length === 0) return 0;
+    const instance = selected[0].buffer.instanceIdx;
+    for (const volume of selected)
+      if (volume.buffer.objectIdx !== objectIdx || volume.buffer.instanceIdx !== instance) return 0;
+    return instance;
+  }
+
+  /** Classify the current selection as Orca does (Selection.cpp update_type):
+   *  whole object(s) -> 'object', whole instance(s) of one object -> 'instance',
+   *  a partial set of one instance -> 'part', anything else -> 'mixed'
+   *  (invalid for edits). */
+  computeSelectionKind(): SelectionKind {
+    return this.classifyVolumeIds(this.selectedVolumes().map((volume) => volume.id));
+  }
+
+  /** Classify an arbitrary set of GLVolume IDs by MODE against the live volume
+   *  collection. Shared by the viewport and the ObjectList so the homogeneity
+   *  rule is enforced uniformly. An instance is a full object at the instance
+   *  level, so a full instance and a full object live in `Instance` mode and may
+   *  be mixed. Only a part (`Volume` mode) is restricted: it is anchored to a
+   *  single instance, and mixing it with an instance/object, or spanning several
+   *  instances, is Orca's `Mixed` (invalid for edits). Modifiers / SLA helpers /
+   *  the wipe tower are not special-cased here (the ObjectList treats them as
+   *  ordinary volumes). */
+  classifyVolumeIds(ids: readonly string[]): SelectionKind {
+    const selectedSet = new Set(ids.filter((id) => id !== ''));
+    if (selectedSet.size === 0) return 'empty';
+
+    const perInstance = new Map<string, number>(); // total volumes per (obj, inst)
+    for (const volume of this.getVolumes()) {
+      const key = `${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`;
+      perInstance.set(key, (perInstance.get(key) ?? 0) + 1);
+    }
+
+    const touched = new Map<string, number>(); // selected count per (obj, inst)
+    const touchedObjects = new Set<number>();
+    for (const id of selectedSet) {
+      const [oiStr, , iiStr] = id.split(':');
+      const key = `${oiStr}:${iiStr}`;
+      touched.set(key, (touched.get(key) ?? 0) + 1);
+      touchedObjects.add(Number(oiStr));
+    }
+
+    // Mode homogeneity: a partial instance is the only thing that can be part-
+    // scoped. It is valid only as a lone part set (one object, one instance).
+    const hasPartial = [...touched].some(([key, sel]) => sel < (perInstance.get(key) ?? sel));
+    if (hasPartial)
+      return touchedObjects.size === 1 && touched.size === 1 ? 'part' : 'mixed';
+
+    // No partial instance -> everything is a whole instance (an instance is a
+    // full object at that level), so full instances and full objects may mix.
+    if (touchedObjects.size > 1) return 'object';
+    const objectIdx = [...touchedObjects][0];
+    const totalInstances = [...perInstance.keys()].filter((key) => Number(key.split(':')[0]) === objectIdx);
+    return touched.size === totalInstances.length ? 'object' : 'instance';
+  }
+
+  /** Whether applying `addIds`/`removeIds` to the current selection keeps it
+   *  homogeneous (Orca's `Mixed` is invalid for edits). */
+  wouldSelectionChangeBeMixed(addIds: readonly string[], removeIds: readonly string[]): boolean {
+    const next = new Set(this.selectedVolumes().map((volume) => volume.id));
+    removeIds.forEach((id) => next.delete(id));
+    addIds.forEach((id) => next.add(id));
+    return this.classifyVolumeIds([...next]) === 'mixed';
+  }
+
+  /** Whether toggling these volume IDs (add if not selected, remove if selected)
+   *  keeps the selection homogeneous. */
+  canToggleVolumeIds(ids: readonly string[]): boolean {
+    const current = new Set(this.selectedVolumes().map((volume) => volume.id));
+    const allIn = ids.every((id) => current.has(id));
+    return !this.wouldSelectionChangeBeMixed(allIn ? [] : ids, allIn ? ids : []);
+  }
+
+  /** Whether adding these volume IDs to the selection keeps it homogeneous. */
+  canAddVolumeIds(ids: readonly string[]): boolean {
+    return !this.wouldSelectionChangeBeMixed(ids, []);
+  }
+
+  /** The GLVolume IDs a click expands to for a given selection mode (Orca's
+   *  part selection is anchored to the clicked instance). */
+  private hitModeVolumeIds(hit: GLVolume, mode: SelectionMode): string[] {
+    if (mode === 'object') return this.getVolumes().filter((v) => v.buffer.objectIdx === hit.buffer.objectIdx).map((v) => v.id);
+    if (mode === 'volume')
+      return this.getVolumes().filter(
+        (v) => v.buffer.objectIdx === hit.buffer.objectIdx
+          && v.buffer.volumeIdx === hit.buffer.volumeIdx
+          && v.buffer.instanceIdx === hit.buffer.instanceIdx,
+      ).map((v) => v.id);
+    const key = instanceKeyOf(hit);
+    return this.getVolumes().filter((v) => instanceKeyOf(v) === key).map((v) => v.id);
+  }
+
+  /** The GLVolume IDs a composite target selects (object, part, or instance). */
+  private compositeVolumeIds(objectIdx: number, volumeIdx?: number, instanceIdx?: number): string[] {
+    if (volumeIdx !== undefined) {
+      const instIdx = instanceIdx ?? 0;
+      return this.getVolumes().filter(
+        (v) => v.buffer.objectIdx === objectIdx && v.buffer.volumeIdx === volumeIdx && v.buffer.instanceIdx === instIdx,
+      ).map((v) => v.id);
+    }
+    if (instanceIdx !== undefined)
+      return this.getVolumes().filter((v) => v.buffer.objectIdx === objectIdx && v.buffer.instanceIdx === instanceIdx).map((v) => v.id);
+    return this.getVolumes().filter((v) => v.buffer.objectIdx === objectIdx).map((v) => v.id);
+  }
+
+  selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
+    // Alt modifies the click to select the individual part (volume), not the
+    // whole instance — the workspace's per-click override of the selection mode.
+    const mode = part ? 'volume' : this.selectionMode;
+    if (additive && !this.canToggleVolumeIds(this.hitModeVolumeIds(hit, mode))) return false;
     const changed = additive
-      ? this.selection.toggleFromHit(hit, this.getVolumes())
-      : this.selection.replaceFromHit(hit, this.getVolumes());
+      ? this.selection.toggleFromHit(hit, this.getVolumes(), mode)
+      : this.selection.replaceFromHit(hit, this.getVolumes(), mode);
+    this.syncGizmoToSelection();
+    if (changed) this.emit();
+    return changed;
+  }
+
+  /**
+   * Select the volumes matching a composite target (object list row click).
+   * The caller passes current object/volume/instance indices (resolved from
+   * stable ObjectIDs by the list/spec §7 as needed).
+   */
+  selectComposite(objectIdx: number, volumeIdx?: number, instanceIdx?: number, additive = false): boolean {
+    if (additive && !this.canToggleVolumeIds(this.compositeVolumeIds(objectIdx, volumeIdx, instanceIdx))) return false;
+    const changed = additive
+      ? this.selection.toggleComposite(this.getVolumes(), { objectIdx, volumeIdx, instanceIdx })
+      : this.selection.replaceComposite(this.getVolumes(), { objectIdx, volumeIdx, instanceIdx });
+    this.syncGizmoToSelection();
+    if (changed) this.emit();
+    return changed;
+  }
+
+  /** Replace (or, when additive, union) the selection with raw volume IDs
+   *  (used by the ObjectList's Shift-range multi-select). */
+  selectVolumeIds(ids: readonly string[], additive = false): boolean {
+    if (additive && !this.canAddVolumeIds(ids)) return false;
+    const changed = additive ? this.selection.addIds(ids) : this.selection.replaceIds(ids);
     this.syncGizmoToSelection();
     if (changed) this.emit();
     return changed;
@@ -160,25 +341,26 @@ export class SceneInteractionController {
    * A gizmo-origin press retains strict priority even if its ray also reaches
    * a model mesh.
    */
-  prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean): boolean {
+  prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
     // A drag that starts on a member of an existing multi-selection must move
     // the complete group. Leave selection unchanged while DragControls
     // decides whether this press turns into a drag.
-    if (!additive && this.selection.has(hit)) return false;
-    return this.selectFromHit(hit, additive);
+    if (!additive && !part && this.selection.has(hit)) return false;
+    return this.selectFromHit(hit, additive, part);
   }
 
   /** Preserve a multi-selection when the browser dispatches click after drag end. */
-  selectFromClick(hit: GLVolume, additive: boolean): boolean {
+  selectFromClick(hit: GLVolume, additive: boolean, part = false): boolean {
     if (this.suppressPostDragClick) {
       this.suppressPostDragClick = false;
       return false;
     }
     // Plain clicks on an existing member keep the complete selection. Ctrl or
-    // Cmd remains the explicit gesture for toggling a selected member.
-    if (!additive && this.selection.has(hit)) return false;
-    return this.selectFromHit(hit, additive);
+    // Cmd remains the explicit gesture for toggling a selected member; Alt
+    // explicitly narrows to the part.
+    if (!additive && !part && this.selection.has(hit)) return false;
+    return this.selectFromHit(hit, additive, part);
   }
 
   clearSelection(): boolean {
@@ -317,7 +499,7 @@ export class SceneInteractionController {
   updateDragPivot(nextPivot: THREE.Vector3): boolean {
     if (!this.drag) return false;
     const delta = nextPivot.clone().sub(this.drag.startPivot);
-    this.applySnapshotDelta(this.drag.startInstances, delta);
+    this.applySnapshotDelta(this.drag.startTargets, delta);
     this.emit();
     return true;
   }
@@ -337,7 +519,7 @@ export class SceneInteractionController {
     if (!drag || drag.kind !== 'gizmo') return false;
     if (this.openGizmo === 'rotate') {
       const deltaQuat = next.quaternion.clone().multiply(drag.startQuaternion.clone().invert());
-      this.applyRotationDeltaToSnapshot(drag.startInstances, drag.startPivot, deltaQuat);
+      this.applyRotationDeltaToSnapshot(drag.startTargets, drag.startPivot, deltaQuat);
     } else if (this.openGizmo === 'scale') {
       const factor: Vec3 = [
         safeRatio(next.scale.x, drag.startScale.x),
@@ -346,10 +528,10 @@ export class SceneInteractionController {
       ];
       // The pivot's start orientation is the scale space: identity for world,
       // the selection orientation for local.
-      this.applyScaleDeltaToSnapshot(drag.startInstances, drag.startPivot, factor, drag.startQuaternion);
+      this.applyScaleDeltaToSnapshot(drag.startTargets, drag.startPivot, factor, drag.startQuaternion);
     } else {
       const delta = next.position.clone().sub(drag.startPivot);
-      this.applySnapshotDelta(drag.startInstances, delta);
+      this.applySnapshotDelta(drag.startTargets, delta);
     }
     this.emit();
     return true;
@@ -379,7 +561,7 @@ export class SceneInteractionController {
       }
       return false;
     }
-    this.applySnapshotDelta(this.drag.startInstances, new THREE.Vector3());
+    this.applySnapshotDelta(this.drag.startTargets, new THREE.Vector3());
     this.drag = null;
     this.pointerOwner = 'none';
     this.pointerOrigin = 'none';
@@ -409,7 +591,7 @@ export class SceneInteractionController {
 
   moveSelectionBy(delta: THREE.Vector3): boolean {
     if (this.selection.empty) return false;
-    this.applySnapshotDelta(this.captureSelectedInstances(), delta);
+    this.applySnapshotDelta(this.captureDragTargets(), delta);
     this.emit();
     return true;
   }
@@ -429,17 +611,25 @@ export class SceneInteractionController {
   /** Rotate every selected instance by a componentwise Euler delta (radians). */
   rotateSelectionBy(delta: Vec3): boolean {
     if (this.selection.empty) return false;
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const [key, transform] of this.captureSelectedInstances()) {
-      const rotated = cloneTransform(transform);
-      rotated.rotation = [
-        transform.rotation[0] + delta[0],
-        transform.rotation[1] + delta[1],
-        transform.rotation[2] + delta[2],
-      ];
-      next.set(key, rotated);
-    }
-    this.applyInstanceTransforms(next);
+    const next = this.captureDragTargets().map((entry) => {
+      if (entry.kind === 'instance') {
+        const rotated = cloneTransform(entry.transform);
+        rotated.rotation = [
+          entry.transform.rotation[0] + delta[0],
+          entry.transform.rotation[1] + delta[1],
+          entry.transform.rotation[2] + delta[2],
+        ];
+        return { ...entry, transform: rotated };
+      }
+      const instance = matrixFromTransform(entry.instanceTransform);
+      // Apply the rotation as a world delta about the selection pivot, then solve
+      // the volume back out so only the selected part rotates.
+      const world = instance.clone().multiply(matrixFromTransform(entry.volumeTransform));
+      const pivot = this.selectionPivot() ?? new THREE.Vector3();
+      const newWorld = rotateMatrixAroundPivot(world, quatFromRotation(delta), pivot);
+      return { ...entry, volumeTransform: transformFromMatrix(instance.clone().invert().multiply(newWorld), entry.volumeTransform) };
+    });
+    this.applyTargetTransforms(next);
     this.emit();
     return true;
   }
@@ -452,7 +642,7 @@ export class SceneInteractionController {
     // Rigidly scale the whole selection about the aggregate pivot (offsets
     // displace too), so the selection stays visually centered while its size
     // changes — the same semantics as the size edit and the gizmo drag.
-    this.applyScaleDeltaToSnapshot(this.captureSelectedInstances(), pivot, factor, new THREE.Quaternion());
+    this.applyScaleDeltaToSnapshot(this.captureDragTargets(), pivot, factor, new THREE.Quaternion());
     this.emit();
     return true;
   }
@@ -482,12 +672,14 @@ export class SceneInteractionController {
   resetSelection(): boolean {
     const selected = this.selectedVolumes();
     if (selected.length === 0) return false;
-    const initial = new Map<InstanceKey, ModelTransform>();
-    for (const volume of selected) {
-      const key = instanceKeyOf(volume);
-      if (!initial.has(key)) initial.set(key, cloneTransform(volume.buffer.instanceTransform));
-    }
-    this.applyInstanceTransforms(initial);
+    const next = this.captureDragTargets().map((entry) => {
+      if (entry.kind === 'instance') {
+        const volume = this.getVolumes().find((v) => instanceKeyOf(v) === entry.instanceKey);
+        return { ...entry, transform: volume ? cloneTransform(volume.buffer.instanceTransform) : entry.transform };
+      }
+      return { ...entry, volumeTransform: cloneTransform(entry.volume.buffer.volumeTransform) };
+    });
+    this.applyTargetTransforms(next);
     this.emit();
     return true;
   }
@@ -501,19 +693,36 @@ export class SceneInteractionController {
       startPivot: pivot,
       startQuaternion: this.pivot?.quaternion.clone() ?? new THREE.Quaternion(),
       startScale: this.pivot?.scale.clone() ?? new THREE.Vector3(1, 1, 1),
-      startInstances: this.captureSelectedInstances(),
+      startTargets: this.captureDragTargets(),
     };
     this.emit();
     return true;
   }
 
-  private captureSelectedInstances(): Map<InstanceKey, ModelTransform> {
-    const transforms = new Map<InstanceKey, ModelTransform>();
+  /**
+   * Capture the transforms to edit for the current selection. A part-scoped
+   * selection edits the volume transforms (only the selected parts move); an
+   * instance/object selection edits the instance transforms (whole instances
+   * move). This is the single place that decides the edit scope.
+   */
+  private captureDragTargets(): DragTargetEntry[] {
+    if (this.isVolumeScopedSelection()) {
+      return this.selectedVolumes().map((volume) => ({
+        kind: 'volume',
+        volume,
+        volumeTransform: cloneTransform(volume.volumeTransform),
+        instanceTransform: cloneTransform(volume.instanceTransform),
+      }));
+    }
+    const seen = new Set<InstanceKey>();
+    const entries: DragTargetEntry[] = [];
     for (const volume of this.selectedVolumes()) {
       const key = instanceKeyOf(volume);
-      if (!transforms.has(key)) transforms.set(key, cloneTransform(volume.instanceTransform));
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push({ kind: 'instance', instanceKey: key, transform: cloneTransform(volume.instanceTransform) });
     }
-    return transforms;
+    return entries;
   }
 
   private applyBoxSelection(start: BoxPoint, current: BoxPoint, additive: boolean): boolean {
@@ -533,6 +742,7 @@ export class SceneInteractionController {
       const bounds = perInstance.get(instanceKeyOf(volume));
       if (bounds && rectsOverlap(rect, bounds)) ids.push(volume.id);
     }
+    if (additive && !this.canAddVolumeIds(ids)) return false;
     return additive ? this.selection.addIds(ids) : this.selection.replaceIds(ids);
   }
 
@@ -576,68 +786,77 @@ export class SceneInteractionController {
     return true;
   }
 
-  private applySnapshotDelta(snapshot: ReadonlyMap<InstanceKey, ModelTransform>, delta: THREE.Vector3): void {
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const [key, transform] of snapshot) {
-      if (transform.matrix) {
-        const m = matrixFromTransform(transform);
-        m.elements[12] += delta.x;
-        m.elements[13] += delta.y;
-        m.elements[14] += delta.z;
-        next.set(key, normalizeTransform({ ...transformFromMatrix(m, transform) }));
-        continue;
+  private applySnapshotDelta(snapshot: DragTargetEntry[], delta: THREE.Vector3): void {
+    const next = snapshot.map((entry) => {
+      if (entry.kind === 'instance') {
+        const transform = entry.transform;
+        if (transform.matrix) {
+          const m = matrixFromTransform(transform);
+          m.elements[12] += delta.x;
+          m.elements[13] += delta.y;
+          m.elements[14] += delta.z;
+          return { ...entry, transform: normalizeTransform({ ...transformFromMatrix(m, transform) }) };
+        }
+        const moved = cloneTransform(transform);
+        moved.offset = [
+          transform.offset[0] + delta.x,
+          transform.offset[1] + delta.y,
+          transform.offset[2] + delta.z,
+        ];
+        return { ...entry, transform: moved };
       }
-      const moved = cloneTransform(transform);
-      moved.offset = [
-        transform.offset[0] + delta.x,
-        transform.offset[1] + delta.y,
-        transform.offset[2] + delta.z,
-      ];
-      next.set(key, moved);
-    }
-    this.applyInstanceTransforms(next);
+      const volume = this.solveVolumeWorldDelta(entry, (world) => translateMatrix(world, delta));
+      return { ...entry, volumeTransform: volume };
+    });
+    this.applyTargetTransforms(next);
   }
 
   private applyRotationDeltaToSnapshot(
-    snapshot: ReadonlyMap<InstanceKey, ModelTransform>,
+    snapshot: DragTargetEntry[],
     pivot: THREE.Vector3,
     deltaQuat: THREE.Quaternion,
   ): void {
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const [key, transform] of snapshot) {
-      next.set(key, applyRotationDelta(transform, deltaQuat, pivot));
-    }
-    this.applyInstanceTransforms(next);
+    const next = snapshot.map((entry) => {
+      if (entry.kind === 'instance') return { ...entry, transform: applyRotationDelta(entry.transform, deltaQuat, pivot) };
+      const volume = this.solveVolumeWorldDelta(entry, (world) => rotateMatrixAroundPivot(world, deltaQuat, pivot));
+      return { ...entry, volumeTransform: volume };
+    });
+    this.applyTargetTransforms(next);
   }
 
   private applyScaleDeltaToSnapshot(
-    snapshot: ReadonlyMap<InstanceKey, ModelTransform>,
+    snapshot: DragTargetEntry[],
     pivot: THREE.Vector3,
     factor: Vec3,
     spaceQuat: THREE.Quaternion,
   ): void {
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const [key, transform] of snapshot) {
-      next.set(key, applyScaleDelta(transform, factor, pivot, spaceQuat));
-    }
-    this.applyInstanceTransforms(next);
+    const next = snapshot.map((entry) => {
+      if (entry.kind === 'instance') return { ...entry, transform: applyScaleDelta(entry.transform, factor, pivot, spaceQuat) };
+      const out = this.solveVolumeWorldDelta(entry, (world) => scaleMatrixAroundPivot(world, factor, pivot, spaceQuat));
+      return { ...entry, volumeTransform: { ...out, scale: out.scale.map((s) => clampScale(Math.abs(s))) as Vec3 } };
+    });
+    this.applyTargetTransforms(next);
   }
 
   private restoreSelectionProperty(property: 'rotation' | 'scale'): boolean {
     const selected = this.selectedVolumes();
     if (selected.length === 0) return false;
-    const next = new Map<InstanceKey, ModelTransform>();
-    for (const volume of selected) {
-      const key = instanceKeyOf(volume);
-      if (next.has(key)) continue;
-      const transform = cloneTransform(volume.instanceTransform);
-      transform[property] = [...volume.buffer.instanceTransform[property]] as Vec3;
-      // A sheared transform's `matrix` is authoritative — a per-property reset
-      // must drop it, else the reset is silently ignored.
+    const next = this.captureDragTargets().map((entry) => {
+      if (entry.kind === 'instance') {
+        const volume = this.getVolumes().find((v) => instanceKeyOf(v) === entry.instanceKey);
+        const transform = cloneTransform(entry.transform);
+        if (volume) transform[property] = [...volume.buffer.instanceTransform[property]] as Vec3;
+        // A sheared transform's `matrix` is authoritative — a per-property reset
+        // must drop it, else the reset is silently ignored.
+        if (transform.matrix) delete transform.matrix;
+        return { ...entry, transform };
+      }
+      const transform = cloneTransform(entry.volumeTransform);
+      transform[property] = [...entry.volume.buffer.volumeTransform[property]] as Vec3;
       if (transform.matrix) delete transform.matrix;
-      next.set(key, transform);
-    }
-    this.applyInstanceTransforms(next);
+      return { ...entry, volumeTransform: transform };
+    });
+    this.applyTargetTransforms(next);
     this.emit();
     return true;
   }
@@ -657,11 +876,120 @@ export class SceneInteractionController {
     return minZ;
   }
 
-  private applyInstanceTransforms(transforms: ReadonlyMap<InstanceKey, ModelTransform>): void {
+  /** Solve a part-scoped (volume) edit: apply a world-space delta to the volume's
+   *  world matrix (instance·volume) and back the volume transform out, leaving the
+   *  instance transform untouched. */
+  private solveVolumeWorldDelta(
+    entry: Extract<DragTargetEntry, { kind: 'volume' }>,
+    worldApply: (world: THREE.Matrix4) => THREE.Matrix4,
+  ): ModelTransform {
+    const instance = matrixFromTransform(entry.instanceTransform);
+    const world = instance.clone().multiply(matrixFromTransform(entry.volumeTransform));
+    const newWorld = worldApply(world);
+    return transformFromMatrix(instance.clone().invert().multiply(newWorld), entry.volumeTransform);
+  }
+
+  private applyTargetTransforms(entries: DragTargetEntry[]): void {
+    if (entries.length === 0) return;
+    if (entries[0].kind === 'instance') {
+      const instanceEntries = entries.filter(
+        (entry): entry is Extract<DragTargetEntry, { kind: 'instance' }> => entry.kind === 'instance',
+      );
+      // Keep the native Orca invariant at the renderer boundary.  An object's
+      // instances share the linear part of their instance transform (scale
+      // and X/Y orientation), while their independent Z rotations remain
+      // intact.  Capture the old transforms before applying the selected
+      // targets: Orca's Selection::synchronize_unselected_instances applies
+      // the relative linear change from the selected instance to every other
+      // instance of the same object.
+      const oldByInstance = new Map<InstanceKey, ModelTransform>();
+      for (const volume of this.getVolumes()) {
+        const key = instanceKeyOf(volume);
+        if (!oldByInstance.has(key)) oldByInstance.set(key, cloneTransform(volume.instanceTransform));
+      }
+
+      for (const volume of this.getVolumes()) {
+        for (const entry of instanceEntries) {
+          if (entry.instanceKey === instanceKeyOf(volume)) volume.instanceTransform = cloneTransform(entry.transform);
+        }
+      }
+
+      this.synchronizeInstanceLinearTransforms(instanceEntries, oldByInstance);
+    } else {
+      // ModelVolume transforms are stored once per object volume in the native
+      // model, while the renderer keeps one GLVolume for every instance copy.
+      // Fan each edited volume transform out to every rendered copy so a later
+      // sync cannot upload a stale sibling and overwrite the native value.
+      const transformsByPart = new Map<string, ModelTransform>();
+      for (const entry of entries) {
+        if (entry.kind !== 'volume') continue;
+        const key = `${entry.volume.buffer.objectIdx}:${entry.volume.buffer.volumeIdx}`;
+        if (!transformsByPart.has(key)) transformsByPart.set(key, cloneTransform(entry.volumeTransform));
+      }
+      for (const volume of this.getVolumes()) {
+        const key = `${volume.buffer.objectIdx}:${volume.buffer.volumeIdx}`;
+        const transform = transformsByPart.get(key);
+        if (transform) volume.volumeTransform = cloneTransform(transform);
+      }
+    }
+  }
+
+  /**
+   * Port OrcaSlicer's Selection::synchronize_unselected_instances().  The
+   * relative linear change is applied on the right of each other instance's
+   * old linear matrix, which preserves its own Z-axis rotation while sharing
+   * scale and the non-Z orientation.  A world-Z-only rotation intentionally
+   * leaves unselected instances untouched.
+   */
+  private synchronizeInstanceLinearTransforms(
+    entries: Extract<DragTargetEntry, { kind: 'instance' }>[],
+    oldByInstance: ReadonlyMap<InstanceKey, ModelTransform>,
+  ): void {
+    const firstByObject = new Map<number, {
+      key: InstanceKey;
+      oldTransform: ModelTransform;
+      nextTransform: ModelTransform;
+    }>();
+    const selectedKeys = new Set(entries.map((entry) => entry.instanceKey));
+
+    for (const entry of entries) {
+      const oldTransform = oldByInstance.get(entry.instanceKey);
+      if (!oldTransform || firstByObject.has(this.objectIndex(entry.instanceKey))) continue;
+      if (isWorldZOnlyRotation(oldTransform, entry.transform)) continue;
+      firstByObject.set(this.objectIndex(entry.instanceKey), {
+        key: entry.instanceKey,
+        oldTransform,
+        nextTransform: entry.transform,
+      });
+    }
+    if (firstByObject.size === 0) return;
+
+    const synchronized = new Map<InstanceKey, ModelTransform>();
     for (const volume of this.getVolumes()) {
-      const transform = transforms.get(instanceKeyOf(volume));
+      const objectIdx = volume.buffer.objectIdx;
+      const source = firstByObject.get(objectIdx);
+      const key = instanceKeyOf(volume);
+      if (!source || selectedKeys.has(key) || synchronized.has(key)) continue;
+      const oldTarget = oldByInstance.get(key);
+      if (!oldTarget) continue;
+
+      const sourceOldLinear = linearPart(matrixFromTransform(source.oldTransform));
+      const sourceNextLinear = linearPart(matrixFromTransform(source.nextTransform));
+      const relativeLinear = sourceOldLinear.clone().invert().multiply(sourceNextLinear);
+      const targetMatrix = matrixFromTransform(oldTarget);
+      const targetLinear = linearPart(targetMatrix).multiply(relativeLinear);
+      targetLinear.setPosition(targetMatrix.elements[12], targetMatrix.elements[13], targetMatrix.elements[14]);
+      synchronized.set(key, transformFromMatrix(targetLinear, oldTarget));
+    }
+
+    for (const volume of this.getVolumes()) {
+      const transform = synchronized.get(instanceKeyOf(volume));
       if (transform) volume.instanceTransform = cloneTransform(transform);
     }
+  }
+
+  private objectIndex(key: InstanceKey): number {
+    return Number(key.split(':', 1)[0]);
   }
 
   // Gizmos never auto-open on selection; a selection that empties (e.g. a
@@ -681,6 +1009,37 @@ function worldBounds(volume: GLVolume): THREE.Box3 {
 
 function transformMatrix(transform: ModelTransform): THREE.Matrix4 {
   return matrixFromTransform(transform);
+}
+
+function linearPart(matrix: THREE.Matrix4): THREE.Matrix4 {
+  return matrix.clone().setPosition(0, 0, 0);
+}
+
+/** Match Orca's NONE synchronization case: a world-Z rotation only. */
+function isWorldZOnlyRotation(oldTransform: ModelTransform, nextTransform: ModelTransform): boolean {
+  const oldMatrix = matrixFromTransform(oldTransform);
+  const nextMatrix = matrixFromTransform(nextTransform);
+  const oldLinear = linearPart(oldMatrix);
+  const nextLinear = linearPart(nextMatrix);
+  const oldColumns = [0, 4, 8].map((index) =>
+    new THREE.Vector3(oldLinear.elements[index], oldLinear.elements[index + 1], oldLinear.elements[index + 2]),
+  );
+  const nextColumns = [0, 4, 8].map((index) =>
+    new THREE.Vector3(nextLinear.elements[index], nextLinear.elements[index + 1], nextLinear.elements[index + 2]),
+  );
+  const epsilon = 1e-7;
+  // Scaling, mirroring, and any other linear change require synchronization.
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(oldColumns[i].length() - nextColumns[i].length()) > epsilon) return false;
+  }
+  if (Math.sign(oldLinear.determinant()) !== Math.sign(nextLinear.determinant())) return false;
+
+  const oldRotation = new THREE.Matrix4().extractRotation(oldLinear);
+  const nextRotation = new THREE.Matrix4().extractRotation(nextLinear);
+  const delta = nextRotation.multiply(oldRotation.invert());
+  const transformedZ = new THREE.Vector3(0, 0, 1).applyMatrix4(delta);
+  return Math.abs(transformedZ.x) <= epsilon && Math.abs(transformedZ.y) <= epsilon
+    && Math.abs(transformedZ.z - 1) <= epsilon;
 }
 
 function safeRatio(current: number, start: number): number {

@@ -149,6 +149,133 @@ export interface DeleteObjectsResult {
   error?: string;
 }
 
+/** Multi-delete of parts by stable ObjectID. */
+export interface DeleteVolumesResult {
+  ok: boolean;
+  /** Remaining object count after the delete. */
+  objects?: number;
+  /** Number of volumes actually removed (duplicates are ignored). */
+  deleted?: number;
+  error?: string;
+}
+
+/** Clone result: the freshly minted stable ObjectIDs of the clones. */
+export interface CloneObjectsResult {
+  ok: boolean;
+  newObjectIds: number[];
+  /** Object count after cloning. */
+  objects?: number;
+  error?: string;
+}
+
+/** Reorder operations return the current structure in the same shape as getModelStructure. */
+export interface ReorderStructureResult {
+  ok: boolean;
+  objects: ModelObjectStructure[];
+  error?: string;
+}
+
+/** Split-to-parts result: the freshly generated volume IDs + current structure. */
+export interface SplitVolumeResult {
+  ok: boolean;
+  /** Number of parts produced (1 means the volume was not split). */
+  parts?: number;
+  /** Generated volume IDs; the original volumeId is now stale. */
+  newVolumeIds?: number[];
+  /** Current structure after the split. */
+  objects?: ModelObjectStructure[];
+  error?: string;
+}
+
+/** Split-object-to-objects result: the freshly generated object IDs. */
+export interface SplitObjectResult {
+  ok: boolean;
+  newObjectIds: number[];
+  /** Object count after splitting. */
+  objects?: number;
+  error?: string;
+}
+
+/** Assemble result: the newly created multipart object's stable ID. */
+export interface MergeObjectsResult {
+  ok: boolean;
+  objectId?: number;
+  /** Object count after assembling. */
+  objects?: number;
+  error?: string;
+}
+
+/** Separate-instances result: the newly created per-instance object IDs. */
+export interface SeparateInstancesResult {
+  ok: boolean;
+  newObjectIds: number[];
+  /** Object count after separating. */
+  objects?: number;
+  error?: string;
+}
+
+/** Add-instance result: the freshly minted stable instance ID. */
+export interface AddInstanceResult {
+  ok: boolean;
+  objectId?: number;
+  instanceId?: number;
+  error?: string;
+}
+
+/** Remove-instance result. */
+export interface RemoveInstanceResult {
+  ok: boolean;
+  error?: string;
+}
+
+/** Simple success/error payload returned by non-destructive metadata mutations. */
+export interface MutationResult {
+  ok: boolean;
+  error?: string;
+}
+
+/** Volume kinds as reported by the bridge structure read (spec §9.1). */
+export type VolumeType =
+  | 'model_part'
+  | 'negative_volume'
+  | 'parameter_modifier'
+  | 'support_blocker'
+  | 'support_enforcer';
+
+export interface ModelVolumeStructure {
+  /** Stable ObjectID for React keys and selection restoration. */
+  id: number;
+  /** Current positional index within the object (for operation dispatch). */
+  index: number;
+  name: string;
+  type: VolumeType;
+  /** Whether this volume can be split into multiple parts. */
+  isSplittable: boolean;
+}
+
+export interface ModelInstanceStructure {
+  id: number;
+  index: number;
+  printable: boolean;
+}
+
+export interface ModelObjectStructure {
+  id: number;
+  index: number;
+  name: string;
+  /** Object-level flag; distinct from per-instance `printable`. */
+  printable: boolean;
+  instanceCount: number;
+  volumes: ModelVolumeStructure[];
+  instances: ModelInstanceStructure[];
+}
+
+export interface ModelStructureResult {
+  ok: boolean;
+  objects: ModelObjectStructure[];
+  error?: string;
+}
+
 export interface SliceResultStatus {
   ok: boolean;
   unrecognized_keys: string[];
@@ -217,9 +344,40 @@ export interface SlicerClient {
     instanceTransform: ModelTransform, volumeTransform: ModelTransform,
   ): Promise<{ ok: boolean; error?: string }>;
   getModelMesh(): Promise<ModelMeshResult>;
-  /** Delete whole objects by their original indices (as reported by
-   *  getModelMesh); indices shift after removal, so pass all at once. */
-  deleteObjects(indices: number[]): Promise<DeleteObjectsResult>;
+  /** Read the complete object/part/instance tree with stable IDs. */
+  getModelStructure(): Promise<ModelStructureResult>;
+  /** Delete whole objects by their stable ObjectIDs. */
+  deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult>;
+  /** Delete specific parts (volumes) by their stable ObjectIDs. */
+  deleteVolumes(volumeIds: number[]): Promise<DeleteVolumesResult>;
+  /** Clone whole objects; returns the new stable ObjectIDs. */
+  cloneObjects(objectIds: number[]): Promise<CloneObjectsResult>;
+  /** Move an object to a destination index (0-based; index == count appends last); returns current structure. */
+  reorderObjects(fromObjectId: number, toIndex: number): Promise<ReorderStructureResult>;
+  /** Move a part to a destination index within its object (0-based; index == count appends last); returns current structure. */
+  reorderVolumes(objectId: number, fromVolumeId: number, toIndex: number): Promise<ReorderStructureResult>;
+  /** Split a volume into its disconnected parts; returns the generated volume IDs. */
+  splitVolumeToParts(volumeId: number, maxExtruders?: number, remapPaint?: boolean): Promise<SplitVolumeResult>;
+  /** Split an object into one object per connected shell; returns the generated object IDs. */
+  splitObjectToObjects(objectId: number, autoDrop?: boolean): Promise<SplitObjectResult>;
+  /** Assemble objects into one multipart object; returns the new object's stable ID. */
+  mergeObjectsToMultipart(objectIds: number[], name: string): Promise<MergeObjectsResult>;
+  /** Separate selected instances into their own objects; returns the new object IDs. */
+  separateInstances(objectId: number, instanceIds: number[]): Promise<SeparateInstancesResult>;
+  /** Add a new default instance to an object; returns the new instance ID. */
+  addInstance(objectId: number): Promise<AddInstanceResult>;
+  /** Remove a specific instance from an object by stable ID. */
+  removeInstance(objectId: number, instanceId: number): Promise<RemoveInstanceResult>;
+  /** Rename an object by its stable ObjectID. */
+  renameObject(objectId: number, name: string): Promise<MutationResult>;
+  /** Rename a specific part (volume) by its stable ObjectID. */
+  renameVolume(volumeId: number, name: string): Promise<MutationResult>;
+  /** Change a part's type among the spec's VolumeType strings. */
+  setVolumeType(volumeId: number, type: VolumeType): Promise<MutationResult>;
+  /** Toggle the object-level printable gate and every one of its instances. */
+  setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult>;
+  /** Toggle a single instance's printable state by its stable ObjectID. */
+  setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult>;
   /** Select a preset by name; printer selection re-runs compatibility so
    *  print/filament follow the active machine. Reports all three selections. */
   selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<SelectPresetResult>;

@@ -11,10 +11,14 @@ export type VolumeId = string;
 
 export type InstanceKey = `${number}:${number}`;
 
+/** How a canvas hit expands the selection (native GLCanvas3D selection modes). */
+export type SelectionMode = 'object' | 'volume' | 'instance';
+
 export interface SelectableVolume {
   readonly id: VolumeId;
   readonly buffer: {
     readonly objectIdx: number;
+    readonly volumeIdx: number;
     readonly instanceIdx: number;
   };
 }
@@ -43,9 +47,9 @@ export class Selection {
     return this.selectedIds.has(volume.id);
   }
 
-  /** Replace selection with the complete instance that contains `hit`. */
-  replaceFromHit(hit: SelectableVolume, collection: readonly SelectableVolume[]): boolean {
-    return this.replace(this.volumesForInstance(hit, collection));
+  /** Replace selection with the `mode`-expanded group that contains `hit`. */
+  replaceFromHit(hit: SelectableVolume, collection: readonly SelectableVolume[], mode: SelectionMode = 'instance'): boolean {
+    return this.replace(this.volumesForMode(hit, collection, mode));
   }
 
   /** Replace the selection with exactly these volume IDs (box-select result). */
@@ -71,20 +75,49 @@ export class Selection {
   }
 
   /**
-   * Toggle the complete instance that contains `hit`. A partially stale
-   * selection is treated as unselected and restored as a complete instance.
+   * Toggle the `mode`-expanded group that contains `hit`. A partially stale
+   * selection is treated as unselected and restored as a complete group.
    */
-  toggleFromHit(hit: SelectableVolume, collection: readonly SelectableVolume[]): boolean {
-    const instance = this.volumesForInstance(hit, collection);
-    const allSelected = instance.length > 0 && instance.every((volume) => this.selectedIds.has(volume.id));
+  toggleFromHit(hit: SelectableVolume, collection: readonly SelectableVolume[], mode: SelectionMode = 'instance'): boolean {
+    const group = this.volumesForMode(hit, collection, mode);
+    const allSelected = group.length > 0 && group.every((volume) => this.selectedIds.has(volume.id));
     if (allSelected) {
       let changed = false;
-      for (const volume of instance) changed = this.selectedIds.delete(volume.id) || changed;
+      for (const volume of group) changed = this.selectedIds.delete(volume.id) || changed;
       return changed;
     }
 
     let changed = false;
-    for (const volume of instance) {
+    for (const volume of group) {
+      if (!this.selectedIds.has(volume.id)) {
+        this.selectedIds.add(volume.id);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Replace the selection with the volumes matching a composite target
+   * (object list row click). The presence of volumeIdx/instanceIdx selects the
+   * expansion width: object only -> object; object+volume -> that volume;
+   * object+instance -> that instance.
+   */
+  replaceComposite(collection: readonly SelectableVolume[], target: { objectIdx: number; volumeIdx?: number; instanceIdx?: number }): boolean {
+    return this.replace(this.volumesForTarget(collection, target));
+  }
+
+  /** Toggle the volumes matching a composite target (Ctrl/Cmd additive in lists). */
+  toggleComposite(collection: readonly SelectableVolume[], target: { objectIdx: number; volumeIdx?: number; instanceIdx?: number }): boolean {
+    const group = this.volumesForTarget(collection, target);
+    const allSelected = group.length > 0 && group.every((volume) => this.selectedIds.has(volume.id));
+    if (allSelected) {
+      let changed = false;
+      for (const volume of group) changed = this.selectedIds.delete(volume.id) || changed;
+      return changed;
+    }
+    let changed = false;
+    for (const volume of group) {
       if (!this.selectedIds.has(volume.id)) {
         this.selectedIds.add(volume.id);
         changed = true;
@@ -124,8 +157,32 @@ export class Selection {
     return this.replaceIds(volumes.map((volume) => volume.id));
   }
 
-  private volumesForInstance<T extends SelectableVolume>(hit: T, collection: readonly T[]): T[] {
+  private volumesForMode<T extends SelectableVolume>(hit: T, collection: readonly T[], mode: SelectionMode): T[] {
+    if (mode === 'object') return collection.filter((v) => v.buffer.objectIdx === hit.buffer.objectIdx);
+    // Orca anchors a part (volume) selection to a single instance — the one that
+    // was clicked — never across all instances of the object.
+    if (mode === 'volume') return collection.filter(
+      (v) => v.buffer.objectIdx === hit.buffer.objectIdx
+        && v.buffer.volumeIdx === hit.buffer.volumeIdx
+        && v.buffer.instanceIdx === hit.buffer.instanceIdx,
+    );
     const key = instanceKeyOf(hit);
-    return collection.filter((volume) => instanceKeyOf(volume) === key);
+    return collection.filter((v) => instanceKeyOf(v) === key);
+  }
+
+  private volumesForTarget<T extends SelectableVolume>(collection: readonly T[], target: { objectIdx: number; volumeIdx?: number; instanceIdx?: number }): T[] {
+    // A part target carries a volumeIdx + the single instance it belongs to
+    // (Orca's part selection is anchored to one instance).
+    if (target.volumeIdx !== undefined)
+      return collection.filter(
+        (v) => v.buffer.objectIdx === target.objectIdx
+          && v.buffer.volumeIdx === target.volumeIdx
+          && v.buffer.instanceIdx === (target.instanceIdx ?? 0),
+      );
+    if (target.instanceIdx !== undefined)
+      return collection.filter(
+        (v) => v.buffer.objectIdx === target.objectIdx && v.buffer.instanceIdx === target.instanceIdx,
+      );
+    return collection.filter((v) => v.buffer.objectIdx === target.objectIdx);
   }
 }

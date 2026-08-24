@@ -117,6 +117,18 @@ async function selectStableRealPrinter(page: Page): Promise<void> {
   await expect(page.locator('[data-slot="combobox-content"]')).not.toBeVisible();
 }
 
+/** Select a mock instance once the model's mock volumes are live (the Slice
+ *  button enables on modelLoaded, which can precede the async mesh fetch, so a
+ *  bare selectMockInstance can race the GL volume collection). */
+async function selectMockInstance(page: Page, instanceIdx: number, additive = false): Promise<void> {
+  await expect.poll(() => page.evaluate(([idx, add]) =>
+    (window as unknown as {
+      __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
+    }).__orcaE2e?.selectMockInstance?.(idx, add) ?? false,
+    [instanceIdx, additive] as [number, boolean],
+  )).toBe(true);
+}
+
 /** Rendered aggregate selection-box brackets (mock builds only). */
 function selectionBoxWorldSegments(page: Page) {
   return page.evaluate(() =>
@@ -275,6 +287,368 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
   }
 });
 
+// Ctrl+clicking an object then a part of another object must not create a
+// Mixed selection (Orca's mixed type is invalid).
+test('object list: refuses mixing object and part selection (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    const selectedInstances = () => page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { selectionInstanceCount?: () => number };
+      }).__orcaE2e?.selectionInstanceCount?.() ?? 0,
+    );
+
+    const objectRow = list.locator('div[data-testid^="object-"]').first();
+    await objectRow.click({ button: 'left', position: { x: 10, y: 4 } });
+    const before = await selectedInstances();
+    expect(before).toBeGreaterThan(1);
+
+    // Ctrl+click a part of the same object (object + part is Orca Mixed) — refused.
+    await list.locator('[data-testid^="part-"]').first().click({ modifiers: ['Control'] });
+    await expect.poll(selectedInstances).toBe(before);
+  } finally {
+    await app.close();
+  }
+});
+
+// Object list drag reorder. Mock-only: add two objects, drag the second
+// onto the first, and assert the object order changes.
+test('object list: drag reorder objects (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    const rows = list.locator('div[data-testid^="object-"]');
+    await expect(rows).toHaveCount(2);
+
+    // A row with an active rename editor is not draggable.
+    await rows.nth(1).click({ button: 'right' });
+    await list.getByTestId('objectlist-rename').click();
+    await expect(rows.nth(1)).toHaveAttribute('draggable', 'false');
+    await page.keyboard.press('Enter');
+    await expect(rows.nth(1)).toHaveAttribute('draggable', 'true');
+
+    // Renaming a part freezes the part row AND its enclosing object row: a
+    // non-draggable part's drag source is the ancestor object row, which would
+    // otherwise still reorder the object. (The menu follows the selection —
+    // left-click the part first, or the still-fully-selected object promotes
+    // the menu to the object menu and renames the object instead.)
+    await rows.nth(1).locator('[data-testid^="object-expand-"]').click();
+    const partRow = rows.nth(1).locator('[data-testid^="part-"]').first();
+    await partRow.click();
+    await partRow.click({ button: 'right' });
+    await list.getByTestId('objectlist-rename').click();
+    await expect(partRow).toHaveAttribute('draggable', 'false');
+    await expect(rows.nth(1)).toHaveAttribute('draggable', 'false');
+    await page.keyboard.press('Enter');
+    await expect(partRow).toHaveAttribute('draggable', 'true');
+    await expect(rows.nth(1)).toHaveAttribute('draggable', 'true');
+    // Collapse again so the drop target below is the bare object row.
+    await rows.nth(1).locator('[data-testid^="object-expand-"]').click();
+
+    const firstBefore = (await rows.nth(0).innerText());
+    await rows.nth(1).dragTo(rows.nth(0));
+    await expect.poll(() => rows.nth(0).innerText()).not.toBe(firstBefore);
+  } finally {
+    await app.close();
+  }
+});
+
+// Add instance via the object-row context menu (Step: add/remove instance).
+test('object list: add instance via the context menu (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    const objectRow = list.locator('div[data-testid^="object-"]').first();
+    // Expand to reveal the Instances group (the mock object starts with 2 instances).
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    await expect(list.locator('[data-testid^="instances-toggle-"]')).toHaveCount(1);
+    await expect.poll(() => list.locator('[data-testid^="instance-"]').count()).toBe(2);
+
+    // Add an instance via the object-row context menu (top-left of the row).
+    await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
+    await list.getByTestId('objectlist-add-instance').click();
+
+    // The instance count grows from 2 to 3.
+    await expect.poll(() => list.locator('[data-testid^="instance-"]').count()).toBe(3);
+    await expect(list.locator('[data-testid^="instances-toggle-"]')).toHaveCount(1);
+  } finally {
+    await app.close();
+  }
+});
+
+// Object list multi-select: Ctrl toggles a row; Shift selects a contiguous range.
+test('object list: ctrl and shift multi-select (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    const instanceRows = list.locator('[data-testid^="instance-"]');
+    await expect(instanceRows).toHaveCount(2);
+    const instanceCount = () => page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { selectionInstanceCount?: () => number };
+      }).__orcaE2e?.selectionInstanceCount?.() ?? 0,
+    );
+
+    // Ctrl+click both instances -> both selected (additive toggle).
+    await instanceRows.nth(0).click();
+    await instanceRows.nth(1).click({ modifiers: ['Control'] });
+    await expect.poll(instanceCount).toBe(2);
+    // Ctrl+click the first again -> toggled off.
+    await instanceRows.nth(0).click({ modifiers: ['Control'] });
+    await expect.poll(instanceCount).toBe(1);
+
+    // Shift-range between the two instance rows selects both.
+    await instanceRows.nth(0).click();
+    await instanceRows.nth(1).click({ modifiers: ['Shift'] });
+    await expect.poll(instanceCount).toBe(2);
+
+    // Right-click on an already-selected row keeps the whole selection
+    // (scene-matching guard: never collapse a multi-selection).
+    await instanceRows.nth(1).click({ button: 'right' });
+    await expect.poll(instanceCount).toBe(2);
+    await page.keyboard.press('Escape');
+  } finally {
+    await app.close();
+  }
+});
+
+// Object list structural actions: clone, assemble, delete. Mock-only.
+test('object list: clone, assemble, delete (structural, mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    const objectCount = () => list.locator('[data-testid^="object-expand-"]').count();
+    const objectRow = () => list.locator('div[data-testid^="object-"]').first();
+
+    // Clone via the row context menu.
+    await objectRow().click({ button: 'right' });
+    await list.getByTestId('objectlist-clone').click();
+    await expect.poll(objectCount).toBeGreaterThan(1);
+
+    // Right-click selection mirrors the scene: a right-click on an unselected
+    // row selects it exactly like a left-click would, so the row highlights.
+    const rows = list.locator('div[data-testid^="object-"]');
+    await page.keyboard.press('Escape');
+    await rows.nth(0).click({ button: 'right', position: { x: 40, y: 4 } });
+    await expect(rows.nth(0).locator('> button[data-state="selected"]')).toBeVisible();
+    await expect(rows.nth(1).locator('> button[data-state="selected"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await rows.nth(1).click({ button: 'right', position: { x: 40, y: 4 } });
+    await expect(rows.nth(1).locator('> button[data-state="selected"]')).toBeVisible();
+    await expect(rows.nth(0).locator('> button[data-state="selected"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // Assemble is selection-driven: with no multi-selection the menu carries
+    // no assemble item — the old "Assemble all" is gone.
+    await objectRow().click({ button: 'right' });
+    await expect(list.getByTestId('objectlist-assemble')).toBeHidden();
+
+    // Select both objects, then Assemble via the row context menu — only the
+    // selected objects are merged, not the whole list.
+    const objectRows = list.locator('div[data-testid^="object-"]');
+    await objectRows.nth(0).click();
+    await objectRows.nth(1).click({ modifiers: ['Control'] });
+    await objectRows.nth(1).click({ button: 'right' });
+    // Rename is hidden while multiple objects are selected (the single-object
+    // rename flow is covered by the rename test).
+    await expect(list.getByTestId('objectlist-rename')).toBeHidden();
+    // Printable applies to the whole selection when the clicked row is part of
+    // it: one toggle flips both objects, and each row's menu then reads
+    // "Mark printable". (Escape also clears the selection, so re-select
+    // before Assemble below.)
+    await list.getByTestId('objectlist-printable').click();
+    await objectRows.nth(0).click({ button: 'right' });
+    await expect(list.getByTestId('objectlist-printable')).toHaveText('Mark printable');
+    await page.keyboard.press('Escape');
+    await objectRows.nth(1).click({ button: 'right' });
+    await expect(list.getByTestId('objectlist-printable')).toHaveText('Mark printable');
+    await page.keyboard.press('Escape');
+    await objectRows.nth(0).click();
+    await objectRows.nth(1).click({ modifiers: ['Control'] });
+    await objectRows.nth(1).click({ button: 'right' });
+    await list.getByTestId('objectlist-assemble').click();
+    await expect(list).toContainText('Assembly');
+    await expect.poll(objectCount).toBe(1);
+
+    // Delete the single object via the row context menu.
+    await objectRow().click({ button: 'right' });
+    await list.getByTestId('objectlist-delete').click();
+    await expect(list).toContainText('No objects');
+  } finally {
+    await app.close();
+  }
+});
+
+// The list context menu follows the selection, not the clicked line: with the
+// whole object selected, right-clicking a part/instance row or the Instances
+// group opens the object menu (matching the scene), not the part/instance
+// menu; a part-level selection opens the part menu again.
+test('object list: context menu follows the selection (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    const objectRows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    const menu = page.getByTestId('objectlist-ctx-menu');
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+
+    // Select the whole object, then right-click one of its instance rows: the
+    // menu is the object's menu, not the clicked line's instance menu.
+    await objectRows.first().click({ position: { x: 40, y: 4 } });
+    await list.locator('[data-testid^="instance-"]').first().click({ button: 'right' });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId('objectlist-clone')).toBeVisible();
+    await expect(menu.getByTestId('objectlist-separate')).toHaveCount(0);
+    await expect(menu.getByTestId('objectlist-assemble')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // Same from a part row of the fully-selected object: the object menu
+    // (split-parts is part-menu-only and must not appear). Escape clears the
+    // selection, so re-select the object first.
+    await objectRows.first().click({ position: { x: 40, y: 4 } });
+    await list.locator('[data-testid^="part-"]').first().click({ button: 'right' });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId('objectlist-clone')).toBeVisible();
+    await expect(menu.getByTestId('objectlist-split-parts')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // And from the Instances group line (right-click selects all instances,
+    // then shows the selection's object menu).
+    await list.locator('[data-testid^="instances-select-"]').first().click({ button: 'right' });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId('objectlist-clone')).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // A part-level selection restores the part menu.
+    await list.locator('[data-testid^="part-"]').first().click();
+    await list.locator('[data-testid^="part-"]').first().click({ button: 'right' });
+    await expect(menu.getByTestId('objectlist-split-parts')).toBeVisible();
+    await expect(menu.getByTestId('objectlist-clone')).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
+// Object list metadata actions: rename, part-type control, printable
+// toggle, then a successful slice — all through the row context menu.
+test('object list: rename, printable, and slice (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    const objectRow = list.locator('div[data-testid^="object-"]').first();
+
+    // Rename via the row context menu (the menu closes and an inline input appears).
+    await objectRow.click({ button: 'right' });
+    await list.getByTestId('objectlist-rename').click();
+    const nameInput = list.locator('[data-testid^="object-name-input-"]').first();
+    await nameInput.fill('My Cube');
+    await nameInput.press('Enter');
+    await expect(list).toContainText('My Cube');
+
+    // Expand to reveal part rows.
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+
+    // The object rename must not leak into its parts: the e2e mock fixture is
+    // a two-volume cube, and Orca syncs the part name only for single-volume
+    // objects (covered by the actions unit tests).
+    await expect(list.locator('[data-testid^="part-"]').first()).toContainText('Part 1');
+
+    // The part row's context menu carries the type-change control (a successful
+    // multi-part change is covered by the unit tests + live harness). The menu
+    // follows the selection: left-click the part first, or the still-fully-
+    // selected object promotes the menu to the object menu.
+    const partRow = list.locator('[data-testid^="part-"]').first();
+    await partRow.click();
+    await partRow.click({ button: 'right' });
+    await expect(list.getByTestId('objectlist-split-parts')).toBeVisible();
+    await expect(list.locator('[data-testid^="objectlist-type-"]').first()).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // Toggle the object printable off, then back on, via the context menu.
+    // Click near the row's top-left (the object name button) — once expanded,
+    // the row box spans the part rows, so its center would right-click a part.
+    await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
+    await list.getByTestId('objectlist-printable').click();
+    await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
+    await expect(list.getByTestId('objectlist-printable')).toHaveText('Mark printable');
+    await list.getByTestId('objectlist-printable').click();
+    await expect(list.getByTestId('objectlist-ctx-menu')).toBeHidden();
+
+    // The metadata edits invalidate any prior slice; a fresh slice succeeds.
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await expect(page.getByTestId('btn-export')).toBeEnabled();
+  } finally {
+    await app.close();
+  }
+});
+
 // The scene right-click menu's Add Cube appends OrcaSlicer's 20 mm cube
 // primitive through the regular model pipeline: Slice unlocks immediately
 // and (mock mode) the added instance is a selectable 20 mm box.
@@ -370,6 +744,99 @@ test('scene context menu: Add Model imports through the host picker', async () =
     await app.close();
   }
 });
+
+// Right-clicking a model body opens the object context menu (the same menu as
+// the object list's object rows) — never the empty-scene menu. The empty menu
+// staying closed guards against the scenario where an always-on-top overlay
+// (e.g. toolpath) or a back-facing part makes the topmost body hit get
+// misclassified as empty space. The right-click also selects the clicked
+// instance (the same granularity as a plain left-click), but leaves the
+// selection untouched when the clicked volume is already selected.
+test('scene context menu: right-click on a model body opens the object menu', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('viewport canvas has no bounding box');
+    const pt = await page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { projectWorldToScreen?: (p: [number, number, number]) => { x: number; y: number } | null };
+      }).__orcaE2e?.projectWorldToScreen?.([10, 10, 10]) ?? null,
+    );
+    if (!pt) throw new Error('world→screen projection unavailable');
+    const list = page.getByTestId('object-list');
+    // The list container's own testid ("object-list") also matches the `object-`
+    // prefix, so exclude it — row locators must target the actual rows.
+    const objectRows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    // Expand the object row to reveal the Instances group (the mock object
+    // starts with 2 instances; instance rows render only while expanded).
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+    await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
+    // The empty-scene menu must not appear over a model body; the object menu
+    // (same testid as the list's) carries the object-row actions instead.
+    await expect(page.getByTestId('ctx-menu')).toHaveCount(0);
+    const objectMenu = page.getByTestId('objectlist-ctx-menu');
+    await expect(objectMenu).toBeVisible();
+    // Rename is not offered in the scene menu (the viewport has no inline
+    // editor; the object list still has it).
+    await expect(objectMenu.getByTestId('objectlist-rename')).toHaveCount(0);
+    await expect(objectMenu.getByTestId('objectlist-printable')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-clone')).toBeVisible();
+    // The e2e mock fixture is a two-volume, two-instance object — splittable.
+    await expect(objectMenu.getByTestId('objectlist-split-objects')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-add-instance')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-remove-instance')).toBeEnabled();
+    // The right-click selected only the clicked instance (instance-level, the
+    // same granularity as a plain left-click): exactly one instance row in the
+    // Instances group shows selected, and the object row itself does not.
+    // (`> button` because the expanded parts/instances rows live inside the
+    // object row div; only the row's own direct-child button is its state.)
+    await expect(list.locator('[data-testid^="instance-"] button[data-state="selected"]')).toHaveCount(1);
+    await expect(objectRows.first().locator('> button[data-state="selected"]')).toHaveCount(0);
+    // With a single object selected the selection-driven Assemble item is
+    // absent (needs ≥ 2 full objects).
+    await expect(objectMenu.getByTestId('objectlist-assemble')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(objectMenu).toBeHidden();
+
+    // List rows right-click-select with the same granularity as the scene:
+    // right-clicking an instance row selects only that instance (exactly one
+    // instance row highlights, the object row stays unselected).
+    await list.locator('[data-testid^="instance-"]').first().click({ button: 'right' });
+    await expect(list.locator('[data-testid^="instance-"] button[data-state="selected"]')).toHaveCount(1);
+    await expect(objectRows.first().locator('> button[data-state="selected"]')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(objectMenu).toBeHidden();
+
+    // Right-clicking a body that is already selected must not change the
+    // selection: with two objects fully selected, a right-click on a body
+    // keeps both rows selected and Assemble is offered.
+    // (All row clicks are positioned on the row's own line — the row div's
+    // center lands on the expanded parts/instances rows, and the left ~12px
+    // are the expand-toggle span.)
+    await objectRows.nth(0).click({ button: 'right', position: { x: 40, y: 4 } });
+    await list.getByTestId('objectlist-clone').click();
+    await expect.poll(() => objectRows.count()).toBeGreaterThan(1);
+    await objectRows.nth(0).click({ position: { x: 40, y: 4 } });
+    await objectRows.nth(1).click({ modifiers: ['Control'], position: { x: 40, y: 4 } });
+    await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
+    await expect(objectMenu).toBeVisible();
+    await expect(objectRows.nth(0).locator('> button[data-state="selected"]')).toBeVisible();
+    await expect(objectRows.nth(1).locator('> button[data-state="selected"]')).toBeVisible();
+    await expect(objectMenu.getByTestId('objectlist-assemble')).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
 
 // Scene-owned selection: a TransformControls handle wins over an overlapping
 // DragControls body, and the move panel edits the aggregate pivot for every
@@ -840,11 +1307,7 @@ test('scene transforms: rotated world-scale and drop-to-bed', async () => {
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
       if (REAL) return;
 
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(0, false),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 0, false);
       const bounds = () => page.evaluate(() =>
         (window as unknown as {
           __orcaE2e?: { selectionBoundsWorld?: () => {
@@ -908,11 +1371,7 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
       if (REAL) return;
 
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(0, false),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 0, false);
 
       // R arms the rotate gizmo.
       await page.keyboard.press('r');
@@ -927,11 +1386,7 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
       await expect.poll(() => selectionBoxWorldSegments(page)).toBeNull();
 
       // Re-select, then S arms scale, M switches to move, Esc deselects.
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(0, false),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 0, false);
       await page.keyboard.press('s');
       await expect(page.getByTestId('scale-panel')).toBeVisible();
       await page.keyboard.press('m');
@@ -943,11 +1398,7 @@ test('scene transforms: gizmo keyboard shortcuts', async () => {
 
       // Del deletes the complete object behind the selection. The mock fixture
       // holds a single object, so the plate empties and slice/clear disable.
-      await expect(page.evaluate(() =>
-        (window as unknown as {
-          __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean };
-        }).__orcaE2e?.selectMockInstance?.(0, false),
-      )).resolves.toBe(true);
+      await selectMockInstance(page, 0, false);
       await page.keyboard.press('Delete');
       // Clear Scene moved into the scene right-click menu; after the plate
       // empties the item is present but disabled.

@@ -291,6 +291,28 @@ cross-origin isolation is available, and serial WASM otherwise.
       context-menu Add Model entry unlock Slice and (mock mode) report a
       20 mm selectable box
 
+## Milestone 13: Object List and Object Parts
+
+> [!info] Status: **delivered**
+>
+> Design: [`ObjectList-and-Parts.md`](ObjectList-and-Parts.md)
+> Behaviour notes: `doc/2026-08-23-orca-selection-mode.md`,
+> `doc/2026-08-23-object-list-highlight-orca.md`,
+> `doc/2026-08-23-object-reorder-selection-sync.md`
+
+Add the shared Object List and object-part management to both Electron and Web.
+The C++/WASM bridge owns all model-structure semantics; React renders the tree
+and drives structural operations through the typed client.
+
+- [x] `orc_get_model_structure()` plus object/part/instance mutation bridge
+      operations
+- [x] Stable `ObjectID` identity and post-mutation structure/mesh refresh
+- [x] Object/part/instance tree with rename, delete, clone, split, assemble,
+      change type, reorder, add/remove instance, and printable state
+- [x] Viewport `object` / `volume` / `instance` selection modes and two-way
+      ObjectList selection sync
+- [x] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage
+
 ## Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)

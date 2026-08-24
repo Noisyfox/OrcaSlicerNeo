@@ -7,6 +7,8 @@
 // Also usable in the app's dev fallback worker (VITE_USE_MOCK=1).
 // ----------------------------------------------------------------
 
+import type { VolumeType } from '../types';
+
 export interface MockFeature {
   id: number;
   name: string;
@@ -43,10 +45,12 @@ export interface MockModuleOptions {
   sliceFixture?: MockSliceFixture;
   metadataKeys?: Record<string, { type: string; enum_values?: string[] }>;
   printErr?: (msg: string) => void;
-  /** Number of separately transformable instances exposed by getModelMesh. */
+  /** Number of instances initially exposed by getModelMesh. */
   instanceCount?: number;
-  /** Number of composite render volumes in each mock instance. */
+  /** Number of composite render volumes initially present in each object. */
   volumeCount?: number;
+  /** Number of parts a splittable volume yields on orc_split_volume_to_parts. */
+  splitParts?: number;
   /** Simulate the shared-memory mailbox transport used by the pthread build. */
   threaded?: boolean;
 }
@@ -138,18 +142,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   });
   const instanceCount = Math.max(1, Math.floor(opts.instanceCount ?? 1));
   const volumeCount = Math.max(1, Math.floor(opts.volumeCount ?? 1));
+  const splitParts = Math.max(1, Math.floor(opts.splitParts ?? 2));
   const createObjectTransforms = () => Array.from({ length: instanceCount }, (_, index) => ({
     ...identityTransform(),
     // Keep mock instances visibly separate so selection tests can hit each
     // one without a model fixture that depends on the native build.
     offset: [index * 50, 0, 0],
   }));
+  // A ModelVolume belongs to the object, not to an instance.  Its transform
+  // is therefore shared by every instance of that object, just as in the
+  // native model.  Instance placement remains per-instance in
+  // objectTransforms above.
   const createObjectVolumeTransforms = () => Array.from(
-    { length: instanceCount },
-    () => Array.from({ length: volumeCount }, () => identityTransform()),
+    { length: volumeCount },
+    () => identityTransform(),
   );
   let objectTransforms: Array<ReturnType<typeof createObjectTransforms>> = [];
   let objectVolumeTransforms: Array<ReturnType<typeof createObjectVolumeTransforms>> = [];
+  // --- stable model structure metadata (mirrors bridge.cpp) ---
+  // The mock tracks stable ObjectIDs per object/volume/instance so
+  // getModelStructure / selection-restoration tests behave like the real
+  // bridge. IDs are minted once at add/delete and do not shift across
+  // structural mutations.
+  let nextObjectId = 1000;
+  let nextVolumeId = 2000;
+  let nextInstanceId = 3000;
+  let objectMeta: Array<{ id: number; name: string; printable: boolean }> = [];
+  let volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }>> = [];
+  let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
   let sliced = false;
   let progressCallback = 0;
@@ -167,6 +187,35 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     Atomics.store(mailboxWords, 1, percent);
     Atomics.store(mailboxWords, 2, bytes.length);
     Atomics.add(mailboxWords, 0, 1);
+  }
+
+  // Serialize the current structure in the bridge's object/part/instance shape.
+  // Shared by the structure read and the reorder returns (spec §9.1/§9.2).
+  function buildStructure() {
+    return objectTransforms.map((_instances, oi) => ({
+      id: objectMeta[oi].id,
+      index: oi,
+      name: objectMeta[oi].name,
+      printable: objectMeta[oi].printable,
+      instanceCount: instanceMeta[oi].length,
+      volumes: volumeMeta[oi].map((v, vi) => ({
+        id: v.id, index: vi, name: v.name, type: v.type, isSplittable: v.isSplittable,
+      })),
+      instances: instanceMeta[oi].map((i, ii) => ({
+        id: i.id, index: ii, printable: i.printable,
+      })),
+    }));
+  }
+
+  // Move element `from` so it ends up at final index `toIndex` (0-based);
+  // `toIndex == arr.length` (or beyond) appends it to the end. Matches the
+  // bridge's destination-index reorder semantics.
+  function moveToIndex<T>(arr: T[], from: number, toIndex: number) {
+    if (arr.length <= 1) return;
+    const target = Math.min(Math.max(toIndex, 0), arr.length - 1);
+    if (from === target) return;
+    const [el] = arr.splice(from, 1);
+    arr.splice(target, 0, el);
   }
 
   // ---- the bridge functions ----
@@ -206,43 +255,261 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       modelLoaded = true;
       objectTransforms.push(createObjectTransforms());
       objectVolumeTransforms.push(createObjectVolumeTransforms());
+      objectMeta.push({ id: nextObjectId++, name: `Object ${objectTransforms.length}`, printable: true });
+      volumeMeta.push(Array.from({ length: volumeCount }, (_, vi) => ({
+        id: nextVolumeId++,
+        name: `Part ${vi + 1}`,
+        type: 'model_part' as VolumeType,
+        isSplittable: vi === 0,
+      })));
+      instanceMeta.push(Array.from({ length: instanceCount }, (_, ii) => ({
+        id: nextInstanceId++,
+        printable: true,
+      })));
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.length * instanceCount };
+      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
     },
     orc_clear_model() {
       objectTransforms = [];
       objectVolumeTransforms = [];
+      objectMeta = [];
+      volumeMeta = [];
+      instanceMeta = [];
       modelLoaded = false;
       sliced = false;
       return { ok: true };
     },
-    orc_delete_objects(indicesJson: string) {
-      const indices = JSON.parse(indicesJson ?? '[]') as unknown;
-      if (!Array.isArray(indices) || indices.length === 0) return { error: 'no object indices' };
+    orc_delete_objects(objectIdsJson: string) {
+      const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
+      if (!Array.isArray(ids) || ids.length === 0) return { error: 'no object ids' };
       const toDelete: number[] = [];
-      for (const item of indices) {
-        if (!Number.isInteger(item)) return { error: 'object index must be an integer' };
-        if (item < 0 || item >= objectTransforms.length) return { error: 'object index out of range' };
-        if (!toDelete.includes(item)) toDelete.push(item);
+      for (const item of ids) {
+        if (!Number.isInteger(item) || item < 1) return { error: 'object id must be a positive integer' };
+        const oi = objectMeta.findIndex((o) => o.id === item);
+        if (oi < 0) return { error: 'object not found' };
+        if (!toDelete.includes(oi)) toDelete.push(oi);
       }
       // Descending order keeps earlier indices valid while the arrays shrink.
       toDelete.sort((a, b) => b - a);
-      for (const idx of toDelete) {
-        objectTransforms.splice(idx, 1);
-        objectVolumeTransforms.splice(idx, 1);
+      for (const oi of toDelete) {
+        objectTransforms.splice(oi, 1);
+        objectVolumeTransforms.splice(oi, 1);
+        objectMeta.splice(oi, 1);
+        volumeMeta.splice(oi, 1);
+        instanceMeta.splice(oi, 1);
       }
       sliced = false;
       return { ok: true, objects: objectTransforms.length, deleted: toDelete.length };
     },
+    orc_delete_volumes(volumeIdsJson: string) {
+      const ids = JSON.parse(volumeIdsJson ?? '[]') as unknown;
+      if (!Array.isArray(ids) || ids.length === 0) return { error: 'no volume ids' };
+      const toDelete: Array<{ oi: number; vi: number }> = [];
+      for (const item of ids) {
+        if (!Number.isInteger(item) || item < 1) return { error: 'volume id must be a positive integer' };
+        let found = false;
+        for (let oi = 0; oi < volumeMeta.length; oi++) {
+          const vi = volumeMeta[oi].findIndex((v) => v.id === item);
+          if (vi >= 0) {
+            const vol = volumeMeta[oi][vi];
+            if (vol.type === 'model_part') {
+              const modelPartCount = volumeMeta[oi].filter((v) => v.type === 'model_part').length;
+              if (modelPartCount === 1) return { error: 'deleting the last solid part is not allowed' };
+            }
+            if (!toDelete.some((d) => d.oi === oi && d.vi === vi)) toDelete.push({ oi, vi });
+            found = true;
+            break;
+          }
+        }
+        if (!found) return { error: 'volume not found' };
+      }
+      // Group by object ascending, volume index descending within each object.
+      toDelete.sort((a, b) => (a.oi !== b.oi ? a.oi - b.oi : b.vi - a.vi));
+      for (const { oi, vi } of toDelete) {
+        volumeMeta[oi].splice(vi, 1);
+        objectVolumeTransforms[oi].splice(vi, 1);
+      }
+      sliced = false;
+      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length };
+    },
+    orc_clone_objects(objectIdsJson: string) {
+      const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
+      if (!Array.isArray(ids) || ids.length === 0) return { error: 'no object ids' };
+      const newObjectIds: number[] = [];
+      for (const item of ids) {
+        if (!Number.isInteger(item) || item < 1) return { error: 'object id must be a positive integer' };
+        const oi = objectMeta.findIndex((o) => o.id === item);
+        if (oi < 0) return { error: 'object not found' };
+        objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
+        objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
+        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable });
+        volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
+        instanceMeta.push(instanceMeta[oi].map((i) => ({ ...i, id: nextInstanceId++ })));
+        newObjectIds.push(objectMeta[objectMeta.length - 1].id);
+      }
+      sliced = false;
+      return { ok: true, newObjectIds, objects: objectTransforms.length };
+    },
+    orc_reorder_objects(fromObjectId: number, toIndex: number) {
+      const fromIdx = objectMeta.findIndex((o) => o.id === fromObjectId);
+      if (fromIdx < 0) return { error: 'object not found' };
+      moveToIndex(objectTransforms, fromIdx, toIndex);
+      moveToIndex(objectVolumeTransforms, fromIdx, toIndex);
+      moveToIndex(objectMeta, fromIdx, toIndex);
+      moveToIndex(volumeMeta, fromIdx, toIndex);
+      moveToIndex(instanceMeta, fromIdx, toIndex);
+      sliced = false;
+      return { ok: true, objects: buildStructure() };
+    },
+    orc_reorder_volumes(objectId: number, fromVolumeId: number, toIndex: number) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      const fromIdx = volumeMeta[oi].findIndex((v) => v.id === fromVolumeId);
+      if (fromIdx < 0) return { error: 'volume not found' };
+      moveToIndex(volumeMeta[oi], fromIdx, toIndex);
+      moveToIndex(objectVolumeTransforms[oi], fromIdx, toIndex);
+      sliced = false;
+      return { ok: true, objects: buildStructure() };
+    },
+    orc_split_volume_to_parts(volumeId: number, _maxExtruders: number, _remapPaint: number) {
+      for (let oi = 0; oi < volumeMeta.length; oi++) {
+        const vi = volumeMeta[oi].findIndex((v) => v.id === volumeId);
+        if (vi >= 0) {
+          const source = volumeMeta[oi][vi];
+          if (!source.isSplittable) return { error: 'volume is not splittable' };
+          const parts: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
+          for (let p = 0; p < splitParts; p++) {
+            parts.push({ id: nextVolumeId++, name: `${source.name}_${p + 1}`, type: source.type, isSplittable: false });
+          }
+          volumeMeta[oi].splice(vi, 1, ...parts);
+          const transform = objectVolumeTransforms[oi][vi];
+          objectVolumeTransforms[oi].splice(vi, 1,
+            ...Array.from({ length: splitParts }, () => JSON.parse(JSON.stringify(transform))));
+          sliced = false;
+          return { ok: true, parts: splitParts, newVolumeIds: parts.map((p) => p.id), objects: buildStructure() };
+        }
+      }
+      return { error: 'volume not found' };
+    },
+    orc_split_object_to_objects(objectId: number, _autoDrop: number) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      if (volumeMeta[oi].length === 1 && !volumeMeta[oi][0].isSplittable) return { error: 'object is not splittable' };
+      const newIds: number[] = [];
+      const srcVolume = volumeMeta[oi][0];
+      const srcInstance = instanceMeta[oi][0];
+      for (let p = 0; p < splitParts; p++) {
+        objectTransforms.push(JSON.parse(JSON.stringify(objectTransforms[oi])));
+        objectVolumeTransforms.push([JSON.parse(JSON.stringify(objectVolumeTransforms[oi][0]))]);
+        objectMeta.push({ id: nextObjectId++, name: `${objectMeta[oi].name}_${p + 1}`, printable: objectMeta[oi].printable });
+        volumeMeta.push([{ id: nextVolumeId++, name: srcVolume.name, type: srcVolume.type, isSplittable: false }]);
+        instanceMeta.push([{ id: nextInstanceId++, printable: srcInstance.printable }]);
+        newIds.push(objectMeta[objectMeta.length - 1].id);
+      }
+      objectTransforms.splice(oi, 1);
+      objectVolumeTransforms.splice(oi, 1);
+      objectMeta.splice(oi, 1);
+      volumeMeta.splice(oi, 1);
+      instanceMeta.splice(oi, 1);
+      sliced = false;
+      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
+    },
+    orc_merge_objects_to_multipart(objectIdsJson: string, name: string) {
+      const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
+      if (!Array.isArray(ids) || ids.length === 0) return { error: 'no object ids' };
+      const srcIdxs: number[] = [];
+      for (const item of ids) {
+        if (!Number.isInteger(item) || item < 1) return { error: 'object id must be a positive integer' };
+        const oi = objectMeta.findIndex((o) => o.id === item);
+        if (oi < 0) return { error: 'object not found' };
+        if (!srcIdxs.includes(oi)) srcIdxs.push(oi);
+      }
+      const newObjectId = nextObjectId++;
+      const newName = (typeof name === 'string' && name.length > 0) ? name : 'Assembly';
+      const newVolumes: Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }> = [];
+      const newVolTransforms: Array<ReturnType<typeof identityTransform>> = [];
+      for (const oi of srcIdxs) {
+        for (let vi = 0; vi < volumeMeta[oi].length; vi++) {
+          newVolumes.push({ id: nextVolumeId++, name: volumeMeta[oi][vi].name, type: volumeMeta[oi][vi].type, isSplittable: false });
+          newVolTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi][vi])) as ReturnType<typeof identityTransform>);
+        }
+      }
+      objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[srcIdxs[0]][0]))]);
+      objectVolumeTransforms.push(newVolTransforms);
+      objectMeta.push({ id: newObjectId, name: newName, printable: objectMeta[srcIdxs[0]].printable });
+      volumeMeta.push(newVolumes);
+      instanceMeta.push([{ id: nextInstanceId++, printable: instanceMeta[srcIdxs[0]][0].printable }]);
+      srcIdxs.sort((a, b) => b - a);
+      for (const oi of srcIdxs) {
+        objectTransforms.splice(oi, 1);
+        objectVolumeTransforms.splice(oi, 1);
+        objectMeta.splice(oi, 1);
+        volumeMeta.splice(oi, 1);
+        instanceMeta.splice(oi, 1);
+      }
+      sliced = false;
+      return { ok: true, objectId: newObjectId, objects: objectTransforms.length };
+    },
+    orc_instances_to_separate_objects(objectId: number, instanceIdsJson: string) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      const ids = JSON.parse(instanceIdsJson ?? '[]') as unknown;
+      if (!Array.isArray(ids) || ids.length === 0) return { error: 'no instance ids' };
+      const newIds: number[] = [];
+      const toRemove: number[] = [];
+      for (const item of ids) {
+        if (!Number.isInteger(item) || item < 1) return { error: 'instance id must be a positive integer' };
+        const ii = instanceMeta[oi].findIndex((inst) => inst.id === item);
+        if (ii < 0) return { error: 'instance not found' };
+        if (!toRemove.includes(ii)) toRemove.push(ii);
+        const srcInst = instanceMeta[oi][ii];
+        objectTransforms.push([JSON.parse(JSON.stringify(objectTransforms[oi][ii]))]);
+        objectVolumeTransforms.push(JSON.parse(JSON.stringify(objectVolumeTransforms[oi])));
+        objectMeta.push({ id: nextObjectId++, name: objectMeta[oi].name, printable: objectMeta[oi].printable });
+        volumeMeta.push(volumeMeta[oi].map((v) => ({ ...v, id: nextVolumeId++ })));
+        instanceMeta.push([{ id: nextInstanceId++, printable: srcInst.printable }]);
+        newIds.push(objectMeta[objectMeta.length - 1].id);
+      }
+      toRemove.sort((a, b) => b - a);
+      for (const ii of toRemove) {
+        instanceMeta[oi].splice(ii, 1);
+        objectTransforms[oi].splice(ii, 1);
+      }
+      sliced = false;
+      return { ok: true, newObjectIds: newIds, objects: objectTransforms.length };
+    },
+    orc_add_instance(objectId: number) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      const instance = { id: nextInstanceId++, printable: true };
+      instanceMeta[oi].push(instance);
+      const lastTransform = objectTransforms[oi][objectTransforms[oi].length - 1];
+      const newTransform = JSON.parse(JSON.stringify(lastTransform));
+      newTransform.offset[0] += 50;
+      objectTransforms[oi].push(newTransform);
+      sliced = false;
+      return { ok: true, objectId, instanceId: instance.id };
+    },
+    orc_remove_instance(objectId: number, instanceId: number) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      if (instanceMeta[oi].length <= 1) return { error: 'cannot remove the last instance' };
+      const ii = instanceMeta[oi].findIndex((inst) => inst.id === instanceId);
+      if (ii < 0) return { error: 'instance not found' };
+      instanceMeta[oi].splice(ii, 1);
+      objectTransforms[oi].splice(ii, 1);
+      sliced = false;
+      return { ok: true };
+    },
     orc_set_instance_offset(obj: number, inst: number, x: number, y: number, z: number) {
-      if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= instanceCount) return { error: 'no such instance' };
+      if (obj < 0 || obj >= objectTransforms.length || inst < 0 || inst >= objectTransforms[obj].length) return { error: 'no such instance' };
       objectTransforms[obj][inst].offset = [x, y, z];
       return { ok: true };
     },
     orc_set_model_transform(obj: number, volume: number, inst: number, instanceJson: string, volumeJson: string) {
-      if (obj < 0 || obj >= objectTransforms.length || volume < 0 || volume >= volumeCount || inst < 0 || inst >= instanceCount) return { error: 'no such composite id' };
+      if (obj < 0 || obj >= objectTransforms.length || volume < 0 || volume >= objectVolumeTransforms[obj].length || inst < 0 || inst >= objectTransforms[obj].length) return { error: 'no such composite id' };
       objectTransforms[obj][inst] = JSON.parse(instanceJson);
-      objectVolumeTransforms[obj][inst][volume] = JSON.parse(volumeJson);
+      objectVolumeTransforms[obj][volume] = JSON.parse(volumeJson);
       return { ok: true };
     },
     orc_get_model_mesh() {
@@ -267,7 +534,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         // composite must own distinct allocations even though the geometry
         // itself is identical.
         objects: objectTransforms.flatMap((instances, object_idx) => instances.flatMap((instanceTransform, instance_idx) =>
-          Array.from({ length: volumeCount }, (_, volume_idx) => {
+          objectVolumeTransforms[object_idx].map((_volumeTransform, volume_idx) => {
           const vptr = malloc(verts.length * 3 * 4);
           const iptr = malloc(tris.length * 3 * 4);
           const vo = vptr / 4;
@@ -284,11 +551,78 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
             index_count: tris.length * 3,
             offset: instanceTransform.offset,
             instance_transform: instanceTransform,
-            volume_transform: objectVolumeTransforms[object_idx][instance_idx][volume_idx],
+            volume_transform: objectVolumeTransforms[object_idx][volume_idx],
           };
           })),
         ),
       };
+    },
+    orc_get_model_structure() {
+      return {
+        ok: true,
+        objects: buildStructure(),
+      };
+    },
+    orc_rename_object(objectId: number, name: string) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      if (typeof name !== 'string' || name.length === 0) return { error: 'name is required' };
+      objectMeta[oi].name = name;
+      sliced = false;
+      return { ok: true };
+    },
+    orc_rename_volume(volumeId: number, name: string) {
+      for (let oi = 0; oi < volumeMeta.length; oi++) {
+        const vi = volumeMeta[oi].findIndex((v) => v.id === volumeId);
+        if (vi >= 0) {
+          if (typeof name !== 'string' || name.length === 0) return { error: 'name is required' };
+          volumeMeta[oi][vi].name = name;
+          sliced = false;
+          return { ok: true };
+        }
+      }
+      return { error: 'volume not found' };
+    },
+    orc_set_volume_type(volumeId: number, type: string) {
+      const valid: VolumeType[] = [
+        'model_part', 'negative_volume', 'parameter_modifier',
+        'support_blocker', 'support_enforcer',
+      ];
+      if (!valid.includes(type as VolumeType)) return { error: 'invalid volume type' };
+      for (let oi = 0; oi < volumeMeta.length; oi++) {
+        const vi = volumeMeta[oi].findIndex((v) => v.id === volumeId);
+        if (vi >= 0) {
+          const vol = volumeMeta[oi][vi];
+          if (vol.type === 'model_part' && type !== 'model_part') {
+            const modelPartCount = volumeMeta[oi].filter((v) => v.type === 'model_part').length;
+            if (modelPartCount === 1) return { error: 'changing the last solid part is not allowed' };
+          }
+          vol.type = type as VolumeType;
+          sliced = false;
+          return { ok: true };
+        }
+      }
+      return { error: 'volume not found' };
+    },
+    orc_set_object_printable(objectId: number, printable: number) {
+      const oi = objectMeta.findIndex((o) => o.id === objectId);
+      if (oi < 0) return { error: 'object not found' };
+      const value = printable !== 0;
+      objectMeta[oi].printable = value;
+      for (const inst of instanceMeta[oi]) inst.printable = value;
+      sliced = false;
+      return { ok: true };
+    },
+    orc_set_instance_printable(instanceId: number, printable: number) {
+      for (let oi = 0; oi < instanceMeta.length; oi++) {
+        const ii = instanceMeta[oi].findIndex((inst) => inst.id === instanceId);
+        if (ii >= 0) {
+          instanceMeta[oi][ii].printable = printable !== 0;
+          sliced = false;
+          return { ok: true };
+        }
+      }
+      return { error: 'instance not found' };
     },
     orc_set_progress_callback(ptr: number) {
       progressCallback = ptr;
@@ -370,9 +704,25 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
+    orc_delete_volumes: { ret: 'number', args: ['string'] },
+    orc_clone_objects: { ret: 'number', args: ['string'] },
+    orc_reorder_objects: { ret: 'number', args: ['number', 'number'] },
+    orc_reorder_volumes: { ret: 'number', args: ['number', 'number', 'number'] },
+    orc_split_volume_to_parts: { ret: 'number', args: ['number', 'number', 'number'] },
+    orc_split_object_to_objects: { ret: 'number', args: ['number', 'number'] },
+    orc_merge_objects_to_multipart: { ret: 'number', args: ['string', 'string'] },
+    orc_instances_to_separate_objects: { ret: 'number', args: ['number', 'string'] },
+    orc_add_instance: { ret: 'number', args: ['number'] },
+    orc_remove_instance: { ret: 'number', args: ['number', 'number'] },
+    orc_rename_object: { ret: 'number', args: ['number', 'string'] },
+    orc_rename_volume: { ret: 'number', args: ['number', 'string'] },
+    orc_set_volume_type: { ret: 'number', args: ['number', 'string'] },
+    orc_set_object_printable: { ret: 'number', args: ['number', 'number'] },
+    orc_set_instance_printable: { ret: 'number', args: ['number', 'number'] },
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
+    orc_get_model_structure: { ret: 'number', args: [] },
     orc_set_progress_callback: { ret: 'void', args: ['pointer'] },
     orc_get_threading_info: { ret: 'number', args: [] },
     orc_get_progress_mailbox: { ret: 'number', args: [] },

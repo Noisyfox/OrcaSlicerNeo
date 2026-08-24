@@ -22,7 +22,7 @@ The app toolbar row then carries only Slice and Export.
 | Add Model placement | First button of the gizmo toolbar, icon-only (title/aria-label "Add Model") | User request; matches OrcaSlicer's scene toolbar "Add" action |
 | Add Model gating | Stays gated on presets being loaded, **not** on selection emptiness | The gizmo toggles require a selection; importing a model must work on an empty plate |
 | Clear Scene placement | Right-click context menu on empty scene space | User request |
-| "Empty space" definition | The topmost scene raycast hit under the cursor is **not** a model body | The bed/plate and the background are empty; right-clicking a model keeps doing nothing |
+| "Empty space" definition | The topmost scene raycast hit under the cursor is **not** a model body | The bed/plate and the background are empty; right-clicking a model body opens the object context menu instead (added 2026-08-24, see `doc/2026-08-23-object-list-parts-context-menu.md`) |
 | Menu trigger timing | Open on right-button **release** without meaningful movement (4 px) | Right-drag still pans the camera (`OrbitControls` RIGHT=PAN); a context menu that opens on right-button-down would break panning |
 | Native context menu | Suppressed app-wide outside editors: the 3D canvas (which owns the scene menu) and editable controls (which keep copy/paste) are the only surfaces with a menu | Right-clicking empty space in the toolbar row, settings sidebar, or status bar must never surface the browser/host default menu |
 
@@ -51,6 +51,9 @@ menu's Add Cube item.
    a model body.
 3. On right-button `pointerup`, if the pointer moved less than 4 px and the
    press did not start on a model body, the menu opens at the cursor.
+   A right-click that starts on a model body opens the object context menu
+   instead and selects the clicked instance (added 2026-08-24, see
+   `doc/2026-08-23-object-list-parts-context-menu.md`).
 4. The menu shows **Clear Scene** at the top, a separator, then **Add Cube**
    and **Add Model**; Clear Scene reuses the shared `clearScene` action and
    is disabled while slicing or with no model loaded, while the add items

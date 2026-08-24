@@ -4,7 +4,7 @@ import { Selection, instanceKeyOf, type SelectableVolume } from './Selection';
 function volume(objectIdx: number, volumeIdx: number, instanceIdx: number): SelectableVolume {
   return {
     id: `${objectIdx}:${volumeIdx}:${instanceIdx}`,
-    buffer: { objectIdx, instanceIdx },
+    buffer: { objectIdx, volumeIdx, instanceIdx },
   };
 }
 
@@ -84,6 +84,52 @@ describe('Selection', () => {
     expect([...selection.ids]).toEqual(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
     expect(selection.addIds(['0:0:1'])).toBe(false);
     expect([...selection.ids]).toHaveLength(4);
+  });
+});
+
+describe('Selection expansion modes', () => {
+  it('object mode expands a hit to every volume of the object', () => {
+    const selection = new Selection();
+    expect(selection.replaceFromHit(collection[1], collection, 'object')).toBe(true);
+    expect([...selection.ids]).toEqual(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
+  });
+
+  it('volume mode anchors the part to the clicked instance (Orca)', () => {
+    const selection = new Selection();
+    expect(selection.replaceFromHit(collection[1], collection, 'volume')).toBe(true);
+    expect([...selection.ids]).toEqual(['0:1:0']);
+  });
+
+  it('toggleFromHit respects the expansion mode', () => {
+    const selection = new Selection();
+    selection.replaceFromHit(collection[0], collection);
+    expect(selection.toggleFromHit(collection[4], collection, 'object')).toBe(true);
+    // Object 0 (instance toggle) then object 1 added: ids for both objects
+    const a = [...selection.ids];
+    expect(a).toEqual(['0:0:0', '0:1:0', '1:0:0']);
+  });
+
+  it('replaceComposite selects an object, a volume, or an instance by width', () => {
+    const selection = new Selection();
+    expect(selection.replaceComposite(collection, { objectIdx: 0 })).toBe(true);
+    expect([...selection.ids]).toEqual(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
+
+    expect(selection.replaceComposite(collection, { objectIdx: 0, volumeIdx: 1 })).toBe(true);
+    // A part target is anchored to one instance (default 0 when not given).
+    expect([...selection.ids]).toEqual(['0:1:0']);
+
+    expect(selection.replaceComposite(collection, { objectIdx: 0, instanceIdx: 0 })).toBe(true);
+    expect([...selection.ids]).toEqual(['0:0:0', '0:1:0']);
+  });
+
+  it('toggleComposite toggles a target group', () => {
+    const selection = new Selection();
+    selection.replaceComposite(collection, { objectIdx: 0 });
+    expect(selection.toggleComposite(collection, { objectIdx: 1 })).toBe(true);
+    const all = [...selection.ids];
+    expect(all).toEqual(['0:0:0', '0:1:0', '0:0:1', '0:1:1', '1:0:0']);
+    expect(selection.toggleComposite(collection, { objectIdx: 1 })).toBe(true);
+    expect([...selection.ids]).toEqual(['0:0:0', '0:1:0', '0:0:1', '0:1:1']);
   });
 });
 

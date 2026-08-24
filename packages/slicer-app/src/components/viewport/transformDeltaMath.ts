@@ -199,6 +199,37 @@ export function applyScaleDelta(
   return { ...out, scale: out.scale.map((s) => clampScale(Math.abs(s))) as Vec3 };
 }
 
+// Matrix-level delta helpers. These operate on a world matrix directly so a
+// part-scoped (volume) edit can compose a world-space delta with the volume's
+// world matrix (instance·volume) and then solve the volume back out — the
+// instance transform is left untouched (only the selected parts move).
+
+export function translateMatrix(matrix: THREE.Matrix4, delta: THREE.Vector3): THREE.Matrix4 {
+  const out = matrix.clone();
+  out.elements[12] += delta.x;
+  out.elements[13] += delta.y;
+  out.elements[14] += delta.z;
+  return out;
+}
+
+export function rotateMatrixAroundPivot(matrix: THREE.Matrix4, deltaQuat: THREE.Quaternion, pivot: THREE.Vector3): THREE.Matrix4 {
+  return new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z)
+    .multiply(new THREE.Matrix4().makeRotationFromQuaternion(deltaQuat))
+    .multiply(new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z))
+    .multiply(matrix);
+}
+
+export function scaleMatrixAroundPivot(matrix: THREE.Matrix4, factor: Vec3, pivot: THREE.Vector3, spaceQuat: THREE.Quaternion): THREE.Matrix4 {
+  const safeFactor = factor.map((f) => clampScale(f)) as Vec3;
+  const spaceScale = new THREE.Matrix4()
+    .compose(new THREE.Vector3(), spaceQuat.clone().normalize(), new THREE.Vector3(...safeFactor))
+    .multiply(new THREE.Matrix4().makeRotationFromQuaternion(spaceQuat.clone().invert()));
+  return new THREE.Matrix4().makeTranslation(pivot.x, pivot.y, pivot.z)
+    .multiply(spaceScale)
+    .multiply(new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z))
+    .multiply(matrix);
+}
+
 function cloneTransform(transform: ModelTransform): ModelTransform {
   return {
     offset: [...transform.offset] as Vec3,

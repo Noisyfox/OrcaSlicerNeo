@@ -113,7 +113,9 @@ function SceneContents() {
       // selection for its multi-instance move assertions.
       selectMockInstance(instanceIdx, additive = true) {
         const hit = glVolumes.find((volume) => volume.buffer.instanceIdx === instanceIdx);
-        return hit ? sceneInteraction.selectFromHit(hit, additive) : false;
+        // sceneInteraction is null until the viewport mounts; fail the poll
+        // (false) rather than throwing so the e2e hook is retryable.
+        return hit && sceneInteraction ? sceneInteraction.selectFromHit(hit, additive) : false;
       },
     };
     return () => {
