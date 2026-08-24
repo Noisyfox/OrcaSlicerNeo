@@ -33,3 +33,15 @@ The bridge smoke harness now preserves the result of its checks for process
 automation: if any `check` call fails, it prints an aggregate error and exits
 with status 1. A clean run leaves the exit status at 0, while real smoke
 failures are no longer silently accepted by CI or build scripts.
+
+## Instance rotation and scale synchronization
+
+The renderer now follows OrcaSlicer's `Selection::synchronize_unselected_instances`
+implementation (`packages/slicer-wasm/cpp/src/slic3r/GUI/Selection.cpp`, around
+`Selection::rotate`, `scale_and_translate`, and
+`synchronize_unselected_instances`). When an instance-scoped edit changes the
+linear transform, the selected instance's relative linear change is applied to
+the other instances of the same object. This shares scale and X/Y orientation
+while preserving each instance's independent rotation around world Z. A pure
+Z rotation intentionally does not synchronize other instances. Translation and
+the existing part-scoped volume fan-out retain their previous behavior.

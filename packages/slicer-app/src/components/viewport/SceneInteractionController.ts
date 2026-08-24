@@ -892,13 +892,29 @@ export class SceneInteractionController {
   private applyTargetTransforms(entries: DragTargetEntry[]): void {
     if (entries.length === 0) return;
     if (entries[0].kind === 'instance') {
+      const instanceEntries = entries.filter(
+        (entry): entry is Extract<DragTargetEntry, { kind: 'instance' }> => entry.kind === 'instance',
+      );
+      // Keep the native Orca invariant at the renderer boundary.  An object's
+      // instances share the linear part of their instance transform (scale
+      // and X/Y orientation), while their independent Z rotations remain
+      // intact.  Capture the old transforms before applying the selected
+      // targets: Orca's Selection::synchronize_unselected_instances applies
+      // the relative linear change from the selected instance to every other
+      // instance of the same object.
+      const oldByInstance = new Map<InstanceKey, ModelTransform>();
       for (const volume of this.getVolumes()) {
-        for (const entry of entries) {
-          if (entry.kind === 'instance' && entry.instanceKey === instanceKeyOf(volume)) {
-            volume.instanceTransform = cloneTransform(entry.transform);
-          }
+        const key = instanceKeyOf(volume);
+        if (!oldByInstance.has(key)) oldByInstance.set(key, cloneTransform(volume.instanceTransform));
+      }
+
+      for (const volume of this.getVolumes()) {
+        for (const entry of instanceEntries) {
+          if (entry.instanceKey === instanceKeyOf(volume)) volume.instanceTransform = cloneTransform(entry.transform);
         }
       }
+
+      this.synchronizeInstanceLinearTransforms(instanceEntries, oldByInstance);
     } else {
       // ModelVolume transforms are stored once per object volume in the native
       // model, while the renderer keeps one GLVolume for every instance copy.
@@ -918,6 +934,64 @@ export class SceneInteractionController {
     }
   }
 
+  /**
+   * Port OrcaSlicer's Selection::synchronize_unselected_instances().  The
+   * relative linear change is applied on the right of each other instance's
+   * old linear matrix, which preserves its own Z-axis rotation while sharing
+   * scale and the non-Z orientation.  A world-Z-only rotation intentionally
+   * leaves unselected instances untouched.
+   */
+  private synchronizeInstanceLinearTransforms(
+    entries: Extract<DragTargetEntry, { kind: 'instance' }>[],
+    oldByInstance: ReadonlyMap<InstanceKey, ModelTransform>,
+  ): void {
+    const firstByObject = new Map<number, {
+      key: InstanceKey;
+      oldTransform: ModelTransform;
+      nextTransform: ModelTransform;
+    }>();
+    const selectedKeys = new Set(entries.map((entry) => entry.instanceKey));
+
+    for (const entry of entries) {
+      const oldTransform = oldByInstance.get(entry.instanceKey);
+      if (!oldTransform || firstByObject.has(this.objectIndex(entry.instanceKey))) continue;
+      if (isWorldZOnlyRotation(oldTransform, entry.transform)) continue;
+      firstByObject.set(this.objectIndex(entry.instanceKey), {
+        key: entry.instanceKey,
+        oldTransform,
+        nextTransform: entry.transform,
+      });
+    }
+    if (firstByObject.size === 0) return;
+
+    const synchronized = new Map<InstanceKey, ModelTransform>();
+    for (const volume of this.getVolumes()) {
+      const objectIdx = volume.buffer.objectIdx;
+      const source = firstByObject.get(objectIdx);
+      const key = instanceKeyOf(volume);
+      if (!source || selectedKeys.has(key) || synchronized.has(key)) continue;
+      const oldTarget = oldByInstance.get(key);
+      if (!oldTarget) continue;
+
+      const sourceOldLinear = linearPart(matrixFromTransform(source.oldTransform));
+      const sourceNextLinear = linearPart(matrixFromTransform(source.nextTransform));
+      const relativeLinear = sourceOldLinear.clone().invert().multiply(sourceNextLinear);
+      const targetMatrix = matrixFromTransform(oldTarget);
+      const targetLinear = linearPart(targetMatrix).multiply(relativeLinear);
+      targetLinear.setPosition(targetMatrix.elements[12], targetMatrix.elements[13], targetMatrix.elements[14]);
+      synchronized.set(key, transformFromMatrix(targetLinear, oldTarget));
+    }
+
+    for (const volume of this.getVolumes()) {
+      const transform = synchronized.get(instanceKeyOf(volume));
+      if (transform) volume.instanceTransform = cloneTransform(transform);
+    }
+  }
+
+  private objectIndex(key: InstanceKey): number {
+    return Number(key.split(':', 1)[0]);
+  }
+
   // Gizmos never auto-open on selection; a selection that empties (e.g. a
   // model reload pruning stale IDs) auto-closes the armed gizmo.
   private syncGizmoToSelection(): void {
@@ -935,6 +1009,37 @@ function worldBounds(volume: GLVolume): THREE.Box3 {
 
 function transformMatrix(transform: ModelTransform): THREE.Matrix4 {
   return matrixFromTransform(transform);
+}
+
+function linearPart(matrix: THREE.Matrix4): THREE.Matrix4 {
+  return matrix.clone().setPosition(0, 0, 0);
+}
+
+/** Match Orca's NONE synchronization case: a world-Z rotation only. */
+function isWorldZOnlyRotation(oldTransform: ModelTransform, nextTransform: ModelTransform): boolean {
+  const oldMatrix = matrixFromTransform(oldTransform);
+  const nextMatrix = matrixFromTransform(nextTransform);
+  const oldLinear = linearPart(oldMatrix);
+  const nextLinear = linearPart(nextMatrix);
+  const oldColumns = [0, 4, 8].map((index) =>
+    new THREE.Vector3(oldLinear.elements[index], oldLinear.elements[index + 1], oldLinear.elements[index + 2]),
+  );
+  const nextColumns = [0, 4, 8].map((index) =>
+    new THREE.Vector3(nextLinear.elements[index], nextLinear.elements[index + 1], nextLinear.elements[index + 2]),
+  );
+  const epsilon = 1e-7;
+  // Scaling, mirroring, and any other linear change require synchronization.
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(oldColumns[i].length() - nextColumns[i].length()) > epsilon) return false;
+  }
+  if (Math.sign(oldLinear.determinant()) !== Math.sign(nextLinear.determinant())) return false;
+
+  const oldRotation = new THREE.Matrix4().extractRotation(oldLinear);
+  const nextRotation = new THREE.Matrix4().extractRotation(nextLinear);
+  const delta = nextRotation.multiply(oldRotation.invert());
+  const transformedZ = new THREE.Vector3(0, 0, 1).applyMatrix4(delta);
+  return Math.abs(transformedZ.x) <= epsilon && Math.abs(transformedZ.y) <= epsilon
+    && Math.abs(transformedZ.z - 1) <= epsilon;
 }
 
 function safeRatio(current: number, start: number): number {

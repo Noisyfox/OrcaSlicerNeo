@@ -578,6 +578,40 @@ describe('SceneInteractionController', () => {
     }
   });
 
+  it('shares instance scale and X/Y rotation while preserving each Z rotation', () => {
+    for (const volume of [volumes[0], volumes[1]]) {
+      volume.instanceTransform.rotation = [0, 0, 0.3];
+    }
+    for (const volume of [volumes[2], volumes[3]]) {
+      volume.instanceTransform.rotation = [0, 0, -0.4];
+    }
+
+    // Select only instance 0. Orca synchronizes the other instance's linear
+    // transform, but keeps its independent world-Z rotation.
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.scaleSelectionBy([2, 2, 2])).toBe(true);
+    expect(volumes[0].instanceTransform.scale).toEqual([2, 2, 2]);
+    for (const scale of volumes[2].instanceTransform.scale) expect(scale).toBeCloseTo(2, 8);
+    expect(volumes[0].instanceTransform.rotation[2]).toBeCloseTo(0.3, 8);
+    expect(volumes[2].instanceTransform.rotation[2]).toBeCloseTo(-0.4, 8);
+
+    expect(controller.rotateSelectionBy([0.2, 0, 0])).toBe(true);
+    expect(volumes[0].instanceTransform.rotation[0]).toBeCloseTo(0.2, 8);
+    expect(volumes[2].instanceTransform.rotation[0]).toBeCloseTo(0.2, 8);
+    expect(volumes[0].instanceTransform.rotation[2]).toBeCloseTo(0.3, 8);
+    expect(volumes[2].instanceTransform.rotation[2]).toBeCloseTo(-0.4, 8);
+  });
+
+  it('does not synchronize other instances for a Z-only rotation', () => {
+    for (const volume of [volumes[0], volumes[1]]) volume.instanceTransform.rotation = [0, 0, 0.3];
+    for (const volume of [volumes[2], volumes[3]]) volume.instanceTransform.rotation = [0, 0, -0.4];
+    controller.selectFromHit(volumes[0], false);
+
+    expect(controller.rotateSelectionBy([0, 0, 0.5])).toBe(true);
+    expect(volumes[0].instanceTransform.rotation[2]).toBeCloseTo(0.8, 8);
+    expect(volumes[2].instanceTransform.rotation[2]).toBeCloseTo(-0.4, 8);
+  });
+
   it('applies panel scale factors and size edits rigidly about the pivot', () => {
     controller.selectFromHit(volumes[0], false);
     controller.selectFromHit(volumes[2], true);
