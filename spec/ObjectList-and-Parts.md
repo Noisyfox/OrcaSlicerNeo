@@ -63,6 +63,9 @@ Alternative rejected options:
 ### 3.3 Included instance operations
 
 - Select an instance.
+- Add an instance to an object (`orc_add_instance`).
+- Remove the last instance of an object (`orc_remove_instance`), with a guard
+  keeping at least one instance per object.
 - Separate instances into individual objects (**Set as an individual object** in
   the instance-row context menu).
 - Toggle an instance/object printable state.
@@ -297,6 +300,8 @@ orc_split_volume_to_parts(volumeId, maxExtruders, remapPaint)
 orc_split_object_to_objects(objectId, autoDrop)
 orc_merge_objects_to_multipart(objectIds[], name)
 orc_instances_to_separate_objects(objectId, instanceIds[])
+orc_add_instance(objectId)
+orc_remove_instance(objectId, instanceId)
 orc_set_object_printable(objectId, printable)
 orc_set_instance_printable(instanceId, printable)
 orc_reorder_objects(fromObjectId, toIndex)
@@ -333,5 +338,5 @@ function returns `{ "ok": false, "error": "..." }` on failure.
 - The interactive behaviour and selection model follow OrcaSlicer (see
   `doc/2026-08-23-orca-selection-mode.md`, `doc/2026-08-23-object-list-highlight-orca.md`
   and `doc/2026-08-23-object-reorder-selection-sync.md`).
-- Will be linked from `spec/Grand Plan.md` and
-  `doc/high_level_dev_plan.md` once approved.
+- Linked from `spec/Grand Plan.md` (Milestone 13) and
+  `doc/high_level_dev_plan.md` (Milestone 13).

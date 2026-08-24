@@ -308,7 +308,7 @@ and drives structural operations through the typed client.
       operations
 - [x] Stable `ObjectID` identity and post-mutation structure/mesh refresh
 - [x] Object/part/instance tree with rename, delete, clone, split, assemble,
-      change type, reorder, and printable state
+      change type, reorder, add/remove instance, and printable state
 - [x] Viewport `object` / `volume` / `instance` selection modes and two-way
       ObjectList selection sync
 - [x] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage

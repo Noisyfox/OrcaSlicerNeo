@@ -29,3 +29,12 @@ detected as a body at all.
   "on a body"; the bed plate is "empty space".
 - The model body meshes are rendered/raycast with `side: THREE.DoubleSide`, so a
   part is selectable and detectable regardless of its winding.
+
+## Follow-up (2026-08-24)
+
+Since this fix landed, a right-click on a model body no longer "does nothing":
+it opens the object context menu and selects the clicked instance
+(`doc/2026-08-23-object-list-parts-context-menu.md`). The detection logic
+described above — walking intersections past overlay hits and rendering
+bodies double-sided — is what still routes a body hit away from the
+empty-scene menu.
