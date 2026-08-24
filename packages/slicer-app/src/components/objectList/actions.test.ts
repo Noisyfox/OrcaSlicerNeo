@@ -26,6 +26,7 @@ const structure = {
 function makeRuntime(overrides: Partial<SlicerRuntime> = {}): SlicerRuntime {
   return {
     renameObject: vi.fn(async () => ({ ok: true })),
+    renameVolume: vi.fn(async () => ({ ok: true })),
     setVolumeType: vi.fn(async () => ({ ok: true })),
     setObjectPrintable: vi.fn(async () => ({ ok: true })),
     getModelStructure: vi.fn(async () => structure),
@@ -43,6 +44,7 @@ describe('object list action helpers', () => {
   });
 
   it('renameObjectInList calls the bridge and refreshes structure + invalidates slice', async () => {
+    useObjectListStore.setState({ structure: structure.objects });
     const runtime = makeRuntime();
     const r = await renameObjectInList(runtime, 1, 'Renamed');
     expect(r).toEqual({ ok: true });
@@ -51,6 +53,32 @@ describe('object list action helpers', () => {
     expect(useSlicerStore.getState().status).toBe('idle');
     expect(useSlicerStore.getState().resultExported).toBe(false);
     expect(useSlicerStore.getState().error).toBeNull();
+  });
+
+  it('renameObjectInList syncs the part name of a single-volume object (Orca)', async () => {
+    useObjectListStore.setState({ structure: structure.objects });
+    const runtime = makeRuntime();
+    const r = await renameObjectInList(runtime, 1, 'Renamed');
+    expect(r).toEqual({ ok: true });
+    expect(runtime.renameVolume).toHaveBeenCalledWith(10, 'Renamed');
+    expect(useObjectListStore.getState().structure[0].volumes[0].name).toBe('Part');
+  });
+
+  it('renameObjectInList leaves part names alone for multi-volume objects', async () => {
+    useObjectListStore.setState({
+      structure: [{
+        id: 1, index: 0, name: 'Cube', printable: true, instanceCount: 1,
+        volumes: [
+          { id: 10, index: 0, name: 'A', type: 'model_part' as const, isSplittable: false },
+          { id: 11, index: 1, name: 'B', type: 'model_part' as const, isSplittable: false },
+        ],
+        instances: [{ id: 20, index: 0, printable: true }],
+      }],
+    });
+    const runtime = makeRuntime();
+    const r = await renameObjectInList(runtime, 1, 'Renamed');
+    expect(r).toEqual({ ok: true });
+    expect(runtime.renameVolume).not.toHaveBeenCalled();
   });
 
   it('waits for pending transforms before invoking the metadata bridge', async () => {

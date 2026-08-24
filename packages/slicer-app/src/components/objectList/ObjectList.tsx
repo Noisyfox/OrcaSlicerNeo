@@ -216,11 +216,16 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
         const objectSelected = projection.objectIds.has(obj.id);
         const hasExpandable = obj.volumes.length > 1 || obj.instanceCount > 1;
         const isExpanded = hasExpandable && !!expanded[obj.id];
+        const renamingObject = renaming?.kind === 'object' && renaming.id === obj.id;
+        // A part row's native drag source is its nearest draggable ancestor —
+        // the enclosing object row. Renaming a part must therefore freeze the
+        // object row too, or the part drag silently reorders the object.
+        const renamingPartInObject = renaming?.kind === 'part' && obj.volumes.some((vol) => vol.id === renaming.id);
         return (
           <div
             key={obj.id}
             data-testid={`object-${obj.id}`}
-            draggable
+            draggable={!(renamingObject || renamingPartInObject)}
             onDragStart={(e) => {
               e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'object', id: obj.id }));
               e.dataTransfer.effectAllowed = 'move';
@@ -275,7 +280,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                     key={vol.id}
                     data-testid={`part-${vol.id}`}
                     className="flex items-center gap-0.5"
-                    draggable
+                    draggable={!(renaming?.kind === 'part' && renaming.id === vol.id)}
                     onDragStart={(e) => {
                       e.stopPropagation();
                       e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'part', objectId: obj.id, id: vol.id }));

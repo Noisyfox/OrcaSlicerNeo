@@ -52,20 +52,24 @@ export function ObjectListContextMenu({ target, point, onClose, onRename }: {
 }) {
   const platform = usePlatform();
   const runtime = platform.runtime;
-  const structure = useObjectListStore((s) => s.structure);
+  const projection = useObjectListStore((s) => s.projection);
   const act = (p: Promise<{ ok: boolean; error?: string }>) => { void p; onClose(); };
+
+  // "Assemble" merges the fully-selected objects only (never the whole list).
+  const selectedObjectIds = [...projection.objectIds];
+  const canAssemble = selectedObjectIds.length >= 2;
+  const assembleItem = canAssemble ? (
+    <MenuItem key="assemble" label="Assemble" testid="objectlist-assemble"
+      onClick={() => act(assembleObjectsInList(runtime, selectedObjectIds))} />
+  ) : null;
 
   let items: ReturnType<typeof MenuItem>[] = [];
   if (target.kind === 'list') {
-    items = [
-      <MenuItem key="assemble" label="Assemble all" testid="objectlist-assemble"
-        onClick={() => act(assembleObjectsInList(runtime, structure.map((o) => o.id)))} />,
-    ];
+    items = assembleItem ? [assembleItem] : [];
   } else if (target.kind === 'object') {
     const o = target.object;
     items = [
-      <MenuItem key="assemble" label="Assemble all" testid="objectlist-assemble"
-        onClick={() => act(assembleObjectsInList(runtime, structure.map((id) => id.id)))} />,
+      ...(assembleItem ? [assembleItem] : []),
       <MenuItem key="rename" label="Rename" testid="objectlist-rename"
         onClick={() => { onRename('object', o.id, o.name); onClose(); }} />,
       <MenuItem key="printable" label={o.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
@@ -122,6 +126,10 @@ export function ObjectListContextMenu({ target, point, onClose, onRename }: {
         onClick={() => act(setInstancePrintableInList(runtime, inst.id, !inst.printable))} />,
     ];
   }
+
+  // Nothing to offer (e.g. empty-space right-click without a multi-object
+  // selection) — do not pop up an empty menu.
+  if (items.length === 0) return null;
 
   return (
     <div role="menu" data-testid="objectlist-ctx-menu"

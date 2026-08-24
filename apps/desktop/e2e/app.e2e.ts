@@ -341,6 +341,28 @@ test('object list: drag reorder objects (mock)', async () => {
     const rows = list.locator('div[data-testid^="object-"]');
     await expect(rows).toHaveCount(2);
 
+    // A row with an active rename editor is not draggable.
+    await rows.nth(1).click({ button: 'right' });
+    await list.getByTestId('objectlist-rename').click();
+    await expect(rows.nth(1)).toHaveAttribute('draggable', 'false');
+    await page.keyboard.press('Enter');
+    await expect(rows.nth(1)).toHaveAttribute('draggable', 'true');
+
+    // Renaming a part freezes the part row AND its enclosing object row: a
+    // non-draggable part's drag source is the ancestor object row, which would
+    // otherwise still reorder the object.
+    await rows.nth(1).locator('[data-testid^="object-expand-"]').click();
+    const partRow = rows.nth(1).locator('[data-testid^="part-"]').first();
+    await partRow.click({ button: 'right' });
+    await list.getByTestId('objectlist-rename').click();
+    await expect(partRow).toHaveAttribute('draggable', 'false');
+    await expect(rows.nth(1)).toHaveAttribute('draggable', 'false');
+    await page.keyboard.press('Enter');
+    await expect(partRow).toHaveAttribute('draggable', 'true');
+    await expect(rows.nth(1)).toHaveAttribute('draggable', 'true');
+    // Collapse again so the drop target below is the bare object row.
+    await rows.nth(1).locator('[data-testid^="object-expand-"]').click();
+
     const firstBefore = (await rows.nth(0).innerText());
     await rows.nth(1).dragTo(rows.nth(0));
     await expect.poll(() => rows.nth(0).innerText()).not.toBe(firstBefore);
@@ -443,8 +465,18 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     await list.getByTestId('objectlist-clone').click();
     await expect.poll(objectCount).toBeGreaterThan(1);
 
-    // Assemble all via the row context menu.
+    // Assemble is selection-driven: with no multi-selection (the clone clears
+    // the selection) the menu carries no assemble item — the old "Assemble
+    // all" is gone.
     await objectRow().click({ button: 'right' });
+    await expect(list.getByTestId('objectlist-assemble')).toBeHidden();
+
+    // Select both objects, then Assemble via the row context menu — only the
+    // selected objects are merged, not the whole list.
+    const objectRows = list.locator('div[data-testid^="object-"]');
+    await objectRows.nth(0).click();
+    await objectRows.nth(1).click({ modifiers: ['Control'] });
+    await objectRows.nth(1).click({ button: 'right' });
     await list.getByTestId('objectlist-assemble').click();
     await expect(list).toContainText('Assembly');
     await expect.poll(objectCount).toBe(1);
@@ -486,9 +518,13 @@ test('object list: rename, printable, and slice (mock)', async () => {
     // Expand to reveal part rows.
     await list.locator('[data-testid^="object-expand-"]').first().click();
 
+    // The object rename must not leak into its parts: the e2e mock fixture is
+    // a two-volume cube, and Orca syncs the part name only for single-volume
+    // objects (covered by the actions unit tests).
+    await expect(list.locator('[data-testid^="part-"]').first()).toContainText('Part 1');
+
     // The part row's context menu carries the type-change control (a successful
-    // multi-part change is covered by the unit tests + live harness; the mock
-    // cube is a single solid part).
+    // multi-part change is covered by the unit tests + live harness).
     const partRow = list.locator('[data-testid^="part-"]').first();
     await partRow.click({ button: 'right' });
     await expect(list.getByTestId('objectlist-split-parts')).toBeVisible();

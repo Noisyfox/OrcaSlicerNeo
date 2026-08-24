@@ -64,8 +64,15 @@ export async function refreshAfterModelMutation(
 export async function renameObjectInList(runtime: SlicerRuntime, objectId: number, name: string): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
+  // Orca: renaming a single-volume object renames its only part too, keeping
+  // the part name in sync with the object name.
+  const obj = useObjectListStore.getState().structure.find((o) => o.id === objectId);
   const r = await runtime.renameObject(objectId, name);
   if (!r.ok) return { ok: false, error: r.error };
+  if (obj && obj.volumes.length === 1) {
+    const v = await runtime.renameVolume(obj.volumes[0].id, name);
+    if (!v.ok) return { ok: false, error: v.error };
+  }
   await refreshAfterModelMutation(runtime);
   return { ok: true };
 }
