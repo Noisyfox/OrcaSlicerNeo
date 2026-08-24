@@ -28,3 +28,8 @@ operations derive bounds from the live per-object arrays, so an instance added
 after load can be transformed and returned by `getModelMesh` even when the
 initial fixture had one instance. Focused client tests cover add → transform →
 mesh persistence and propagation of a part transform to all instances.
+
+The bridge smoke harness now preserves the result of its checks for process
+automation: if any `check` call fails, it prints an aggregate error and exits
+with status 1. A clean run leaves the exit status at 0, while real smoke
+failures are no longer silently accepted by CI or build scripts.

@@ -716,3 +716,10 @@ check('slice error surfaces the real message, not the bare category',
   }
 }
 
+// Keep the harness useful in CI: a run that printed one or more FAIL checks
+// must not be reported as successful merely because the script reached EOF.
+if (failures > 0) {
+  console.error(`bridge smoke failed: ${failures} check(s)`);
+  process.exitCode = 1;
+}
+
