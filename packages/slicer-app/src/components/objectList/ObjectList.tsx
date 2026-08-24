@@ -195,6 +195,36 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     return ids.every((id) => selected.some((v) => v.id === id));
   }
 
+  /** The context menu follows the selection, not the clicked line. When the
+   *  clicked row is already part of the selection, promote the menu to the
+   *  selection's most-relative fully-selected level: a fully-selected object
+   *  (however it was selected — object row, Instances group, or scene) opens
+   *  the object menu even when the click landed on one of its part/instance
+   *  rows, and a fully-selected instance opens the instance menu from one of
+   *  its part rows. Only when the right-click just replaced the selection with
+   *  the row's own target (unselected row) does the menu stay row-scoped. */
+  function selectionMenuTarget(row: SelectableRow, anchor: number): ObjectListCtxTarget | null {
+    const obj = structure.find((o) => o.index === row.target.objectIdx);
+    if (!obj || !sceneInteraction) return null;
+    const selectedIds = sceneInteraction.selectedVolumes().map((v) => v.id);
+    const objRow = flatRows.find((r) => r.kind === 'object' && r.target.objectIdx === obj.index);
+    if (objRow && rowVolumeIds(objRow, 0).every((id) => selectedIds.includes(id)))
+      return { kind: 'object', object: obj };
+    if (row.kind === 'instance' && row.target.instanceIdx !== undefined) {
+      const instance = obj.instances[row.target.instanceIdx];
+      if (instance) return { kind: 'instance', object: obj, instance };
+    }
+    if (projection.instanceIds.size > 0) {
+      const instance = obj.instances[anchor];
+      if (instance) return { kind: 'instance', object: obj, instance };
+    }
+    if (row.kind === 'part' && row.target.volumeIdx !== undefined) {
+      const volume = obj.volumes[row.target.volumeIdx];
+      if (volume) return { kind: 'part', object: obj, volume };
+    }
+    return null;
+  }
+
   /** Right-click selection, matching the scene (a scene right-click selects the
    *  clicked instance unless the clicked volume is already selected). At row
    *  granularity: select the row's target exactly like a left-click would, but
@@ -213,6 +243,11 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
           false,
         );
         setLastSelectedKey(row.key);
+      } else {
+        // The row is already part of the selection — the menu is the
+        // selection's, not the clicked line's (a fully-selected object opens
+        // the object menu wherever the click lands inside it).
+        target = selectionMenuTarget(row, anchor) ?? target;
       }
     }
     openContextMenu(event, target);
@@ -376,7 +411,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       onContextMenu={(e) => {
                         // Select all instances like the group's click does
                         // (guarded like the rows: never collapse a selection
-                        // that already holds them). No menu opens here.
+                        // that already holds them), then open the selection's
+                        // menu — with the whole object selected that is the
+                        // object menu, as for one of its instance rows.
                         e.stopPropagation();
                         if (!sceneInteraction) return;
                         const objRow = flatRows.find((r) => r.key === `obj:${obj.index}`);
@@ -385,6 +422,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                           sceneInteraction.selectComposite(obj.index, undefined, undefined, false);
                           setLastSelectedKey(null);
                         }
+                        openContextMenu(e, { kind: 'object', object: obj });
                       }}
                       className={`w-full justify-start ${obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
                       data-state={obj.instances.every((inst) => projection.instanceIds.has(inst.id)) ? 'selected' : 'idle'}

@@ -74,20 +74,25 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
     items = assembleItem ? [assembleItem] : [];
   } else if (target.kind === 'object') {
     const o = target.object;
+    // The object menu is selection-based: Delete/Clone/printable act on the
+    // whole selection — the object menu is only shown for an object that is
+    // part of the selection (either the right-click just selected it, or it
+    // was already selected). Fall back to the row's object alone when the
+    // selection is highlighted at instance level and holds no full object
+    // (projection.objectIds empty, e.g. selected via the Instances group).
+    const targetObjectIds = selectedObjectIds.includes(o.id) ? selectedObjectIds : [o.id];
     items = [
       ...(assembleItem ? [assembleItem] : []),
       ...(showRename && canRename ? [(
         <MenuItem key="rename" label="Rename" testid="objectlist-rename"
           onClick={() => { onRename?.('object', o.id, o.name); onClose(); }} />
       )] : []),
-      // Printable applies to the whole selection when the clicked object is
-      // part of it (right-click a selected member to toggle everything);
-      // otherwise it targets the clicked object alone.
+      // Printable applies to the whole selection (right-click a selected
+      // member to toggle everything).
       <MenuItem key="printable" label={o.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
-        onClick={() => act(setObjectPrintableInList(runtime,
-          selectedObjectIds.includes(o.id) ? selectedObjectIds : [o.id], !o.printable))} />,
+        onClick={() => act(setObjectPrintableInList(runtime, targetObjectIds, !o.printable))} />,
       <MenuItem key="clone" label="Clone" testid="objectlist-clone"
-        onClick={() => act(cloneObjectsInList(runtime, [o.id]))} />,
+        onClick={() => act(cloneObjectsInList(runtime, targetObjectIds))} />,
       // Orca shows Split to objects only when the object is splittable (multiple
       // volumes, or a volume with disconnected shells).
       ...(o.volumes.length > 1 || o.volumes.some((vol) => vol.isSplittable) ? [(
@@ -104,7 +109,7 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
           if (last) void act(removeInstanceInList(runtime, o.id, last.id));
         }} />,
       <MenuItem key="delete" label="Delete" testid="objectlist-delete" danger
-        onClick={() => act(deleteObjectsInList(runtime, [o.id]))} />,
+        onClick={() => act(deleteObjectsInList(runtime, targetObjectIds))} />,
     ];
   } else if (target.kind === 'part') {
     const { object: o, volume: v } = target;
@@ -128,14 +133,20 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
   } else if (target.kind === 'instance') {
     const inst = target.instance;
     const selectedInstanceIds = [...projection.instanceIds];
+    // "Set as an individual object" is selection-based like the other items: it
+    // promotes the clicked object's selected instances (instances of other
+    // objects in a cross-object selection are left alone).
+    const objectInstanceIds = selectedInstanceIds.filter((id) =>
+      target.object.instances.some((i) => i.id === id));
     items = [
       // OrcaSlicer calls this "Set as an individual object": it promotes the
-      // right-clicked instance into its own top-level object. Only meaningful
-      // (and only possible — the Instances group is hidden for single-instance
-      // objects) when the object has more than one instance.
+      // selected instance(s) into their own top-level object(s). Only
+      // meaningful (and only possible — the Instances group is hidden for
+      // single-instance objects) when the object has more than one instance.
       ...(target.object.instanceCount > 1 ? [(
         <MenuItem key="individual" label="Set as an individual object" testid="objectlist-separate"
-          onClick={() => act(separateInstancesInList(runtime, target.object.id, [inst.id]))} />
+          onClick={() => act(separateInstancesInList(runtime, target.object.id,
+            objectInstanceIds.length > 0 ? objectInstanceIds : [inst.id]))} />
       )] : []),
       // Same selection rule as the object row: toggle all selected instances
       // when the clicked instance is part of the selection.

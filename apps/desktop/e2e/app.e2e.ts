@@ -350,9 +350,12 @@ test('object list: drag reorder objects (mock)', async () => {
 
     // Renaming a part freezes the part row AND its enclosing object row: a
     // non-draggable part's drag source is the ancestor object row, which would
-    // otherwise still reorder the object.
+    // otherwise still reorder the object. (The menu follows the selection —
+    // left-click the part first, or the still-fully-selected object promotes
+    // the menu to the object menu and renames the object instead.)
     await rows.nth(1).locator('[data-testid^="object-expand-"]').click();
     const partRow = rows.nth(1).locator('[data-testid^="part-"]').first();
+    await partRow.click();
     await partRow.click({ button: 'right' });
     await list.getByTestId('objectlist-rename').click();
     await expect(partRow).toHaveAttribute('draggable', 'false');
@@ -525,6 +528,64 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
   }
 });
 
+// The list context menu follows the selection, not the clicked line: with the
+// whole object selected, right-clicking a part/instance row or the Instances
+// group opens the object menu (matching the scene), not the part/instance
+// menu; a part-level selection opens the part menu again.
+test('object list: context menu follows the selection (mock)', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (REAL) return;
+
+    const list = page.getByTestId('object-list');
+    await expect(list).toBeVisible();
+    const objectRows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    const menu = page.getByTestId('objectlist-ctx-menu');
+    await list.locator('[data-testid^="object-expand-"]').first().click();
+
+    // Select the whole object, then right-click one of its instance rows: the
+    // menu is the object's menu, not the clicked line's instance menu.
+    await objectRows.first().click({ position: { x: 40, y: 4 } });
+    await list.locator('[data-testid^="instance-"]').first().click({ button: 'right' });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId('objectlist-clone')).toBeVisible();
+    await expect(menu.getByTestId('objectlist-separate')).toHaveCount(0);
+    await expect(menu.getByTestId('objectlist-assemble')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // Same from a part row of the fully-selected object: the object menu
+    // (split-parts is part-menu-only and must not appear). Escape clears the
+    // selection, so re-select the object first.
+    await objectRows.first().click({ position: { x: 40, y: 4 } });
+    await list.locator('[data-testid^="part-"]').first().click({ button: 'right' });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId('objectlist-clone')).toBeVisible();
+    await expect(menu.getByTestId('objectlist-split-parts')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+
+    // And from the Instances group line (right-click selects all instances,
+    // then shows the selection's object menu).
+    await list.locator('[data-testid^="instances-select-"]').first().click({ button: 'right' });
+    await expect(menu).toBeVisible();
+    await expect(menu.getByTestId('objectlist-clone')).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // A part-level selection restores the part menu.
+    await list.locator('[data-testid^="part-"]').first().click();
+    await list.locator('[data-testid^="part-"]').first().click({ button: 'right' });
+    await expect(menu.getByTestId('objectlist-split-parts')).toBeVisible();
+    await expect(menu.getByTestId('objectlist-clone')).toHaveCount(0);
+  } finally {
+    await app.close();
+  }
+});
+
 // Object list metadata actions: rename, part-type control, printable
 // toggle, then a successful slice — all through the row context menu.
 test('object list: rename, printable, and slice (mock)', async () => {
@@ -559,8 +620,11 @@ test('object list: rename, printable, and slice (mock)', async () => {
     await expect(list.locator('[data-testid^="part-"]').first()).toContainText('Part 1');
 
     // The part row's context menu carries the type-change control (a successful
-    // multi-part change is covered by the unit tests + live harness).
+    // multi-part change is covered by the unit tests + live harness). The menu
+    // follows the selection: left-click the part first, or the still-fully-
+    // selected object promotes the menu to the object menu.
     const partRow = list.locator('[data-testid^="part-"]').first();
+    await partRow.click();
     await partRow.click({ button: 'right' });
     await expect(list.getByTestId('objectlist-split-parts')).toBeVisible();
     await expect(list.locator('[data-testid^="objectlist-type-"]').first()).toBeVisible();

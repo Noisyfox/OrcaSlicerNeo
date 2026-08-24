@@ -23,6 +23,18 @@ the scene context menu.
   row's volumes are already fully selected the selection is left untouched —
   the same guard as the scene's right-click, so a right-click never collapses
   a multi-selection (updated 2026-08-24).
+- The menu itself follows the selection, not the clicked line: when the
+  clicked row is already part of the selection, the menu is promoted to the
+  selection's most-relative fully-selected level — a fully-selected object
+  (however it was selected) opens the object menu even when the click landed
+  on one of its part/instance rows or the Instances group line, and a
+  fully-selected instance opens the instance menu from one of its part rows.
+  Only when the right-click just replaced the selection with the row's own
+  target (an unselected row) does the menu stay row-scoped. Object-menu
+  Delete/Clone/printable act on the whole selection (falling back to the
+  row's object alone when it was selected via the Instances group, where the
+  projection holds no full object), and "Set as an individual object"
+  promotes the clicked object's selected instances (updated 2026-08-24).
 - Rename opens an inline text input (the context menu "Rename" item), matching
   the previous behavior. Renaming a single-volume object also renames its only
   part to the same name (Orca behavior); multi-volume objects keep their part
