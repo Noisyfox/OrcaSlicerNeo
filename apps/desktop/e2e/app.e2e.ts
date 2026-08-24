@@ -667,8 +667,9 @@ test('scene context menu: Add Model imports through the host picker', async () =
 // the object list's object rows) — never the empty-scene menu. The empty menu
 // staying closed guards against the scenario where an always-on-top overlay
 // (e.g. toolpath) or a back-facing part makes the topmost body hit get
-// misclassified as empty space. The right-click also selects the object, but
-// leaves the selection untouched when the clicked volume is already selected.
+// misclassified as empty space. The right-click also selects the clicked
+// instance (the same granularity as a plain left-click), but leaves the
+// selection untouched when the clicked volume is already selected.
 test('scene context menu: right-click on a model body opens the object menu', async () => {
   const { app } = await launchApp();
   try {
@@ -690,7 +691,12 @@ test('scene context menu: right-click on a model body opens the object menu', as
     );
     if (!pt) throw new Error('world→screen projection unavailable');
     const list = page.getByTestId('object-list');
-    const objectRows = list.locator('div[data-testid^="object-"]');
+    // The list container's own testid ("object-list") also matches the `object-`
+    // prefix, so exclude it — row locators must target the actual rows.
+    const objectRows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    // Expand the object row to reveal the Instances group (the mock object
+    // starts with 2 instances; instance rows render only while expanded).
+    await list.locator('[data-testid^="object-expand-"]').first().click();
     await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
     // The empty-scene menu must not appear over a model body; the object menu
     // (same testid as the list's) carries the object-row actions instead.
@@ -706,8 +712,13 @@ test('scene context menu: right-click on a model body opens the object menu', as
     await expect(objectMenu.getByTestId('objectlist-split-objects')).toBeVisible();
     await expect(objectMenu.getByTestId('objectlist-add-instance')).toBeVisible();
     await expect(objectMenu.getByTestId('objectlist-remove-instance')).toBeEnabled();
-    // The right-click selected the object (the first list row shows selected).
-    await expect(objectRows.first().locator('button[data-state="selected"]')).toBeVisible();
+    // The right-click selected only the clicked instance (instance-level, the
+    // same granularity as a plain left-click): exactly one instance row in the
+    // Instances group shows selected, and the object row itself does not.
+    // (`> button` because the expanded parts/instances rows live inside the
+    // object row div; only the row's own direct-child button is its state.)
+    await expect(list.locator('[data-testid^="instance-"] button[data-state="selected"]')).toHaveCount(1);
+    await expect(objectRows.first().locator('> button[data-state="selected"]')).toHaveCount(0);
     // With a single object selected the selection-driven Assemble item is
     // absent (needs ≥ 2 full objects).
     await expect(objectMenu.getByTestId('objectlist-assemble')).toHaveCount(0);
@@ -717,15 +728,18 @@ test('scene context menu: right-click on a model body opens the object menu', as
     // Right-clicking a body that is already selected must not change the
     // selection: with two objects fully selected, a right-click on a body
     // keeps both rows selected and Assemble is offered.
-    await objectRows.nth(0).click({ button: 'right' });
+    // (All row clicks are positioned on the row's own line — the row div's
+    // center lands on the expanded parts/instances rows, and the left ~12px
+    // are the expand-toggle span.)
+    await objectRows.nth(0).click({ button: 'right', position: { x: 40, y: 4 } });
     await list.getByTestId('objectlist-clone').click();
     await expect.poll(() => objectRows.count()).toBeGreaterThan(1);
-    await objectRows.nth(0).click();
-    await objectRows.nth(1).click({ modifiers: ['Control'] });
+    await objectRows.nth(0).click({ position: { x: 40, y: 4 } });
+    await objectRows.nth(1).click({ modifiers: ['Control'], position: { x: 40, y: 4 } });
     await page.mouse.click(box.x + pt.x, box.y + pt.y, { button: 'right' });
     await expect(objectMenu).toBeVisible();
-    await expect(objectRows.nth(0).locator('button[data-state="selected"]')).toBeVisible();
-    await expect(objectRows.nth(1).locator('button[data-state="selected"]')).toBeVisible();
+    await expect(objectRows.nth(0).locator('> button[data-state="selected"]')).toBeVisible();
+    await expect(objectRows.nth(1).locator('> button[data-state="selected"]')).toBeVisible();
     await expect(objectMenu.getByTestId('objectlist-assemble')).toBeVisible();
   } finally {
     await app.close();

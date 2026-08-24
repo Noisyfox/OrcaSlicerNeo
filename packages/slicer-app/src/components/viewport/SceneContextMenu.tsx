@@ -3,9 +3,11 @@
 // button is pressed and released without meaningful movement (a click).
 // A click that starts on a model body opens the object context menu (the
 // same menu as the object list's object rows, minus Rename — the viewport
-// has no inline editor for it) and selects the object — unless the clicked
-// volume is already selected, in which case the selection is left untouched
-// (a plain left-click on an existing selection member keeps the group).
+// has no inline editor for it) and selects the clicked instance — the same
+// granularity as a plain left-click (selection mode "instance"), so on a
+// multi-instance object only the clicked instance is selected. The selection
+// is left untouched when the clicked volume is already selected (a plain
+// left-click on an existing selection member keeps the group).
 // Any other click opens the empty-scene menu. The native host/browser
 // context menu is suppressed for the whole canvas.
 import {
@@ -118,10 +120,12 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
         (o) => o.index === press.hitVolume!.buffer.objectIdx,
       );
       if (obj) {
-        // Right-click selects the object — unless the clicked volume is
-        // already selected, in which case the selection is left untouched
-        // (like a plain left-click on an existing selection member keeps the
-        // group, so a right-click never collapses a multi-selection).
+        // Right-click selects the clicked instance only (same granularity as
+        // a plain left-click) — unless the clicked volume is already
+        // selected, in which case the selection is left untouched (a plain
+        // left-click on an existing selection member keeps the group, so a
+        // right-click never collapses a multi-selection). For a single
+        // instance this equals the whole object.
         const hit = press.hitVolume;
         const clickedSelected = sceneInteraction?.selectedVolumes().some((v) =>
           v.buffer.objectIdx === hit.buffer.objectIdx
@@ -129,7 +133,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
           && v.buffer.instanceIdx === hit.buffer.instanceIdx,
         );
         if (sceneInteraction && !clickedSelected) {
-          sceneInteraction.selectComposite(hit.buffer.objectIdx, undefined, undefined, false);
+          sceneInteraction.selectComposite(hit.buffer.objectIdx, undefined, hit.buffer.instanceIdx, false);
         }
         setMenuObject(obj);
         setPoint(clampedPoint);

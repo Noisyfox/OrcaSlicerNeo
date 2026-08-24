@@ -50,8 +50,12 @@ context menu as the object list (`ObjectListContextMenu` with an `object`
 target), resolved from the raycast hit's GLVolume `buffer.objectIdx` via the
 store structure. Right-clicking anywhere else (bed plate, empty space) keeps
 the existing empty-scene menu. A right-click on a body also selects the
-object — unless the clicked volume is already selected, in which case the
-selection is left untouched (mirroring a plain left-click on an existing
+clicked instance only — the same granularity as a plain left-click (selection
+mode "instance"), so on a multi-instance object just that instance is
+selected (updated 2026-08-24: the earlier object-level selection was narrowed
+to instance-level to mirror left-click; for a single-instance object the two
+are identical). Unless the clicked volume is already selected, in which case
+the selection is left untouched (mirroring a plain left-click on an existing
 selection member, so a right-click never collapses a multi-selection). The
 selection-driven "Assemble" item therefore appears only when the selection
 holds ≥ 2 full objects — the same rule as the list.
