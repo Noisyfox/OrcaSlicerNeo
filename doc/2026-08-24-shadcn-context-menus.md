@@ -16,10 +16,12 @@ the generated shadcn primitives (`ContextMenuContent`, `ContextMenuItem`,
 
 The viewport keeps its existing model-body hit detection and selection rules.
 The trigger opens on the browser/Electron `contextmenu` gesture, which occurs
-after a right-button drag has been distinguished from a click, so
-`OrbitControls` right-button panning remains available. The object list keeps
-its row-level selection and target resolution while the shared trigger owns
-menu dismissal and focus management.
+after a right-button drag has been distinguished from a click. Movement beyond
+4 CSS pixels marks the gesture as a pan and suppresses the subsequent
+`contextmenu` event, so `OrbitControls` right-button panning remains available
+without opening a menu on release. The object list keeps its row-level
+selection and target resolution while the shared trigger owns menu dismissal
+and focus management.
 
 The native browser/host context menu remains suppressed by the existing shared
 app policy outside editable controls and the viewport's Context Menu trigger.

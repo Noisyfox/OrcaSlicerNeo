@@ -12,8 +12,10 @@
 // context menu is suppressed for the whole canvas.
 import {
   useCallback,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import type { RootState } from '@react-three/fiber';
@@ -54,6 +56,8 @@ const PRIMITIVE_ICONS: Record<PrimitiveType, LucideIcon> = {
   Torus: Donut,
 };
 
+const RIGHT_DRAG_THRESHOLD_PX = 4;
+
 export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: {
   sceneInteraction: SceneInteractionController | null;
   sceneStateRef: React.RefObject<RootState | null>;
@@ -64,6 +68,12 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuObject, setMenuObject] = useState<ModelObjectStructure | null>(null);
+  const rightGestureRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    dragged: boolean;
+  } | null>(null);
 
   const closeMenu = useCallback(() => {
     setMenuOpen(false);
@@ -114,6 +124,43 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     setMenuOpen(true);
   }, [sceneInteraction, sceneStateRef]);
 
+  const handlePointerDownCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 2) return;
+    rightGestureRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragged: false,
+    };
+  }, []);
+
+  const handlePointerMoveCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const gesture = rightGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId || gesture.dragged) return;
+    const dx = event.clientX - gesture.startX;
+    const dy = event.clientY - gesture.startY;
+    if (dx * dx + dy * dy > RIGHT_DRAG_THRESHOLD_PX * RIGHT_DRAG_THRESHOLD_PX) {
+      gesture.dragged = true;
+    }
+  }, []);
+
+  const handleContextMenuCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
+    const gesture = rightGestureRef.current;
+    rightGestureRef.current = null;
+    if (gesture?.dragged) {
+      // Base UI opens from the contextmenu event. A right-drag is a camera
+      // gesture, so stop this event before the trigger's opening handler sees it.
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, []);
+
+  const handlePointerCancelCapture = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (rightGestureRef.current?.pointerId === event.pointerId) {
+      rightGestureRef.current = null;
+    }
+  }, []);
+
   const handleClearScene = useCallback(() => {
     closeMenu();
     void clearScene(platform, sceneInteraction);
@@ -145,6 +192,10 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     >
       <ContextMenuTrigger
         className="absolute inset-0 pointer-events-none"
+        onPointerDownCapture={handlePointerDownCapture}
+        onPointerMoveCapture={handlePointerMoveCapture}
+        onPointerCancelCapture={handlePointerCancelCapture}
+        onContextMenuCapture={handleContextMenuCapture}
         onContextMenu={handleContextMenu}
       >
       {children}

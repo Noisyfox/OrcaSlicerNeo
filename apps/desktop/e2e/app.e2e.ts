@@ -269,6 +269,16 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
       .toBe(false);
     await page.mouse.up();
 
+    // A right-button scene drag is camera panning, not a context-menu
+    // gesture. The browser dispatches contextmenu after release, so this
+    // specifically guards against opening the menu at the end of the drag.
+    const rightDragStart = { x: box.x + box.width - 120, y: box.y + 40 };
+    await page.mouse.move(rightDragStart.x, rightDragStart.y);
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.move(rightDragStart.x + 50, rightDragStart.y, { steps: 4 });
+    await page.mouse.up({ button: 'right' });
+    await expect(page.getByTestId('ctx-menu')).toBeHidden();
+
     // Clear Scene now lives in the scene context menu: right-click empty
     // space (top-right of the canvas) and pick the item. It resets the model
     // and invalidates the finished export.
