@@ -12,18 +12,25 @@
 // context menu is suppressed for the whole canvas.
 import {
   useCallback,
-  useEffect,
-  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import type { RootState } from '@react-three/fiber';
 import {
-  Box, ChevronRight, Circle, Cone, Cylinder, Disc3, Donut, FolderPlus, Shapes, Trash2,
+  Box, Circle, Cone, Cylinder, Disc3, Donut, FolderPlus, Shapes, Trash2,
   type LucideIcon,
 } from 'lucide-react';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import { usePlatform } from '@orca/platform-contract';
 import type { ModelObjectStructure } from '@slicer/client';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -34,17 +41,8 @@ import {
 import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { pickTopmostModelVolume } from './buildPlatePointerOcclusion';
-import type { GLVolume } from './GLVolume';
 import type { SceneInteractionController } from './SceneInteractionController';
 
-const CLICK_MOVE_THRESHOLD_PX = 4;
-// Rough menu footprints (min-w + padding/border, items + separator) used to
-// keep a right-click near the window edges from opening off-screen. The
-// primitive flyout mirrors the menu, so near the right edge it flips to the
-// left of the menu (the clamp alone would let it overflow the viewport).
-const MENU_WIDTH_PX = 160;
-const MENU_HEIGHT_PX = 132;
-const OBJECT_MENU_HEIGHT_PX = 300;
 // Icon per primitive matching the engine's label; the labels equal the
 // shapes' type strings (OrcaSlicer's menu items are the localized labels).
 const PRIMITIVE_ICONS: Record<PrimitiveType, LucideIcon> = {
@@ -64,84 +62,31 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
   const platform = usePlatform();
   const busy = useSlicerStore((s) => s.status === 'slicing');
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
-  const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [menuObject, setMenuObject] = useState<ModelObjectStructure | null>(null);
-  const [primitiveOpen, setPrimitiveOpen] = useState(false);
-  // Near the right window edge the primitive flyout opens to the left of the
-  // menu; the edge clamp (MENU_WIDTH_PX) fits the menu itself, not the flyout.
-  const [flipPrimitive, setFlipPrimitive] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const pressRef = useRef<{ x: number; y: number; pointerId: number; hitVolume: GLVolume | null } | null>(null);
 
   const closeMenu = useCallback(() => {
-    setPoint(null);
-    setMenuObject(null);
-    setPrimitiveOpen(false);
+    setMenuOpen(false);
   }, []);
 
-  // Outside press (capture, so it wins over R3F), Escape, or selecting the
-  // item closes the menu.
-  useEffect(() => {
-    if (!point) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const el = event.target as Node;
-      if (el instanceof Element
-        && el.closest('[data-testid="ctx-menu"], [data-testid="objectlist-ctx-menu"]')) return;
-      if (menuRef.current?.contains(el)) return;
-      closeMenu();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') closeMenu();
-    };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('pointerdown', onPointerDown, true);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [point, closeMenu]);
-
-  // This wrapper is pointer-events-none, so every contextmenu event reaching
-  // it bubbles up from the canvas. Suppress the host/browser default menu for
-  // the whole scene; our own menu opens on a clean right-click below, and a
-  // right-drag keeps panning.
+  // The ContextMenuTrigger owns native right-click anchoring and only opens on
+  // the contextmenu gesture, so OrbitControls can still use right-drag for
+  // panning. Resolve the hit at the same point so a body click opens the
+  // object menu and preserves the existing selection behavior.
   const handleContextMenu = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
     event.preventDefault();
-  }, []);
-
-  const handlePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 2 || !sceneStateRef.current) return;
-    const rect = sceneStateRef.current.gl.domElement.getBoundingClientRect();
-    pressRef.current = {
-      x: event.clientX,
-      y: event.clientY,
-      pointerId: event.pointerId,
-      hitVolume: pickTopmostModelVolume(sceneStateRef.current, {
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      }),
-    };
-  }, [sceneStateRef]);
-
-  const handlePointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const press = pressRef.current;
-    pressRef.current = null;
-    if (!press || event.button !== 2 || event.pointerId !== press.pointerId) return;
-    const dx = event.clientX - press.x;
-    const dy = event.clientY - press.y;
-    if (dx * dx + dy * dy > CLICK_MOVE_THRESHOLD_PX * CLICK_MOVE_THRESHOLD_PX) return;
-    const clampedPoint = {
-      x: Math.min(event.clientX, window.innerWidth - MENU_WIDTH_PX),
-      y: Math.min(event.clientY, window.innerHeight - (press.hitVolume ? OBJECT_MENU_HEIGHT_PX : MENU_HEIGHT_PX)),
-    };
-    setPrimitiveOpen(false);
-    setFlipPrimitive(clampedPoint.x > window.innerWidth - 2 * MENU_WIDTH_PX);
-    if (press.hitVolume) {
+    const state = sceneStateRef.current;
+    const rect = state?.gl.domElement.getBoundingClientRect();
+    const hitVolume = state && rect ? pickTopmostModelVolume(state, {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    }) : null;
+    if (hitVolume) {
       // Resolve the hit GLVolume's object from the structure (objectIdx is the
       // positional index); the menu logic is identical to the object list's
       // object-row menu.
       const obj = useObjectListStore.getState().structure.find(
-        (o) => o.index === press.hitVolume!.buffer.objectIdx,
+        (o) => o.index === hitVolume.buffer.objectIdx,
       );
       if (obj) {
         // Right-click selects the clicked instance only (same granularity as
@@ -150,7 +95,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
         // left-click on an existing selection member keeps the group, so a
         // right-click never collapses a multi-selection). For a single
         // instance this equals the whole object.
-        const hit = press.hitVolume;
+        const hit = hitVolume;
         const clickedSelected = sceneInteraction?.selectedVolumes().some((v) =>
           v.buffer.objectIdx === hit.buffer.objectIdx
           && v.buffer.volumeIdx === hit.buffer.volumeIdx
@@ -160,17 +105,14 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
           sceneInteraction.selectComposite(hit.buffer.objectIdx, undefined, hit.buffer.instanceIdx, false);
         }
         setMenuObject(obj);
-        setPoint(clampedPoint);
-        return;
+      } else {
+        setMenuObject(null);
       }
+    } else {
+      setMenuObject(null);
     }
-    setMenuObject(null);
-    setPoint(clampedPoint);
-  }, [sceneInteraction]);
-
-  const handlePointerCancel = useCallback(() => {
-    pressRef.current = null;
-  }, []);
+    setMenuOpen(true);
+  }, [sceneInteraction, sceneStateRef]);
 
   const handleClearScene = useCallback(() => {
     closeMenu();
@@ -187,94 +129,73 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     void addModel(platform, sceneInteraction);
   }, [platform, sceneInteraction, closeMenu]);
 
+  const handleMenuOpenChange = useCallback((open: boolean) => {
+    setMenuOpen(open);
+  }, []);
+
+  const handleMenuOpenChangeComplete = useCallback((open: boolean) => {
+    if (!open) setMenuObject(null);
+  }, []);
+
   return (
-    <div
-      className="absolute inset-0 pointer-events-none"
-      onContextMenu={handleContextMenu}
-      onPointerDown={handlePointerDown}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
+    <ContextMenu
+      open={menuOpen}
+      onOpenChange={handleMenuOpenChange}
+      onOpenChangeComplete={handleMenuOpenChangeComplete}
     >
+      <ContextMenuTrigger
+        className="absolute inset-0 pointer-events-none"
+        onContextMenu={handleContextMenu}
+      >
       {children}
-      {point && menuObject && (
+      </ContextMenuTrigger>
+      {menuOpen && menuObject && (
         <ObjectListContextMenu
           target={{ kind: 'object', object: menuObject }}
-          point={point}
           onClose={closeMenu}
           showRename={false}
         />
       )}
-      {point && !menuObject && (
-        <div
-          ref={menuRef}
-          role="menu"
-          data-testid="ctx-menu"
-          className="pointer-events-auto fixed z-50 min-w-36 rounded-md border bg-card p-1 shadow-md"
-          style={{ left: point.x, top: point.y }}
-        >
-          <button
-            type="button"
-            role="menuitem"
+      {menuOpen && !menuObject && (
+        <ContextMenuContent data-testid="ctx-menu" className="min-w-36">
+          <ContextMenuItem
             data-testid="btn-clear-scene"
             disabled={busy || !modelLoaded}
             onClick={handleClearScene}
-            className="flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-xs/relaxed text-foreground select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
           >
-            <Trash2 className="size-3.5" /> Clear Scene
-          </button>
-          <div role="separator" className="my-1 h-px bg-border" />
-          {/* Add Primitive: the flyout mirrors OrcaSlicer's submenu (the same
-              shape set, in the same order — GUI_Factories.cpp
-              append_submenu_add_generic, ModelVolumeType::INVALID). */}
-          <button
-            type="button"
-            role="menuitem"
-            data-testid="btn-add-primitive"
-            disabled={busy}
-            onClick={() => setPrimitiveOpen((open) => !open)}
-            className="flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-xs/relaxed text-foreground select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-          >
-            <Shapes className="size-3.5" /> Add Primitive
-            <ChevronRight className="ml-auto size-3.5" />
-          </button>
-          {primitiveOpen && (
-            <div
-              data-testid="ctx-primitive-menu"
-              role="menu"
-              className={`pointer-events-auto absolute top-0 z-50 min-w-36 rounded-md border bg-card p-1 shadow-md ${
-                flipPrimitive ? 'right-full -mr-1' : 'left-full ml-1'
-              }`}
-            >
+            <Trash2 /> Clear Scene
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          {/* Add Primitive mirrors OrcaSlicer's generic primitive submenu. */}
+          <ContextMenuSub>
+            <ContextMenuSubTrigger data-testid="btn-add-primitive" disabled={busy}>
+              <Shapes /> Add Primitive
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent data-testid="ctx-primitive-menu" className="min-w-36">
               {PRIMITIVE_TYPES.map((type) => {
                 const Icon = PRIMITIVE_ICONS[type];
                 return (
-                  <button
+                  <ContextMenuItem
                     key={type}
-                    type="button"
-                    role="menuitem"
                     data-testid={`btn-add-${type.toLowerCase()}`}
                     disabled={busy}
                     onClick={() => handleAddPrimitive(type)}
-                    className="flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-xs/relaxed text-foreground select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
                   >
-                    <Icon className="size-3.5" /> {type}
-                  </button>
+                    <Icon /> {type}
+                  </ContextMenuItem>
                 );
               })}
-            </div>
-          )}
-          <button
-            type="button"
-            role="menuitem"
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuItem
             data-testid="btn-ctx-add-model"
             disabled={busy}
             onClick={handleAddModel}
-            className="flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-xs/relaxed text-foreground select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
           >
-            <FolderPlus className="size-3.5" /> Add Model
-          </button>
-        </div>
+            <FolderPlus /> Add Model
+          </ContextMenuItem>
+        </ContextMenuContent>
       )}
-    </div>
+    </ContextMenu>
   );
 }

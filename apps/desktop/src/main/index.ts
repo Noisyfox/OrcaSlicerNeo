@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { extname, join, sep } from 'node:path';
@@ -117,6 +117,28 @@ function createWindow(): void {
   };
   win.on('ready-to-show', showWindow);
   win.webContents.on('did-finish-load', () => setTimeout(showWindow, 500));
+
+  // Electron does not provide Chromium's browser-native editor context menu.
+  // Recreate it in the host for editable controls only; renderer-owned
+  // shadcn ContextMenus continue to handle model rows and the viewport.
+  win.webContents.on('context-menu', (event, params) => {
+    if (!params.isEditable) return;
+    event.preventDefault();
+    const { editFlags } = params;
+    const menu = Menu.buildFromTemplate([
+      { role: 'undo', enabled: editFlags.canUndo },
+      { role: 'redo', enabled: editFlags.canRedo },
+      { type: 'separator' },
+      { role: 'cut', enabled: editFlags.canCut },
+      { role: 'copy', enabled: editFlags.canCopy },
+      { role: 'paste', enabled: editFlags.canPaste },
+      { role: 'pasteAndMatchStyle', enabled: editFlags.canPaste },
+      { role: 'delete', enabled: editFlags.canDelete },
+      { type: 'separator' },
+      { role: 'selectAll', enabled: editFlags.canSelectAll },
+    ]);
+    menu.popup({ window: win });
+  });
 
   // F12 / Ctrl+Shift+I opens DevTools. autoHideMenuBar leaves no way to
   // reach the default menu's toggle in the packaged app, and a detached

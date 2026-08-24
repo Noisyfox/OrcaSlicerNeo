@@ -343,7 +343,7 @@ test('object list: drag reorder objects (mock)', async () => {
 
     // A row with an active rename editor is not draggable.
     await rows.nth(1).click({ button: 'right' });
-    await list.getByTestId('objectlist-rename').click();
+    await page.getByTestId('objectlist-rename').click();
     await expect(rows.nth(1)).toHaveAttribute('draggable', 'false');
     await page.keyboard.press('Enter');
     await expect(rows.nth(1)).toHaveAttribute('draggable', 'true');
@@ -357,7 +357,7 @@ test('object list: drag reorder objects (mock)', async () => {
     const partRow = rows.nth(1).locator('[data-testid^="part-"]').first();
     await partRow.click();
     await partRow.click({ button: 'right' });
-    await list.getByTestId('objectlist-rename').click();
+    await page.getByTestId('objectlist-rename').click();
     await expect(partRow).toHaveAttribute('draggable', 'false');
     await expect(rows.nth(1)).toHaveAttribute('draggable', 'false');
     await page.keyboard.press('Enter');
@@ -396,7 +396,7 @@ test('object list: add instance via the context menu (mock)', async () => {
 
     // Add an instance via the object-row context menu (top-left of the row).
     await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
-    await list.getByTestId('objectlist-add-instance').click();
+    await page.getByTestId('objectlist-add-instance').click();
 
     // The instance count grows from 2 to 3.
     await expect.poll(() => list.locator('[data-testid^="instance-"]').count()).toBe(3);
@@ -471,7 +471,7 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
 
     // Clone via the row context menu.
     await objectRow().click({ button: 'right' });
-    await list.getByTestId('objectlist-clone').click();
+    await page.getByTestId('objectlist-clone').click();
     await expect.poll(objectCount).toBeGreaterThan(1);
 
     // Right-click selection mirrors the scene: a right-click on an unselected
@@ -490,7 +490,10 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     // Assemble is selection-driven: with no multi-selection the menu carries
     // no assemble item — the old "Assemble all" is gone.
     await objectRow().click({ button: 'right' });
-    await expect(list.getByTestId('objectlist-assemble')).toBeHidden();
+    await expect(page.getByTestId('objectlist-assemble')).toBeHidden();
+    // Base UI context menus are modal while open; dismiss the menu before
+    // beginning the next pointer-driven selection sequence.
+    await page.keyboard.press('Escape');
 
     // Select both objects, then Assemble via the row context menu — only the
     // selected objects are merged, not the whole list.
@@ -500,28 +503,28 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     await objectRows.nth(1).click({ button: 'right' });
     // Rename is hidden while multiple objects are selected (the single-object
     // rename flow is covered by the rename test).
-    await expect(list.getByTestId('objectlist-rename')).toBeHidden();
+    await expect(page.getByTestId('objectlist-rename')).toBeHidden();
     // Printable applies to the whole selection when the clicked row is part of
     // it: one toggle flips both objects, and each row's menu then reads
     // "Mark printable". (Escape also clears the selection, so re-select
     // before Assemble below.)
-    await list.getByTestId('objectlist-printable').click();
+    await page.getByTestId('objectlist-printable').click();
     await objectRows.nth(0).click({ button: 'right' });
-    await expect(list.getByTestId('objectlist-printable')).toHaveText('Mark printable');
+    await expect(page.getByTestId('objectlist-printable')).toHaveText('Mark printable');
     await page.keyboard.press('Escape');
     await objectRows.nth(1).click({ button: 'right' });
-    await expect(list.getByTestId('objectlist-printable')).toHaveText('Mark printable');
+    await expect(page.getByTestId('objectlist-printable')).toHaveText('Mark printable');
     await page.keyboard.press('Escape');
     await objectRows.nth(0).click();
     await objectRows.nth(1).click({ modifiers: ['Control'] });
     await objectRows.nth(1).click({ button: 'right' });
-    await list.getByTestId('objectlist-assemble').click();
+    await page.getByTestId('objectlist-assemble').click();
     await expect(list).toContainText('Assembly');
     await expect.poll(objectCount).toBe(1);
 
     // Delete the single object via the row context menu.
     await objectRow().click({ button: 'right' });
-    await list.getByTestId('objectlist-delete').click();
+    await page.getByTestId('objectlist-delete').click();
     await expect(list).toContainText('No objects');
   } finally {
     await app.close();
@@ -546,7 +549,7 @@ test('object list: context menu follows the selection (mock)', async () => {
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     const objectRows = list.locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
-    const menu = page.getByTestId('objectlist-ctx-menu');
+    const menu = page.locator('[data-testid="objectlist-ctx-menu"][data-open]');
     await list.locator('[data-testid^="object-expand-"]').first().click();
 
     // Select the whole object, then right-click one of its instance rows: the
@@ -599,14 +602,27 @@ test('object list: rename, printable, and slice (mock)', async () => {
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     if (REAL) return;
 
+    const settingsEditorKeepsNativeContextMenu = await page.locator('[data-slot="input"]').first().evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return !event.defaultPrevented;
+    });
+    expect(settingsEditorKeepsNativeContextMenu).toBe(true);
+
     const list = page.getByTestId('object-list');
     await expect(list).toBeVisible();
     const objectRow = list.locator('div[data-testid^="object-"]').first();
 
     // Rename via the row context menu (the menu closes and an inline input appears).
     await objectRow.click({ button: 'right' });
-    await list.getByTestId('objectlist-rename').click();
+    await page.getByTestId('objectlist-rename').click();
     const nameInput = list.locator('[data-testid^="object-name-input-"]').first();
+    const editorKeepsNativeContextMenu = await nameInput.evaluate((element) => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      element.dispatchEvent(event);
+      return !event.defaultPrevented;
+    });
+    expect(editorKeepsNativeContextMenu).toBe(true);
     await nameInput.fill('My Cube');
     await nameInput.press('Enter');
     await expect(list).toContainText('My Cube');
@@ -626,19 +642,19 @@ test('object list: rename, printable, and slice (mock)', async () => {
     const partRow = list.locator('[data-testid^="part-"]').first();
     await partRow.click();
     await partRow.click({ button: 'right' });
-    await expect(list.getByTestId('objectlist-split-parts')).toBeVisible();
-    await expect(list.locator('[data-testid^="objectlist-type-"]').first()).toBeVisible();
+    await expect(page.getByTestId('objectlist-split-parts')).toBeVisible();
+    await expect(page.locator('[data-testid^="objectlist-type-"]').first()).toBeVisible();
     await page.keyboard.press('Escape');
 
     // Toggle the object printable off, then back on, via the context menu.
     // Click near the row's top-left (the object name button) — once expanded,
     // the row box spans the part rows, so its center would right-click a part.
     await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
-    await list.getByTestId('objectlist-printable').click();
+    await page.getByTestId('objectlist-printable').click();
     await objectRow.click({ button: 'right', position: { x: 10, y: 4 } });
-    await expect(list.getByTestId('objectlist-printable')).toHaveText('Mark printable');
-    await list.getByTestId('objectlist-printable').click();
-    await expect(list.getByTestId('objectlist-ctx-menu')).toBeHidden();
+    await expect(page.getByTestId('objectlist-printable')).toHaveText('Mark printable');
+    await page.getByTestId('objectlist-printable').click();
+    await expect(page.locator('[data-testid="objectlist-ctx-menu"][data-open]')).toBeHidden();
 
     // The metadata edits invalidate any prior slice; a fresh slice succeeds.
     await page.getByTestId('btn-slice').click();
@@ -805,7 +821,7 @@ test('scene context menu: right-click on a model body opens the object menu', as
     // The empty-scene menu must not appear over a model body; the object menu
     // (same testid as the list's) carries the object-row actions instead.
     await expect(page.getByTestId('ctx-menu')).toHaveCount(0);
-    const objectMenu = page.getByTestId('objectlist-ctx-menu');
+    const objectMenu = page.locator('[data-testid="objectlist-ctx-menu"][data-open]');
     await expect(objectMenu).toBeVisible();
     // Rename is not offered in the scene menu (the viewport has no inline
     // editor; the object list still has it).
@@ -845,7 +861,7 @@ test('scene context menu: right-click on a model body opens the object menu', as
     // center lands on the expanded parts/instances rows, and the left ~12px
     // are the expand-toggle span.)
     await objectRows.nth(0).click({ button: 'right', position: { x: 40, y: 4 } });
-    await list.getByTestId('objectlist-clone').click();
+    await page.getByTestId('objectlist-clone').click();
     await expect.poll(() => objectRows.count()).toBeGreaterThan(1);
     await objectRows.nth(0).click({ position: { x: 40, y: 4 } });
     await objectRows.nth(1).click({ modifiers: ['Control'], position: { x: 40, y: 4 } });

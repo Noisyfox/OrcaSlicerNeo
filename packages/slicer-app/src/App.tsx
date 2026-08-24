@@ -36,8 +36,13 @@ export default function App() {
     const suppressEmptySpaceContextMenu = (event: MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) return;
-      // Editable controls keep the native menu (copy/paste, spellcheck).
-      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      // Editable controls keep the native menu (copy/paste, spellcheck). Stop
+      // propagation as well as leaving default behavior intact, so a nested
+      // ContextMenuTrigger cannot consume the gesture after this guard runs.
+      if (target.closest('input, textarea, select, [role="textbox"], [contenteditable]:not([contenteditable="false"])')) {
+        event.stopPropagation();
+        return;
+      }
       // The WebGL viewport owns its own scene context menu.
       if (target.closest('canvas[data-engine^="three.js"]')) return;
       event.preventDefault();

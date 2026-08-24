@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useMemo, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { ModelObjectStructure } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
+import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
 import { buildSelectableRows, projectSelection, type SelectableRow } from './projection';
 import { renameObjectInList, renamePartInList } from './actions';
@@ -39,7 +40,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const clearStore = useObjectListStore((s) => s.clear);
   const [renaming, setRenaming] = useState<RenamingTarget>(null);
   const [draftName, setDraftName] = useState('');
-  const [ctx, setCtx] = useState<{ target: ObjectListCtxTarget; point: { x: number; y: number } } | null>(null);
+  const [ctx, setCtx] = useState<{ target: ObjectListCtxTarget } | null>(null);
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [lastSelectedKey, setLastSelectedKey] = useState<string | null>(null);
   const flatRows = useMemo(() => buildSelectableRows(structure), [structure]);
 
@@ -71,22 +73,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     return sceneInteraction.subscribe(update);
   }, [sceneInteraction, structure, highlightLevel, setProjection]);
 
-  useEffect(() => {
-    if (!ctx) return;
-    const onPointerDown = (event: PointerEvent) => {
-      const el = event.target as Node;
-      if (el instanceof Element && el.closest('[data-testid="objectlist-ctx-menu"]')) return;
-      setCtx(null);
-    };
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setCtx(null); };
-    document.addEventListener('pointerdown', onPointerDown, true);
-    document.addEventListener('keydown', onKeyDown);
-    return () => { document.removeEventListener('pointerdown', onPointerDown, true); document.removeEventListener('keydown', onKeyDown); };
-  }, [ctx]);
-
   function openContextMenu(event: ReactMouseEvent, target: ObjectListCtxTarget) {
     event.preventDefault();
-    setCtx({ target, point: { x: event.clientX, y: event.clientY } });
+    setCtx({ target });
+    setContextMenuOpen(true);
   }
 
   async function commitRename() {
@@ -268,15 +258,11 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     }
   }
 
-  if (!modelLoaded || !loaded) {
-    return (
-      <div data-testid="object-list" onContextMenu={(e) => openContextMenu(e, { kind: 'list' })} className="px-2 pb-2 text-xs text-muted-foreground">
-        No objects
-      </div>
-    );
-  }
-
-  return (
+  const content: ReactNode = !modelLoaded || !loaded ? (
+    <div data-testid="object-list" onContextMenu={(e) => openContextMenu(e, { kind: 'list' })} className="px-2 pb-2 text-xs text-muted-foreground">
+      No objects
+    </div>
+  ) : (
     <div data-testid="object-list" className="max-h-56 overflow-y-auto border-b px-2 py-2"
       onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}
       onDragOver={(e) => e.preventDefault()}
@@ -310,6 +296,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               }
             }}
             onContextMenu={(e) => {
+              const target = e.target as Element;
+              if (target.closest('[data-testid^="part-"], [data-testid^="instances-select-"], [data-testid^="instance-"]')) return;
               const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
               if (row) handleRowContextMenu(e, row, { kind: 'object', object: obj });
             }}
@@ -372,7 +360,6 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       }
                     }}
                     onContextMenu={(e) => {
-                      e.stopPropagation();
                       const row = flatRows.find((r) => r.key === `vol:${obj.index}:${vol.index}`);
                       if (row) handleRowContextMenu(e, row, { kind: 'part', object: obj, volume: vol });
                     }}
@@ -414,7 +401,6 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         // that already holds them), then open the selection's
                         // menu — with the whole object selected that is the
                         // object menu, as for one of its instance rows.
-                        e.stopPropagation();
                         if (!sceneInteraction) return;
                         const objRow = flatRows.find((r) => r.key === `obj:${obj.index}`);
                         if (objRow && !rowFullySelected(objRow, 0)) {
@@ -444,7 +430,6 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         data-testid={`instance-${inst.id}`}
                         className="flex items-center gap-0.5"
                         onContextMenu={(e) => {
-                          e.stopPropagation();
                           const row = flatRows.find((r) => r.key === `inst:${obj.index}:${inst.index}`);
                           if (row) handleRowContextMenu(e, row, { kind: 'instance', object: obj, instance: inst });
                         }}
@@ -470,9 +455,25 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
           </div>
         );
       })}
-      {ctx && (
-        <ObjectListContextMenu target={ctx.target} point={ctx.point} onClose={() => setCtx(null)} onRename={startRename} />
-      )}
     </div>
+  );
+
+  return (
+    <ContextMenu
+      open={contextMenuOpen}
+      onOpenChange={setContextMenuOpen}
+      onOpenChangeComplete={(open) => { if (!open) setCtx(null); }}
+    >
+      <ContextMenuTrigger className="contents">
+        {content}
+      </ContextMenuTrigger>
+      {ctx && (
+        <ObjectListContextMenu
+          target={ctx.target}
+          onClose={() => setContextMenuOpen(false)}
+          onRename={startRename}
+        />
+      )}
+    </ContextMenu>
   );
 }

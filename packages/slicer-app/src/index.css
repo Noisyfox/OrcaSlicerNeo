@@ -10,6 +10,9 @@
   --color-foreground: hsl(0 0% 93%);
   --color-card: hsl(0 0% 10%);
   --color-card-foreground: hsl(0 0% 93%);
+  /* Popup surfaces use the same opaque dark surface as cards. */
+  --color-popover: hsl(0 0% 10%);
+  --color-popover-foreground: hsl(0 0% 93%);
   --color-primary: hsl(217 91% 60%);
   --color-primary-foreground: hsl(0 0% 100%);
   --color-secondary: hsl(0 0% 16%);

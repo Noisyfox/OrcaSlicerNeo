@@ -1,5 +1,10 @@
 import type { ModelInstanceStructure, ModelObjectStructure, ModelVolumeStructure, VolumeType } from '@slicer/client';
+import type { ReactNode } from 'react';
 import { usePlatform } from '@orca/platform-contract';
+import {
+  ContextMenuContent,
+  ContextMenuItem,
+} from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
 import {
   addInstanceInList,
@@ -26,27 +31,26 @@ const VOLUME_TYPES: VolumeType[] = [
 ];
 
 function MenuItem({ label, testid, onClick, danger, disabled }: {
-  label: string; testid: string; onClick: () => void; danger?: boolean; disabled?: boolean;
+  label: string;
+  testid: string;
+  onClick: () => void;
+  danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      role="menuitem"
+    <ContextMenuItem
       data-testid={testid}
+      variant={danger ? 'destructive' : 'default'}
       onClick={onClick}
       disabled={disabled}
-      className={`flex h-7 w-full cursor-default items-center gap-2 rounded-sm px-2 text-left text-xs/relaxed select-none outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground ${
-        danger ? 'text-destructive hover:text-destructive' : ''
-      } disabled:pointer-events-none disabled:opacity-50`}
     >
       {label}
-    </button>
+    </ContextMenuItem>
   );
 }
 
-export function ObjectListContextMenu({ target, point, onClose, onRename, showRename = true }: {
+export function ObjectListContextMenu({ target, onClose, onRename, showRename = true }: {
   target: ObjectListCtxTarget;
-  point: { x: number; y: number };
   onClose: () => void;
   onRename?: (kind: 'object' | 'part', id: number, currentName: string) => void;
   // Some surfaces (e.g. the scene object menu) have no rename editor; the
@@ -69,9 +73,9 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
       onClick={() => act(assembleObjectsInList(runtime, selectedObjectIds))} />
   ) : null;
 
-  let items: ReturnType<typeof MenuItem>[] = [];
+  const items: ReactNode[] = [];
   if (target.kind === 'list') {
-    items = assembleItem ? [assembleItem] : [];
+    if (assembleItem) items.push(assembleItem);
   } else if (target.kind === 'object') {
     const o = target.object;
     // The object menu is selection-based: Delete/Clone/printable act on the
@@ -81,24 +85,33 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
     // selection is highlighted at instance level and holds no full object
     // (projection.objectIds empty, e.g. selected via the Instances group).
     const targetObjectIds = selectedObjectIds.includes(o.id) ? selectedObjectIds : [o.id];
-    items = [
-      ...(assembleItem ? [assembleItem] : []),
-      ...(showRename && canRename ? [(
+    if (assembleItem) items.push(assembleItem);
+    if (showRename && canRename) {
+      items.push(
         <MenuItem key="rename" label="Rename" testid="objectlist-rename"
-          onClick={() => { onRename?.('object', o.id, o.name); onClose(); }} />
-      )] : []),
-      // Printable applies to the whole selection (right-click a selected
-      // member to toggle everything).
+          onClick={() => {
+            onRename?.('object', o.id, o.name);
+            onClose();
+          }} />,
+      );
+    }
+    // Printable applies to the whole selection (right-click a selected
+    // member to toggle everything).
+    items.push(
       <MenuItem key="printable" label={o.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
         onClick={() => act(setObjectPrintableInList(runtime, targetObjectIds, !o.printable))} />,
       <MenuItem key="clone" label="Clone" testid="objectlist-clone"
         onClick={() => act(cloneObjectsInList(runtime, targetObjectIds))} />,
-      // Orca shows Split to objects only when the object is splittable (multiple
-      // volumes, or a volume with disconnected shells).
-      ...(o.volumes.length > 1 || o.volumes.some((vol) => vol.isSplittable) ? [(
+    );
+    // Orca shows Split to objects only when the object is splittable (multiple
+    // volumes, or a volume with disconnected shells).
+    if (o.volumes.length > 1 || o.volumes.some((vol) => vol.isSplittable)) {
+      items.push(
         <MenuItem key="split" label="Split to objects" testid="objectlist-split-objects"
-          onClick={() => act(splitObjectToObjectsInList(runtime, o.id))} />
-      )] : []),
+          onClick={() => act(splitObjectToObjectsInList(runtime, o.id))} />,
+      );
+    }
+    items.push(
       <MenuItem key="add-instance" label="Add instance" testid="objectlist-add-instance"
         onClick={() => act(addInstanceInList(runtime, o.id))} />,
       // Remove the last instance; an object must keep at least one instance.
@@ -110,26 +123,33 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
         }} />,
       <MenuItem key="delete" label="Delete" testid="objectlist-delete" danger
         onClick={() => act(deleteObjectsInList(runtime, targetObjectIds))} />,
-    ];
+    );
   } else if (target.kind === 'part') {
-    const { object: o, volume: v } = target;
-    items = [
-      ...(showRename && canRename ? [(
+    const { volume: v } = target;
+    if (showRename && canRename) {
+      items.push(
         <MenuItem key="rename" label="Rename" testid="objectlist-rename"
-          onClick={() => { onRename?.('part', v.id, v.name); onClose(); }} />
-      )] : []),
-      // Orca shows Split to parts only for a volume with disconnected shells.
-      ...(v.isSplittable ? [(
+          onClick={() => {
+            onRename?.('part', v.id, v.name);
+            onClose();
+          }} />,
+      );
+    }
+    // Orca shows Split to parts only for a volume with disconnected shells.
+    if (v.isSplittable) {
+      items.push(
         <MenuItem key="split" label="Split to parts" testid="objectlist-split-parts"
-          onClick={() => act(splitVolumeToPartsInList(runtime, v.id))} />
-      )] : []),
+          onClick={() => act(splitVolumeToPartsInList(runtime, v.id))} />,
+      );
+    }
+    items.push(
       <MenuItem key="delete" label="Delete part" testid="objectlist-delete" danger
         onClick={() => act(deleteVolumeInList(runtime, v.id))} />,
       ...VOLUME_TYPES.filter((t) => t !== v.type).map((t) => (
         <MenuItem key={`type-${t}`} label={`Change type to ${t}`} testid={`objectlist-type-${t}`}
           onClick={() => act(changePartTypeInList(runtime, v.id, t))} />
       )),
-    ];
+    );
   } else if (target.kind === 'instance') {
     const inst = target.instance;
     const selectedInstanceIds = [...projection.instanceIds];
@@ -138,22 +158,24 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
     // objects in a cross-object selection are left alone).
     const objectInstanceIds = selectedInstanceIds.filter((id) =>
       target.object.instances.some((i) => i.id === id));
-    items = [
-      // OrcaSlicer calls this "Set as an individual object": it promotes the
-      // selected instance(s) into their own top-level object(s). Only
-      // meaningful (and only possible — the Instances group is hidden for
-      // single-instance objects) when the object has more than one instance.
-      ...(target.object.instanceCount > 1 ? [(
+    // OrcaSlicer calls this "Set as an individual object": it promotes the
+    // selected instance(s) into their own top-level object(s). Only
+    // meaningful (and only possible — the Instances group is hidden for
+    // single-instance objects) when the object has more than one instance.
+    if (target.object.instanceCount > 1) {
+      items.push(
         <MenuItem key="individual" label="Set as an individual object" testid="objectlist-separate"
           onClick={() => act(separateInstancesInList(runtime, target.object.id,
-            objectInstanceIds.length > 0 ? objectInstanceIds : [inst.id]))} />
-      )] : []),
-      // Same selection rule as the object row: toggle all selected instances
-      // when the clicked instance is part of the selection.
+            objectInstanceIds.length > 0 ? objectInstanceIds : [inst.id]))} />,
+      );
+    }
+    // Same selection rule as the object row: toggle all selected instances
+    // when the clicked instance is part of the selection.
+    items.push(
       <MenuItem key="printable" label={inst.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
         onClick={() => act(setInstancePrintableInList(runtime,
           selectedInstanceIds.includes(inst.id) ? selectedInstanceIds : [inst.id], !inst.printable))} />,
-    ];
+    );
   }
 
   // Nothing to offer (e.g. empty-space right-click without a multi-object
@@ -161,10 +183,8 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
   if (items.length === 0) return null;
 
   return (
-    <div role="menu" data-testid="objectlist-ctx-menu"
-      className="pointer-events-auto fixed z-50 min-w-40 rounded-md border bg-card p-1 shadow-md"
-      style={{ left: point.x, top: point.y }}>
+    <ContextMenuContent data-testid="objectlist-ctx-menu" className="min-w-40">
       {items}
-    </div>
+    </ContextMenuContent>
   );
 }
