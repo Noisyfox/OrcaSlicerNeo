@@ -23,6 +23,13 @@ the scene context menu.
   part editor that also freezes the enclosing object row, since a
   non-draggable part's native drag source is its draggable ancestor
   (updated 2026-08-24).
+- The Rename item is hidden while multiple full objects are selected (the
+  rename target would be ambiguous; Orca hides it there too) — both on the
+  object-row and part-row menus (updated 2026-08-24).
+- Toggling printable/unprintable applies to the whole selection when the
+  clicked row is part of it (object rows flip every selected object, instance
+  rows every selected instance); otherwise it targets the clicked row alone.
+  The label always follows the clicked row (updated 2026-08-24).
 - "Set as an individual object" (OrcaSlicer's label for separating instances)
   appears only on an instance row of a multi-instance object and promotes that
   single instance into its own top-level object.

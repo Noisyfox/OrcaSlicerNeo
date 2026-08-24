@@ -61,6 +61,9 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
   // "Assemble" merges the fully-selected objects only (never the whole list).
   const selectedObjectIds = [...projection.objectIds];
   const canAssemble = selectedObjectIds.length >= 2;
+  // Rename targets the row's object/part, which is ambiguous while several
+  // full objects are selected (Orca hides the rename item there too).
+  const canRename = selectedObjectIds.length < 2;
   const assembleItem = canAssemble ? (
     <MenuItem key="assemble" label="Assemble" testid="objectlist-assemble"
       onClick={() => act(assembleObjectsInList(runtime, selectedObjectIds))} />
@@ -73,12 +76,16 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
     const o = target.object;
     items = [
       ...(assembleItem ? [assembleItem] : []),
-      ...(showRename ? [(
+      ...(showRename && canRename ? [(
         <MenuItem key="rename" label="Rename" testid="objectlist-rename"
           onClick={() => { onRename?.('object', o.id, o.name); onClose(); }} />
       )] : []),
+      // Printable applies to the whole selection when the clicked object is
+      // part of it (right-click a selected member to toggle everything);
+      // otherwise it targets the clicked object alone.
       <MenuItem key="printable" label={o.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
-        onClick={() => act(setObjectPrintableInList(runtime, o.id, !o.printable))} />,
+        onClick={() => act(setObjectPrintableInList(runtime,
+          selectedObjectIds.includes(o.id) ? selectedObjectIds : [o.id], !o.printable))} />,
       <MenuItem key="clone" label="Clone" testid="objectlist-clone"
         onClick={() => act(cloneObjectsInList(runtime, [o.id]))} />,
       // Orca shows Split to objects only when the object is splittable (multiple
@@ -102,7 +109,7 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
   } else if (target.kind === 'part') {
     const { object: o, volume: v } = target;
     items = [
-      ...(showRename ? [(
+      ...(showRename && canRename ? [(
         <MenuItem key="rename" label="Rename" testid="objectlist-rename"
           onClick={() => { onRename?.('part', v.id, v.name); onClose(); }} />
       )] : []),
@@ -120,6 +127,7 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
     ];
   } else if (target.kind === 'instance') {
     const inst = target.instance;
+    const selectedInstanceIds = [...projection.instanceIds];
     items = [
       // OrcaSlicer calls this "Set as an individual object": it promotes the
       // right-clicked instance into its own top-level object. Only meaningful
@@ -129,8 +137,11 @@ export function ObjectListContextMenu({ target, point, onClose, onRename, showRe
         <MenuItem key="individual" label="Set as an individual object" testid="objectlist-separate"
           onClick={() => act(separateInstancesInList(runtime, target.object.id, [inst.id]))} />
       )] : []),
+      // Same selection rule as the object row: toggle all selected instances
+      // when the clicked instance is part of the selection.
       <MenuItem key="printable" label={inst.printable ? 'Mark unprintable' : 'Mark printable'} testid="objectlist-printable"
-        onClick={() => act(setInstancePrintableInList(runtime, inst.id, !inst.printable))} />,
+        onClick={() => act(setInstancePrintableInList(runtime,
+          selectedInstanceIds.includes(inst.id) ? selectedInstanceIds : [inst.id], !inst.printable))} />,
     ];
   }
 

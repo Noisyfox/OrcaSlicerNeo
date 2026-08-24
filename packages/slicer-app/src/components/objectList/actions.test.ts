@@ -105,11 +105,12 @@ describe('object list action helpers', () => {
     expect(useSettingsStore.getState().modelRevision).toBe(before + 1);
   });
 
-  it('setObjectPrintableInList toggles printable and refreshes', async () => {
+  it('setObjectPrintableInList toggles printable for every target and refreshes once', async () => {
     const runtime = makeRuntime();
-    const r = await setObjectPrintableInList(runtime, 1, false);
+    const r = await setObjectPrintableInList(runtime, [1, 2], false);
     expect(r).toEqual({ ok: true });
     expect(runtime.setObjectPrintable).toHaveBeenCalledWith(1, false);
+    expect(runtime.setObjectPrintable).toHaveBeenCalledWith(2, false);
     expect(useSlicerStore.getState().status).toBe('idle');
   });
 

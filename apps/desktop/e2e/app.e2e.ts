@@ -477,6 +477,23 @@ test('object list: clone, assemble, delete (structural, mock)', async () => {
     await objectRows.nth(0).click();
     await objectRows.nth(1).click({ modifiers: ['Control'] });
     await objectRows.nth(1).click({ button: 'right' });
+    // Rename is hidden while multiple objects are selected (the single-object
+    // rename flow is covered by the rename test).
+    await expect(list.getByTestId('objectlist-rename')).toBeHidden();
+    // Printable applies to the whole selection when the clicked row is part of
+    // it: one toggle flips both objects, and each row's menu then reads
+    // "Mark printable". (Escape also clears the selection, so re-select
+    // before Assemble below.)
+    await list.getByTestId('objectlist-printable').click();
+    await objectRows.nth(0).click({ button: 'right' });
+    await expect(list.getByTestId('objectlist-printable')).toHaveText('Mark printable');
+    await page.keyboard.press('Escape');
+    await objectRows.nth(1).click({ button: 'right' });
+    await expect(list.getByTestId('objectlist-printable')).toHaveText('Mark printable');
+    await page.keyboard.press('Escape');
+    await objectRows.nth(0).click();
+    await objectRows.nth(1).click({ modifiers: ['Control'] });
+    await objectRows.nth(1).click({ button: 'right' });
     await list.getByTestId('objectlist-assemble').click();
     await expect(list).toContainText('Assembly');
     await expect.poll(objectCount).toBe(1);

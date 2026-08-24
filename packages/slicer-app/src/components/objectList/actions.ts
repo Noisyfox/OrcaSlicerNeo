@@ -96,20 +96,28 @@ export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: num
   return { ok: true };
 }
 
-export async function setObjectPrintableInList(runtime: SlicerRuntime, objectId: number, printable: boolean): Promise<MutationOutcome> {
+/** Toggle printable on one object or the whole multi-selection (the caller
+ *  resolves the targets from the current projection). The runtime API is
+ *  single-id, so the loop runs the sequential bridge calls and the structure
+ *  refresh happens once after all of them. */
+export async function setObjectPrintableInList(runtime: SlicerRuntime, objectIds: number[], printable: boolean): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = await runtime.setObjectPrintable(objectId, printable);
-  if (!r.ok) return { ok: false, error: r.error };
+  for (const objectId of objectIds) {
+    const r = await runtime.setObjectPrintable(objectId, printable);
+    if (!r.ok) return { ok: false, error: r.error };
+  }
   await refreshAfterModelMutation(runtime);
   return { ok: true };
 }
 
-export async function setInstancePrintableInList(runtime: SlicerRuntime, instanceId: number, printable: boolean): Promise<MutationOutcome> {
+export async function setInstancePrintableInList(runtime: SlicerRuntime, instanceIds: number[], printable: boolean): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = await runtime.setInstancePrintable(instanceId, printable);
-  if (!r.ok) return { ok: false, error: r.error };
+  for (const instanceId of instanceIds) {
+    const r = await runtime.setInstancePrintable(instanceId, printable);
+    if (!r.ok) return { ok: false, error: r.error };
+  }
   await refreshAfterModelMutation(runtime);
   return { ok: true };
 }
