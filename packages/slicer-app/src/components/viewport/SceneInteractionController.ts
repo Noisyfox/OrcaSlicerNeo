@@ -900,7 +900,21 @@ export class SceneInteractionController {
         }
       }
     } else {
-      for (const entry of entries) if (entry.kind === 'volume') entry.volume.volumeTransform = cloneTransform(entry.volumeTransform);
+      // ModelVolume transforms are stored once per object volume in the native
+      // model, while the renderer keeps one GLVolume for every instance copy.
+      // Fan each edited volume transform out to every rendered copy so a later
+      // sync cannot upload a stale sibling and overwrite the native value.
+      const transformsByPart = new Map<string, ModelTransform>();
+      for (const entry of entries) {
+        if (entry.kind !== 'volume') continue;
+        const key = `${entry.volume.buffer.objectIdx}:${entry.volume.buffer.volumeIdx}`;
+        if (!transformsByPart.has(key)) transformsByPart.set(key, cloneTransform(entry.volumeTransform));
+      }
+      for (const volume of this.getVolumes()) {
+        const key = `${volume.buffer.objectIdx}:${volume.buffer.volumeIdx}`;
+        const transform = transformsByPart.get(key);
+        if (transform) volume.volumeTransform = cloneTransform(transform);
+      }
     }
   }
 

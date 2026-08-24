@@ -729,20 +729,26 @@ describe('part-scoped (volume) transforms', () => {
   });
 
   it('moves only the selected part, not the whole instance', () => {
+    const instanceTransforms = volumes.map((volume) => structuredClone(volume.instanceTransform));
     controller.selectComposite(0, 1);
     controller.moveSelectionBy(new THREE.Vector3(10, 0, 0));
-    // The selected part (instance 0's part 1) moves; the other instance's copy
-    // of the same part, the sibling volumes, and the instance transforms do not.
+    // The selected part's ModelVolume transform is shared by every instance;
+    // the sibling part and all per-instance transforms remain unchanged.
     expect(volumes[1].volumeTransform.offset[0]).toBeCloseTo(10, 6);
-    expect(volumes[3].volumeTransform.offset[0]).toBeCloseTo(0, 6);
+    expect(volumes[3].volumeTransform.offset[0]).toBeCloseTo(10, 6);
     expect(volumes[0].volumeTransform.offset[0]).toBeCloseTo(0, 6);
-    expect(volumes[0].instanceTransform.offset[0]).toBeCloseTo(0, 6);
+    expect(volumes[2].volumeTransform.offset[0]).toBeCloseTo(0, 6);
+    expect(volumes.map((volume) => volume.instanceTransform)).toEqual(instanceTransforms);
   });
 
-  it('scales only the selected part', () => {
+  it('scales every instance copy of the selected part', () => {
+    const instanceTransforms = volumes.map((volume) => structuredClone(volume.instanceTransform));
     controller.selectComposite(0, 0);
     controller.scaleSelectionBy([2, 1, 1]);
     expect(volumes[0].volumeTransform.scale[0]).toBeCloseTo(2, 6);
+    expect(volumes[2].volumeTransform.scale[0]).toBeCloseTo(2, 6);
     expect(volumes[1].volumeTransform.scale[0]).toBeCloseTo(1, 6);
+    expect(volumes[3].volumeTransform.scale[0]).toBeCloseTo(1, 6);
+    expect(volumes.map((volume) => volume.instanceTransform)).toEqual(instanceTransforms);
   });
 });
