@@ -1,5 +1,6 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import { useSlicerStore } from '../../stores/useSlicerStore';
 import { syncModelTransforms } from './syncModelTransforms';
 
 type SyncResult = { ok: boolean; error?: string };
@@ -16,7 +17,23 @@ export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<S
     () => syncModelTransforms(runtime, snapshot),
     () => syncModelTransforms(runtime, snapshot),
   );
-  pendingSettledTransformSync = sync.catch((error) => ({
+  pendingSettledTransformSync = sync.then((result) => {
+    // A settled model transform is a slice-input change (spec §8): the
+    // bridge invalidated the completed Print, so mirror that in the
+    // renderer — the stale toolpath preview is cleared (useSliceResult)
+    // and export is disabled until re-slicing. On sync failure nothing
+    // was applied, so the prior result stays valid.
+    if (result.ok) {
+      const slicer = useSlicerStore.getState();
+      slicer.setStatus('idle');
+      slicer.setResultExported(false);
+      slicer.setError(null);
+      slicer.setLayers(0);
+      slicer.setProgress(0);
+    }
+    return result;
+  });
+  pendingSettledTransformSync = pendingSettledTransformSync.catch((error) => ({
     ok: false,
     error: error instanceof Error ? error.message : String(error),
   }));
