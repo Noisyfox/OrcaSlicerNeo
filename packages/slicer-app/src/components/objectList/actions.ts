@@ -3,10 +3,34 @@ import type { VolumeType } from '@slicer/client';
 import { useObjectListStore } from './useObjectListStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { waitForSettledModelTransforms } from '../toolbar/persistModelTransforms';
 
 export interface MutationOutcome {
   ok: boolean;
   error?: string;
+}
+
+/**
+ * Structural and metadata mutations use positional model indices. Drain the
+ * transform queue before changing those indices so an older snapshot cannot
+ * arrive after the mutation and overwrite the wrong object or part.
+ */
+export async function waitForPendingModelTransforms(): Promise<MutationOutcome> {
+  try {
+    const settled = await waitForSettledModelTransforms();
+    if (!settled.ok) {
+      return {
+        ok: false,
+        error: settled.error ?? 'Unable to persist pending model transforms',
+      };
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 /**
@@ -38,6 +62,8 @@ export async function refreshAfterModelMutation(
 }
 
 export async function renameObjectInList(runtime: SlicerRuntime, objectId: number, name: string): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.renameObject(objectId, name);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime);
@@ -45,6 +71,8 @@ export async function renameObjectInList(runtime: SlicerRuntime, objectId: numbe
 }
 
 export async function renamePartInList(runtime: SlicerRuntime, volumeId: number, name: string): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.renameVolume(volumeId, name);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime);
@@ -52,6 +80,8 @@ export async function renamePartInList(runtime: SlicerRuntime, volumeId: number,
 }
 
 export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: number, type: VolumeType): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.setVolumeType(volumeId, type);
   if (!r.ok) return { ok: false, error: r.error };
   // Changing a part's type alters which volumes compose the print mesh.
@@ -60,6 +90,8 @@ export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: num
 }
 
 export async function setObjectPrintableInList(runtime: SlicerRuntime, objectId: number, printable: boolean): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.setObjectPrintable(objectId, printable);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime);
@@ -67,6 +99,8 @@ export async function setObjectPrintableInList(runtime: SlicerRuntime, objectId:
 }
 
 export async function setInstancePrintableInList(runtime: SlicerRuntime, instanceId: number, printable: boolean): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.setInstancePrintable(instanceId, printable);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime);

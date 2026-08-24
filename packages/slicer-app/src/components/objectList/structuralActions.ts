@@ -1,5 +1,9 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
-import { refreshAfterModelMutation, type MutationOutcome } from './actions';
+import {
+  refreshAfterModelMutation,
+  waitForPendingModelTransforms,
+  type MutationOutcome,
+} from './actions';
 
 /**
  * Structural (geometry-changing) object/part actions. Each calls the matching
@@ -10,6 +14,8 @@ import { refreshAfterModelMutation, type MutationOutcome } from './actions';
  * entities / delete-neighbour) are a later UI refinement.
  */
 export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: number[]): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.deleteObjects(objectIds);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
@@ -17,6 +23,8 @@ export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: num
 }
 
 export async function deleteVolumeInList(runtime: SlicerRuntime, volumeId: number): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.deleteVolumes([volumeId]);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
@@ -24,6 +32,8 @@ export async function deleteVolumeInList(runtime: SlicerRuntime, volumeId: numbe
 }
 
 export async function cloneObjectsInList(runtime: SlicerRuntime, objectIds: number[]): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.cloneObjects(objectIds);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
@@ -31,6 +41,8 @@ export async function cloneObjectsInList(runtime: SlicerRuntime, objectIds: numb
 }
 
 export async function splitVolumeToPartsInList(runtime: SlicerRuntime, volumeId: number): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.splitVolumeToParts(volumeId);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
@@ -38,6 +50,8 @@ export async function splitVolumeToPartsInList(runtime: SlicerRuntime, volumeId:
 }
 
 export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectId: number): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.splitObjectToObjects(objectId);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
@@ -45,6 +59,8 @@ export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectI
 }
 
 export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: number[], name = 'Assembly'): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.mergeObjectsToMultipart(objectIds, name);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
@@ -52,6 +68,8 @@ export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: n
 }
 
 export async function separateInstancesInList(runtime: SlicerRuntime, objectId: number, instanceIds: number[]): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.separateInstances(objectId, instanceIds);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
@@ -59,6 +77,8 @@ export async function separateInstancesInList(runtime: SlicerRuntime, objectId: 
 }
 
 export async function reorderObjectsInList(runtime: SlicerRuntime, fromObjectId: number, toIndex: number): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.reorderObjects(fromObjectId, toIndex);
   if (!r.ok) return { ok: false, error: r.error };
   // Reordering objects changes their positional indices. The viewport mesh
@@ -70,6 +90,8 @@ export async function reorderObjectsInList(runtime: SlicerRuntime, fromObjectId:
 }
 
 export async function reorderVolumesInList(runtime: SlicerRuntime, objectId: number, fromVolumeId: number, toIndex: number): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.reorderVolumes(objectId, fromVolumeId, toIndex);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
@@ -77,6 +99,8 @@ export async function reorderVolumesInList(runtime: SlicerRuntime, objectId: num
 }
 
 export async function addInstanceInList(runtime: SlicerRuntime, objectId: number): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.addInstance(objectId);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);
@@ -84,6 +108,8 @@ export async function addInstanceInList(runtime: SlicerRuntime, objectId: number
 }
 
 export async function removeInstanceInList(runtime: SlicerRuntime, objectId: number, instanceId: number): Promise<MutationOutcome> {
+  const settled = await waitForPendingModelTransforms();
+  if (!settled.ok) return settled;
   const r = await runtime.removeInstance(objectId, instanceId);
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime, true);

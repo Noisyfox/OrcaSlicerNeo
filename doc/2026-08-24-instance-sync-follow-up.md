@@ -11,3 +11,12 @@ the same object and volume indices. Per-instance transforms remain keyed by
 targets. The focused part-scoped tests cover movement and scaling across both
 instances, verify that sibling parts remain unchanged, and verify that
 instance offsets are preserved.
+
+ObjectList mutations have a related ordering invariant: every operation that
+changes model metadata or structure must await `waitForSettledModelTransforms`
+before invoking its runtime bridge method. Transform persistence snapshots use
+positional object/volume indices, so deleting, reordering, splitting, cloning,
+or changing printable/type state while a snapshot is still pending could apply
+that snapshot to a different entity. A failed settled sync aborts the ObjectList
+mutation and leaves the bridge untouched; callers receive the failed
+`MutationOutcome` for display and retry handling.

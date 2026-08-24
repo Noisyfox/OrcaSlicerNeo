@@ -3,6 +3,7 @@ import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from './useObjectListStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { waitForSettledModelTransforms } from '../toolbar/persistModelTransforms';
 import {
   addInstanceInList,
   assembleObjectsInList,
@@ -14,6 +15,10 @@ import {
   reorderVolumesInList,
   separateInstancesInList,
 } from './structuralActions';
+
+vi.mock('../toolbar/persistModelTransforms', () => ({
+  waitForSettledModelTransforms: vi.fn(async () => ({ ok: true })),
+}));
 
 const structure = {
   ok: true as const,
@@ -37,6 +42,8 @@ function makeRuntime(): SlicerRuntime {
 
 describe('object list structural actions', () => {
   beforeEach(() => {
+    vi.mocked(waitForSettledModelTransforms).mockReset();
+    vi.mocked(waitForSettledModelTransforms).mockResolvedValue({ ok: true });
     useObjectListStore.setState({ structure: [], loaded: false, expanded: {}, projection: { objectIds: new Set(), volumeIds: new Set(), instanceIds: new Set() } });
     useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', layers: 40 });
     useSettingsStore.setState({ modelLoaded: true, modelRevision: 3 });
@@ -78,6 +85,22 @@ describe('object list structural actions', () => {
     expect(runtime.reorderObjects).toHaveBeenCalledWith(2, 1);
   });
 
+  it('waits for pending transforms before reordering model indices', async () => {
+    let release!: (result: { ok: boolean }) => void;
+    vi.mocked(waitForSettledModelTransforms).mockReturnValueOnce(new Promise((resolve) => {
+      release = resolve;
+    }));
+    const runtime = makeRuntime();
+    const mutation = reorderObjectsInList(runtime, 2, 1);
+
+    await Promise.resolve();
+    expect(runtime.reorderObjects).not.toHaveBeenCalled();
+
+    release({ ok: true });
+    await mutation;
+    expect(runtime.reorderObjects).toHaveBeenCalledWith(2, 1);
+  });
+
   it('reorderVolumesInList calls the bridge with the object/volume IDs and a destination index', async () => {
     const runtime = makeRuntime();
     await reorderVolumesInList(runtime, 5, 20, 10);
@@ -107,6 +130,19 @@ describe('object list structural actions', () => {
     (runtime.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, error: 'object not found' });
     const r = await deleteObjectsInList(runtime, [1]);
     expect(r).toEqual({ ok: false, error: 'object not found' });
+    expect(useSlicerStore.getState().status).toBe('done');
+  });
+
+  it('aborts structural mutations when pending transform persistence fails', async () => {
+    vi.mocked(waitForSettledModelTransforms).mockResolvedValueOnce({
+      ok: false,
+      error: 'transform sync failed',
+    });
+    const runtime = makeRuntime();
+    const r = await deleteObjectsInList(runtime, [1]);
+
+    expect(r).toEqual({ ok: false, error: 'transform sync failed' });
+    expect(runtime.deleteObjects).not.toHaveBeenCalled();
     expect(useSlicerStore.getState().status).toBe('done');
   });
 });

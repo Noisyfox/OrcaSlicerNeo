@@ -3,11 +3,16 @@ import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from './useObjectListStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { waitForSettledModelTransforms } from '../toolbar/persistModelTransforms';
 import {
   changePartTypeInList,
   renameObjectInList,
   setObjectPrintableInList,
 } from './actions';
+
+vi.mock('../toolbar/persistModelTransforms', () => ({
+  waitForSettledModelTransforms: vi.fn(async () => ({ ok: true })),
+}));
 
 const structure = {
   ok: true as const,
@@ -30,6 +35,8 @@ function makeRuntime(overrides: Partial<SlicerRuntime> = {}): SlicerRuntime {
 
 describe('object list action helpers', () => {
   beforeEach(() => {
+    vi.mocked(waitForSettledModelTransforms).mockReset();
+    vi.mocked(waitForSettledModelTransforms).mockResolvedValue({ ok: true });
     useObjectListStore.setState({ structure: [], loaded: false, expanded: {}, projection: { objectIds: new Set(), volumeIds: new Set(), instanceIds: new Set() } });
     useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', layers: 40 });
     useSettingsStore.setState({ modelLoaded: true, modelRevision: 3 });
@@ -44,6 +51,22 @@ describe('object list action helpers', () => {
     expect(useSlicerStore.getState().status).toBe('idle');
     expect(useSlicerStore.getState().resultExported).toBe(false);
     expect(useSlicerStore.getState().error).toBeNull();
+  });
+
+  it('waits for pending transforms before invoking the metadata bridge', async () => {
+    let release!: (result: { ok: boolean }) => void;
+    vi.mocked(waitForSettledModelTransforms).mockReturnValueOnce(new Promise((resolve) => {
+      release = resolve;
+    }));
+    const runtime = makeRuntime();
+    const mutation = renameObjectInList(runtime, 1, 'Renamed');
+
+    await Promise.resolve();
+    expect(runtime.renameObject).not.toHaveBeenCalled();
+
+    release({ ok: true });
+    await mutation;
+    expect(runtime.renameObject).toHaveBeenCalledWith(1, 'Renamed');
   });
 
   it('changePartTypeInList triggers a geometry refresh (mesh reload)', async () => {
@@ -68,6 +91,19 @@ describe('object list action helpers', () => {
     });
     const r = await renameObjectInList(runtime, 99, 'X');
     expect(r).toEqual({ ok: false, error: 'object not found' });
+    expect(useSlicerStore.getState().status).toBe('done');
+  });
+
+  it('aborts the mutation when pending transform persistence fails', async () => {
+    vi.mocked(waitForSettledModelTransforms).mockResolvedValueOnce({
+      ok: false,
+      error: 'transform sync failed',
+    });
+    const runtime = makeRuntime();
+    const r = await renameObjectInList(runtime, 1, 'Renamed');
+
+    expect(r).toEqual({ ok: false, error: 'transform sync failed' });
+    expect(runtime.renameObject).not.toHaveBeenCalled();
     expect(useSlicerStore.getState().status).toBe('done');
   });
 });
