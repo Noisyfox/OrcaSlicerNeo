@@ -16,6 +16,13 @@ the WASM model and the renderer collection.
 - `orc_add_model(bytes, extension)` stages and parses a file into a temporary
   `Model`, prepares non-project objects using the existing centering/on-bed
   behaviour, then clones its objects into the current scene.
+- `orc_add_shape(type, name?)` builds an OrcaSlicer primitive in the engine
+  (`its_make_cube`) and adds it to the live `Model` directly, mirroring
+  `ObjectList::load_shape_object` → `create_mesh` → `load_mesh_object`: one
+  object + one part, both named after the primitive (the object is centered
+  and rested on the bed) — no staging file, filename derivation, or extension
+  strip. Only `"Cube"` is supported today; other `create_mesh` shapes follow
+  the same switch pattern.
 - `orc_clear_model()` resets the model and clears the associated `Print`, so a
   stale G-code result cannot be exported after a clear.
 - Every successful add or clear advances the renderer's model revision. This

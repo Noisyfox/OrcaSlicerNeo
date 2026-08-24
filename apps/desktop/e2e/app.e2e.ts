@@ -687,6 +687,9 @@ test('scene context menu: Add Cube appends a 20 mm primitive', async () => {
           }).__orcaE2e?.selectionBoundsWorld?.();
           return bounds ? bounds.size : null;
         })).toEqual([20, 20, 20]);
+        // The engine names the primitive's object and part "Cube", so the
+        // object list shows it like OrcaSlicer's Add Cube primitive.
+        await expect(page.locator('[data-testid^="object-"]').first()).toContainText('Cube');
       }
     } catch (err) {
       await diag.dump();

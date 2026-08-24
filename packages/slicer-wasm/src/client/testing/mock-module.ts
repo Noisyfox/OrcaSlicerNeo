@@ -269,6 +269,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sliced = false;
       return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
     },
+    orc_add_shape(type: string, name?: string) {
+      if (type !== 'Cube') return { error: `unsupported primitive type: ${type}` };
+      const shapeName = name || type;
+      // Mirror the native bridge: the primitive is built in the engine, and
+      // the object + its single part are named after the primitive label.
+      // A cube is one closed shell, so it is not splittable into parts.
+      modelLoaded = true;
+      objectTransforms.push(createObjectTransforms());
+      objectVolumeTransforms.push([identityTransform()]);
+      objectMeta.push({ id: nextObjectId++, name: shapeName, printable: true });
+      volumeMeta.push([{ id: nextVolumeId++, name: shapeName, type: 'model_part' as VolumeType, isSplittable: false }]);
+      instanceMeta.push(Array.from({ length: instanceCount }, (_, ii) => ({
+        id: nextInstanceId++,
+        printable: true,
+      })));
+      sliced = false;
+      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
+    },
     orc_clear_model() {
       objectTransforms = [];
       objectVolumeTransforms = [];
@@ -702,6 +720,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_presets: { ret: 'number', args: ['string'] },
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string'] },
+    orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },

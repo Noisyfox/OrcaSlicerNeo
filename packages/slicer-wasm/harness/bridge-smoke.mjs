@@ -129,6 +129,64 @@ check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringi
   }
 }
 
+// 4ab. Engine-side primitive (Add Cube): orc_add_shape mirrors OrcaSlicer's
+// ObjectList::load_shape_object → create_mesh → load_mesh_object path — the
+// cube is built in the engine with its_make_cube (no staging file) and one
+// object + one part both come out named after the primitive. It must land
+// the same way as the imported cube: local bbox centered at the origin with
+// the bed drop carried by the instance offset.
+{
+  callJson('orc_clear_model', [], []);
+  const added = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Cube']);
+  check('orc_add_shape adds one object and one instance',
+        added.ok === true && added.objects === 1 && added.instances === 1,
+        JSON.stringify(added));
+  const structure = callJson('orc_get_model_structure', [], []);
+  const sObj = structure.objects?.[0];
+  check('primitive object and part both named Cube',
+        structure.ok === true && structure.objects?.length === 1
+        && sObj?.name === 'Cube' && sObj?.volumes?.length === 1
+        && sObj.volumes[0].name === 'Cube',
+        JSON.stringify(sObj));
+  const mm = callJson('orc_get_model_mesh', [], []);
+  if (mm.ok && mm.objects?.length === 1) {
+    const o = mm.objects[0];
+    check('primitive is the 8-vertex cube mesh',
+          o.vertex_count === 8 && o.index_count === 36,
+          `verts=${o.vertex_count} idx=${o.index_count}`);
+    const verts = new Float32Array(readBytes(Module, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
+    const min = [Infinity, Infinity, Infinity];
+    const max = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < verts.length; i += 3)
+      for (let a = 0; a < 3; a++) {
+        if (verts[i + a] < min[a]) min[a] = verts[i + a];
+        if (verts[i + a] > max[a]) max[a] = verts[i + a];
+      }
+    const center = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
+    const near = (v, e) => Math.abs(v - e) < 1e-3;
+    check('primitive mesh centered at the origin',
+          center.every((c) => near(c, 0)), `center=[${center}]`);
+    check('primitive rests on the bed (world min Z = 0)',
+          near(o.offset[0], 0) && near(o.offset[1], 0) && near(min[2] + o.offset[2], 0),
+          `offset=[${o.offset}] minZ=${min[2]}`);
+  } else {
+    check('primitive mesh available', false, JSON.stringify(mm).slice(0, 120));
+  }
+  const bad = callJson('orc_add_shape', ['string', 'string'], ['Sphere', '']);
+  check('orc_add_shape rejects an unsupported primitive',
+        bad.ok !== true && /unsupported primitive type/.test(bad.error ?? ''),
+        JSON.stringify(bad));
+  // The sections below assume the one-cube file fixture; restore it.
+  callJson('orc_clear_model', [], []);
+  const cubePtr = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, cubePtr);
+  const restored = callJson('orc_add_model', ['pointer', 'number', 'string'],
+                            [cubePtr, stl.length, 'stl']);
+  Module._free(cubePtr);
+  check('stl cube restored after the primitive checks', restored.ok === true && restored.objects === 1,
+        JSON.stringify(restored));
+}
+
 // Add Model must append to the live scene; Clear Scene is the only operation
 // that resets it. Restore a single cube afterwards so the existing slice and
 // centering checks below continue to exercise the one-object fixture.

@@ -126,6 +126,12 @@ export function createClient(
       }
     },
 
+    async addShape(type: string, name?: string): Promise<LoadModelResult> {
+      const m = await module();
+      return callJson(m, 'orc_add_shape', ['string', 'string'],
+                      [type, name ?? '']) as LoadModelResult;
+    },
+
     async clearModel(): Promise<{ ok: boolean; error?: string }> {
       const m = await module();
       return callJson(m, 'orc_clear_model', [], []) as { ok: boolean; error?: string };

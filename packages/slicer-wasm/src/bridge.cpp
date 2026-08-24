@@ -34,6 +34,7 @@
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/Utils.hpp"
 
 #include "bridge_buffers.hpp"
@@ -656,6 +657,64 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         // Drift at the pinned SHA: Model has no instance accessor — instances
         // live per-object (ModelObject::instances, Model.hpp:385; Model itself
         // only has the objects list, Model.hpp:1553-1560). Sum per object.
+        size_t instance_count = 0;
+        for (const ModelObject* o : state().model.objects)
+            instance_count += o->instances.size();
+        return dup_json(json{{"ok", true},
+                             {"objects",   state().model.objects.size()},
+                             {"instances", instance_count}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        // Non-std throw (M4 probe caught one escaping a partial-install
+        // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
+// OrcaSlicer primes are created in the engine and added to the model
+// directly (ObjectList::load_shape_object → create_mesh → load_mesh_object),
+// never through a file: no staging, no basename-derived names, no extension.
+// Mirror that here: the mesh is built with its_make_cube and the object and
+// its single part are named after the primitive label. The GUI canvas helpers
+// (nearest-empty-cell placement, snapshot) are not compiled into the WASM
+// build, so the shape lands at the current scene origin, resting on the bed —
+// the same result the staged STL import used to produce.
+EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* name) {
+    try {
+        const std::string type_str = type ? type : "";
+        if (type_str != "Cube")
+            return error_json("unsupported primitive type: " + type_str);
+        const std::string object_name = (name && *name) ? name : type_str;
+        // App-sized cube: OrcaSlicer sizes primes at 10% of the max bed size
+        // (get_size_proportional_to_max_bed_size); keep the app's established
+        // 20 mm so the primitive renders like the well-tested cube path.
+        const double side = 20.0;
+        TriangleMesh mesh = TriangleMesh(its_make_cube(side, side, side));
+        const BoundingBoxf3 bb = mesh.bounding_box();
+
+        ModelObject* new_object = state().model.add_object();
+        new_object->name = object_name;
+        new_object->add_instance(); // each object should have at least one instance
+        ModelVolume* new_volume = new_object->add_volume(mesh);
+        new_object->sort_volumes(true);
+        new_volume->name = object_name;
+        // The primitive has no per-object settings: default the extruder so
+        // slicing assigns it without a provider (load_mesh_object does this
+        // for the same reason).
+        new_object->config.set_key_value("extruder", new ConfigOptionInt(1));
+        new_object->invalidate_bounding_box();
+        // load_mesh_object centers the freshly built 0..side mesh (its
+        // add_volume already centered the volume mesh and re-offset the
+        // volume; the object translate cancels that offset), then rests the
+        // object on the bed. The empty-cell step is a canvas helper
+        // (get_nearest_empty_cell at the build-volume center) — the shared
+        // renderer's scene origin plays the same role here.
+        new_object->translate(-bb.center());
+        new_object->instances[0]->set_offset(Slic3r::Vec3d(0.0, 0.0, -new_object->origin_translation.z()));
+        new_object->ensure_on_bed();
+        // A model mutation makes any existing Print/G-code result stale.
+        state().print.clear();
         size_t instance_count = 0;
         for (const ModelObject* o : state().model.objects)
             instance_count += o->instances.size();

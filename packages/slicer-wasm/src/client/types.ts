@@ -336,6 +336,12 @@ export interface SlicerClient {
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
   addModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult>;
+  /** Add an OrcaSlicer primitive to the current scene, exactly like its
+   *  Add Cube: the bridge mirrors ObjectList::load_shape_object →
+   *  create_mesh → load_mesh_object, building the mesh in the engine
+   *  (its_make_cube) and naming the object and its part after the primitive
+   *  — no staging file involved. `name` defaults to `type`. */
+  addShape(type: string, name?: string): Promise<LoadModelResult>;
   /** Reset the complete scene in the WASM model and invalidate its Print. */
   clearModel(): Promise<{ ok: boolean; error?: string }>;
   setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number): Promise<{ ok: boolean; error?: string }>;

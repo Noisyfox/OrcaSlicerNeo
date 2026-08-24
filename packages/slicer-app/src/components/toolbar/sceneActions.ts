@@ -6,29 +6,27 @@ import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { createCubeStl } from '../../lib/cubeStl';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 
 /**
- * Shared post-add choreography for file imports and generated primitives:
- * wait for a just-finished transform commit, append the bytes through the
+ * Shared post-add choreography for file imports and engine-built primitives:
+ * wait for a just-finished transform commit, append the model through the
  * runtime, then flip the shared model/result state and reset the scene
  * interaction. Only a successful add changes the plate — a dialog cancel or
  * parse failure must leave the existing scene and its sliced result intact.
  */
-async function commitAddedModel(
+async function commitAdded(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
-  bytes: Uint8Array,
-  ext: string,
   displayName: string,
+  add: () => Promise<{ ok: boolean; error?: string }>,
 ): Promise<void> {
   // A just-finished gesture persists its settled state on release. Wait for
   // that commit before the additive import refreshes the collection.
   const synced = await waitForSettledModelTransforms();
   if (!synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
-  const r = await platform.runtime.addModel(bytes, ext);
+  const r = await add();
   if (!r.ok) throw new Error(r.error ?? 'add failed');
   const slicer = useSlicerStore.getState();
   const settings = useSettingsStore.getState();
@@ -54,7 +52,8 @@ export async function addModel(
   if (!file) return;
   try {
     const ext = file.displayName.split('.').pop() ?? 'stl';
-    await commitAddedModel(platform, sceneInteraction, file.bytes, ext, file.displayName);
+    await commitAdded(platform, sceneInteraction, file.displayName,
+      () => platform.runtime.addModel(file.bytes, ext));
   } catch (err) {
     // errorText unwraps "Error: <msg>" (String(err)); the status bar
     // already prefixes "Error" (StatusBar statusText).
@@ -64,15 +63,19 @@ export async function addModel(
 }
 
 /**
- * Append OrcaSlicer's 20 mm cube primitive to the live scene, reusing the
- * standard model-import pipeline (see lib/cubeStl.ts).
+ * Append a cube primitive to the live scene exactly like OrcaSlicer's Add
+ * Cube: the engine builds the mesh (its_make_cube) and adds the object and
+ * its part named "Cube" — no staging file, no filename-derived names
+ * (bridge.cpp orc_add_shape mirrors ObjectList::load_shape_object →
+ * create_mesh → load_mesh_object).
  */
 export async function addCube(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
 ): Promise<void> {
   try {
-    await commitAddedModel(platform, sceneInteraction, createCubeStl(), 'stl', 'Cube');
+    await commitAdded(platform, sceneInteraction, 'Cube',
+      () => platform.runtime.addShape('Cube', 'Cube'));
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
     console.error('add cube failed:', err);

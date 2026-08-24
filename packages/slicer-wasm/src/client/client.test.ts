@@ -81,6 +81,31 @@ describe('SlicerClient bridge contract', () => {
     expect(r.objects).toBe(1);
   });
 
+  it('addShape builds an engine primitive named object and part (Add Cube)', async () => {
+    const c = makeClient();
+    await c.addShape('Cube', 'Cube');
+    const s = await c.getModelStructure();
+    expect(s.ok).toBe(true);
+    expect(s.objects?.[0].name).toBe('Cube');
+    expect(s.objects?.[0].volumes[0].name).toBe('Cube');
+    expect((await c.getModelMesh()).objects?.[0].vertexCount).toBe(8);
+  });
+
+  it('addShape defaults the name to the primitive type', async () => {
+    const c = makeClient();
+    await c.addShape('Cube');
+    const s = await c.getModelStructure();
+    expect(s.ok).toBe(true);
+    expect(s.objects?.[0].name).toBe('Cube');
+  });
+
+  it('addShape rejects an unsupported primitive', async () => {
+    const c = makeClient();
+    await expect(c.addShape('Dodecahedron')).resolves.toMatchObject({
+      error: expect.stringContaining('unsupported primitive type'),
+    });
+  });
+
   it('addModel preserves existing objects and clearModel resets the scene', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
