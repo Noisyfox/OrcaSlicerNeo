@@ -56,8 +56,12 @@ test('real Web flow: import → profile → slice → layer → G-code download'
     await layerHeight.fill('0.2');
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
     await expect(page.getByTestId('btn-export')).toBeDisabled();
+    // The invalidated G-code preview is cleared as well: the toolpath leaves
+    // the scene and the scrubber unmounts with it (spec §8).
+    await expect(scrubber).toBeAttached({ attached: false });
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+    await expect(scrubber).toBeAttached({ timeout: 30_000 });
   }
 
   const download = page.waitForEvent('download');

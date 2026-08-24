@@ -17,10 +17,22 @@ export function useSliceResult() {
   const layers = useSlicerStore((s) => s.layers);
   const setLayers = useSlicerStore((s) => s.setLayers);
   const setMaxLayer = useSlicerStore((s) => s.setMaxLayer);
+  const setLayer = useSlicerStore((s) => s.setLayer);
   const [result, setResult] = useState<ClientSliceResult | null>(null);
 
   useEffect(() => {
-    if (status !== 'done') return;
+    if (status !== 'done') {
+      // Any change to the slice inputs invalidates the completed Print (the
+      // bridge already cleared its C++ result). Drop the cached toolpath so
+      // the stale G-code preview leaves the scene, and reset the scrubber
+      // state so it hides until the next result is fetched (spec §8:
+      // "On invalidation the toolpath and layer state are immediately
+      // cleared... Stale preview data is never rendered.").
+      setResult(null);
+      setLayer(0);
+      setMaxLayer(0);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -35,7 +47,7 @@ export function useSliceResult() {
       }
     })();
     return () => { cancelled = true; };
-  }, [status, setLayers, setMaxLayer]);
+  }, [status, setLayers, setMaxLayer, setLayer]);
 
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
     if (!result) return null;
