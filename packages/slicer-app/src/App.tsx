@@ -1,12 +1,10 @@
 // packages/slicer-app/src/App.tsx (boot effect: app config load →
 // worker client init → presets ×3 → option metadata → settings store)
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar } from './components/toolbar/Toolbar';
-import { SettingsPanel } from './components/settings/SettingsPanel';
-import { ObjectList } from './components/objectList/ObjectList';
-import { Viewport } from './components/viewport/Viewport';
+import { Workspace } from './components/workspace/Workspace';
 import { StatusBar } from './components/status/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
@@ -29,11 +27,14 @@ export default function App() {
   const progress = useSlicerStore((s) => s.progress);
   const slicerError = useSlicerStore((s) => s.error);
   const resultExported = useSlicerStore((s) => s.resultExported);
-  const [sceneInteraction, setSceneInteraction] = useState<SceneInteractionController | null>(null);
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
+  // Workspace owns the controller; the dispatcher only ever reads it lazily at
+  // dispatch time, so mirroring it into a ref keeps App out of the re-render.
   const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
-  sceneInteractionRef.current = sceneInteraction;
+  const handleSceneInteractionChange = useCallback((controller: SceneInteractionController | null) => {
+    sceneInteractionRef.current = controller;
+  }, []);
 
   const menuState = useMemo(() => buildMenuStateSnapshot({
     version: 1,
@@ -207,11 +208,7 @@ export default function App() {
     <AppShell
       titleBar={titleBar}
       toolbar={<Toolbar />}
-      settings={<>
-        <ObjectList sceneInteraction={sceneInteraction} />
-        <SettingsPanel sceneInteraction={sceneInteraction} />
-      </>}
-      viewport={<Viewport onSceneInteractionChange={setSceneInteraction} sceneInteraction={sceneInteraction} />}
+      workspace={<Workspace onSceneInteractionChange={handleSceneInteractionChange} />}
       status={<StatusBar />}
     />
   );
