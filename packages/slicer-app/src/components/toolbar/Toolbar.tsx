@@ -1,7 +1,8 @@
 // packages/slicer-app/src/components/toolbar/Toolbar.tsx
 import { useState } from 'react';
-import { Slice, Download } from 'lucide-react';
+import { Slice, Download, AppWindowIcon, HouseIcon, LayersIcon, ComputerIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { errorText } from '@orca/slicer-runtime';
@@ -115,13 +116,34 @@ export function Toolbar() {
   }
 
   return (
-    <>
-      <Button size="xs" variant="secondary" onClick={slice} disabled={busy || !modelLoaded} data-testid="btn-slice">
-        <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
-      </Button>
-      <Button size="xs" variant="default" disabled={busy || exporting || !modelLoaded || status !== 'done'} onClick={exportGcode} title="Export G-code" data-testid="btn-export">
-        <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
-      </Button>
-    </>
+    <div className="flex w-full items-center justify-between">
+      <Tabs defaultValue="home">
+        <TabsList className="px-0.5 py-0">
+          <TabsTrigger value="home">
+            <HouseIcon />
+          </TabsTrigger>
+          <TabsTrigger value="prepare">
+            <AppWindowIcon />
+            Prepare
+          </TabsTrigger>
+          <TabsTrigger value="preview">
+            <LayersIcon />
+            Preview
+          </TabsTrigger>
+          <TabsTrigger value="Device">
+            <ComputerIcon />
+            Device
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+      <div className="flex items-center gap-2">
+        <Button size="xs" variant="secondary" onClick={slice} disabled={busy || !modelLoaded} data-testid="btn-slice">
+          <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
+        </Button>
+        <Button size="xs" variant="default" disabled={busy || exporting || !modelLoaded || status !== 'done'} onClick={exportGcode} title="Export G-code" data-testid="btn-export">
+          <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
+        </Button>
+      </div>
+    </div>
   );
 }
