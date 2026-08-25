@@ -26,7 +26,11 @@ async function openFileMenu(page: Page): Promise<void> {
   await expect(page.getByTestId('file-add-model')).toBeVisible();
 }
 
-test('Windows/Linux custom titlebar tracks shared model and result state', async () => {
+// The custom titlebar dropdown exists only on Windows/Linux; macOS replaces
+// it with the native application menu (covered by native-menu.e2e.ts).
+const testCustom = process.platform === 'darwin' ? test.skip : test;
+
+testCustom('Windows/Linux custom titlebar tracks shared model and result state', async () => {
   const app = await launchMenuApp();
   try {
     const page = await app.firstWindow();

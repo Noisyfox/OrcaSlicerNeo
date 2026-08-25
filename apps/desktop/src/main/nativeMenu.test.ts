@@ -85,6 +85,40 @@ describe('Electron native menu boundary', () => {
     expect(installed.getMenuItemById('file-quit')).toMatchObject({ enabled: true });
   });
 
+  it('keeps native items enabled after a completed slice snapshot', () => {
+    const fake = fakeMenu();
+    const controller = createNativeMenuController({ platform: 'darwin', menu: fake.api, onCommand: vi.fn() });
+    controller.install();
+    controller.syncModel(STARTUP_DISABLED_MENU_MODEL);
+
+    // The renderer sends the completed slice with progress 1 (0-1 fraction;
+    // see buildMenuStateSnapshot). The snapshot must stay valid and re-enable
+    // Slice/Export — regression: raw 0-100 percent here was rejected, the
+    // controller fell back to the startup-disabled state, and the native menu
+    // never re-enabled after slicing.
+    const completed: MenuStateSnapshot = {
+      version: 1,
+      boot: { phase: 'ready', error: null },
+      slicer: { status: 'done', progress: 1, error: null },
+      scene: { hasModel: true },
+      result: { hasResult: true, exported: false },
+      host: { isElectron: true, menuMode: 'native' },
+      items: {
+        'add-model': { enabled: true, checked: false },
+        'clear-scene': { enabled: true, checked: false },
+        slice: { enabled: true, checked: false },
+        'export-gcode': { enabled: true, checked: false },
+        quit: { enabled: true, checked: false },
+        'open-source': { enabled: true, checked: false },
+      },
+    };
+    expect(controller.syncState(completed)).toBe(true);
+    const installed = fake.installed.at(-1) as { getMenuItemById(id: string): { enabled: boolean; checked: boolean } | null };
+    expect(installed.getMenuItemById('file-slice')).toEqual({ enabled: true, checked: false });
+    expect(installed.getMenuItemById('file-export-gcode')).toEqual({ enabled: true, checked: false });
+    expect(installed.getMenuItemById('file-add-model')).toEqual({ enabled: true, checked: false });
+  });
+
   it('falls back to disabled state for malformed model or snapshot', () => {
     const fake = fakeMenu();
     const controller = createNativeMenuController({ platform: 'darwin', menu: fake.api, onCommand: vi.fn() });

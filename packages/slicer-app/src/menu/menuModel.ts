@@ -87,13 +87,22 @@ export function deriveMenuItemStates(
   };
 }
 
-/** Add the complete per-command state table to a raw shared-app snapshot. */
+/**
+ * Add the complete per-command state table to a raw shared-app snapshot.
+ *
+ * The raw input's `slicer.progress` is the slicer store's 0–100 percent
+ * (StatusBar renders it directly); the host-facing snapshot carries a 0–1
+ * fraction, which the Electron native-menu boundary validates and rejects
+ * otherwise (see cloneState in apps/desktop/src/main/nativeMenu.ts). Normalize
+ * here so every host-bound snapshot is contract-valid even while slicing.
+ */
 export function buildMenuStateSnapshot(
   snapshot: MenuStateSnapshotInput,
   chrome: PlatformChrome,
 ): MenuStateSnapshot {
   return {
     ...snapshot,
+    slicer: { ...snapshot.slicer, progress: snapshot.slicer.progress / 100 },
     items: deriveMenuItemStates(snapshot, chrome),
   };
 }

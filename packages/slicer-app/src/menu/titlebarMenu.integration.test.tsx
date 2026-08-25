@@ -66,7 +66,7 @@ describe('shared titlebar menu integration projection', () => {
 
     const withResult = items(windows, {
       ...raw,
-      slicer: { status: 'done', progress: 1, error: null },
+      slicer: { status: 'done', progress: 100, error: null },
       result: { hasResult: true, exported: false },
     }).state;
     expect(enabled(withResult, 'export-gcode')).toBe(true);
@@ -82,7 +82,7 @@ describe('shared titlebar menu integration projection', () => {
 
     const slicing = items(windows, {
       ...raw,
-      slicer: { status: 'slicing', progress: 0.5, error: null },
+      slicer: { status: 'slicing', progress: 50, error: null },
       result: { hasResult: true, exported: false },
     }).state;
     expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((command) => enabled(slicing, command as MenuCommandId))).toEqual([

@@ -27,6 +27,27 @@ surfaces.
   and disposal therefore share the native-command subscription lifecycle, so
   replay cleanup cannot leave the memoized dispatcher inactive.
 
+## Bug fix (2026-08-25 follow-up): completed slice never re-enabled the native menu
+
+On macOS the native Slice/Export items stayed disabled after a slice completed.
+Root cause: `App.tsx` fed the slicer store's raw 0–100 percent into
+`MenuStateSnapshot.slicer.progress`, while the host boundary (`cloneState` in
+`apps/desktop/src/main/nativeMenu.ts`) validates progress as a 0–1 fraction.
+The bridge publishes 0–100 (terminal 100), so the first progress tick above 1%
+invalidated every subsequent snapshot; `syncState` fell back to the
+startup-disabled state and Slice/Export never re-enabled.
+
+Fix: `buildMenuStateSnapshot` in `packages/slicer-app/src/menu/menuModel.ts` now
+normalizes the store's percent to the snapshot's 0–1 fraction at the single
+projection point. Regression coverage:
+
+- `menuModel.test.ts` — completed slice (progress 100) projects to exactly 1.
+- `nativeMenu.test.ts` — host keeps native items enabled for a completed-slice
+  snapshot.
+- `apps/desktop/e2e/native-menu.e2e.ts` — macOS-only e2e that slices with the
+  mock module (which drives 0–100 progress like the real bridge) and asserts
+  the native application menu re-enables Slice/Export. Fails without the fix.
+
 ## Commit boundaries
 
 The implementation was intentionally split before this follow-up:

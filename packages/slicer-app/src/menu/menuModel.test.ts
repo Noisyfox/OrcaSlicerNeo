@@ -75,7 +75,7 @@ describe('buildMenuModel', () => {
     const slicing = buildMenuStateSnapshot(input({
       scene: { hasModel: true },
       result: { hasResult: true, exported: false },
-      slicer: { status: 'slicing', progress: 0.5, error: null },
+      slicer: { status: 'slicing', progress: 50, error: null },
     }), web);
     expect(['add-model', 'clear-scene', 'slice', 'export-gcode'].map((id) => stateFor(slicing, id as MenuCommandId).enabled)).toEqual([
       false, false, false, false,
@@ -86,10 +86,33 @@ describe('buildMenuModel', () => {
 
     const completed = buildMenuStateSnapshot(input({
       scene: { hasModel: true },
-      slicer: { status: 'done', progress: 1, error: null },
+      slicer: { status: 'done', progress: 100, error: null },
       result: { hasResult: true, exported: false },
     }), web);
     expect(stateFor(completed, 'export-gcode').enabled).toBe(true);
+  });
+
+  it('normalizes the store 0-100 percent into the snapshot 0-1 progress fraction', () => {
+    // The slicer store and StatusBar use percent (0-100, as reported by the
+    // bridge), while the host-facing snapshot carries a 0-1 fraction. The
+    // Electron boundary rejects any progress outside [0,1] and falls back to
+    // the all-disabled startup state, so a completed slice (progress 100)
+    // must project to exactly 1 or the native menu never re-enables.
+    const completed = buildMenuStateSnapshot(input({
+      scene: { hasModel: true },
+      slicer: { status: 'done', progress: 100, error: null },
+      result: { hasResult: true, exported: false },
+    }), mac);
+    expect(completed.slicer.progress).toBe(1);
+    expect(stateFor(completed, 'slice').enabled).toBe(true);
+    expect(stateFor(completed, 'export-gcode').enabled).toBe(true);
+
+    const midSlice = buildMenuStateSnapshot(input({
+      scene: { hasModel: true },
+      slicer: { status: 'slicing', progress: 50, error: null },
+    }), mac);
+    expect(midSlice.slicer.progress).toBe(0.5);
+    expect(stateFor(midSlice, 'slice').enabled).toBe(false);
   });
 
   it('keeps Quit/Exit host-specific, Help available, and checked expressible', () => {
