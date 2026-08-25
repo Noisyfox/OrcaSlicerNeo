@@ -132,7 +132,16 @@ interface PlatformCapabilities {
   };
   preferences: UserPreferencesRepository;
   runtime: SlicerRuntime;
-  chrome: { kind: 'desktop' | 'web'; platform?: string };
+  profiles: ProfileSource;
+  chrome: {
+    kind: 'desktop' | 'web';
+    platform?: string;
+    menuMode: 'custom' | 'native' | 'browser';
+    dragRegion?: boolean;
+    macSafeInset?: boolean;
+  };
+  menu: PlatformMenu;
+  externalLinks: ExternalLinks;
 }
 ```
 
@@ -147,6 +156,42 @@ interface PlatformCapabilities {
 - `BrandBar` styling uses the injected `chrome` capability rather than a
   direct `window.orca` read. Its visual component remains common, while
   Electron-only drag behavior stays in the Electron host.
+
+### 4.1 Shared titlebar menu and native-menu boundary
+
+The shared application owns one ordered, host-neutral File/Help menu model and
+one complete versioned state snapshot. The model contains Add Model, Clear
+Scene, Slice, Export G-code, and the Help → AGPL-3.0 source operation. The
+source operation is a fixed external-link boundary; neither shared code nor a
+host adapter accepts an arbitrary URL.
+This menu scope does not include View, gizmo, Add Cube/Add Primitive, or
+keyboard-shortcut entries.
+
+The state projection is authoritative for both rendered and native surfaces:
+File business actions are disabled until boot is ready, Clear Scene and Slice
+also require a model, Export G-code requires a completed slice result, and Add
+Model, Clear Scene, Slice, and Export G-code are all disabled while slicing.
+Help → source remains enabled once the menu surface exists. The command
+dispatcher re-checks the complete snapshot immediately before execution, so a
+stale pointer or native-menu selection cannot bypass these guards.
+
+Host placement is deliberately platform-specific while the model and state
+remain shared:
+
+- Web renders the browser titlebar menu and never exposes Quit/Exit.
+- Windows/Linux Electron renders File/Help in the custom frameless titlebar,
+  includes Exit, and marks menu controls `no-drag` so pointer activation does
+  not interfere with window dragging or window controls.
+- macOS Electron renders no duplicate File/Help controls in the shared
+  titlebar. The main process installs exactly one native File/Help application
+  menu, including Quit, and updates its enabled/checked state from the same
+  full snapshot.
+
+The Electron preload exposes only typed model/state synchronization, native
+command events, the host Quit operation, and the fixed source operation. The
+main process validates version, menu shape, state fields, and command IDs;
+malformed updates fall back to startup-disabled state. Web's adapter keeps the
+same contract with browser `window.open` semantics for the fixed source URL.
 
 ## 5. Runtime and WASM Loading
 

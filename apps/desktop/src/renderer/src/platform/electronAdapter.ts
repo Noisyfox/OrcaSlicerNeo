@@ -1,4 +1,11 @@
-import { DEFAULT_USER_PREFERENCES, normalizeUserPreferences, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
+import {
+  DEFAULT_USER_PREFERENCES,
+  normalizeUserPreferences,
+  type MenuCommandId,
+  type PlatformCapabilities,
+  type PlatformMenu,
+  type UserPreferences,
+} from '@orca/platform-contract';
 import type { FileDialogFilter } from '../../../shared/ipc';
 import type { SlicerRuntime } from '@orca/platform-contract';
 
@@ -64,6 +71,21 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     },
     runtime,
     profiles: { fetch: async (relativePath) => new Uint8Array(await (await fetch(relativePath)).arrayBuffer()) },
-    chrome: { kind: 'desktop', platform: host.platform, dragRegion: true, macSafeInset: host.platform === 'darwin' },
+    chrome: {
+      kind: 'desktop',
+      platform: host.platform,
+      menuMode: host.platform === 'darwin' ? 'native' : 'custom',
+      dragRegion: true,
+      macSafeInset: host.platform === 'darwin',
+    },
+    menu: {
+      syncModel: (model) => host.menu.syncModel(model),
+      syncState: (snapshot) => host.menu.syncState(snapshot),
+      onCommand: (listener) => host.menu.onCommand(listener),
+      execute: (command: MenuCommandId) => {
+        if (command === 'quit') return host.menu.executeHostCommand(command);
+      },
+    } satisfies PlatformMenu,
+    externalLinks: { openSource: () => host.externalLinks.openSource() },
   };
 }

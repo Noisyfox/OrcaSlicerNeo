@@ -1,4 +1,13 @@
-import { normalizeUserPreferences, type PlatformCapabilities, type SlicerRuntime } from '@orca/platform-contract';
+import { normalizeUserPreferences, type PlatformCapabilities, type PlatformMenu, type SlicerRuntime } from '@orca/platform-contract';
+
+export const SOURCE_URL = 'https://github.com/Noisyfox/OrcaSlicerNeo';
+
+const browserMenu: PlatformMenu = {
+  syncModel() {},
+  syncState() {},
+  onCommand() { return () => {}; },
+  execute() {},
+};
 
 export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabilities {
   let inMemory = normalizeUserPreferences(null);
@@ -29,7 +38,13 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
       if (!response.ok) throw new Error(`profile asset request failed (${response.status}): ${relativePath}`);
       return new Uint8Array(await response.arrayBuffer());
     } },
-    chrome: { kind: 'web', platform: navigator.platform },
+    chrome: { kind: 'web', platform: navigator.platform, menuMode: 'browser' },
+    menu: browserMenu,
+    externalLinks: {
+      openSource() {
+        window.open(SOURCE_URL, '_blank', 'noopener,noreferrer');
+      },
+    },
   };
 }
 

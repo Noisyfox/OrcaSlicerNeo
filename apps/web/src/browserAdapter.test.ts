@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserAdapter, downloadGcode } from './browserAdapter';
+import { createBrowserAdapter, downloadGcode, SOURCE_URL } from './browserAdapter';
 
 describe('browser adapter', () => {
   beforeEach(() => { vi.restoreAllMocks(); });
@@ -25,5 +25,14 @@ describe('browser adapter', () => {
     expect(anchor.download).toBe('cube.gcode');
     expect(anchor.href).toContain('blob:test');
     expect(click).toHaveBeenCalled();
+  });
+
+  it('supplies browser menu mode and opens only the fixed source URL', () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const adapter = createBrowserAdapter({} as never);
+    expect(adapter.chrome.menuMode).toBe('browser');
+    expect(adapter.menu.syncModel({ version: 1, menuMode: 'browser', menus: [] })).toBeUndefined();
+    adapter.externalLinks.openSource();
+    expect(open).toHaveBeenCalledWith(SOURCE_URL, '_blank', 'noopener,noreferrer');
   });
 });

@@ -310,6 +310,21 @@
 - **Step 11 delivered:** release/regression audit — see the M9 status block
   above for the evidence list (`doc/2026-08-20-m9-step11-release-regression-audit.md`).
 
+**Cross-cutting titlebar/native menu implementation (2026-08-25)**
+
+- The shared platform contract now owns the ordered File/Help menu model,
+  complete state snapshot, guarded command dispatcher, and fixed source-link
+  boundary. Windows/Linux Electron renders the custom no-drag titlebar menu
+  with Exit; Web renders the same menu without Quit/Exit; macOS Electron uses
+  the native application menu as the only File/Help surface.
+- Focused mock Electron and real-artifact Web E2E coverage was added for menu
+  presence, host-specific Quit/Exit behavior, startup/model/result eligibility,
+  clear-scene transitions, no-drag controls, and source behavior. The dated
+  implementation note records which of these checks were actually executed:
+  `doc/2026-08-25-titlebar-native-menu-implementation.md`.
+- Real macOS packaged-app manual verification remains an explicit follow-up;
+  no macOS pass is claimed from the Windows environment.
+
 ### Milestone 10 — Gizmo Toolbar
 
 > **Status: delivered 2026-08-21.** Gizmo activation is now explicit: a

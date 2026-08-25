@@ -1,4 +1,12 @@
 import type { SlicerClient } from '@slicer/client';
+import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
+
+export type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
+
+export interface ExternalLinks {
+  /** Opens the fixed AGPL-3.0 source page; arbitrary URLs are not accepted. */
+  openSource(): Promise<void> | void;
+}
 
 /** A model selected by a host. Host paths must never cross this boundary. */
 export interface ModelFile {
@@ -35,6 +43,7 @@ export interface UserPreferencesRepository {
 export interface PlatformChrome {
   kind: 'desktop' | 'web';
   platform?: string;
+  menuMode: TitlebarMenuMode;
   /** Whether the host supplies a draggable frameless-window region. */
   dragRegion?: boolean;
   /** Whether the host needs clearance for macOS traffic-light buttons. */
@@ -89,4 +98,6 @@ export interface PlatformCapabilities {
   runtime: SlicerRuntime;
   profiles: ProfileSource;
   chrome: PlatformChrome;
+  menu: PlatformMenu;
+  externalLinks: ExternalLinks;
 }

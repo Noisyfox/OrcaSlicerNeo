@@ -23,7 +23,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/renderer/src/**/*.test.{ts,tsx}'],
+    include: ['src/**/*.test.{ts,tsx}'],
     environment: 'node',
   },
 });

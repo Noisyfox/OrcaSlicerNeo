@@ -7,7 +7,6 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { TitleBar } from './TitleBar';
 import { usePlatform } from '@orca/platform-contract';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
@@ -18,7 +17,8 @@ function clampSidebarWidth(value: number | undefined): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
 }
 
-export function AppShell({ settings, viewport, toolbar, status }: {
+export function AppShell({ titleBar, settings, viewport, toolbar, status }: {
+  titleBar: ReactNode;
   settings: ReactNode;
   viewport: ReactNode;
   toolbar: ReactNode;
@@ -131,7 +131,7 @@ export function AppShell({ settings, viewport, toolbar, status }: {
 
   return (
     <div className="flex h-full flex-col">
-      <TitleBar chrome={platform.chrome} />
+      {titleBar}
       <div className="flex h-6 items-center gap-2 px-1 mb-0.5">{toolbar}</div>
       <div className="flex flex-1 min-h-0 px-1">
         <aside

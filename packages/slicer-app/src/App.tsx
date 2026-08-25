@@ -1,6 +1,6 @@
 // packages/slicer-app/src/App.tsx (boot effect: app config load →
 // worker client init → presets ×3 → option metadata → settings store)
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar } from './components/toolbar/Toolbar';
@@ -13,6 +13,10 @@ import { useSlicerStore } from './stores/useSlicerStore';
 import type { SceneInteractionController } from './components/viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
 import { restoreSelections } from './preferences';
+import { addModel, clearScene } from './components/toolbar/sceneActions';
+import { exportGcode, sliceModel } from './components/toolbar/sliceActions';
+import { createCommandDispatcher, registerNativeMenuCommands } from './menu/commands';
+import { buildMenuModel, buildMenuStateSnapshot, resolveMenuMode } from './menu/menuModel';
 
 export default function App() {
   const platform = usePlatform();
@@ -22,10 +26,80 @@ export default function App() {
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const values = useSettingsStore((s) => s.values);
   const status = useSlicerStore((s) => s.status);
+  const progress = useSlicerStore((s) => s.progress);
+  const slicerError = useSlicerStore((s) => s.error);
   const resultExported = useSlicerStore((s) => s.resultExported);
   const [sceneInteraction, setSceneInteraction] = useState<SceneInteractionController | null>(null);
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
+  const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
+  sceneInteractionRef.current = sceneInteraction;
+
+  const menuState = useMemo(() => buildMenuStateSnapshot({
+    version: 1,
+    boot: { phase: boot, error: bootError },
+    slicer: { status, progress, error: slicerError },
+    scene: { hasModel: modelLoaded },
+    result: { hasResult: status === 'done', exported: resultExported },
+    host: {
+      isElectron: platform.chrome.kind === 'desktop',
+      menuMode: resolveMenuMode(platform.chrome),
+    },
+  }, platform.chrome), [
+    boot,
+    bootError,
+    modelLoaded,
+    platform.chrome,
+    progress,
+    resultExported,
+    slicerError,
+    status,
+  ]);
+  const menuModel = useMemo(
+    () => buildMenuModel(menuState, platform.chrome),
+    [menuState, platform.chrome],
+  );
+  const menuStateRef = useRef(menuState);
+  menuStateRef.current = menuState;
+  const dispatcher = useMemo(() => createCommandDispatcher({
+    getSnapshot: () => menuStateRef.current,
+    actions: {
+      addModel: () => addModel(platform, sceneInteractionRef.current),
+      clearScene: () => clearScene(platform, sceneInteractionRef.current),
+      slice: () => sliceModel(platform),
+      exportGcode: () => exportGcode(platform),
+      openSource: async () => { await platform.externalLinks.openSource(); },
+      quit: async () => { await platform.menu.execute('quit'); },
+    },
+  }), [platform]);
+
+  // Strict Mode replays layout effects during development. Keep activation
+  // and disposal next to the native subscription so replay cannot leave the
+  // memoized dispatcher permanently inactive.
+  useLayoutEffect(() => {
+    dispatcher.activate();
+    const unregister = registerNativeMenuCommands(platform, dispatcher);
+    return () => {
+      unregister();
+      dispatcher.dispose();
+    };
+  }, [dispatcher, platform]);
+  useLayoutEffect(() => {
+    void Promise.resolve(platform.menu.syncModel(menuModel)).catch((error) => {
+      console.error('menu model sync failed:', error);
+    });
+    void Promise.resolve(platform.menu.syncState(menuState)).catch((error) => {
+      console.error('menu state sync failed:', error);
+    });
+  }, [menuModel, menuState, platform.menu]);
+  const titleBar = (
+    <TitleBar
+      chrome={platform.chrome}
+      model={menuModel}
+      state={menuState}
+      onCommand={(command) => { void dispatcher.dispatch(command); }}
+    />
+  );
 
   // The app's only context menus are the 3D scene's own menu
   // (SceneContextMenu, right-click on empty viewport space) and the native
@@ -111,7 +185,7 @@ export default function App() {
     // window while the runtime loads (see doc/2026-08-15-frameless-window.md).
     return (
       <div className="flex h-full flex-col bg-background" data-testid="startup-screen">
-        <TitleBar chrome={platform.chrome} />
+        {titleBar}
         <main className="flex flex-1 items-center justify-center">
           <section className="w-full max-w-lg space-y-3 rounded-md border bg-card p-8 shadow-sm">
             <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
@@ -131,6 +205,7 @@ export default function App() {
 
   return (
     <AppShell
+      titleBar={titleBar}
       toolbar={<Toolbar />}
       settings={<>
         <ObjectList sceneInteraction={sceneInteraction} />

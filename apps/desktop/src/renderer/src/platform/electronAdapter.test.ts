@@ -4,9 +4,16 @@ import { createElectronAdapter } from './electronAdapter';
 function setup(overrides: Record<string, unknown> = {}) {
     const load = vi.fn(async () => ({ found: true, json: { version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320 } } }));
     const save = vi.fn(async () => {});
-    const host = { preferences: { load, save }, platform: 'win32', ...overrides };
+    const menu = {
+      syncModel: vi.fn(),
+      syncState: vi.fn(),
+      onCommand: vi.fn(() => () => {}),
+      executeHostCommand: vi.fn(async () => {}),
+    };
+    const externalLinks = { openSource: vi.fn(async () => {}) };
+    const host = { preferences: { load, save }, menu, externalLinks, platform: 'win32', ...overrides };
     vi.stubGlobal('window', { orca: host });
-    return { adapter: createElectronAdapter({} as never), load, save };
+    return { adapter: createElectronAdapter({} as never), load, save, menu, externalLinks };
 }
 
 describe('Electron adapter', () => {
@@ -47,7 +54,34 @@ describe('Electron adapter', () => {
 
   it.each(['darwin', 'win32'])('supplies correct brand-bar props for %s', async (platform) => {
     const { adapter } = setup({ platform });
-    expect(adapter.chrome).toMatchObject({ kind: 'desktop', platform, dragRegion: true, macSafeInset: platform === 'darwin' });
+    expect(adapter.chrome).toMatchObject({
+      kind: 'desktop',
+      platform,
+      menuMode: platform === 'darwin' ? 'native' : 'custom',
+      dragRegion: true,
+      macSafeInset: platform === 'darwin',
+    });
+  });
+
+  it('provides type-compatible menu and external-link placeholders', () => {
+    const { adapter, menu, externalLinks } = setup();
+    const model = { version: 1 as const, menuMode: 'custom' as const, menus: [] };
+    const state = { version: 1 as const, boot: { phase: 'starting' as const, error: null }, slicer: { status: 'idle' as const, progress: 0, error: null }, scene: { hasModel: false }, result: { hasResult: false, exported: false }, host: { isElectron: true, menuMode: 'custom' as const }, items: { 'add-model': { enabled: false }, 'clear-scene': { enabled: false }, slice: { enabled: false }, 'export-gcode': { enabled: false }, quit: { enabled: false }, 'open-source': { enabled: true } } };
+    adapter.menu.syncModel(model);
+    adapter.menu.syncState(state);
+    adapter.externalLinks.openSource();
+    expect(menu.syncModel).toHaveBeenCalledWith(model);
+    expect(menu.syncState).toHaveBeenCalledWith(state);
+    expect(externalLinks.openSource).toHaveBeenCalledOnce();
+  });
+
+  it('maps quit execute and native command subscription to preload IPC', async () => {
+    const { adapter, menu } = setup();
+    const listener = vi.fn();
+    adapter.menu.onCommand(listener);
+    await adapter.menu.execute('quit');
+    expect(menu.onCommand).toHaveBeenCalledWith(listener);
+    expect(menu.executeHostCommand).toHaveBeenCalledWith('quit');
   });
 
   it('falls back to in-memory preferences when persistence fails', async () => {
