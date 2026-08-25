@@ -7,6 +7,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 // This suite intentionally has no mock mode. The staging step must have
 // published both real wasm64 variants before either invocation is run.
 test('real Web flow: import → profile → slice → layer → G-code download', async ({ page }) => {
+  await page.addInitScript(() => {
+    const opened: string[] = [];
+    (window as unknown as { __orcaOpenedSources: string[] }).__orcaOpenedSources = opened;
+    window.open = ((url?: string | URL) => {
+      if (url !== undefined) opened.push(String(url));
+      return null;
+    }) as typeof window.open;
+  });
   page.on('console', (msg) => console.log(`[browser:${msg.type()}] ${msg.text()}`));
   page.on('pageerror', (error) => console.log(`[browser:error] ${String(error)}`));
   await page.goto('/');
@@ -18,6 +26,21 @@ test('real Web flow: import → profile → slice → layer → G-code download'
   }
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+  await expect(page.getByTestId('titlebar-menu')).toBeVisible();
+  await expect(page.getByTestId('menu-file-trigger')).toBeVisible();
+  await expect(page.getByTestId('menu-help-trigger')).toBeVisible();
+  await page.getByTestId('menu-file-trigger').click();
+  await expect(page.getByTestId('file-add-model')).toBeEnabled();
+  await expect(page.getByTestId('file-clear-scene')).toBeDisabled();
+  await expect(page.getByTestId('file-slice')).toBeDisabled();
+  await expect(page.getByTestId('file-export-gcode')).toBeDisabled();
+  await expect(page.getByTestId('file-quit')).toHaveCount(0);
+  await page.getByTestId('menu-help-trigger').click();
+  await page.getByTestId('help-source').click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaOpenedSources?: string[] }).__orcaOpenedSources ?? [])).toEqual([
+    'https://github.com/Noisyfox/OrcaSlicerNeo',
+  ]);
+  expect(page.url()).toContain('127.0.0.1:4173');
   expect(await page.evaluate(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(false);
 
   await page.getByTestId('preset-select').click();
@@ -29,11 +52,19 @@ test('real Web flow: import → profile → slice → layer → G-code download'
   await page.getByTestId('btn-add-model').click();
   await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  await page.getByTestId('menu-file-trigger').click();
+  await expect(page.getByTestId('file-clear-scene')).toBeEnabled();
+  await expect(page.getByTestId('file-slice')).toBeEnabled();
+  await expect(page.getByTestId('file-export-gcode')).toBeDisabled();
+  await page.getByTestId('menu-file-trigger').click();
   expect(await page.evaluate(() => { const event = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; })).toBe(true);
   const layerHeight = page.locator('#layer_height');
   if (await layerHeight.count()) await layerHeight.fill('0.21');
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  await page.getByTestId('menu-file-trigger').click();
+  await expect(page.getByTestId('file-export-gcode')).toBeEnabled();
+  await page.getByTestId('menu-file-trigger').click();
   await expect(page.getByTestId('viewport')).toBeVisible();
   const scrubber = page.getByTestId('layer-scrubber');
   await expect(scrubber).toBeAttached({ timeout: 30_000 });

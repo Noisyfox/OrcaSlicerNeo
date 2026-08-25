@@ -313,6 +313,22 @@ and drives structural operations through the typed client.
       ObjectList selection sync
 - [x] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage
 
+## Cross-cutting titlebar/native menu implementation
+
+> [!info] Implemented 2026-08-25; real macOS manual verification remains open.
+>
+> Implementation note: `doc/2026-08-25-titlebar-native-menu-implementation.md`.
+> This is a cross-cutting host-integration item, not a new product milestone.
+
+- [x] Shared File/Help model and complete startup/model/result/slicing state
+      projection
+- [x] Web browser menu without Quit/Exit; fixed external source boundary
+- [x] Windows/Linux Electron custom titlebar menu with Exit and no-drag zones
+- [x] macOS Electron native File/Help boundary and typed IPC validation
+- [x] Focused shared, Electron mock, and Web E2E menu coverage
+- [ ] Real macOS packaged-app manual check: traffic lights, exactly-one native
+      menu, Quit/source behavior, drag interaction, and reopen-state reset
+
 ## Post-v1 Expansion (queued, not yet scheduled)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
