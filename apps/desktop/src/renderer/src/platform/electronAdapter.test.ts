@@ -47,7 +47,19 @@ describe('Electron adapter', () => {
 
   it.each(['darwin', 'win32'])('supplies correct brand-bar props for %s', async (platform) => {
     const { adapter } = setup({ platform });
-    expect(adapter.chrome).toMatchObject({ kind: 'desktop', platform, dragRegion: true, macSafeInset: platform === 'darwin' });
+    expect(adapter.chrome).toMatchObject({
+      kind: 'desktop',
+      platform,
+      menuMode: platform === 'darwin' ? 'native' : 'custom',
+      dragRegion: true,
+      macSafeInset: platform === 'darwin',
+    });
+  });
+
+  it('provides type-compatible menu and external-link placeholders', () => {
+    const { adapter } = setup();
+    expect(adapter.menu.syncModel({ version: 1, menuMode: 'custom', menus: [] })).toBeUndefined();
+    expect(adapter.externalLinks.openSource()).toBeUndefined();
   });
 
   it('falls back to in-memory preferences when persistence fails', async () => {
