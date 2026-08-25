@@ -39,7 +39,7 @@ import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import {
   addModel, addPrimitive, clearScene, PRIMITIVE_TYPES, type PrimitiveType,
-} from '../../toolbar/sceneActions';
+} from '../actions/sceneActions';
 import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { pickTopmostModelVolume } from './buildPlatePointerOcclusion';

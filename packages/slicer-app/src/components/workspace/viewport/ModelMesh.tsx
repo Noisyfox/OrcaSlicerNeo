@@ -8,7 +8,7 @@ import { useThree } from '@react-three/fiber';
 import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import type { GLVolume } from './GLVolume';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
-import { persistSettledModelTransforms } from '../../toolbar/persistModelTransforms';
+import { persistSettledModelTransforms } from '../actions/persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';
 import { EULER_ORDER } from './transformDeltaMath';
 

@@ -15,7 +15,7 @@ import { formatPercent, formatPosition, parseNumberInput } from '../viewport/tra
 import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import type { Vec3 } from '../../../lib/vec3';
-import { persistSettledModelTransforms } from '../../toolbar/persistModelTransforms';
+import { persistSettledModelTransforms } from '../actions/persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';
 
 const AXES = ['x', 'y', 'z'] as const;

@@ -31,6 +31,15 @@ which are siblings inside that middle row. Every controller change re-rendered
     ref, fed by a stable `onSceneInteractionChange` callback, because the menu
     command dispatcher (`addModel`, `clearScene`) reads the controller lazily
     at dispatch time.
+  - Menu command actions and the app-level toolbar imports now come from
+    `components/workspace/actions/` (`sceneActions`, `sliceActions`).
+- `packages/slicer-app/src/components/workspace/` is now the home of the
+  whole scene-facing tree: `Workspace.tsx` plus `viewport/`, `objectList/`,
+  `settings/`, and `actions/` — the former `components/toolbar/` command
+  modules (`sceneActions`, `sliceActions`, `deleteSelection`,
+  `persistModelTransforms`, `syncModelTransforms`, and their tests) moved
+  there. `components/toolbar/` now holds only `Toolbar.tsx`, which imports
+  its actions from `workspace/actions/`.
 
 ## Behavior
 

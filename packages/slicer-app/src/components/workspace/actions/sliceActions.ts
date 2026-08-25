@@ -1,8 +1,8 @@
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
-import { glVolumeCollection } from '../workspace/viewport/GLVolume';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useSlicerStore } from '../../stores/useSlicerStore';
+import { glVolumeCollection } from '../viewport/GLVolume';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { syncModelTransforms } from './syncModelTransforms';
 
 /**

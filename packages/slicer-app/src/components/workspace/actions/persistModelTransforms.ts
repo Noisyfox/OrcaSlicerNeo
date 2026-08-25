@@ -1,6 +1,6 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
-import { glVolumeCollection } from '../workspace/viewport/GLVolume';
-import { useSlicerStore } from '../../stores/useSlicerStore';
+import { glVolumeCollection } from '../viewport/GLVolume';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { syncModelTransforms } from './syncModelTransforms';
 
 type SyncResult = { ok: boolean; error?: string };

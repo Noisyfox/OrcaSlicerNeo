@@ -275,7 +275,7 @@ cross-origin isolation is available, and serial WASM otherwise.
 
 - [x] Add Model in the gizmo toolbar at the first position (icon-only with a
       title/aria-label; test id `btn-add-model` unchanged); shared action
-      extracted to `toolbar/sceneActions.ts`
+      extracted to `workspace/actions/sceneActions.ts`
 - [x] Clear Scene in the scene right-click menu on empty space (bed plate or
       background, not a model body); right-drag pan preserved; the native
       host/browser context menu is suppressed in the scene

@@ -4,9 +4,9 @@
 // identical for every surface that invokes them, so they live here once.
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import type { SceneInteractionController } from '../workspace/viewport/SceneInteractionController';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 
 /**

@@ -1,5 +1,5 @@
 import type { SlicerClient } from '@slicer/client';
-import type { GLVolume } from '../workspace/viewport/GLVolume';
+import type { GLVolume } from '../viewport/GLVolume';
 
 type TransformableVolume = Pick<GLVolume, 'instanceTransform' | 'volumeTransform'> & {
   buffer: Pick<GLVolume['buffer'], 'objectIdx' | 'volumeIdx' | 'instanceIdx'>;

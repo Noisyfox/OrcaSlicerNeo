@@ -3,14 +3,14 @@ import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from './useObjectListStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { waitForSettledModelTransforms } from '../../toolbar/persistModelTransforms';
+import { waitForSettledModelTransforms } from '../actions/persistModelTransforms';
 import {
   changePartTypeInList,
   renameObjectInList,
   setObjectPrintableInList,
 } from './actions';
 
-vi.mock('../../toolbar/persistModelTransforms', () => ({
+vi.mock('../actions/persistModelTransforms', () => ({
   waitForSettledModelTransforms: vi.fn(async () => ({ ok: true })),
 }));
 

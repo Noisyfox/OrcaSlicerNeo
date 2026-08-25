@@ -27,7 +27,7 @@ selectable, transformable, sliceable, and exportable.
 `SceneContextMenu` renders the Add Cube menuitem after Clear Scene +
 separator and before Add Model. Clicking it calls the shared
 `addCube(platform, sceneInteraction)` action in
-`packages/slicer-app/src/components/toolbar/sceneActions.ts`, which reuses the
+`packages/slicer-app/src/components/workspace/actions/sceneActions.ts`, which reuses the
 same post-add choreography as `addModel` (wait for any settled transform
 commit → `runtime.addShape('Cube', 'Cube')` → invalidate the sliced result,
 record the display name (`Cube`), flip `modelLoaded`, reset scene
@@ -55,7 +55,7 @@ primitive path skips the file entirely.
   contract (name defaults to the primitive type).
 - `packages/slicer-wasm/src/client/testing/mock-module.ts` — `orc_add_shape`
   mirror: one named object + one named, non-splittable part.
-- `packages/slicer-app/src/components/toolbar/sceneActions.ts` — extracted
+- `packages/slicer-app/src/components/workspace/actions/sceneActions.ts` — extracted
   `commitAdded` helper; `addCube` calls `addShape('Cube', 'Cube')`; the
   earlier JS STL generator (`lib/cubeStl.ts`) is removed.
 - `packages/slicer-app/src/components/workspace/viewport/SceneContextMenu.tsx` — menu

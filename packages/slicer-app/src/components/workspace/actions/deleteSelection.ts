@@ -1,8 +1,8 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { ModelObjectStructure } from '@slicer/client';
-import type { SceneInteractionController } from '../workspace/viewport/SceneInteractionController';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { useSettingsStore } from '../../stores/useSettingsStore';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 
 export type DeleteSelectionResult = { ok: boolean; error?: string };

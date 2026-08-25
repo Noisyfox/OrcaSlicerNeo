@@ -3,7 +3,7 @@ import type { VolumeType } from '@slicer/client';
 import { useObjectListStore } from './useObjectListStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { waitForSettledModelTransforms } from '../../toolbar/persistModelTransforms';
+import { waitForSettledModelTransforms } from '../actions/persistModelTransforms';
 
 export interface MutationOutcome {
   ok: boolean;

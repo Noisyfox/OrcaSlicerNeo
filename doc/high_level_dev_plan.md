@@ -388,7 +388,7 @@
 
 - Add Model in the gizmo toolbar at the first position (icon-only with a
   title/aria-label; test id `btn-add-model` unchanged); the shared `addModel`
-  action moved to `toolbar/sceneActions.ts`.
+  action moved to `workspace/actions/sceneActions.ts`.
 - Clear Scene in the scene right-click menu on empty space; the native
   host/browser context menu is suppressed for the whole canvas.
 - Add Cube in the same scene right-click menu, after a Clear Scene +

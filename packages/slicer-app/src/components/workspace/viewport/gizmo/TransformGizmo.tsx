@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { TransformControls } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useSceneInteraction } from '../SceneInteractionContext';
-import { persistSettledModelTransforms } from '../../../toolbar/persistModelTransforms';
+import { persistSettledModelTransforms } from '../../actions/persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';
 
 export type TransformGizmoMode = 'translate' | 'rotate' | 'scale';

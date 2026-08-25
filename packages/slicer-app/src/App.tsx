@@ -11,8 +11,8 @@ import { useSlicerStore } from './stores/useSlicerStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
 import { restoreSelections } from './preferences';
-import { addModel, clearScene } from './components/toolbar/sceneActions';
-import { exportGcode, sliceModel } from './components/toolbar/sliceActions';
+import { addModel, clearScene } from './components/workspace/actions/sceneActions';
+import { exportGcode, sliceModel } from './components/workspace/actions/sliceActions';
 import { createCommandDispatcher, registerNativeMenuCommands } from './menu/commands';
 import { buildMenuModel, buildMenuStateSnapshot, resolveMenuMode } from './menu/menuModel';
 
