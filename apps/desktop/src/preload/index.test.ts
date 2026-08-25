@@ -1,0 +1,71 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { ElectronBridge } from '../shared/ipc';
+import { Ipc } from '../shared/ipc';
+
+const electronMocks = vi.hoisted(() => ({
+  expose: vi.fn(),
+  invoke: vi.fn(async () => undefined),
+  send: vi.fn(),
+  on: vi.fn(),
+  removeListener: vi.fn(),
+}));
+
+vi.mock('electron', () => ({
+  contextBridge: { exposeInMainWorld: electronMocks.expose },
+  ipcRenderer: {
+    invoke: electronMocks.invoke,
+    send: electronMocks.send,
+    on: electronMocks.on,
+    removeListener: electronMocks.removeListener,
+  },
+}));
+
+await import('./index');
+
+describe('Electron preload bridge', () => {
+  it('exposes only narrow menu/source operations and fixed channels', async () => {
+    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
+    const model = { version: 1 as const, menuMode: 'native' as const, menus: [] };
+    const snapshot = {
+      version: 1 as const,
+      boot: { phase: 'starting' as const, error: null },
+      slicer: { status: 'idle' as const, progress: 0, error: null },
+      scene: { hasModel: false },
+      result: { hasResult: false, exported: false },
+      host: { isElectron: true, menuMode: 'native' as const },
+      items: {
+        'add-model': { enabled: false }, 'clear-scene': { enabled: false },
+        slice: { enabled: false }, 'export-gcode': { enabled: false },
+        quit: { enabled: false }, 'open-source': { enabled: true },
+      },
+    };
+
+    bridge.menu.syncModel(model);
+    bridge.menu.syncState(snapshot);
+    await bridge.menu.executeHostCommand('quit');
+    await bridge.externalLinks.openSource();
+
+    expect(electronMocks.send).toHaveBeenNthCalledWith(1, Ipc.syncMenuModel, model);
+    expect(electronMocks.send).toHaveBeenNthCalledWith(2, Ipc.syncMenuState, snapshot);
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.executeHostCommand, 'quit');
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.openSource);
+    expect(bridge).not.toHaveProperty('ipcRenderer');
+    expect(bridge).not.toHaveProperty('shell');
+    expect(bridge).not.toHaveProperty('invoke');
+  });
+
+  it('filters native command events and removes the exact listener', () => {
+    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
+    const listener = vi.fn();
+    const cleanup = bridge.menu.onCommand(listener);
+    const handler = electronMocks.on.mock.calls.at(-1)?.[1] as (event: unknown, value: unknown) => void;
+
+    handler({}, 'quit');
+    handler({}, 'arbitrary-channel');
+    expect(listener).toHaveBeenCalledWith('quit');
+    expect(listener).toHaveBeenCalledOnce();
+
+    cleanup();
+    expect(electronMocks.removeListener).toHaveBeenCalledWith(Ipc.nativeMenuCommand, handler);
+  });
+});

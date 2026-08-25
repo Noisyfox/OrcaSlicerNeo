@@ -1,10 +1,17 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type WebContents } from 'electron';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { extname, join, sep } from 'node:path';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { Ipc, type FileDialogFilter, type PreferencesLoadResult } from '../shared/ipc';
+import type { MenuCommandId } from '../shared/ipc';
+import {
+  createNativeMenuController,
+  handleHostCommand,
+  openFixedSource,
+  type NativeMenuController,
+} from './nativeMenu';
 
 // Linux containers/VMs without a DRM/VA-API device cannot start Chromium's
 // separate GPU process; Electron aborts with "GPU process isn't usable.
@@ -80,6 +87,23 @@ const preferencesPersisted = (): boolean =>
 
 let rendererPort = 0;
 let rendererServer: Server | null = null;
+let mainWindow: BrowserWindow | null = null;
+let nativeMenuController: NativeMenuController | null = null;
+
+function isCurrentRenderer(sender: WebContents): boolean {
+  return Boolean(
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    !sender.isDestroyed() &&
+    sender === mainWindow.webContents,
+  );
+}
+
+function sendNativeMenuCommand(command: MenuCommandId): void {
+  const target = mainWindow;
+  if (!target || target.isDestroyed() || target.webContents.isDestroyed()) return;
+  target.webContents.send(Ipc.nativeMenuCommand, command);
+}
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -102,6 +126,10 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: false, // preload uses node builtins for file IO
     },
+  });
+  mainWindow = win;
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
   });
 
   // Normally `ready-to-show` is the right time to reveal the window (it
@@ -207,6 +235,40 @@ function registerIpc(): void {
     await writeFile(preferencesPath(), JSON.stringify(json, null, 2), 'utf8');
   });
 
+  ipcMain.on(Ipc.syncMenuModel, (event, model: unknown) => {
+    if (!isCurrentRenderer(event.sender)) return;
+    nativeMenuController?.syncModel(model);
+  });
+
+  ipcMain.on(Ipc.syncMenuState, (event, snapshot: unknown) => {
+    if (!isCurrentRenderer(event.sender)) return;
+    nativeMenuController?.syncState(snapshot);
+  });
+
+  ipcMain.handle(Ipc.executeHostCommand, async (event, command: unknown): Promise<void> => {
+    if (!isCurrentRenderer(event.sender)) return;
+    handleHostCommand(command, () => app.quit());
+  });
+
+  ipcMain.handle(Ipc.openSource, async (event): Promise<void> => {
+    if (!isCurrentRenderer(event.sender)) return;
+    await openFixedSource((url) => shell.openExternal(url));
+  });
+
+}
+
+function installNativeMenu(): void {
+  nativeMenuController = createNativeMenuController({
+    platform: process.platform,
+    menu: {
+      buildFromTemplate: (template) => Menu.buildFromTemplate(
+        template as Parameters<typeof Menu.buildFromTemplate>[0],
+      ),
+      setApplicationMenu: (menu) => Menu.setApplicationMenu(menu as Menu | null),
+    },
+    onCommand: sendNativeMenuCommand,
+  });
+  nativeMenuController.install();
 }
 
 function setupSessionHeaders(): void {
@@ -290,6 +352,7 @@ function startRendererServer(): void {
 app.whenReady().then(() => {
   setupSessionHeaders();
   registerIpc();
+  installNativeMenu();
   startRendererServer(); // createWindow fires once the port is bound
 
 });

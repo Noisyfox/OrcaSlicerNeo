@@ -1,4 +1,11 @@
-import { DEFAULT_USER_PREFERENCES, normalizeUserPreferences, type PlatformCapabilities, type PlatformMenu, type UserPreferences } from '@orca/platform-contract';
+import {
+  DEFAULT_USER_PREFERENCES,
+  normalizeUserPreferences,
+  type MenuCommandId,
+  type PlatformCapabilities,
+  type PlatformMenu,
+  type UserPreferences,
+} from '@orca/platform-contract';
 import type { FileDialogFilter } from '../../../shared/ipc';
 import type { SlicerRuntime } from '@orca/platform-contract';
 
@@ -10,15 +17,6 @@ const MODEL_FILTERS: FileDialogFilter[] = [
 const GCODE_FILTERS: FileDialogFilter[] = [
   { name: 'G-code', extensions: ['gcode'] },
 ];
-
-// Menu IPC/native-menu integration is intentionally deferred to the next
-// implementation step. Keep the renderer adapter type-compatible meanwhile.
-const electronMenuPlaceholder: PlatformMenu = {
-  syncModel() {},
-  syncState() {},
-  onCommand() { return () => {}; },
-  execute() {},
-};
 
 /** The only renderer module allowed to know about the Electron preload API. */
 export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilities {
@@ -80,9 +78,14 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       dragRegion: true,
       macSafeInset: host.platform === 'darwin',
     },
-    menu: electronMenuPlaceholder,
-    // Source IPC is intentionally deferred with the rest of the host menu
-    // implementation; this placeholder does not navigate or accept a URL.
-    externalLinks: { openSource() {} },
+    menu: {
+      syncModel: (model) => host.menu.syncModel(model),
+      syncState: (snapshot) => host.menu.syncState(snapshot),
+      onCommand: (listener) => host.menu.onCommand(listener),
+      execute: (command: MenuCommandId) => {
+        if (command === 'quit') return host.menu.executeHostCommand(command);
+      },
+    } satisfies PlatformMenu,
+    externalLinks: { openSource: () => host.externalLinks.openSource() },
   };
 }
