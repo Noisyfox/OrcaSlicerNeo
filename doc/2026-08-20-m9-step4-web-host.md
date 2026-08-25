@@ -19,7 +19,7 @@ build and real threaded/serial Chrome E2E remain Step 5 work.
 **Update (2026-08-20):** the Web layout is now fully fluid. The fixed
 minimum-viewport floor was removed from `apps/web/src/styles.css` (after first
 being reduced from 1024 × 700 to 640 × 480). The shell was already
-shrink-friendly — sidebar clamps at 220 px (`AppShell.tsx`
+shrink-friendly — sidebar clamps at 220 px (`Workspace.tsx`
 `MIN_SIDEBAR_WIDTH`), `<main>` is `min-w-0 flex-1`, BrandBar/toolbar/status bar
 have no fixed widths — so the app adapts to any window size, and the settings
 panel and 3D viewport scroll/clip internally when constrained. No page-level
