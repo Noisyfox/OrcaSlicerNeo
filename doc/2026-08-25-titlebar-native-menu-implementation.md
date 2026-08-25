@@ -18,6 +18,8 @@ surfaces.
 - macOS Electron suppresses the shared dropdown and installs the File/Help
   application menu through the typed preload/main boundary. Its titlebar keeps
   only the traffic-light safe inset and drag region.
+- This scope intentionally excludes View, gizmo, Add Cube/Add Primitive, and
+  keyboard-shortcut menu entries.
 - Native selections and titlebar clicks use the same guarded command
   dispatcher. Source opening is an allowlisted `openSource()` operation; the
   host owns the fixed repository URL and does not accept arbitrary URLs.

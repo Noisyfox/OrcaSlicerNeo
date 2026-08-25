@@ -132,7 +132,16 @@ interface PlatformCapabilities {
   };
   preferences: UserPreferencesRepository;
   runtime: SlicerRuntime;
-  chrome: { kind: 'desktop' | 'web'; platform?: string };
+  profiles: ProfileSource;
+  chrome: {
+    kind: 'desktop' | 'web';
+    platform?: string;
+    menuMode: 'custom' | 'native' | 'browser';
+    dragRegion?: boolean;
+    macSafeInset?: boolean;
+  };
+  menu: PlatformMenu;
+  externalLinks: ExternalLinks;
 }
 ```
 
@@ -155,6 +164,8 @@ one complete versioned state snapshot. The model contains Add Model, Clear
 Scene, Slice, Export G-code, and the Help → AGPL-3.0 source operation. The
 source operation is a fixed external-link boundary; neither shared code nor a
 host adapter accepts an arbitrary URL.
+This menu scope does not include View, gizmo, Add Cube/Add Primitive, or
+keyboard-shortcut entries.
 
 The state projection is authoritative for both rendered and native surfaces:
 File business actions are disabled until boot is ready, Clear Scene and Slice

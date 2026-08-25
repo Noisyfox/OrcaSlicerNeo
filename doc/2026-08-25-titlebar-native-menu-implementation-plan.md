@@ -1,7 +1,7 @@
 # Native Titlebar Menu Implementation Plan
 
 **Date:** 2026-08-25  
-**Status:** Proposed implementation plan  
+**Status:** Implemented; see `doc/2026-08-25-titlebar-native-menu-implementation.md` for the implementation record and verification status.
 **Scope:** Shared React titlebar/menu behavior for Electron, Web, Windows, Linux, and macOS
 
 ## 1. Goal and boundaries

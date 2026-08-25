@@ -317,10 +317,11 @@
   boundary. Windows/Linux Electron renders the custom no-drag titlebar menu
   with Exit; Web renders the same menu without Quit/Exit; macOS Electron uses
   the native application menu as the only File/Help surface.
-- Focused mock Electron and real-artifact Web E2E coverage verifies menu
+- Focused mock Electron and real-artifact Web E2E coverage was added for menu
   presence, host-specific Quit/Exit behavior, startup/model/result eligibility,
   clear-scene transitions, no-drag controls, and source behavior. The dated
-  implementation note is `doc/2026-08-25-titlebar-native-menu-implementation.md`.
+  implementation note records which of these checks were actually executed:
+  `doc/2026-08-25-titlebar-native-menu-implementation.md`.
 - Real macOS packaged-app manual verification remains an explicit follow-up;
   no macOS pass is claimed from the Windows environment.
 
