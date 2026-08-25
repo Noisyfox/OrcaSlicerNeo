@@ -212,8 +212,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ### Task 2: transformMath pure helpers
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/viewport/transformMath.ts`
-- Test: `apps/desktop/src/renderer/src/components/viewport/transformMath.test.ts`
+- Create: `packages/slicer-app/src/components/workspace/viewport/transformMath.ts`
+- Test: `packages/slicer-app/src/components/workspace/viewport/transformMath.test.ts`
 
 **Interfaces:**
 - Consumes: `Vec3` from `../../../lib/vec3`; `THREE` (runtime dep).
@@ -226,10 +226,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `apps/desktop/src/renderer/src/components/viewport/transformMath.test.ts`:
+Create `packages/slicer-app/src/components/workspace/viewport/transformMath.test.ts`:
 
 ```ts
-// apps/desktop/src/renderer/src/components/viewport/transformMath.test.ts
+// packages/slicer-app/src/components/workspace/viewport/transformMath.test.ts
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import {
@@ -298,10 +298,10 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Implement**
 
-Create `apps/desktop/src/renderer/src/components/viewport/transformMath.ts`:
+Create `packages/slicer-app/src/components/workspace/viewport/transformMath.ts`:
 
 ```ts
-// apps/desktop/src/renderer/src/components/viewport/transformMath.ts
+// packages/slicer-app/src/components/workspace/viewport/transformMath.ts
 // Pure helpers for the move gizmo / move panel — unit-tested without React.
 import * as THREE from 'three';
 import type { Vec3 } from '../../lib/vec3';
@@ -359,7 +359,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/viewport/transformMath.ts apps/desktop/src/renderer/src/components/viewport/transformMath.test.ts
+git add packages/slicer-app/src/components/workspace/viewport/transformMath.ts packages/slicer-app/src/components/workspace/viewport/transformMath.test.ts
 git commit -m "feat(viewport): pure transform helpers for the move tool
 
 bbox min-Z, seed-map assembly, drop-to-bed z, input parse/format.
@@ -372,7 +372,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ### Task 3: useModelLoader seeds the transform maps
 
 **Files:**
-- Modify: `apps/desktop/src/renderer/src/components/viewport/useModelLoader.ts`
+- Modify: `packages/slicer-app/src/components/workspace/viewport/useModelLoader.ts`
 
 **Interfaces:**
 - Consumes: `computeObjectMinZ`, `buildTransformSeeds` from `./transformMath`; `useSettingsStore.setObjectOffsets`.
@@ -427,7 +427,7 @@ Expected: PASS. (If Task 1 left `ModelMesh.tsx` red on `setInstanceOffset`, this
 - [ ] **Step 3: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/viewport/useModelLoader.ts
+git add packages/slicer-app/src/components/workspace/viewport/useModelLoader.ts
 git commit -m "feat(viewport): seed move-transform state on model load
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
@@ -438,8 +438,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ### Task 4: commitPosition bridge helper
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/viewport/gizmo/commitPosition.ts`
-- Test: `apps/desktop/src/renderer/src/components/viewport/gizmo/commitPosition.test.ts`
+- Create: `packages/slicer-app/src/components/workspace/viewport/gizmo/commitPosition.ts`
+- Test: `packages/slicer-app/src/components/workspace/viewport/gizmo/commitPosition.test.ts`
 
 **Interfaces:**
 - Consumes: `Vec3` from `../../../lib/vec3`; `useSettingsStore.setObjectOffset`.
@@ -449,10 +449,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing test**
 
-Create `apps/desktop/src/renderer/src/components/viewport/gizmo/commitPosition.test.ts`:
+Create `packages/slicer-app/src/components/workspace/viewport/gizmo/commitPosition.test.ts`:
 
 ```ts
-// apps/desktop/src/renderer/src/components/viewport/gizmo/commitPosition.test.ts
+// packages/slicer-app/src/components/workspace/viewport/gizmo/commitPosition.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { commitPosition, type OffsetClient } from './commitPosition';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
@@ -498,10 +498,10 @@ Expected: FAIL — module does not exist.
 
 - [ ] **Step 3: Implement**
 
-Create `apps/desktop/src/renderer/src/components/viewport/gizmo/commitPosition.ts`:
+Create `packages/slicer-app/src/components/workspace/viewport/gizmo/commitPosition.ts`:
 
 ```ts
-// apps/desktop/src/renderer/src/components/viewport/gizmo/commitPosition.ts
+// packages/slicer-app/src/components/workspace/viewport/gizmo/commitPosition.ts
 import type { Vec3 } from '../../../lib/vec3';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 
@@ -547,7 +547,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/viewport/gizmo/commitPosition.ts apps/desktop/src/renderer/src/components/viewport/gizmo/commitPosition.test.ts
+git add packages/slicer-app/src/components/workspace/viewport/gizmo/commitPosition.ts packages/slicer-app/src/components/workspace/viewport/gizmo/commitPosition.test.ts
 git commit -m "feat(viewport): shared bridge commit helper for the move tool
 
 Single commit path for gizmo drags, body drags and the move panel;
@@ -561,8 +561,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ### Task 5: ModelMesh — DragControls body drag + MoveGizmo (TransformControls)
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/viewport/gizmo/MoveGizmo.tsx`
-- Modify: `apps/desktop/src/renderer/src/components/viewport/ModelMesh.tsx` (full rewrite of the pointer-drag logic)
+- Create: `packages/slicer-app/src/components/workspace/viewport/gizmo/MoveGizmo.tsx`
+- Modify: `packages/slicer-app/src/components/workspace/viewport/ModelMesh.tsx` (full rewrite of the pointer-drag logic)
 
 **Interfaces:**
 - Consumes: `commitPosition` (Task 4), `useSettingsStore` transform state (Task 1), `useSlicerStore.setError`, `slicerClient`.
@@ -587,7 +587,7 @@ Record what you verified in `doc/2026-08-16-move-gizmo-implementation-notes.md` 
 - [ ] **Step 2: Create MoveGizmo**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/gizmo/MoveGizmo.tsx
+// packages/slicer-app/src/components/workspace/viewport/gizmo/MoveGizmo.tsx
 // The move gizmo: drei TransformControls in translate mode, attached to the
 // selected object's DragControls group. Owns the gizmo gesture lifecycle —
 // mutual exclusion with the body drag (kind/gestureRef), orbit disable,
@@ -694,7 +694,7 @@ export function MoveGizmo({ target, objectIdx, kind, setKind, gestureRef }: {
 - [ ] **Step 3: Rewrite ModelMesh**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/ModelMesh.tsx
+// packages/slicer-app/src/components/workspace/viewport/ModelMesh.tsx
 // One loaded object: body drag via drei DragControls (world-XY at the
 // object's current height — axisLock="z") and, when selected, the move
 // gizmo. The DragControls group is the single world-transform owner; both
@@ -833,7 +833,7 @@ Expected: typecheck clean, unit green, e2e green.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/viewport/ModelMesh.tsx apps/desktop/src/renderer/src/components/viewport/gizmo/MoveGizmo.tsx
+git add packages/slicer-app/src/components/workspace/viewport/ModelMesh.tsx packages/slicer-app/src/components/workspace/viewport/gizmo/MoveGizmo.tsx
 git commit -m "feat(viewport): move gizmo + DragControls body drag
 
 Replace the hand-rolled pointer-drag with drei DragControls (axisLock z,
@@ -850,8 +850,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ### Task 6: MovePanel + SettingsPanel wiring
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/settings/MovePanel.tsx`
-- Modify: `apps/desktop/src/renderer/src/components/settings/SettingsPanel.tsx`
+- Create: `packages/slicer-app/src/components/workspace/settings/MovePanel.tsx`
+- Modify: `packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx`
 
 **Interfaces:**
 - Consumes: `commitPosition`, `computeDropZ`, `formatPosition`, `parseNumberInput` (Task 2/4), store `positions`/`initialPositions`/`objectMinZ`/`selectedObject`, `slicerClient`.
@@ -860,7 +860,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - [ ] **Step 1: Create MovePanel**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/settings/MovePanel.tsx
+// packages/slicer-app/src/components/workspace/settings/MovePanel.tsx
 // Gizmo options panel (sidebar) for the move tool: numeric X/Y/Z position
 // inputs (commit on blur/Enter), Drop to bed, Reset. Reads and writes the
 // store's per-object transform maps through the shared bridge commit.
@@ -980,7 +980,7 @@ return (
 - [ ] **Step 4: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/settings/MovePanel.tsx apps/desktop/src/renderer/src/components/settings/SettingsPanel.tsx
+git add packages/slicer-app/src/components/workspace/settings/MovePanel.tsx packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx
 git commit -m "feat(settings): move panel with numeric inputs, drop to bed, reset
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
@@ -991,7 +991,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ### Task 7: e2e — gizmo coverage
 
 **Files:**
-- Modify: `apps/desktop/src/renderer/src/components/viewport/Scene.tsx` (test projection hook)
+- Modify: `packages/slicer-app/src/components/workspace/viewport/Scene.tsx` (test projection hook)
 - Modify: `apps/desktop/e2e/app.e2e.ts` (new test + comment touch-up)
 
 **Interfaces:**
@@ -1003,7 +1003,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 In `Scene.tsx` (inside the Canvas — has access to `useThree`):
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/Scene.tsx
+// packages/slicer-app/src/components/workspace/viewport/Scene.tsx
 import { useEffect } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
@@ -1170,7 +1170,7 @@ Iterate on the screenshot + diagnostics until green.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/viewport/Scene.tsx apps/desktop/e2e/app.e2e.ts
+git add packages/slicer-app/src/components/workspace/viewport/Scene.tsx apps/desktop/e2e/app.e2e.ts
 git commit -m "test(e2e): move gizmo axis drag, panel inputs, drop to bed, reset
 
 __orcaE2e world→screen projection hook (mock/e2e builds only) so drags

@@ -1472,12 +1472,12 @@ left settings panel, center viewport, right (later) — v1 puts the slice
 button + progress in the toolbar.
 
 **Files:**
-- Create: `apps/desktop/tailwind.config.js`, `apps/desktop/postcss.config.js`, `apps/desktop/components.json`, `apps/desktop/src/renderer/src/index.css`, `apps/desktop/src/renderer/src/lib/utils.ts`, `apps/desktop/src/renderer/src/components/ui/button.tsx`, `.../components/ui/select.tsx`, `.../components/ui/slider.tsx`, `.../components/ui/checkbox.tsx`, `.../components/ui/input.tsx`, `.../components/ui/label.tsx`, `.../components/ui/progress.tsx`, `apps/desktop/src/renderer/src/components/layout/TitleBar.tsx`, `apps/desktop/src/renderer/src/components/layout/AppShell.tsx`, `apps/desktop/src/renderer/src/stores/useSettingsStore.ts`, `apps/desktop/src/renderer/src/stores/useSlicerStore.ts`
+- Create: `apps/desktop/tailwind.config.js`, `apps/desktop/postcss.config.js`, `apps/desktop/components.json`, `apps/desktop/src/renderer/src/index.css`, `apps/desktop/src/renderer/src/lib/utils.ts`, `apps/desktop/src/renderer/src/components/ui/button.tsx`, `.../components/ui/select.tsx`, `.../components/ui/slider.tsx`, `.../components/ui/checkbox.tsx`, `.../components/ui/input.tsx`, `.../components/ui/label.tsx`, `.../components/ui/progress.tsx`, `apps/desktop/src/renderer/src/components/layout/TitleBar.tsx`, `packages/slicer-app/src/components/layout/AppShell.tsx`, `apps/desktop/src/renderer/src/stores/useSettingsStore.ts`, `apps/desktop/src/renderer/src/stores/useSlicerStore.ts`
 - Modify: `apps/desktop/package.json` (deps), `apps/desktop/src/renderer/src/main.tsx`, `apps/desktop/src/renderer/src/App.tsx`
 
 **Interfaces:**
 - Consumes: `window.orca` (Task 4).
-- Produces: `cn(...classes)` util; `Button`, `Select`, `Slider`, `Checkbox`, `Input`, `Label`, `Progress` UI primitives (shadcn-style, radix-backed); `AppShell` with title bar (window controls via `window.orca`) + toolbar + settings/status slots; `useSettingsStore` (`metadata: OptionMetadata | null`, `presets: {printers, prints, filaments}`, `values: Record<string, string>`, actions `loadAll()`, `setValue(key, value)`); `useSlicerStore` (`status: 'idle'|'slicing'|'done'|'error'`, `progress: number`, `layers: number`, `error: string | null`, actions `setStatus/setProgress/...`). Task 6 wires real data; Task 8+ consumes the stores.
+- Produces: `cn(...classes)` util; `Button`, `Select`, `Slider`, `Checkbox`, `Input`, `Label`, `Progress` UI primitives (shadcn-style, radix-backed); `AppShell` with `titleBar` + `toolbar` + `workspace` + `status` slots (the sidebar/scene split, including the resizable divider, lives in `packages/slicer-app/src/components/workspace/Workspace.tsx`); `useSettingsStore` (`metadata: OptionMetadata | null`, `presets: {printers, prints, filaments}`, `values: Record<string, string>`, actions `loadAll()`, `setValue(key, value)`); `useSlicerStore` (`status: 'idle'|'slicing'|'done'|'error'`, `progress: number`, `layers: number`, `error: string | null`, actions `setStatus/setProgress/...`). Task 6 wires real data; Task 8+ consumes the stores.
 
 - [ ] **Step 1: Add dependencies to `apps/desktop/package.json`**
 
@@ -1884,7 +1884,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
 }));
 ```
 
-- [ ] **Step 6: Write `TitleBar.tsx` + `AppShell.tsx`**
+- [ ] **Step 6: Write `TitleBar.tsx` + `AppShell.tsx` + `Workspace.tsx`**
 
 ```tsx
 // apps/desktop/src/renderer/src/components/layout/TitleBar.tsx
@@ -1912,55 +1912,60 @@ export function TitleBar() {
 ```
 
 ```tsx
-// apps/desktop/src/renderer/src/components/layout/AppShell.tsx
-import type { ReactNode } from 'react';
-import { TitleBar } from './TitleBar';
+// packages/slicer-app/src/components/layout/AppShell.tsx
+import { type ReactNode } from 'react';
 
-export function AppShell({ settings, viewport, toolbar, status }: {
-  settings: ReactNode;
-  viewport: ReactNode;
+export function AppShell({ titleBar, workspace, toolbar, status }: {
+  titleBar: ReactNode;
   toolbar: ReactNode;
+  // Fills the row between the toolbar and the status bar, so it has to
+  // stretch itself (`flex-1 min-h-0`) — see Workspace.
+  workspace: ReactNode;
   status: ReactNode;
 }) {
   return (
     <div className="flex h-full flex-col">
-      <TitleBar />
-      <div className="flex h-10 items-center gap-2 border-b bg-card px-3">{toolbar}</div>
-      <div className="flex flex-1 min-h-0">
-        <aside className="w-72 shrink-0 overflow-y-auto border-r bg-card">{settings}</aside>
-        <main className="relative flex-1">{viewport}</main>
-      </div>
-      <footer className="h-7 border-t bg-card px-3 text-xs text-muted-foreground flex items-center">{status}</footer>
+      {titleBar}
+      <div className="flex h-6 items-center gap-2 px-1 mb-0.5">{toolbar}</div>
+      {workspace}
+      <footer className="h-6 flex items-center px-1 text-xs text-muted-foreground">{status}</footer>
     </div>
   );
 }
 ```
+
+`AppShell` is a pure vertical stack. The sidebar↔scene row — the `<aside>`
+(`ObjectList` + `SettingsPanel`), the resizable separator, and the `<main>`
+holding the `Viewport` — lives in
+`packages/slicer-app/src/components/workspace/Workspace.tsx`, which also owns
+the sidebar width (clamped `220px`–`560px`, persisted as `ui.sidebarWidth`) and
+the shared `SceneInteractionController` state.
 
 - [ ] **Step 7: Rewrite `App.tsx` + `main.tsx`**
 
 ```tsx
 // apps/desktop/src/renderer/src/App.tsx
 import { AppShell } from './components/layout/AppShell';
-import { Toolbar } from './components/toolbar/Toolbar';
-import { SettingsPanel } from './components/settings/SettingsPanel';
-import { Viewport } from './components/viewport/Viewport';
-import { StatusBar } from './components/status/StatusBar';
+import { TitleBar } from './components/layout/TitleBar';
+import { Toolbar } from './components/layout/Toolbar';
+import { Workspace } from './components/workspace/Workspace';
+import { StatusBar } from './components/layout/StatusBar';
 
 export default function App() {
   return (
     <AppShell
+      titleBar={<TitleBar />}
       toolbar={<Toolbar />}
-      settings={<SettingsPanel />}
-      viewport={<Viewport />}
+      workspace={<Workspace />}
       status={<StatusBar />}
     />
   );
 }
 ```
 
-(Placeholders `Toolbar`, `SettingsPanel`, `Viewport`, `StatusBar` — the next
-tasks implement them; create minimal stubs now so the app compiles: each
-renders a `div` with its name.)
+(Placeholders `Toolbar`, `StatusBar`, and the `SettingsPanel`/`Viewport` that
+`Workspace` composes — the next tasks implement them; create minimal stubs now
+so the app compiles: each renders a `div` with its name.)
 
 ```tsx
 // apps/desktop/src/renderer/src/main.tsx
@@ -1998,7 +2003,7 @@ today, no duplicated schema (design §Electron App). Also: the "Open" flow
 (native dialog → read bytes → `loadModel`) and the toolbar/status bar.
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/slicer/slicerClient.ts` (worker client singleton), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx`, `apps/desktop/src/renderer/src/components/status/StatusBar.tsx`, `apps/desktop/src/renderer/src/components/settings/SettingsPanel.tsx`, `apps/desktop/src/renderer/src/components/settings/fields.tsx`, `apps/desktop/src/renderer/src/components/settings/OptionField.tsx`
+- Create: `apps/desktop/src/renderer/src/slicer/slicerClient.ts` (worker client singleton), `packages/slicer-app/src/components/layout/Toolbar.tsx`, `packages/slicer-app/src/components/layout/StatusBar.tsx`, `packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx`, `packages/slicer-app/src/components/workspace/settings/fields.tsx`, `packages/slicer-app/src/components/workspace/settings/OptionField.tsx`
 - Modify: `apps/desktop/src/renderer/src/App.tsx` (boot effect)
 
 **Interfaces:**
@@ -2052,7 +2057,7 @@ First run: FAIL (module missing). After the store file exists (Task 5 Step 5 alr
 - [ ] **Step 4: Write `OptionField.tsx` + `fields.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/settings/OptionField.tsx
+// packages/slicer-app/src/components/workspace/settings/OptionField.tsx
 import type { OptionMeta } from '@slicer/client';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Label } from '../ui/label';
@@ -2117,7 +2122,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
 - [ ] **Step 5: Write `SettingsPanel.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/settings/SettingsPanel.tsx
+// packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx
 import { useMemo } from 'react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { OptionField } from './OptionField';
@@ -2197,7 +2202,7 @@ function PresetRow({ label, items, value, onValue }: {
 - [ ] **Step 6: Write `Toolbar.tsx` + `StatusBar.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx
+// packages/slicer-app/src/components/layout/Toolbar.tsx
 import { FolderOpen, Slice, Download } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -2269,7 +2274,7 @@ export function Toolbar() {
 ```
 
 ```tsx
-// apps/desktop/src/renderer/src/components/status/StatusBar.tsx
+// packages/slicer-app/src/components/layout/StatusBar.tsx
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { Progress } from '../ui/progress';
 
@@ -2310,10 +2315,10 @@ function statusText(s: string): string {
 // apps/desktop/src/renderer/src/App.tsx (add a boot effect)
 import { useEffect } from 'react';
 import { AppShell } from './components/layout/AppShell';
-import { Toolbar } from './components/toolbar/Toolbar';
-import { SettingsPanel } from './components/settings/SettingsPanel';
-import { Viewport } from './components/viewport/Viewport';
-import { StatusBar } from './components/status/StatusBar';
+import { TitleBar } from './components/layout/TitleBar';
+import { Toolbar } from './components/layout/Toolbar';
+import { Workspace } from './components/workspace/Workspace';
+import { StatusBar } from './components/layout/StatusBar';
 import { slicerClient } from './slicer/slicerClient';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
@@ -2351,9 +2356,9 @@ export default function App() {
 
   return (
     <AppShell
+      titleBar={<TitleBar />}
       toolbar={<Toolbar />}
-      settings={<SettingsPanel />}
-      viewport={<Viewport />}
+      workspace={<Workspace />}
       status={<StatusBar />}
     />
   );
@@ -2408,7 +2413,7 @@ metadata; Open loads a file into the mock; Slice shows progress then "Sliced".
 - [ ] **Step 11: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/slicer apps/desktop/src/renderer/src/components/toolbar apps/desktop/src/renderer/src/components/status apps/desktop/src/renderer/src/components/settings apps/desktop/src/renderer/src/App.tsx apps/desktop/src/renderer/src/stores/useSettingsStore.test.ts scripts/stage-wasm.mjs package.json .gitignore
+git add apps/desktop/src/renderer/src/slicer apps/desktop/src/renderer/src/components/toolbar apps/desktop/src/renderer/src/components/status packages/slicer-app/src/components/workspace/settings apps/desktop/src/renderer/src/App.tsx apps/desktop/src/renderer/src/stores/useSettingsStore.test.ts scripts/stage-wasm.mjs package.json .gitignore
 git commit -m "feat: app boot (worker client + presets + metadata) and metadata-driven settings panel"
 ```
 
@@ -2798,8 +2803,8 @@ The R3F viewport: bed plate + grid, model meshes from `getModelMesh()`
 plane (design §Electron App "basic move-on-plate").
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/viewport/Viewport.tsx`, `.../viewport/Scene.tsx`, `.../viewport/BedPlate.tsx`, `.../viewport/ModelMesh.tsx`, `.../viewport/useModelLoader.ts`, `.../viewport/useSelection.ts`
-- Modify: `apps/desktop/src/renderer/src/stores/useSettingsStore.ts` (add `modelLoaded` + `selectedObject` + `instanceOffset` state), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (enable Slice/Export when `modelLoaded`)
+- Create: `packages/slicer-app/src/components/workspace/viewport/Viewport.tsx`, `.../viewport/Scene.tsx`, `.../viewport/BedPlate.tsx`, `.../viewport/ModelMesh.tsx`, `.../viewport/useModelLoader.ts`, `.../viewport/useSelection.ts`
+- Modify: `apps/desktop/src/renderer/src/stores/useSettingsStore.ts` (add `modelLoaded` + `selectedObject` + `instanceOffset` state), `packages/slicer-app/src/components/layout/Toolbar.tsx` (enable Slice/Export when `modelLoaded`)
 
 **Interfaces:**
 - Consumes: `slicerClient.getModelMesh()` + `setInstanceOffset` (Tasks 2/7), stores (Task 5).
@@ -2846,7 +2851,7 @@ Run: `pnpm --filter desktop test` → PASS.
 - [ ] **Step 3: Write `useModelLoader.ts` + `ModelMesh.tsx`**
 
 ```ts
-// apps/desktop/src/renderer/src/components/viewport/useModelLoader.ts
+// packages/slicer-app/src/components/workspace/viewport/useModelLoader.ts
 import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { slicerClient } from '../../slicer/slicerClient';
@@ -2899,7 +2904,7 @@ export function useModelLoader(): LoadedObject[] {
 ```
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/ModelMesh.tsx
+// packages/slicer-app/src/components/workspace/viewport/ModelMesh.tsx
 import { useRef } from 'react';
 import * as THREE from 'three';
 import type { ThreeEvent } from '@react-three/fiber';
@@ -2980,7 +2985,7 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
 - [ ] **Step 4: Write `BedPlate.tsx` + `Scene.tsx` + `Viewport.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/BedPlate.tsx
+// packages/slicer-app/src/components/workspace/viewport/BedPlate.tsx
 import * as THREE from 'three';
 import { Grid } from '@react-three/drei';
 
@@ -3013,7 +3018,7 @@ export function BedPlate() {
 ```
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/Scene.tsx
+// packages/slicer-app/src/components/workspace/viewport/Scene.tsx
 import { useModelLoader } from './useModelLoader';
 import { BedPlate } from './BedPlate';
 import { ModelMesh } from './ModelMesh';
@@ -3034,7 +3039,7 @@ export function Scene() {
 ```
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/Viewport.tsx
+// packages/slicer-app/src/components/workspace/viewport/Viewport.tsx
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Scene } from './Scene';
@@ -3079,7 +3084,7 @@ Expected: exit 0 (2 store tests PASS). Manual: `VITE_USE_MOCK=1 pnpm --filter de
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/viewport apps/desktop/src/renderer/src/stores apps/desktop/src/renderer/src/components/toolbar
+git add packages/slicer-app/src/components/workspace/viewport apps/desktop/src/renderer/src/stores apps/desktop/src/renderer/src/components/toolbar
 git commit -m "feat: R3F viewport — bed grid, model mesh from wasm buffers, orbit/select, drag-move on plate"
 ```
 
@@ -3093,8 +3098,8 @@ layer scrubber (slider) driving per-layer draw ranges (design §Electron App
 "preview: toolpath + layer slider").
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/viewport/ToolpathLines.tsx`, `.../viewport/LayerScrubber.tsx`, `.../viewport/PreviewLayer.tsx` (scrubber state + draw-range computation), `.../viewport/useSliceResult.ts`
-- Modify: `apps/desktop/src/renderer/src/components/viewport/Scene.tsx` (render preview when done), `apps/desktop/src/renderer/src/components/status/StatusBar.tsx` (layer info), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (slice → fetch result on done)
+- Create: `packages/slicer-app/src/components/workspace/viewport/ToolpathLines.tsx`, `.../viewport/LayerScrubber.tsx`, `.../viewport/PreviewLayer.tsx` (scrubber state + draw-range computation), `.../viewport/useSliceResult.ts`
+- Modify: `packages/slicer-app/src/components/workspace/viewport/Scene.tsx` (render preview when done), `packages/slicer-app/src/components/layout/StatusBar.tsx` (layer info), `packages/slicer-app/src/components/layout/Toolbar.tsx` (slice → fetch result on done)
 
 **Interfaces:**
 - Consumes: `ClientSliceResult` (Task 2), stores (Task 5), `getSliceResult()` (Task 7).
@@ -3134,7 +3139,7 @@ describe('useSlicerStore', () => {
 - [ ] **Step 2: Write `useSliceResult.ts`**
 
 ```ts
-// apps/desktop/src/renderer/src/components/viewport/useSliceResult.ts
+// packages/slicer-app/src/components/workspace/viewport/useSliceResult.ts
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { slicerClient } from '../../slicer/slicerClient';
@@ -3216,7 +3221,7 @@ export function useSliceResult() {
 - [ ] **Step 3: Write `ToolpathLines.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/ToolpathLines.tsx
+// packages/slicer-app/src/components/workspace/viewport/ToolpathLines.tsx
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -3242,7 +3247,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
 - [ ] **Step 4: Write `LayerScrubber.tsx` + wire into the viewport**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/LayerScrubber.tsx
+// packages/slicer-app/src/components/workspace/viewport/LayerScrubber.tsx
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { Slider } from '../ui/slider';
 import { Label } from '../ui/label';
@@ -3318,7 +3323,7 @@ Expected: exit 0 (3 store tests PASS, slicer-wasm 14 PASS). Manual: `VITE_USE_MO
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/viewport apps/desktop/src/renderer/src/stores apps/desktop/src/renderer/src/components/status apps/desktop/src/renderer/src/components/toolbar
+git add packages/slicer-app/src/components/workspace/viewport apps/desktop/src/renderer/src/stores apps/desktop/src/renderer/src/components/status apps/desktop/src/renderer/src/components/toolbar
 git commit -m "feat: slice preview — toolpath LineSegments with layer scrubber draw ranges"
 ```
 
@@ -3330,7 +3335,7 @@ The v1 flow's last step: `exportGcode()` → MEMFS bytes → native save dialog 
 file on disk (design §Electron App "export gcode through native save dialog").
 
 **Files:**
-- Modify: `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (wire the Export button)
+- Modify: `packages/slicer-app/src/components/layout/Toolbar.tsx` (wire the Export button)
 
 **Interfaces:**
 - Consumes: `slicerClient.exportGcode()` (Task 2/7), `window.orca.saveFileDialog/writeFile` (Task 4), `useSlicerStore` (Task 5).

@@ -34,7 +34,7 @@ menu. Clicking it unpacks a flyout with the six shape items
 (`btn-add-cube`, `btn-add-cylinder`, `btn-add-sphere`, `btn-add-cone`,
 `btn-add-disc`, `btn-add-torus`); clicking an item closes the menu and calls
 `addPrimitive(platform, sceneInteraction, type)` in
-`packages/slicer-app/src/components/toolbar/sceneActions.ts` — the same
+`packages/slicer-app/src/components/workspace/actions/sceneActions.ts` — the same
 `commitAdded` choreography as `addModel`/`addCube` (wait for a settled
 transform commit → `runtime.addShape(type)` → invalidate the sliced result,
 record the display name, flip `modelLoaded`, reset scene interaction).
@@ -53,10 +53,10 @@ centered, rested on the bed, stale `Print` cleared.
   primitive geometry mirror (JS port of the libslic3r builders' tessellation:
   same segment counts, same vertex/index counts) stored per added object and
   returned by `orc_get_model_mesh`.
-- `packages/slicer-app/src/components/toolbar/sceneActions.ts` —
+- `packages/slicer-app/src/components/workspace/actions/sceneActions.ts` —
   `PRIMITIVE_TYPES` + `addPrimitive(platform, sceneInteraction, type)`
   (replaces `addCube`).
-- `packages/slicer-app/src/components/viewport/SceneContextMenu.tsx` —
+- `packages/slicer-app/src/components/workspace/viewport/SceneContextMenu.tsx` —
   Add Primitive flyout submenu.
 - `packages/slicer-wasm/src/client/client.test.ts` — per-type `addShape`
   tests (name + vertex count per shape).

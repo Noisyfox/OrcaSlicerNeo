@@ -32,7 +32,7 @@ The app toolbar row then carries only Slice and Export.
 
 `GizmoToolbar` renders the labeled Add Model button first. Clicking it calls
 the shared `addModel(platform, sceneInteraction)` action extracted from the
-old `Toolbar` (`packages/slicer-app/src/components/toolbar/sceneActions.ts`):
+old `Toolbar` (`packages/slicer-app/src/components/workspace/actions/sceneActions.ts`):
 host file picker → wait for any settled transform commit → `runtime.addModel`
 → invalidate the sliced result, record the display name, flip `modelLoaded`,
 reset scene interaction. Disabled until the boot preset lists arrive. The
@@ -68,16 +68,16 @@ not on an editable control (`input` / `textarea` / `select` /
 
 ## Files
 
-- `packages/slicer-app/src/components/toolbar/sceneActions.ts` — shared
+- `packages/slicer-app/src/components/workspace/actions/sceneActions.ts` — shared
   `addModel` / `clearScene` actions (extracted from `Toolbar.tsx`).
-- `packages/slicer-app/src/components/viewport/GizmoToolbar.tsx` — Add Model
+- `packages/slicer-app/src/components/workspace/viewport/GizmoToolbar.tsx` — Add Model
   button at the first position.
-- `packages/slicer-app/src/components/viewport/SceneContextMenu.tsx` — the
+- `packages/slicer-app/src/components/workspace/viewport/SceneContextMenu.tsx` — the
   empty-space right-click menu (Clear Scene / separator / Add Cube /
   Add Model).
-- `packages/slicer-app/src/components/viewport/Viewport.tsx` — wraps the
+- `packages/slicer-app/src/components/workspace/viewport/Viewport.tsx` — wraps the
   canvas with `SceneContextMenu`.
-- `packages/slicer-app/src/components/toolbar/Toolbar.tsx` — now Slice +
+- `packages/slicer-app/src/components/layout/Toolbar.tsx` — now Slice +
   Export only.
 - `apps/desktop/e2e/app.e2e.ts` — full-flow test clears via the context
   menu; shortcuts test asserts the disabled menu item after Delete.

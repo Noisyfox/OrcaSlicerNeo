@@ -40,7 +40,7 @@ The look is taken from the pinned upstream source
 
 ## Implementation
 
-`packages/slicer-app/src/components/viewport/`:
+`packages/slicer-app/src/components/workspace/viewport/`:
 
 - `selectionBoundsBoxGeometry.ts` — pure helper
   `selectionBoundsBoxPositions(bounds)` that turns a `THREE.Box3` into the

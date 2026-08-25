@@ -30,7 +30,7 @@ Root cause chain (three independent defects stacking):
 - `apps/desktop/src/renderer/src/slicer/errors.ts` — new `errorText(err)`
   helper: `err instanceof Error ? err.message : String(err)`. Standalone
   module (no worker import) so vitest can run it in node env.
-- `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` — a failed
+- `packages/slicer-app/src/components/layout/Toolbar.tsx` — a failed
   slice is *not* a thrown error: set the bridge's plain message directly
   (`r.error`), no `Error()` round trip. Open/export catches use `errorText`.
   Every failure path also `console.error`s now. Starting a new slice clears

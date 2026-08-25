@@ -166,7 +166,7 @@ Date: 2026-08-15. Design: `doc/2026-08-15-m4-preset-management-design.md`
 - `apps/desktop/src/shared/ipc.ts`, `main/index.ts` (appConfig IPC + CSP),
   `preload/index.ts`, `renderer/src/env.d.ts`, `renderer/src/App.tsx`,
   `renderer/src/stores/useSettingsStore.ts` (+ test),
-  `renderer/src/components/settings/SettingsPanel.tsx`,
+  `renderer/src/components/workspace/settings/SettingsPanel.tsx`,
   `electron.vite.config.ts` (dev CSP)
 
 Submodule `packages/slicer-wasm/cpp` untouched (patches applied at build

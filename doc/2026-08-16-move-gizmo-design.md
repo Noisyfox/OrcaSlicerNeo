@@ -62,15 +62,15 @@ SettingsPanel
 
 ### Component files
 
-- `apps/desktop/src/renderer/src/components/viewport/ModelMesh.tsx` —
+- `packages/slicer-app/src/components/workspace/viewport/ModelMesh.tsx` —
   refactored: DragControls wrapper + conditional TransformControls.
-- `apps/desktop/src/renderer/src/components/viewport/gizmo/MoveGizmo.tsx` —
+- `packages/slicer-app/src/components/workspace/viewport/gizmo/MoveGizmo.tsx` —
   the TransformControls wrapper (gesture gating, commit, orbit disable) so
   rotate/scale gizmos later slot in beside it.
-- `apps/desktop/src/renderer/src/components/viewport/useModelLoader.ts` —
+- `packages/slicer-app/src/components/workspace/viewport/useModelLoader.ts` —
   computes bounding boxes; seeds `positions` / `initialPositions` /
   `objectMinZ` in the store.
-- `apps/desktop/src/renderer/src/components/settings/MovePanel.tsx` —
+- `packages/slicer-app/src/components/workspace/settings/MovePanel.tsx` —
   numeric inputs + Drop to bed + Reset.
 - `apps/desktop/src/renderer/src/stores/useSettingsStore.ts` — store changes.
 

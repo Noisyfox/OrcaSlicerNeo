@@ -8,15 +8,18 @@ displays.
 
 ## What changed
 
-- `apps/desktop/src/renderer/src/components/layout/AppShell.tsx`
+- `packages/slicer-app/src/components/workspace/Workspace.tsx`
   - Replaced the fixed `w-72` aside width with a React-managed pixel width.
   - Added a vertical resize separator between the sidebar and the viewport.
   - Pointer and mouse drag resizing listen on `window` so the drag
     continues outside the separator.
-  - The width is clamped to `220px`–`560px` and persisted to `localStorage`
-    so the user's preferred sidebar width survives restarts.
+  - The width is clamped to `220px`–`560px` and persisted through the platform
+    preferences contract (`ui.sidebarWidth`) — `userData/preferences.json` on
+    Electron, `localStorage` on Web — so the user's preferred sidebar width
+    survives restarts.
   - The separator is keyboard accessible (`ArrowLeft`/`ArrowRight` adjust by
-    `16px`) and exposed with `role="separator"`.
+    `16px`) and exposed with `role="separator"` plus
+    `data-testid="sidebar-resizer"`.
 
 ## Behavior
 
