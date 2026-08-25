@@ -73,10 +73,17 @@ export default function App() {
     },
   }), [platform]);
 
-  // Native selections enter through the same guarded dispatcher as the
-  // renderer menu. Sync publication is deliberately separate so state
-  // changes do not re-register the host callback.
-  useLayoutEffect(() => registerNativeMenuCommands(platform, dispatcher), [dispatcher, platform]);
+  // Strict Mode replays layout effects during development. Keep activation
+  // and disposal next to the native subscription so replay cannot leave the
+  // memoized dispatcher permanently inactive.
+  useLayoutEffect(() => {
+    dispatcher.activate();
+    const unregister = registerNativeMenuCommands(platform, dispatcher);
+    return () => {
+      unregister();
+      dispatcher.dispose();
+    };
+  }, [dispatcher, platform]);
   useLayoutEffect(() => {
     void Promise.resolve(platform.menu.syncModel(menuModel)).catch((error) => {
       console.error('menu model sync failed:', error);
@@ -85,8 +92,6 @@ export default function App() {
       console.error('menu state sync failed:', error);
     });
   }, [menuModel, menuState, platform.menu]);
-  useEffect(() => () => dispatcher.dispose(), [dispatcher]);
-
   const titleBar = (
     <TitleBar
       chrome={platform.chrome}

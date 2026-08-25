@@ -16,6 +16,8 @@ export interface CommandActions {
 export interface CommandDispatcher {
   /** Returns false when the command was stale, disabled, or after disposal. */
   dispatch(command: MenuCommandId): Promise<boolean>;
+  /** Restore command dispatch after a development Strict Mode effect replay. */
+  activate(): void;
   dispose(): void;
 }
 
@@ -59,6 +61,9 @@ export function createCommandDispatcher({
       } finally {
         inFlight.delete(command);
       }
+    },
+    activate() {
+      active = true;
     },
     dispose() {
       active = false;

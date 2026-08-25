@@ -95,7 +95,7 @@ describe('shared menu command dispatcher', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it('routes source and quit to their injected host effects and stops after disposal', async () => {
+  it('routes source and quit to their injected host effects and resumes after a Strict Mode effect replay', async () => {
     const calls = actions();
     const dispatcher = createCommandDispatcher({
       getSnapshot: () => snapshot({ 'open-source': true, quit: true }),
@@ -109,5 +109,9 @@ describe('shared menu command dispatcher', () => {
 
     dispatcher.dispose();
     await expect(dispatcher.dispatch('quit')).resolves.toBe(false);
+
+    dispatcher.activate();
+    await expect(dispatcher.dispatch('quit')).resolves.toBe(true);
+    expect(calls.quit).toHaveBeenCalledTimes(2);
   });
 });

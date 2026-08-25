@@ -23,6 +23,9 @@ surfaces.
 - Native selections and titlebar clicks use the same guarded command
   dispatcher. Source opening is an allowlisted `openSource()` operation; the
   host owns the fixed repository URL and does not accept arbitrary URLs.
+- React Strict Mode replays effects during development. Dispatcher activation
+  and disposal therefore share the native-command subscription lifecycle, so
+  replay cleanup cannot leave the memoized dispatcher inactive.
 
 ## Commit boundaries
 
