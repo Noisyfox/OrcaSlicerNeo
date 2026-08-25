@@ -278,8 +278,8 @@ Add `data-testid` attributes (implementation detail left to the implementer; the
 | `components/toolbar/Toolbar.tsx` | Export button | `btn-export` |
 | `components/status/StatusBar.tsx` | status text `<span>` | `slicer-status` |
 | `components/settings/SettingsPanel.tsx` | printer preset `Select` trigger | `preset-select` |
-| `components/viewport/Viewport.tsx` | canvas wrapper `<div>` | `viewport` |
-| `components/viewport/LayerScrubber.tsx` | slider root | `layer-scrubber` |
+| `components/workspace/viewport/Viewport.tsx` | canvas wrapper `<div>` | `viewport` |
+| `components/workspace/viewport/LayerScrubber.tsx` | slider root | `layer-scrubber` |
 
 The status `<span>` in StatusBar is the element whose `textContent` the spec asserts (`Ready` / `Sliced`).
 

@@ -56,7 +56,7 @@ centered, rested on the bed, stale `Print` cleared.
 - `packages/slicer-app/src/components/toolbar/sceneActions.ts` —
   `PRIMITIVE_TYPES` + `addPrimitive(platform, sceneInteraction, type)`
   (replaces `addCube`).
-- `packages/slicer-app/src/components/viewport/SceneContextMenu.tsx` —
+- `packages/slicer-app/src/components/workspace/viewport/SceneContextMenu.tsx` —
   Add Primitive flyout submenu.
 - `packages/slicer-wasm/src/client/client.test.ts` — per-type `addShape`
   tests (name + vertex count per shape).

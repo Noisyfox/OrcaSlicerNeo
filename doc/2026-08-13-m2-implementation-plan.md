@@ -2803,7 +2803,7 @@ The R3F viewport: bed plate + grid, model meshes from `getModelMesh()`
 plane (design §Electron App "basic move-on-plate").
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/viewport/Viewport.tsx`, `.../viewport/Scene.tsx`, `.../viewport/BedPlate.tsx`, `.../viewport/ModelMesh.tsx`, `.../viewport/useModelLoader.ts`, `.../viewport/useSelection.ts`
+- Create: `packages/slicer-app/src/components/workspace/viewport/Viewport.tsx`, `.../viewport/Scene.tsx`, `.../viewport/BedPlate.tsx`, `.../viewport/ModelMesh.tsx`, `.../viewport/useModelLoader.ts`, `.../viewport/useSelection.ts`
 - Modify: `apps/desktop/src/renderer/src/stores/useSettingsStore.ts` (add `modelLoaded` + `selectedObject` + `instanceOffset` state), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (enable Slice/Export when `modelLoaded`)
 
 **Interfaces:**
@@ -2851,7 +2851,7 @@ Run: `pnpm --filter desktop test` → PASS.
 - [ ] **Step 3: Write `useModelLoader.ts` + `ModelMesh.tsx`**
 
 ```ts
-// apps/desktop/src/renderer/src/components/viewport/useModelLoader.ts
+// packages/slicer-app/src/components/workspace/viewport/useModelLoader.ts
 import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { slicerClient } from '../../slicer/slicerClient';
@@ -2904,7 +2904,7 @@ export function useModelLoader(): LoadedObject[] {
 ```
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/ModelMesh.tsx
+// packages/slicer-app/src/components/workspace/viewport/ModelMesh.tsx
 import { useRef } from 'react';
 import * as THREE from 'three';
 import type { ThreeEvent } from '@react-three/fiber';
@@ -2985,7 +2985,7 @@ export function ModelMesh({ data }: { data: LoadedObject }) {
 - [ ] **Step 4: Write `BedPlate.tsx` + `Scene.tsx` + `Viewport.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/BedPlate.tsx
+// packages/slicer-app/src/components/workspace/viewport/BedPlate.tsx
 import * as THREE from 'three';
 import { Grid } from '@react-three/drei';
 
@@ -3018,7 +3018,7 @@ export function BedPlate() {
 ```
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/Scene.tsx
+// packages/slicer-app/src/components/workspace/viewport/Scene.tsx
 import { useModelLoader } from './useModelLoader';
 import { BedPlate } from './BedPlate';
 import { ModelMesh } from './ModelMesh';
@@ -3039,7 +3039,7 @@ export function Scene() {
 ```
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/Viewport.tsx
+// packages/slicer-app/src/components/workspace/viewport/Viewport.tsx
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import { Scene } from './Scene';
@@ -3084,7 +3084,7 @@ Expected: exit 0 (2 store tests PASS). Manual: `VITE_USE_MOCK=1 pnpm --filter de
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/viewport apps/desktop/src/renderer/src/stores apps/desktop/src/renderer/src/components/toolbar
+git add packages/slicer-app/src/components/workspace/viewport apps/desktop/src/renderer/src/stores apps/desktop/src/renderer/src/components/toolbar
 git commit -m "feat: R3F viewport — bed grid, model mesh from wasm buffers, orbit/select, drag-move on plate"
 ```
 
@@ -3098,8 +3098,8 @@ layer scrubber (slider) driving per-layer draw ranges (design §Electron App
 "preview: toolpath + layer slider").
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/viewport/ToolpathLines.tsx`, `.../viewport/LayerScrubber.tsx`, `.../viewport/PreviewLayer.tsx` (scrubber state + draw-range computation), `.../viewport/useSliceResult.ts`
-- Modify: `apps/desktop/src/renderer/src/components/viewport/Scene.tsx` (render preview when done), `apps/desktop/src/renderer/src/components/status/StatusBar.tsx` (layer info), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (slice → fetch result on done)
+- Create: `packages/slicer-app/src/components/workspace/viewport/ToolpathLines.tsx`, `.../viewport/LayerScrubber.tsx`, `.../viewport/PreviewLayer.tsx` (scrubber state + draw-range computation), `.../viewport/useSliceResult.ts`
+- Modify: `packages/slicer-app/src/components/workspace/viewport/Scene.tsx` (render preview when done), `apps/desktop/src/renderer/src/components/status/StatusBar.tsx` (layer info), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (slice → fetch result on done)
 
 **Interfaces:**
 - Consumes: `ClientSliceResult` (Task 2), stores (Task 5), `getSliceResult()` (Task 7).
@@ -3139,7 +3139,7 @@ describe('useSlicerStore', () => {
 - [ ] **Step 2: Write `useSliceResult.ts`**
 
 ```ts
-// apps/desktop/src/renderer/src/components/viewport/useSliceResult.ts
+// packages/slicer-app/src/components/workspace/viewport/useSliceResult.ts
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { slicerClient } from '../../slicer/slicerClient';
@@ -3221,7 +3221,7 @@ export function useSliceResult() {
 - [ ] **Step 3: Write `ToolpathLines.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/ToolpathLines.tsx
+// packages/slicer-app/src/components/workspace/viewport/ToolpathLines.tsx
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -3247,7 +3247,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
 - [ ] **Step 4: Write `LayerScrubber.tsx` + wire into the viewport**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/viewport/LayerScrubber.tsx
+// packages/slicer-app/src/components/workspace/viewport/LayerScrubber.tsx
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { Slider } from '../ui/slider';
 import { Label } from '../ui/label';
@@ -3323,7 +3323,7 @@ Expected: exit 0 (3 store tests PASS, slicer-wasm 14 PASS). Manual: `VITE_USE_MO
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/viewport apps/desktop/src/renderer/src/stores apps/desktop/src/renderer/src/components/status apps/desktop/src/renderer/src/components/toolbar
+git add packages/slicer-app/src/components/workspace/viewport apps/desktop/src/renderer/src/stores apps/desktop/src/renderer/src/components/status apps/desktop/src/renderer/src/components/toolbar
 git commit -m "feat: slice preview — toolpath LineSegments with layer scrubber draw ranges"
 ```
 

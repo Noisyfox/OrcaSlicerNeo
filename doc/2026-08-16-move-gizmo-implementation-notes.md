@@ -140,9 +140,9 @@ multi-instance support (the move tool operates on instance 0 only).
 
 ## Files touched
 
-- `apps/desktop/src/renderer/src/components/viewport/gizmo/{MoveGizmo.tsx,
+- `packages/slicer-app/src/components/workspace/viewport/gizmo/{MoveGizmo.tsx,
   commitPosition.ts, commitPosition.test.ts}` (created)
-- `apps/desktop/src/renderer/src/components/viewport/{ModelMesh.tsx,
+- `packages/slicer-app/src/components/workspace/viewport/{ModelMesh.tsx,
   Scene.tsx, useModelLoader.ts, transformMath.ts, transformMath.test.ts}`
 - `apps/desktop/src/renderer/src/components/settings/{MovePanel.tsx,
   SettingsPanel.tsx}`

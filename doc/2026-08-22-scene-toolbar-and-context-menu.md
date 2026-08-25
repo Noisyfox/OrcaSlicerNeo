@@ -70,12 +70,12 @@ not on an editable control (`input` / `textarea` / `select` /
 
 - `packages/slicer-app/src/components/toolbar/sceneActions.ts` — shared
   `addModel` / `clearScene` actions (extracted from `Toolbar.tsx`).
-- `packages/slicer-app/src/components/viewport/GizmoToolbar.tsx` — Add Model
+- `packages/slicer-app/src/components/workspace/viewport/GizmoToolbar.tsx` — Add Model
   button at the first position.
-- `packages/slicer-app/src/components/viewport/SceneContextMenu.tsx` — the
+- `packages/slicer-app/src/components/workspace/viewport/SceneContextMenu.tsx` — the
   empty-space right-click menu (Clear Scene / separator / Add Cube /
   Add Model).
-- `packages/slicer-app/src/components/viewport/Viewport.tsx` — wraps the
+- `packages/slicer-app/src/components/workspace/viewport/Viewport.tsx` — wraps the
   canvas with `SceneContextMenu`.
 - `packages/slicer-app/src/components/toolbar/Toolbar.tsx` — now Slice +
   Export only.

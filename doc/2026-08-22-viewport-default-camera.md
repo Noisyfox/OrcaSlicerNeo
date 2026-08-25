@@ -42,7 +42,7 @@ they track the live camera and do not hardcode the old position.
 
 ## Files
 
-- `packages/slicer-app/src/components/viewport/Viewport.tsx` — camera
+- `packages/slicer-app/src/components/workspace/viewport/Viewport.tsx` — camera
   position/fov, OrbitControls target, constants.
-- `packages/slicer-app/src/components/viewport/BedPlate.tsx` — comment only
+- `packages/slicer-app/src/components/workspace/viewport/BedPlate.tsx` — comment only
   (default-camera distance range no longer accurate).

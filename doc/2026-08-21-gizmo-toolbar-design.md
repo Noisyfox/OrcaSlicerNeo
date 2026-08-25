@@ -54,13 +54,13 @@ Scene (inside Canvas)
 
 ### Component files
 
-- `packages/slicer-app/src/components/viewport/GizmoToolbar.tsx` — new overlay
+- `packages/slicer-app/src/components/workspace/viewport/GizmoToolbar.tsx` — new overlay
   component. Consumes the controller through the explicit-controller
   `useSceneInteractionVersion(sceneInteraction)` overload (the toolbar renders
   **outside** the R3F Canvas, like `MovePanel`).
-- `packages/slicer-app/src/components/viewport/SceneInteractionController.ts` —
+- `packages/slicer-app/src/components/workspace/viewport/SceneInteractionController.ts` —
   `toggleGizmo()`; `syncGizmoToSelection()` becomes close-if-empty.
-- `packages/slicer-app/src/components/viewport/Viewport.tsx` —
+- `packages/slicer-app/src/components/workspace/viewport/Viewport.tsx` —
   `sceneInteraction` prop; renders `<GizmoToolbar>`.
 - `packages/slicer-app/src/App.tsx` — passes the already-owned
   `sceneInteraction` state down to Viewport.

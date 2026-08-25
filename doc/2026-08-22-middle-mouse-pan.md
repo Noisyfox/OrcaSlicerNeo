@@ -10,7 +10,7 @@ The viewport's OrbitControls mapping previously used **middle-drag = zoom**
 (`middle_mouse_drag_action = "1"` → Pan in `libslic3r/AppConfig.cpp`; the C++
 `GLCanvas3D` `MouseAction` enum orders `None, Pan, Rotation`).
 
-Final mapping in `packages/slicer-app/src/components/viewport/Viewport.tsx`:
+Final mapping in `packages/slicer-app/src/components/workspace/viewport/Viewport.tsx`:
 
 | Button | Drag action |
 |---|---|

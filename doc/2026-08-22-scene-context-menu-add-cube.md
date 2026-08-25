@@ -58,7 +58,7 @@ primitive path skips the file entirely.
 - `packages/slicer-app/src/components/toolbar/sceneActions.ts` — extracted
   `commitAdded` helper; `addCube` calls `addShape('Cube', 'Cube')`; the
   earlier JS STL generator (`lib/cubeStl.ts`) is removed.
-- `packages/slicer-app/src/components/viewport/SceneContextMenu.tsx` — menu
+- `packages/slicer-app/src/components/workspace/viewport/SceneContextMenu.tsx` — menu
   layout (Clear Scene / separator / Add Cube / Add Model).
 - `apps/desktop/e2e/app.e2e.ts` — context-menu Add Cube e2e coverage.
 
