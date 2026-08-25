@@ -1,7 +1,7 @@
 // packages/slicer-app/src/components/viewport/useModelLoader.ts
 import { useEffect, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
-import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { GLVolume, glVolumeCollection } from './GLVolume';
 
 export type LoadedObject = GLVolume;

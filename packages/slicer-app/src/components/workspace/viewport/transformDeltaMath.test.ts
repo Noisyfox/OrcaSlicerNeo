@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
-import type { Vec3 } from '../../lib/vec3';
+import type { Vec3 } from '../../../lib/vec3';
 import {
   EULER_ORDER,
   MIN_SCALE,

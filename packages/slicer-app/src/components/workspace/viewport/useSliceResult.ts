@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { usePlatform } from '@orca/platform-contract';
-import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ClientSliceResult } from '@slicer/client';
 
 export interface ToolpathGeometry {

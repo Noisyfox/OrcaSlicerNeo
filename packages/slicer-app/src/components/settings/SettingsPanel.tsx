@@ -9,7 +9,7 @@ import { RotatePanel } from './RotatePanel';
 import { ScalePanel } from './ScalePanel';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import type { SceneInteractionController } from '../workspace/viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
 import {
   Combobox,

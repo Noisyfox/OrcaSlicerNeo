@@ -1,6 +1,6 @@
 // packages/slicer-app/src/components/viewport/transformMath.ts
 // Pure display/input helpers for the scene-selection move panel.
-import type { Vec3 } from '../../lib/vec3';
+import type { Vec3 } from '../../../lib/vec3';
 
 /** Parse a numeric input; null for anything non-finite. */
 export function parseNumberInput(text: string): number | null {

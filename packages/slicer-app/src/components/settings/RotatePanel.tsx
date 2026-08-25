@@ -12,9 +12,9 @@ import {
   formatDegrees,
   parseNumberInput,
   radiansToDegrees,
-} from '../viewport/transformMath';
-import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+} from '../workspace/viewport/transformMath';
+import { useSceneInteractionVersion } from '../workspace/viewport/SceneInteractionContext';
+import type { SceneInteractionController } from '../workspace/viewport/SceneInteractionController';
 import type { Vec3 } from '../../lib/vec3';
 import { persistSettledModelTransforms } from '../toolbar/persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';

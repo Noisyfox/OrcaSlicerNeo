@@ -2,7 +2,7 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
-import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
 
 export function ToolpathLines({ data }: { data: ToolpathGeometry }) {

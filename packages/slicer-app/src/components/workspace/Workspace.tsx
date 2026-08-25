@@ -13,8 +13,8 @@ import {
 import { usePlatform } from '@orca/platform-contract';
 import { ObjectList } from '../objectList/ObjectList';
 import { SettingsPanel } from '../settings/SettingsPanel';
-import { Viewport } from '../viewport/Viewport';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { Viewport } from './viewport/Viewport';
+import type { SceneInteractionController } from './viewport/SceneInteractionController';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;

@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/viewport/LayerScrubber.tsx
-import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 

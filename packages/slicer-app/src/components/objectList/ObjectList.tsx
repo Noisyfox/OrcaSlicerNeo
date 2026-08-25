@@ -9,7 +9,7 @@ import { buildSelectableRows, projectSelection, type SelectableRow } from './pro
 import { renameObjectInList, renamePartInList } from './actions';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import type { SceneInteractionController } from '../workspace/viewport/SceneInteractionController';
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 

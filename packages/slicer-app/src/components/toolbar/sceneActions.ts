@@ -6,7 +6,7 @@ import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import type { SceneInteractionController } from '../workspace/viewport/SceneInteractionController';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 
 /**

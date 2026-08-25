@@ -35,13 +35,13 @@ import {
 } from '@/components/ui/context-menu';
 import { usePlatform } from '@orca/platform-contract';
 import type { ModelObjectStructure } from '@slicer/client';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 import {
   addModel, addPrimitive, clearScene, PRIMITIVE_TYPES, type PrimitiveType,
-} from '../toolbar/sceneActions';
-import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
-import { useObjectListStore } from '../objectList/useObjectListStore';
+} from '../../toolbar/sceneActions';
+import { ObjectListContextMenu } from '../../objectList/ObjectListContextMenu';
+import { useObjectListStore } from '../../objectList/useObjectListStore';
 import { pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import type { SceneInteractionController } from './SceneInteractionController';
 

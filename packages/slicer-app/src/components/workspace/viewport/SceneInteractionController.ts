@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
-import type { Vec3 } from '../../lib/vec3';
+import type { Vec3 } from '../../../lib/vec3';
 import { GLVolume } from './GLVolume';
 import { instanceKeyOf, Selection, type InstanceKey, type SelectionMode } from './Selection';
 import {

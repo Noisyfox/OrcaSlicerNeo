@@ -7,7 +7,7 @@
 // rotate/scale design doc.
 import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
-import type { Vec3 } from '../../lib/vec3';
+import type { Vec3 } from '../../../lib/vec3';
 
 export type Matrix4Tuple = [
   number, number, number, number,

@@ -8,7 +8,7 @@ import { Workspace } from './components/workspace/Workspace';
 import { StatusBar } from './components/status/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
-import type { SceneInteractionController } from './components/viewport/SceneInteractionController';
+import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
 import { restoreSelections } from './preferences';
 import { addModel, clearScene } from './components/toolbar/sceneActions';

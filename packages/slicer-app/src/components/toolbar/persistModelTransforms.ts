@@ -1,5 +1,5 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
-import { glVolumeCollection } from '../viewport/GLVolume';
+import { glVolumeCollection } from '../workspace/viewport/GLVolume';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { syncModelTransforms } from './syncModelTransforms';
 
