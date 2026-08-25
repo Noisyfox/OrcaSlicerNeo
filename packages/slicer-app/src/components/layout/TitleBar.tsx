@@ -100,7 +100,7 @@ export function TitleBar({ chrome, model, state, onCommand }: TitleBarProps) {
         >
           {model.menus.map((menu) => (
             <MenubarMenu key={menu.testId}>
-              <MenubarTrigger data-testid={`${menu.testId}-trigger`} className="h-8 rounded-none px-3 [-webkit-app-region:no-drag]">
+              <MenubarTrigger data-testid={`${menu.testId}-trigger`} className="px-2.5 py-0.5 [-webkit-app-region:no-drag]">
                 {menu.label}
               </MenubarTrigger>
               <MenubarContent>
