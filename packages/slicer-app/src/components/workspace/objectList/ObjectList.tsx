@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import type { ModelObjectStructure } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
-import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
@@ -9,7 +9,7 @@ import { buildSelectableRows, projectSelection, type SelectableRow } from './pro
 import { renameObjectInList, renamePartInList } from './actions';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
-import type { SceneInteractionController } from '../workspace/viewport/SceneInteractionController';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 

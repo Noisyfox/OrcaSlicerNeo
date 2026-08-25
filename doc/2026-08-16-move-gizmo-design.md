@@ -70,7 +70,7 @@ SettingsPanel
 - `packages/slicer-app/src/components/workspace/viewport/useModelLoader.ts` —
   computes bounding boxes; seeds `positions` / `initialPositions` /
   `objectMinZ` in the store.
-- `apps/desktop/src/renderer/src/components/settings/MovePanel.tsx` —
+- `packages/slicer-app/src/components/workspace/settings/MovePanel.tsx` —
   numeric inputs + Drop to bed + Reset.
 - `apps/desktop/src/renderer/src/stores/useSettingsStore.ts` — store changes.
 

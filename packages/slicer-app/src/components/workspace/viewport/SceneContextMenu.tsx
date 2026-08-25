@@ -40,8 +40,8 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import {
   addModel, addPrimitive, clearScene, PRIMITIVE_TYPES, type PrimitiveType,
 } from '../../toolbar/sceneActions';
-import { ObjectListContextMenu } from '../../objectList/ObjectListContextMenu';
-import { useObjectListStore } from '../../objectList/useObjectListStore';
+import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
+import { useObjectListStore } from '../objectList/useObjectListStore';
 import { pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import type { SceneInteractionController } from './SceneInteractionController';
 

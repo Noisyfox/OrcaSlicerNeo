@@ -1,9 +1,9 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { VolumeType } from '@slicer/client';
 import { useObjectListStore } from './useObjectListStore';
-import { useSlicerStore } from '../../stores/useSlicerStore';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { waitForSettledModelTransforms } from '../toolbar/persistModelTransforms';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { waitForSettledModelTransforms } from '../../toolbar/persistModelTransforms';
 
 export interface MutationOutcome {
   ok: boolean;

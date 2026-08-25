@@ -1,7 +1,7 @@
 // packages/slicer-app/src/components/settings/OptionField.tsx
 import type { OptionMeta } from '@slicer/client';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';

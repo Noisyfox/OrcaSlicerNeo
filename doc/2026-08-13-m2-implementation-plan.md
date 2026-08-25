@@ -2003,7 +2003,7 @@ today, no duplicated schema (design §Electron App). Also: the "Open" flow
 (native dialog → read bytes → `loadModel`) and the toolbar/status bar.
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/slicer/slicerClient.ts` (worker client singleton), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx`, `apps/desktop/src/renderer/src/components/status/StatusBar.tsx`, `apps/desktop/src/renderer/src/components/settings/SettingsPanel.tsx`, `apps/desktop/src/renderer/src/components/settings/fields.tsx`, `apps/desktop/src/renderer/src/components/settings/OptionField.tsx`
+- Create: `apps/desktop/src/renderer/src/slicer/slicerClient.ts` (worker client singleton), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx`, `apps/desktop/src/renderer/src/components/status/StatusBar.tsx`, `packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx`, `packages/slicer-app/src/components/workspace/settings/fields.tsx`, `packages/slicer-app/src/components/workspace/settings/OptionField.tsx`
 - Modify: `apps/desktop/src/renderer/src/App.tsx` (boot effect)
 
 **Interfaces:**
@@ -2057,7 +2057,7 @@ First run: FAIL (module missing). After the store file exists (Task 5 Step 5 alr
 - [ ] **Step 4: Write `OptionField.tsx` + `fields.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/settings/OptionField.tsx
+// packages/slicer-app/src/components/workspace/settings/OptionField.tsx
 import type { OptionMeta } from '@slicer/client';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { Label } from '../ui/label';
@@ -2122,7 +2122,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
 - [ ] **Step 5: Write `SettingsPanel.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/settings/SettingsPanel.tsx
+// packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx
 import { useMemo } from 'react';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { OptionField } from './OptionField';
@@ -2413,7 +2413,7 @@ metadata; Open loads a file into the mock; Slice shows progress then "Sliced".
 - [ ] **Step 11: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/slicer apps/desktop/src/renderer/src/components/toolbar apps/desktop/src/renderer/src/components/status apps/desktop/src/renderer/src/components/settings apps/desktop/src/renderer/src/App.tsx apps/desktop/src/renderer/src/stores/useSettingsStore.test.ts scripts/stage-wasm.mjs package.json .gitignore
+git add apps/desktop/src/renderer/src/slicer apps/desktop/src/renderer/src/components/toolbar apps/desktop/src/renderer/src/components/status packages/slicer-app/src/components/workspace/settings apps/desktop/src/renderer/src/App.tsx apps/desktop/src/renderer/src/stores/useSettingsStore.test.ts scripts/stage-wasm.mjs package.json .gitignore
 git commit -m "feat: app boot (worker client + presets + metadata) and metadata-driven settings panel"
 ```
 

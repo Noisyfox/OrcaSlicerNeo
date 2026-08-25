@@ -850,8 +850,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ### Task 6: MovePanel + SettingsPanel wiring
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/components/settings/MovePanel.tsx`
-- Modify: `apps/desktop/src/renderer/src/components/settings/SettingsPanel.tsx`
+- Create: `packages/slicer-app/src/components/workspace/settings/MovePanel.tsx`
+- Modify: `packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx`
 
 **Interfaces:**
 - Consumes: `commitPosition`, `computeDropZ`, `formatPosition`, `parseNumberInput` (Task 2/4), store `positions`/`initialPositions`/`objectMinZ`/`selectedObject`, `slicerClient`.
@@ -860,7 +860,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - [ ] **Step 1: Create MovePanel**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/settings/MovePanel.tsx
+// packages/slicer-app/src/components/workspace/settings/MovePanel.tsx
 // Gizmo options panel (sidebar) for the move tool: numeric X/Y/Z position
 // inputs (commit on blur/Enter), Drop to bed, Reset. Reads and writes the
 // store's per-object transform maps through the shared bridge commit.
@@ -980,7 +980,7 @@ return (
 - [ ] **Step 4: Commit**
 
 ```bash
-git add apps/desktop/src/renderer/src/components/settings/MovePanel.tsx apps/desktop/src/renderer/src/components/settings/SettingsPanel.tsx
+git add packages/slicer-app/src/components/workspace/settings/MovePanel.tsx packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx
 git commit -m "feat(settings): move panel with numeric inputs, drop to bed, reset
 
 Co-Authored-By: Claude <noreply@anthropic.com>"

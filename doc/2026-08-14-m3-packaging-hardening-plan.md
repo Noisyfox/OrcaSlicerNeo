@@ -277,7 +277,7 @@ Add `data-testid` attributes (implementation detail left to the implementer; the
 | `components/toolbar/Toolbar.tsx` | Slice button | `btn-slice` |
 | `components/toolbar/Toolbar.tsx` | Export button | `btn-export` |
 | `components/status/StatusBar.tsx` | status text `<span>` | `slicer-status` |
-| `components/settings/SettingsPanel.tsx` | printer preset `Select` trigger | `preset-select` |
+| `components/workspace/settings/SettingsPanel.tsx` | printer preset `Select` trigger | `preset-select` |
 | `components/workspace/viewport/Viewport.tsx` | canvas wrapper `<div>` | `viewport` |
 | `components/workspace/viewport/LayerScrubber.tsx` | slider root | `layer-scrubber` |
 

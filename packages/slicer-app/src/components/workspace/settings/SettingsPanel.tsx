@@ -1,15 +1,15 @@
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
 import { useMemo } from 'react';
 import type { PresetInfo } from '@slicer/client';
-import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { OptionField } from './OptionField';
 import { MovePanel } from './MovePanel';
 import { RotatePanel } from './RotatePanel';
 import { ScalePanel } from './ScalePanel';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import type { SceneInteractionController } from '../workspace/viewport/SceneInteractionController';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
 import {
   Combobox,

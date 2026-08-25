@@ -11,8 +11,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { usePlatform } from '@orca/platform-contract';
-import { ObjectList } from '../objectList/ObjectList';
-import { SettingsPanel } from '../settings/SettingsPanel';
+import { ObjectList } from './objectList/ObjectList';
+import { SettingsPanel } from './settings/SettingsPanel';
 import { Viewport } from './viewport/Viewport';
 import type { SceneInteractionController } from './viewport/SceneInteractionController';
 

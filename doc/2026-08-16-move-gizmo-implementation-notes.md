@@ -144,7 +144,7 @@ multi-instance support (the move tool operates on instance 0 only).
   commitPosition.ts, commitPosition.test.ts}` (created)
 - `packages/slicer-app/src/components/workspace/viewport/{ModelMesh.tsx,
   Scene.tsx, useModelLoader.ts, transformMath.ts, transformMath.test.ts}`
-- `apps/desktop/src/renderer/src/components/settings/{MovePanel.tsx,
+- `packages/slicer-app/src/components/workspace/settings/{MovePanel.tsx,
   SettingsPanel.tsx}`
 - `apps/desktop/src/renderer/src/stores/useSettingsStore.ts` (+ test),
   `apps/desktop/src/renderer/src/lib/vec3.ts`

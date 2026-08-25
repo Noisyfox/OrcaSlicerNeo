@@ -11,11 +11,11 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { formatPercent, formatPosition, parseNumberInput } from '../workspace/viewport/transformMath';
-import { useSceneInteractionVersion } from '../workspace/viewport/SceneInteractionContext';
-import type { SceneInteractionController } from '../workspace/viewport/SceneInteractionController';
-import type { Vec3 } from '../../lib/vec3';
-import { persistSettledModelTransforms } from '../toolbar/persistModelTransforms';
+import { formatPercent, formatPosition, parseNumberInput } from '../viewport/transformMath';
+import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
+import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import type { Vec3 } from '../../../lib/vec3';
+import { persistSettledModelTransforms } from '../../toolbar/persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';
 
 const AXES = ['x', 'y', 'z'] as const;
