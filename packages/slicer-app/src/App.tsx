@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
-import { Toolbar } from './components/toolbar/Toolbar';
+import { Toolbar } from './components/layout/Toolbar';
 import { Workspace } from './components/workspace/Workspace';
-import { StatusBar } from './components/status/StatusBar';
+import { StatusBar } from './components/layout/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';

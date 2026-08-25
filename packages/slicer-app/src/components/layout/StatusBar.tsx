@@ -1,4 +1,4 @@
-// packages/slicer-app/src/components/status/StatusBar.tsx
+// packages/slicer-app/src/components/layout/StatusBar.tsx
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { Progress } from '@/components/ui/progress';
 import { usePlatform } from '@orca/platform-contract';

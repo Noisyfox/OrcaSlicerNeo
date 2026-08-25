@@ -273,10 +273,10 @@ Add `data-testid` attributes (implementation detail left to the implementer; the
 
 | File | Element | testid |
 |---|---|---|
-| `components/toolbar/Toolbar.tsx` | Open button | `btn-open` |
-| `components/toolbar/Toolbar.tsx` | Slice button | `btn-slice` |
-| `components/toolbar/Toolbar.tsx` | Export button | `btn-export` |
-| `components/status/StatusBar.tsx` | status text `<span>` | `slicer-status` |
+| `components/layout/Toolbar.tsx` | Open button | `btn-open` |
+| `components/layout/Toolbar.tsx` | Slice button | `btn-slice` |
+| `components/layout/Toolbar.tsx` | Export button | `btn-export` |
+| `components/layout/StatusBar.tsx` | status text `<span>` | `slicer-status` |
 | `components/workspace/settings/SettingsPanel.tsx` | printer preset `Select` trigger | `preset-select` |
 | `components/workspace/viewport/Viewport.tsx` | canvas wrapper `<div>` | `viewport` |
 | `components/workspace/viewport/LayerScrubber.tsx` | slider root | `layer-scrubber` |

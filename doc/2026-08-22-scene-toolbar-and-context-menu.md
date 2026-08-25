@@ -77,7 +77,7 @@ not on an editable control (`input` / `textarea` / `select` /
   Add Model).
 - `packages/slicer-app/src/components/workspace/viewport/Viewport.tsx` — wraps the
   canvas with `SceneContextMenu`.
-- `packages/slicer-app/src/components/toolbar/Toolbar.tsx` — now Slice +
+- `packages/slicer-app/src/components/layout/Toolbar.tsx` — now Slice +
   Export only.
 - `apps/desktop/e2e/app.e2e.ts` — full-flow test clears via the context
   menu; shortcuts test asserts the disabled menu item after Delete.

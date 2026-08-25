@@ -38,8 +38,10 @@ which are siblings inside that middle row. Every controller change re-rendered
   `settings/`, and `actions/` — the former `components/toolbar/` command
   modules (`sceneActions`, `sliceActions`, `deleteSelection`,
   `persistModelTransforms`, `syncModelTransforms`, and their tests) moved
-  there. `components/toolbar/` now holds only `Toolbar.tsx`, which imports
-  its actions from `workspace/actions/`.
+  there. `Toolbar.tsx` and `StatusBar.tsx` (from `components/status/`) moved
+  into `components/layout/` alongside `AppShell` and `TitleBar`;
+  `components/toolbar/` and `components/status/` no longer exist.
+  `Toolbar.tsx` imports its actions from `workspace/actions/`.
 
 ## Behavior
 

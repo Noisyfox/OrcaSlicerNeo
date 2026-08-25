@@ -1,4 +1,4 @@
-// packages/slicer-app/src/components/toolbar/Toolbar.tsx
+// packages/slicer-app/src/components/layout/Toolbar.tsx
 import { useState } from 'react';
 import { Slice, Download, AppWindowIcon, HouseIcon, LayersIcon, ComputerIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';

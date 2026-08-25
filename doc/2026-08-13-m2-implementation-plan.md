@@ -1947,9 +1947,9 @@ the shared `SceneInteractionController` state.
 // apps/desktop/src/renderer/src/App.tsx
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
-import { Toolbar } from './components/toolbar/Toolbar';
+import { Toolbar } from './components/layout/Toolbar';
 import { Workspace } from './components/workspace/Workspace';
-import { StatusBar } from './components/status/StatusBar';
+import { StatusBar } from './components/layout/StatusBar';
 
 export default function App() {
   return (
@@ -2003,7 +2003,7 @@ today, no duplicated schema (design §Electron App). Also: the "Open" flow
 (native dialog → read bytes → `loadModel`) and the toolbar/status bar.
 
 **Files:**
-- Create: `apps/desktop/src/renderer/src/slicer/slicerClient.ts` (worker client singleton), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx`, `apps/desktop/src/renderer/src/components/status/StatusBar.tsx`, `packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx`, `packages/slicer-app/src/components/workspace/settings/fields.tsx`, `packages/slicer-app/src/components/workspace/settings/OptionField.tsx`
+- Create: `apps/desktop/src/renderer/src/slicer/slicerClient.ts` (worker client singleton), `packages/slicer-app/src/components/layout/Toolbar.tsx`, `packages/slicer-app/src/components/layout/StatusBar.tsx`, `packages/slicer-app/src/components/workspace/settings/SettingsPanel.tsx`, `packages/slicer-app/src/components/workspace/settings/fields.tsx`, `packages/slicer-app/src/components/workspace/settings/OptionField.tsx`
 - Modify: `apps/desktop/src/renderer/src/App.tsx` (boot effect)
 
 **Interfaces:**
@@ -2202,7 +2202,7 @@ function PresetRow({ label, items, value, onValue }: {
 - [ ] **Step 6: Write `Toolbar.tsx` + `StatusBar.tsx`**
 
 ```tsx
-// apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx
+// packages/slicer-app/src/components/layout/Toolbar.tsx
 import { FolderOpen, Slice, Download } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -2274,7 +2274,7 @@ export function Toolbar() {
 ```
 
 ```tsx
-// apps/desktop/src/renderer/src/components/status/StatusBar.tsx
+// packages/slicer-app/src/components/layout/StatusBar.tsx
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { Progress } from '../ui/progress';
 
@@ -2316,9 +2316,9 @@ function statusText(s: string): string {
 import { useEffect } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
-import { Toolbar } from './components/toolbar/Toolbar';
+import { Toolbar } from './components/layout/Toolbar';
 import { Workspace } from './components/workspace/Workspace';
-import { StatusBar } from './components/status/StatusBar';
+import { StatusBar } from './components/layout/StatusBar';
 import { slicerClient } from './slicer/slicerClient';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
@@ -2804,7 +2804,7 @@ plane (design §Electron App "basic move-on-plate").
 
 **Files:**
 - Create: `packages/slicer-app/src/components/workspace/viewport/Viewport.tsx`, `.../viewport/Scene.tsx`, `.../viewport/BedPlate.tsx`, `.../viewport/ModelMesh.tsx`, `.../viewport/useModelLoader.ts`, `.../viewport/useSelection.ts`
-- Modify: `apps/desktop/src/renderer/src/stores/useSettingsStore.ts` (add `modelLoaded` + `selectedObject` + `instanceOffset` state), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (enable Slice/Export when `modelLoaded`)
+- Modify: `apps/desktop/src/renderer/src/stores/useSettingsStore.ts` (add `modelLoaded` + `selectedObject` + `instanceOffset` state), `packages/slicer-app/src/components/layout/Toolbar.tsx` (enable Slice/Export when `modelLoaded`)
 
 **Interfaces:**
 - Consumes: `slicerClient.getModelMesh()` + `setInstanceOffset` (Tasks 2/7), stores (Task 5).
@@ -3099,7 +3099,7 @@ layer scrubber (slider) driving per-layer draw ranges (design §Electron App
 
 **Files:**
 - Create: `packages/slicer-app/src/components/workspace/viewport/ToolpathLines.tsx`, `.../viewport/LayerScrubber.tsx`, `.../viewport/PreviewLayer.tsx` (scrubber state + draw-range computation), `.../viewport/useSliceResult.ts`
-- Modify: `packages/slicer-app/src/components/workspace/viewport/Scene.tsx` (render preview when done), `apps/desktop/src/renderer/src/components/status/StatusBar.tsx` (layer info), `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (slice → fetch result on done)
+- Modify: `packages/slicer-app/src/components/workspace/viewport/Scene.tsx` (render preview when done), `packages/slicer-app/src/components/layout/StatusBar.tsx` (layer info), `packages/slicer-app/src/components/layout/Toolbar.tsx` (slice → fetch result on done)
 
 **Interfaces:**
 - Consumes: `ClientSliceResult` (Task 2), stores (Task 5), `getSliceResult()` (Task 7).
@@ -3335,7 +3335,7 @@ The v1 flow's last step: `exportGcode()` → MEMFS bytes → native save dialog 
 file on disk (design §Electron App "export gcode through native save dialog").
 
 **Files:**
-- Modify: `apps/desktop/src/renderer/src/components/toolbar/Toolbar.tsx` (wire the Export button)
+- Modify: `packages/slicer-app/src/components/layout/Toolbar.tsx` (wire the Export button)
 
 **Interfaces:**
 - Consumes: `slicerClient.exportGcode()` (Task 2/7), `window.orca.saveFileDialog/writeFile` (Task 4), `useSlicerStore` (Task 5).
