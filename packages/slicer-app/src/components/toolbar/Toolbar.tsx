@@ -116,10 +116,10 @@ export function Toolbar() {
 
   return (
     <>
-      <Button size="sm" variant="secondary" onClick={slice} disabled={busy || !modelLoaded} data-testid="btn-slice">
+      <Button size="xs" variant="secondary" onClick={slice} disabled={busy || !modelLoaded} data-testid="btn-slice">
         <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
       </Button>
-      <Button size="sm" variant="default" disabled={busy || exporting || !modelLoaded || status !== 'done'} onClick={exportGcode} title="Export G-code" data-testid="btn-export">
+      <Button size="xs" variant="default" disabled={busy || exporting || !modelLoaded || status !== 'done'} onClick={exportGcode} title="Export G-code" data-testid="btn-export">
         <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
       </Button>
     </>

@@ -132,10 +132,10 @@ export function AppShell({ settings, viewport, toolbar, status }: {
   return (
     <div className="flex h-full flex-col">
       <TitleBar chrome={platform.chrome} />
-      <div className="flex h-10 items-center gap-2 px-3">{toolbar}</div>
-      <div className="flex flex-1 min-h-0 p-1.5">
+      <div className="flex h-6 items-center gap-2 px-1 mb-0.5">{toolbar}</div>
+      <div className="flex flex-1 min-h-0 px-1">
         <aside
-          className="shrink-0 overflow-hidden rounded-lg border bg-card"
+          className="shrink-0 overflow-hidden rounded-md border bg-card"
           style={{
             width: `${sidebarWidth}px`,
             minWidth: `${MIN_SIDEBAR_WIDTH}px`,
@@ -162,9 +162,9 @@ export function AppShell({ settings, viewport, toolbar, status }: {
           onKeyDown={handleResizeKeyDown}
           className="w-1.5 shrink-0 cursor-ew-resize touch-none self-stretch rounded-full bg-clip-content px-px transition-colors hover:bg-accent/20 focus-visible:bg-accent/30 focus-visible:outline-none"
         />
-        <main className="relative min-w-0 flex-1 overflow-hidden rounded-lg border bg-card">{viewport}</main>
+        <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card">{viewport}</main>
       </div>
-      <footer className="h-7 flex items-center px-3 text-xs text-muted-foreground">{status}</footer>
+      <footer className="h-6 flex items-center px-1 text-xs text-muted-foreground">{status}</footer>
     </div>
   );
 }

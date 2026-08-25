@@ -113,7 +113,7 @@ export default function App() {
       <div className="flex h-full flex-col bg-background" data-testid="startup-screen">
         <TitleBar chrome={platform.chrome} />
         <main className="flex flex-1 items-center justify-center">
-          <section className="w-full max-w-lg space-y-3 rounded-lg border bg-card p-8 shadow-sm">
+          <section className="w-full max-w-lg space-y-3 rounded-md border bg-card p-8 shadow-sm">
             <h1 className="text-xl font-semibold">OrcaSlicerNeo</h1>
             {boot === 'failed' ? (
               <>

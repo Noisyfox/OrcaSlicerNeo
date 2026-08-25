@@ -91,11 +91,11 @@ function createWindow(): void {
     // Windows/Linux get native min/max/close via the Window Controls
     // Overlay (see doc/2026-08-15-frameless-window.md); macOS keeps its
     // traffic lights ('hidden' style), positioned to sit centered in the
-    // 36px custom bar (14px lights → y = (36-14)/2).
+    // 32px (2rem) custom bar (14px lights → y = (32-14)/2).
     titleBarStyle: 'hidden',
     ...(process.platform !== 'darwin'
-      ? { titleBarOverlay: { color: '#181818', symbolColor: '#e6e6e6', height: 36 } }
-      : { trafficLightPosition: { x: 12, y: 11 } }),
+      ? { titleBarOverlay: { color: '#181818', symbolColor: '#e6e6e6', height: 32 } }
+      : { trafficLightPosition: { x: 12, y: 9 } }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

@@ -5,7 +5,7 @@ export function BrandBar({ chrome }: { chrome: PlatformChrome }) {
   // the label clearance there. Windows/Linux WCO buttons sit top-right and
   // never collide with the left-aligned label.
   return (
-    <header className={`flex h-9 items-center justify-between bg-background px-3 select-none ${chrome.dragRegion ? '[-webkit-app-region:drag]' : ''} ${chrome.macSafeInset ? 'pl-20' : ''}`}>
+    <header className={`flex h-8 items-center justify-between bg-background px-2 select-none ${chrome.dragRegion ? '[-webkit-app-region:drag]' : ''} ${chrome.macSafeInset ? 'pl-20' : ''}`}>
       <span className="text-xs font-semibold tracking-wide text-muted-foreground">OrcaSlicerNeo</span>
       <a className="text-[11px] text-muted-foreground hover:text-foreground" href="https://github.com/Noisyfox/OrcaSlicerNeo" target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>AGPL-3.0 source</a>
     </header>
