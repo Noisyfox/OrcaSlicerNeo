@@ -25,7 +25,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
 
   // Fixed-width label column (w-32) keeps the value column vertically aligned
   // across all rows; the value control flexes to fill the rest of the row.
-  const row = 'flex items-center gap-2 py-1';
+  const row = 'flex items-center gap-1 py-0.5 min-h-7';
   const labelCls = 'w-32 shrink-0 truncate text-xs text-muted-foreground';
 
   if (meta.type === 'bool') {
