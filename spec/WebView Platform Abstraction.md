@@ -567,16 +567,47 @@ This records the native behavior as the compatibility reference:
 sets `X-API-Key`, and reloads the page. The new Electron implementation changes
 only timing and platform mechanics, not the chosen protocol behavior.
 
+### 3.16 Stage 16 — Shared injection ownership; no page callback bridge (2026-08-27)
+
+**Decision:** Shared application code owns the decision to inject a built-in
+printer-console script. Given the selected printer configuration, it resolves
+the versioned Moonraker injection asset and requests injection through the
+common WebView contract.
+
+**Decision:** The Web iframe implementation automatically ignores a requested
+injection script and writes a redacted diagnostic log. It does not fail console
+loading, show an error to the user, or affect application-side Moonraker HTTP
+operations.
+
+**Decision:** The first release has no page-to-application message, callback,
+or RPC bridge. API-key injection and typed application-side printer HTTP
+control are sufficient for the defined product flow.
+
+Consequences:
+
+- `@orca/slicer-app` contains the driver-to-bundled-script association and
+  invokes a host-neutral `registerBuiltInScript(scriptId, context)` operation.
+  The shared package does not create an Electron element, invoke Electron IPC,
+  or inspect the browser host type directly.
+- The Electron host resolves the registered built-in ID to its reviewed source
+  and installs it at document start. The iframe host returns an ignored/
+  unsupported result and logs only the driver and script identifier; it never
+  logs script source or API-key values.
+- The public implementation does not expose `window.wx`, `window.orca`,
+  `postMessage` callbacks, guest RPC, or a remote page's ability to request a
+  host method. These may be added only by a future specification amendment
+  tied to a concrete printer-console requirement.
+- Host-to-page raw script execution remains an Electron implementation
+  capability for the reviewed built-in injector. It is not an application
+  extension API and has no Web equivalent.
+
 ## 4. Questions queued for the next stages
 
-1. Does the first release require page-to-app messages/callbacks beyond the
-   built-in API-key injection and app-side HTTP printer control? If so, which
-   concrete printer-console actions need them?
-2. What is the exact public API and which operations must be present for
+1. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
-3. Which Electron guest security and storage/session model is required?
-4. Which iframe subset and messaging behavior is useful enough on Web?
-5. How should navigation, external links, popups, and URL allow-lists behave?
-6. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-7. What UI workflow exposes embedded integrations to the user?
-8. What verification matrix and test fixture are required?
+2. Which Electron guest security and storage/session model is required?
+3. Which iframe subset and messaging behavior is useful enough on Web?
+4. How should navigation, external links, popups, and URL allow-lists behave?
+5. How should COOP/COEP/threaded-WASM coexist with external iframe content?
+6. What UI workflow exposes embedded integrations to the user?
+7. What verification matrix and test fixture are required?
