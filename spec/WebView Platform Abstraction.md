@@ -509,13 +509,40 @@ Consequences:
   and complete or fail normally; no new operation may start from a deleted
   selection.
 
+### 3.14 Stage 14 — Console panel is not a browser (2026-08-27)
+
+**Decision:** The embedded printer-console panel does not expose browser
+navigation controls. It has no address bar, history/back/forward buttons, stop
+button, manual refresh button, or user-editable navigation target.
+
+**Decision:** Selecting a printer in the console panel immediately loads that
+record's `consoleUrl`. The panel reloads only when the selection changes or the
+selected record's `consoleUrl` is edited.
+
+Consequences:
+
+- `WebViewPanel` is a controlled application surface rather than a general
+  browsing experience. Product UI does not surface OrcaSlicer's developer-only
+  navigation affordances.
+- An empty selection renders a selection prompt; it does not keep displaying a
+  previously selected page.
+- The host implementation may internally observe navigation, reload after a
+  crash, and expose lifecycle/error events to the shared panel, but it must not
+  let a user browse to a different target through panel chrome.
+- The configured URL is the sole top-level navigation authority. A page-initiated
+  navigation policy will be specified separately; it cannot change the saved
+  console URL or selected printer record.
+
 ## 4. Questions queued for the next stages
 
-1. What is the exact public API and which operations must be present for
+1. Which printer Web consoles are supported by the first built-in API-key
+   injection adapter (for example, Mainsail, Fluidd, or both), and how is the
+   adapter selected?
+2. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
-2. Which Electron guest security and storage/session model is required?
-3. Which iframe subset and messaging behavior is useful enough on Web?
-4. How should navigation, external links, popups, and URL allow-lists behave?
-5. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-6. What UI workflow exposes embedded integrations to the user?
-7. What verification matrix and test fixture are required?
+3. Which Electron guest security and storage/session model is required?
+4. Which iframe subset and messaging behavior is useful enough on Web?
+5. How should navigation, external links, popups, and URL allow-lists behave?
+6. How should COOP/COEP/threaded-WASM coexist with external iframe content?
+7. What UI workflow exposes embedded integrations to the user?
+8. What verification matrix and test fixture are required?
