@@ -70,16 +70,48 @@ injects a fixed `window.orca` bridge and fixed styling scripts before page
 content, then uses a host-controlled callback path. The new implementation
 will generalize this only for bundled, reviewed bridges.
 
+### 3.2 Stage 2 — User-managed embedded hosts (2026-08-27)
+
+**Decision:** Users may add, edit, and remove embedded page URLs in the
+application. “Host” here means an embed target URL and its canonical origin;
+it never means modifying the operating system `hosts` file.
+
+Consequences:
+
+- The editable data contains a display name, initial HTTPS URL, and the
+  canonical `scheme + hostname + port` origin derived from that URL. The
+  application does not accept a free-form origin separate from the URL.
+- Production entries require HTTPS. Localhost development fixtures are the
+  only documented HTTP exception.
+- URL parsing, normalization, and validation are performed by a shared,
+  dependency-free parser before an entry is saved or loaded. Invalid,
+  credential-bearing, `file:`, `data:`, `javascript:`, and custom-protocol URLs
+  are rejected.
+- The registry is stored in platform preferences: Electron through a typed
+  main/preload IPC repository and Web through the injected browser preference
+  repository. A malformed registry is discarded without preventing the slicer
+  from starting.
+- Adding a host grants no additional privilege. In particular it cannot create
+  or modify injected scripts, enable Node/Electron access, set a user agent,
+  open arbitrary external URLs, or grant a page host capabilities.
+- The exact script association and page capability policy for user-added hosts
+  remain an explicit later decision. Until that policy is defined, a user-added
+  host is only a navigable embedded target.
+- The UI must make the distinction visible: a user-added target is untrusted
+  content and is not a plugin installation or a trusted desktop integration.
+
+This decision requires product-level URL validation in addition to a deployment
+CSP. A restrictive `frame-src` CSP can prevent a newly saved URL from loading;
+the deployment strategy for dynamically added HTTPS origins remains to be
+decided in the navigation/security stage.
+
 ## 4. Questions queued for the next stages
 
-1. Which integration configuration may users edit: only URL/origin entries, or
-   only a fixed built-in integration catalogue?
-2. What is the exact public API and which operations must be present for
+1. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
-3. Which Electron guest security and storage/session model is required?
-4. Which iframe subset and messaging behavior is useful enough on Web?
-5. How should navigation, external links, popups, and URL allow-lists behave?
-6. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-7. What UI workflow exposes embedded integrations to the user?
-8. What verification matrix and test fixture are required?
-
+2. Which Electron guest security and storage/session model is required?
+3. Which iframe subset and messaging behavior is useful enough on Web?
+4. How should navigation, external links, popups, and URL allow-lists behave?
+5. How should COOP/COEP/threaded-WASM coexist with external iframe content?
+6. What UI workflow exposes embedded integrations to the user?
+7. What verification matrix and test fixture are required?
