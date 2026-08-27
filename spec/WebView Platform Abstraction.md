@@ -147,10 +147,35 @@ decided. No API key may be placed in shared React state, ordinary preferences,
 URL query parameters, renderer logs, browser `localStorage`, or a Web host
 iframe message.
 
+### 3.4 Stage 4 — API-key acquisition (2026-08-27)
+
+**Decision:** The user manually enters the printer API key in
+OrcaSlicerNeo. The application does not attempt to obtain, scrape, infer, or
+exchange it from the embedded printer console's login flow.
+
+Consequences:
+
+- Create/edit-printer UI includes a dedicated masked API-key field, separate
+  from the printer URL and display name.
+- The key is sent only to the trusted host-side secret-handling boundary; it
+  must not enter shared React state, regular form persistence, analytics,
+  diagnostics, browser devtools logging, or the printer URL.
+- Reauthentication is deterministic: the user replaces the key through the
+  printer edit flow. The product does not depend on vendor-specific browser
+  cookies or attempt silent credential extraction.
+- A later adapter may validate a key by making its documented printer API
+  request, but validation cannot read browser form fields, cookies, or page
+  storage.
+
+This stage decides only the source of the secret. The encrypted Electron
+storage design, in-memory lifetime, deletion behavior, and Web-host behavior
+remain separate decisions.
+
 ## 4. Questions queued for the next stages
 
-1. How are printer API keys obtained, securely stored, updated, and removed on
-   Electron, and what is the Web-host behavior when injection is unavailable?
+1. How are manually entered printer API keys securely stored, updated, and
+   removed on Electron, and what is the Web-host behavior when injection is
+   unavailable?
 2. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
 3. Which Electron guest security and storage/session model is required?
