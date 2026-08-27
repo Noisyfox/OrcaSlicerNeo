@@ -533,11 +533,45 @@ Consequences:
   navigation policy will be specified separately; it cannot change the saved
   console URL or selected printer record.
 
+### 3.15 Stage 15 — Universal Moonraker console API-key injection (2026-08-27)
+
+**Decision:** Users manually select the built-in `moonraker` driver when they
+configure a printer. The Moonraker adapter is also the sole first-release
+console API-key injector; no separate Mainsail or Fluidd adapter selection is
+required.
+
+**Decision:** The Electron injector follows the established
+`PrinterWebView::SendAPIKey` approach. A bundled document-start script wraps
+the console's `window.fetch` and adds the configured `X-API-Key` header to its
+requests. This makes the behavior independent of Mainsail versus Fluidd, as
+both are Moonraker clients.
+
+Consequences:
+
+- The injector is a versioned OrcaSlicerNeo asset selected only by the built-in
+  `moonraker` driver. It is not a user-authored script, a downloaded plugin, or
+  a console-vendor-specific configuration choice.
+- Electron registers it before the console document's own scripts execute. It
+  avoids the native implementation's post-load registration and forced reload,
+  while preserving the same fetch-header behavior.
+- Web never injects the script; its iframe console authenticates according to
+  its own normal UI/session behavior. Web's application-side Moonraker API
+  calls still independently send the configured `X-API-Key` header.
+- The initial vertical slice adds no additional destination-origin filtering
+  around the injected fetch wrapper. Tightening request scoping, handling of
+  non-fetch console transports, and broader console compatibility are deferred
+  rather than prerequisites for the end-to-end flow.
+
+This records the native behavior as the compatibility reference:
+`PrinterWebView::SendAPIKey` registers a user script that wraps `window.fetch`,
+sets `X-API-Key`, and reloads the page. The new Electron implementation changes
+only timing and platform mechanics, not the chosen protocol behavior.
+
 ## 4. Questions queued for the next stages
 
-1. Which printer Web consoles are supported by the first built-in API-key
-   injection adapter (for example, Mainsail, Fluidd, or both), and how is the
-   adapter selected?
+1. Does the first release require page-to-app messages/callbacks beyond the
+   built-in API-key injection and app-side HTTP printer control? If so, which
+   concrete printer-console actions need them?
 2. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
 3. Which Electron guest security and storage/session model is required?
