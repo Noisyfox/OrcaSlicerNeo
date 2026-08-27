@@ -315,11 +315,40 @@ Future drivers must implement the same contract and add fixture-backed protocol
 tests. They cannot enlarge the common API merely to expose an untyped vendor
 endpoint; new shared operations require a specification amendment.
 
+### 3.8 Stage 8 — Best-effort Web transport; vertical flow first (2026-08-27)
+
+**Decision:** Web printer operations use a best-effort direct browser
+transport. The product does not preflight-test whether a configured printer
+supports CORS, HTTPS/TLS, browser local-network access, or iframe embedding.
+Instead it attempts the operation when the user requests it and reports the
+actual failure in the operation UI.
+
+Consequences:
+
+- Adding or editing a printer validates only local configuration syntax and
+  built-in driver selection. It does not make a network request or declare a
+  printer compatible in advance.
+- `uploadGcode`, `startPrint`, status refresh, and console loading each expose
+  their own progress and error result. Browser-blocked, CORS, mixed-content,
+  local-network permission, TLS, timeout, HTTP, and protocol failures are
+  normalized into a user-visible error without exposing the API key.
+- The absence of a preflight check is not a claim that every printer works in
+  Web. Electron remains the richer/local-network host; Web errors must explain
+  that the browser or printer may have blocked the request.
+- Implementation priority is the end-to-end vertical flow: configure printer
+  → retain credential → select printer → upload G-code with progress/cancel →
+  start print → display operation state/error. Additional driver breadth,
+  proactive compatibility analysis, and rich console integration follow that
+  flow.
+
+The first vertical-flow UI decision still required is whether a successful
+upload always starts printing immediately or whether upload and start are
+separate user actions.
+
 ## 4. Questions queued for the next stages
 
-1. Does the static Web host send G-code directly to the printer API, with CORS
-   and HTTPS/TLS support required from the printer; and what should happen when
-   a printer does not meet those browser requirements?
+1. Does a successful G-code upload immediately start printing, or are upload
+   and print-start separate user actions?
 2. How are manually entered printer API keys securely stored, updated, and
    removed on Electron and Web?
 3. What is the exact public API and which operations must be present for
