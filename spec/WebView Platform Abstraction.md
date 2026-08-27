@@ -370,12 +370,45 @@ Consequences:
   action subject to the driver's documented semantics.
 - The common API keeps `uploadGcode()` and `startPrint()` separate. A UI-level
   operation orchestrator composes them for **Send & Print**, rather than adding
-  a driver-specific combined endpoint.
+a driver-specific combined endpoint.
+
+### 3.10 Stage 10 — Web credential persistence without a master password (2026-08-27)
+
+**Decision:** Web does not require a master password or a user-unlock flow for
+printer API keys. It persists each key in browser storage under the
+OrcaSlicerNeo Web origin.
+
+Consequences:
+
+- `BrowserPrinterCredentialRepository` uses a dedicated, versioned
+  browser-storage namespace rather than adding keys to ordinary
+  `UserPreferences`. Its implementation may use localStorage for the first
+  vertical slice; changing to IndexedDB later is a storage implementation
+  detail, not a protocol change.
+- The value is not encrypted at rest by the application. Its confidentiality
+  depends on the user's browser profile, device account, and the security of
+  the OrcaSlicerNeo Web origin. It is therefore unsuitable for shared or
+  untrusted browser profiles.
+- Clearing site data, using private browsing, or changing the Web origin may
+  remove credentials; the UI handles this as a request to enter the API key
+  again.
+- The key remains excluded from React state, ordinary preference export,
+  URLs, logs, telemetry, WebView/iframe messages, and error text. It is read
+  only immediately before a printer API request and is redacted from any
+  diagnostics.
+- The Web host sends it only in the Moonraker driver's `X-Api-Key` request
+  header to the configured printer origin. It never supplies the key to the
+  iframe console.
+
+This decision is specific to browser persistence. Electron's persistent secret
+storage and its behavior when OS-backed encryption is unavailable remain to be
+specified.
 
 ## 4. Questions queued for the next stages
 
-1. How are manually entered printer API keys securely stored, updated, and
-   removed on Electron and Web?
+1. Should Electron store printer API keys with the operating system's encrypted
+   credential facility and refuse a plaintext persistence fallback when that
+   facility is unavailable?
 2. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
 3. Which Electron guest security and storage/session model is required?
