@@ -5,6 +5,9 @@ import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 
 export const BED_SIZE = 220;
 const participateInPointerRaycast = () => {};
+const GROUND_Z = -0.04;
+const GROUND_Z_GRID = -0.26;
+const GROUND_Z_BED = -0.41 + GROUND_Z;
 
 export function BedPlate() {
   return (
@@ -13,7 +16,7 @@ export function BedPlate() {
           plane at Z=0, so the plane geometry needs no rotation (it is born
           in XY) and all core coordinates pass through unmodified. */}
       <mesh
-        position={[BED_SIZE / 2, BED_SIZE / 2, 0]}
+        position={[BED_SIZE / 2, BED_SIZE / 2, GROUND_Z_BED]}
         userData={{ orcaRaycastRole: BUILD_PLATE_RAYCAST }}
         // This makes the plate available to the canvas intersection filter.
         // It has no pointer behavior of its own; the filter removes it after
@@ -31,7 +34,7 @@ export function BedPlate() {
           rendered from steep top-down angles). DoubleSide renders from
           every view above the bed. */}
       <Grid
-        position={[BED_SIZE / 2, BED_SIZE / 2, 0.01]}
+        position={[BED_SIZE / 2, BED_SIZE / 2, GROUND_Z_GRID]}
         rotation={[-Math.PI / 2, 0, 0]}
         args={[BED_SIZE, BED_SIZE]}
         side={THREE.DoubleSide}
