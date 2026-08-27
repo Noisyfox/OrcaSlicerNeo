@@ -171,16 +171,47 @@ This stage decides only the source of the secret. The encrypted Electron
 storage design, in-memory lifetime, deletion behavior, and Web-host behavior
 remain separate decisions.
 
+### 3.5 Stage 5 — Cross-platform printer credential use (2026-08-27)
+
+**Decision:** The printer API key is required on both hosts. On Web it is not
+used for iframe script injection; it is retained so the static Web application
+can authenticate its own G-code upload request to the user's printer.
+
+Consequences:
+
+- Introduce a dedicated `PrinterCredentialRepository`, separate from ordinary
+  `UserPreferences`. It is keyed by a stable printer integration ID and is not
+  represented in shared app state after a request completes.
+- Electron uses the credential both to supply its reviewed embedded-console
+  adapter and to authorize direct printer operations such as G-code upload.
+- Web uses the credential only for direct, documented printer API operations;
+  the iframe does not receive it and continues to use any authentication flow
+  offered by the printer console itself.
+- A static Web build has no server-side secret vault. Its at-rest protection,
+  session lifetime, and user-recovery UX are a required explicit design
+  decision, not an implicit use of ordinary `localStorage`.
+- Removing a printer integration deletes its associated credential on the
+  current host. Exporting, syncing, or copying credentials between hosts is
+  out of scope unless a later specification explicitly authorizes it.
+
+The direct Web upload path also requires a printer API that is reachable from
+the browser and permits the application's origin through CORS. HTTPS Web pages
+cannot rely on an insecure HTTP printer endpoint without encountering mixed
+content restrictions. Those compatibility and fallback policies remain to be
+decided.
+
 ## 4. Questions queued for the next stages
 
-1. How are manually entered printer API keys securely stored, updated, and
-   removed on Electron, and what is the Web-host behavior when injection is
-   unavailable?
-2. What is the exact public API and which operations must be present for
+1. Does the static Web host send G-code directly to the printer API, with CORS
+   and HTTPS/TLS support required from the printer; and what should happen when
+   a printer does not meet those browser requirements?
+2. How are manually entered printer API keys securely stored, updated, and
+   removed on Electron and Web?
+3. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
-3. Which Electron guest security and storage/session model is required?
-4. Which iframe subset and messaging behavior is useful enough on Web?
-5. How should navigation, external links, popups, and URL allow-lists behave?
-6. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-7. What UI workflow exposes embedded integrations to the user?
-8. What verification matrix and test fixture are required?
+4. Which Electron guest security and storage/session model is required?
+5. Which iframe subset and messaging behavior is useful enough on Web?
+6. How should navigation, external links, popups, and URL allow-lists behave?
+7. How should COOP/COEP/threaded-WASM coexist with external iframe content?
+8. What UI workflow exposes embedded integrations to the user?
+9. What verification matrix and test fixture are required?
