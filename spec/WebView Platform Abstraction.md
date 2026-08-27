@@ -200,18 +200,68 @@ cannot rely on an insecure HTTP printer endpoint without encountering mixed
 content restrictions. Those compatibility and fallback policies remain to be
 decided.
 
+### 3.6 Stage 6 — Two independent printer-control channels (2026-08-27)
+
+**Decision:** The feature has two separate objectives and therefore two
+separate execution paths:
+
+1. Render the printer's Web control console inside the application.
+2. Control the printer through its documented HTTP API, including G-code
+   upload and print operations.
+
+The embedded console is a user-facing display/authentication surface. The HTTP
+API client is the authoritative application-control surface. Neither path may
+depend on the other at runtime.
+
+```text
+User
+ ├─ printer console panel ──> WebViewHost
+ │    ├─ Electron <webview>: bundled API-key bridge where supported
+ │    └─ Web <iframe>: display/manual console authentication only
+ │
+ └─ OrcaSlicerNeo print actions ──> PrinterControlClient ──> printer HTTP API
+                                      ^
+                                      └─ PrinterCredentialRepository
+```
+
+Consequences:
+
+- Implement a typed `PrinterControlClient`/`PrinterTransport` contract for
+  status, G-code upload, print start, cancellation, and later printer-specific
+  operations. Application features call this contract, never iframe DOM,
+  `executeJavaScript`, page callbacks, or browser cookies.
+- The embedded-console adapter and API client may both use the same stored API
+  key, but they are separate consumers. Failure to frame a console does not
+  remove API printing capability; a failed API request does not give the
+  console adapter permission to scrape credentials or DOM state.
+- On Electron, secret resolution and local-network HTTP requests belong behind
+  a narrow host/preload boundary so raw keys do not pass through shared React
+  state. On Web, the browser adapter performs the API request subject to the
+  Web platform's secure-context, CORS, local-network-access, and mixed-content
+  rules.
+- API errors must be reported as printer operation failures with actionable
+  compatibility detail. They are not treated as WebView errors.
+- The WebView abstraction does not itself acquire printing/upload methods.
+  It remains a separate, UI-oriented platform contract.
+
+This stage establishes the architectural separation only. The supported printer
+API families, endpoint schemas, transport security, upload semantics, and
+operation state model remain to be defined.
+
 ## 4. Questions queued for the next stages
 
-1. Does the static Web host send G-code directly to the printer API, with CORS
+1. Which printer HTTP API family or families are in the first release? Is the
+   target a specific vendor/protocol, or must users configure a generic API?
+2. Does the static Web host send G-code directly to the printer API, with CORS
    and HTTPS/TLS support required from the printer; and what should happen when
    a printer does not meet those browser requirements?
-2. How are manually entered printer API keys securely stored, updated, and
+3. How are manually entered printer API keys securely stored, updated, and
    removed on Electron and Web?
-3. What is the exact public API and which operations must be present for
+4. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
-4. Which Electron guest security and storage/session model is required?
-5. Which iframe subset and messaging behavior is useful enough on Web?
-6. How should navigation, external links, popups, and URL allow-lists behave?
-7. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-8. What UI workflow exposes embedded integrations to the user?
-9. What verification matrix and test fixture are required?
+5. Which Electron guest security and storage/session model is required?
+6. Which iframe subset and messaging behavior is useful enough on Web?
+7. How should navigation, external links, popups, and URL allow-lists behave?
+8. How should COOP/COEP/threaded-WASM coexist with external iframe content?
+9. What UI workflow exposes embedded integrations to the user?
+10. What verification matrix and test fixture are required?
