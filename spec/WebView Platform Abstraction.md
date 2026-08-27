@@ -448,11 +448,40 @@ Electron credential repository from configuration storage. It does not alter
 the requirement that only built-in adapters can receive an API key through
 Electron document-start injection.
 
+### 3.12 Stage 12 — Separate endpoints; full shared configuration access (2026-08-27)
+
+**Decision:** Users enter the embedded printer-console URL and the Moonraker
+HTTP API base URL separately. The application does not derive either endpoint
+from the other.
+
+**Decision:** Shared UI code may read the complete printer configuration
+record, including its API key.
+
+Consequences:
+
+- `consoleUrl` is used exclusively by `WebViewPanel`; `apiBaseUrl` is used
+  exclusively by the selected printer API driver. Each is independently parsed
+  and validated as a supported HTTP(S) endpoint.
+- The create/edit-printer UI presents separate labelled fields and records
+  their values unchanged after canonical URL normalization. This supports
+  installations where Mainsail/Fluidd and Moonraker are served on different
+  ports, paths, proxies, or hosts.
+- The shared printer store/configuration context carries the full record. It
+  may pass the selected record to `PrinterControlService` and Electron's
+  bundled console adapter; host code is no longer the sole reader of the API
+  key.
+- API keys remain masked in all visual surfaces by default, never rendered in
+  logs, telemetry, URLs, errors, screenshots/diagnostic bundles, or iframe
+  messages. A dedicated reveal/edit interaction, if added, must require an
+  explicit user action.
+- This stage supersedes the Stage 11 constraint that shared React state only
+  receives a redacted summary. It does not permit remote page code, a user
+  script, or an untrusted integration to read the configuration object.
+
 ## 4. Questions queued for the next stages
 
-1. Must a user enter separate URLs for the embedded printer console and the
-   Moonraker HTTP API, or should the API base URL always be derived from the
-   console URL?
+1. Does the first release support multiple saved printer records with one
+   selected active printer, or only a single configured printer?
 2. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
 3. Which Electron guest security and storage/session model is required?
