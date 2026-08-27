@@ -345,17 +345,42 @@ The first vertical-flow UI decision still required is whether a successful
 upload always starts printing immediately or whether upload and start are
 separate user actions.
 
+### 3.9 Stage 9 — Send versus Send & Print (2026-08-27)
+
+**Decision:** Match OrcaSlicer's send workflow with two explicit actions:
+
+- **Send** uploads the G-code to the selected printer only.
+- **Send & Print** uploads the G-code, then starts a print only after upload
+  succeeds.
+
+Consequences:
+
+- Both actions use the same validated printer, generated G-code bytes,
+  filename policy, upload progress, cancellation, and error presentation.
+- `Send` completes with the remote file identifier returned by the driver; it
+  must not call the print-start endpoint.
+- `Send & Print` is a two-step operation. The driver uses the exact remote path
+  returned by the upload response when it invokes `startPrint`.
+- If upload succeeds but starting fails, the result is an explicit
+  `start-failed-after-upload` state. The UI identifies that the file remains on
+  the printer and offers a deliberate retry of **Start Print**; it must not
+  silently upload the file again or claim that printing began.
+- Cancelling applies only while an upload is in flight. Once the print-start
+  request has been issued, cancellation is a separate printer `cancelPrint`
+  action subject to the driver's documented semantics.
+- The common API keeps `uploadGcode()` and `startPrint()` separate. A UI-level
+  operation orchestrator composes them for **Send & Print**, rather than adding
+  a driver-specific combined endpoint.
+
 ## 4. Questions queued for the next stages
 
-1. Does a successful G-code upload immediately start printing, or are upload
-   and print-start separate user actions?
-2. How are manually entered printer API keys securely stored, updated, and
+1. How are manually entered printer API keys securely stored, updated, and
    removed on Electron and Web?
-3. What is the exact public API and which operations must be present for
+2. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
-4. Which Electron guest security and storage/session model is required?
-5. Which iframe subset and messaging behavior is useful enough on Web?
-6. How should navigation, external links, popups, and URL allow-lists behave?
-7. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-8. What UI workflow exposes embedded integrations to the user?
-9. What verification matrix and test fixture are required?
+3. Which Electron guest security and storage/session model is required?
+4. Which iframe subset and messaging behavior is useful enough on Web?
+5. How should navigation, external links, popups, and URL allow-lists behave?
+6. How should COOP/COEP/threaded-WASM coexist with external iframe content?
+7. What UI workflow exposes embedded integrations to the user?
+8. What verification matrix and test fixture are required?
