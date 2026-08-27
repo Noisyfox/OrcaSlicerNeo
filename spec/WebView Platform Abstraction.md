@@ -476,17 +476,46 @@ Consequences:
   explicit user action.
 - This stage supersedes the Stage 11 constraint that shared React state only
   receives a redacted summary. It does not permit remote page code, a user
-  script, or an untrusted integration to read the configuration object.
+script, or an untrusted integration to read the configuration object.
+
+### 3.13 Stage 13 — Multi-printer configuration and independent ephemeral selection (2026-08-27)
+
+**Decision:** The first release supports multiple saved printer configuration
+records. The embedded-console panel and the G-code send panel each have their
+own independent printer selection control.
+
+**Decision:** Neither current selection is persisted. A console selection does
+not change the send target, and a send-target selection does not navigate or
+reload the console panel.
+
+Consequences:
+
+- The configuration document's `printers` array is the authoritative list of
+  saved records. Each record has a stable ID; duplicate display names are
+  permitted, while duplicate IDs are rejected.
+- `ConsolePanelState.selectedPrinterId` and
+  `SendGcodePanelState.selectedPrinterId` are separate in-memory UI state. They
+  are deliberately absent from the printer configuration document and existing
+  user preferences.
+- Whenever either panel is activated or its action dialog opens, it validates
+  its previous selected ID against the current record list. If the record was
+  deleted, the selection becomes empty; the panel does not silently choose a
+  different printer.
+- With an empty or invalid selection, the console panel displays a neutral
+  selection prompt, and Send/Send & Print are disabled. Choosing a printer is
+  always an explicit user act.
+- Deleting a printer removes the record and its API key. Existing in-flight
+  upload or print operations retain a snapshot of the selected configuration
+  and complete or fail normally; no new operation may start from a deleted
+  selection.
 
 ## 4. Questions queued for the next stages
 
-1. Does the first release support multiple saved printer records with one
-   selected active printer, or only a single configured printer?
-2. What is the exact public API and which operations must be present for
+1. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
-3. Which Electron guest security and storage/session model is required?
-4. Which iframe subset and messaging behavior is useful enough on Web?
-5. How should navigation, external links, popups, and URL allow-lists behave?
-6. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-7. What UI workflow exposes embedded integrations to the user?
-8. What verification matrix and test fixture are required?
+2. Which Electron guest security and storage/session model is required?
+3. Which iframe subset and messaging behavior is useful enough on Web?
+4. How should navigation, external links, popups, and URL allow-lists behave?
+5. How should COOP/COEP/threaded-WASM coexist with external iframe content?
+6. What UI workflow exposes embedded integrations to the user?
+7. What verification matrix and test fixture are required?
