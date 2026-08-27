@@ -404,11 +404,55 @@ This decision is specific to browser persistence. Electron's persistent secret
 storage and its behavior when OS-backed encryption is unavailable remain to be
 specified.
 
+### 3.11 Stage 11 — Plain printer configuration persistence on both hosts (2026-08-27)
+
+**Decision:** API keys are stored as plain fields in the same JSON printer
+configuration object as the printer URL. Electron does not use an OS credential
+vault or encrypted fallback; it writes the object to the user's configuration
+file. Web persists the equivalent object in its browser configuration storage.
+
+```ts
+interface PrinterConfigurationDocument {
+  version: 1;
+  printers: Array<{
+    id: string;
+    displayName: string;
+    driverId: 'moonraker' | string;
+    consoleUrl: string;
+    apiBaseUrl: string;
+    apiKey: string;
+  }>;
+}
+```
+
+Consequences:
+
+- `PrinterCredentialRepository` is folded into a single
+  `PrinterConfigurationRepository`. It persists one coherent printer record
+  rather than separately reconciling a URL list and a secret store.
+- Electron persists this document in the host user configuration. Web persists
+  the same schema under the application origin. Neither host encrypts the
+  `apiKey` field.
+- The shared application consumes a redacted printer summary; the platform
+  transport resolves the raw configuration record by ID only for an outbound
+  printer request. The key is still excluded from normal React state, URLs,
+  logging, telemetry, iframe messages, and user-facing error text.
+- Printer configuration export, synchronization, and backup are out of scope.
+  A later export feature must warn explicitly that the document includes API
+  keys or must redact them by default.
+- Removing a printer removes its complete configuration record, including its
+  API key, on that host.
+
+This stage supersedes the earlier proposed separation of an encrypted
+Electron credential repository from configuration storage. It does not alter
+the requirement that only built-in adapters can receive an API key through
+Electron document-start injection.
+
 ## 4. Questions queued for the next stages
 
-1. Should Electron store printer API keys with the operating system's encrypted
-   credential facility and refuse a plaintext persistence fallback when that
-   facility is unavailable?
+1. Must a user enter separate URLs for the embedded printer console and the
+   Moonraker HTTP API, or should the API base URL always be derived from the
+   console URL?
 2. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
 3. Which Electron guest security and storage/session model is required?
