@@ -248,20 +248,85 @@ This stage establishes the architectural separation only. The supported printer
 API families, endpoint schemas, transport security, upload semantics, and
 operation state model remain to be defined.
 
+### 3.7 Stage 7 — Modular printer API drivers; Moonraker first (2026-08-27)
+
+**Decision:** Printer HTTP control is modular. The common application uses a
+vendor-neutral printer-control contract, while built-in drivers implement
+individual printer API families. Moonraker is the first supported driver.
+
+The implementation introduces a new shared `@orca/printer-control` package:
+
+```text
+shared application
+  └─ PrinterControlService
+       └─ PrinterApiDriver selected by `driverId`
+            ├─ MoonrakerDriver (first built-in driver)
+            └─ future built-in drivers
+                 └─ host-injected PrinterTransport + PrinterCredentialRepository
+```
+
+No driver is loaded from a user URL or arbitrary code. `driverId` is a closed,
+versioned built-in identifier. A user configures a printer endpoint and selects
+only a driver that OrcaSlicerNeo ships.
+
+The first-release common contract includes:
+
+```ts
+interface PrinterApiDriver {
+  readonly id: string;
+  readonly displayName: string;
+  testConnection(printerId: string): Promise<PrinterConnectionInfo>;
+  getStatus(printerId: string): Promise<PrinterStatus>;
+  uploadGcode(input: GcodeUpload, progress: ProgressSink, signal: AbortSignal): Promise<UploadedGcode>;
+  startPrint(printerId: string, remoteFile: UploadedGcode): Promise<void>;
+  pausePrint(printerId: string): Promise<void>;
+  resumePrint(printerId: string): Promise<void>;
+  cancelPrint(printerId: string): Promise<void>;
+}
+```
+
+`PrinterTransport` is host injected. It resolves a credential immediately
+before a request, adds the driver-defined authentication header, performs the
+HTTP request, and redacts authorization values from diagnostics. A driver never
+reads Electron APIs, browser storage, or raw credential records. The shared
+application receives typed operation results and progress only.
+
+#### Moonraker driver requirements
+
+Moonraker behavior follows the existing native implementation as the reference
+for protocol semantics, not as a source dependency:
+
+- connection test: `GET /server/info`;
+- authentication: `X-Api-Key` when an API key is configured;
+- upload: multipart `POST /server/files/upload`, with `file` and `root=gcodes`;
+- start: JSON `POST /printer/print/start` using the path returned by upload;
+- first control set: printer status plus PAUSE, RESUME, and CANCEL_PRINT
+  commands/operations where the Moonraker API supports them;
+- upload cancellation and progress are mandatory; a completed upload and a
+  print-start request are distinct operations, so a failed start never causes
+  the application to report a successful print.
+
+Moonraker's existing `Moonraker` and `MoonrakerPrinterAgent` source files are
+the detailed reference for endpoint shape, response parsing, filename handling,
+status behavior, and API-key conventions. Their C++ HTTP, native threading,
+and GUI-agent dependencies are not reused in the WASM/shared application path.
+
+Future drivers must implement the same contract and add fixture-backed protocol
+tests. They cannot enlarge the common API merely to expose an untyped vendor
+endpoint; new shared operations require a specification amendment.
+
 ## 4. Questions queued for the next stages
 
-1. Which printer HTTP API family or families are in the first release? Is the
-   target a specific vendor/protocol, or must users configure a generic API?
-2. Does the static Web host send G-code directly to the printer API, with CORS
+1. Does the static Web host send G-code directly to the printer API, with CORS
    and HTTPS/TLS support required from the printer; and what should happen when
    a printer does not meet those browser requirements?
-3. How are manually entered printer API keys securely stored, updated, and
+2. How are manually entered printer API keys securely stored, updated, and
    removed on Electron and Web?
-4. What is the exact public API and which operations must be present for
+3. What is the exact public API and which operations must be present for
    `WebViewPanel` compatibility?
-5. Which Electron guest security and storage/session model is required?
-6. Which iframe subset and messaging behavior is useful enough on Web?
-7. How should navigation, external links, popups, and URL allow-lists behave?
-8. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-9. What UI workflow exposes embedded integrations to the user?
-10. What verification matrix and test fixture are required?
+4. Which Electron guest security and storage/session model is required?
+5. Which iframe subset and messaging behavior is useful enough on Web?
+6. How should navigation, external links, popups, and URL allow-lists behave?
+7. How should COOP/COEP/threaded-WASM coexist with external iframe content?
+8. What UI workflow exposes embedded integrations to the user?
+9. What verification matrix and test fixture are required?
