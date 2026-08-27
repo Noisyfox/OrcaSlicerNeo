@@ -601,13 +601,47 @@ Consequences:
   capability for the reviewed built-in injector. It is not an application
   extension API and has no Web equivalent.
 
+### 3.17 Stage 17 — Minimal common surface, default storage, and popup policy (2026-08-27)
+
+**Decision:** The initial common WebView contract contains only the operations
+the printer-console flow uses: set/load the configured console URL, register a
+built-in script request, and report load/error state to the panel. It does not
+attempt source compatibility with the broad native `WebViewPanel` API and does
+not publicly expose general JavaScript evaluation, page callbacks, browser
+history, or browser controls.
+
+**Decision:** The first implementation uses each platform's default embedded
+web storage/session behavior. It creates no explicit Electron webview partition,
+cookie profile, storage migration, storage-clearing policy, or browser-side
+storage workaround.
+
+**Decision:** Page-initiated navigation remains inside the embedded console.
+For an Electron new-window request, follow OrcaSlicer: open the requested URL
+in the operating system's default browser and deny creation of an embedded
+child guest. For a Web iframe, allow the browser to apply its ordinary
+new-tab/window behavior; popup blocking or other browser policy may prevent
+the request, and the Web app does not intercept or emulate it.
+
+Consequences:
+
+- The shared React panel is deliberately smaller than its native namesake. Its
+  API grows only when a concrete product workflow requires another operation.
+- Electron and Web may persist console authentication state differently under
+  their defaults. The configured API key remains the reliable cross-restart
+  credential for application-side Moonraker calls; no behavior relies on
+  console cookies surviving.
+- The Electron adapter owns conversion of a guest new-window event into an
+  external-browser launch. The iframe adapter cannot reproduce that host-level
+  control for a cross-origin document and treats it as best-effort browser
+  behavior.
+- This policy does not add general navigation chrome, does not update the
+  configured `consoleUrl` after a page-driven navigation, and does not add a
+  target-origin allow-list in the first slice.
+
 ## 4. Questions queued for the next stages
 
-1. What is the exact public API and which operations must be present for
-   `WebViewPanel` compatibility?
-2. Which Electron guest security and storage/session model is required?
-3. Which iframe subset and messaging behavior is useful enough on Web?
-4. How should navigation, external links, popups, and URL allow-lists behave?
-5. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-6. What UI workflow exposes embedded integrations to the user?
-7. What verification matrix and test fixture are required?
+1. Which iframe attributes and capabilities are required for supported printer
+   consoles, beyond the documented no-injection behavior?
+2. How should COOP/COEP/threaded-WASM coexist with external iframe content?
+3. What UI workflow exposes embedded integrations to the user?
+4. What verification matrix and test fixture are required?
