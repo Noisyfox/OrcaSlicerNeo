@@ -17,6 +17,7 @@ const capabilities: WebViewPanelCapabilities = {
 
 function makePlatform(calls: string[]) {
   let documentValue: PrinterConfigurationDocument = { version: 1, printers: [printer] };
+  let preferences = { version: 1 as const, selectedProfiles: {}, ui: { sidebarWidth: 244, deviceSidebarWidth: 320 } };
   const configuration = {
     load: vi.fn(async () => documentValue),
     save: vi.fn(async (next: PrinterConfigurationDocument) => { documentValue = next; }),
@@ -34,14 +35,20 @@ function makePlatform(calls: string[]) {
     capabilities,
     mount() { calls.push('mount'); return panel; },
   };
-  // DevicePanel only consumes these two injected capabilities; the remaining
+  const userPreferences = {
+    load: vi.fn(async () => preferences),
+    save: vi.fn(async (next: typeof preferences) => { preferences = next; }),
+  };
+  // DevicePanel consumes only these injected capabilities; the remaining
   // fields are inert typed seams for this component-level test.
   return {
     platform: {
       printers: { configuration, transport: {} },
       webview,
+      preferences: userPreferences,
     } as unknown as PlatformCapabilities,
     configuration,
+    preferences: userPreferences,
   };
 }
 
@@ -121,5 +128,39 @@ describe('DevicePanel component', () => {
     expect(configuration.save.mock.calls.at(-1)?.[0].printers).toEqual([]);
     expect(calls).toContain('dispose');
     expect(container.querySelector('[data-testid="device-console-empty"]')?.textContent).toContain('Add a printer');
+  });
+
+  it('uses a card layout and persists device sidebar resizing independently', async () => {
+    const calls: string[] = [];
+    const { platform, preferences } = makePlatform(calls);
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><DevicePanel /></PlatformProvider>);
+    });
+
+    const panel = container.querySelector('[data-testid="device-panel"]') as HTMLElement;
+    const sidebar = panel.querySelector('aside') as HTMLElement;
+    const console = panel.querySelector('main') as HTMLElement;
+    const resizer = container.querySelector('[data-testid="device-sidebar-resizer"]') as HTMLElement;
+    expect(panel.className).toContain('gap-1');
+    expect(sidebar.className).toContain('rounded-md');
+    expect(sidebar.className).toContain('border');
+    expect(sidebar.style.width).toBe('320px');
+    expect(console.className).toContain('rounded-md');
+    expect(console.className).toContain('border');
+    expect(resizer.getAttribute('aria-valuenow')).toBe('320');
+    expect(resizer.getAttribute('aria-valuemin')).toBe('220');
+    expect(resizer.getAttribute('aria-valuemax')).toBe('560');
+
+    await act(async () => {
+      resizer.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    });
+    expect(resizer.getAttribute('aria-valuenow')).toBe('336');
+    await act(async () => { await Promise.resolve(); });
+    expect(preferences.save).toHaveBeenCalledWith(expect.objectContaining({
+      ui: { sidebarWidth: 244, deviceSidebarWidth: 336 },
+    }));
   });
 });

@@ -33,7 +33,7 @@ export interface UserPreferences {
     print?: string;
     filament?: string;
   };
-  ui: { sidebarWidth?: number };
+  ui: { sidebarWidth?: number; deviceSidebarWidth?: number };
 }
 
 export interface UserPreferencesRepository {
@@ -141,8 +141,12 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
       ...(typeof selectedProfiles.print === 'string' ? { print: selectedProfiles.print } : {}),
       ...(typeof selectedProfiles.filament === 'string' ? { filament: selectedProfiles.filament } : {}),
     },
-    ui: typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth)
-      ? { sidebarWidth: ui.sidebarWidth } : {},
+    ui: {
+      ...(typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth)
+        ? { sidebarWidth: ui.sidebarWidth } : {}),
+      ...(typeof ui.deviceSidebarWidth === 'number' && Number.isFinite(ui.deviceSidebarWidth)
+        ? { deviceSidebarWidth: ui.deviceSidebarWidth } : {}),
+    },
   };
 }
 

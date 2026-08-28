@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { Pencil, Plus, Trash2, Monitor } from 'lucide-react';
 import type { PrinterConfiguration } from '@orca/printer-control';
 import { normalizePrinterConfiguration, normalizePrinterConfigurationDocument } from '@orca/printer-control';
@@ -24,6 +32,15 @@ const EMPTY_DRAFT: PrinterDraft = {
   apiBaseUrl: '',
   apiKey: '',
 };
+
+const DEFAULT_DEVICE_SIDEBAR_WIDTH = 288;
+const MIN_DEVICE_SIDEBAR_WIDTH = 220;
+const MAX_DEVICE_SIDEBAR_WIDTH = 560;
+
+function clampDeviceSidebarWidth(value: number | undefined): number {
+  if (!Number.isFinite(value)) return DEFAULT_DEVICE_SIDEBAR_WIDTH;
+  return Math.min(MAX_DEVICE_SIDEBAR_WIDTH, Math.max(MIN_DEVICE_SIDEBAR_WIDTH, value!));
+}
 
 let printerIdSequence = 0;
 function newPrinterId(): string {
@@ -101,6 +118,107 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
   const [formError, setFormError] = useState<string | null>(null);
   const [panelState, setPanelState] = useState<WebViewPanelState>({ status: 'idle', url: null, error: null });
   const webviewContainerRef = useRef<HTMLDivElement>(null);
+  const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_DEVICE_SIDEBAR_WIDTH);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  const resizeActiveRef = useRef(false);
+  const stopResizeRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void platform.preferences.load().then((prefs) => {
+      if (!active) return;
+      const width = clampDeviceSidebarWidth(prefs.ui.deviceSidebarWidth);
+      sidebarWidthRef.current = width;
+      setSidebarWidth(width);
+    });
+    return () => {
+      active = false;
+      stopResizeRef.current?.();
+    };
+  }, [platform.preferences]);
+
+  function persistDeviceSidebarWidth(width: number) {
+    void platform.preferences.load().then((prefs) => platform.preferences.save({
+      ...prefs,
+      ui: { ...prefs.ui, deviceSidebarWidth: width },
+    })).catch(() => undefined);
+  }
+
+  function beginResize(clientX: number) {
+    if (resizeActiveRef.current) return;
+    resizeActiveRef.current = true;
+    const startX = clientX;
+    const startWidth = sidebarWidthRef.current;
+    let active = true;
+
+    const applyClientX = (nextClientX: number) => {
+      if (!active) return;
+      const nextWidth = Math.min(
+        MAX_DEVICE_SIDEBAR_WIDTH,
+        Math.max(MIN_DEVICE_SIDEBAR_WIDTH, startWidth + nextClientX - startX),
+      );
+      sidebarWidthRef.current = nextWidth;
+      setSidebarWidth(nextWidth);
+    };
+    const onPointerMove = (event: PointerEvent) => applyClientX(event.clientX);
+    const onMouseMove = (event: MouseEvent) => applyClientX(event.clientX);
+    const stop = () => {
+      if (!active) return;
+      active = false;
+      stopResizeRef.current = null;
+      resizeActiveRef.current = false;
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('mouseup', stop);
+      window.removeEventListener('pointercancel', stop);
+      persistDeviceSidebarWidth(sidebarWidthRef.current);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    };
+
+    stopResizeRef.current = stop;
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('mouseup', stop);
+    window.addEventListener('pointercancel', stop);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'ew-resize';
+  }
+
+  function handleResizePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    if (typeof handle.setPointerCapture === 'function') {
+      try {
+        handle.setPointerCapture(event.pointerId);
+      } catch {
+        // Some test/jsdom environments do not implement pointer capture.
+      }
+    }
+    beginResize(event.clientX);
+  }
+
+  function handleResizeMouseDown(event: ReactMouseEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    beginResize(event.clientX);
+  }
+
+  function handleResizeKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const delta = event.key === 'ArrowLeft' ? -16 : 16;
+    const nextWidth = Math.min(
+      MAX_DEVICE_SIDEBAR_WIDTH,
+      Math.max(MIN_DEVICE_SIDEBAR_WIDTH, sidebarWidthRef.current + delta),
+    );
+    sidebarWidthRef.current = nextWidth;
+    setSidebarWidth(nextWidth);
+    persistDeviceSidebarWidth(nextWidth);
+  }
 
   useEffect(() => {
     let active = true;
@@ -211,9 +329,16 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
     : null;
 
   return (
-    <section className="flex h-full min-h-0 w-full flex-col" data-testid="device-panel">
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-72 shrink-0 flex-col border-r bg-card/60" aria-label="Saved printers">
+    <section className="flex h-full min-h-0 w-full gap-1" data-testid="device-panel">
+        <aside
+          className="flex shrink-0 flex-col overflow-hidden rounded-md border bg-card"
+          aria-label="Saved printers"
+          style={{
+            width: `${sidebarWidth}px`,
+            minWidth: `${MIN_DEVICE_SIDEBAR_WIDTH}px`,
+            maxWidth: `${MAX_DEVICE_SIDEBAR_WIDTH}px`,
+          }}
+        >
           <div className="flex items-center justify-between border-b px-3 py-2">
             <div>
               <h1 className="text-sm font-semibold">Devices</h1>
@@ -261,7 +386,22 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
           </div>
         </aside>
 
-        <main className="relative min-w-0 flex-1 overflow-hidden bg-background" aria-label="Printer console">
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize device sidebar"
+          aria-valuenow={sidebarWidth}
+          aria-valuemin={MIN_DEVICE_SIDEBAR_WIDTH}
+          aria-valuemax={MAX_DEVICE_SIDEBAR_WIDTH}
+          tabIndex={0}
+          data-testid="device-sidebar-resizer"
+          onPointerDown={handleResizePointerDown}
+          onMouseDown={handleResizeMouseDown}
+          onKeyDown={handleResizeKeyDown}
+          className="w-1.5 shrink-0 cursor-ew-resize touch-none self-stretch rounded-full bg-clip-content px-px transition-colors hover:bg-accent/20 focus-visible:bg-accent/30 focus-visible:outline-none"
+        />
+
+        <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card" aria-label="Printer console">
           <div ref={webviewContainerRef} className="absolute inset-0 [&>iframe]:h-full [&>iframe]:w-full [&>webview]:h-full [&>webview]:w-full" data-testid="device-webview-container" />
           {(!selectedPrinter || !selectedPrinter.consoleUrl) && (
             <div className="absolute inset-0 flex items-center justify-center p-6">
@@ -277,8 +417,6 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
             </div>
           )}
         </main>
-      </div>
-
       {dialog?.kind === 'delete' && dialogPrinter && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="alertdialog" aria-modal="true" aria-labelledby="device-delete-title" data-testid="device-delete-dialog">
           <div className="flex w-full max-w-sm flex-col gap-4 rounded-lg border bg-card p-5 shadow-lg">

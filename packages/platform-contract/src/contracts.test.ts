@@ -8,9 +8,14 @@ describe('user preferences', () => {
     expect(normalizeUserPreferences('{bad}').ui).toEqual({});
   });
   it('keeps only the typed profile names and UI width', () => {
-    expect(normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'P', print: 4, filament: 'F' }, ui: { sidebarWidth: 280, x: true } })).toEqual({
-      version: 1, selectedProfiles: { printer: 'P', filament: 'F' }, ui: { sidebarWidth: 280 },
+    expect(normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'P', print: 4, filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, x: true } })).toEqual({
+      version: 1, selectedProfiles: { printer: 'P', filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320 },
     });
+  });
+
+  it('keeps workspace and device sidebar widths independent', () => {
+    const normalized = normalizeUserPreferences({ version: 1, ui: { sidebarWidth: 280, deviceSidebarWidth: 360 } });
+    expect(normalized.ui).toEqual({ sidebarWidth: 280, deviceSidebarWidth: 360 });
   });
 });
 

@@ -499,6 +499,10 @@ coverage now observes the guest console's `X-API-Key` request; see
   semantics, so the single WebGL viewport and selected printer guest retain
   local state without receiving input or consuming layout space. See
   `doc/2026-08-28-top-level-device-page.md`.
+- Device uses Workspace's card-surface layout conventions: independently
+  resizable 220–560px printer sidebar (288px default), accessible pointer and
+  keyboard divider, and persisted `ui.deviceSidebarWidth` separate from the
+  Workspace `ui.sidebarWidth`. See `doc/2026-08-28-device-panel-layout.md`.
 
 ### Milestone 17 — Send and Send & Print workflow
 

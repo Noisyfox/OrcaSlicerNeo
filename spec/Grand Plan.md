@@ -380,6 +380,10 @@ and drives structural operations through the typed client.
 - [x] Keep the single Workspace scene surface and top-level Device page
       mounted while navigating; inactive pages are hidden and inert so
       viewport/webview state and configuration dialogs survive transitions
+- [x] Match Workspace's card-style Device layout with an accessible,
+      independently resizable 220–560px printer sidebar (288px default) and
+      persist its width as `ui.deviceSidebarWidth` without changing
+      `ui.sidebarWidth` (`doc/2026-08-28-device-panel-layout.md`)
 
 ## Milestone 17: Send and Send & Print workflow
 
