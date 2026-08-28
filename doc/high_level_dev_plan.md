@@ -489,6 +489,21 @@ continues to report script and host-API operations as unsupported. See
   Helper and jsdom component tests cover the rendered CRUD/selection flow and
   the fake-WebView lifecycle without requiring a LAN printer.
 
+### Milestone 17 — Send and Send & Print workflow
+
+> **Implemented 2026-08-28.** See `doc/2026-08-28-send-gcode-workflow.md`.
+
+- The shared toolbar exposes separate Send (upload-only) and Send & Print
+  (upload then start) actions after a completed slice.
+- The modal owns an independent, ephemeral printer selection; it never
+  reuses or persists Device tab selection and never silently chooses a
+  replacement when the previous target was removed.
+- Upload progress, busy/cancelled/success/error states, generic setup errors,
+  and the explicit `start-failed-after-upload` state are accessible in the
+  modal. A start retry uses the retained remote path and never re-uploads.
+- Focused jsdom tests cover request differences, selection, progress,
+  cancellation, start failure/no-reupload, and API-key absence from UI/errors.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

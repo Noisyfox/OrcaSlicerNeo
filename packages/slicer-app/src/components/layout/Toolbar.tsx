@@ -1,12 +1,13 @@
 // packages/slicer-app/src/components/layout/Toolbar.tsx
 import { useState } from 'react';
-import { Slice, Download, AppWindowIcon, HouseIcon, LayersIcon, ComputerIcon } from 'lucide-react';
+import { Slice, Download, Send as SendIcon, Printer, AppWindowIcon, HouseIcon, LayersIcon, ComputerIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportGcode, sliceModel } from '../workspace/actions/sliceActions';
 import { usePlatform } from '@orca/platform-contract';
+import { SendGcodeDialog, type SendGcodeAction } from '../workspace/send/SendGcodeDialog';
 
 // The scene actions (Add Model / Clear Scene) live elsewhere now: Add Model
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see
@@ -23,6 +24,7 @@ export function Toolbar({ activeTab = 'home', onTabChange }: {
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const busy = status === 'slicing';
   const [exporting, setExporting] = useState(false);
+  const [sendAction, setSendAction] = useState<SendGcodeAction | null>(null);
 
   async function slice() { await sliceModel(platform); }
 
@@ -33,6 +35,7 @@ export function Toolbar({ activeTab = 'home', onTabChange }: {
   }
 
   return (
+    <>
     <div className="flex w-full items-center justify-between">
       <Tabs value={activeTab} onValueChange={(value) => {
         if (value === 'home' || value === 'prepare' || value === 'preview' || value === 'Device') {
@@ -64,7 +67,15 @@ export function Toolbar({ activeTab = 'home', onTabChange }: {
         <Button size="xs" variant="default" disabled={busy || exporting || !modelLoaded || status !== 'done'} onClick={saveExport} title="Export G-code" data-testid="btn-export">
           <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
         </Button>
+        <Button size="xs" variant="secondary" disabled={busy || status !== 'done'} onClick={() => setSendAction('send')} title="Send G-code to printer" data-testid="btn-send">
+          <SendIcon className="h-4 w-4" /> Send
+        </Button>
+        <Button size="xs" variant="default" disabled={busy || status !== 'done'} onClick={() => setSendAction('send-and-print')} title="Send G-code and start printing" data-testid="btn-send-and-print">
+          <Printer className="h-4 w-4" /> Send &amp; Print
+        </Button>
       </div>
     </div>
+    <SendGcodeDialog open={sendAction !== null} action={sendAction ?? 'send'} onClose={() => setSendAction(null)} />
+    </>
   );
 }

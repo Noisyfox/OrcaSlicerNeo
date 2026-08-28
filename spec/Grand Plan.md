@@ -377,6 +377,24 @@ and drives structural operations through the typed client.
       add/edit/delete confirmation, masked API-key input, and selected-console
       disposal after deletion
 
+## Milestone 17: Send and Send & Print workflow
+
+> [!info] Implemented 2026-08-28 — see
+> [`doc/2026-08-28-send-gcode-workflow.md`](../doc/2026-08-28-send-gcode-workflow.md).
+
+- [x] Add separate shared-toolbar **Send** and **Send & Print** entries over a
+      completed slice, backed by the injected `PrinterControlService` and
+      `PrinterTransport`
+- [x] Add a modal with independent, ephemeral printer selection; missing or
+      deleted targets remain empty and no target is auto-selected
+- [x] Report upload progress, busy/cancelled/success/error states accessibly;
+      preserve `start-failed-after-upload` and offer a start-only retry without
+      re-uploading
+- [x] Disable actions for incomplete slices, missing configuration/API key, or
+      unsupported drivers with generic, key-free messages
+- [x] Add focused component coverage for action differences, selection,
+      progress, cancellation, start failure/no-reupload, and key redaction
+
 ## Cross-cutting titlebar/native menu implementation
 
 > [!info] Implemented 2026-08-25; real macOS manual verification remains open.
