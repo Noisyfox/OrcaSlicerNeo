@@ -12,9 +12,12 @@ contracts for the later Device and Send flows.
 `@orca/printer-control` owns version-1 configuration validation, the closed
 built-in driver registry, Moonraker protocol semantics, and upload orchestration.
 It has no Electron, Node, UI, iframe, or platform-storage dependency. Hosts
-inject a `PrinterTransport`; the driver receives a complete validated printer
-record and never reads storage or performs a connectivity preflight while
-configuration is loaded.
+inject a `PrinterTransport`; request bodies are an explicit structured-clone
+protocol (`json` or `multipart` with fields and raw `Uint8Array` file bytes),
+so an Electron contextBridge/IPC adapter can convert them to `fetch`
+`FormData` or a native HTTP request without transferring `Blob`/`BodyInit`.
+The driver receives a complete validated printer record and never reads
+storage or performs a connectivity preflight while configuration is loaded.
 
 Configuration stores multiple stable-ID records. Display names may repeat,
 API keys are retained in full in the version-1 document, and console/API base
@@ -27,7 +30,8 @@ non-empty key, uploads multipart form data to `POST /server/files/upload` with
 `file` and `root=gcodes`, and extracts the returned remote path. Starting is a
 separate JSON `POST /printer/print/start` request using that exact path. Status
 uses the printer object query; pause, resume, and cancel send the corresponding
-Moonraker G-code commands.
+Moonraker G-code commands. The transport seam carries no browser `FormData`,
+`Blob`, or `BodyInit`; conversion belongs to each host adapter.
 
 The service exposes upload-only and upload-then-start orchestration. If upload
 succeeds but start fails, it raises `start-failed-after-upload` together with

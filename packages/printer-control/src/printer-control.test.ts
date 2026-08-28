@@ -76,11 +76,11 @@ describe('Moonraker driver', () => {
     expect(request.method).toBe('POST');
     expect(request.url).toBe('http://printer.local:7125/moonraker/server/files/upload');
     expect(request.headers).toEqual({ 'X-Api-Key': 'full-api-key-value' });
-    expect(request.body).toBeInstanceOf(FormData);
-    const form = request.body as FormData;
-    expect(form.get('root')).toBe('gcodes');
-    expect(form.get('file')).toBeInstanceOf(Blob);
-    expect((form.get('file') as File).name).toBe('cube.gcode');
+    expect(request.body).toEqual({
+      kind: 'multipart',
+      fields: { root: 'gcodes' },
+      file: { fileName: 'cube.gcode', bytes: new Uint8Array([1, 2, 3]) },
+    });
   });
 
   it('uses exact remote path for a separate JSON start request', async () => {
@@ -92,7 +92,31 @@ describe('Moonraker driver', () => {
       url: 'http://printer.local:7125/moonraker/printer/print/start',
       headers: { 'X-Api-Key': 'full-api-key-value', 'Content-Type': 'application/json' },
     });
-    expect(JSON.parse(transport.requests[0].body as string)).toEqual({ filename: 'gcodes/remote.gcode' });
+    expect(JSON.parse((transport.requests[0].body as { kind: 'json'; json: string }).json)).toEqual({ filename: 'gcodes/remote.gcode' });
+  });
+
+  it('uses the documented status query and Moonraker G-code control commands', async () => {
+    const transport = new FixtureTransport();
+    transport.responses.push(
+      { result: { status: { print_stats: { state: 'printing' } } } },
+      { result: {} },
+      { result: {} },
+      { result: {} },
+    );
+    const driver = new MoonrakerDriver(transport);
+    await expect(driver.getStatus(printer)).resolves.toMatchObject({ state: 'printing' });
+    await driver.pausePrint(printer);
+    await driver.resumePrint(printer);
+    await driver.cancelPrint(printer);
+    expect(transport.requests.map(request => request.url)).toEqual([
+      'http://printer.local:7125/moonraker/printer/objects/query?print_stats&virtual_sdcard&extruder&heater_bed&fan',
+      'http://printer.local:7125/moonraker/printer/gcode/script',
+      'http://printer.local:7125/moonraker/printer/gcode/script',
+      'http://printer.local:7125/moonraker/printer/gcode/script',
+    ]);
+    expect(transport.requests.slice(1).map(request => JSON.parse((request.body as { kind: 'json'; json: string }).json))).toEqual([
+      { script: 'PAUSE' }, { script: 'RESUME' }, { script: 'CANCEL_PRINT' },
+    ]);
   });
 });
 

@@ -161,19 +161,15 @@ export class MoonrakerDriver implements PrinterApiDriver {
   }
 
   async uploadGcode(printer: PrinterConfiguration, input: GcodeUpload, progress?: ProgressSink, signal?: AbortSignal): Promise<UploadedGcode> {
-    const form = new FormData();
-    form.append('root', 'gcodes');
-    // Copy the view into an ArrayBuffer so TS's DOM lib does not widen a
-    // Uint8Array's backing store to SharedArrayBuffer; this also respects a
-    // caller-provided byteOffset/byteLength.
-    const fileBytes = new ArrayBuffer(input.bytes.byteLength);
-    new Uint8Array(fileBytes).set(input.bytes);
-    form.append('file', new Blob([fileBytes]), input.fileName);
     const payload = await requestJson(this.transport, {
       method: 'POST',
       url: joinEndpoint(printer.apiBaseUrl, '/server/files/upload'),
       headers: authHeaders(printer),
-      body: form,
+      body: {
+        kind: 'multipart',
+        fields: { root: 'gcodes' },
+        file: { fileName: input.fileName, bytes: new Uint8Array(input.bytes) },
+      },
       signal,
       onUploadProgress: progress ? ({ loaded, total }) => progress({ loaded, total, fraction: total ? loaded / total : undefined }) : undefined,
     }, 'upload');
@@ -187,7 +183,7 @@ export class MoonrakerDriver implements PrinterApiDriver {
       method: 'POST',
       url: joinEndpoint(printer.apiBaseUrl, '/printer/print/start'),
       headers: { ...authHeaders(printer), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filename: remoteFile.remotePath }),
+      body: { kind: 'json', json: JSON.stringify({ filename: remoteFile.remotePath }) },
       signal,
     }, 'start');
   }
@@ -197,7 +193,7 @@ export class MoonrakerDriver implements PrinterApiDriver {
       method: 'POST',
       url: joinEndpoint(printer.apiBaseUrl, '/printer/gcode/script'),
       headers: { ...authHeaders(printer), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ script: command }),
+      body: { kind: 'json', json: JSON.stringify({ script: command }) },
       signal,
     }, operation);
   }
