@@ -90,7 +90,7 @@ const preferencesPersisted = (): boolean =>
   process.env.ORCA_E2E !== '1' || Boolean(process.env.ORCA_E2E_PREFERENCES);
 
 const printerConfigurationPath = (): string =>
-  join(app.getPath('userData'), 'printer-config.json');
+  process.env.ORCA_E2E_PRINTER_CONFIG ?? join(app.getPath('userData'), 'printer-config.json');
 
 let rendererPort = 0;
 let rendererServer: Server | null = null;

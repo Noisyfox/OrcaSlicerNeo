@@ -394,6 +394,9 @@ and drives structural operations through the typed client.
       unsupported drivers with generic, key-free messages
 - [x] Add focused component coverage for action differences, selection,
       progress, cancellation, start failure/no-reupload, and key redaction
+- [x] Add deterministic loopback Moonraker + console fixtures for Electron E2E:
+      Device CRUD/selection, guest `X-API-Key` receipt, Send upload-only, and
+      Send & Print start-failure retry without re-upload
 
 ## Cross-cutting titlebar/native menu implementation
 

@@ -68,8 +68,10 @@ Moonraker transport remains independent of the console iframe.
 
 Pure unit tests cover URL/context validation, fixed script generation,
 idempotence markers, `Request`/`Headers` handling, host API validation, guest
-navigation/popup policy, lifecycle, and disposal. The real fixture-backed
-Electron `<webview>` receipt test described by Printer Console Stage 20 is not
-added in this step because the current e2e launcher has no local console
-fixture/server harness; it remains the next verification increment. No real
-LAN printer or external site is contacted.
+navigation/popup policy, lifecycle, and disposal. The dedicated local fixture
+suite now adds the required real Electron `<webview>` receipt assertion plus
+Device CRUD and Send / Send & Print orchestration coverage. No real LAN
+printer or external site is contacted. Electron 43 lacks the
+`WebViewTag.addContentScripts` method, so that host uses the same reviewed
+source as a navigation-start fallback; newer hosts retain the preferred
+document-start registration path.

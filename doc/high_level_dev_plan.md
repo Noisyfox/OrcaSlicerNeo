@@ -470,7 +470,9 @@ policy, lifecycle events, and a data-only host API boundary. The fixed
 `moonraker-fetch-v1` document-start script follows Orca's `SendAPIKey` fetch
 wrapper while validating the API-key context and never logging the key. Web
 continues to report script and host-API operations as unsupported. See
-`doc/2026-08-28-electron-webview-injection.md`.
+`doc/2026-08-28-electron-webview-injection.md`. Local fixture-backed Electron
+coverage now observes the guest console's `X-API-Key` request; see
+`doc/2026-08-28-printer-console-fixtures-e2e.md`.
 
 ### Milestone 16 — Device printer configuration UI
 
@@ -487,7 +489,8 @@ continues to report script and host-API operations as unsupported. See
   separate console URL. Changes and unmount dispose the previous panel. API
   keys remain password-masked and absent from visible copy and diagnostics.
   Helper and jsdom component tests cover the rendered CRUD/selection flow and
-  the fake-WebView lifecycle without requiring a LAN printer.
+  the fake-WebView lifecycle without requiring a LAN printer. The dedicated
+  Electron fixture test additionally covers real guest loading and key receipt.
 
 ### Milestone 17 — Send and Send & Print workflow
 
@@ -501,6 +504,8 @@ continues to report script and host-API operations as unsupported. See
 - Upload progress, busy/cancelled/success/error states, generic setup errors,
   and the explicit `start-failed-after-upload` state are accessible in the
   modal. A start retry uses the retained remote path and never re-uploads.
+- The local Electron fixture suite verifies upload-only versus upload-then-start,
+  start failure and no-reupload retry behavior, with no LAN or Internet calls.
 - Focused jsdom tests cover request differences, selection, progress,
   cancellation, start failure/no-reupload, and API-key absence from UI/errors.
 

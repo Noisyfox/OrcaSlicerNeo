@@ -141,6 +141,11 @@ class ElectronWebViewPanel implements WebViewPanel {
     this.events = events;
     this.webview = ownerDocument.createElement('webview') as ElectronWebViewElement;
     this.webview.title = options.title ?? 'Embedded printer console';
+    // Chromium does not create a guest for a src-less webview consistently
+    // (notably in headless Electron). Keep the lifecycle's blank initial
+    // document explicit; the main-process attach policy permits this
+    // placeholder, and load() replaces it after content-script registration.
+    this.webview.setAttribute('src', 'about:blank');
     // Explicitly deny guest-created child windows. Main also installs a guest
     // setWindowOpenHandler so window.open is covered before renderer events.
     this.webview.setAttribute('allowpopups', 'false');
@@ -195,9 +200,11 @@ class ElectronWebViewPanel implements WebViewPanel {
     }
     this.updateState({ status: 'loading', url, error: null });
     this.scheduleInstall().then(() => {
-      if (!this.disposed && this.state.url === url) void this.webview.loadURL(url).catch(() => {
-        if (!this.disposed) this.updateState({ status: 'error', url, error: 'embedded content failed to load' });
-      });
+      if (!this.disposed && this.state.url === url) {
+        void this.webview.loadURL(url).then(() => this.runFallbackScripts()).catch(() => {
+          if (!this.disposed) this.updateState({ status: 'error', url, error: 'embedded content failed to load' });
+        });
+      }
     });
   }
 
@@ -256,8 +263,21 @@ class ElectronWebViewPanel implements WebViewPanel {
     this.attachResolve = null;
   };
   private readonly handleStartLoading = (): void => {
-    if (!this.disposed && this.state.url) this.updateState({ status: 'loading', url: this.state.url, error: null });
+    if (this.disposed || !this.state.url) return;
+    this.updateState({ status: 'loading', url: this.state.url, error: null });
+    // Electron 43's WebViewTag does not expose addContentScripts (newer
+    // Electron builds do). Run the reviewed fixed source as navigation starts
+    // so the guest has the wrapper before its load handler executes. The
+    // preferred document-start registration remains used whenever available.
+    this.runFallbackScripts();
   };
+
+  private runFallbackScripts(): void {
+    if (this.disposed || this.installedSignature) return;
+    const sources = [this.script?.source, this.hostApi?.source]
+      .filter((source): source is string => Boolean(source));
+    for (const source of sources) void this.webview.executeJavaScript(source, false).catch(() => undefined);
+  }
   private readonly handleStopLoading = (): void => { /* did-finish-load supplies the loaded state. */ };
   private readonly handleFinishLoad = (): void => {
     if (this.disposed) return;
