@@ -6,7 +6,6 @@ import {
   useEffect,
   useRef,
   useState,
-  type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -16,8 +15,6 @@ import { ObjectList } from './objectList/ObjectList';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { Viewport } from './viewport/Viewport';
 import type { SceneInteractionController } from './viewport/SceneInteractionController';
-import { DevicePanel } from './device/DevicePanel';
-import type { WorkspaceTab } from '../layout/Toolbar';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -27,40 +24,10 @@ function clampSidebarWidth(value: number | undefined): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
 }
 
-export interface WorkspaceTabPanelProps {
-  active: boolean;
-  id: string;
-  labelledBy: string;
-  children: ReactNode;
-}
-
-/**
- * Keep each workspace surface mounted while making inactive surfaces
- * inaccessible and layout-neutral. This is important for stateful guests
- * (the Device iframe/webview) and for the WebGL scene, whose local UI state
- * must survive a tab change.
- */
-export function WorkspaceTabPanel({ active, id, labelledBy, children }: WorkspaceTabPanelProps) {
-  return (
-    <div
-      id={id}
-      role="tabpanel"
-      aria-labelledby={labelledBy}
-      aria-hidden={!active}
-      hidden={!active}
-      inert={!active}
-      className="flex min-h-0 flex-1"
-    >
-      {children}
-    </div>
-  );
-}
-
-export function Workspace({ onSceneInteractionChange, activeTab = 'home' }: {
+export function Workspace({ onSceneInteractionChange }: {
   // The scene controller lives here, but the menu command dispatcher needs it
   // too; this hands it up without making the owner re-render on every change.
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
-  activeTab?: WorkspaceTab;
 }) {
   const platform = usePlatform();
   const [sceneInteraction, setSceneInteraction] = useState<SceneInteractionController | null>(null);
@@ -174,12 +141,7 @@ export function Workspace({ onSceneInteractionChange, activeTab = 'home' }: {
   }
 
   return (
-    <div className="flex flex-1 min-h-0 px-1">
-      <WorkspaceTabPanel
-        active={activeTab !== 'Device'}
-        id="workspace-panel-home"
-        labelledBy={`workspace-tab-${activeTab}`}
-      >
+    <div className="flex flex-1 min-h-0">
       <aside
         className="shrink-0 overflow-hidden rounded-md border bg-card"
         style={{
@@ -217,14 +179,6 @@ export function Workspace({ onSceneInteractionChange, activeTab = 'home' }: {
           sceneInteraction={sceneInteraction}
         />
       </main>
-      </WorkspaceTabPanel>
-      <WorkspaceTabPanel
-        active={activeTab === 'Device'}
-        id="workspace-panel-device"
-        labelledBy="workspace-tab-device"
-      >
-        <DevicePanel />
-      </WorkspaceTabPanel>
     </div>
   );
 }

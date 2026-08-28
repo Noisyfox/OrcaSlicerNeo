@@ -4,12 +4,12 @@
 
 **Status:** Implemented
 
-**Scope:** Shared Device tab for managing saved Moonraker printer-console
+**Scope:** Shared top-level Device page for managing saved Moonraker printer-console
 configurations and mounting the injected platform WebView panel.
 
 ## Behaviour
 
-The Device tab owns a local `selectedPrinterId` only. It loads the complete
+The Device page is a top-level sibling of the Workspace page. It owns a local `selectedPrinterId` only. It loads the complete
 version-1 printer document through `PlatformCapabilities.printers.configuration`
 and never writes the current selection to that document or ordinary user
 preferences. A newly added printer is left unselected; selecting a row is an

@@ -13,11 +13,12 @@ import { SendGcodeDialog, type SendGcodeAction } from '../workspace/send/SendGco
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see
 // doc/2026-08-22-scene-toolbar-and-context-menu.md). This row is Slice and
 // Export only.
-export type WorkspaceTab = 'home' | 'prepare' | 'preview' | 'Device';
+export type WorkspaceTab = 'home' | 'prepare' | 'preview';
+export type AppTab = WorkspaceTab | 'Device';
 
 export function Toolbar({ activeTab = 'home', onTabChange }: {
-  activeTab?: WorkspaceTab;
-  onTabChange?: (tab: WorkspaceTab) => void;
+  activeTab?: AppTab;
+  onTabChange?: (tab: AppTab) => void;
 } = {}) {
   const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
@@ -43,18 +44,18 @@ export function Toolbar({ activeTab = 'home', onTabChange }: {
         }
       }}>
         <TabsList className="px-0.5 py-0">
-          <TabsTrigger value="home" id="workspace-tab-home" aria-controls="workspace-panel-home">
+          <TabsTrigger value="home" id="app-tab-home" aria-controls="app-panel-workspace">
             <HouseIcon />
           </TabsTrigger>
-          <TabsTrigger value="prepare" id="workspace-tab-prepare" aria-controls="workspace-panel-home">
+          <TabsTrigger value="prepare" id="app-tab-prepare" aria-controls="app-panel-workspace">
             <AppWindowIcon />
             Prepare
           </TabsTrigger>
-          <TabsTrigger value="preview" id="workspace-tab-preview" aria-controls="workspace-panel-home">
+          <TabsTrigger value="preview" id="app-tab-preview" aria-controls="app-panel-workspace">
             <LayersIcon />
             Preview
           </TabsTrigger>
-          <TabsTrigger value="Device" id="workspace-tab-device" aria-controls="workspace-panel-device" data-testid="tab-device">
+          <TabsTrigger value="Device" id="app-tab-device" aria-controls="app-panel-device" data-testid="tab-device">
             <ComputerIcon />
             Device
           </TabsTrigger>

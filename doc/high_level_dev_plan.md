@@ -478,9 +478,12 @@ coverage now observes the guest console's `X-API-Key` request; see
 
 > **Implemented 2026-08-28.** See `doc/2026-08-28-device-configuration-ui.md`.
 
-- The shared Device tab manages multiple validated Moonraker printer records
+- The shared top-level Device page manages multiple validated Moonraker printer records
   through `platform.printers.configuration`; add/edit/delete uses a single
   dialog and deletion requires confirmation.
+- Device is a sibling page of Workspace. Workspace contains only the profile
+  settings sidebar and 3D scene; the app shell owns top-level page mounting
+  and navigation.
 - Device console selection is local ephemeral state and independent from
   system profile and future send-target selection. New records are not
   selected automatically; deleting the selected record clears the empty state.
@@ -491,10 +494,11 @@ coverage now observes the guest console's `X-API-Key` request; see
   Helper and jsdom component tests cover the rendered CRUD/selection flow and
   the fake-WebView lifecycle without requiring a LAN printer. The dedicated
   Electron fixture test additionally covers real guest loading and key receipt.
-- Workspace tabs keep the scene surface and Device surface mounted while
+- The app shell keeps the Workspace and Device page surfaces mounted while
   switching. Inactive surfaces use native `hidden` plus `aria-hidden`/`inert`
   semantics, so the single WebGL viewport and selected printer guest retain
-  local state without receiving input or consuming layout space.
+  local state without receiving input or consuming layout space. See
+  `doc/2026-08-28-top-level-device-page.md`.
 
 ### Milestone 17 — Send and Send & Print workflow
 

@@ -58,7 +58,7 @@ async function launchApp() {
 // itself is overflow-hidden so its border-radius clips the custom scrollbar
 // to the card's rounded corners (see AppShell.tsx).
 async function scrollRowToMidlist(page: Page) {
-  const aside = page.locator('aside');
+  const aside = page.locator('#app-panel-workspace aside');
   const scroller = aside.locator(':scope > div');
   // The real preset panel already has genuine scrollable content. Synthetic
   // spacer nodes are retained only for the compact mock fixture; injecting
@@ -88,7 +88,7 @@ async function scrollRowToMidlist(page: Page) {
   return { aside, scroller };
 }
 
-const sparseTrigger = (page: Page) => page.locator('aside [data-slot="select-trigger"]').last();
+const sparseTrigger = (page: Page) => page.locator('#app-panel-workspace aside [data-slot="select-trigger"]').last();
 
 test('select popup opens below the trigger and tracks it on sidebar scroll', async () => {
   const { app, page } = await launchApp();

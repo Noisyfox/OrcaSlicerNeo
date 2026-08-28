@@ -363,7 +363,8 @@ and drives structural operations through the typed client.
 > [!info] Implemented 2026-08-28 — see
 > [`doc/2026-08-28-device-configuration-ui.md`](../doc/2026-08-28-device-configuration-ui.md).
 
-- [x] Shared Device tab with printer list, add action, and per-row edit/delete
+- [x] Shared top-level Device page with printer list, add action, and per-row
+      edit/delete
       actions; deletion requires explicit confirmation
 - [x] Validated multi-printer add/edit/delete dialog with separate console URL
       and API base URL fields and password-masked Moonraker API key
@@ -376,9 +377,9 @@ and drives structural operations through the typed client.
 - [x] jsdom component coverage for Device rendering, explicit selection,
       add/edit/delete confirmation, masked API-key input, and selected-console
       disposal after deletion
-- [x] Keep the single scene surface and Device surface mounted while changing
-      tabs; inactive panels are hidden and inert so viewport/webview state and
-      configuration dialogs survive Home/Prepare/Preview/Device transitions
+- [x] Keep the single Workspace scene surface and top-level Device page
+      mounted while navigating; inactive pages are hidden and inert so
+      viewport/webview state and configuration dialogs survive transitions
 
 ## Milestone 17: Send and Send & Print workflow
 
