@@ -1253,24 +1253,15 @@ test('scene selection: rotate/scale gizmos, panels, coord toggle', async () => {
       // Re-approach the Z ring in SCREEN space until a pointermove lands on
       // it, then drag along the ring. The invisible picker rings sit at
       // 0.5× the handle scale; with the default camera the Z ring projects
-      // to a screen ellipse around the pivot (about 100 px wide and 75–100 px
-      // tall in the current viewport) — projecting world-space ring points
-      // misses it because the perspective mapping is not uniform.
+      // to a screen ellipse around the pivot (rightmost ≈ +98 px, top ≈
+      // +42 px) — projecting world-space ring points misses it because the
+      // perspective mapping is not uniform.
       const ringCandidates = [
-        // The picker ring is an ellipse in this perspective camera. Probe
-        // points around its live screen-space perimeter, rather than the
-        // center/right-edge points that can resolve to XYZE/Y handles.
-        { dx: 0, dy: -75 },
-        { dx: 50, dy: -75 },
-        { dx: 100, dy: -50 },
-        { dx: 100, dy: 25 },
-        { dx: 50, dy: 75 },
-        { dx: 0, dy: 100 },
-        { dx: -50, dy: 100 },
-        { dx: -100, dy: 75 },
-        { dx: -100, dy: 25 },
-        { dx: -100, dy: -50 },
-        { dx: -50, dy: -75 },
+        { dx: 42, dy: 42 },
+        { dx: 0, dy: 42 },
+        { dx: 70, dy: 42 },
+        { dx: -49, dy: 49 },
+        { dx: 98, dy: 0 },
       ];
       const ringStart = ringCandidates.map(({ dx, dy }) => ({
         x: pivotX + dx,

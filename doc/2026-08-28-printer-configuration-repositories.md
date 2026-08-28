@@ -38,11 +38,3 @@ trip, and multiple records; Electron preload/adapter IPC payload shape and
 complete-key round trip; and main-process persistence helper behavior. The
 workspace typecheck, tests, and `git diff --check` are the release checks for
 this step.
-
-## Acceptance hardening
-
-The desktop rotate/scale E2E exposed a pre-existing stale screen-coordinate
-assumption in its Z-ring hover setup. The test now probes the live
-screen-space ellipse perimeter, avoiding center/edge handles, without changing
-the product gizmo or extending polling timeouts. This is independent of the
-printer persistence behavior.
