@@ -417,6 +417,20 @@
 > (threaded + serial), Electron e2e (mock + real WASM), and Web e2e (threaded +
 > serial) all pass.
 
+### Milestone 14 — Printer Control Foundation (step 1)
+
+> **Status: delivered 2026-08-28.** `@orca/printer-control` establishes the
+> platform-neutral, version-1 printer configuration and Moonraker control seam.
+> It keeps host HTTP behind `PrinterTransport`, supports multiple stable-ID
+> records, and provides explicit upload-only and upload-then-start operations.
+> See `doc/2026-08-28-printer-control-foundation.md`.
+
+- Moonraker is the sole closed built-in driver; configuration validates both
+  independent HTTP(S) URLs and preserves API keys without network preflight.
+- Moonraker request-shape, authentication, multipart upload, control commands,
+  and start-failure-after-upload behavior are covered by fake-transport Vitest
+  fixtures.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

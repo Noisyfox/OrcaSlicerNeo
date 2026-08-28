@@ -313,6 +313,20 @@ and drives structural operations through the typed client.
       ObjectList selection sync
 - [x] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage
 
+## Milestone 14: Printer Control Foundation (step 1)
+
+> [!info] Status: **delivered 2026-08-28** — see
+> `doc/2026-08-28-printer-control-foundation.md`.
+
+- [x] Add dependency-free `@orca/printer-control` configuration and host
+      `PrinterTransport` contracts with closed built-in driver IDs
+- [x] Implement Moonraker server info, status, upload, start, pause, resume,
+      and cancel semantics
+- [x] Keep Send (upload-only) separate from Send & Print, including explicit
+      `start-failed-after-upload` without an implicit re-upload
+- [x] Add fixture-backed unit coverage for normalization, authentication,
+      request shapes, and both upload orchestration outcomes
+
 ## Cross-cutting titlebar/native menu implementation
 
 > [!info] Implemented 2026-08-25; real macOS manual verification remains open.
