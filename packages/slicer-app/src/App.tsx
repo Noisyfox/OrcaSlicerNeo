@@ -5,7 +5,7 @@ import { AppShell, type AppPage } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar, type AppTab, type WorkspaceTab } from './components/layout/Toolbar';
 import { Workspace } from './components/workspace/Workspace';
-import { DevicePanel } from './components/workspace/device/DevicePanel';
+import { DevicePanel } from './components/device/DevicePanel';
 import { StatusBar } from './components/layout/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';

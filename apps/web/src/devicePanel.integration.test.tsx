@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities, type WebViewPanel, type WebViewPanelCapabilities, type WebViewHost } from '@orca/platform-contract';
-import { DevicePanel } from '../../../packages/slicer-app/src/components/workspace/device/DevicePanel';
+import { DevicePanel } from '../../../packages/slicer-app/src/components/device/DevicePanel';
 import type { PrinterConfiguration, PrinterConfigurationDocument } from '@orca/printer-control';
 
 const printer: PrinterConfiguration = {

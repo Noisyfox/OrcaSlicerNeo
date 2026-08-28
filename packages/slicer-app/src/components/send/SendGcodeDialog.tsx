@@ -11,7 +11,7 @@ import { usePlatform, type PlatformCapabilities } from '@orca/platform-contract'
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSlicerStore } from '../../stores/useSlicerStore';
 
 export type SendGcodeAction = 'send' | 'send-and-print';
 type SendState = 'idle' | 'loading' | 'uploading' | 'starting' | 'success' | 'start-failed-after-upload' | 'error' | 'cancelled';

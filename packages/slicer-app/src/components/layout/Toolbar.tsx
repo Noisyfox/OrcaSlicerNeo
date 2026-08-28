@@ -7,7 +7,7 @@ import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportGcode, sliceModel } from '../workspace/actions/sliceActions';
 import { usePlatform } from '@orca/platform-contract';
-import { SendGcodeDialog, type SendGcodeAction } from '../workspace/send/SendGcodeDialog';
+import { SendGcodeDialog, type SendGcodeAction } from '../send/SendGcodeDialog';
 
 // The scene actions (Add Model / Clear Scene) live elsewhere now: Add Model
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see

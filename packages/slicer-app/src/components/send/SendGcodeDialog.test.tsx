@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import type { PrinterConfiguration, PrinterTransport, PrinterTransportRequest, PrinterTransportResponse } from '@orca/printer-control';
 import { SendGcodeDialog } from './SendGcodeDialog';
-import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSlicerStore } from '../../stores/useSlicerStore';
 
 const printers: PrinterConfiguration[] = [
   { id: 'p1', displayName: 'Workshop', driverId: 'moonraker', consoleUrl: 'http://console.local/', apiBaseUrl: 'http://printer.local:7125/', apiKey: 'secret-key-must-not-render' },
