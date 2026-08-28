@@ -48,6 +48,7 @@ export default defineConfig({
     '@': root('../../packages/slicer-app/src'),
     '@orca/slicer-runtime': root('../../packages/slicer-runtime/src/index.ts'),
     '@orca/platform-contract': root('../../packages/platform-contract/src/index.ts'),
+    '@orca/printer-control': root('../../packages/printer-control/src/index.ts'),
     '@slicer/client': root('../../packages/slicer-wasm/src/client/index.ts'),
     '@slicer/testing': root('../../packages/slicer-wasm/src/client/testing/mock-module.ts'),
   } },

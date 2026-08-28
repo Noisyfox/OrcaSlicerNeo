@@ -22,6 +22,7 @@
     "test:e2e:real": "node ../../scripts/run-desktop-e2e-real.mjs"
   },
   "dependencies": {
+    "@orca/printer-control": "workspace:*",
     "@base-ui/react": "^1.7.0",
     "@orca/platform-contract": "workspace:*",
     "@orca/slicer-app": "workspace:*",

@@ -1,4 +1,5 @@
 import type { SlicerClient } from '@slicer/client';
+import type { PrinterConfigurationDocument } from '@orca/printer-control';
 import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
 
 export type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
@@ -38,6 +39,12 @@ export interface UserPreferences {
 export interface UserPreferencesRepository {
   load(): Promise<UserPreferences>;
   save(value: UserPreferences): Promise<void>;
+}
+
+/** Persistent printer records. Transport and network concerns stay separate. */
+export interface PrinterConfigurationRepository {
+  load(): Promise<PrinterConfigurationDocument>;
+  save(document: PrinterConfigurationDocument): Promise<void>;
 }
 
 export interface PlatformChrome {
@@ -95,6 +102,7 @@ export interface PlatformCapabilities {
   models: ModelPicker;
   exports: GcodeExporter;
   preferences: UserPreferencesRepository;
+  printers: { configuration: PrinterConfigurationRepository };
   runtime: SlicerRuntime;
   profiles: ProfileSource;
   chrome: PlatformChrome;

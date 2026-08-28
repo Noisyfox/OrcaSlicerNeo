@@ -417,19 +417,28 @@
 > (threaded + serial), Electron e2e (mock + real WASM), and Web e2e (threaded +
 > serial) all pass.
 
-### Milestone 14 — Printer Control Foundation (step 1)
+### Milestone 14 — Printer Control Foundation (step 2)
 
-> **Status: delivered 2026-08-28.** `@orca/printer-control` establishes the
-> platform-neutral, version-1 printer configuration and Moonraker control seam.
-> It keeps host HTTP behind `PrinterTransport`, supports multiple stable-ID
-> records, and provides explicit upload-only and upload-then-start operations.
-> See `doc/2026-08-28-printer-control-foundation.md`.
+> **Step 1 delivered 2026-08-28; step 2 delivered 2026-08-28.**
+> `@orca/printer-control` establishes the platform-neutral, version-1 printer
+> configuration and Moonraker control seam. It keeps host HTTP behind
+> `PrinterTransport`, supports multiple stable-ID records, and provides
+> explicit upload-only and upload-then-start operations. See
+> `doc/2026-08-28-printer-control-foundation.md` and
+> `doc/2026-08-28-printer-configuration-repositories.md`.
 
 - Moonraker is the sole closed built-in driver; configuration validates both
   independent HTTP(S) URLs and preserves API keys without network preflight.
 - Moonraker request-shape, authentication, multipart upload, control commands,
   and start-failure-after-upload behavior are covered by fake-transport Vitest
   fixtures.
+- **Step 2 delivered:** `PrinterConfigurationRepository` is a required
+  `platform.printers.configuration` capability. Web persists a normalized,
+  versioned document in dedicated localStorage; Electron persists the same
+  document through typed preload IPC at `userData/printer-config.json`.
+  Missing, corrupt, invalid, or unavailable storage falls back to an empty
+  document without exposing API keys. See
+  `doc/2026-08-28-printer-configuration-repositories.md`.
 
 ## Cross-Cutting Practices
 

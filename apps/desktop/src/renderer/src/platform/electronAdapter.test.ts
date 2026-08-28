@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createElectronAdapter } from './electronAdapter';
+import type { PrinterConfigurationDocument } from '@orca/printer-control';
 
 function setup(overrides: Record<string, unknown> = {}) {
     const load = vi.fn(async () => ({ found: true, json: { version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320 } } }));
@@ -11,9 +12,11 @@ function setup(overrides: Record<string, unknown> = {}) {
       executeHostCommand: vi.fn(async () => {}),
     };
     const externalLinks = { openSource: vi.fn(async () => {}) };
-    const host = { preferences: { load, save }, menu, externalLinks, platform: 'win32', ...overrides };
+    const configurationLoad = vi.fn<() => Promise<PrinterConfigurationDocument>>(async () => ({ version: 1, printers: [] }));
+    const configurationSave = vi.fn(async () => {});
+    const host = { preferences: { load, save }, printers: { configuration: { load: configurationLoad, save: configurationSave } }, menu, externalLinks, platform: 'win32', ...overrides };
     vi.stubGlobal('window', { orca: host });
-    return { adapter: createElectronAdapter({} as never), load, save, menu, externalLinks };
+    return { adapter: createElectronAdapter({} as never), load, save, menu, externalLinks, configurationLoad, configurationSave };
 }
 
 describe('Electron adapter', () => {
@@ -91,5 +94,23 @@ describe('Electron adapter', () => {
     const value = { version: 1 as const, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300 } };
     await adapter.preferences.save(value);
     await expect(adapter.preferences.load()).resolves.toEqual(value);
+  });
+
+  it('round-trips complete printer configuration through the typed host API', async () => {
+    const { adapter, configurationLoad, configurationSave } = setup();
+    const document = { version: 1 as const, printers: [{
+      id: 'p1', displayName: 'Printer', driverId: 'moonraker' as const,
+      consoleUrl: 'http://printer.local/console', apiBaseUrl: 'http://printer.local:7125/', apiKey: 'complete-key',
+    }] };
+    configurationLoad.mockResolvedValue(document);
+    await expect(adapter.printers.configuration.load()).resolves.toEqual(document);
+    await adapter.printers.configuration.save(document);
+    expect(configurationSave).toHaveBeenCalledWith(document);
+  });
+
+  it('returns an empty printer document when host load is invalid', async () => {
+    const { adapter, configurationLoad } = setup();
+    configurationLoad.mockResolvedValue({ version: 2, printers: [] } as never);
+    await expect(adapter.printers.configuration.load()).resolves.toEqual({ version: 1, printers: [] });
   });
 });

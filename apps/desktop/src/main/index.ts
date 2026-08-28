@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { Ipc, type FileDialogFilter, type PreferencesLoadResult } from '../shared/ipc';
 import type { MenuCommandId } from '../shared/ipc';
+import { loadPrinterConfigurationFile, savePrinterConfigurationFile } from './printerConfigurationPersistence';
 import {
   createNativeMenuController,
   handleHostCommand,
@@ -84,6 +85,9 @@ const preferencesPath = (): string => {
 };
 const preferencesPersisted = (): boolean =>
   process.env.ORCA_E2E !== '1' || Boolean(process.env.ORCA_E2E_PREFERENCES);
+
+const printerConfigurationPath = (): string =>
+  join(app.getPath('userData'), 'printer-config.json');
 
 let rendererPort = 0;
 let rendererServer: Server | null = null;
@@ -233,6 +237,19 @@ function registerIpc(): void {
     // served back to the bridge; atomic-ish via tmp + rename is overkill for
     // this file's size, a plain write is fine (single writer: the renderer).
     await writeFile(preferencesPath(), JSON.stringify(json, null, 2), 'utf8');
+  });
+
+  ipcMain.handle(Ipc.printerConfigurationLoad, async () => loadPrinterConfigurationFile(
+    printerConfigurationPath(),
+    { readText: (path) => readFile(path, 'utf8') },
+  ));
+
+  ipcMain.handle(Ipc.printerConfigurationSave, async (_event, document: unknown): Promise<void> => {
+    await savePrinterConfigurationFile(
+      printerConfigurationPath(),
+      document,
+      { writeText: (path, value) => writeFile(path, value, 'utf8') },
+    );
   });
 
   ipcMain.on(Ipc.syncMenuModel, (event, model: unknown) => {

@@ -68,4 +68,24 @@ describe('Electron preload bridge', () => {
     cleanup();
     expect(electronMocks.removeListener).toHaveBeenCalledWith(Ipc.nativeMenuCommand, handler);
   });
+
+  it('validates printer configuration payloads and uses dedicated IPC channels', async () => {
+    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
+    const document = {
+      version: 1 as const,
+      printers: [{
+        id: 'p1', displayName: 'Printer', driverId: 'moonraker' as const,
+        consoleUrl: 'http://printer.local/console', apiBaseUrl: 'http://printer.local:7125',
+        apiKey: 'complete-key',
+      }],
+    };
+    await bridge.printers.configuration.save(document);
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.printerConfigurationSave, {
+      ...document,
+      printers: [{ ...document.printers[0], apiBaseUrl: 'http://printer.local:7125/' }],
+    });
+    const callsBeforeInvalid = electronMocks.invoke.mock.calls.length;
+    await expect(bridge.printers.configuration.save({ version: 1, printers: [{ ...document.printers[0], apiKey: 42 }] } as never)).rejects.toThrow();
+    expect(electronMocks.invoke.mock.calls).toHaveLength(callsBeforeInvalid);
+  });
 });

@@ -15,6 +15,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@orca/printer-control": "workspace:*",
     "@orca/platform-contract": "workspace:*",
     "@orca/slicer-app": "workspace:*",
     "@orca/slicer-runtime": "workspace:*",

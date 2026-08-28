@@ -10,6 +10,7 @@ import {
   type MenuStateSnapshot,
   type PreferencesLoadResult,
 } from '../shared/ipc';
+import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
 
 // The renderer's only window to native features (design §Electron App).
 // All IO goes through main; no node builtins leak into the renderer.
@@ -31,6 +32,18 @@ const bridge: ElectronBridge = {
   preferences: {
     load: () => ipcRenderer.invoke(Ipc.preferencesLoad) as Promise<PreferencesLoadResult>,
     save: (json: unknown) => ipcRenderer.invoke(Ipc.preferencesSave, json) as Promise<void>,
+  },
+
+  printers: {
+    configuration: {
+      load: () => ipcRenderer.invoke(Ipc.printerConfigurationLoad) as Promise<PrinterConfigurationDocument>,
+      save: async (document: PrinterConfigurationDocument) => {
+        // Validate at the renderer boundary as well as in main. This keeps
+        // malformed IPC payloads from ever reaching the file handler.
+        const normalized = normalizePrinterConfigurationDocument(document);
+        await ipcRenderer.invoke(Ipc.printerConfigurationSave, normalized);
+      },
+    },
   },
 
   menu: {

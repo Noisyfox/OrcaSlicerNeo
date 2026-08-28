@@ -6,6 +6,7 @@
 // ----------------------------------------------------------------
 
 import type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
+import type { PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
 
 export type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
 
@@ -16,6 +17,8 @@ export const Ipc = {
   writeFile: 'file:write',
   preferencesLoad: 'preferences:load',
   preferencesSave: 'preferences:save',
+  printerConfigurationLoad: 'printerConfiguration:load',
+  printerConfigurationSave: 'printerConfiguration:save',
   syncMenuModel: 'menu:syncModel',
   syncMenuState: 'menu:syncState',
   nativeMenuCommand: 'menu:command',
@@ -47,6 +50,12 @@ export interface ElectronBridge {
   preferences: {
     load(): Promise<PreferencesLoadResult>;
     save(json: unknown): Promise<void>;
+  };
+  printers: {
+    configuration: {
+      load(): Promise<PrinterConfigurationDocument>;
+      save(document: PrinterConfigurationDocument): Promise<void>;
+    };
   };
   menu: {
     syncModel(model: MenuModel): void;

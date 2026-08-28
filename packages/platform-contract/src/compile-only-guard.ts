@@ -1,6 +1,6 @@
 import type {
   ExternalLinks, GcodeExporter, ModelImporter, PlatformCapabilities, ProfileSource,
-  SlicerRuntime, UserPreferencesRepository,
+  SlicerRuntime, UserPreferencesRepository, PrinterConfigurationRepository,
 } from './contracts';
 import type { MenuCommandId, PlatformMenu } from './menu';
 
@@ -10,6 +10,7 @@ export const fakeCapabilities: PlatformCapabilities = {
   models: { async pick() { return null; } } satisfies ModelImporter,
   exports: { async save() {} } satisfies GcodeExporter,
   preferences: { async load() { throw new Error(); }, async save() {} } satisfies UserPreferencesRepository,
+  printers: { configuration: { async load() { return { version: 1 as const, printers: [] }; }, async save() {} } satisfies PrinterConfigurationRepository },
   runtime: {} as SlicerRuntime,
   profiles: { async fetch() { return new Uint8Array(); } } satisfies ProfileSource,
   chrome: { kind: 'web', menuMode: 'browser' },

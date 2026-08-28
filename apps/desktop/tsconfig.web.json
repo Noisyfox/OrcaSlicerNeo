@@ -13,6 +13,7 @@
       "@renderer/*": ["../../packages/slicer-app/src/*"],
       "@orca/slicer-runtime": ["../../packages/slicer-runtime/src/index.ts"],
       "@orca/platform-contract": ["../../packages/platform-contract/src/index.ts"],
+      "@orca/printer-control": ["../../packages/printer-control/src/index.ts"],
       "@slicer/client": ["../../packages/slicer-wasm/src/client/index.ts"],
       "@slicer/testing": ["../../packages/slicer-wasm/src/client/testing/mock-module.ts"]
     }

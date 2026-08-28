@@ -16,6 +16,9 @@ importers:
       '@orca/platform-contract':
         specifier: workspace:*
         version: link:../../packages/platform-contract
+      '@orca/printer-control':
+        specifier: workspace:*
+        version: link:../../packages/printer-control
       '@orca/slicer-app':
         specifier: workspace:*
         version: link:../../packages/slicer-app
@@ -98,6 +101,9 @@ importers:
       '@orca/platform-contract':
         specifier: workspace:*
         version: link:../../packages/platform-contract
+      '@orca/printer-control':
+        specifier: workspace:*
+        version: link:../../packages/printer-control
       '@orca/slicer-app':
         specifier: workspace:*
         version: link:../../packages/slicer-app
@@ -147,6 +153,9 @@ importers:
 
   packages/platform-contract:
     dependencies:
+      '@orca/printer-control':
+        specifier: workspace:*
+        version: link:../printer-control
       react:
         specifier: ^19.2.8
         version: 19.2.8
