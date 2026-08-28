@@ -144,7 +144,7 @@ describe('DevicePanel component', () => {
     const sidebar = panel.querySelector('aside') as HTMLElement;
     const console = panel.querySelector('main') as HTMLElement;
     const resizer = container.querySelector('[data-testid="device-sidebar-resizer"]') as HTMLElement;
-    expect(panel.className).toContain('gap-1');
+    expect(panel.className.split(/\s+/).filter((className) => className.startsWith('gap-'))).toEqual([]);
     expect(sidebar.className).toContain('rounded-md');
     expect(sidebar.className).toContain('border');
     expect(sidebar.style.width).toBe('320px');

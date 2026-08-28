@@ -6,7 +6,9 @@ printer list and printer console are separate rounded, bordered card surfaces
 with a narrow draggable divider between them.
 
 The divider supports pointer/mouse dragging and `ArrowLeft`/`ArrowRight` when
-focused. The sidebar defaults to 288px and is clamped between 220px and 560px.
+focused. There is no additional flex gap between the cards and the divider, so
+the visual spacing matches Workspace. The sidebar defaults to 288px and is
+clamped between 220px and 560px.
 Its width is persisted in `UserPreferences.ui.deviceSidebarWidth`; the
 Workspace width remains in `ui.sidebarWidth`, so resizing one page never
 changes the other.

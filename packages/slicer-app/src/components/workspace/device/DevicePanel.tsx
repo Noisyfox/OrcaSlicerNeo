@@ -329,7 +329,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
     : null;
 
   return (
-    <section className="flex h-full min-h-0 w-full gap-1" data-testid="device-panel">
+    <section className="flex h-full min-h-0 w-full" data-testid="device-panel">
         <aside
           className="flex shrink-0 flex-col overflow-hidden rounded-md border bg-card"
           aria-label="Saved printers"
