@@ -43,18 +43,18 @@ export function Toolbar({ activeTab = 'home', onTabChange }: {
         }
       }}>
         <TabsList className="px-0.5 py-0">
-          <TabsTrigger value="home">
+          <TabsTrigger value="home" id="workspace-tab-home" aria-controls="workspace-panel-home">
             <HouseIcon />
           </TabsTrigger>
-          <TabsTrigger value="prepare">
+          <TabsTrigger value="prepare" id="workspace-tab-prepare" aria-controls="workspace-panel-home">
             <AppWindowIcon />
             Prepare
           </TabsTrigger>
-          <TabsTrigger value="preview">
+          <TabsTrigger value="preview" id="workspace-tab-preview" aria-controls="workspace-panel-home">
             <LayersIcon />
             Preview
           </TabsTrigger>
-          <TabsTrigger value="Device" data-testid="tab-device">
+          <TabsTrigger value="Device" id="workspace-tab-device" aria-controls="workspace-panel-device" data-testid="tab-device">
             <ComputerIcon />
             Device
           </TabsTrigger>

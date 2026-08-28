@@ -491,6 +491,10 @@ coverage now observes the guest console's `X-API-Key` request; see
   Helper and jsdom component tests cover the rendered CRUD/selection flow and
   the fake-WebView lifecycle without requiring a LAN printer. The dedicated
   Electron fixture test additionally covers real guest loading and key receipt.
+- Workspace tabs keep the scene surface and Device surface mounted while
+  switching. Inactive surfaces use native `hidden` plus `aria-hidden`/`inert`
+  semantics, so the single WebGL viewport and selected printer guest retain
+  local state without receiving input or consuming layout space.
 
 ### Milestone 17 — Send and Send & Print workflow
 

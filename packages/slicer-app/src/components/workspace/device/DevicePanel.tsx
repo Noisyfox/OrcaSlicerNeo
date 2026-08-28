@@ -211,7 +211,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
     : null;
 
   return (
-    <section className="flex h-full min-h-0 flex-col" data-testid="device-panel">
+    <section className="flex h-full min-h-0 w-full flex-col" data-testid="device-panel">
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-72 shrink-0 flex-col border-r bg-card/60" aria-label="Saved printers">
           <div className="flex items-center justify-between border-b px-3 py-2">

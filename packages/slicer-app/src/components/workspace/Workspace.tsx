@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -24,6 +25,35 @@ const MAX_SIDEBAR_WIDTH = 560;
 function clampSidebarWidth(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_SIDEBAR_WIDTH;
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
+}
+
+export interface WorkspaceTabPanelProps {
+  active: boolean;
+  id: string;
+  labelledBy: string;
+  children: ReactNode;
+}
+
+/**
+ * Keep each workspace surface mounted while making inactive surfaces
+ * inaccessible and layout-neutral. This is important for stateful guests
+ * (the Device iframe/webview) and for the WebGL scene, whose local UI state
+ * must survive a tab change.
+ */
+export function WorkspaceTabPanel({ active, id, labelledBy, children }: WorkspaceTabPanelProps) {
+  return (
+    <div
+      id={id}
+      role="tabpanel"
+      aria-labelledby={labelledBy}
+      aria-hidden={!active}
+      hidden={!active}
+      inert={!active}
+      className="flex min-h-0 flex-1"
+    >
+      {children}
+    </div>
+  );
 }
 
 export function Workspace({ onSceneInteractionChange, activeTab = 'home' }: {
@@ -145,7 +175,11 @@ export function Workspace({ onSceneInteractionChange, activeTab = 'home' }: {
 
   return (
     <div className="flex flex-1 min-h-0 px-1">
-      {activeTab === 'Device' ? <DevicePanel /> : <>
+      <WorkspaceTabPanel
+        active={activeTab !== 'Device'}
+        id="workspace-panel-home"
+        labelledBy={`workspace-tab-${activeTab}`}
+      >
       <aside
         className="shrink-0 overflow-hidden rounded-md border bg-card"
         style={{
@@ -183,7 +217,14 @@ export function Workspace({ onSceneInteractionChange, activeTab = 'home' }: {
           sceneInteraction={sceneInteraction}
         />
       </main>
-      </>}
+      </WorkspaceTabPanel>
+      <WorkspaceTabPanel
+        active={activeTab === 'Device'}
+        id="workspace-panel-device"
+        labelledBy="workspace-tab-device"
+      >
+        <DevicePanel />
+      </WorkspaceTabPanel>
     </div>
   );
 }

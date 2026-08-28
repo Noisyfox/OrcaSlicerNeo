@@ -376,6 +376,9 @@ and drives structural operations through the typed client.
 - [x] jsdom component coverage for Device rendering, explicit selection,
       add/edit/delete confirmation, masked API-key input, and selected-console
       disposal after deletion
+- [x] Keep the single scene surface and Device surface mounted while changing
+      tabs; inactive panels are hidden and inert so viewport/webview state and
+      configuration dialogs survive Home/Prepare/Preview/Device transitions
 
 ## Milestone 17: Send and Send & Print workflow
 
