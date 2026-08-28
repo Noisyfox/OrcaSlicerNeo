@@ -353,6 +353,10 @@ and drives structural operations through the typed client.
       URLs, API keys, opaque request context, and script source
 - [x] Add focused contract/iframe adapter tests; Electron remains on an
       explicit unsupported placeholder pending its separate `<webview>` step
+- [x] Electron `<webview>` guest adapter with lifecycle/navigation/error state,
+      guest-only safe navigation and popup policy, fixed document-start
+      `moonraker-fetch-v1` API-key injection, and data-only host API validation
+      (`doc/2026-08-28-electron-webview-injection.md`)
 
 ## Cross-cutting titlebar/native menu implementation
 

@@ -88,8 +88,11 @@ export interface WebViewPanel {
   readonly capabilities: WebViewPanelCapabilities;
   readonly state: WebViewPanelState;
   load(url: string): void;
+  /** Host-owned, reviewed script ID plus its validated context; never source. */
   registerBuiltInScript(request: BuiltInScriptRequest): WebViewOperationResult;
+  /** A host-owned, serializable capability object; implementations may reject it. */
   exposeHostApi(name: string, api: unknown): WebViewOperationResult;
+  /** Available only to reviewed host code; shared UI has no user-script entry point. */
   executeJavaScript<T = unknown>(script: string): Promise<WebViewOperationResult<T>>;
   dispose(): void;
 }

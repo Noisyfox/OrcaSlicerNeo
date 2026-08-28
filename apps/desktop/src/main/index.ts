@@ -15,6 +15,7 @@ import {
   openFixedSource,
   type NativeMenuController,
 } from './nativeMenu';
+import { configureWebViewGuest } from './webviewSecurity';
 
 // Linux containers/VMs without a DRM/VA-API device cannot start Chromium's
 // separate GPU process; Electron aborts with "GPU process isn't usable.
@@ -126,6 +127,9 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // preload uses node builtins for file IO
+      // The shared app owns the element; guests remain isolated from Node and
+      // receive no preload or arbitrary host API.
+      webviewTag: true,
     },
   });
   mainWindow = win;
@@ -314,6 +318,12 @@ function setupSessionHeaders(): void {
   });
 }
 
+function setupWebViewGuestSecurity(): void {
+  app.on('web-contents-created', (_event, contents) => {
+    configureWebViewGuest(contents, (url) => shell.openExternal(url));
+  });
+}
+
 // Serves out/renderer over http://127.0.0.1:<ephemeral>. Main-process fs
 // reads are asar-aware, so the whole bundle (wasm/ + .data included) works
 // from inside app.asar without special-casing.
@@ -377,6 +387,7 @@ function startRendererServer(): void {
 
 app.whenReady().then(() => {
   setupSessionHeaders();
+  setupWebViewGuestSecurity();
   registerIpc();
   installNativeMenu();
   startRendererServer(); // createWindow fires once the port is bound

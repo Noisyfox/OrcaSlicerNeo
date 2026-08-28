@@ -464,6 +464,14 @@
   `<webview>` guest behavior, built-in script resolution/injection, Device UI,
   and page callbacks remain later independently verified steps.
 
+**Step 3 delivered 2026-08-28:** Electron now mounts a real `<webview>` guest
+with the narrow `webviewTag` preference, guest-only navigation/new-window
+policy, lifecycle events, and a data-only host API boundary. The fixed
+`moonraker-fetch-v1` document-start script follows Orca's `SendAPIKey` fetch
+wrapper while validating the API-key context and never logging the key. Web
+continues to report script and host-API operations as unsupported. See
+`doc/2026-08-28-electron-webview-injection.md`.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module
