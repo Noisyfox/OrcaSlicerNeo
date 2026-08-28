@@ -9,11 +9,17 @@ Moonraker console API-key injector.
 
 The renderer now mounts a real Electron `<webview>` guest. The parent window
 keeps `contextIsolation: true` and `nodeIntegration: false`; the only Electron
-window preference added is `webviewTag: true`. No Node object, preload API, or
+window preference added is `webviewTag: true`. Before Electron creates a guest,
+the embedder's `will-attach-webview` policy deletes both preload fields and
+forces `nodeIntegration: false`, `contextIsolation: true`, `webSecurity: true`,
+and `allowRunningInsecureContent: false`. No Node object, preload API, or
 arbitrary renderer function is exposed to the guest. The Electron main process
-configures policy only for contents whose type is `webview`.
+configures post-creation policy only for contents whose type is `webview`.
 
-Guest navigation is limited to credential-free `http:` and `https:` URLs.
+Guest initial navigation is checked in `will-attach-webview`, before guest
+creation; later navigation is checked on the guest's main-process
+`will-navigate` event. Both are limited to credential-free `http:` and
+`https:` URLs.
 `file:`, `javascript:`, `data:`, custom protocols, and credential-bearing URLs
 are rejected. A guest `window.open`/new-window request always denies child
 creation. Safe HTTP(S) requests are passed to the operating system's default

@@ -15,7 +15,7 @@ import {
   openFixedSource,
   type NativeMenuController,
 } from './nativeMenu';
-import { configureWebViewGuest } from './webviewSecurity';
+import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
 
 // Linux containers/VMs without a DRM/VA-API device cannot start Chromium's
 // separate GPU process; Electron aborts with "GPU process isn't usable.
@@ -133,6 +133,9 @@ function createWindow(): void {
     },
   });
   mainWindow = win;
+  // `will-attach-webview` runs before a guest exists. Strip any page-supplied
+  // preload and force the guest security flags before Electron creates it.
+  configureWebViewAttachPolicy(win.webContents as unknown as Parameters<typeof configureWebViewAttachPolicy>[0]);
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
   });

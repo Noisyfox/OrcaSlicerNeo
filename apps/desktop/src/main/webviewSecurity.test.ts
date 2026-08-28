@@ -1,7 +1,47 @@
 import { describe, expect, it, vi } from 'vitest';
-import { configureWebViewGuest, isSafeWebViewExternalUrl } from './webviewSecurity';
+import {
+  configureWebViewAttachPolicy,
+  configureWebViewGuest,
+  isSafeWebViewExternalUrl,
+  sanitizeWebViewAttachment,
+} from './webviewSecurity';
 
 describe('Electron webview guest security', () => {
+  it('sanitizes guest preload and dangerous webPreferences before attachment', () => {
+    const event = { preventDefault: vi.fn() };
+    const webPreferences = {
+      preload: 'C:\\attacker\\preload.js', nodeIntegration: true,
+      contextIsolation: false, webSecurity: false, allowRunningInsecureContent: true,
+    };
+    const params = { src: 'javascript:window.process', preload: 'C:\\attacker\\params.js' };
+    expect(sanitizeWebViewAttachment(event, webPreferences, params)).toBe(false);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(webPreferences).toMatchObject({
+      nodeIntegration: false, contextIsolation: true, webSecurity: true,
+      allowRunningInsecureContent: false,
+    });
+    expect(webPreferences).not.toHaveProperty('preload');
+    expect(params).not.toHaveProperty('preload');
+  });
+
+  it('allows the current empty-src flow and safe initial URLs', () => {
+    for (const src of ['', 'https://printer.example/console']) {
+      const event = { preventDefault: vi.fn() };
+      const webPreferences = { preload: 'ignored', nodeIntegration: true };
+      expect(sanitizeWebViewAttachment(event, webPreferences, { src, preload: 'ignored' })).toBe(true);
+      expect(event.preventDefault).not.toHaveBeenCalled();
+      expect(webPreferences).toMatchObject({ nodeIntegration: false, contextIsolation: true, webSecurity: true, allowRunningInsecureContent: false });
+    }
+  });
+
+  it('registers the pre-creation policy on the embedder', () => {
+    let listener: unknown;
+    const contents = { on: vi.fn((_event: string, value: unknown) => { listener = value; }) };
+    configureWebViewAttachPolicy(contents);
+    expect(contents.on).toHaveBeenCalledWith('will-attach-webview', expect.any(Function));
+    expect(listener).toBe(sanitizeWebViewAttachment);
+  });
+
   it('allows only credential-free HTTP(S) external links', () => {
     expect(isSafeWebViewExternalUrl('https://printer.example/help')).toBe(true);
     expect(isSafeWebViewExternalUrl('http://127.0.0.1:7125/')).toBe(true);
