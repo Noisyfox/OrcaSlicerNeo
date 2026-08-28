@@ -1,4 +1,4 @@
-# WebView Platform Abstraction
+# Printer Console and Control Integration
 
 **Date:** 2026-08-27
 
