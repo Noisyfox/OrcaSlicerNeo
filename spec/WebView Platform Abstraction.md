@@ -702,6 +702,43 @@ Consequences:
   a requirement that console loading succeeds before the printer can appear in
   the list.
 
+### 3.20 Stage 20 — Automated verification with local fixtures (2026-08-28)
+
+**Decision:** CI uses deterministic local fixtures instead of requiring a
+physical printer: a Moonraker-compatible HTTP fixture for application-side
+printer control and a minimal printer-console page for embedded-view behavior.
+Manual testing against a real LAN printer is supplementary rather than a CI
+gate.
+
+**Decision:** Electron's document-start API-key injection is a required real
+end-to-end test, not merely an adapter unit-test mock. The fixture console
+performs a same-origin `fetch` on load; the fixture server records the request
+headers; a Playwright Electron test asserts receipt of the configured
+`X-API-Key`.
+
+The first verification matrix includes:
+
+| Area | Required automated coverage |
+| --- | --- |
+| Printer configuration | Multiple records; add/edit/delete confirmation; API key persists in the selected platform store; Device and Send selections remain independent and non-persisted. |
+| Moonraker driver | Request construction and error mapping for server information, G-code upload, and Send & Print's upload-then-start sequence, including a start failure after a successful upload. |
+| Electron console | A real `<webview>` loads the fixture console; the built-in script executes at document start and adds `X-API-Key`; a new-window request follows the external-browser policy. |
+| Web console | A normal iframe is rendered; a requested built-in script is ignored with a redacted diagnostic; a display failure does not disable direct printer-control actions. |
+| Cross-platform UI | Device empty state, explicit selection, selected-console reload after `consoleUrl` edit, and no automatic selection after adding a printer. |
+
+Consequences:
+
+- Fixture assertions observe the server-side request, so they verify the guest
+  page's actual behavior without relying on Playwright to inspect cross-process
+  webview DOM internals.
+- Tests may use a bounded readiness wait for guest load and fixture receipt;
+  they must not depend on real LAN discovery, a printer, or external Internet
+  access.
+- Existing unit tests remain appropriate for adapter and reducer behavior, but
+  cannot substitute for the Electron guest-injection test.
+
 ## 4. Questions queued for the next stages
 
-1. What verification matrix and test fixture are required?
+No unresolved product-design questions are currently queued. Implementation
+planning may add technical follow-ups only when a concrete repository constraint
+requires a decision.
