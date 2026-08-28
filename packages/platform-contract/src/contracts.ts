@@ -1,5 +1,5 @@
 import type { SlicerClient } from '@slicer/client';
-import type { PrinterConfigurationDocument } from '@orca/printer-control';
+import type { PrinterConfigurationDocument, PrinterTransport } from '@orca/printer-control';
 import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
 
 export type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
@@ -102,7 +102,7 @@ export interface PlatformCapabilities {
   models: ModelPicker;
   exports: GcodeExporter;
   preferences: UserPreferencesRepository;
-  printers: { configuration: PrinterConfigurationRepository };
+  printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };
   runtime: SlicerRuntime;
   profiles: ProfileSource;
   chrome: PlatformChrome;

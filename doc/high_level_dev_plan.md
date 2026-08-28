@@ -417,15 +417,16 @@
 > (threaded + serial), Electron e2e (mock + real WASM), and Web e2e (threaded +
 > serial) all pass.
 
-### Milestone 14 — Printer Control Foundation (step 2)
+### Milestone 14 — Printer Control Foundation (step 3)
 
-> **Step 1 delivered 2026-08-28; step 2 delivered 2026-08-28.**
+> **Steps 1–3 delivered 2026-08-28.**
 > `@orca/printer-control` establishes the platform-neutral, version-1 printer
 > configuration and Moonraker control seam. It keeps host HTTP behind
 > `PrinterTransport`, supports multiple stable-ID records, and provides
 > explicit upload-only and upload-then-start operations. See
-> `doc/2026-08-28-printer-control-foundation.md` and
-> `doc/2026-08-28-printer-configuration-repositories.md`.
+> `doc/2026-08-28-printer-control-foundation.md`,
+> `doc/2026-08-28-printer-configuration-repositories.md`, and
+> `doc/2026-08-28-printer-http-transports.md`.
 
 - Moonraker is the sole closed built-in driver; configuration validates both
   independent HTTP(S) URLs and preserves API keys without network preflight.
@@ -439,6 +440,11 @@
   Missing, corrupt, invalid, or unavailable storage falls back to an empty
   document without exposing API keys. See
   `doc/2026-08-28-printer-configuration-repositories.md`.
+- **Step 3 delivered:** `platform.printers.transport` is implemented by a
+  browser XHR adapter with upload progress/cancellation and by a main-process
+  Electron HTTP adapter behind sender-guarded typed IPC. Structured request
+  bodies are encoded only at the host boundary and diagnostics redact keys.
+  See `doc/2026-08-28-printer-http-transports.md`.
 
 ## Cross-Cutting Practices
 

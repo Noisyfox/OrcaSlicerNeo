@@ -313,11 +313,12 @@ and drives structural operations through the typed client.
       ObjectList selection sync
 - [x] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage
 
-## Milestone 14: Printer Control Foundation (step 2)
+## Milestone 14: Printer Control Foundation (step 3)
 
-> [!info] Step 1 and step 2 **delivered 2026-08-28** — see
-> `doc/2026-08-28-printer-control-foundation.md` and
-> `doc/2026-08-28-printer-configuration-repositories.md`.
+> [!info] Steps 1–3 **delivered 2026-08-28** — see
+> `doc/2026-08-28-printer-control-foundation.md`,
+> `doc/2026-08-28-printer-configuration-repositories.md`, and
+> `doc/2026-08-28-printer-http-transports.md`.
 
 - [x] Add dependency-free `@orca/printer-control` configuration and host
       `PrinterTransport` contracts with closed built-in driver IDs
@@ -331,6 +332,10 @@ and drives structural operations through the typed client.
       repository; persist complete version-1 documents in Web localStorage and
       Electron `userData/printer-config.json` via typed IPC, with invalid-data
       fallback and complete API-key round-trip coverage
+- [x] Add browser XHR and Electron main-process HTTP transports behind
+      `PlatformCapabilities.printers.transport`, with structured-clone-safe
+      JSON/multipart encoding, upload progress, cancellation, sender guards,
+      and focused redaction/IPC tests
 
 ## Cross-cutting titlebar/native menu implementation
 

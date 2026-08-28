@@ -13,6 +13,7 @@ import {
 } from '@orca/printer-control';
 import type { FileDialogFilter } from '../../../shared/ipc';
 import type { SlicerRuntime } from '@orca/platform-contract';
+import { createElectronPrinterTransport } from './electronPrinterTransport';
 
 const MODEL_FILTERS: FileDialogFilter[] = [
   { name: 'Models', extensions: ['stl', '3mf'] },
@@ -97,7 +98,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
         catch (error) { console.error('preferences save failed; keeping in-memory preferences', error); }
       },
     },
-    printers: { configuration: printerConfiguration },
+    printers: { configuration: printerConfiguration, transport: createElectronPrinterTransport(host) },
     runtime,
     profiles: { fetch: async (relativePath) => new Uint8Array(await (await fetch(relativePath)).arrayBuffer()) },
     chrome: {

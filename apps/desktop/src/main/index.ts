@@ -7,6 +7,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { Ipc, type FileDialogFilter, type PreferencesLoadResult } from '../shared/ipc';
 import type { MenuCommandId } from '../shared/ipc';
 import { createPrinterConfigurationIpcHandlers } from './printerConfigurationIpc';
+import { createPrinterTransportIpcHandlers } from './printerHttpTransport';
 import { isCurrentRendererSender } from './rendererGuards';
 import {
   createNativeMenuController,
@@ -246,6 +247,18 @@ function registerIpc(): void {
   ipcMain.handle(Ipc.printerConfigurationLoad, async (event) => printerConfigurationIpc.load(event.sender));
   ipcMain.handle(Ipc.printerConfigurationSave, async (event, document: unknown): Promise<void> => {
     await printerConfigurationIpc.save(event.sender, document);
+  });
+
+  const printerTransportIpc = createPrinterTransportIpcHandlers({
+    isCurrentRenderer,
+    sendProgress: (sender, requestId, progress) => {
+      if (isCurrentRenderer(sender as WebContents)) (sender as WebContents).send(Ipc.printerTransportProgress, requestId, progress);
+    },
+  });
+  ipcMain.handle(Ipc.printerTransportRequest, async (event, requestId: unknown, request: unknown) =>
+    printerTransportIpc.request(event.sender, requestId, request));
+  ipcMain.handle(Ipc.printerTransportCancel, (event, requestId: unknown) => {
+    printerTransportIpc.cancel(event.sender, requestId);
   });
 
   ipcMain.on(Ipc.syncMenuModel, (event, model: unknown) => {

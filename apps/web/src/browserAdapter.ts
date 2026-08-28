@@ -9,6 +9,9 @@ import {
   normalizePrinterConfigurationDocument,
   type PrinterConfigurationDocument,
 } from '@orca/printer-control';
+import { createBrowserPrinterTransport } from './browserPrinterTransport';
+
+export { BrowserPrinterTransport, createBrowserPrinterTransport } from './browserPrinterTransport';
 
 export const SOURCE_URL = 'https://github.com/Noisyfox/OrcaSlicerNeo';
 export const PRINTER_CONFIGURATION_STORAGE_KEY = 'orca-slicer-neo:printer-configuration:v1';
@@ -82,7 +85,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
         catch (error) { console.error('web preferences save failed; keeping in-memory preferences', error); }
       },
     },
-    printers: { configuration: printerConfiguration },
+    printers: { configuration: printerConfiguration, transport: createBrowserPrinterTransport() },
     runtime,
     profiles: { fetch: async (relativePath) => {
       const Url = globalThis.URL;
