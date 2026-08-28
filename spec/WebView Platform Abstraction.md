@@ -638,10 +638,40 @@ Consequences:
   configured `consoleUrl` after a page-driven navigation, and does not add a
   target-origin allow-list in the first slice.
 
+### 3.18 Stage 18 — Web iframe compatibility is best effort (2026-08-28)
+
+**Decision:** The Web console uses a plain iframe without a `sandbox`
+attribute. The goal is maximum practical compatibility with a user's own
+printer console, including its normal scripts, forms, authentication storage,
+downloads, and browser-controlled popup behavior.
+
+**Decision:** Web console embedding is best effort. The application does not
+preflight iframe support when a printer is configured and does not make
+embedded-console success a prerequisite for application-side printer control.
+Browser security policy, printer-server response headers, local-network rules,
+mixed-content restrictions, and individual console behavior may prevent a
+console from displaying; those outcomes are handled when they occur.
+
+Consequences:
+
+- A plain cross-origin iframe still cannot be read, scripted, or otherwise
+  controlled by the shared application. This preserves the specified Web
+  no-injection behavior independently of `sandbox`.
+- The existing COOP/COEP isolation needed for threaded WASM can conflict with
+  third-party printer consoles that do not opt into cross-origin embedding.
+  The initial feature neither requires printer owners to reconfigure their
+  servers nor commits to a proxy, `credentialless` iframe, or isolation-mode
+  downgrade. It attempts the configured console URL and accepts actual browser
+  behavior as the first-release compatibility boundary.
+- Moonraker's `cors_domains` remains useful for direct Web API requests, but
+  is not assumed to make a separately served Mainsail/Fluidd console document
+  embeddable under COEP. CORS and iframe embedding are distinct browser checks.
+- Electron remains the complete-capability host: it can load the console,
+  perform reviewed document-start API-key injection, and implement OrcaSlicer
+  external-window behavior. Web degrades only the console presentation layer;
+  its typed printer-control adapter still attempts direct HTTP operations.
+
 ## 4. Questions queued for the next stages
 
-1. Which iframe attributes and capabilities are required for supported printer
-   consoles, beyond the documented no-injection behavior?
-2. How should COOP/COEP/threaded-WASM coexist with external iframe content?
-3. What UI workflow exposes embedded integrations to the user?
-4. What verification matrix and test fixture are required?
+1. What UI workflow exposes embedded integrations to the user?
+2. What verification matrix and test fixture are required?
