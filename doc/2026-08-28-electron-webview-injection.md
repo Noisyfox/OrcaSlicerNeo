@@ -17,9 +17,12 @@ arbitrary renderer function is exposed to the guest. The Electron main process
 configures post-creation policy only for contents whose type is `webview`.
 
 Guest initial navigation is checked in `will-attach-webview`, before guest
-creation; later navigation is checked on the guest's main-process
-`will-navigate` event. Both are limited to credential-free `http:` and
-`https:` URLs.
+creation. Electron can normalize a DOM `<webview>` without a `src` to
+`about:blank`, so that value is allowed only as the attach-time placeholder
+alongside an empty/undefined src; the adapter immediately uses its programmed
+`loadURL` target. Later navigation is checked on the guest's main-process
+`will-navigate` event, where `about:blank` is not allowed. All real targets are
+limited to credential-free `http:` and `https:` URLs.
 `file:`, `javascript:`, `data:`, custom protocols, and credential-bearing URLs
 are rejected. A guest `window.open`/new-window request always denies child
 creation. Safe HTTP(S) requests are passed to the operating system's default

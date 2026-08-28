@@ -60,7 +60,9 @@ export function sanitizeWebViewAttachment(
   webPreferences.contextIsolation = true;
   webPreferences.webSecurity = true;
   webPreferences.allowRunningInsecureContent = false;
-  if (params.src === undefined || params.src === '') return true;
+  // Electron may normalize a src-less <webview> to about:blank. This is only
+  // an attach-time placeholder; the guest will be navigated by loadURL below.
+  if (params.src === undefined || params.src === '' || params.src === 'about:blank') return true;
   if (typeof params.src !== 'string' || !isSafeWebViewExternalUrl(params.src)) {
     event.preventDefault();
     return false;

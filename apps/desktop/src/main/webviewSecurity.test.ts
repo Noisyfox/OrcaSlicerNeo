@@ -24,14 +24,21 @@ describe('Electron webview guest security', () => {
     expect(params).not.toHaveProperty('preload');
   });
 
-  it('allows the current empty-src flow and safe initial URLs', () => {
-    for (const src of ['', 'https://printer.example/console']) {
+  it('allows the current empty-src/about:blank flow and safe initial URLs', () => {
+    for (const src of ['', 'about:blank', 'https://printer.example/console']) {
       const event = { preventDefault: vi.fn() };
       const webPreferences = { preload: 'ignored', nodeIntegration: true };
       expect(sanitizeWebViewAttachment(event, webPreferences, { src, preload: 'ignored' })).toBe(true);
       expect(event.preventDefault).not.toHaveBeenCalled();
       expect(webPreferences).toMatchObject({ nodeIntegration: false, contextIsolation: true, webSecurity: true, allowRunningInsecureContent: false });
     }
+  });
+
+  it.each(['data:text/html,blocked', 'file:///tmp/blocked', 'javascript:alert(1)'])('blocks unsafe initial src %s', (src) => {
+    const event = { preventDefault: vi.fn() };
+    const webPreferences = {};
+    expect(sanitizeWebViewAttachment(event, webPreferences, { src })).toBe(false);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
   });
 
   it('registers the pre-creation policy on the embedder', () => {
