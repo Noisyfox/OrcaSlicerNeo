@@ -202,6 +202,9 @@ importers:
       '@orca/platform-contract':
         specifier: workspace:*
         version: link:../platform-contract
+      '@orca/printer-control':
+        specifier: workspace:*
+        version: link:../printer-control
       '@orca/slicer-runtime':
         specifier: workspace:*
         version: link:../slicer-runtime

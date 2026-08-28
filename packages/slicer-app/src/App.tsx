@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
-import { Toolbar } from './components/layout/Toolbar';
+import { Toolbar, type WorkspaceTab } from './components/layout/Toolbar';
 import { Workspace } from './components/workspace/Workspace';
 import { StatusBar } from './components/layout/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
@@ -29,6 +29,7 @@ export default function App() {
   const resultExported = useSlicerStore((s) => s.resultExported);
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>('home');
   // Workspace owns the controller; the dispatcher only ever reads it lazily at
   // dispatch time, so mirroring it into a ref keeps App out of the re-render.
   const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
@@ -207,8 +208,8 @@ export default function App() {
   return (
     <AppShell
       titleBar={titleBar}
-      toolbar={<Toolbar />}
-      workspace={<Workspace onSceneInteractionChange={handleSceneInteractionChange} />}
+      toolbar={<Toolbar activeTab={activeTab} onTabChange={setActiveTab} />}
+      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} />}
       status={<StatusBar />}
     />
   );

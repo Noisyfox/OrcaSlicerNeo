@@ -472,6 +472,21 @@ wrapper while validating the API-key context and never logging the key. Web
 continues to report script and host-API operations as unsupported. See
 `doc/2026-08-28-electron-webview-injection.md`.
 
+### Milestone 16 — Device printer configuration UI
+
+> **Implemented 2026-08-28.** See `doc/2026-08-28-device-configuration-ui.md`.
+
+- The shared Device tab manages multiple validated Moonraker printer records
+  through `platform.printers.configuration`; add/edit/delete uses a single
+  dialog and deletion requires confirmation.
+- Device console selection is local ephemeral state and independent from
+  system profile and future send-target selection. New records are not
+  selected automatically; deleting the selected record clears the empty state.
+- Selecting a record mounts `platform.webview` without a URL, registers the
+  fixed `moonraker-fetch-v1` script only when a key exists, and then loads its
+  separate console URL. Changes and unmount dispose the previous panel. API
+  keys remain password-masked and absent from visible copy and diagnostics.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

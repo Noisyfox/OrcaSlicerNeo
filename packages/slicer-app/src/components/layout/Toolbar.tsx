@@ -12,7 +12,12 @@ import { usePlatform } from '@orca/platform-contract';
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see
 // doc/2026-08-22-scene-toolbar-and-context-menu.md). This row is Slice and
 // Export only.
-export function Toolbar() {
+export type WorkspaceTab = 'home' | 'prepare' | 'preview' | 'Device';
+
+export function Toolbar({ activeTab = 'home', onTabChange }: {
+  activeTab?: WorkspaceTab;
+  onTabChange?: (tab: WorkspaceTab) => void;
+} = {}) {
   const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
@@ -29,7 +34,11 @@ export function Toolbar() {
 
   return (
     <div className="flex w-full items-center justify-between">
-      <Tabs defaultValue="home">
+      <Tabs value={activeTab} onValueChange={(value) => {
+        if (value === 'home' || value === 'prepare' || value === 'preview' || value === 'Device') {
+          onTabChange?.(value);
+        }
+      }}>
         <TabsList className="px-0.5 py-0">
           <TabsTrigger value="home">
             <HouseIcon />
@@ -42,7 +51,7 @@ export function Toolbar() {
             <LayersIcon />
             Preview
           </TabsTrigger>
-          <TabsTrigger value="Device">
+          <TabsTrigger value="Device" data-testid="tab-device">
             <ComputerIcon />
             Device
           </TabsTrigger>

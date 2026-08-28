@@ -358,6 +358,22 @@ and drives structural operations through the typed client.
       `moonraker-fetch-v1` API-key injection, and data-only host API validation
       (`doc/2026-08-28-electron-webview-injection.md`)
 
+## Milestone 16: Device printer configuration UI
+
+> [!info] Implemented 2026-08-28 — see
+> [`doc/2026-08-28-device-configuration-ui.md`](../doc/2026-08-28-device-configuration-ui.md).
+
+- [x] Shared Device tab with printer list, add action, and per-row edit/delete
+      actions; deletion requires explicit confirmation
+- [x] Validated multi-printer add/edit/delete dialog with separate console URL
+      and API base URL fields and password-masked Moonraker API key
+- [x] Ephemeral Device-only selection; new records remain unselected and
+      removing the selected record clears/disposes the console
+- [x] WebView lifecycle ordering: mount without URL, register fixed
+      `moonraker-fetch-v1` when applicable, then load console URL
+- [x] Focused tests for normalized records, lifecycle ordering, disposal,
+      empty-key behavior, and no persisted selection
+
 ## Cross-cutting titlebar/native menu implementation
 
 > [!info] Implemented 2026-08-25; real macOS manual verification remains open.
@@ -386,7 +402,8 @@ and drives structural operations through the typed client.
 - [ ] Perf tuning for large plates
 - [ ] STEP import (OCCT Emscripten port decision)
 - [ ] CGAL features: mesh boolean, hollowing, advanced cut
-- [ ] Device panel & printer connectivity (Bambu LAN/cloud, Moonraker, …)
+- [x] Device panel & printer connectivity foundation (Moonraker; Device UI
+      delivered in Milestone 16; additional drivers remain future work)
 - [ ] Calibration wizards
 - [ ] i18n (i18next + `.po` → JSON conversion)
 - [ ] Auto-update + code signing (macOS notarization)

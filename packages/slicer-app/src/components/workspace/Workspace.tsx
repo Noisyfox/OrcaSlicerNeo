@@ -15,6 +15,8 @@ import { ObjectList } from './objectList/ObjectList';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { Viewport } from './viewport/Viewport';
 import type { SceneInteractionController } from './viewport/SceneInteractionController';
+import { DevicePanel } from './device/DevicePanel';
+import type { WorkspaceTab } from '../layout/Toolbar';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -24,10 +26,11 @@ function clampSidebarWidth(value: number | undefined): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
 }
 
-export function Workspace({ onSceneInteractionChange }: {
+export function Workspace({ onSceneInteractionChange, activeTab = 'home' }: {
   // The scene controller lives here, but the menu command dispatcher needs it
   // too; this hands it up without making the owner re-render on every change.
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
+  activeTab?: WorkspaceTab;
 }) {
   const platform = usePlatform();
   const [sceneInteraction, setSceneInteraction] = useState<SceneInteractionController | null>(null);
@@ -142,6 +145,7 @@ export function Workspace({ onSceneInteractionChange }: {
 
   return (
     <div className="flex flex-1 min-h-0 px-1">
+      {activeTab === 'Device' ? <DevicePanel /> : <>
       <aside
         className="shrink-0 overflow-hidden rounded-md border bg-card"
         style={{
@@ -179,6 +183,7 @@ export function Workspace({ onSceneInteractionChange }: {
           sceneInteraction={sceneInteraction}
         />
       </main>
+      </>}
     </div>
   );
 }
