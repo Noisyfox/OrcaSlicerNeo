@@ -3,17 +3,12 @@ import {
   type PrinterConfigurationDocument,
 } from '../../../../packages/printer-control/src/configuration';
 
-export const EMPTY_PRINTER_CONFIGURATION_DOCUMENT: PrinterConfigurationDocument = {
-  version: 1,
-  printers: [],
-};
-
 export interface PrinterConfigurationFileSystem {
   readText?(path: string): Promise<string>;
   writeText?(path: string, value: string): Promise<void>;
 }
 
-function emptyDocument(): PrinterConfigurationDocument {
+export function emptyPrinterConfigurationDocument(): PrinterConfigurationDocument {
   return { version: 1, printers: [] };
 }
 
@@ -23,11 +18,11 @@ export async function loadPrinterConfigurationFile(
   fs: PrinterConfigurationFileSystem,
 ): Promise<PrinterConfigurationDocument> {
   try {
-    if (!fs.readText) return emptyDocument();
+    if (!fs.readText) return emptyPrinterConfigurationDocument();
     const parsed: unknown = JSON.parse(await fs.readText(path));
     return normalizePrinterConfigurationDocument(parsed);
   } catch {
-    return emptyDocument();
+    return emptyPrinterConfigurationDocument();
   }
 }
 

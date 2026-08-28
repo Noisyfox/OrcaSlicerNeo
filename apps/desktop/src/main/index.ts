@@ -6,7 +6,8 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { Ipc, type FileDialogFilter, type PreferencesLoadResult } from '../shared/ipc';
 import type { MenuCommandId } from '../shared/ipc';
-import { loadPrinterConfigurationFile, savePrinterConfigurationFile } from './printerConfigurationPersistence';
+import { createPrinterConfigurationIpcHandlers } from './printerConfigurationIpc';
+import { isCurrentRendererSender } from './rendererGuards';
 import {
   createNativeMenuController,
   handleHostCommand,
@@ -95,12 +96,7 @@ let mainWindow: BrowserWindow | null = null;
 let nativeMenuController: NativeMenuController | null = null;
 
 function isCurrentRenderer(sender: WebContents): boolean {
-  return Boolean(
-    mainWindow &&
-    !mainWindow.isDestroyed() &&
-    !sender.isDestroyed() &&
-    sender === mainWindow.webContents,
-  );
+  return isCurrentRendererSender(sender, mainWindow);
 }
 
 function sendNativeMenuCommand(command: MenuCommandId): void {
@@ -239,17 +235,17 @@ function registerIpc(): void {
     await writeFile(preferencesPath(), JSON.stringify(json, null, 2), 'utf8');
   });
 
-  ipcMain.handle(Ipc.printerConfigurationLoad, async () => loadPrinterConfigurationFile(
-    printerConfigurationPath(),
-    { readText: (path) => readFile(path, 'utf8') },
-  ));
-
-  ipcMain.handle(Ipc.printerConfigurationSave, async (_event, document: unknown): Promise<void> => {
-    await savePrinterConfigurationFile(
-      printerConfigurationPath(),
-      document,
-      { writeText: (path, value) => writeFile(path, value, 'utf8') },
-    );
+  const printerConfigurationIpc = createPrinterConfigurationIpcHandlers({
+    path: printerConfigurationPath,
+    fs: {
+      readText: (path) => readFile(path, 'utf8'),
+      writeText: (path, value) => writeFile(path, value, 'utf8'),
+    },
+    isCurrentRenderer,
+  });
+  ipcMain.handle(Ipc.printerConfigurationLoad, async (event) => printerConfigurationIpc.load(event.sender));
+  ipcMain.handle(Ipc.printerConfigurationSave, async (event, document: unknown): Promise<void> => {
+    await printerConfigurationIpc.save(event.sender, document);
   });
 
   ipcMain.on(Ipc.syncMenuModel, (event, model: unknown) => {
