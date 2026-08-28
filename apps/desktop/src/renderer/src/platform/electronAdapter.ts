@@ -14,6 +14,7 @@ import {
 import type { FileDialogFilter } from '../../../shared/ipc';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import { createElectronPrinterTransport } from './electronPrinterTransport';
+import { createUnsupportedWebViewHost } from './unsupportedWebView';
 
 const MODEL_FILTERS: FileDialogFilter[] = [
   { name: 'Models', extensions: ['stl', '3mf'] },
@@ -99,6 +100,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
       },
     },
     printers: { configuration: printerConfiguration, transport: createElectronPrinterTransport(host) },
+    webview: createUnsupportedWebViewHost(),
     runtime,
     profiles: { fetch: async (relativePath) => new Uint8Array(await (await fetch(relativePath)).arrayBuffer()) },
     chrome: {

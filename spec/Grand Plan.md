@@ -337,6 +337,23 @@ and drives structural operations through the typed client.
       JSON/multipart encoding, upload progress, cancellation, sender guards,
       and focused redaction/IPC tests
 
+## Milestone 15: WebViewPanel Contract and Web iframe Foundation
+
+> [!info] Status: **implemented 2026-08-28** — see
+> [`doc/2026-08-28-webview-panel-foundation.md`](../doc/2026-08-28-webview-panel-foundation.md).
+
+- [x] Define the minimal shared `WebViewHost` / `WebViewPanel` contract with
+      URL loading, lifecycle/navigation/error state events, built-in script
+      requests, and explicit host API/page-JavaScript capability flags
+- [x] Inject `PlatformCapabilities.webview`; Web mounts a plain iframe without
+      `sandbox`, retains browser-controlled compatibility, and never reads
+      cross-origin iframe DOM
+- [x] Web script injection, host API exposure, and page-JavaScript requests
+      return explicit `unsupported` results and emit diagnostics that exclude
+      URLs, API keys, opaque request context, and script source
+- [x] Add focused contract/iframe adapter tests; Electron remains on an
+      explicit unsupported placeholder pending its separate `<webview>` step
+
 ## Cross-cutting titlebar/native menu implementation
 
 > [!info] Implemented 2026-08-25; real macOS manual verification remains open.

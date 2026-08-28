@@ -10,8 +10,10 @@ import {
   type PrinterConfigurationDocument,
 } from '@orca/printer-control';
 import { createBrowserPrinterTransport } from './browserPrinterTransport';
+import { createBrowserWebViewHost } from './browserWebView';
 
 export { BrowserPrinterTransport, createBrowserPrinterTransport } from './browserPrinterTransport';
+export { createBrowserWebViewHost } from './browserWebView';
 
 export const SOURCE_URL = 'https://github.com/Noisyfox/OrcaSlicerNeo';
 export const PRINTER_CONFIGURATION_STORAGE_KEY = 'orca-slicer-neo:printer-configuration:v1';
@@ -86,6 +88,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
       },
     },
     printers: { configuration: printerConfiguration, transport: createBrowserPrinterTransport() },
+    webview: createBrowserWebViewHost(),
     runtime,
     profiles: { fetch: async (relativePath) => {
       const Url = globalThis.URL;

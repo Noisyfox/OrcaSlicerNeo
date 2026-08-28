@@ -1,4 +1,4 @@
-# High Level Development Plan (updated 2026-08-24)
+# High Level Development Plan (updated 2026-08-28)
 
 ## Context
 
@@ -445,6 +445,24 @@
   Electron HTTP adapter behind sender-guarded typed IPC. Structured request
   bodies are encoded only at the host boundary and diagnostics redact keys.
   See `doc/2026-08-28-printer-http-transports.md`.
+
+### Milestone 15 — WebViewPanel contract and Web iframe foundation
+
+> **Status: implemented 2026-08-28.** See
+> `doc/2026-08-28-webview-panel-foundation.md`.
+
+- **Step 1 delivered:** `@orca/platform-contract` defines the minimal
+  host-neutral `WebViewHost` / `WebViewPanel` surface: configured URL loading,
+  lifecycle/navigation/error state events, built-in script requests, and
+  explicit capability flags for script injection, host API exposure, and
+  embedded-page JavaScript.
+- **Step 2 delivered:** Web injects a plain, unsandboxed iframe adapter into
+  `PlatformCapabilities.webview`. It never reads cross-origin iframe DOM and
+  safely returns `unsupported` for script injection, host APIs, and page JS;
+  redacted diagnostics exclude URL, API-key, opaque context, and script text.
+- Electron currently supplies an explicit unsupported placeholder. Electron
+  `<webview>` guest behavior, built-in script resolution/injection, Device UI,
+  and page callbacks remain later independently verified steps.
 
 ## Cross-Cutting Practices
 

@@ -47,6 +47,59 @@ export interface PrinterConfigurationRepository {
   save(document: PrinterConfigurationDocument): Promise<void>;
 }
 
+/** The intentionally small state surface shared by embedded printer consoles. */
+export type WebViewPanelStatus = 'idle' | 'loading' | 'loaded' | 'error';
+
+export interface WebViewPanelState {
+  status: WebViewPanelStatus;
+  /** The URL selected by the host. A cross-origin page is never inspected. */
+  url: string | null;
+  error: string | null;
+}
+
+export interface WebViewPanelCapabilities {
+  canInjectBuiltInScripts: boolean;
+  canExposeHostApi: boolean;
+  canExecuteJavaScript: boolean;
+}
+
+export interface WebViewPanelEvents {
+  onStateChange?(state: WebViewPanelState): void;
+  onNavigation?(url: string): void;
+}
+
+export interface WebViewPanelOptions {
+  url?: string;
+  title?: string;
+}
+
+/** Script source and secrets stay host-owned; shared callers pass an ID only. */
+export interface BuiltInScriptRequest {
+  scriptId: string;
+  context?: unknown;
+}
+
+export type WebViewOperationResult<T = never> =
+  | { status: 'ok'; value?: T }
+  | { status: 'unsupported'; reason: 'capability-unavailable' };
+
+/** A mounted, host-backed embedded page. */
+export interface WebViewPanel {
+  readonly capabilities: WebViewPanelCapabilities;
+  readonly state: WebViewPanelState;
+  load(url: string): void;
+  registerBuiltInScript(request: BuiltInScriptRequest): WebViewOperationResult;
+  exposeHostApi(name: string, api: unknown): WebViewOperationResult;
+  executeJavaScript<T = unknown>(script: string): Promise<WebViewOperationResult<T>>;
+  dispose(): void;
+}
+
+/** Host factory used by shared UI; implementations own their embedded element. */
+export interface WebViewHost {
+  readonly capabilities: WebViewPanelCapabilities;
+  mount(container: HTMLElement, options?: WebViewPanelOptions, events?: WebViewPanelEvents): WebViewPanel;
+}
+
 export interface PlatformChrome {
   kind: 'desktop' | 'web';
   platform?: string;
@@ -103,6 +156,7 @@ export interface PlatformCapabilities {
   exports: GcodeExporter;
   preferences: UserPreferencesRepository;
   printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };
+  webview: WebViewHost;
   runtime: SlicerRuntime;
   profiles: ProfileSource;
   chrome: PlatformChrome;

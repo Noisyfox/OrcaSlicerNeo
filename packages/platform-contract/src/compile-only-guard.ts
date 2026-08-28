@@ -1,6 +1,7 @@
 import type {
   ExternalLinks, GcodeExporter, ModelImporter, PlatformCapabilities, ProfileSource,
   SlicerRuntime, UserPreferencesRepository, PrinterConfigurationRepository,
+  WebViewHost,
 } from './contracts';
 import type { MenuCommandId, PlatformMenu } from './menu';
 
@@ -14,6 +15,20 @@ export const fakeCapabilities: PlatformCapabilities = {
     configuration: { async load() { return { version: 1 as const, printers: [] }; }, async save() {} } satisfies PrinterConfigurationRepository,
     transport: { async request() { return { status: 200, async json() { return {}; } }; } },
   },
+  webview: {
+    capabilities: { canInjectBuiltInScripts: false, canExposeHostApi: false, canExecuteJavaScript: false },
+    mount() {
+      return {
+        capabilities: { canInjectBuiltInScripts: false, canExposeHostApi: false, canExecuteJavaScript: false },
+        state: { status: 'idle' as const, url: null, error: null },
+        load() {},
+        registerBuiltInScript() { return { status: 'unsupported' as const, reason: 'capability-unavailable' as const }; },
+        exposeHostApi() { return { status: 'unsupported' as const, reason: 'capability-unavailable' as const }; },
+        async executeJavaScript() { return { status: 'unsupported' as const, reason: 'capability-unavailable' as const }; },
+        dispose() {},
+      };
+    },
+  } satisfies WebViewHost,
   runtime: {} as SlicerRuntime,
   profiles: { async fetch() { return new Uint8Array(); } } satisfies ProfileSource,
   chrome: { kind: 'web', menuMode: 'browser' },

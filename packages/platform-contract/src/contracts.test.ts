@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeUserPreferences, type GcodeExporter, type ModelImporter, type ProfileSource, type SlicerRuntime, type UserPreferencesRepository, type PrinterConfigurationRepository } from './contracts';
+import { normalizeUserPreferences, type GcodeExporter, type ModelImporter, type ProfileSource, type SlicerRuntime, type UserPreferencesRepository, type PrinterConfigurationRepository, type WebViewHost } from './contracts';
 import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
 
 describe('user preferences', () => {
@@ -39,5 +39,29 @@ describe('host contracts', () => {
     await expect(profiles.fetch('manifest.json')).resolves.toEqual(profileBytes);
     expect(runtime).toBeDefined();
     await printers.save(await printers.load());
+  });
+
+  it('defines a host-neutral WebView surface with explicit capabilities', () => {
+    const capabilities = {
+      canInjectBuiltInScripts: false,
+      canExposeHostApi: false,
+      canExecuteJavaScript: false,
+    } as const;
+    const webview: WebViewHost = {
+      capabilities,
+      mount() {
+        return {
+          capabilities,
+          state: { status: 'idle', url: null, error: null },
+          load() {},
+          registerBuiltInScript() { return { status: 'unsupported', reason: 'capability-unavailable' }; },
+          exposeHostApi() { return { status: 'unsupported', reason: 'capability-unavailable' }; },
+          async executeJavaScript() { return { status: 'unsupported', reason: 'capability-unavailable' }; },
+          dispose() {},
+        };
+      },
+    };
+    expect(webview.capabilities.canExecuteJavaScript).toBe(false);
+    expect(webview.mount({} as HTMLElement).state.status).toBe('idle');
   });
 });
