@@ -671,7 +671,37 @@ Consequences:
   external-window behavior. Web degrades only the console presentation layer;
   its typed printer-control adapter still attempts direct HTTP operations.
 
+### 3.19 Stage 19 — Device tab and printer-list workflow (2026-08-28)
+
+**Decision:** Add a dedicated `Device` tab for printer-console management. Its
+left-side toolbar contains the printer selection list and the add-printer
+action. Its right-side content area contains the selected printer's common
+WebViewPanel (Electron webview or Web iframe).
+
+**Decision:** Every printer row in the left list has independent edit and
+delete actions. Add and edit open the printer-configuration dialog. Deletion
+requires a confirmation dialog before the record, including its stored API key,
+is removed.
+
+**Decision:** Saving a newly created printer does not select it and does not
+change or reload the active console. The user chooses it explicitly from the
+Device tab list afterwards.
+
+Consequences:
+
+- The Device tab's list selection is the previously specified independent,
+  non-persisted console selection. With no selection it displays the empty
+  state and does not retain a prior console.
+- Editing the selected printer's `consoleUrl` reloads that selected console,
+  as defined in Stage 14; editing a non-selected printer leaves the current
+  console untouched.
+- The destructive action is explicit despite configuration being local. This
+  avoids silently losing both printer connection details and its manually
+  entered API key.
+- This view does not add live printer-status polling, a generic browser UI, or
+  a requirement that console loading succeeds before the printer can appear in
+  the list.
+
 ## 4. Questions queued for the next stages
 
-1. What UI workflow exposes embedded integrations to the user?
-2. What verification matrix and test fixture are required?
+1. What verification matrix and test fixture are required?
