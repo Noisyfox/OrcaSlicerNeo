@@ -486,6 +486,8 @@ continues to report script and host-API operations as unsupported. See
   fixed `moonraker-fetch-v1` script only when a key exists, and then loads its
   separate console URL. Changes and unmount dispose the previous panel. API
   keys remain password-masked and absent from visible copy and diagnostics.
+  Helper and jsdom component tests cover the rendered CRUD/selection flow and
+  the fake-WebView lifecycle without requiring a LAN printer.
 
 ## Cross-Cutting Practices
 

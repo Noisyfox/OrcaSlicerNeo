@@ -35,7 +35,7 @@ console URLs render an explicit empty state.
 
 ## Verification
 
-Focused tests cover repository load/save and normalization, add/edit/delete
-confirmation, non-persisted selection, masked-key visibility, injection/load
-ordering, and panel disposal when selection is removed. No LAN or internet
-fixture is required.
+Focused helper and jsdom component tests cover repository load/save and
+normalization, rendered add/edit/delete confirmation, non-persisted selection,
+masked-key visibility, injection/load ordering, and panel disposal when
+selection is removed. No LAN or internet fixture is required.

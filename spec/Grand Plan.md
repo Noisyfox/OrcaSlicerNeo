@@ -373,6 +373,9 @@ and drives structural operations through the typed client.
       `moonraker-fetch-v1` when applicable, then load console URL
 - [x] Focused tests for normalized records, lifecycle ordering, disposal,
       empty-key behavior, and no persisted selection
+- [x] jsdom component coverage for Device rendering, explicit selection,
+      add/edit/delete confirmation, masked API-key input, and selected-console
+      disposal after deletion
 
 ## Cross-cutting titlebar/native menu implementation
 
