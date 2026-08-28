@@ -61,7 +61,9 @@ export function createMoonrakerFetchScript(apiKey: string): string {
   var originalFetch = window.fetch;
   window.fetch = function(input, init) {
     var nextInit = init ? Object.assign({}, init) : {};
-    var headers = new Headers(init && init.headers);
+    var sourceHeaders = init && init.headers;
+    if (!sourceHeaders && input && typeof input === 'object' && input.headers) sourceHeaders = input.headers;
+    var headers = new Headers(sourceHeaders);
     headers.set('X-API-Key', apiKey);
     nextInit.headers = headers;
     return originalFetch.call(this, input, nextInit);
@@ -265,8 +267,10 @@ class ElectronWebViewPanel implements WebViewPanel {
   private readonly handleFailLoad = (): void => {
     if (!this.disposed) this.updateState({ status: 'error', url: this.state.url, error: 'embedded content failed to load' });
   };
-  private readonly handleNavigate = (): void => {
-    if (!this.disposed && this.state.url) this.events.onNavigation?.(this.state.url);
+  private readonly handleNavigate = (event: Event): void => {
+    if (this.disposed) return;
+    const url = (event as Event & { url?: unknown }).url;
+    if (isAllowedWebViewUrl(url)) this.events.onNavigation?.(url);
   };
   private readonly handleWillNavigate = (event: Event): void => {
     const url = (event as Event & { url?: unknown }).url;

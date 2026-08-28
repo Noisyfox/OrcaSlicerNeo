@@ -63,9 +63,39 @@ describe('Electron webview security and lifecycle', () => {
     const script = createMoonrakerFetchScript('secret-"-key');
     expect(script).toContain("var marker = '__orcaSlicerNeoMoonrakerFetchV1'");
     expect(script).toContain("headers.set('X-API-Key', apiKey)");
-    expect(script).toContain('new Headers(init && init.headers)');
+    expect(script).toContain('new Headers(sourceHeaders)');
     expect(script).not.toContain('console.log');
     expect(script).toContain('secret-\\"-key');
+  });
+
+  it('executes the wrapper while preserving Request headers and honoring explicit init headers', () => {
+    class FakeHeaders {
+      private readonly values = new Map<string, string>();
+      constructor(input?: FakeHeaders | Record<string, string>) {
+        if (input instanceof FakeHeaders) input.values.forEach((value, key) => this.values.set(key, value));
+        else Object.entries(input ?? {}).forEach(([key, value]) => this.values.set(key.toLowerCase(), value));
+      }
+      set(name: string, value: string) { this.values.set(name.toLowerCase(), value); }
+      get(name: string) { return this.values.get(name.toLowerCase()) ?? null; }
+    }
+    const calls: Array<{ input: unknown; init: { headers: FakeHeaders } }> = [];
+    const request = { url: 'https://printer.example/api', headers: new FakeHeaders({ 'X-Trace': 'request-value', 'X-API-Key': 'old-key' }) };
+    const windowObject: { fetch?: (input: unknown, init: { headers: FakeHeaders }) => void; Headers?: typeof FakeHeaders } = {
+      Headers: FakeHeaders,
+      fetch: (input, init) => { calls.push({ input, init }); },
+    };
+    const script = createMoonrakerFetchScript('new-key');
+    new Function('window', 'Headers', script)(windowObject, FakeHeaders);
+    windowObject.fetch!(request, undefined as never);
+    expect(calls[0].input).toBe(request);
+    expect(calls[0].init.headers.get('X-Trace')).toBe('request-value');
+    expect(calls[0].init.headers.get('X-API-Key')).toBe('new-key');
+
+    windowObject.fetch!(request, { headers: { 'X-Trace': 'init-value', 'X-Other': 'init-only' } } as never);
+    expect(calls[1].input).toBe(request);
+    expect(calls[1].init.headers.get('X-Trace')).toBe('init-value');
+    expect(calls[1].init.headers.get('X-Other')).toBe('init-only');
+    expect(calls[1].init.headers.get('X-API-Key')).toBe('new-key');
   });
 
   it('exposes only a small data-only built-in host API', () => {
