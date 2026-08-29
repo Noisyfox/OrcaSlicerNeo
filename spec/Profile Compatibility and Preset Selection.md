@@ -1,7 +1,7 @@
 # Profile Compatibility and Preset Selection
 
-**Date:** 2026-08-30  
-**Status:** Draft — decision groups 1–3 accepted; further interactive review pending  
+**Date:** 2026-08-30
+**Status:** Draft — decision groups 1–3 accepted; further interactive review pending
 **Scope:** Compatibility-driven system preset selection in the shared Electron/Web application.
 
 ## 1. Purpose
