@@ -417,29 +417,19 @@
 > (threaded + serial), Electron e2e (mock + real WASM), and Web e2e (threaded +
 > serial) all pass.
 
-### Milestone 14 — Printer Control Foundation (step 3)
+### Milestone 14 — Printer Console and Control
 
-> **Steps 1–3 delivered 2026-08-28.** The final printer configuration and
-> Moonraker control experience is recorded in
-> `doc/2026-08-30-printer-console-and-control-ux.md`.
+> **Status: delivered 2026-08-28.** The final user experience is recorded in
+> [`2026-08-30-printer-console-and-control-ux.md`](2026-08-30-printer-console-and-control-ux.md).
 
-### Milestone 15 — WebViewPanel contract and Web iframe foundation
-
-> **Status: implemented 2026-08-28.** The final cross-platform console
-> experience is recorded in
-> `doc/2026-08-30-printer-console-and-control-ux.md`.
-
-### Milestone 16 — Device printer configuration UI
-
-> **Implemented 2026-08-28.** The final Device page and printer configuration
-> experience is recorded in
-> `doc/2026-08-30-printer-console-and-control-ux.md`.
-
-### Milestone 17 — Send and Send & Print workflow
-
-> **Implemented 2026-08-28.** The final Send and Send & Print experience is
-> recorded in
-> `doc/2026-08-30-printer-console-and-control-ux.md`.
+- [x] Manage multiple saved printers from the top-level Device page, with an
+      embedded console, add/edit/delete actions, and explicit console selection
+- [x] View a printer's console in Electron with automatic API-key reuse when
+      configured, and in Web through best-effort iframe embedding
+- [x] Send G-code or Send & Print through the selected printer's Moonraker API,
+      with progress, cancellation, start-only retry, and optional keyless use
+- [x] After success, count down before closing and optionally switch to Device;
+      this preference is persisted and enabled by default
 
 ## Cross-Cutting Practices
 

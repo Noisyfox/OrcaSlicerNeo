@@ -313,42 +313,19 @@ and drives structural operations through the typed client.
       ObjectList selection sync
 - [x] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage
 
-## Milestone 14: Printer Control Foundation (step 3)
+## Milestone 14: Printer Console and Control
 
-> [!info] Steps 1–3 **delivered 2026-08-28** — the final user experience is
+> [!info] Status: **delivered 2026-08-28**. The final user experience is
 > recorded in [`2026-08-30-printer-console-and-control-ux.md`](../doc/2026-08-30-printer-console-and-control-ux.md).
 
-- [x] Provide saved printer configurations and Moonraker control from the
-      Device page and Send G-code workflow
-
-## Milestone 15: WebViewPanel Contract and Web iframe Foundation
-
-> [!info] Status: **implemented 2026-08-28** — the final user experience is
-> recorded in [`2026-08-30-printer-console-and-control-ux.md`](../doc/2026-08-30-printer-console-and-control-ux.md).
-
-- [x] Electron embedded console experience with Moonraker API-key reuse where
-      supported by the desktop host
-- [x] Web embedded console experience through a best-effort iframe
-
-## Milestone 16: Device printer configuration UI
-
-> [!info] Implemented 2026-08-28 — see the final user experience in
-> [`2026-08-30-printer-console-and-control-ux.md`](../doc/2026-08-30-printer-console-and-control-ux.md).
-
-- [x] Provide the top-level Device page with multiple printer configurations,
-      explicit console selection, and add/edit/delete management
-
-## Milestone 17: Send and Send & Print workflow
-
-> [!info] Implemented 2026-08-28 — see the final user experience in
-> [`2026-08-30-printer-console-and-control-ux.md`](../doc/2026-08-30-printer-console-and-control-ux.md).
-
-- [x] Provide separate Send and Send & Print actions with progress,
-      cancellation, start retry, and the persisted post-success Device
-      navigation option
-- [x] Disable actions for incomplete slices, missing API base URL, or
-      unsupported drivers with generic, key-free messages; allow keyless
-      Moonraker requests without sending `X-Api-Key`
+- [x] Manage multiple saved printers from the top-level Device page, with an
+      embedded console, add/edit/delete actions, and explicit console selection
+- [x] View a printer's console in Electron with automatic API-key reuse when
+      configured, and in Web through best-effort iframe embedding
+- [x] Send G-code or Send & Print through the selected printer's Moonraker API,
+      with progress, cancellation, start-only retry, and optional keyless use
+- [x] After success, count down before closing and optionally switch to Device;
+      this preference is persisted and enabled by default
 
 ## Cross-cutting titlebar/native menu implementation
 
@@ -378,8 +355,8 @@ and drives structural operations through the typed client.
 - [ ] Perf tuning for large plates
 - [ ] STEP import (OCCT Emscripten port decision)
 - [ ] CGAL features: mesh boolean, hollowing, advanced cut
-- [x] Device panel & printer connectivity foundation (Moonraker; Device UI
-      delivered in Milestone 16; additional drivers remain future work)
+- [x] Device panel & printer connectivity foundation (Moonraker; additional
+      drivers remain future work)
 - [ ] Calibration wizards
 - [ ] i18n (i18next + `.po` → JSON conversion)
 - [ ] Auto-update + code signing (macOS notarization)
