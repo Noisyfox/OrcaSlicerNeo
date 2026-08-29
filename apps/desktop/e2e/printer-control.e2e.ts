@@ -11,7 +11,9 @@ const API_KEY = 'fixture-api-key-do-not-log';
 interface MoonrakerFixtureState {
   consoleApiKeys: string[];
   uploadBodies: Buffer[];
+  uploadApiKeys: Array<string | undefined>;
   startPaths: string[];
+  startApiKeys: Array<string | undefined>;
   startFailures: number;
 }
 
@@ -27,19 +29,26 @@ function sendJson(response: ServerResponse, status: number, value: unknown): voi
   response.end(body);
 }
 
+function requestApiKey(request: IncomingMessage): string | undefined {
+  const key = request.headers['x-api-key'];
+  return Array.isArray(key) ? key[0] : key;
+}
+
 async function readBody(request: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   return Buffer.concat(chunks);
 }
 
-async function startMoonrakerFixture(): Promise<MoonrakerFixture> {
+async function startMoonrakerFixture(startFailures = 1): Promise<MoonrakerFixture> {
   const state: MoonrakerFixtureState = {
     consoleApiKeys: [],
     uploadBodies: [],
+    uploadApiKeys: [],
     startPaths: [],
+    startApiKeys: [],
     // The first Send & Print start fails. The explicit retry succeeds.
-    startFailures: 1,
+    startFailures,
   };
 
   const server: Server = createServer(async (request, response) => {
@@ -66,11 +75,13 @@ async function startMoonrakerFixture(): Promise<MoonrakerFixture> {
       return;
     }
     if (request.method === 'POST' && pathname === '/server/files/upload') {
+      state.uploadApiKeys.push(requestApiKey(request));
       state.uploadBodies.push(await readBody(request));
       sendJson(response, 200, { result: { item: { path: 'gcodes/fixture-output.gcode' } } });
       return;
     }
     if (request.method === 'POST' && pathname === '/printer/print/start') {
+      state.startApiKeys.push(requestApiKey(request));
       const body = JSON.parse((await readBody(request)).toString('utf8')) as { filename?: unknown };
       state.startPaths.push(typeof body.filename === 'string' ? body.filename : '');
       if (state.startFailures > 0) {
@@ -237,6 +248,36 @@ test('Send and Send & Print use Moonraker fixture without re-upload on start fai
     await expect.poll(() => fixture.state.uploadBodies.length).toBe(2);
     await expect.poll(() => fixture.state.startPaths.length).toBe(2);
     await expect(fixture.state.startPaths[1]).toBe('gcodes/fixture-output.gcode');
+  } finally {
+    await app.close();
+    await fixture.close();
+  }
+});
+
+test('Send & Print works with a keyless Moonraker printer and sends no API-key headers', async () => {
+  const fixture = await startMoonrakerFixture(0);
+  const printerId = 'keyless-fixture-printer';
+  const { app } = await launchApp({
+    version: 1,
+    printers: [{
+      id: printerId,
+      displayName: 'Keyless Fixture Printer',
+      driverId: 'moonraker',
+      consoleUrl: `${fixture.baseUrl}/console`,
+      apiBaseUrl: fixture.baseUrl,
+      apiKey: '',
+    }],
+  });
+  try {
+    const page = await app.firstWindow();
+    await waitForReady(page);
+    await addFixtureModelAndSlice(page);
+    await page.getByTestId('btn-send-and-print').click();
+    await chooseSendPrinter(page, printerId);
+    await page.getByTestId('send-submit').click();
+    await expect(page.getByTestId('send-operation-message')).toContainText('uploaded and print started');
+    await expect.poll(() => fixture.state.uploadApiKeys).toEqual([undefined]);
+    await expect.poll(() => fixture.state.startApiKeys).toEqual([undefined]);
   } finally {
     await app.close();
     await fixture.close();

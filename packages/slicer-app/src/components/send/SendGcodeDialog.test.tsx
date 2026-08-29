@@ -157,14 +157,28 @@ describe('SendGcodeDialog', () => {
     expect(container.querySelector('[data-testid="send-submit"]')).toHaveProperty('disabled', true);
   });
 
-  it('disables sending and uses a generic message when the API key is missing', async () => {
+  it('allows sending without an API key and leaves the authentication header absent', async () => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
     const { platform } = makePlatform(transport, { version: 1, printers: [{ ...printers[0], apiKey: '' }] });
     const { container, root } = await render(platform, 'send');
     roots.push(root);
-    expect(container.querySelector('[data-testid="send-disabled-reason"]')?.textContent).toContain('missing required');
     expect(container.textContent).not.toContain('secret-key-must-not-render');
-    expect(transport.requests).toHaveLength(0);
+    expect(container.querySelector('[data-testid="send-disabled-reason"]')).toBeNull();
+    await click(container, 'send-submit');
+    expect(transport.requests).toHaveLength(1);
+    expect(transport.requests[0].headers).toEqual({});
+  });
+
+  it('allows keyless Send & Print and omits authentication from both requests', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform } = makePlatform(transport, { version: 1, printers: [{ ...printers[0], apiKey: '' }] });
+    const { container, root } = await render(platform, 'send-and-print');
+    roots.push(root);
+    await click(container, 'send-submit');
+    expect(transport.requests).toHaveLength(2);
+    expect(transport.requests.map((request) => request.headers)).toEqual([{}, { 'Content-Type': 'application/json' }]);
+    expect(container.querySelector('[data-testid="send-operation-message"]')?.textContent).toContain('uploaded and print started');
   });
 });

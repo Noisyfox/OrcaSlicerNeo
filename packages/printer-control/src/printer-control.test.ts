@@ -101,6 +101,17 @@ describe('Moonraker driver', () => {
     expect(JSON.parse((transport.requests[0].body as { kind: 'json'; json: string }).json)).toEqual({ filename: 'gcodes/remote.gcode' });
   });
 
+  it('omits authentication headers for keyless upload and start requests', async () => {
+    const transport = new FixtureTransport();
+    transport.responses.push({ result: { item: { path: 'gcodes/keyless.gcode' } } }, { result: {} });
+    const noKey = { ...printer, apiKey: '' };
+    const driver = new MoonrakerDriver(transport);
+    const uploaded = await driver.uploadGcode(noKey, { bytes: new Uint8Array([1]), fileName: 'keyless.gcode' });
+    await driver.startPrint(noKey, uploaded);
+    expect(transport.requests[0].headers).toEqual({});
+    expect(transport.requests[1].headers).toEqual({ 'Content-Type': 'application/json' });
+  });
+
   it('uses the documented status query and Moonraker G-code control commands', async () => {
     const transport = new FixtureTransport();
     transport.responses.push(

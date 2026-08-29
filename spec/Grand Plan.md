@@ -405,8 +405,9 @@ and drives structural operations through the typed client.
 - [x] Report upload progress, busy/cancelled/success/error states accessibly;
       preserve `start-failed-after-upload` and offer a start-only retry without
       re-uploading
-- [x] Disable actions for incomplete slices, missing configuration/API key, or
-      unsupported drivers with generic, key-free messages
+- [x] Disable actions for incomplete slices, missing API base URL, or
+      unsupported drivers with generic, key-free messages; allow keyless
+      Moonraker requests without sending `X-Api-Key`
 - [x] Add focused component coverage for action differences, selection,
       progress, cancellation, start failure/no-reupload, and key redaction
 - [x] Add deterministic loopback Moonraker + console fixtures for Electron E2E:

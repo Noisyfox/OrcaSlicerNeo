@@ -520,6 +520,8 @@ coverage now observes the guest console's `X-API-Key` request; see
 
 - The shared toolbar exposes separate Send (upload-only) and Send & Print
   (upload then start) actions after a completed slice.
+- The API base URL is required for sending, while the API key is optional;
+  keyless Moonraker upload/start requests omit `X-Api-Key`.
 - The modal owns an independent, ephemeral printer selection; it never
   reuses or persists Device tab selection and never silently chooses a
   replacement when the previous target was removed.

@@ -1,6 +1,6 @@
 # Send and Send & Print workflow
 
-**Date:** 2026-08-28
+**Date:** 2026-08-30
 
 **Status:** Implemented
 
@@ -14,7 +14,8 @@
   to preferences or the printer configuration repository.
 - The modal validates the selected configuration before enabling an action:
   the slice must be complete, a printer must be explicitly selected, the
-  driver must be Moonraker, and both API base URL and API key must be present.
+  driver must be Moonraker, and the API base URL must be present. An API key
+  is optional; when absent, Moonraker requests omit `X-Api-Key`.
   Missing or unsupported setup is reported with generic, key-free copy.
 - **Send** calls `PrinterControlService.uploadOnly()` exactly once.
   **Send & Print** calls `uploadThenStart()`, which uploads once and then uses
@@ -30,8 +31,9 @@
 
 The shared component tests cover action/request differences, ephemeral
 selection (including a deleted previous target), progress and cancellation,
-start failure after upload without re-upload, and API-key redaction. No real
-LAN printer or webview is used.
+start failure after upload without re-upload, API-key redaction, and keyless
+upload/start requests. The Electron fixture covers the same keyless
+Send & Print path without a real LAN printer.
 
 ## Deliberate limits
 

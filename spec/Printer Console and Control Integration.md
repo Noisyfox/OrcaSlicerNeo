@@ -752,6 +752,18 @@ This keeps configuration faithful to the user's input while allowing a simple
 single-endpoint printer setup. The fallback affects only the embedded console;
 direct Moonraker API requests continue to use `apiBaseUrl`.
 
+### 3.22 Stage 22 — Keyless Moonraker control (2026-08-30)
+
+**Decision:** A Moonraker API key is optional for direct printer control. The
+API base URL remains required, and Send / Send & Print are enabled for a valid
+Moonraker configuration with an empty key. The driver omits `X-Api-Key`
+entirely when no key is configured; it does not send an empty authentication
+header.
+
+Console injection remains conditional on a non-empty API key. A keyless
+embedded console therefore loads normally but does not receive the built-in
+API-key injection script.
+
 ## 4. Questions queued for the next stages
 
 No unresolved product-design questions are currently queued. Implementation

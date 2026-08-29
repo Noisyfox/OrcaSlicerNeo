@@ -44,7 +44,7 @@ function unavailableReason(
   if (printers.length === 0) return 'Configure a Moonraker printer in Device before sending.';
   if (!selected) return 'Select a printer to send G-code.';
   if (selected.driverId !== 'moonraker') return 'The selected printer driver is not supported.';
-  if (!selected.apiBaseUrl || !selected.apiKey) return 'The selected printer is missing required connection settings.';
+  if (!selected.apiBaseUrl) return 'The selected printer is missing a required API base URL.';
   return null;
 }
 
