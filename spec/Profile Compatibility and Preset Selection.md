@@ -1,7 +1,7 @@
 # Profile Compatibility and Preset Selection
 
 **Date:** 2026-08-30
-**Status:** Draft — decision groups 1–7 accepted; further interactive review pending
+**Status:** Draft — decision groups 1–8 accepted; further interactive review pending
 **Scope:** Compatibility-driven system preset selection in the shared Electron/Web application.
 
 ## 1. Purpose
@@ -21,6 +21,8 @@ Compatibility must be evaluated by the bundled OrcaSlicer profile engine, not
 reimplemented in TypeScript. This preserves the upstream semantics for
 resolved `inherits` chains, explicit compatible-printer/profile lists,
 condition expressions, profile-library exclusions, and parent-printer rules.
+No additional same-vendor restriction is applied: a cross-vendor Process or
+Filament is a candidate whenever the OrcaSlicer engine considers it compatible.
 
 For FFF profiles, the effective compatibility set is:
 
@@ -105,15 +107,16 @@ but the transition result must be applied coherently.
 ### 5.1 Atomic preset snapshot
 
 A successful preset selection returns one atomic compatibility snapshot from
-the C++ bridge. The snapshot contains the final selections and the complete
-Printer, Process, and Filament lists including their visibility and
-compatibility state. It is created only after the profile engine has completed
-compatibility evaluation and any required fallback selection.
+the C++ bridge. The snapshot contains the final selections and only the
+candidate lists the pickers may render: visible Printers, visible-and-
+compatible Processes, and visible-and-compatible Filaments. It is created only
+after the profile engine has completed compatibility evaluation and any
+required fallback selection.
 
 The shared UI replaces its complete preset state from that snapshot. It must
-not compose a new selection with independently fetched, potentially stale
-Process or Filament lists. Initial loading should use the same coherent
-snapshot model.
+not repeat compatibility filtering or compose a new selection with
+independently fetched, potentially stale Process or Filament lists. Initial
+loading uses the same coherent snapshot model.
 
 ### 5.2 In-flight interaction
 
