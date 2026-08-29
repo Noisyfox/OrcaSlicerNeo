@@ -87,6 +87,25 @@ describe('SendGcodeDialog', () => {
     expect((platform.printers.configuration.save as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
+  it('shows the printer name for an id selection and sends with that complete configuration', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send', 'p2');
+    roots.push(root);
+
+    const trigger = container.querySelector('[data-testid="send-printer-select"]') as HTMLElement;
+    expect(trigger.textContent).toContain('Office');
+    expect(trigger.textContent).not.toContain('p2');
+    expect(container.querySelector('[data-testid="send-disabled-reason"]')).toBeNull();
+
+    await click(container, 'send-submit');
+    expect(transport.requests[0]).toMatchObject({
+      url: 'http://office.local:7125/server/files/upload',
+      headers: { 'X-Api-Key': 'another-secret' },
+    });
+  });
+
   it('uploads then starts for Send & Print and reports a start failure without retrying upload', async () => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();

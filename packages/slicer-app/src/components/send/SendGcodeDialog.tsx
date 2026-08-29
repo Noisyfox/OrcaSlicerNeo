@@ -48,6 +48,12 @@ function unavailableReason(
   return null;
 }
 
+/** Keep the select value stable as the internal id while showing user-facing text. */
+function printerLabel(value: unknown, printers: readonly PrinterConfiguration[]): string {
+  if (typeof value !== 'string') return '';
+  return printers.find((printer) => printer.id === value)?.displayName ?? '';
+}
+
 export interface SendGcodeDialogProps {
   open: boolean;
   action: SendGcodeAction;
@@ -223,7 +229,9 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
           <label htmlFor="send-printer" className="text-sm font-medium">Printer</label>
           <Select value={selectedPrinterId ?? ''} onValueChange={(value) => { if (value) selectPrinter(value); }} disabled={state === 'loading' || state === 'starting' || document.printers.length === 0}>
             <SelectTrigger id="send-printer" className="w-full" data-testid="send-printer-select" aria-label="Printer">
-              <SelectValue placeholder="Select a printer" />
+              <SelectValue placeholder="Select a printer">
+                {(value) => printerLabel(value, document.printers)}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {document.printers.map((printer) => (
