@@ -1,7 +1,7 @@
 # Profile Compatibility and Preset Selection
 
 **Date:** 2026-08-30
-**Status:** Draft — decision groups 1–6 accepted; further interactive review pending
+**Status:** Draft — decision groups 1–7 accepted; further interactive review pending
 **Scope:** Compatibility-driven system preset selection in the shared Electron/Web application.
 
 ## 1. Purpose
@@ -45,6 +45,11 @@ filament picker = visible AND compatible-with(active printer, active process)
 There is no "show incompatible presets" mode in this version. A future
 advanced inspection or preset-editing feature may add such a mode in a
 separate approved change.
+
+The bridge enforces the same availability boundary. It accepts a requested
+Printer, Process, or Filament only when it is both visible and compatible in
+the current engine state. A hidden or incompatible requested name is rejected;
+the bridge must not silently select a different profile for such a request.
 
 ### 3.2 Selecting a Printer
 
@@ -203,6 +208,10 @@ snapshot contract must not make a future slot-array extension impossible.
 The current version does not expose temporary Printer or profile-definition
 edits that can change compatibility. Compatibility is recomputed only after a
 system preset selection or preference restoration.
+
+Selecting any system Printer, Process, or Filament clears every temporary
+slicer-setting override in the current session. Overrides from one system
+profile combination must never enter the slice configuration for another.
 
 This is deliberate. OrcaSlicer distinguishes selection/restoration from
 editing: selection paths may choose an automatic compatible fallback, whereas
