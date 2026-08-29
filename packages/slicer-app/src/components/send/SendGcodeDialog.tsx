@@ -9,6 +9,8 @@ import {
 } from '@orca/printer-control';
 import { usePlatform, type PlatformCapabilities } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -62,13 +64,15 @@ export interface SendGcodeDialogProps {
   initialSelection?: string | null;
   /** Optional seam for focused component tests and host-neutral embedding. */
   platform?: PlatformCapabilities;
+  /** Invoked after a successful auto-close when the user selected Device. */
+  onNavigateToDevice?: () => void;
 }
 
 /**
  * The Send panel owns an ephemeral target selection. It intentionally does
  * not use DevicePanel's selection or write selection to any repository.
  */
-export function SendGcodeDialog({ open, action, onClose, initialSelection = null, platform: injectedPlatform }: SendGcodeDialogProps) {
+export function SendGcodeDialog({ open, action, onClose, initialSelection = null, platform: injectedPlatform, onNavigateToDevice }: SendGcodeDialogProps) {
   const contextPlatform = usePlatform();
   const platform = injectedPlatform ?? contextPlatform;
   const sliceStatus = useSlicerStore((state) => state.status);
@@ -79,6 +83,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const [progress, setProgress] = useState<{ loaded: number; total?: number; fraction?: number }>({ loaded: 0 });
   const [message, setMessage] = useState<string | null>(null);
   const [closeCountdown, setCloseCountdown] = useState<number | null>(null);
+  const [switchToDeviceAfterSend, setSwitchToDeviceAfterSend] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const operationRef = useRef(0);
@@ -102,7 +107,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     if (resetState) setCloseCountdown(null);
   }
 
-  function startCloseCountdown() {
+  function startCloseCountdown(shouldNavigateToDevice = switchToDeviceAfterSend) {
     clearCloseCountdown();
     let remaining = 5;
     setCloseCountdown(remaining);
@@ -111,6 +116,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       if (remaining <= 0) {
         clearCloseCountdown();
         onClose();
+        if (shouldNavigateToDevice) onNavigateToDevice?.();
         return;
       }
       setCloseCountdown(remaining);
@@ -120,6 +126,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   useEffect(() => {
     if (!open) {
       clearCloseCountdown();
+      setSwitchToDeviceAfterSend(false);
       return;
     }
     let active = true;
@@ -273,6 +280,16 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
             </SelectContent>
           </Select>
         </div>
+        <div className="flex items-center gap-2 text-sm" data-testid="send-switch-to-device-option">
+          <Checkbox
+            id="send-switch-to-device"
+            checked={switchToDeviceAfterSend}
+            onCheckedChange={(checked) => setSwitchToDeviceAfterSend(checked === true)}
+            disabled={busy || state === 'success'}
+            data-testid="send-switch-to-device"
+          />
+          <Label htmlFor="send-switch-to-device">Switch to Device page after sending</Label>
+        </div>
         {reason && <p className="text-sm text-muted-foreground" role="status" data-testid="send-disabled-reason">{reason}</p>}
         {busy && (
           <div className="space-y-2" data-testid="send-progress-status" role="status" aria-live="polite">
@@ -281,7 +298,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
           </div>
         )}
         {message && !busy && <p className={`text-sm ${state === 'error' || state === 'start-failed-after-upload' ? 'text-destructive' : 'text-muted-foreground'}`} role={state === 'error' || state === 'start-failed-after-upload' ? 'alert' : 'status'} data-testid="send-operation-message" data-error-code={state === 'start-failed-after-upload' ? 'start-failed-after-upload' : undefined}>{message}</p>}
-        {state === 'success' && closeCountdown !== null && <p className="text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="send-auto-close-countdown">Closing in {closeCountdown} second{closeCountdown === 1 ? '' : 's'}…</p>}
+        {state === 'success' && closeCountdown !== null && <p className="text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="send-auto-close-countdown">{switchToDeviceAfterSend ? 'Closing and switching to Device' : 'Closing'} in {closeCountdown} second{closeCountdown === 1 ? '' : 's'}…</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{busy ? 'Cancel' : 'Close'}</Button>
           {state === 'start-failed-after-upload' && <Button type="button" variant="secondary" onClick={() => void retryStart()} data-testid="send-retry-start">Retry Start Print</Button>}

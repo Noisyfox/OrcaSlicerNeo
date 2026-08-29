@@ -7,6 +7,10 @@ import type { PrinterConfiguration, PrinterTransport, PrinterTransportRequest, P
 import { SendGcodeDialog } from './SendGcodeDialog';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 
+// jsdom does not provide PointerEvent, while Base UI's checkbox click path
+// constructs one to preserve pointer modifiers.
+if (!window.PointerEvent) Object.defineProperty(window, 'PointerEvent', { value: MouseEvent });
+
 const printers: PrinterConfiguration[] = [
   { id: 'p1', displayName: 'Workshop', driverId: 'moonraker', consoleUrl: 'http://console.local/', apiBaseUrl: 'http://printer.local:7125/', apiKey: 'secret-key-must-not-render' },
   { id: 'p2', displayName: 'Office', driverId: 'moonraker', consoleUrl: 'http://office-console.local/', apiBaseUrl: 'http://office.local:7125/', apiKey: 'another-secret' },
@@ -55,12 +59,13 @@ async function render(
   action: 'send' | 'send-and-print',
   initialSelection: string | null = 'p1',
   onClose: () => void = () => undefined,
+  onNavigateToDevice: () => void = () => undefined,
 ) {
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
   await act(async () => {
-    root.render(<PlatformProvider value={platform}><SendGcodeDialog open action={action} initialSelection={initialSelection} onClose={onClose} /></PlatformProvider>);
+    root.render(<PlatformProvider value={platform}><SendGcodeDialog open action={action} initialSelection={initialSelection} onClose={onClose} onNavigateToDevice={onNavigateToDevice} /></PlatformProvider>);
   });
   return { container, root };
 }
@@ -209,6 +214,62 @@ describe('SendGcodeDialog', () => {
     expect(container.querySelector('[data-testid="send-auto-close-countdown"]')).toBeNull();
   });
 
+  it('closes and switches to Device after five seconds when selected', async () => {
+    vi.useFakeTimers();
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform } = makePlatform(transport);
+    const onClose = vi.fn();
+    const onNavigateToDevice = vi.fn();
+    const { container, root } = await render(platform, 'send', 'p1', onClose, onNavigateToDevice);
+    roots.push(root);
+
+    await click(container, 'send-switch-to-device');
+    expect((container.querySelector('[data-testid="send-switch-to-device"]') as HTMLElement).getAttribute('aria-checked')).toBe('true');
+    await click(container, 'send-submit');
+    expect(container.querySelector('[data-testid="send-auto-close-countdown"]')?.textContent).toContain('Closing and switching to Device in 5 seconds');
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onNavigateToDevice).toHaveBeenCalledOnce();
+    expect(onClose.mock.invocationCallOrder[0]).toBeLessThan(onNavigateToDevice.mock.invocationCallOrder[0]);
+  });
+
+  it('does not switch to Device when a selected success is manually closed', async () => {
+    vi.useFakeTimers();
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform } = makePlatform(transport);
+    const onClose = vi.fn();
+    const onNavigateToDevice = vi.fn();
+    const { container, root } = await render(platform, 'send', 'p1', onClose, onNavigateToDevice);
+    roots.push(root);
+
+    await click(container, 'send-switch-to-device');
+    await click(container, 'send-submit');
+    await click(container, 'send-close');
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onNavigateToDevice).not.toHaveBeenCalled();
+  });
+
+  it('does not switch to Device after a start failure', async () => {
+    vi.useFakeTimers();
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    transport.statuses.push(200, 500);
+    const { platform } = makePlatform(transport);
+    const onNavigateToDevice = vi.fn();
+    const { container, root } = await render(platform, 'send-and-print', 'p1', () => undefined, onNavigateToDevice);
+    roots.push(root);
+
+    await click(container, 'send-switch-to-device');
+    await click(container, 'send-submit');
+    expect(container.querySelector('[data-testid="send-retry-start"]')).not.toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(onNavigateToDevice).not.toHaveBeenCalled();
+  });
+
   it('clears the success close timer when manually closed or unmounted', async () => {
     vi.useFakeTimers();
     useSlicerStore.setState({ status: 'done' });
@@ -255,6 +316,7 @@ describe('SendGcodeDialog', () => {
     await act(async () => {
       root.render(<PlatformProvider value={platform}><SendGcodeDialog open action="send" onClose={onClose} /></PlatformProvider>);
     });
+    expect((container.querySelector('[data-testid="send-switch-to-device"]') as HTMLElement).getAttribute('aria-checked')).toBe('false');
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(onClose).not.toHaveBeenCalled();
   });

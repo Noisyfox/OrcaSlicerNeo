@@ -218,7 +218,7 @@ export default function App() {
   return (
     <AppShell
       titleBar={titleBar}
-      toolbar={<Toolbar activeTab={activePage === 'device' ? 'Device' : activeWorkspaceTab} onTabChange={handleTabChange} />}
+      toolbar={<Toolbar activeTab={activePage === 'device' ? 'Device' : activeWorkspaceTab} onTabChange={handleTabChange} onNavigateToDevice={() => setActivePage('device')} />}
       activePage={activePage}
       workspaceLabelledBy={`app-tab-${activeWorkspaceTab}`}
       workspace={<Workspace onSceneInteractionChange={handleSceneInteractionChange} />}

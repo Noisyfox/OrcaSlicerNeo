@@ -16,9 +16,10 @@ import { SendGcodeDialog, type SendGcodeAction } from '../send/SendGcodeDialog';
 export type WorkspaceTab = 'home' | 'prepare' | 'preview';
 export type AppTab = WorkspaceTab | 'Device';
 
-export function Toolbar({ activeTab = 'home', onTabChange }: {
+export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice }: {
   activeTab?: AppTab;
   onTabChange?: (tab: AppTab) => void;
+  onNavigateToDevice?: () => void;
 } = {}) {
   const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
@@ -76,7 +77,12 @@ export function Toolbar({ activeTab = 'home', onTabChange }: {
         </Button>
       </div>
     </div>
-    <SendGcodeDialog open={sendAction !== null} action={sendAction ?? 'send'} onClose={() => setSendAction(null)} />
+    <SendGcodeDialog
+      open={sendAction !== null}
+      action={sendAction ?? 'send'}
+      onClose={() => setSendAction(null)}
+      onNavigateToDevice={onNavigateToDevice}
+    />
     </>
   );
 }
