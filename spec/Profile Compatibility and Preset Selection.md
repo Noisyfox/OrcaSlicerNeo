@@ -1,7 +1,7 @@
 # Profile Compatibility and Preset Selection
 
 **Date:** 2026-08-30
-**Status:** Draft — decision groups 1–10 accepted; further interactive review pending
+**Status:** Accepted — implementation pending; transition failure policy is a tracked TODO
 **Scope:** Compatibility-driven system preset selection in the shared Electron/Web application.
 
 ## 1. Purpose
