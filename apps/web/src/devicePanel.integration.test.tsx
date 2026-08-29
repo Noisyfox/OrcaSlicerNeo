@@ -87,6 +87,11 @@ describe('DevicePanel component', () => {
 
     await click('device-add-printer');
     expect(container.querySelector('[data-testid="device-config-dialog"]')).not.toBeNull();
+    const form = container.querySelector('[data-testid="device-config-dialog"] form') as HTMLFormElement;
+    const formInputs = [...form.querySelectorAll('input')];
+    expect(formInputs.findIndex((input) => input.dataset.testid === 'device-api-base-url'))
+      .toBeLessThan(formInputs.findIndex((input) => input.dataset.testid === 'device-console-url'));
+    expect((form.querySelector('[data-testid="device-console-url"]') as HTMLInputElement).required).toBe(false);
     const key = container.querySelector('[data-testid="device-api-key"]') as HTMLInputElement;
     expect(key.type).toBe('password');
     expect(container.textContent).not.toContain(printer.apiKey);

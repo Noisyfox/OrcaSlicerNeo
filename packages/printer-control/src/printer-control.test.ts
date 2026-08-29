@@ -42,6 +42,12 @@ describe('printer configuration', () => {
     expect(result.printers.map(item => item.displayName)).toEqual(['Living room', 'Living room']);
   });
 
+  it('accepts a blank console URL while keeping the API base URL required', () => {
+    const result = documentWith({ ...printer, consoleUrl: '   ' });
+    expect(result.printers[0].consoleUrl).toBe('');
+    expect(() => documentWith({ ...printer, consoleUrl: '', apiBaseUrl: '' })).toThrow(PrinterConfigurationValidationError);
+  });
+
   it('rejects unsupported URLs, credentials, duplicate IDs, and unsupported drivers', () => {
     expect(() => normalizePrinterConfigurationDocument({
       version: 1,

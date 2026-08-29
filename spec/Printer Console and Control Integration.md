@@ -450,9 +450,9 @@ Electron document-start injection.
 
 ### 3.12 Stage 12 — Separate endpoints; full shared configuration access (2026-08-27)
 
-**Decision:** Users enter the embedded printer-console URL and the Moonraker
-HTTP API base URL separately. The application does not derive either endpoint
-from the other.
+**Decision:** Users may enter the embedded printer-console URL and must enter
+the Moonraker HTTP API base URL separately. A blank console URL is permitted;
+only the effective embedded-console load target falls back to the API base URL.
 
 **Decision:** Shared UI code may read the complete printer configuration
 record, including its API key.
@@ -460,8 +460,9 @@ record, including its API key.
 Consequences:
 
 - `consoleUrl` is used exclusively by `WebViewPanel`; `apiBaseUrl` is used
-  exclusively by the selected printer API driver. Each is independently parsed
-  and validated as a supported HTTP(S) endpoint.
+  exclusively by the selected printer API driver. A non-blank console URL and
+  the API base URL are independently parsed and validated as supported HTTP(S)
+  endpoints; a blank console URL is retained as an explicit empty value.
 - The create/edit-printer UI presents separate labelled fields and records
   their values unchanged after canonical URL normalization. This supports
   installations where Mainsail/Fluidd and Moonraker are served on different
@@ -736,6 +737,20 @@ Consequences:
   access.
 - Existing unit tests remain appropriate for adapter and reducer behavior, but
   cannot substitute for the Electron guest-injection test.
+
+### 3.21 Stage 21 — Optional console URL fallback (2026-08-29)
+
+**Decision:** The Moonraker API base URL remains required, while the embedded
+console URL is optional. The configuration form presents API base URL first
+and Console URL second.
+
+**Decision:** A blank Console URL is stored as blank and is resolved to the
+same printer's API base URL only when the shared Device console lifecycle loads
+the selected page. A manually supplied Console URL remains the load target.
+
+This keeps configuration faithful to the user's input while allowing a simple
+single-endpoint printer setup. The fallback affects only the embedded console;
+direct Moonraker API requests continue to use `apiBaseUrl`.
 
 ## 4. Questions queued for the next stages
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WebViewHost, WebViewPanel, WebViewPanelCapabilities } from '@orca/platform-contract';
 import type { PrinterConfiguration } from '@orca/printer-control';
-import { mountPrinterConsolePanel, panelMessage, removePrinter, savePrinterDraft, type PrinterDraft } from './DevicePanel';
+import { effectiveConsoleUrl, mountPrinterConsolePanel, panelMessage, removePrinter, savePrinterDraft, type PrinterDraft } from './DevicePanel';
 
 const capabilities: WebViewPanelCapabilities = {
   canInjectBuiltInScripts: true,
@@ -55,6 +55,14 @@ describe('Device printer configuration helpers', () => {
     dispose();
     expect(calls).toEqual(['mount', 'register:moonraker-fetch-v1', 'load:http://printer.local/console', 'dispose']);
     expect(states).toEqual(['idle']);
+  });
+
+  it('uses the API base URL for the console when no console URL is configured', () => {
+    const calls: string[] = [];
+    const blankConsolePrinter = { ...printer, consoleUrl: '' };
+    expect(effectiveConsoleUrl(blankConsolePrinter)).toBe(printer.apiBaseUrl);
+    mountPrinterConsolePanel(fakeHost(calls), {} as HTMLElement, blankConsolePrinter, vi.fn());
+    expect(calls).toEqual(['mount', 'register:moonraker-fetch-v1', `load:${printer.apiBaseUrl}`]);
   });
 
   it('does not request injection when the key is empty', () => {

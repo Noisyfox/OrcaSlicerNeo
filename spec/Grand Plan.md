@@ -374,7 +374,8 @@ and drives structural operations through the typed client.
 - [x] Ephemeral Device-only selection; new records remain unselected and
       removing the selected record clears/disposes the console
 - [x] WebView lifecycle ordering: mount without URL, register fixed
-      `moonraker-fetch-v1` when applicable, then load console URL
+      `moonraker-fetch-v1` when applicable, then load effective console URL
+      (Console URL, or API base URL when Console URL is blank)
 - [x] Focused tests for normalized records, lifecycle ordering, disposal,
       empty-key behavior, and no persisted selection
 - [x] jsdom component coverage for Device rendering, explicit selection,
@@ -387,6 +388,9 @@ and drives structural operations through the typed client.
       independently resizable 220–560px printer sidebar (288px default) and
       persist its width as `ui.deviceSidebarWidth` without changing
       `ui.sidebarWidth` (`doc/2026-08-28-device-panel-layout.md`)
+- [x] Place the required API base URL before the optional Console URL; retain
+      a blank Console URL in storage and resolve it to the API base URL only
+      when loading the embedded console (`doc/2026-08-29-console-url-fallback.md`)
 
 ## Milestone 17: Send and Send & Print workflow
 

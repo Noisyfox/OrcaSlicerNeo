@@ -494,7 +494,8 @@ coverage now observes the guest console's `X-API-Key` request; see
   selected automatically; deleting the selected record clears the empty state.
 - Selecting a record mounts `platform.webview` without a URL, registers the
   fixed `moonraker-fetch-v1` script only when a key exists, and then loads its
-  separate console URL. Changes and unmount dispose the previous panel. API
+  configured Console URL, falling back to API base URL when blank. Changes and
+  unmount dispose the previous panel. API
   keys remain password-masked and absent from visible copy and diagnostics.
   Helper and jsdom component tests cover the rendered CRUD/selection flow and
   the fake-WebView lifecycle without requiring a LAN printer. The dedicated
@@ -508,6 +509,10 @@ coverage now observes the guest console's `X-API-Key` request; see
   resizable 220–560px printer sidebar (288px default), accessible pointer and
   keyboard divider, and persisted `ui.deviceSidebarWidth` separate from the
   Workspace `ui.sidebarWidth`. See `doc/2026-08-28-device-panel-layout.md`.
+- The printer form places the required API base URL before an optional Console
+  URL. A blank Console URL is retained as blank and resolves to the API base
+  URL only at the shared console-load boundary; a distinct console URL remains
+  authoritative. See `doc/2026-08-29-console-url-fallback.md`.
 
 ### Milestone 17 — Send and Send & Print workflow
 

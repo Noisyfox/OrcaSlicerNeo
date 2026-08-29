@@ -55,6 +55,14 @@ function normalizeUrl(value: unknown, field: string, issues: string[]): string {
   }
 }
 
+function normalizeOptionalUrl(value: unknown, field: string, issues: string[]): string {
+  // An omitted or blank console URL intentionally means "use apiBaseUrl".
+  // Keep the stored value blank so editing does not silently replace the
+  // user's endpoint with a derived value.
+  if (value === undefined || (typeof value === 'string' && value.trim().length === 0)) return '';
+  return normalizeUrl(value, field, issues);
+}
+
 /**
  * Parse, validate, and canonicalize a version-1 printer document.
  * No network request is made. A failed parse is deliberately explicit so a
@@ -91,12 +99,12 @@ export function normalizePrinterConfigurationDocument(value: unknown): PrinterCo
       issues.push(`${prefix}.driverId is not a supported built-in driver`);
     }
 
-    const consoleUrl = normalizeUrl(raw.consoleUrl, `${prefix}.consoleUrl`, issues);
+    const consoleUrl = normalizeOptionalUrl(raw.consoleUrl, `${prefix}.consoleUrl`, issues);
     const apiBaseUrl = normalizeUrl(raw.apiBaseUrl, `${prefix}.apiBaseUrl`, issues);
     if (typeof raw.apiKey !== 'string') issues.push(`${prefix}.apiKey must be a string`);
 
     if (id && displayName && BUILT_IN_PRINTER_DRIVER_IDS.includes(driverId as BuiltInPrinterDriverId)
-      && consoleUrl && apiBaseUrl && typeof raw.apiKey === 'string') {
+      && apiBaseUrl && typeof raw.apiKey === 'string') {
       printers.push({
         id,
         displayName,

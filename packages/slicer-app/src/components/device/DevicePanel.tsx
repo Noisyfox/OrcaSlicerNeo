@@ -58,6 +58,11 @@ export function panelMessage(state: WebViewPanelState): string {
   return 'Select a printer to open its console.';
 }
 
+/** Resolve the embedded console target without changing the stored record. */
+export function effectiveConsoleUrl(printer: PrinterConfiguration): string {
+  return printer.consoleUrl || printer.apiBaseUrl;
+}
+
 export interface DevicePanelProps {
   /** Optional test seam; production state always starts from the repository. */
   initialSelection?: string | null;
@@ -80,7 +85,7 @@ export function mountPrinterConsolePanel(
   if (printer.driverId === 'moonraker' && printer.apiKey.length > 0) {
     panel.registerBuiltInScript({ scriptId: 'moonraker-fetch-v1', context: { apiKey: printer.apiKey } });
   }
-  panel.load(printer.consoleUrl);
+  panel.load(effectiveConsoleUrl(printer));
   return () => {
     if (disposed) return;
     disposed = true;
@@ -257,7 +262,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
   // the configured URL. This ordering is required for Electron document_start.
   useEffect(() => {
     const container = webviewContainerRef.current;
-    if (!container || !selectedPrinter || !selectedPrinter.consoleUrl) {
+    if (!container || !selectedPrinter) {
       setPanelState({ status: 'idle', url: null, error: null });
       return;
     }
@@ -271,6 +276,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
     platform.webview,
     selectedPrinter?.id,
     selectedPrinter?.consoleUrl,
+    selectedPrinter?.apiBaseUrl,
     selectedPrinter?.apiKey,
     selectedPrinter?.driverId,
   ]);
@@ -403,7 +409,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
 
         <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card" aria-label="Printer console">
           <div ref={webviewContainerRef} className="absolute inset-0 [&>iframe]:h-full [&>iframe]:w-full [&>webview]:h-full [&>webview]:w-full" data-testid="device-webview-container" />
-          {(!selectedPrinter || !selectedPrinter.consoleUrl) && (
+          {!selectedPrinter && (
             <div className="absolute inset-0 flex items-center justify-center p-6">
               <div className="max-w-sm text-center text-sm text-muted-foreground" data-testid="device-console-empty">
                 <Monitor className="mx-auto mb-3 size-10 opacity-60" />
@@ -411,7 +417,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               </div>
             </div>
           )}
-          {selectedPrinter && selectedPrinter.consoleUrl && panelState.status !== 'idle' && (
+          {selectedPrinter && panelState.status !== 'idle' && (
             <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground" data-testid="device-console-status" role={panelState.status === 'error' ? 'alert' : undefined}>
               {panelMessage(panelState)}
             </div>
@@ -456,12 +462,12 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               </Select>
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="device-console-url">Console URL</Label>
-              <Input id="device-console-url" data-testid="device-console-url" type="url" placeholder="https://printer.local/" value={draft.consoleUrl} onChange={(event) => setDraft({ ...draft, consoleUrl: event.target.value })} required />
-            </div>
-            <div className="flex flex-col gap-2">
               <Label htmlFor="device-api-base-url">API base URL</Label>
               <Input id="device-api-base-url" data-testid="device-api-base-url" type="url" placeholder="http://printer.local:7125/" value={draft.apiBaseUrl} onChange={(event) => setDraft({ ...draft, apiBaseUrl: event.target.value })} required />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="device-console-url">Console URL <span className="font-normal text-muted-foreground">(optional)</span></Label>
+              <Input id="device-console-url" data-testid="device-console-url" type="url" placeholder="Uses API base URL when blank" value={draft.consoleUrl} onChange={(event) => setDraft({ ...draft, consoleUrl: event.target.value })} />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="device-api-key">API key</Label>
