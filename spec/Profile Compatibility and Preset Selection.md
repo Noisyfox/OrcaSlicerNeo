@@ -1,7 +1,7 @@
 # Profile Compatibility and Preset Selection
 
 **Date:** 2026-08-30
-**Status:** Draft — decision groups 1–4 accepted; further interactive review pending
+**Status:** Draft — decision groups 1–5 accepted; further interactive review pending
 **Scope:** Compatibility-driven system preset selection in the shared Electron/Web application.
 
 ## 1. Purpose
@@ -144,15 +144,37 @@ requested by the user.
 Preference write failures do not roll back the active in-memory preset state
 or its UI. The session remains usable and the failure is logged.
 
-## 7. Explicitly Deferred Questions
+## 7. Accepted Verification Strategy
+
+Compatibility is complete only when all of the following verification layers
+pass:
+
+1. **Bridge / real WASM:** validate native OrcaSlicer compatibility behaviour,
+   including explicit name lists, condition expressions, Printer-to-Process-to-
+   Filament recalculation, and fallback selection.
+2. **Client and shared-UI unit tests:** validate atomic snapshot replacement,
+   strict hiding, in-flight selector locking, and persistence of the resolved
+   selection triple.
+3. **Electron and Web E2E:** switch Printer and verify that Process and
+   Filament contents update, old slice output is invalidated, and G-code cannot
+   be exported until a new slice completes.
+
+Most real-WASM assertions use a small deterministic profile fixture designed
+for compatibility tests. It must cover explicit `compatible_printers`, a
+`compatible_printers_condition`, `compatible_prints`, and fallback behaviour.
+This prevents routine upstream profile renames or edits from weakening test
+determinism. A separate smoke/E2E path uses the complete packaged system
+profile tree to verify production packaging and real data.
+
+## 8. Explicitly Deferred Questions
 
 - Exact failure semantics for a rejected selection or an invalid/incomplete
   compatibility snapshot.
 - Exact automated test matrix and the choice of real-profile fixtures.
 
-## 8. Accepted Scope and Editing Boundary
+## 9. Accepted Scope and Editing Boundary
 
-### 8.1 Profile scope
+### 9.1 Profile scope
 
 Current acceptance covers every installed system profile supplied by the
 profile packages. This feature does not add user-profile creation, importing,
@@ -164,7 +186,7 @@ for user/imported/external presets may use the same engine and inherit its
 parent-preset and compatibility semantics, but its product behaviour requires
 a separate specification change.
 
-### 8.2 Temporary option edits
+### 9.2 Temporary option edits
 
 The current version does not expose temporary Printer or profile-definition
 edits that can change compatibility. Compatibility is recomputed only after a
