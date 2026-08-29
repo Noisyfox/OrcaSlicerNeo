@@ -87,12 +87,23 @@ describe('SendGcodeDialog', () => {
     expect((platform.printers.configuration.save as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 
-  it('shows the printer name for an id selection and sends with that complete configuration', async () => {
+  it('shows the printer name after choosing an id and sends with that complete configuration', async () => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
     const { platform } = makePlatform(transport);
-    const { container, root } = await render(platform, 'send', 'p2');
+    const { container, root } = await render(platform, 'send', null);
     roots.push(root);
+
+    await act(async () => {
+      (container.querySelector('[data-testid="send-printer-select"]') as HTMLElement).click();
+    });
+    const item = document.querySelector('[data-testid="send-printer-p2"]') as HTMLElement;
+    await act(async () => {
+      // Base UI deliberately ignores a bare programmatic click. Model the
+      // pointerdown that a real user interaction produces before activation.
+      item.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      item.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    });
 
     const trigger = container.querySelector('[data-testid="send-printer-select"]') as HTMLElement;
     expect(trigger.textContent).toContain('Office');
