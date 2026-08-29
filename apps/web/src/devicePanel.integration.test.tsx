@@ -31,9 +31,15 @@ function makePlatform(calls: string[]) {
     async executeJavaScript() { return { status: 'unsupported', reason: 'capability-unavailable' }; },
     dispose() { calls.push('dispose'); },
   };
+  let onStateChange: ((state: WebViewPanel['state']) => void) | undefined;
+  const originalMount = panel;
   const webview: WebViewHost = {
     capabilities,
-    mount() { calls.push('mount'); return panel; },
+    mount(_container, _options, events = {}) {
+      calls.push('mount');
+      onStateChange = events.onStateChange;
+      return originalMount;
+    },
   };
   const userPreferences = {
     load: vi.fn(async () => preferences),
@@ -49,6 +55,7 @@ function makePlatform(calls: string[]) {
     } as unknown as PlatformCapabilities,
     configuration,
     preferences: userPreferences,
+    emitPanelState(state: WebViewPanel['state']) { onStateChange?.(state); },
   };
 }
 
@@ -167,5 +174,32 @@ describe('DevicePanel component', () => {
     expect(preferences.save).toHaveBeenCalledWith(expect.objectContaining({
       ui: { sidebarWidth: 244, deviceSidebarWidth: 336 },
     }));
+  });
+
+  it('only shows console status while loading or after a load failure', async () => {
+    const calls: string[] = [];
+    const { platform, emitPanelState } = makePlatform(calls);
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><DevicePanel /></PlatformProvider>);
+    });
+    await click('device-select-p1');
+
+    await act(async () => {
+      emitPanelState({ status: 'loading', url: printer.consoleUrl, error: null });
+    });
+    expect(container.querySelector('[data-testid="device-console-status"]')?.textContent).toContain('Loading printer console');
+
+    await act(async () => {
+      emitPanelState({ status: 'loaded', url: printer.consoleUrl, error: null });
+    });
+    expect(container.querySelector('[data-testid="device-console-status"]')).toBeNull();
+
+    await act(async () => {
+      emitPanelState({ status: 'error', url: printer.consoleUrl, error: 'secret details must stay hidden' });
+    });
+    expect(container.querySelector('[data-testid="device-console-status"]')?.textContent).toBe('The printer console could not be loaded.');
   });
 });

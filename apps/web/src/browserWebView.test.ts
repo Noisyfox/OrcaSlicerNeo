@@ -21,11 +21,14 @@ describe('browser WebView host', () => {
 
     iframe!.dispatchEvent(new Event('load'));
     expect(panel.state.status).toBe('loaded');
+    expect(onStateChange).toHaveBeenLastCalledWith({ status: 'loaded', url: 'https://printer.example/console', error: null });
     expect(onNavigation).toHaveBeenCalledWith('https://printer.example/console');
     panel.load('https://printer.example/other');
     expect(iframe!.getAttribute('src')).toBe('https://printer.example/other');
     expect(panel.state.status).toBe('loading');
     expect(onStateChange).toHaveBeenCalledWith({ status: 'loading', url: 'https://printer.example/other', error: null });
+    iframe!.dispatchEvent(new Event('error'));
+    expect(panel.state).toEqual({ status: 'error', url: 'https://printer.example/other', error: 'embedded content failed to load' });
   });
 
   it('reports load failures without exposing page details', () => {

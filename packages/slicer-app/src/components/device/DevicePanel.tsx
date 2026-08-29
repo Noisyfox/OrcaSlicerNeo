@@ -51,11 +51,10 @@ function newPrinterId(): string {
   return `printer-${Date.now().toString(36)}-${printerIdSequence.toString(36)}`;
 }
 
-export function panelMessage(state: WebViewPanelState): string {
+export function panelMessage(state: WebViewPanelState): string | null {
   if (state.status === 'loading') return 'Loading printer console…';
-  if (state.status === 'loaded') return 'Printer console loaded';
   if (state.status === 'error') return 'The printer console could not be loaded.';
-  return 'Select a printer to open its console.';
+  return null;
 }
 
 /** Resolve the embedded console target without changing the stored record. */
@@ -417,7 +416,7 @@ export function DevicePanel({ initialSelection = null }: DevicePanelProps = {}) 
               </div>
             </div>
           )}
-          {selectedPrinter && panelState.status !== 'idle' && (
+          {selectedPrinter && panelMessage(panelState) && (
             <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground" data-testid="device-console-status" role={panelState.status === 'error' ? 'alert' : undefined}>
               {panelMessage(panelState)}
             </div>

@@ -125,9 +125,16 @@ describe('Electron webview security and lifecycle', () => {
     expect(loadURL).toHaveBeenCalledWith('https://printer.example/console');
     webview.dispatchEvent(new Event('did-finish-load'));
     expect(panel.state.status).toBe('loaded');
+    expect(onStateChange).toHaveBeenLastCalledWith({ status: 'loaded', url: 'https://printer.example/console', error: null });
     expect(onNavigation).toHaveBeenCalledWith('https://printer.example/console');
     await expect(panel.executeJavaScript('document.title')).resolves.toEqual({ status: 'ok', value: { ok: true } });
     expect(executeJavaScript).toHaveBeenCalledWith('document.title', false);
+    webview.dispatchEvent(new Event('did-start-loading'));
+    expect(panel.state).toEqual({ status: 'loading', url: 'https://printer.example/console', error: null });
+    webview.dispatchEvent(new Event('did-stop-loading'));
+    expect(panel.state).toEqual({ status: 'loaded', url: 'https://printer.example/console', error: null });
+    webview.dispatchEvent(new Event('did-fail-load'));
+    expect(panel.state).toEqual({ status: 'error', url: 'https://printer.example/console', error: 'embedded content failed to load' });
     panel.dispose();
     expect((webview as unknown as { removed: boolean }).removed).toBe(true);
   });

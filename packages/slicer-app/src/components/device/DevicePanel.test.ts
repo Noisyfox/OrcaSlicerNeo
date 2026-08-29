@@ -75,5 +75,8 @@ describe('Device printer configuration helpers', () => {
     const secret = printer.apiKey;
     expect(panelMessage({ status: 'error', url: printer.consoleUrl, error: secret })).not.toContain(secret);
     expect(panelMessage({ status: 'error', url: printer.consoleUrl, error: secret })).toBe('The printer console could not be loaded.');
+    expect(panelMessage({ status: 'loading', url: printer.consoleUrl, error: null })).toBe('Loading printer console…');
+    expect(panelMessage({ status: 'loaded', url: printer.consoleUrl, error: null })).toBeNull();
+    expect(panelMessage({ status: 'idle', url: null, error: null })).toBeNull();
   });
 });

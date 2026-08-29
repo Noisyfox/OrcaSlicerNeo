@@ -278,7 +278,14 @@ class ElectronWebViewPanel implements WebViewPanel {
       .filter((source): source is string => Boolean(source));
     for (const source of sources) void this.webview.executeJavaScript(source, false).catch(() => undefined);
   }
-  private readonly handleStopLoading = (): void => { /* did-finish-load supplies the loaded state. */ };
+  private readonly handleStopLoading = (): void => {
+    // A navigation can stop without emitting did-finish-load (for example
+    // when the guest cancels or replaces a request). Do not leave the host's
+    // loading indicator active after Chromium has stopped loading; a later
+    // did-fail-load event still upgrades this to the visible error state.
+    if (this.disposed || !this.state.url || this.state.status !== 'loading') return;
+    this.updateState({ status: 'loaded', url: this.state.url, error: null });
+  };
   private readonly handleFinishLoad = (): void => {
     if (this.disposed) return;
     this.updateState({ status: 'loaded', url: this.state.url, error: null });

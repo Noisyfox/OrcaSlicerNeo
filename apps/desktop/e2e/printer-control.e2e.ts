@@ -173,7 +173,7 @@ test('Device config and Electron console fixture inject the API key', async () =
 
     await rows.filter({ hasText: 'Fixture A' }).locator('button[data-testid^="device-select-"]').click();
     await waitForConsoleKey(fixture, API_KEY);
-    await expect(page.getByTestId('device-console-status')).toContainText('loaded');
+    await expect(page.getByTestId('device-console-status')).toHaveCount(0);
 
     // Editing a selected printer keeps its console integration attached.
     await rows.filter({ hasText: 'Fixture A' }).getByTestId(/device-edit-/).click();
