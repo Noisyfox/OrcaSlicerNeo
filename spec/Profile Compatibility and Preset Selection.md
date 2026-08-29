@@ -47,9 +47,10 @@ advanced inspection or preset-editing feature may add such a mode in a
 separate approved change.
 
 The bridge enforces the same availability boundary. It accepts a requested
-Printer, Process, or Filament only when it is both visible and compatible in
-the current engine state. A hidden or incompatible requested name is rejected;
-the bridge must not silently select a different profile for such a request.
+Printer only when it is visible, and a requested Process or Filament only when
+it is both visible and compatible in the current engine state. A hidden or
+incompatible requested name is rejected; the bridge must not silently select a
+different profile for such a request.
 
 ### 3.2 Selecting a Printer
 
