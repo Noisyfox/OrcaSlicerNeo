@@ -207,6 +207,9 @@ cross-origin isolation is available, and serial WASM otherwise.
 - [x] Step 10 — dual wasm64 artifacts (threaded + serial) staged; real-artifact
       Chrome e2e for both variants
       (`doc/2026-08-20-m9-step10-dual-wasm-web-e2e.md`)
+- [x] Single-thread Web development action via Vite `--mode singlethread`
+      and tracked `.env.singlethread` (default COOP/COEP behavior preserved;
+      `doc/2026-08-29-web-singlethread-dev-mode.md`)
 - [x] Step 11 — release/regression audit
       (`doc/2026-08-20-m9-step11-release-regression-audit.md`)
 

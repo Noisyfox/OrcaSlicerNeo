@@ -303,6 +303,11 @@
   deployment base (site root / subpath / preview), and `beforeunload`
   guarding. Docs: `doc/2026-08-20-m9-step4-web-host.md`,
   `doc/2026-08-20-fix-dev-wasm-url-shared-runtime.md`.
+- **Single-thread development mode delivered:**
+  `pnpm --filter @orca/web dev:singlethread` selects Vite's `singlethread`
+  mode and loads the tracked `.env.singlethread` switch to remove COOP/COEP
+  headers for manual serial-runtime testing; the default `dev` path remains
+  isolated. See `doc/2026-08-29-web-singlethread-dev-mode.md`.
 - **Step 10 delivered:** dual-variant build/staging (separate CMake/output
   trees per variant via `scripts/build-wasm-dual.*` + `stage-wasm.mjs`) and
   real-artifact Chrome e2e for both variants —
