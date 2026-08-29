@@ -1,7 +1,7 @@
 # Profile Compatibility and Preset Selection
 
 **Date:** 2026-08-30
-**Status:** Draft — decision groups 1–9 accepted; further interactive review pending
+**Status:** Draft — decision groups 1–10 accepted; further interactive review pending
 **Scope:** Compatibility-driven system preset selection in the shared Electron/Web application.
 
 ## 1. Purpose
@@ -98,6 +98,11 @@ At each stage the profile engine may substitute a compatible fallback. The
 final resolved triple is written back to preferences, so the persisted state
 matches what the user sees and what slicing uses.
 
+When there is no saved selection, initial Printer, Process, and Filament
+selection is likewise owned by the profile engine's native default/fallback
+behaviour. The React application must not impose a first-item, vendor, or
+other client-side defaulting rule.
+
 ## 4. Interaction Requirement
 
 During a compatibility transition, the UI must not accept a selection from a
@@ -121,7 +126,13 @@ not repeat compatibility filtering or compose a new selection with
 independently fetched, potentially stale Process or Filament lists. Initial
 loading uses the same coherent snapshot model.
 
-### 5.2 Bridge API migration
+### 5.2 Candidate ordering
+
+Candidate order is the order emitted by the C++ profile collection. React does
+not sort candidates by name, vendor, recency, or another client-side policy.
+Search filters this source order without changing it.
+
+### 5.3 Bridge API migration
 
 Introduce a snapshot reader for initial loading and evolve the new selection
 flow so a successful `selectPreset` result contains the atomic snapshot. Keep
@@ -129,14 +140,14 @@ the existing per-kind `getPresets` interface as a temporary compatibility
 surface while all current callers, mocks, and tests migrate. Retire it only in
 a separate cleanup change after it has no consumers.
 
-### 5.3 In-flight interaction
+### 5.4 In-flight interaction
 
 While a selection transition is in progress, all three preset selectors are
 temporarily disabled and the preset area presents a lightweight loading state.
 They return to an interactive state only after a completed compatibility
 transition is applied.
 
-### 5.4 Failure handling
+### 5.5 Failure handling
 
 Detailed failure behaviour is deliberately deferred. The implementation must
 retain a code-level TODO at the selection error boundary so this is resolved
