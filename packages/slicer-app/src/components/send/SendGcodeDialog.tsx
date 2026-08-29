@@ -97,6 +97,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   );
   const reason = unavailableReason(sliceReady, document.printers, selectedPrinter);
   const busy = state === 'loading' || state === 'uploading' || state === 'starting';
+  const controlsDisabled = busy || state === 'success';
   const progressValue = progress.fraction === undefined ? undefined : Math.round(Math.max(0, Math.min(1, progress.fraction)) * 100);
 
   function clearCloseCountdown(resetState = true) {
@@ -267,7 +268,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
         </div>
         <div className="flex flex-col gap-2">
           <label htmlFor="send-printer" className="text-sm font-medium">Printer</label>
-          <Select value={selectedPrinterId ?? ''} onValueChange={(value) => { if (value) selectPrinter(value); }} disabled={state === 'loading' || state === 'starting' || document.printers.length === 0}>
+          <Select value={selectedPrinterId ?? ''} onValueChange={(value) => { if (value) selectPrinter(value); }} disabled={controlsDisabled || document.printers.length === 0}>
             <SelectTrigger id="send-printer" className="w-full" data-testid="send-printer-select" aria-label="Printer">
               <SelectValue placeholder="Select a printer">
                 {(value) => printerLabel(value, document.printers)}
@@ -280,16 +281,6 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
             </SelectContent>
           </Select>
         </div>
-        <div className="flex items-center gap-2 text-sm" data-testid="send-switch-to-device-option">
-          <Checkbox
-            id="send-switch-to-device"
-            checked={switchToDeviceAfterSend}
-            onCheckedChange={(checked) => setSwitchToDeviceAfterSend(checked === true)}
-            disabled={busy || state === 'success'}
-            data-testid="send-switch-to-device"
-          />
-          <Label htmlFor="send-switch-to-device">Switch to Device page after sending</Label>
-        </div>
         {reason && <p className="text-sm text-muted-foreground" role="status" data-testid="send-disabled-reason">{reason}</p>}
         {busy && (
           <div className="space-y-2" data-testid="send-progress-status" role="status" aria-live="polite">
@@ -299,10 +290,22 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
         )}
         {message && !busy && <p className={`text-sm ${state === 'error' || state === 'start-failed-after-upload' ? 'text-destructive' : 'text-muted-foreground'}`} role={state === 'error' || state === 'start-failed-after-upload' ? 'alert' : 'status'} data-testid="send-operation-message" data-error-code={state === 'start-failed-after-upload' ? 'start-failed-after-upload' : undefined}>{message}</p>}
         {state === 'success' && closeCountdown !== null && <p className="text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="send-auto-close-countdown">{switchToDeviceAfterSend ? 'Closing and switching to Device' : 'Closing'} in {closeCountdown} second{closeCountdown === 1 ? '' : 's'}…</p>}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{busy ? 'Cancel' : 'Close'}</Button>
-          {state === 'start-failed-after-upload' && <Button type="button" variant="secondary" onClick={() => void retryStart()} data-testid="send-retry-start">Retry Start Print</Button>}
-          <Button type="button" onClick={() => void send()} disabled={busy || Boolean(reason) || state === 'success' || state === 'start-failed-after-upload'} data-testid="send-submit">{action === 'send' ? 'Send' : 'Send & Print'}</Button>
+        <div className="flex items-center justify-between gap-2" data-testid="send-actions">
+          <div className="flex min-w-0 items-center gap-2 text-sm" data-testid="send-switch-to-device-option">
+            <Checkbox
+              id="send-switch-to-device"
+              checked={switchToDeviceAfterSend}
+              onCheckedChange={(checked) => setSwitchToDeviceAfterSend(checked === true)}
+              disabled={controlsDisabled}
+              data-testid="send-switch-to-device"
+            />
+            <Label htmlFor="send-switch-to-device">Switch to Device page after sending</Label>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{busy ? 'Cancel' : 'Close'}</Button>
+            {state === 'start-failed-after-upload' && <Button type="button" variant="secondary" onClick={() => void retryStart()} data-testid="send-retry-start">Retry Start Print</Button>}
+            <Button type="button" onClick={() => void send()} disabled={busy || Boolean(reason) || state === 'success' || state === 'start-failed-after-upload'} data-testid="send-submit">{action === 'send' ? 'Send' : 'Send & Print'}</Button>
+          </div>
         </div>
       </div>
     </div>

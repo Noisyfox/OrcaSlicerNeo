@@ -160,6 +160,38 @@ describe('SendGcodeDialog', () => {
     expect(transport.requests[0].signal?.aborted).toBe(true);
   });
 
+  it('keeps the switch option in the action row and disables editable controls while uploading', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    transport.pending = true;
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send', 'p1');
+    roots.push(root);
+
+    const option = container.querySelector('[data-testid="send-switch-to-device-option"]') as HTMLElement;
+    expect(option.closest('[data-testid="send-actions"]')).not.toBeNull();
+    expect((container.querySelector('[data-testid="send-printer-select"]') as HTMLButtonElement).disabled).toBe(false);
+
+    await act(async () => { (container.querySelector('[data-testid="send-submit"]') as HTMLElement).click(); });
+    expect((container.querySelector('[data-testid="send-printer-select"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(container.querySelector('[data-testid="send-switch-to-device"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect((container.querySelector('[data-testid="send-close"]') as HTMLButtonElement).disabled).toBe(false);
+    await click(container, 'send-close');
+  });
+
+  it('disables editable controls after a successful send while keeping Close available', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send', 'p1');
+    roots.push(root);
+
+    await click(container, 'send-submit');
+    expect((container.querySelector('[data-testid="send-printer-select"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(container.querySelector('[data-testid="send-switch-to-device"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect((container.querySelector('[data-testid="send-close"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('does not auto-select a printer when the previous selection no longer exists', async () => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
@@ -294,7 +326,7 @@ describe('SendGcodeDialog', () => {
     expect(secondClose).not.toHaveBeenCalled();
   });
 
-  it('clears the timer when the target changes or the dialog is reopened', async () => {
+  it('clears the timer when the dialog is reopened', async () => {
     vi.useFakeTimers();
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
@@ -302,12 +334,6 @@ describe('SendGcodeDialog', () => {
     const onClose = vi.fn();
     const { container, root } = await render(platform, 'send', 'p1', onClose);
     roots.push(root);
-
-    await click(container, 'send-submit');
-    await choosePrinter(container, 'p2');
-    expect(container.querySelector('[data-testid="send-auto-close-countdown"]')).toBeNull();
-    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-    expect(onClose).not.toHaveBeenCalled();
 
     await click(container, 'send-submit');
     await act(async () => {

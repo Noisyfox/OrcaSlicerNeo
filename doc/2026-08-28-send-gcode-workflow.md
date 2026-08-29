@@ -24,6 +24,10 @@
   indicator. Upload cancellation uses an `AbortSignal` when the modal is
   closed or its target changes. The completed upload is retained if starting
   fails, and the modal offers an explicit start-only retry.
+- The session-only Device navigation option is presented alongside the Close
+  and Send actions. The printer selector and this option are disabled while
+  sending or during the success countdown; Close remains available for
+  cancellation or early dismissal.
 - After a successful Send or Send & Print, the modal counts down for five
   seconds before closing. An optional, session-only checkbox changes the
   status copy and, when the countdown completes, closes the modal first and
