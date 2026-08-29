@@ -1,7 +1,7 @@
 # Profile Compatibility and Preset Selection
 
 **Date:** 2026-08-30  
-**Status:** Draft — decision groups 1–2 accepted; further interactive review pending  
+**Status:** Draft — decision groups 1–3 accepted; further interactive review pending  
 **Scope:** Compatibility-driven system preset selection in the shared Electron/Web application.
 
 ## 1. Purpose
@@ -94,13 +94,41 @@ stale picker list. The eventual interaction treatment (for example, temporary
 disabled controls or a local loading state) remains an implementation decision,
 but the transition result must be applied coherently.
 
-## 5. Explicitly Deferred Questions
+## 5. Accepted State Delivery and Interaction
 
-- The bridge response design: separate refreshed lists versus an atomic preset
-  snapshot returned from selection.
+### 5.1 Atomic preset snapshot
+
+A successful preset selection returns one atomic compatibility snapshot from
+the C++ bridge. The snapshot contains the final selections and the complete
+Printer, Process, and Filament lists including their visibility and
+compatibility state. It is created only after the profile engine has completed
+compatibility evaluation and any required fallback selection.
+
+The shared UI replaces its complete preset state from that snapshot. It must
+not compose a new selection with independently fetched, potentially stale
+Process or Filament lists. Initial loading should use the same coherent
+snapshot model.
+
+### 5.2 In-flight interaction
+
+While a selection transition is in progress, all three preset selectors are
+temporarily disabled and the preset area presents a lightweight loading state.
+They return to an interactive state only after a completed compatibility
+transition is applied.
+
+### 5.3 Failure handling
+
+Detailed failure behaviour is deliberately deferred. The implementation must
+retain a code-level TODO at the selection error boundary so this is resolved
+before compatibility transitions are relied on for production workflows.
+
+## 6. Explicitly Deferred Questions
+
+- Exact failure semantics for a rejected selection or an invalid/incomplete
+  compatibility snapshot.
 - Exact automated test matrix and the choice of real-profile fixtures.
 
-## 6. Accepted Scope and Editing Boundary
+## 7. Accepted Scope and Editing Boundary
 
 ### 6.1 Profile scope
 

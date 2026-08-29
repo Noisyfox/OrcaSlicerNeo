@@ -72,6 +72,8 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
         printer: r.printer.name, print: r.print.name, filament: r.filament.name,
       } });
     } catch (err) {
+      // TODO(profile-compat): define and implement the atomic compatibility
+      // transition failure policy before the snapshot-based selection flow ships.
       setError(`select ${kind}: ${String(err)}`);
     }
   }
