@@ -7,7 +7,7 @@ import {
   type PrinterConfigurationDocument,
   type UploadedGcode,
 } from '@orca/printer-control';
-import { usePlatform, type PlatformCapabilities } from '@orca/platform-contract';
+import { usePlatform, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
@@ -83,13 +83,18 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const [progress, setProgress] = useState<{ loaded: number; total?: number; fraction?: number }>({ loaded: 0 });
   const [message, setMessage] = useState<string | null>(null);
   const [closeCountdown, setCloseCountdown] = useState<number | null>(null);
-  const [switchToDeviceAfterSend, setSwitchToDeviceAfterSend] = useState(false);
+  const [switchToDeviceAfterSend, setSwitchToDeviceAfterSend] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const operationRef = useRef(0);
   const serviceRef = useRef<PrinterControlService | null>(null);
   const uploadedRef = useRef<UploadedGcode | null>(null);
   const selectedIdRef = useRef<string | null>(null);
+  const preferenceRef = useRef<UserPreferences | null>(null);
+  const preferenceLoadGenerationRef = useRef(0);
+  const preferenceRevisionRef = useRef(0);
+  const preferenceInteractionRef = useRef(false);
+  const preferenceSaveChainRef = useRef(Promise.resolve());
 
   const selectedPrinter = useMemo(
     () => document.printers.find((printer) => printer.id === selectedPrinterId) ?? null,
@@ -163,6 +168,35 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   }, [open, platform.printers.configuration]);
 
   useEffect(() => {
+    if (!open) {
+      preferenceLoadGenerationRef.current += 1;
+      preferenceInteractionRef.current = false;
+      setSwitchToDeviceAfterSend(true);
+      return;
+    }
+
+    const generation = ++preferenceLoadGenerationRef.current;
+    const revision = preferenceRevisionRef.current;
+    let active = true;
+    preferenceInteractionRef.current = false;
+    // The default is also the migration value for pre-existing preference
+    // documents that do not yet contain this field.
+    setSwitchToDeviceAfterSend(true);
+    const pendingSaves = preferenceSaveChainRef.current;
+    void pendingSaves.then(() => platform.preferences.load()).then((prefs) => {
+      if (!active || generation !== preferenceLoadGenerationRef.current
+        || revision !== preferenceRevisionRef.current || preferenceInteractionRef.current) return;
+      preferenceRef.current = prefs;
+      setSwitchToDeviceAfterSend(prefs.ui.switchToDeviceAfterSend ?? true);
+    }).catch((error) => {
+      if (active && generation === preferenceLoadGenerationRef.current) {
+        console.error('send navigation preference load failed; using default', error);
+      }
+    });
+    return () => { active = false; };
+  }, [open, platform.preferences]);
+
+  useEffect(() => {
     selectedIdRef.current = selectedPrinterId;
   }, [selectedPrinterId]);
 
@@ -197,6 +231,37 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
     setMessage(null);
     setState('idle');
     setSelectedPrinterId(id);
+  }
+
+  function updateSwitchToDeviceAfterSend(checked: boolean) {
+    preferenceInteractionRef.current = true;
+    preferenceRevisionRef.current += 1;
+    setSwitchToDeviceAfterSend(checked);
+    preferenceSaveChainRef.current = preferenceSaveChainRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        let preferences = preferenceRef.current;
+        if (!preferences) {
+          try {
+            preferences = await platform.preferences.load();
+          } catch (error) {
+            console.error('send navigation preference load failed; keeping session value', error);
+            return;
+          }
+        }
+        const next: UserPreferences = {
+          ...preferences,
+          ui: { ...preferences.ui, switchToDeviceAfterSend: checked },
+        };
+        preferenceRef.current = next;
+        try {
+          await platform.preferences.save(next);
+        } catch (error) {
+          // Persistence is best effort; the current dialog still honors the
+          // user's choice and the host repository remains the source of truth.
+          console.error('send navigation preference save failed; keeping session value', error);
+        }
+      });
   }
 
   async function send() {
@@ -295,7 +360,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
             <Checkbox
               id="send-switch-to-device"
               checked={switchToDeviceAfterSend}
-              onCheckedChange={(checked) => setSwitchToDeviceAfterSend(checked === true)}
+              onCheckedChange={(checked) => updateSwitchToDeviceAfterSend(checked === true)}
               disabled={controlsDisabled}
               data-testid="send-switch-to-device"
             />

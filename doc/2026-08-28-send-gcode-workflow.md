@@ -24,16 +24,18 @@
   indicator. Upload cancellation uses an `AbortSignal` when the modal is
   closed or its target changes. The completed upload is retained if starting
   fails, and the modal offers an explicit start-only retry.
-- The session-only Device navigation option is presented alongside the Close
-  and Send actions. The printer selector and this option are disabled while
+- The Device navigation option is presented alongside the Close and Send
+  actions and is persisted as the shared `UserPreferences.ui` preference. It
+  defaults to enabled, including when migrating an older preference document
+  that lacks the field. The printer selector and this option are disabled while
   sending or during the success countdown; Close remains available for
   cancellation or early dismissal.
 - After a successful Send or Send & Print, the modal counts down for five
-  seconds before closing. An optional, session-only checkbox changes the
-  status copy and, when the countdown completes, closes the modal first and
-  then asks the app-level navigation callback to show Device. Manual close,
-  target changes, errors, cancellation, and start failures cancel this
-  navigation.
+  seconds before closing. The persisted checkbox changes the status copy and,
+  when enabled, closes the modal first and then asks the app-level navigation
+  callback to show Device. Manual close, target changes, errors, cancellation,
+  and start failures cancel this navigation. Preference reads and writes are
+  best effort and do not block sending when host storage is unavailable.
 - API keys are passed only to the existing service snapshot and transport seam.
   They are not rendered, logged, or included in user-facing errors.
 

@@ -405,9 +405,10 @@ and drives structural operations through the typed client.
 - [x] Report upload progress, busy/cancelled/success/error states accessibly;
       preserve `start-failed-after-upload` and offer a start-only retry without
       re-uploading
-- [x] After success, count down before closing; offer an ephemeral option to
-      close and then navigate to the top-level Device page, with no navigation
-      on cancellation, errors, or start failures
+- [x] After success, count down before closing; offer a persisted,
+      enabled-by-default option to close and then navigate to the top-level
+      Device page, with no navigation on cancellation, errors, or start
+      failures
 - [x] Disable actions for incomplete slices, missing API base URL, or
       unsupported drivers with generic, key-free messages; allow keyless
       Moonraker requests without sending `X-Api-Key`

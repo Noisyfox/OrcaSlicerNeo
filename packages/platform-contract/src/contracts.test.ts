@@ -5,17 +5,22 @@ import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
 describe('user preferences', () => {
   it('discards malformed and unsupported versions', () => {
     expect(normalizeUserPreferences({ version: 2, selectedProfiles: { printer: 'bad' } }).selectedProfiles).toEqual({});
-    expect(normalizeUserPreferences('{bad}').ui).toEqual({});
+    expect(normalizeUserPreferences('{bad}').ui).toEqual({ switchToDeviceAfterSend: true });
   });
-  it('keeps only the typed profile names and UI width', () => {
+  it('keeps only the typed profile names and UI preferences', () => {
     expect(normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'P', print: 4, filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, x: true } })).toEqual({
-      version: 1, selectedProfiles: { printer: 'P', filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320 },
+      version: 1, selectedProfiles: { printer: 'P', filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, switchToDeviceAfterSend: true },
     });
   });
 
   it('keeps workspace and device sidebar widths independent', () => {
     const normalized = normalizeUserPreferences({ version: 1, ui: { sidebarWidth: 280, deviceSidebarWidth: 360 } });
-    expect(normalized.ui).toEqual({ sidebarWidth: 280, deviceSidebarWidth: 360 });
+    expect(normalized.ui).toEqual({ sidebarWidth: 280, deviceSidebarWidth: 360, switchToDeviceAfterSend: true });
+  });
+
+  it('preserves the send navigation preference and migrates old preferences to enabled', () => {
+    expect(normalizeUserPreferences({ version: 1, ui: { switchToDeviceAfterSend: false } }).ui.switchToDeviceAfterSend).toBe(false);
+    expect(normalizeUserPreferences({ version: 1, ui: {} }).ui.switchToDeviceAfterSend).toBe(true);
   });
 });
 

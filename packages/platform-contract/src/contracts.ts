@@ -33,7 +33,12 @@ export interface UserPreferences {
     print?: string;
     filament?: string;
   };
-  ui: { sidebarWidth?: number; deviceSidebarWidth?: number };
+  ui: {
+    sidebarWidth?: number;
+    deviceSidebarWidth?: number;
+    /** Whether successful G-code sends should navigate to Device by default. */
+    switchToDeviceAfterSend?: boolean;
+  };
 }
 
 export interface UserPreferencesRepository {
@@ -124,12 +129,12 @@ export interface ProfileSource {
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   version: 1,
   selectedProfiles: {},
-  ui: {},
+  ui: { switchToDeviceAfterSend: true },
 };
 
 export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
-    return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: {} };
+    return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
   const v = value as { selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown> };
   const selectedProfiles = v.selectedProfiles ?? {};
@@ -146,6 +151,8 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
         ? { sidebarWidth: ui.sidebarWidth } : {}),
       ...(typeof ui.deviceSidebarWidth === 'number' && Number.isFinite(ui.deviceSidebarWidth)
         ? { deviceSidebarWidth: ui.deviceSidebarWidth } : {}),
+      switchToDeviceAfterSend: typeof ui.switchToDeviceAfterSend === 'boolean'
+        ? ui.switchToDeviceAfterSend : true,
     },
   };
 }

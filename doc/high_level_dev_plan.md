@@ -529,8 +529,9 @@ coverage now observes the guest console's `X-API-Key` request; see
   and the explicit `start-failed-after-upload` state are accessible in the
   modal. A start retry uses the retained remote path and never re-uploads.
 - Successful operations count down for five seconds before closing; a
-  session-only option can close first and then navigate to the top-level
-  Device page, while cancellation, errors, and start failures never navigate.
+  persisted, enabled-by-default option can close first and then navigate to
+  the top-level Device page, while cancellation, errors, and start failures
+  never navigate.
 - The local Electron fixture suite verifies upload-only versus upload-then-start,
   start failure and no-reupload retry behavior, with no LAN or Internet calls.
 - Focused jsdom tests cover request differences, selection, progress,

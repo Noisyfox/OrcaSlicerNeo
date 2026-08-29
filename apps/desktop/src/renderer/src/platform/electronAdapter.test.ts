@@ -27,9 +27,9 @@ function setup(overrides: Record<string, unknown> = {}) {
 describe('Electron adapter', () => {
   it('normalizes load and writes the shared preference shape', async () => {
     const { adapter, save } = setup();
-    expect(await adapter.preferences.load()).toEqual({ version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320 } });
+    expect(await adapter.preferences.load()).toEqual({ version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });
     await adapter.preferences.save({ version: 1, selectedProfiles: { filament: 'F' }, ui: {} });
-    expect(save).toHaveBeenCalledWith({ version: 1, selectedProfiles: { filament: 'F' }, ui: {} });
+    expect(save).toHaveBeenCalledWith({ version: 1, selectedProfiles: { filament: 'F' }, ui: { switchToDeviceAfterSend: true } });
   });
 
   it('maps native import success to display name and bytes', async () => {
@@ -98,7 +98,7 @@ describe('Electron adapter', () => {
     const { adapter } = setup({ preferences: { load, save } });
     const value = { version: 1 as const, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300 } };
     await adapter.preferences.save(value);
-    await expect(adapter.preferences.load()).resolves.toEqual(value);
+    await expect(adapter.preferences.load()).resolves.toEqual({ ...value, ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } });
   });
 
   it('round-trips complete printer configuration through the typed host API', async () => {

@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import { PlatformProvider, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
 import type { PrinterConfiguration, PrinterTransport, PrinterTransportRequest, PrinterTransportResponse } from '@orca/printer-control';
 import { SendGcodeDialog } from './SendGcodeDialog';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -37,10 +37,19 @@ class FixtureTransport implements PrinterTransport {
   }
 }
 
-function makePlatform(transport: FixtureTransport, documentValue = { version: 1 as const, printers }) {
+function makePlatform(
+  transport: FixtureTransport,
+  documentValue = { version: 1 as const, printers },
+  preferenceValue: UserPreferences = { version: 1, selectedProfiles: {}, ui: {} },
+) {
+  let preferences = preferenceValue;
   const runtime = { exportGcode: vi.fn(async () => ({ ok: true, path: '/tmp/output.gcode', bytes: new Uint8Array([1, 2, 3]) })) };
   return {
     platform: {
+      preferences: {
+        load: vi.fn(async () => preferences),
+        save: vi.fn(async (next) => { preferences = next; }),
+      },
       printers: {
         configuration: {
           load: vi.fn(async () => documentValue),
@@ -51,6 +60,7 @@ function makePlatform(transport: FixtureTransport, documentValue = { version: 1 
       runtime,
     } as unknown as PlatformCapabilities,
     runtime,
+    preferences: () => preferences,
   };
 }
 
@@ -179,6 +189,45 @@ describe('SendGcodeDialog', () => {
     await click(container, 'send-close');
   });
 
+  it('defaults the switch option on, persists changes, and restores them on reopen', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform, preferences } = makePlatform(transport);
+    const { container, root } = await render(platform, 'send', 'p1');
+    roots.push(root);
+
+    const option = container.querySelector('[data-testid="send-switch-to-device"]') as HTMLElement;
+    expect(option.getAttribute('aria-checked')).toBe('true');
+    await click(container, 'send-switch-to-device');
+    expect(option.getAttribute('aria-checked')).toBe('false');
+    await act(async () => { await Promise.resolve(); });
+    expect((platform.preferences.save as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith(expect.objectContaining({
+      ui: expect.objectContaining({ switchToDeviceAfterSend: false }),
+    }));
+
+    await act(async () => {
+      root.render(<PlatformProvider value={platform}><SendGcodeDialog open={false} action="send" onClose={() => undefined} /></PlatformProvider>);
+      root.render(<PlatformProvider value={platform}><SendGcodeDialog open action="send" onClose={() => undefined} /></PlatformProvider>);
+    });
+    expect((container.querySelector('[data-testid="send-switch-to-device"]') as HTMLElement).getAttribute('aria-checked')).toBe('false');
+    expect(preferences().ui.switchToDeviceAfterSend).toBe(false);
+  });
+
+  it('keeps the default and session behavior when preference storage is unavailable', async () => {
+    useSlicerStore.setState({ status: 'done' });
+    const transport = new FixtureTransport();
+    const { platform } = makePlatform(transport);
+    platform.preferences.load = vi.fn(async () => { throw new Error('storage unavailable'); });
+    platform.preferences.save = vi.fn(async () => { throw new Error('storage unavailable'); });
+    const { container, root } = await render(platform, 'send', 'p1');
+    roots.push(root);
+
+    const option = container.querySelector('[data-testid="send-switch-to-device"]') as HTMLElement;
+    expect(option.getAttribute('aria-checked')).toBe('true');
+    await click(container, 'send-switch-to-device');
+    expect(option.getAttribute('aria-checked')).toBe('false');
+  });
+
   it('disables editable controls after a successful send while keeping Close available', async () => {
     useSlicerStore.setState({ status: 'done' });
     const transport = new FixtureTransport();
@@ -256,7 +305,6 @@ describe('SendGcodeDialog', () => {
     const { container, root } = await render(platform, 'send', 'p1', onClose, onNavigateToDevice);
     roots.push(root);
 
-    await click(container, 'send-switch-to-device');
     expect((container.querySelector('[data-testid="send-switch-to-device"]') as HTMLElement).getAttribute('aria-checked')).toBe('true');
     await click(container, 'send-submit');
     expect(container.querySelector('[data-testid="send-auto-close-countdown"]')?.textContent).toContain('Closing and switching to Device in 5 seconds');
@@ -277,7 +325,6 @@ describe('SendGcodeDialog', () => {
     const { container, root } = await render(platform, 'send', 'p1', onClose, onNavigateToDevice);
     roots.push(root);
 
-    await click(container, 'send-switch-to-device');
     await click(container, 'send-submit');
     await click(container, 'send-close');
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
@@ -295,7 +342,6 @@ describe('SendGcodeDialog', () => {
     const { container, root } = await render(platform, 'send-and-print', 'p1', () => undefined, onNavigateToDevice);
     roots.push(root);
 
-    await click(container, 'send-switch-to-device');
     await click(container, 'send-submit');
     expect(container.querySelector('[data-testid="send-retry-start"]')).not.toBeNull();
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
@@ -342,7 +388,7 @@ describe('SendGcodeDialog', () => {
     await act(async () => {
       root.render(<PlatformProvider value={platform}><SendGcodeDialog open action="send" onClose={onClose} /></PlatformProvider>);
     });
-    expect((container.querySelector('[data-testid="send-switch-to-device"]') as HTMLElement).getAttribute('aria-checked')).toBe('false');
+    expect((container.querySelector('[data-testid="send-switch-to-device"]') as HTMLElement).getAttribute('aria-checked')).toBe('true');
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
     expect(onClose).not.toHaveBeenCalled();
   });
