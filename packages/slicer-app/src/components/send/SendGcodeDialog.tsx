@@ -78,7 +78,9 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const [state, setState] = useState<SendState>('idle');
   const [progress, setProgress] = useState<{ loaded: number; total?: number; fraction?: number }>({ loaded: 0 });
   const [message, setMessage] = useState<string | null>(null);
+  const [closeCountdown, setCloseCountdown] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const operationRef = useRef(0);
   const serviceRef = useRef<PrinterControlService | null>(null);
   const uploadedRef = useRef<UploadedGcode | null>(null);
@@ -92,8 +94,34 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const busy = state === 'loading' || state === 'uploading' || state === 'starting';
   const progressValue = progress.fraction === undefined ? undefined : Math.round(Math.max(0, Math.min(1, progress.fraction)) * 100);
 
+  function clearCloseCountdown(resetState = true) {
+    if (closeTimerRef.current !== null) {
+      clearInterval(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+    if (resetState) setCloseCountdown(null);
+  }
+
+  function startCloseCountdown() {
+    clearCloseCountdown();
+    let remaining = 5;
+    setCloseCountdown(remaining);
+    closeTimerRef.current = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearCloseCountdown();
+        onClose();
+        return;
+      }
+      setCloseCountdown(remaining);
+    }, 1000);
+  }
+
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      clearCloseCountdown();
+      return;
+    }
     let active = true;
     setState('loading');
     setMessage(null);
@@ -133,6 +161,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   useEffect(() => () => {
     operationRef.current += 1;
     abortRef.current?.abort();
+    clearCloseCountdown(false);
   }, []);
 
   function cancelUpload() {
@@ -146,11 +175,13 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   }
 
   function close() {
+    clearCloseCountdown();
     cancelUpload();
     onClose();
   }
 
   function selectPrinter(id: string) {
+    clearCloseCountdown();
     if (busy) cancelUpload();
     operationRef.current += 1;
     uploadedRef.current = null;
@@ -185,6 +216,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       setState('success');
       setMessage(action === 'send' ? 'G-code uploaded to the printer.' : 'G-code uploaded and print started.');
+      startCloseCountdown();
     } catch (error) {
       if (operation !== operationRef.current || selectedIdRef.current !== selectedId) return;
       if (error instanceof PrinterControlError && error.code === 'start-failed-after-upload') {
@@ -210,6 +242,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
       await service.startPrint(printerId, uploaded);
       setState('success');
       setMessage('Print started.');
+      startCloseCountdown();
     } catch {
       // Keep the original uploaded file and never call upload again.
       setState('start-failed-after-upload');
@@ -248,6 +281,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
           </div>
         )}
         {message && !busy && <p className={`text-sm ${state === 'error' || state === 'start-failed-after-upload' ? 'text-destructive' : 'text-muted-foreground'}`} role={state === 'error' || state === 'start-failed-after-upload' ? 'alert' : 'status'} data-testid="send-operation-message" data-error-code={state === 'start-failed-after-upload' ? 'start-failed-after-upload' : undefined}>{message}</p>}
+        {state === 'success' && closeCountdown !== null && <p className="text-sm text-muted-foreground" role="status" aria-live="polite" data-testid="send-auto-close-countdown">Closing in {closeCountdown} second{closeCountdown === 1 ? '' : 's'}…</p>}
         <div className="flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={close} data-testid="send-close">{busy ? 'Cancel' : 'Close'}</Button>
           {state === 'start-failed-after-upload' && <Button type="button" variant="secondary" onClick={() => void retryStart()} data-testid="send-retry-start">Retry Start Print</Button>}
