@@ -1,7 +1,7 @@
 # Profile Compatibility and Preset Selection
 
 **Date:** 2026-08-30
-**Status:** Draft — decision groups 1–5 accepted; further interactive review pending
+**Status:** Draft — decision groups 1–6 accepted; further interactive review pending
 **Scope:** Compatibility-driven system preset selection in the shared Electron/Web application.
 
 ## 1. Purpose
@@ -186,7 +186,19 @@ for user/imported/external presets may use the same engine and inherit its
 parent-preset and compatibility semantics, but its product behaviour requires
 a separate specification change.
 
-### 9.2 Temporary option edits
+### 9.2 Printer technology and material slots
+
+This specification covers FFF/FDM only. The app exposes the FFF `printer`,
+`print`, and `filament` preset collections; it does not expose SLA printers,
+SLA print presets, or SLA material presets as compatibility candidates.
+
+The current application supports one active Filament selection. Compatibility
+and fallback are defined for that single selection only. OrcaSlicer's
+multi-extruder filament-slot list, per-slot fallback, UI, persistence, and
+slice mappings are explicitly deferred to a separate specification. The
+snapshot contract must not make a future slot-array extension impossible.
+
+### 9.3 Temporary option edits
 
 The current version does not expose temporary Printer or profile-definition
 edits that can change compatibility. Compatibility is recomputed only after a
