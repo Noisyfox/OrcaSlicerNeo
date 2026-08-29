@@ -6,12 +6,16 @@ import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { Ipc, type FileDialogFilter, type PreferencesLoadResult } from '../shared/ipc';
 import type { MenuCommandId } from '../shared/ipc';
+import { createPrinterConfigurationIpcHandlers } from './printerConfigurationIpc';
+import { createPrinterTransportIpcHandlers } from './printerHttpTransport';
+import { isCurrentRendererSender } from './rendererGuards';
 import {
   createNativeMenuController,
   handleHostCommand,
   openFixedSource,
   type NativeMenuController,
 } from './nativeMenu';
+import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
 
 // Linux containers/VMs without a DRM/VA-API device cannot start Chromium's
 // separate GPU process; Electron aborts with "GPU process isn't usable.
@@ -85,18 +89,16 @@ const preferencesPath = (): string => {
 const preferencesPersisted = (): boolean =>
   process.env.ORCA_E2E !== '1' || Boolean(process.env.ORCA_E2E_PREFERENCES);
 
+const printerConfigurationPath = (): string =>
+  process.env.ORCA_E2E_PRINTER_CONFIG ?? join(app.getPath('userData'), 'printer-config.json');
+
 let rendererPort = 0;
 let rendererServer: Server | null = null;
 let mainWindow: BrowserWindow | null = null;
 let nativeMenuController: NativeMenuController | null = null;
 
 function isCurrentRenderer(sender: WebContents): boolean {
-  return Boolean(
-    mainWindow &&
-    !mainWindow.isDestroyed() &&
-    !sender.isDestroyed() &&
-    sender === mainWindow.webContents,
-  );
+  return isCurrentRendererSender(sender, mainWindow);
 }
 
 function sendNativeMenuCommand(command: MenuCommandId): void {
@@ -125,9 +127,15 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false, // preload uses node builtins for file IO
+      // The shared app owns the element; guests remain isolated from Node and
+      // receive no preload or arbitrary host API.
+      webviewTag: true,
     },
   });
   mainWindow = win;
+  // `will-attach-webview` runs before a guest exists. Strip any page-supplied
+  // preload and force the guest security flags before Electron creates it.
+  configureWebViewAttachPolicy(win.webContents as unknown as Parameters<typeof configureWebViewAttachPolicy>[0]);
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null;
   });
@@ -235,6 +243,31 @@ function registerIpc(): void {
     await writeFile(preferencesPath(), JSON.stringify(json, null, 2), 'utf8');
   });
 
+  const printerConfigurationIpc = createPrinterConfigurationIpcHandlers({
+    path: printerConfigurationPath,
+    fs: {
+      readText: (path) => readFile(path, 'utf8'),
+      writeText: (path, value) => writeFile(path, value, 'utf8'),
+    },
+    isCurrentRenderer,
+  });
+  ipcMain.handle(Ipc.printerConfigurationLoad, async (event) => printerConfigurationIpc.load(event.sender));
+  ipcMain.handle(Ipc.printerConfigurationSave, async (event, document: unknown): Promise<void> => {
+    await printerConfigurationIpc.save(event.sender, document);
+  });
+
+  const printerTransportIpc = createPrinterTransportIpcHandlers({
+    isCurrentRenderer,
+    sendProgress: (sender, requestId, progress) => {
+      if (isCurrentRenderer(sender as WebContents)) (sender as WebContents).send(Ipc.printerTransportProgress, requestId, progress);
+    },
+  });
+  ipcMain.handle(Ipc.printerTransportRequest, async (event, requestId: unknown, request: unknown) =>
+    printerTransportIpc.request(event.sender, requestId, request));
+  ipcMain.handle(Ipc.printerTransportCancel, (event, requestId: unknown) => {
+    printerTransportIpc.cancel(event.sender, requestId);
+  });
+
   ipcMain.on(Ipc.syncMenuModel, (event, model: unknown) => {
     if (!isCurrentRenderer(event.sender)) return;
     nativeMenuController?.syncModel(model);
@@ -285,6 +318,12 @@ function setupSessionHeaders(): void {
         'Cross-Origin-Embedder-Policy': ['require-corp'],
       },
     });
+  });
+}
+
+function setupWebViewGuestSecurity(): void {
+  app.on('web-contents-created', (_event, contents) => {
+    configureWebViewGuest(contents, (url) => shell.openExternal(url));
   });
 }
 
@@ -351,6 +390,7 @@ function startRendererServer(): void {
 
 app.whenReady().then(() => {
   setupSessionHeaders();
+  setupWebViewGuestSecurity();
   registerIpc();
   installNativeMenu();
   startRendererServer(); // createWindow fires once the port is bound

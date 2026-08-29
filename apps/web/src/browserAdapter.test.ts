@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserAdapter, downloadGcode, SOURCE_URL } from './browserAdapter';
+import { createBrowserAdapter, createBrowserPrinterConfigurationRepository, downloadGcode, PRINTER_CONFIGURATION_STORAGE_KEY, SOURCE_URL } from './browserAdapter';
 
 describe('browser adapter', () => {
-  beforeEach(() => { vi.restoreAllMocks(); });
+  beforeEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
   it('uses a file input for model selection', async () => {
     const input = document.createElement('input');
@@ -34,5 +34,25 @@ describe('browser adapter', () => {
     expect(adapter.menu.syncModel({ version: 1, menuMode: 'browser', menus: [] })).toBeUndefined();
     adapter.externalLinks.openSource();
     expect(open).toHaveBeenCalledWith(SOURCE_URL, '_blank', 'noopener,noreferrer');
+  });
+
+  it('returns an empty document for missing, corrupt, or non-compliant storage', async () => {
+    const repository = createBrowserPrinterConfigurationRepository();
+    await expect(repository.load()).resolves.toEqual({ version: 1, printers: [] });
+    localStorage.setItem(PRINTER_CONFIGURATION_STORAGE_KEY, '{bad json');
+    await expect(repository.load()).resolves.toEqual({ version: 1, printers: [] });
+    localStorage.setItem(PRINTER_CONFIGURATION_STORAGE_KEY, JSON.stringify({ version: 2, printers: [] }));
+    await expect(repository.load()).resolves.toEqual({ version: 1, printers: [] });
+  });
+
+  it('round-trips multiple records and retains complete API keys', async () => {
+    const repository = createBrowserPrinterConfigurationRepository();
+    const document = { version: 1 as const, printers: [
+      { id: 'p1', displayName: 'First', driverId: 'moonraker' as const, consoleUrl: 'http://one.local/', apiBaseUrl: 'http://one.local:7125/', apiKey: 'key-one-complete' },
+      { id: 'p2', displayName: 'Second', driverId: 'moonraker' as const, consoleUrl: 'https://two.local/ui', apiBaseUrl: 'https://two.local/api', apiKey: 'key-two-complete' },
+    ] };
+    await repository.save(document);
+    expect(JSON.parse(localStorage.getItem(PRINTER_CONFIGURATION_STORAGE_KEY)!)).toEqual(document);
+    await expect(repository.load()).resolves.toEqual(document);
   });
 });

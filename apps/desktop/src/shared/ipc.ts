@@ -6,6 +6,8 @@
 // ----------------------------------------------------------------
 
 import type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
+import type { PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
+import type { PrinterTransportBody } from '../../../../packages/printer-control/src/transport';
 
 export type { MenuCommandId, MenuModel, MenuStateSnapshot } from '../../../../packages/platform-contract/src/menu';
 
@@ -16,6 +18,11 @@ export const Ipc = {
   writeFile: 'file:write',
   preferencesLoad: 'preferences:load',
   preferencesSave: 'preferences:save',
+  printerConfigurationLoad: 'printerConfiguration:load',
+  printerConfigurationSave: 'printerConfiguration:save',
+  printerTransportRequest: 'printerTransport:request',
+  printerTransportCancel: 'printerTransport:cancel',
+  printerTransportProgress: 'printerTransport:progress',
   syncMenuModel: 'menu:syncModel',
   syncMenuState: 'menu:syncState',
   nativeMenuCommand: 'menu:command',
@@ -48,6 +55,17 @@ export interface ElectronBridge {
     load(): Promise<PreferencesLoadResult>;
     save(json: unknown): Promise<void>;
   };
+  printers: {
+    configuration: {
+      load(): Promise<PrinterConfigurationDocument>;
+      save(document: PrinterConfigurationDocument): Promise<void>;
+    };
+    transport: {
+      request(requestId: string, request: PrinterTransportIpcRequest): Promise<PrinterTransportIpcResponse>;
+      cancel(requestId: string): Promise<void>;
+      onProgress(listener: (requestId: string, progress: PrinterTransportProgress) => void): () => void;
+    };
+  };
   menu: {
     syncModel(model: MenuModel): void;
     syncState(snapshot: MenuStateSnapshot): void;
@@ -58,6 +76,25 @@ export interface ElectronBridge {
     openSource(): Promise<void>;
   };
   platform: string;
+}
+
+/** IPC request types intentionally exclude signal and callback properties. */
+export interface PrinterTransportIpcRequest {
+  method: 'GET' | 'POST';
+  url: string;
+  headers?: Readonly<Record<string, string>>;
+  body?: PrinterTransportBody;
+}
+
+export interface PrinterTransportIpcResponse {
+  status: number;
+  json?: unknown;
+  jsonError?: boolean;
+}
+
+export interface PrinterTransportProgress {
+  loaded: number;
+  total?: number;
 }
 
 /** The only external URL that the Electron main process may open. */

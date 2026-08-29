@@ -68,4 +68,46 @@ describe('Electron preload bridge', () => {
     cleanup();
     expect(electronMocks.removeListener).toHaveBeenCalledWith(Ipc.nativeMenuCommand, handler);
   });
+
+  it('validates printer configuration payloads and uses dedicated IPC channels', async () => {
+    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
+    const document = {
+      version: 1 as const,
+      printers: [{
+        id: 'p1', displayName: 'Printer', driverId: 'moonraker' as const,
+        consoleUrl: 'http://printer.local/console', apiBaseUrl: 'http://printer.local:7125',
+        apiKey: 'complete-key',
+      }],
+    };
+    await bridge.printers.configuration.save(document);
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.printerConfigurationSave, {
+      ...document,
+      printers: [{ ...document.printers[0], apiBaseUrl: 'http://printer.local:7125/' }],
+    });
+    const callsBeforeInvalid = electronMocks.invoke.mock.calls.length;
+    await expect(bridge.printers.configuration.save({ version: 1, printers: [{ ...document.printers[0], apiKey: 42 }] } as never)).rejects.toThrow();
+    expect(electronMocks.invoke.mock.calls).toHaveLength(callsBeforeInvalid);
+  });
+
+  it('exposes structured transport IPC and filters progress payloads', async () => {
+    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
+    const listener = vi.fn();
+    const cleanup = bridge.printers.transport.onProgress(listener);
+    const handler = electronMocks.on.mock.calls.at(-1)?.[1] as (event: unknown, id: unknown, progress: unknown) => void;
+    handler({}, 'request-1', { loaded: 2, total: 4 });
+    handler({}, 'request-1', { loaded: 'secret-key' });
+    expect(listener).toHaveBeenCalledWith('request-1', { loaded: 2, total: 4 });
+    expect(listener).toHaveBeenCalledOnce();
+    cleanup();
+    expect(electronMocks.removeListener).toHaveBeenCalledWith(Ipc.printerTransportProgress, handler);
+    await bridge.printers.transport.request('request-1', {
+      method: 'POST', url: 'http://printer.local/upload', headers: { 'X-Api-Key': 'secret-key' },
+      body: { kind: 'json', json: '{}' },
+    });
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.printerTransportRequest, 'request-1', expect.objectContaining({
+      method: 'POST', body: { kind: 'json', json: '{}' },
+    }));
+    await bridge.printers.transport.cancel('request-1');
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.printerTransportCancel, 'request-1');
+  });
 });

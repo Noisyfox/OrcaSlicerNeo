@@ -313,6 +313,20 @@ and drives structural operations through the typed client.
       ObjectList selection sync
 - [x] Unit, mock-module, WASM smoke, Electron e2e, and Web e2e coverage
 
+## Milestone 14: Printer Console and Control
+
+> [!info] Status: **delivered 2026-08-28**. The final user experience is
+> recorded in [`2026-08-30-printer-console-and-control-ux.md`](../doc/2026-08-30-printer-console-and-control-ux.md).
+
+- [x] Manage multiple saved printers from the top-level Device page, with an
+      embedded console, add/edit/delete actions, and explicit console selection
+- [x] View a printer's console in Electron with automatic API-key reuse when
+      configured, and in Web through best-effort iframe embedding
+- [x] Send G-code or Send & Print through the selected printer's Moonraker API,
+      with progress, cancellation, start-only retry, and optional keyless use
+- [x] After success, count down before closing and optionally switch to Device;
+      this preference is persisted and enabled by default
+
 ## Cross-cutting titlebar/native menu implementation
 
 > [!info] Implemented 2026-08-25; real macOS manual verification remains open.
@@ -341,7 +355,8 @@ and drives structural operations through the typed client.
 - [ ] Perf tuning for large plates
 - [ ] STEP import (OCCT Emscripten port decision)
 - [ ] CGAL features: mesh boolean, hollowing, advanced cut
-- [ ] Device panel & printer connectivity (Bambu LAN/cloud, Moonraker, …)
+- [x] Device panel & printer connectivity foundation (Moonraker; additional
+      drivers remain future work)
 - [ ] Calibration wizards
 - [ ] i18n (i18next + `.po` → JSON conversion)
 - [ ] Auto-update + code signing (macOS notarization)

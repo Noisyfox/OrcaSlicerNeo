@@ -1,6 +1,22 @@
-import { normalizeUserPreferences, type PlatformCapabilities, type PlatformMenu, type SlicerRuntime } from '@orca/platform-contract';
+import {
+  normalizeUserPreferences,
+  type PlatformCapabilities,
+  type PlatformMenu,
+  type PrinterConfigurationRepository,
+  type SlicerRuntime,
+} from '@orca/platform-contract';
+import {
+  normalizePrinterConfigurationDocument,
+  type PrinterConfigurationDocument,
+} from '@orca/printer-control';
+import { createBrowserPrinterTransport } from './browserPrinterTransport';
+import { createBrowserWebViewHost } from './browserWebView';
+
+export { BrowserPrinterTransport, createBrowserPrinterTransport } from './browserPrinterTransport';
+export { createBrowserWebViewHost } from './browserWebView';
 
 export const SOURCE_URL = 'https://github.com/Noisyfox/OrcaSlicerNeo';
+export const PRINTER_CONFIGURATION_STORAGE_KEY = 'orca-slicer-neo:printer-configuration:v1';
 
 const browserMenu: PlatformMenu = {
   syncModel() {},
@@ -9,8 +25,49 @@ const browserMenu: PlatformMenu = {
   execute() {},
 };
 
+function emptyPrinterConfigurationDocument(): PrinterConfigurationDocument {
+  return { version: 1, printers: [] };
+}
+
+/** Browser storage is isolated from ordinary preferences and versioned. */
+export function createBrowserPrinterConfigurationRepository(
+  storage: Storage = localStorage,
+): PrinterConfigurationRepository {
+  let inMemory = emptyPrinterConfigurationDocument();
+  return {
+    async load() {
+      let raw: string | null;
+      try {
+        raw = storage.getItem(PRINTER_CONFIGURATION_STORAGE_KEY);
+      } catch {
+        return inMemory;
+      }
+      if (raw === null) {
+        inMemory = emptyPrinterConfigurationDocument();
+        return inMemory;
+      }
+      try {
+        inMemory = normalizePrinterConfigurationDocument(JSON.parse(raw));
+      } catch {
+        inMemory = emptyPrinterConfigurationDocument();
+      }
+      return inMemory;
+    },
+    async save(document) {
+      const normalized = normalizePrinterConfigurationDocument(document);
+      inMemory = normalized;
+      try {
+        storage.setItem(PRINTER_CONFIGURATION_STORAGE_KEY, JSON.stringify(normalized));
+      } catch {
+        // Storage can be disabled or out of quota; keep this session usable.
+      }
+    },
+  };
+}
+
 export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabilities {
   let inMemory = normalizeUserPreferences(null);
+  const printerConfiguration = createBrowserPrinterConfigurationRepository();
   return {
     models: { pick: pickModel },
     exports: { save: downloadGcode },
@@ -30,6 +87,8 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
         catch (error) { console.error('web preferences save failed; keeping in-memory preferences', error); }
       },
     },
+    printers: { configuration: printerConfiguration, transport: createBrowserPrinterTransport() },
+    webview: createBrowserWebViewHost(),
     runtime,
     profiles: { fetch: async (relativePath) => {
       const Url = globalThis.URL;

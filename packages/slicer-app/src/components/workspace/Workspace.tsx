@@ -141,7 +141,7 @@ export function Workspace({ onSceneInteractionChange }: {
   }
 
   return (
-    <div className="flex flex-1 min-h-0 px-1">
+    <div className="flex flex-1 min-h-0">
       <aside
         className="shrink-0 overflow-hidden rounded-md border bg-card"
         style={{

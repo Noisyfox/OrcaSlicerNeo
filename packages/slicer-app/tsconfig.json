@@ -11,6 +11,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@orca/platform-contract": ["./../platform-contract/src/index.ts"],
+      "@orca/printer-control": ["./../printer-control/src/index.ts"],
       "@orca/slicer-runtime": ["./../slicer-runtime/src/index.ts"],
       "@slicer/client": ["./../slicer-wasm/src/client/index.ts"],
       "@slicer/testing": ["./../slicer-wasm/src/client/testing/mock-module.ts"]

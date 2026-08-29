@@ -9,7 +9,11 @@ import {
   type MenuModel,
   type MenuStateSnapshot,
   type PreferencesLoadResult,
+  type PrinterTransportIpcRequest,
+  type PrinterTransportIpcResponse,
+  type PrinterTransportProgress,
 } from '../shared/ipc';
+import { normalizePrinterConfigurationDocument, type PrinterConfigurationDocument } from '../../../../packages/printer-control/src/configuration';
 
 // The renderer's only window to native features (design §Electron App).
 // All IO goes through main; no node builtins leak into the renderer.
@@ -31,6 +35,38 @@ const bridge: ElectronBridge = {
   preferences: {
     load: () => ipcRenderer.invoke(Ipc.preferencesLoad) as Promise<PreferencesLoadResult>,
     save: (json: unknown) => ipcRenderer.invoke(Ipc.preferencesSave, json) as Promise<void>,
+  },
+
+  printers: {
+    configuration: {
+      load: () => ipcRenderer.invoke(Ipc.printerConfigurationLoad) as Promise<PrinterConfigurationDocument>,
+      save: async (document: PrinterConfigurationDocument) => {
+        // Validate at the renderer boundary as well as in main. This keeps
+        // malformed IPC payloads from ever reaching the file handler.
+        const normalized = normalizePrinterConfigurationDocument(document);
+        await ipcRenderer.invoke(Ipc.printerConfigurationSave, normalized);
+      },
+    },
+    transport: {
+      request: (requestId: string, request: PrinterTransportIpcRequest) =>
+        ipcRenderer.invoke(Ipc.printerTransportRequest, requestId, request) as Promise<PrinterTransportIpcResponse>,
+      cancel: (requestId: string) =>
+        ipcRenderer.invoke(Ipc.printerTransportCancel, requestId) as Promise<void>,
+      onProgress: (listener: (requestId: string, progress: PrinterTransportProgress) => void) => {
+        const handler = (_event: IpcRendererEvent, requestId: unknown, progress: unknown) => {
+          if (typeof requestId !== 'string' || !progress || typeof progress !== 'object') return;
+          const value = progress as { loaded?: unknown; total?: unknown };
+          if (typeof value.loaded !== 'number' || !Number.isFinite(value.loaded) || value.loaded < 0) return;
+          if (value.total !== undefined && (typeof value.total !== 'number' || !Number.isFinite(value.total) || value.total < 0)) return;
+          listener(requestId, {
+            loaded: value.loaded,
+            ...(typeof value.total === 'number' ? { total: value.total } : {}),
+          });
+        };
+        ipcRenderer.on(Ipc.printerTransportProgress, handler);
+        return () => ipcRenderer.removeListener(Ipc.printerTransportProgress, handler);
+      },
+    },
   },
 
   menu: {

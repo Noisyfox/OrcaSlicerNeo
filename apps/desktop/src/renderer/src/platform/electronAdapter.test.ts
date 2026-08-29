@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createElectronAdapter } from './electronAdapter';
+import type { PrinterConfigurationDocument } from '@orca/printer-control';
 
 function setup(overrides: Record<string, unknown> = {}) {
     const load = vi.fn(async () => ({ found: true, json: { version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320 } } }));
@@ -11,17 +12,24 @@ function setup(overrides: Record<string, unknown> = {}) {
       executeHostCommand: vi.fn(async () => {}),
     };
     const externalLinks = { openSource: vi.fn(async () => {}) };
-    const host = { preferences: { load, save }, menu, externalLinks, platform: 'win32', ...overrides };
+    const configurationLoad = vi.fn<() => Promise<PrinterConfigurationDocument>>(async () => ({ version: 1, printers: [] }));
+    const configurationSave = vi.fn(async () => {});
+    const transport = {
+      request: vi.fn(async () => ({ status: 200, json: {} })),
+      cancel: vi.fn(async () => {}),
+      onProgress: vi.fn((_listener: (id: string, progress: { loaded: number; total?: number }) => void) => () => {}),
+    };
+    const host = { preferences: { load, save }, printers: { configuration: { load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
     vi.stubGlobal('window', { orca: host });
-    return { adapter: createElectronAdapter({} as never), load, save, menu, externalLinks };
+    return { adapter: createElectronAdapter({} as never), load, save, menu, externalLinks, configurationLoad, configurationSave, transport };
 }
 
 describe('Electron adapter', () => {
   it('normalizes load and writes the shared preference shape', async () => {
     const { adapter, save } = setup();
-    expect(await adapter.preferences.load()).toEqual({ version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320 } });
+    expect(await adapter.preferences.load()).toEqual({ version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });
     await adapter.preferences.save({ version: 1, selectedProfiles: { filament: 'F' }, ui: {} });
-    expect(save).toHaveBeenCalledWith({ version: 1, selectedProfiles: { filament: 'F' }, ui: {} });
+    expect(save).toHaveBeenCalledWith({ version: 1, selectedProfiles: { filament: 'F' }, ui: { switchToDeviceAfterSend: true } });
   });
 
   it('maps native import success to display name and bytes', async () => {
@@ -90,6 +98,44 @@ describe('Electron adapter', () => {
     const { adapter } = setup({ preferences: { load, save } });
     const value = { version: 1 as const, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300 } };
     await adapter.preferences.save(value);
-    await expect(adapter.preferences.load()).resolves.toEqual(value);
+    await expect(adapter.preferences.load()).resolves.toEqual({ ...value, ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } });
+  });
+
+  it('round-trips complete printer configuration through the typed host API', async () => {
+    const { adapter, configurationLoad, configurationSave } = setup();
+    const document = { version: 1 as const, printers: [{
+      id: 'p1', displayName: 'Printer', driverId: 'moonraker' as const,
+      consoleUrl: 'http://printer.local/console', apiBaseUrl: 'http://printer.local:7125/', apiKey: 'complete-key',
+    }] };
+    configurationLoad.mockResolvedValue(document);
+    await expect(adapter.printers.configuration.load()).resolves.toEqual(document);
+    await adapter.printers.configuration.save(document);
+    expect(configurationSave).toHaveBeenCalledWith(document);
+  });
+
+  it('returns an empty printer document when host load is invalid', async () => {
+    const { adapter, configurationLoad } = setup();
+    configurationLoad.mockResolvedValue({ version: 2, printers: [] } as never);
+    await expect(adapter.printers.configuration.load()).resolves.toEqual({ version: 1, printers: [] });
+  });
+
+  it('adapts transport requests, progress callbacks, and AbortSignal to typed host IPC', async () => {
+    const { adapter, transport } = setup();
+    let notify: ((id: string, progress: { loaded: number; total?: number }) => void) | undefined;
+    transport.onProgress.mockImplementation((listener) => { notify = listener; return () => {}; });
+    const progress = vi.fn();
+    const response = await adapter.printers.transport.request({
+      method: 'GET', url: 'http://printer.local/status', headers: { 'X-Api-Key': 'key' }, onUploadProgress: progress,
+    });
+    expect(transport.request).toHaveBeenCalledWith('printer-request-1', expect.objectContaining({ method: 'GET', headers: { 'X-Api-Key': 'key' } }));
+    notify?.('printer-request-1', { loaded: 1, total: 2 });
+    expect(progress).toHaveBeenCalledWith({ loaded: 1, total: 2 });
+    expect(response.status).toBe(200);
+
+    const controller = new AbortController();
+    const pending = adapter.printers.transport.request({ method: 'GET', url: 'http://printer.local/status', signal: controller.signal });
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(transport.cancel).toHaveBeenCalledWith('printer-request-2');
   });
 });

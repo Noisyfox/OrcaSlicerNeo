@@ -1,4 +1,4 @@
-# High Level Development Plan (updated 2026-08-24)
+# High Level Development Plan (updated 2026-08-28)
 
 ## Context
 
@@ -416,6 +416,20 @@
 > Verification: unit tests, mock-module contract tests, live WASM smoke
 > (threaded + serial), Electron e2e (mock + real WASM), and Web e2e (threaded +
 > serial) all pass.
+
+### Milestone 14 — Printer Console and Control
+
+> **Status: delivered 2026-08-28.** The final user experience is recorded in
+> [`2026-08-30-printer-console-and-control-ux.md`](2026-08-30-printer-console-and-control-ux.md).
+
+- [x] Manage multiple saved printers from the top-level Device page, with an
+      embedded console, add/edit/delete actions, and explicit console selection
+- [x] View a printer's console in Electron with automatic API-key reuse when
+      configured, and in Web through best-effort iframe embedding
+- [x] Send G-code or Send & Print through the selected printer's Moonraker API,
+      with progress, cancellation, start-only retry, and optional keyless use
+- [x] After success, count down before closing and optionally switch to Device;
+      this preference is persisted and enabled by default
 
 ## Cross-Cutting Practices
 

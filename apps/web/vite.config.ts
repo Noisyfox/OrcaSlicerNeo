@@ -1,9 +1,10 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react-swc';
 import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
+import { isolationHeaders } from './src/viteIsolation';
 
 const root = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 
@@ -30,32 +31,33 @@ function webOnlyWasmLoader() {
   };
 }
 
-export default defineConfig({
-  // Tailwind must be compiled in every host — without a plugin the shared
-  // index.css' @theme/@apply/@utility directives pass through unprocessed
-  // and no utility classes are generated (2026-08-20). The desktop host
-  // registers the same plugin in electron.vite.config.ts (2026-08-21).
-  plugins: [react(), tailwindcss(), webOnlyWasmLoader()],
-  base: './',
-  // The checked-in static profile bundle is host-neutral and is reused by
-  // both static hosts; WASM artifact packaging remains Step 5.
-  publicDir: root('../../apps/desktop/src/renderer/public'),
-  // The normal server/preview is isolated. Web E2E deliberately sets
-  // ORCA_WEB_NO_ISOLATION=1 to exercise the real serial artifact.
-  server: { headers: isolationHeaders() },
-  preview: { headers: isolationHeaders() },
-  resolve: { alias: {
-    '@': root('../../packages/slicer-app/src'),
-    '@orca/slicer-runtime': root('../../packages/slicer-runtime/src/index.ts'),
-    '@orca/platform-contract': root('../../packages/platform-contract/src/index.ts'),
-    '@slicer/client': root('../../packages/slicer-wasm/src/client/index.ts'),
-    '@slicer/testing': root('../../packages/slicer-wasm/src/client/testing/mock-module.ts'),
-  } },
-});
+export default defineConfig(({ mode }) => {
+  // Load mode-specific files (including the intentionally unprefixed
+  // ORCA_WEB_NO_ISOLATION switch) while retaining explicit process.env values
+  // used by the existing Web E2E commands.
+  const env = loadEnv(mode, process.cwd(), '');
 
-function isolationHeaders(): Record<string, string> {
-  return process.env.ORCA_WEB_NO_ISOLATION === '1' ? {} : {
-    'Cross-Origin-Opener-Policy': 'same-origin',
-    'Cross-Origin-Embedder-Policy': 'require-corp',
+  return {
+    // Tailwind must be compiled in every host — without a plugin the shared
+    // index.css' @theme/@apply/@utility directives pass through unprocessed
+    // and no utility classes are generated (2026-08-20). The desktop host
+    // registers the same plugin in electron.vite.config.ts (2026-08-21).
+    plugins: [react(), tailwindcss(), webOnlyWasmLoader()],
+    base: './',
+    // The checked-in static profile bundle is host-neutral and is reused by
+    // both static hosts; WASM artifact packaging remains Step 5.
+    publicDir: root('../../apps/desktop/src/renderer/public'),
+    // The normal server/preview is isolated. Web E2E deliberately sets
+    // ORCA_WEB_NO_ISOLATION=1 to exercise the real serial artifact.
+    server: { headers: isolationHeaders(env) },
+    preview: { headers: isolationHeaders(env) },
+    resolve: { alias: {
+      '@': root('../../packages/slicer-app/src'),
+      '@orca/slicer-runtime': root('../../packages/slicer-runtime/src/index.ts'),
+      '@orca/platform-contract': root('../../packages/platform-contract/src/index.ts'),
+      '@orca/printer-control': root('../../packages/printer-control/src/index.ts'),
+      '@slicer/client': root('../../packages/slicer-wasm/src/client/index.ts'),
+      '@slicer/testing': root('../../packages/slicer-wasm/src/client/testing/mock-module.ts'),
+    } },
   };
-}
+});

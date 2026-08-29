@@ -1,13 +1,20 @@
 import {
   DEFAULT_USER_PREFERENCES,
   normalizeUserPreferences,
+  type PrinterConfigurationRepository,
   type MenuCommandId,
   type PlatformCapabilities,
   type PlatformMenu,
   type UserPreferences,
 } from '@orca/platform-contract';
+import {
+  normalizePrinterConfigurationDocument,
+  type PrinterConfigurationDocument,
+} from '@orca/printer-control';
 import type { FileDialogFilter } from '../../../shared/ipc';
 import type { SlicerRuntime } from '@orca/platform-contract';
+import { createElectronPrinterTransport } from './electronPrinterTransport';
+import { createElectronWebViewHost } from './electronWebView';
 
 const MODEL_FILTERS: FileDialogFilter[] = [
   { name: 'Models', extensions: ['stl', '3mf'] },
@@ -27,6 +34,29 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
   const importPaths = new Map<string, string>();
   let importSequence = 0;
   let inMemoryPreferences: UserPreferences = normalizeUserPreferences(DEFAULT_USER_PREFERENCES);
+  let inMemoryPrinterConfiguration: PrinterConfigurationDocument = { version: 1, printers: [] };
+  const printerConfiguration: PrinterConfigurationRepository = {
+    async load() {
+      try {
+        inMemoryPrinterConfiguration = normalizePrinterConfigurationDocument(
+          await host.printers.configuration.load(),
+        );
+      } catch {
+        inMemoryPrinterConfiguration = { version: 1, printers: [] };
+      }
+      return inMemoryPrinterConfiguration;
+    },
+    async save(document) {
+      const normalized = normalizePrinterConfigurationDocument(document);
+      inMemoryPrinterConfiguration = normalized;
+      try {
+        await host.printers.configuration.save(normalized);
+      } catch {
+        // Keep the normalized value available for this session if persistence
+        // is unavailable; never include the document in diagnostics.
+      }
+    },
+  };
   return {
     models: {
       async pick() {
@@ -69,6 +99,8 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
         catch (error) { console.error('preferences save failed; keeping in-memory preferences', error); }
       },
     },
+    printers: { configuration: printerConfiguration, transport: createElectronPrinterTransport(host) },
+    webview: createElectronWebViewHost(),
     runtime,
     profiles: { fetch: async (relativePath) => new Uint8Array(await (await fetch(relativePath)).arrayBuffer()) },
     chrome: {

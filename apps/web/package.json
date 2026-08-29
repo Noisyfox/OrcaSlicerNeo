@@ -6,6 +6,8 @@
   "scripts": {
     "predev": "node ../../scripts/stage-wasm.mjs --soft",
     "dev": "vite",
+    "predev:singlethread": "node ../../scripts/stage-wasm.mjs --soft",
+    "dev:singlethread": "vite --mode singlethread",
     "build": "vite build",
     "preview": "vite preview",
     "test:non-root": "pnpm build && node scripts/non-root-smoke.mjs",
@@ -15,6 +17,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@orca/printer-control": "workspace:*",
     "@orca/platform-contract": "workspace:*",
     "@orca/slicer-app": "workspace:*",
     "@orca/slicer-runtime": "workspace:*",

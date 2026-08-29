@@ -1,23 +1,32 @@
 // packages/slicer-app/src/components/layout/Toolbar.tsx
 import { useState } from 'react';
-import { Slice, Download, AppWindowIcon, HouseIcon, LayersIcon, ComputerIcon } from 'lucide-react';
+import { Slice, Download, Send as SendIcon, Printer, AppWindowIcon, HouseIcon, LayersIcon, ComputerIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportGcode, sliceModel } from '../workspace/actions/sliceActions';
 import { usePlatform } from '@orca/platform-contract';
+import { SendGcodeDialog, type SendGcodeAction } from '../send/SendGcodeDialog';
 
 // The scene actions (Add Model / Clear Scene) live elsewhere now: Add Model
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see
 // doc/2026-08-22-scene-toolbar-and-context-menu.md). This row is Slice and
 // Export only.
-export function Toolbar() {
+export type WorkspaceTab = 'home' | 'prepare' | 'preview';
+export type AppTab = WorkspaceTab | 'Device';
+
+export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice }: {
+  activeTab?: AppTab;
+  onTabChange?: (tab: AppTab) => void;
+  onNavigateToDevice?: () => void;
+} = {}) {
   const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const busy = status === 'slicing';
   const [exporting, setExporting] = useState(false);
+  const [sendAction, setSendAction] = useState<SendGcodeAction | null>(null);
 
   async function slice() { await sliceModel(platform); }
 
@@ -28,21 +37,26 @@ export function Toolbar() {
   }
 
   return (
+    <>
     <div className="flex w-full items-center justify-between">
-      <Tabs defaultValue="home">
+      <Tabs value={activeTab} onValueChange={(value) => {
+        if (value === 'home' || value === 'prepare' || value === 'preview' || value === 'Device') {
+          onTabChange?.(value);
+        }
+      }}>
         <TabsList className="px-0.5 py-0">
-          <TabsTrigger value="home">
+          <TabsTrigger value="home" id="app-tab-home" aria-controls="app-panel-workspace">
             <HouseIcon />
           </TabsTrigger>
-          <TabsTrigger value="prepare">
+          <TabsTrigger value="prepare" id="app-tab-prepare" aria-controls="app-panel-workspace">
             <AppWindowIcon />
             Prepare
           </TabsTrigger>
-          <TabsTrigger value="preview">
+          <TabsTrigger value="preview" id="app-tab-preview" aria-controls="app-panel-workspace">
             <LayersIcon />
             Preview
           </TabsTrigger>
-          <TabsTrigger value="Device">
+          <TabsTrigger value="Device" id="app-tab-device" aria-controls="app-panel-device" data-testid="tab-device">
             <ComputerIcon />
             Device
           </TabsTrigger>
@@ -55,7 +69,20 @@ export function Toolbar() {
         <Button size="xs" variant="default" disabled={busy || exporting || !modelLoaded || status !== 'done'} onClick={saveExport} title="Export G-code" data-testid="btn-export">
           <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
         </Button>
+        <Button size="xs" variant="secondary" disabled={busy || status !== 'done'} onClick={() => setSendAction('send')} title="Send G-code to printer" data-testid="btn-send">
+          <SendIcon className="h-4 w-4" /> Send
+        </Button>
+        <Button size="xs" variant="default" disabled={busy || status !== 'done'} onClick={() => setSendAction('send-and-print')} title="Send G-code and start printing" data-testid="btn-send-and-print">
+          <Printer className="h-4 w-4" /> Send &amp; Print
+        </Button>
       </div>
     </div>
+    <SendGcodeDialog
+      open={sendAction !== null}
+      action={sendAction ?? 'send'}
+      onClose={() => setSendAction(null)}
+      onNavigateToDevice={onNavigateToDevice}
+    />
+    </>
   );
 }

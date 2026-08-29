@@ -1,4 +1,5 @@
 import type { SlicerClient } from '@slicer/client';
+import type { PrinterConfigurationDocument, PrinterTransport } from '@orca/printer-control';
 import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
 
 export type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
@@ -32,12 +33,79 @@ export interface UserPreferences {
     print?: string;
     filament?: string;
   };
-  ui: { sidebarWidth?: number };
+  ui: {
+    sidebarWidth?: number;
+    deviceSidebarWidth?: number;
+    /** Whether successful G-code sends should navigate to Device by default. */
+    switchToDeviceAfterSend?: boolean;
+  };
 }
 
 export interface UserPreferencesRepository {
   load(): Promise<UserPreferences>;
   save(value: UserPreferences): Promise<void>;
+}
+
+/** Persistent printer records. Transport and network concerns stay separate. */
+export interface PrinterConfigurationRepository {
+  load(): Promise<PrinterConfigurationDocument>;
+  save(document: PrinterConfigurationDocument): Promise<void>;
+}
+
+/** The intentionally small state surface shared by embedded printer consoles. */
+export type WebViewPanelStatus = 'idle' | 'loading' | 'loaded' | 'error';
+
+export interface WebViewPanelState {
+  status: WebViewPanelStatus;
+  /** The URL selected by the host. A cross-origin page is never inspected. */
+  url: string | null;
+  error: string | null;
+}
+
+export interface WebViewPanelCapabilities {
+  canInjectBuiltInScripts: boolean;
+  canExposeHostApi: boolean;
+  canExecuteJavaScript: boolean;
+}
+
+export interface WebViewPanelEvents {
+  onStateChange?(state: WebViewPanelState): void;
+  onNavigation?(url: string): void;
+}
+
+export interface WebViewPanelOptions {
+  url?: string;
+  title?: string;
+}
+
+/** Script source and secrets stay host-owned; shared callers pass an ID only. */
+export interface BuiltInScriptRequest {
+  scriptId: string;
+  context?: unknown;
+}
+
+export type WebViewOperationResult<T = never> =
+  | { status: 'ok'; value?: T }
+  | { status: 'unsupported'; reason: 'capability-unavailable' };
+
+/** A mounted, host-backed embedded page. */
+export interface WebViewPanel {
+  readonly capabilities: WebViewPanelCapabilities;
+  readonly state: WebViewPanelState;
+  load(url: string): void;
+  /** Host-owned, reviewed script ID plus its validated context; never source. */
+  registerBuiltInScript(request: BuiltInScriptRequest): WebViewOperationResult;
+  /** A host-owned, serializable capability object; implementations may reject it. */
+  exposeHostApi(name: string, api: unknown): WebViewOperationResult;
+  /** Available only to reviewed host code; shared UI has no user-script entry point. */
+  executeJavaScript<T = unknown>(script: string): Promise<WebViewOperationResult<T>>;
+  dispose(): void;
+}
+
+/** Host factory used by shared UI; implementations own their embedded element. */
+export interface WebViewHost {
+  readonly capabilities: WebViewPanelCapabilities;
+  mount(container: HTMLElement, options?: WebViewPanelOptions, events?: WebViewPanelEvents): WebViewPanel;
 }
 
 export interface PlatformChrome {
@@ -61,12 +129,12 @@ export interface ProfileSource {
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   version: 1,
   selectedProfiles: {},
-  ui: {},
+  ui: { switchToDeviceAfterSend: true },
 };
 
 export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
-    return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: {} };
+    return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
   const v = value as { selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown> };
   const selectedProfiles = v.selectedProfiles ?? {};
@@ -78,8 +146,14 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
       ...(typeof selectedProfiles.print === 'string' ? { print: selectedProfiles.print } : {}),
       ...(typeof selectedProfiles.filament === 'string' ? { filament: selectedProfiles.filament } : {}),
     },
-    ui: typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth)
-      ? { sidebarWidth: ui.sidebarWidth } : {},
+    ui: {
+      ...(typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth)
+        ? { sidebarWidth: ui.sidebarWidth } : {}),
+      ...(typeof ui.deviceSidebarWidth === 'number' && Number.isFinite(ui.deviceSidebarWidth)
+        ? { deviceSidebarWidth: ui.deviceSidebarWidth } : {}),
+      switchToDeviceAfterSend: typeof ui.switchToDeviceAfterSend === 'boolean'
+        ? ui.switchToDeviceAfterSend : true,
+    },
   };
 }
 
@@ -95,6 +169,8 @@ export interface PlatformCapabilities {
   models: ModelPicker;
   exports: GcodeExporter;
   preferences: UserPreferencesRepository;
+  printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };
+  webview: WebViewHost;
   runtime: SlicerRuntime;
   profiles: ProfileSource;
   chrome: PlatformChrome;

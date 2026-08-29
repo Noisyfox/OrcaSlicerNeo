@@ -321,6 +321,8 @@ interface UserPreferences {
   };
   ui: {
     sidebarWidth?: number;
+    deviceSidebarWidth?: number;
+    switchToDeviceAfterSend?: boolean;
   };
 }
 ```
@@ -338,7 +340,10 @@ no new vendor/model/variant identifier is introduced.
   with in-memory preferences for that session and logs the failure to the
   console. Preferences never block startup or slicing; the first release has
   no dialog, retry, or recovery flow.
-- `sidebarWidth` and other common UI preferences are persisted in both hosts.
+- `sidebarWidth`, `deviceSidebarWidth`, `switchToDeviceAfterSend`, and other
+  common UI preferences are persisted in both hosts. The send-navigation
+  preference defaults to `true`; older documents that lack it are migrated to
+  that default by normalization.
 - Future host-only UI data may use platform namespaces. Shared preferences must
   not acquire Electron-only concepts.
 - User-created profiles, profile-definition persistence, project data, models,

@@ -8,10 +8,11 @@ const clientRoot = fileURLToPath(new URL('../../packages/slicer-wasm/src/client'
 const appRoot = fileURLToPath(new URL('../../packages/slicer-app/src', import.meta.url));
 const runtimeRoot = fileURLToPath(new URL('../../packages/slicer-runtime/src', import.meta.url));
 const platformRoot = fileURLToPath(new URL('../../packages/platform-contract/src', import.meta.url));
+const printerControlRoot = fileURLToPath(new URL('../../packages/printer-control/src', import.meta.url));
 
 export default defineConfig({
-  main: {},
-  preload: {},
+  main: { resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
+  preload: { resolve: { alias: { '@orca/printer-control': resolve(printerControlRoot, 'index.ts') } } },
   renderer: {
     plugins: [react(), tailwindcss()],
     server: {
@@ -34,6 +35,7 @@ export default defineConfig({
         '@': appRoot,
         '@orca/slicer-runtime': resolve(runtimeRoot, 'index.ts'),
         '@orca/platform-contract': resolve(platformRoot, 'index.ts'),
+        '@orca/printer-control': resolve(printerControlRoot, 'index.ts'),
         '@slicer/client': resolve(clientRoot, 'index.ts'),
         '@slicer/testing': resolve(clientRoot, 'testing/mock-module.ts'),
       },
