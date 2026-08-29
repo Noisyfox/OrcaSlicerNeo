@@ -1,7 +1,7 @@
 # Profile Compatibility and Preset Selection
 
 **Date:** 2026-08-30
-**Status:** Draft — decision groups 1–3 accepted; further interactive review pending
+**Status:** Draft — decision groups 1–4 accepted; further interactive review pending
 **Scope:** Compatibility-driven system preset selection in the shared Electron/Web application.
 
 ## 1. Purpose
@@ -122,15 +122,37 @@ Detailed failure behaviour is deliberately deferred. The implementation must
 retain a code-level TODO at the selection error boundary so this is resolved
 before compatibility transitions are relied on for production workflows.
 
-## 6. Explicitly Deferred Questions
+## 6. Accepted Slice and Preference Side Effects
+
+### 6.1 Slice result invalidation
+
+Every successful preset transition changes a slicing input. As soon as its
+atomic compatibility snapshot is applied, the application invalidates any
+existing slice result, toolpath preview, layer state, and G-code export. A
+new slice is required before previewing or exporting G-code again.
+
+A failed transition does not itself invalidate an existing result; detailed
+failure-state handling remains deferred.
+
+### 6.2 Preference persistence
+
+After applying a successful snapshot, persist the engine-resolved Printer,
+Process, and Filament names together as `selectedProfiles`. This includes any
+fallback selected by the profile engine rather than the name originally
+requested by the user.
+
+Preference write failures do not roll back the active in-memory preset state
+or its UI. The session remains usable and the failure is logged.
+
+## 7. Explicitly Deferred Questions
 
 - Exact failure semantics for a rejected selection or an invalid/incomplete
   compatibility snapshot.
 - Exact automated test matrix and the choice of real-profile fixtures.
 
-## 7. Accepted Scope and Editing Boundary
+## 8. Accepted Scope and Editing Boundary
 
-### 6.1 Profile scope
+### 8.1 Profile scope
 
 Current acceptance covers every installed system profile supplied by the
 profile packages. This feature does not add user-profile creation, importing,
@@ -142,7 +164,7 @@ for user/imported/external presets may use the same engine and inherit its
 parent-preset and compatibility semantics, but its product behaviour requires
 a separate specification change.
 
-### 6.2 Temporary option edits
+### 8.2 Temporary option edits
 
 The current version does not expose temporary Printer or profile-definition
 edits that can change compatibility. Compatibility is recomputed only after a
