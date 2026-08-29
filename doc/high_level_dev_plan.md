@@ -303,11 +303,6 @@
   deployment base (site root / subpath / preview), and `beforeunload`
   guarding. Docs: `doc/2026-08-20-m9-step4-web-host.md`,
   `doc/2026-08-20-fix-dev-wasm-url-shared-runtime.md`.
-- **Single-thread development mode delivered:**
-  `pnpm --filter @orca/web dev:singlethread` selects Vite's `singlethread`
-  mode and loads the tracked `.env.singlethread` switch to remove COOP/COEP
-  headers for manual serial-runtime testing; the default `dev` path remains
-  isolated. See `doc/2026-08-29-web-singlethread-dev-mode.md`.
 - **Step 10 delivered:** dual-variant build/staging (separate CMake/output
   trees per variant via `scripts/build-wasm-dual.*` + `stage-wasm.mjs`) and
   real-artifact Chrome e2e for both variants —
@@ -424,118 +419,27 @@
 
 ### Milestone 14 — Printer Control Foundation (step 3)
 
-> **Steps 1–3 delivered 2026-08-28.**
-> `@orca/printer-control` establishes the platform-neutral, version-1 printer
-> configuration and Moonraker control seam. It keeps host HTTP behind
-> `PrinterTransport`, supports multiple stable-ID records, and provides
-> explicit upload-only and upload-then-start operations. See
-> `doc/2026-08-28-printer-control-foundation.md`,
-> `doc/2026-08-28-printer-configuration-repositories.md`, and
-> `doc/2026-08-28-printer-http-transports.md`.
-
-- Moonraker is the sole closed built-in driver; configuration validates both
-  independent HTTP(S) URLs and preserves API keys without network preflight.
-- Moonraker request-shape, authentication, multipart upload, control commands,
-  and start-failure-after-upload behavior are covered by fake-transport Vitest
-  fixtures.
-- **Step 2 delivered:** `PrinterConfigurationRepository` is a required
-  `platform.printers.configuration` capability. Web persists a normalized,
-  versioned document in dedicated localStorage; Electron persists the same
-  document through typed preload IPC at `userData/printer-config.json`.
-  Missing, corrupt, invalid, or unavailable storage falls back to an empty
-  document without exposing API keys. See
-  `doc/2026-08-28-printer-configuration-repositories.md`.
-- **Step 3 delivered:** `platform.printers.transport` is implemented by a
-  browser XHR adapter with upload progress/cancellation and by a main-process
-  Electron HTTP adapter behind sender-guarded typed IPC. Structured request
-  bodies are encoded only at the host boundary and diagnostics redact keys.
-  See `doc/2026-08-28-printer-http-transports.md`.
+> **Steps 1–3 delivered 2026-08-28.** The final printer configuration and
+> Moonraker control experience is recorded in
+> `doc/2026-08-30-printer-console-and-control-ux.md`.
 
 ### Milestone 15 — WebViewPanel contract and Web iframe foundation
 
-> **Status: implemented 2026-08-28.** See
-> `doc/2026-08-28-webview-panel-foundation.md`.
-
-- **Step 1 delivered:** `@orca/platform-contract` defines the minimal
-  host-neutral `WebViewHost` / `WebViewPanel` surface: configured URL loading,
-  lifecycle/navigation/error state events, built-in script requests, and
-  explicit capability flags for script injection, host API exposure, and
-  embedded-page JavaScript.
-- **Step 2 delivered:** Web injects a plain, unsandboxed iframe adapter into
-  `PlatformCapabilities.webview`. It never reads cross-origin iframe DOM and
-  safely returns `unsupported` for script injection, host APIs, and page JS;
-  redacted diagnostics exclude URL, API-key, opaque context, and script text.
-- Electron currently supplies an explicit unsupported placeholder. Electron
-  `<webview>` guest behavior, built-in script resolution/injection, Device UI,
-  and page callbacks remain later independently verified steps.
-
-**Step 3 delivered 2026-08-28:** Electron now mounts a real `<webview>` guest
-with the narrow `webviewTag` preference, guest-only navigation/new-window
-policy, lifecycle events, and a data-only host API boundary. The fixed
-`moonraker-fetch-v1` document-start script follows Orca's `SendAPIKey` fetch
-wrapper while validating the API-key context and never logging the key. Web
-continues to report script and host-API operations as unsupported. See
-`doc/2026-08-28-electron-webview-injection.md`. Local fixture-backed Electron
-coverage now observes the guest console's `X-API-Key` request; see
-`doc/2026-08-28-printer-console-fixtures-e2e.md`.
+> **Status: implemented 2026-08-28.** The final cross-platform console
+> experience is recorded in
+> `doc/2026-08-30-printer-console-and-control-ux.md`.
 
 ### Milestone 16 — Device printer configuration UI
 
-> **Implemented 2026-08-28.** See `doc/2026-08-28-device-configuration-ui.md`.
-
-- The shared top-level Device page manages multiple validated Moonraker printer records
-  through `platform.printers.configuration`; add/edit/delete uses a single
-  dialog and deletion requires confirmation.
-- Device is a sibling page of Workspace. Workspace contains only the profile
-  settings sidebar and 3D scene; the app shell owns top-level page mounting
-  and navigation.
-- Device console selection is local ephemeral state and independent from
-  system profile and future send-target selection. New records are not
-  selected automatically; deleting the selected record clears the empty state.
-- Selecting a record mounts `platform.webview` without a URL, registers the
-  fixed `moonraker-fetch-v1` script only when a key exists, and then loads its
-  configured Console URL, falling back to API base URL when blank. Changes and
-  unmount dispose the previous panel. API
-  keys remain password-masked and absent from visible copy and diagnostics.
-  Helper and jsdom component tests cover the rendered CRUD/selection flow and
-  the fake-WebView lifecycle without requiring a LAN printer. The dedicated
-  Electron fixture test additionally covers real guest loading and key receipt.
-- The app shell keeps the Workspace and Device page surfaces mounted while
-  switching. Inactive surfaces use native `hidden` plus `aria-hidden`/`inert`
-  semantics, so the single WebGL viewport and selected printer guest retain
-  local state without receiving input or consuming layout space. See
-  `doc/2026-08-28-top-level-device-page.md`.
-- Device uses Workspace's card-surface layout conventions: independently
-  resizable 220–560px printer sidebar (288px default), accessible pointer and
-  keyboard divider, and persisted `ui.deviceSidebarWidth` separate from the
-  Workspace `ui.sidebarWidth`. See `doc/2026-08-28-device-panel-layout.md`.
-- The printer form places the required API base URL before an optional Console
-  URL. A blank Console URL is retained as blank and resolves to the API base
-  URL only at the shared console-load boundary; a distinct console URL remains
-  authoritative. See `doc/2026-08-29-console-url-fallback.md`.
+> **Implemented 2026-08-28.** The final Device page and printer configuration
+> experience is recorded in
+> `doc/2026-08-30-printer-console-and-control-ux.md`.
 
 ### Milestone 17 — Send and Send & Print workflow
 
-> **Implemented 2026-08-28.** See `doc/2026-08-28-send-gcode-workflow.md`.
-
-- The shared toolbar exposes separate Send (upload-only) and Send & Print
-  (upload then start) actions after a completed slice.
-- The API base URL is required for sending, while the API key is optional;
-  keyless Moonraker upload/start requests omit `X-Api-Key`.
-- The modal owns an independent, ephemeral printer selection; it never
-  reuses or persists Device tab selection and never silently chooses a
-  replacement when the previous target was removed.
-- Upload progress, busy/cancelled/success/error states, generic setup errors,
-  and the explicit `start-failed-after-upload` state are accessible in the
-  modal. A start retry uses the retained remote path and never re-uploads.
-- Successful operations count down for five seconds before closing; a
-  persisted, enabled-by-default option can close first and then navigate to
-  the top-level Device page, while cancellation, errors, and start failures
-  never navigate.
-- The local Electron fixture suite verifies upload-only versus upload-then-start,
-  start failure and no-reupload retry behavior, with no LAN or Internet calls.
-- Focused jsdom tests cover request differences, selection, progress,
-  cancellation, start failure/no-reupload, and API-key absence from UI/errors.
+> **Implemented 2026-08-28.** The final Send and Send & Print experience is
+> recorded in
+> `doc/2026-08-30-printer-console-and-control-ux.md`.
 
 ## Cross-Cutting Practices
 
