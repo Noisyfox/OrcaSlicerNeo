@@ -16,11 +16,11 @@ class Channel implements WorkerTransport {
   }
 }
 
-function setup() {
+function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | void) {
   const module = createMockModule();
   const channel = new Channel();
   const workerClient = createWorkerClient(channel);
-  void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
+  void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn), undefined, beforeRequest);
   return { workerClient, module };
 }
 
@@ -29,6 +29,14 @@ describe('worker protocol', () => {
     const { workerClient } = setup();
     const r = await workerClient.init();
     expect(r.ok).toBe(true);
+  });
+
+  it('runs the optional request hook before dispatching an operation', async () => {
+    const calls: Array<[string, unknown[]]> = [];
+    const { workerClient } = setup((op, args) => { calls.push([op, args]); });
+    const r = await workerClient.init();
+    expect(r.ok).toBe(true);
+    expect(calls).toEqual([['init', []]]);
   });
 
   it('loads a model and slices with progress events', async () => {

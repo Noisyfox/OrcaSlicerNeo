@@ -12,6 +12,7 @@ import { createFetchProfileSource, installProfiles, resolveDeploymentBase, resol
 const useMock = import.meta.env.VITE_USE_MOCK === '1';
 const mockInstanceCount = Number(import.meta.env.VITE_MOCK_INSTANCE_COUNT ?? 1);
 const mockVolumeCount = Number(import.meta.env.VITE_MOCK_VOLUME_COUNT ?? 1);
+const mockPresetTransitionDelayMs = Math.max(0, Number(import.meta.env.VITE_MOCK_PRESET_TRANSITION_DELAY_MS ?? 0) || 0);
 
 // The WASM module's boost::log severity filter is read from
 // globalThis.ORCA_LOG_LEVEL at orc_init (client forwards it; default "info").
@@ -64,4 +65,11 @@ const profileSource = createFetchProfileSource(
 startWorker(factory, undefined, undefined, async (module) => {
   if (useMock) return;
   await installProfiles(module, profileSource);
-});
+}, useMock && mockPresetTransitionDelayMs > 0 ? async (op) => {
+  // E2E-only fixture support: production builds never set this mock env var.
+  // Delaying just the bridge response makes the UI's stale-picker lock
+  // observable without changing any application compatibility behaviour.
+  if (op === 'selectPreset') {
+    await new Promise<void>((resolve) => setTimeout(resolve, mockPresetTransitionDelayMs));
+  }
+} : undefined);
