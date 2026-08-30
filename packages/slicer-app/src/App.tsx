@@ -1,5 +1,5 @@
-// packages/slicer-app/src/App.tsx (boot effect: app config load →
-// worker client init → presets ×3 → option metadata → settings store)
+// packages/slicer-app/src/App.tsx (boot effect: app config load → worker
+// client init → atomic preset snapshot → option metadata → settings store)
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AppShell, type AppPage } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
@@ -11,7 +11,7 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
-import { restoreSelections } from './preferences';
+import { persistRestoredSelections, restoreSelections } from './preferences';
 import { addModel, clearScene } from './components/workspace/actions/sceneActions';
 import { exportGcode, sliceModel } from './components/workspace/actions/sliceActions';
 import { createCommandDispatcher, registerNativeMenuCommands } from './menu/commands';
@@ -20,7 +20,7 @@ import { buildMenuModel, buildMenuStateSnapshot, resolveMenuMode } from './menu/
 export default function App() {
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
-  const setPresets = useSettingsStore((s) => s.setPresets);
+  const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const values = useSettingsStore((s) => s.values);
@@ -149,17 +149,11 @@ export default function App() {
         // Restore only names; compatibility and defaults remain authoritative
         // in the C++ preset bundle. The bridge response is written back so a
         // missing/corrupt selection is healed for the next boot.
-        const resolved = await restoreSelections(platform.runtime, preferences);
-        const restored = await Promise.all([
-          platform.runtime.getPresets('printer'),
-          platform.runtime.getPresets('print'),
-          platform.runtime.getPresets('filament'),
-        ]);
-        if (!cancelled) await platform.preferences.save(resolved);
+        const restored = await restoreSelections(platform.runtime, preferences);
         if (cancelled) return;
-        // Entries carry the real is_visible/selected flags — the store
-        // derives the picker's value + installed grouping from them.
-        setPresets(restored[0].presets, restored[1].presets, restored[2].presets);
+        await persistRestoredSelections(platform.preferences, restored.preferences);
+        if (cancelled) return;
+        hydratePresetSnapshot(restored.snapshot);
         setMetadata(metadata);
         setBoot('ready');
       } catch (err) {
@@ -172,7 +166,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [setMetadata, setPresets, setError]);
+  }, [hydratePresetSnapshot, setMetadata, setError, platform.preferences, platform.runtime]);
 
   useEffect(() => {
     if (platform.chrome.kind !== 'web') return;

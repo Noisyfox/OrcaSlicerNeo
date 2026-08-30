@@ -1,22 +1,67 @@
-import type { SlicerClient } from '@slicer/client';
-import type { UserPreferences } from '@orca/platform-contract';
+import type { PresetSnapshot, SlicerClient } from '@slicer/client';
+import type { UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 
-export async function restoreSelections(runtime: Pick<SlicerClient, 'selectPreset' | 'getPresets'>, preferences: UserPreferences): Promise<UserPreferences> {
-  let resolved: UserPreferences = { ...preferences, selectedProfiles: { ...preferences.selectedProfiles } };
+export interface RestoredSelections {
+  /** The engine-resolved names to persist for the next launch. */
+  preferences: UserPreferences;
+  /** The final coherent picker state; do not rebuild it with legacy list reads. */
+  snapshot: PresetSnapshot;
+}
+
+function resolvedPreferences(preferences: UserPreferences, snapshot: PresetSnapshot): UserPreferences {
+  return {
+    ...preferences,
+    selectedProfiles: {
+      printer: snapshot.printer.name,
+      print: snapshot.print.name,
+      filament: snapshot.filament.name,
+    },
+  };
+}
+
+/**
+ * Restore profile names in dependency order using only candidates emitted by
+ * the C++ engine's coherent snapshots. In particular, this deliberately does
+ * not consult getPresets() or choose a client-side "first" profile: a failed
+ * saved name falls back to the current engine selection for that snapshot.
+ */
+export async function restoreSelections(
+  runtime: Pick<SlicerClient, 'getPresetSnapshot' | 'selectPreset'>,
+  preferences: UserPreferences,
+): Promise<RestoredSelections> {
+  let initial = await runtime.getPresetSnapshot();
+  if (!initial.ok) throw new Error(initial.error ?? 'getPresetSnapshot failed');
+  let snapshot = initial;
+
   for (const kind of ['printer', 'print', 'filament'] as const) {
-    const name = resolved.selectedProfiles[kind];
-    let result = name ? await runtime.selectPreset(kind, name) : null;
-    if (!result?.ok) {
-      if (name) console.warn(`profile ${kind} ${name} unavailable; using first available profile`);
-      const list = await runtime.getPresets(kind);
-      const first = list.presets.find((p) => p.is_visible) ?? list.presets[0];
-      if (first) result = await runtime.selectPreset(kind, first.name);
+    const savedName = preferences.selectedProfiles[kind];
+    const candidateName = snapshot[kind].name;
+    const requestedName = savedName ?? candidateName;
+    let result = await runtime.selectPreset(kind, requestedName);
+
+    if (!result.ok) {
+      if (savedName) {
+        console.warn(`profile ${kind} ${savedName} unavailable; using the engine-selected candidate`);
+      }
+      // The current snapshot is still authoritative because a rejected
+      // selectPreset leaves the engine state unchanged.
+      result = await runtime.selectPreset(kind, candidateName);
     }
-    if (result?.ok) {
-      resolved = { ...resolved, selectedProfiles: {
-        printer: result.printer.name, print: result.print.name, filament: result.filament.name,
-      } };
-    }
+    if (!result.ok) throw new Error(result.error ?? `could not select ${kind}`);
+    snapshot = result;
   }
-  return resolved;
+
+  return { preferences: resolvedPreferences(preferences, snapshot), snapshot };
+}
+
+/** Preference persistence must never invalidate an already-resolved boot state. */
+export async function persistRestoredSelections(
+  repository: UserPreferencesRepository,
+  preferences: UserPreferences,
+): Promise<void> {
+  try {
+    await repository.save(preferences);
+  } catch (error) {
+    console.error('restored profile preference save failed; keeping session state', error);
+  }
 }

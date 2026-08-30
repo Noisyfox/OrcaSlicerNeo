@@ -1,6 +1,17 @@
 // packages/slicer-app/src/stores/useSettingsStore.test.ts
 import { describe, it, expect } from 'vitest';
 import { useSettingsStore } from './useSettingsStore';
+import type { PresetSnapshot } from '@slicer/client';
+
+const bootSnapshot: PresetSnapshot = {
+  ok: true,
+  printers: [{ name: 'P', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
+  prints: [{ name: 'Q', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
+  filaments: [{ name: 'F', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
+  printer: { name: 'P', idx: 1 },
+  print: { name: 'Q', idx: 2 },
+  filament: { name: 'F', idx: 3 },
+};
 
 describe('useSettingsStore', () => {
   it('setValue merges into values', () => {
@@ -23,5 +34,14 @@ describe('useSettingsStore', () => {
     useSettingsStore.getState().setModelLoaded(true);
     useSettingsStore.getState().setModelLoaded(false);
     expect(useSettingsStore.getState().modelRevision).toBe(before + 3);
+  });
+
+  it('hydrates all picker boot state from one final compatibility snapshot', () => {
+    useSettingsStore.getState().hydratePresetSnapshot(bootSnapshot);
+    const state = useSettingsStore.getState();
+    expect(state.printers).toBe(bootSnapshot.printers);
+    expect(state.prints).toBe(bootSnapshot.prints);
+    expect(state.filaments).toBe(bootSnapshot.filaments);
+    expect([state.selectedPrinter, state.selectedPrint, state.selectedFilament]).toEqual(['P', 'Q', 'F']);
   });
 });

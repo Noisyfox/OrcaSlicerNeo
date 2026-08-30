@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { OptionMetadata, PresetInfo } from '@slicer/client';
+import type { OptionMetadata, PresetInfo, PresetSnapshot } from '@slicer/client';
 
 interface SettingsState {
   metadata: OptionMetadata | null;
@@ -21,6 +21,8 @@ interface SettingsState {
   /** Advances on every successful add or clear so repeated adds reload the viewport. */
   modelRevision: number;
   setMetadata: (m: OptionMetadata) => void;
+  /** Replace all picker state from one atomic compatibility snapshot. */
+  hydratePresetSnapshot: (snapshot: PresetSnapshot) => void;
   setPresets: (printers: PresetInfo[], prints: PresetInfo[], filaments: PresetInfo[]) => void;
   setSelections: (printer: string, print: string, filament: string) => void;
   setValue: (key: string, value: string) => void;
@@ -42,6 +44,14 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   modelLoaded: false,
   modelRevision: 0,
   setMetadata: (metadata) => set({ metadata }),
+  hydratePresetSnapshot: (snapshot) => set({
+    printers: snapshot.printers,
+    prints: snapshot.prints,
+    filaments: snapshot.filaments,
+    selectedPrinter: snapshot.printer.name,
+    selectedPrint: snapshot.print.name,
+    selectedFilament: snapshot.filament.name,
+  }),
   setPresets: (printers, prints, filaments) => set({
     printers, prints, filaments,
     selectedPrinter: printers.find((p) => p.selected)?.name ?? '',
