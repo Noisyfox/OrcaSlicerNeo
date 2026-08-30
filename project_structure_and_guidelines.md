@@ -88,6 +88,19 @@ orca-slicer-neo/
   `project_structure_and_guidelines.md` (this file).
 - Any feature/design change must be reflected in `doc/`; approved → `spec/`.
 
+### Single-document feature record
+
+Start each feature or task with one dated, living task document. Update that
+same document throughout discovery, decisions, implementation, and
+verification; do not create a separate document for each phase. It records
+only the current, accepted product behaviour and decisions, not superseded
+options, implementation diary entries, bridge details, or test-run logs.
+
+When the feature is approved, promote that same record to `spec/` (or create
+it there when approval is already known) and remove any temporary or
+superseded task notes in the same change. Create a separate document only when
+it is an independently useful, enduring operator or architecture reference.
+
 ---
 
 ## 4. WASM Build Guidelines
