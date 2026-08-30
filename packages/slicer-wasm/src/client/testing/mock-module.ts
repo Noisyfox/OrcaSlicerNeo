@@ -116,24 +116,35 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // can build.
   const SUPPORTED_PRIMITIVES = ['Cube', 'Cylinder', 'Sphere', 'Cone', 'Disc', 'Torus'];
 
-  // ---- M4 preset fixtures (enriched bridge shape; Afinia is a hidden
-  // "not installed" entry so the picker's grouping is testable) ----
+  // ---- Compatibility-aware FFF preset fixture. The mock intentionally owns
+  // only simple explicit relations; real compatible_printers / conditions /
+  // inheritance remain C++ engine behaviour. Afinia and the hidden print /
+  // filament entries exercise the legacy visibility surface. ----
   type PresetKind = 'printer' | 'print' | 'filament';
-  const presetFixtures: Record<PresetKind, Array<{
+  type PresetFixture = {
     name: string; is_visible: boolean; is_default: boolean;
     vendor_id: string; model: string; variant: string;
-  }>> = {
+    compatible_printers?: string[];
+    compatible_prints?: string[];
+  };
+  const presetFixtures: Record<PresetKind, PresetFixture[]> = {
     printer: [
       { name: 'Bambu Lab X1 Carbon 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'X1 Carbon', variant: '0.4' },
       { name: 'Bambu Lab P1S 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'P1S', variant: '0.4' },
       { name: 'Afinia H+1(HS)', is_visible: false, is_default: false, vendor_id: 'afinia', model: 'H+1(HS)', variant: '0.4' },
     ],
     print: [
-      { name: '0.20mm Standard @BBL X1C', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' },
+      { name: '0.20mm Standard @BBL X1C', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
+      { name: '0.16mm Optimal @BBL X1C', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
+      { name: '0.20mm Standard @BBL P1S', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab P1S 0.4 nozzle'] },
+      { name: 'Hidden process', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'] },
     ],
     filament: [
-      { name: 'Bambu PLA Basic @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '' },
-      { name: 'Bambu PLA Matte @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '' },
+      { name: 'Bambu PLA Basic @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C', '0.16mm Optimal @BBL X1C'] },
+      { name: 'Bambu PLA Matte @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
+      { name: 'Bambu PLA Silk @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.16mm Optimal @BBL X1C'] },
+      { name: 'Bambu PLA Basic @BBL P1S', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab P1S 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL P1S'] },
+      { name: 'Hidden filament', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
     ],
   };
   const selected: Record<PresetKind, string> = {
@@ -141,6 +152,63 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     print: presetFixtures.print[0].name,
     filament: presetFixtures.filament[0].name,
   };
+
+  function isCompatible(kind: 'print' | 'filament', fixture: PresetFixture): boolean {
+    if (fixture.compatible_printers && !fixture.compatible_printers.includes(selected.printer)) return false;
+    return kind !== 'filament' || !fixture.compatible_prints || fixture.compatible_prints.includes(selected.print);
+  }
+
+  function candidates(kind: PresetKind): PresetFixture[] {
+    const list = presetFixtures[kind];
+    if (kind === 'printer') return list.filter((preset) => preset.is_visible);
+    return list.filter((preset) => preset.is_visible && isCompatible(kind, preset));
+  }
+
+  function selectedEntry(kind: PresetKind) {
+    return {
+      name: selected[kind],
+      idx: presetFixtures[kind].findIndex((preset) => preset.name === selected[kind]),
+    };
+  }
+
+  function snapshot() {
+    const entry = (kind: PresetKind, preset: PresetFixture) => ({
+      ...preset,
+      selected: preset.name === selected[kind],
+    });
+    return {
+      ok: true,
+      printers: candidates('printer').map((preset) => entry('printer', preset)),
+      prints: candidates('print').map((preset) => entry('print', preset)),
+      filaments: candidates('filament').map((preset) => entry('filament', preset)),
+      printer: selectedEntry('printer'),
+      print: selectedEntry('print'),
+      filament: selectedEntry('filament'),
+    };
+  }
+
+  function selectFallback(kind: 'print' | 'filament'): boolean {
+    const fallback = candidates(kind)[0];
+    if (!fallback) return false;
+    selected[kind] = fallback.name;
+    return true;
+  }
+
+  function resolveAfterPrinterChange(): boolean {
+    const activePrint = presetFixtures.print.find((preset) => preset.name === selected.print);
+    if (!activePrint || !isCompatible('print', activePrint)) {
+      if (!selectFallback('print')) return false;
+    }
+    const activeFilament = presetFixtures.filament.find((preset) => preset.name === selected.filament);
+    if (!activeFilament || !isCompatible('filament', activeFilament)) return selectFallback('filament');
+    return true;
+  }
+
+  function resolveAfterPrintChange(): boolean {
+    const activeFilament = presetFixtures.filament.find((preset) => preset.name === selected.filament);
+    if (!activeFilament || !isCompatible('filament', activeFilament)) return selectFallback('filament');
+    return true;
+  }
 
   const identityTransform = () => ({
     offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1],
@@ -364,16 +432,35 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         presets: list.map((p) => ({ ...p, selected: p.name === selected[kind as PresetKind] })),
       };
     },
+    orc_get_preset_snapshot() {
+      return snapshot();
+    },
     orc_select_preset(kind: string, name: string) {
-      const list = presetFixtures[kind as PresetKind];
+      const presetKind = kind as PresetKind;
+      const list = presetFixtures[presetKind];
       if (!list) return `kind must be print|filament|printer`;
-      if (!list.some((p) => p.name === name)) return `preset not found: ${name}`;
-      selected[kind as PresetKind] = name;
-      const sel = (k: PresetKind) => ({
-        name: selected[k],
-        idx: presetFixtures[k].findIndex((p) => p.name === selected[k]),
-      });
-      return { ok: true, printer: sel('printer'), print: sel('print'), filament: sel('filament') };
+      const requested = list.find((preset) => preset.name === name);
+      if (!requested) return `preset not found: ${name}`;
+      if (!requested.is_visible) return `preset is not visible: ${name}`;
+      if (presetKind !== 'printer' && !isCompatible(presetKind, requested)) {
+        return `preset is incompatible: ${name}`;
+      }
+
+      // Validate before mutation, then mirror the bridge's printer → print →
+      // filament and print → filament fallback chains. Every success returns
+      // one complete state, while every rejection leaves selected untouched.
+      const previous = { ...selected };
+      selected[presetKind] = name;
+      const resolved = presetKind === 'printer'
+        ? resolveAfterPrinterChange()
+        : presetKind === 'print'
+          ? resolveAfterPrintChange()
+          : true;
+      if (!resolved) {
+        Object.assign(selected, previous);
+        return 'no compatible preset available';
+      }
+      return snapshot();
     },
     orc_get_option_metadata() {
       const out: Record<string, { type: string; enum_values?: string[] }> = {};
@@ -845,6 +932,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_init: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_presets: { ret: 'number', args: ['string'] },
+    orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },

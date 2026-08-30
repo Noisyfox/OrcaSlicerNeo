@@ -46,24 +46,75 @@ describe('SlicerClient bridge contract', () => {
     }
   });
 
-  it('selectPreset moves the selection and reports all three', async () => {
+  it('getPresetSnapshot returns the coherent strict-hide picker state', async () => {
+    const c = makeClient();
+    const snapshot = await c.getPresetSnapshot();
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    expect(snapshot.printers.map((preset) => preset.name)).toEqual([
+      'Bambu Lab X1 Carbon 0.4 nozzle',
+      'Bambu Lab P1S 0.4 nozzle',
+    ]);
+    expect(snapshot.prints.map((preset) => preset.name)).toEqual([
+      '0.20mm Standard @BBL X1C',
+      '0.16mm Optimal @BBL X1C',
+    ]);
+    expect(snapshot.filaments.map((preset) => preset.name)).toEqual([
+      'Bambu PLA Basic @BBL X1C',
+      'Bambu PLA Matte @BBL X1C',
+    ]);
+    expect(snapshot.printer.name).toBe('Bambu Lab X1 Carbon 0.4 nozzle');
+    expect(snapshot.print.name).toBe('0.20mm Standard @BBL X1C');
+    expect(snapshot.filament.name).toBe('Bambu PLA Basic @BBL X1C');
+  });
+
+  it('selectPreset returns the resolved printer-to-process-to-filament snapshot', async () => {
     const c = makeClient();
     const r = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');
     expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error(r.error);
     expect(r.printer.name).toBe('Bambu Lab P1S 0.4 nozzle');
-    expect(r.print.name).toBe('0.20mm Standard @BBL X1C');
-    expect(r.filament.name).toBe('Bambu PLA Basic @BBL X1C');
-    // the enriched list reflects the new selection
+    expect(r.print.name).toBe('0.20mm Standard @BBL P1S');
+    expect(r.filament.name).toBe('Bambu PLA Basic @BBL P1S');
+    expect(r.prints.map((preset) => preset.name)).toEqual(['0.20mm Standard @BBL P1S']);
+    expect(r.filaments.map((preset) => preset.name)).toEqual(['Bambu PLA Basic @BBL P1S']);
+    // The legacy endpoint remains available for callers not yet migrated.
     const p = await c.getPresets('printer');
     expect(p.presets.find((x) => x.selected)?.name).toBe('Bambu Lab P1S 0.4 nozzle');
+    expect((await c.getPresets('print')).presets.map((preset) => preset.name)).toContain('0.20mm Standard @BBL X1C');
   });
 
-  it('selectPreset rejects unknown names', async () => {
+  it('selecting a process refreshes its dependent filament candidates and fallbacks', async () => {
     const c = makeClient();
-    const r = await c.selectPreset('printer', 'No Such Printer');
-    // bridge error contract: {error} without ok
-    expect(r.ok).toBeFalsy();
-    expect(r.error).toContain('not found');
+    const matte = await c.selectPreset('filament', 'Bambu PLA Matte @BBL X1C');
+    expect(matte.ok).toBe(true);
+    const r = await c.selectPreset('print', '0.16mm Optimal @BBL X1C');
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.print.name).toBe('0.16mm Optimal @BBL X1C');
+    expect(r.filament.name).toBe('Bambu PLA Basic @BBL X1C');
+    expect(r.filaments.map((preset) => preset.name)).toEqual([
+      'Bambu PLA Basic @BBL X1C',
+      'Bambu PLA Silk @BBL X1C',
+    ]);
+  });
+
+  it('selectPreset rejects unavailable requests without mutating the snapshot', async () => {
+    const c = makeClient();
+    const before = await c.getPresetSnapshot();
+    const unknown = await c.selectPreset('printer', 'No Such Printer');
+    expect(unknown.ok).toBeFalsy();
+    if (unknown.ok) throw new Error('expected unknown printer rejection');
+    expect(unknown.error).toContain('not found');
+    const hidden = await c.selectPreset('printer', 'Afinia H+1(HS)');
+    expect(hidden.ok).toBeFalsy();
+    if (hidden.ok) throw new Error('expected hidden printer rejection');
+    expect(hidden.error).toContain('not visible');
+    const incompatible = await c.selectPreset('print', '0.20mm Standard @BBL P1S');
+    expect(incompatible.ok).toBeFalsy();
+    if (incompatible.ok) throw new Error('expected incompatible process rejection');
+    expect(incompatible.error).toContain('incompatible');
+    expect(await c.getPresetSnapshot()).toEqual(before);
   });
 
   it('getOptionMetadata exposes typed keys', async () => {
