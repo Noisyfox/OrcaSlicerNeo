@@ -30,8 +30,8 @@ together. If the previous choice is no longer compatible, the same fallback
 that OrcaSlicer would choose is used.
 
 While the update is in progress, all three selectors are temporarily disabled
-and show a loading state. When it finishes, the selectors show only the final,
-compatible choices; a stale list can never be selected.
+without changing the sidebar layout. When it finishes, the selectors show only
+the final, compatible choices; a stale list can never be selected.
 
 Every successful profile change clears temporary setting overrides and makes
 the existing slice result obsolete. The preview, layer controls, and G-code

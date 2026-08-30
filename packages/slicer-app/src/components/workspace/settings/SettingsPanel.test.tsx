@@ -136,7 +136,7 @@ describe('SettingsPanel preset transitions', () => {
     expect((container.querySelector('[data-testid="preset-select"]') as HTMLButtonElement).disabled).toBe(true);
     expect((container.querySelector('[data-testid="process-preset-select"]') as HTMLButtonElement).disabled).toBe(true);
     expect((container.querySelector('[data-testid="filament-preset-select"]') as HTMLButtonElement).disabled).toBe(true);
-    expect(container.querySelector('[data-testid="preset-transition-loading"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="preset-transition-region"]')?.getAttribute('aria-busy')).toBe('true');
 
     await act(async () => {
       resolveSelection(resolvedSnapshot);
@@ -159,7 +159,7 @@ describe('SettingsPanel preset transitions', () => {
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
       selectedProfiles: { printer: 'New Printer', print: 'Resolved Process', filament: 'Resolved Filament' },
     }));
-    expect(container.querySelector('[data-testid="preset-transition-loading"]')).toBeNull();
+    expect(container.querySelector('[data-testid="preset-transition-region"]')?.getAttribute('aria-busy')).toBe('false');
     expect((container.querySelector('[data-testid="preset-select"]') as HTMLButtonElement).disabled).toBe(false);
   });
 

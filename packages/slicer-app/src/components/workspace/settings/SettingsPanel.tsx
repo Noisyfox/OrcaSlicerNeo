@@ -100,9 +100,8 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       <MovePanel sceneInteraction={sceneInteraction} />
       <RotatePanel sceneInteraction={sceneInteraction} />
       <ScalePanel sceneInteraction={sceneInteraction} />
-      <section>
+      <section aria-busy={presetTransitionPending} data-testid="preset-transition-region">
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
-        {presetTransitionPending && <p className="py-1 text-xs text-muted-foreground" data-testid="preset-transition-loading" role="status">Updating compatible presets…</p>}
         <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} disabled={presetTransitionPending} testId="preset-select" />
         <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />
         <PresetRow label="Filament" items={filaments} value={selectedFilament} onValue={(v) => handleSelectPreset('filament', v)} disabled={presetTransitionPending} testId="filament-preset-select" />

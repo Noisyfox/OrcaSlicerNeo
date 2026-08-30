@@ -48,6 +48,9 @@ test('printer transitions atomically replace compatible Process and Filament pic
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
     await expect(page.getByTestId('btn-export')).toBeEnabled();
 
+    const processTopBeforeTransition = (await page.getByTestId('process-preset-select').boundingBox())?.y;
+    expect(processTopBeforeTransition).toBeDefined();
+
     await page.getByTestId('preset-select').click();
     const popup = page.locator('[data-slot="combobox-content"]');
     await popup.getByPlaceholder('Search presets…').fill('Bambu Lab P1S 0.4 nozzle');
@@ -56,12 +59,13 @@ test('printer transitions atomically replace compatible Process and Filament pic
     // The e2e mock delays only selectPreset replies. This verifies that a
     // stale Process or Filament popup cannot be selected while the C++-shaped
     // atomic snapshot is still in flight.
-    await expect(page.getByTestId('preset-transition-loading')).toBeVisible();
+    await expect(page.getByTestId('preset-transition-region')).toHaveAttribute('aria-busy', 'true');
+    expect((await page.getByTestId('process-preset-select').boundingBox())?.y).toBe(processTopBeforeTransition);
     await expect(page.getByTestId('preset-select')).toBeDisabled();
     await expect(page.getByTestId('process-preset-select')).toBeDisabled();
     await expect(page.getByTestId('filament-preset-select')).toBeDisabled();
 
-    await expect(page.getByTestId('preset-transition-loading')).toBeHidden();
+    await expect(page.getByTestId('preset-transition-region')).toHaveAttribute('aria-busy', 'false');
     await expect(page.getByTestId('preset-select')).toContainText('Bambu Lab P1S 0.4 nozzle');
     await expect(page.getByTestId('process-preset-select')).toContainText('0.20mm Standard @BBL P1S');
     await expect(page.getByTestId('filament-preset-select')).toContainText('Bambu PLA Basic @BBL P1S');
