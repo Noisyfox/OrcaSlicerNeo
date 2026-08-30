@@ -19,33 +19,6 @@ describe('SlicerClient bridge contract', () => {
     expect(r.printers).toBeGreaterThan(0);
   });
 
-  it('getPresets lists names per kind', async () => {
-    const c = makeClient();
-    const p = await c.getPresets('printer');
-    expect(p.presets.length).toBeGreaterThan(0);
-    expect(p.presets[0]).toHaveProperty('name');
-  });
-
-  it('getPresets entries carry the M4 installed/selection flags', async () => {
-    const c = makeClient();
-    const p = await c.getPresets('printer');
-    expect(p.presets[0]).toMatchObject({
-      is_visible: true,
-      is_default: false,
-      vendor_id: 'bambulab',
-      model: 'X1 Carbon',
-      variant: '0.4',
-      selected: true,
-    });
-    // the fixture's hidden entry exercises the picker's not-installed group
-    expect(p.presets.some((x) => !x.is_visible)).toBe(true);
-    // exactly one entry per kind is selected
-    for (const kind of ['printer', 'print', 'filament'] as const) {
-      const list = await c.getPresets(kind);
-      expect(list.presets.filter((x) => x.selected)).toHaveLength(1);
-    }
-  });
-
   it('getPresetSnapshot returns the coherent strict-hide picker state', async () => {
     const c = makeClient();
     const snapshot = await c.getPresetSnapshot();
@@ -78,10 +51,6 @@ describe('SlicerClient bridge contract', () => {
     expect(r.filament.name).toBe('Bambu PLA Basic @BBL P1S');
     expect(r.prints.map((preset) => preset.name)).toEqual(['0.20mm Standard @BBL P1S']);
     expect(r.filaments.map((preset) => preset.name)).toEqual(['Bambu PLA Basic @BBL P1S']);
-    // The legacy endpoint remains available for callers not yet migrated.
-    const p = await c.getPresets('printer');
-    expect(p.presets.find((x) => x.selected)?.name).toBe('Bambu Lab P1S 0.4 nozzle');
-    expect((await c.getPresets('print')).presets.map((preset) => preset.name)).toContain('0.20mm Standard @BBL X1C');
   });
 
   it('selecting a process refreshes its dependent filament candidates and fallbacks', async () => {

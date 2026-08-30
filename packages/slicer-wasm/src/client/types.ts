@@ -58,11 +58,6 @@ export interface PresetInfo {
   selected: boolean;
 }
 
-export interface PresetList {
-  presets: PresetInfo[];
-  error?: string;
-}
-
 export interface PresetSelection {
   name: string;
   /** Index in the engine's complete collection, not the filtered candidate list. */
@@ -360,8 +355,6 @@ export interface SlicerClient {
   init(): Promise<InitResult>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
   getPresetSnapshot(): Promise<PresetSnapshotResult>;
-  /** Transitional per-kind API. It is not coherent across multiple calls. */
-  getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList>;
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
   addModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult>;

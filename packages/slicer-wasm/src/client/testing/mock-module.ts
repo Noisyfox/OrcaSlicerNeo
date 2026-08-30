@@ -426,12 +426,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         printers: presetFixtures.printer.length,
       };
     },
-    orc_get_presets(kind: string) {
-      const list = presetFixtures[kind as PresetKind] ?? [];
-      return {
-        presets: list.map((p) => ({ ...p, selected: p.name === selected[kind as PresetKind] })),
-      };
-    },
     orc_get_preset_snapshot() {
       return snapshot();
     },
@@ -931,7 +925,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
     orc_init: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
-    orc_get_presets: { ret: 'number', args: ['string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string'] },

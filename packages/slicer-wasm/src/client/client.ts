@@ -7,7 +7,7 @@
 // ----------------------------------------------------------------
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
-  InitResult, PresetList, PresetSnapshotResult,
+  InitResult, PresetSnapshotResult,
   OptionMetadata, LoadModelResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
@@ -98,11 +98,6 @@ export function createClient(
         log_level: (globalThis as { ORCA_LOG_LEVEL?: unknown }).ORCA_LOG_LEVEL,
       };
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
-    },
-
-    async getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList> {
-      const m = await module();
-      return callJson(m, 'orc_get_presets', ['string'], [kind]) as PresetList;
     },
 
     async getPresetSnapshot(): Promise<PresetSnapshotResult> {

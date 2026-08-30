@@ -74,20 +74,8 @@ check('variant reports a consistent TBB pool',
       threading.ok === true && poolOk,
       `${JSON.stringify(threading)} runtimeCores=${runtimeCores}`);
 
-// 2. presets
-const printers = callJson('orc_get_presets', ['string'], ['printer']);
-check('orc_get_presets(printer)', Array.isArray(printers.presets) && printers.presets.length > 0,
-      `count=${printers.presets?.length}`);
-const prints = callJson('orc_get_presets', ['string'], ['print']);
-check('orc_get_presets(print)', Array.isArray(prints.presets) && prints.presets.length > 0,
-      `count=${prints.presets?.length}`);
-const filaments = callJson('orc_get_presets', ['string'], ['filament']);
-check('orc_get_presets(filament)', Array.isArray(filaments.presets) && filaments.presets.length > 0,
-      `count=${filaments.presets?.length}`);
-
-// Compatibility snapshots are the new coherent picker source.  They must be
-// a strict candidate projection of the legacy per-kind lists, carry the
-// engine-selected triple, and remain coherent after native fallback paths.
+// 2. Compatibility snapshots are the coherent picker source. They carry the
+// engine-selected triple and remain coherent after native fallback paths.
 const snapshot = callJson('orc_get_preset_snapshot', [], []);
 const snapshotHasSelection = (s, kind) => Array.isArray(s[`${kind}s`])
   && s[`${kind}s`].some((p) => p.name === s[kind]?.name && p.selected === true);
@@ -100,32 +88,6 @@ check('orc_get_preset_snapshot returns coherent picker candidates',
       && snapshotHasSelection(snapshot, 'print')
       && snapshotHasSelection(snapshot, 'filament'),
       JSON.stringify({ printer: snapshot.printer, print: snapshot.print, filament: snapshot.filament }));
-for (const [kind, legacy] of [['printer', printers], ['print', prints], ['filament', filaments]]) {
-  const candidates = snapshot[`${kind}s`] ?? [];
-  check(`snapshot ${kind} candidates are visible legacy entries`,
-        candidates.every((candidate) => legacy.presets?.some((preset) =>
-          preset.name === candidate.name && preset.is_visible === true)),
-        `count=${candidates.length}`);
-}
-
-// Choose an unavailable print through the bridge rather than the UI.  The
-// bridge must reject it and leave the last coherent snapshot untouched; this
-// exercises the server-side stale-client guard without depending on a vendor
-// profile name.
-const unavailablePrint = prints.presets?.find((preset) =>
-  !snapshot.prints.some((candidate) => candidate.name === preset.name));
-check('real profile set contains a print excluded from the compatibility snapshot',
-      unavailablePrint !== undefined, unavailablePrint?.name ?? 'none');
-if (unavailablePrint) {
-  const rejected = callJson('orc_select_preset', ['string', 'string'], ['print', unavailablePrint.name]);
-  const afterRejected = callJson('orc_get_preset_snapshot', [], []);
-  check('bridge rejects unavailable process without fallback',
-        typeof rejected.error === 'string' && rejected.ok !== true,
-        JSON.stringify(rejected));
-  check('rejected process leaves atomic snapshot unchanged',
-        JSON.stringify(afterRejected) === JSON.stringify(snapshot));
-}
-
 // Select a different visible printer and then process.  Their returned
 // snapshots prove that the bridge runs Orca's printer -> process -> filament
 // and process -> filament compatibility/fallback chains before responding.

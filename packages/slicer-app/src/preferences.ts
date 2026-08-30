@@ -21,9 +21,9 @@ function resolvedPreferences(preferences: UserPreferences, snapshot: PresetSnaps
 
 /**
  * Restore profile names in dependency order using only candidates emitted by
- * the C++ engine's coherent snapshots. In particular, this deliberately does
- * not consult getPresets() or choose a client-side "first" profile: a failed
- * saved name falls back to the current engine selection for that snapshot.
+ * the C++ engine's coherent snapshots. A failed saved name falls back to the
+ * current engine selection for that snapshot; the client never chooses a
+ * "first" profile itself.
  */
 export async function restoreSelections(
   runtime: Pick<SlicerClient, 'getPresetSnapshot' | 'selectPreset'>,

@@ -2,7 +2,7 @@
 // ONLY by the packaged-app probe (staged into public/wasm/ by
 // scripts/stage-stub-wasm.mjs, which is gitignored). Replaced by the real
 // Emscripten artifact in CI (e2e-real). Implements just enough of the bridge
-// for the app's boot path: init → getPresets → getOptionMetadata.
+// for the app's boot path: init → getPresetSnapshot → getOptionMetadata.
 //
 // Contract: every bridge call returns a malloc'd JSON C string; the client
 // reads it via Number(ccall(...)) → UTF8ToString(ptr) → JSON.parse (see
@@ -39,13 +39,23 @@ export default function makeStubModule() {
     orc_init() {
       return { ok: true, prints: 1, filaments: 2, printers: 3 };
     },
-    orc_get_presets(kind) {
-      const byKind = {
-        printer: ['Bambu Lab X1 Carbon 0.4 nozzle', 'Bambu Lab P1S 0.4 nozzle'],
-        print: ['0.20mm Standard @BBL X1C'],
-        filament: ['Bambu PLA Basic @BBL X1C', 'Bambu PLA Matte @BBL X1C'],
+    orc_get_preset_snapshot() {
+      const preset = (name) => ({
+        name, is_visible: true, is_default: false, selected: false,
+        vendor_id: 'bambulab', model: '', variant: '',
+      });
+      const printer = 'Bambu Lab X1 Carbon 0.4 nozzle';
+      const print = '0.20mm Standard @BBL X1C';
+      const filament = 'Bambu PLA Basic @BBL X1C';
+      return {
+        ok: true,
+        printers: [{ ...preset(printer), selected: true }, preset('Bambu Lab P1S 0.4 nozzle')],
+        prints: [{ ...preset(print), selected: true }],
+        filaments: [{ ...preset(filament), selected: true }, preset('Bambu PLA Matte @BBL X1C')],
+        printer: { name: printer, idx: 0 },
+        print: { name: print, idx: 0 },
+        filament: { name: filament, idx: 0 },
       };
-      return { presets: (byKind[kind] ?? []).map((name) => ({ name })) };
     },
     orc_get_option_metadata() {
       return {
