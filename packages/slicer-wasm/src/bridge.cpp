@@ -310,6 +310,54 @@ json serialize_app_config() {
     return j;
 }
 
+// Build the one coherent preset view consumed by the picker UI.  The
+// compatibility state belongs to PresetBundle: the bridge deliberately does
+// not interpret compatible_printers / compatible_prints itself because that
+// would duplicate the upstream condition, inheritance, library-exclusion and
+// parent-preset rules.
+json preset_entry_json(const Preset& preset, const PresetCollection& collection) {
+    json entry{{"name", preset.name},
+               {"is_visible", preset.is_visible},
+               {"is_default", preset.is_default},
+               {"selected", preset.name == collection.get_selected_preset_name()}};
+    entry["vendor_id"] = preset.vendor ? preset.vendor->id : "";
+    entry["model"]     = preset.config.opt_string("printer_model");
+    entry["variant"]   = preset.config.opt_string("printer_variant");
+    return entry;
+}
+
+json preset_candidates_json(const PresetCollection& collection, bool require_compatible) {
+    json candidates = json::array();
+    // begin()/end() intentionally omit generated "- default -" presets.
+    // Keep the collection order: it is the engine's candidate ordering and
+    // must not be re-sorted by an application-layer policy.
+    for (auto it = collection.begin(); it != collection.end(); ++it) {
+        if (!it->is_visible || (require_compatible && !it->is_compatible))
+            continue;
+        candidates.push_back(preset_entry_json(*it, collection));
+    }
+    return candidates;
+}
+
+json preset_selection_json(const PresetCollection& collection) {
+    return json{{"name", collection.get_selected_preset_name()},
+                {"idx", collection.get_selected_idx()}};
+}
+
+// This is emitted only after the caller has completed any native compatibility
+// recalculation and fallback.  It is intentionally a replacement for a UI
+// composition of three separate reads, while orc_get_presets remains available
+// below as a temporary legacy API during the client migration.
+json preset_snapshot_json() {
+    return json{{"ok", true},
+                {"printers", preset_candidates_json(state().presets.printers, false)},
+                {"prints", preset_candidates_json(state().presets.prints, true)},
+                {"filaments", preset_candidates_json(state().presets.filaments, true)},
+                {"printer", preset_selection_json(state().presets.printers)},
+                {"print", preset_selection_json(state().presets.prints)},
+                {"filament", preset_selection_json(state().presets.filaments)}};
+}
+
 // Shared initialization body. The incoming JSON is ignored legacy input.
 // the renderer's whole config — REPLACE the previous state, never merge:
 // a stale presets.machine from an earlier init could point at a printer that
@@ -544,40 +592,62 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_presets(const char* kind_cstr) {
     }
 }
 
+// Read one atomic, picker-ready compatibility state.  Unlike the legacy
+// per-kind reader above, this contains only candidates the current strict-hide
+// UI may render: visible printers, then visible-and-compatible FFF print and
+// filament presets.  Callers must replace all three lists and selections from
+// the single response rather than composing a new state from independent reads.
+EMSCRIPTEN_KEEPALIVE const char* orc_get_preset_snapshot() {
+    try {
+        return dup_json(preset_snapshot_json().dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 // The real selection path (replaces the app-side use of the diagnostic
-// orc_select_printer): select by name, re-run load_selections' tail so
-// print/filament follow the new machine, write the selection back into
-// the app config (keeps the config authoritative), and report all three
-// selections so the renderer can sync.
+// orc_select_printer): select by name and return a complete atomic snapshot.
+// The selection guard deliberately lives here as well as in the UI: stale UI
+// state or another caller must not construct an invalid compatibility tuple.
 EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const char* name_cstr) {
     try {
         const std::string kind = kind_cstr ? kind_cstr : "";
         const std::string name = name_cstr ? name_cstr : "";
         if (name.empty()) return error_json("preset name required");
         PresetCollection* coll = nullptr;
-        const char* config_key = nullptr;
-        if (kind == "print")        { coll = &state().presets.prints;      config_key = PRESET_PRINT_NAME; }
-        else if (kind == "filament"){ coll = &state().presets.filaments;   config_key = PRESET_FILAMENT_NAME; }
-        else if (kind == "printer") { coll = &state().presets.printers;    config_key = PRESET_PRINTER_NAME; }
+        if (kind == "print")        coll = &state().presets.prints;
+        else if (kind == "filament")coll = &state().presets.filaments;
+        else if (kind == "printer") coll = &state().presets.printers;
         else return error_json("kind must be print|filament|printer");
-        if (coll->find_preset(name) == nullptr)
+        Preset* requested = coll->find_preset(name);
+        if (requested == nullptr)
             return error_json("preset not found: " + name);
+        if (!requested->is_visible)
+            return error_json("preset is not visible: " + name);
+        // A printer has no compatibility context.  Print and filament names
+        // must already be candidates for the current engine-resolved printer
+        // (and, for filament, current process) before they may be selected.
+        if (kind != "printer" && !requested->is_compatible)
+            return error_json("preset is incompatible: " + name);
         if (!coll->select_preset_by_name(name, true))
             return error_json("could not select preset: " + name);
         if (kind == "printer") {
-            // The load_selections tail: keep print/filament compatible with
-            // the active machine without a full bundle reload.
+            // OrcaSlicer's normal compatibility/fallback path.  Process is
+            // resolved first, then filament against that final process.
             state().presets.update_compatible(PresetSelectCompatibleType::Always);
             state().presets.update_multi_material_filament_presets();
+        } else if (kind == "print") {
+            // The request was just validated as a compatible print preset, so
+            // retain it while re-evaluating dependent filament compatibility.
+            // The second argument selects OrcaSlicer's native filament
+            // fallback when the newly active print makes it incompatible.
+            state().presets.update_compatible(PresetSelectCompatibleType::Never,
+                                               PresetSelectCompatibleType::Always);
+            state().presets.update_multi_material_filament_presets();
         }
-        auto sel = [](const PresetCollection& c) {
-            return json{{"name", c.get_selected_preset_name()},
-                        {"idx",  c.get_selected_idx()}};
-        };
-        return dup_json(json{{"ok", true},
-                             {"printer", sel(state().presets.printers)},
-                             {"print",   sel(state().presets.prints)},
-                             {"filament", sel(state().presets.filaments)}}.dump());
+        return dup_json(preset_snapshot_json().dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
