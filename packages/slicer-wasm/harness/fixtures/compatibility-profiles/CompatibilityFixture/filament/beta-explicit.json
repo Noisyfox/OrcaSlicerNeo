@@ -1,0 +1,12 @@
+{
+  "type": "filament",
+  "name": "Beta Explicit Filament",
+  "inherits": "fixture_filament_common",
+  "from": "system",
+  "instantiation": "true",
+  "filament_id": "beta-explicit",
+  "compatible_printers": ["Compatibility Beta 0.4 nozzle"],
+  "compatible_printers_condition": "",
+  "compatible_prints": ["Beta Explicit Process"],
+  "compatible_prints_condition": ""
+}

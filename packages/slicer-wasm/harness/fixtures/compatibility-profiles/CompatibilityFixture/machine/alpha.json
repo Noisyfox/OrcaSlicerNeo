@@ -1,0 +1,13 @@
+{
+  "type": "machine",
+  "name": "Compatibility Alpha 0.4 nozzle",
+  "inherits": "fixture_machine_common",
+  "from": "system",
+  "instantiation": "true",
+  "printer_model": "Compatibility Alpha",
+  "printer_variant": "0.4",
+  "nozzle_diameter": ["0.4"],
+  "printer_notes": "alpha",
+  "default_print_profile": "Alpha Explicit Process",
+  "default_filament_profile": ["Alpha Explicit Filament"]
+}

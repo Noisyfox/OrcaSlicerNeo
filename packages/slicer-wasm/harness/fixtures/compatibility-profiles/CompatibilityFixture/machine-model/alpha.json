@@ -1,0 +1,8 @@
+{
+  "type": "machine_model",
+  "name": "Compatibility Alpha",
+  "model_id": "Compatibility Alpha",
+  "machine_tech": "FFF",
+  "nozzle_diameter": "0.4",
+  "default_materials": "Alpha Explicit Filament;Alpha Condition Filament"
+}

@@ -1,0 +1,8 @@
+{
+  "type": "machine_model",
+  "name": "Compatibility Beta",
+  "model_id": "Compatibility Beta",
+  "machine_tech": "FFF",
+  "nozzle_diameter": "0.4",
+  "default_materials": "Beta Explicit Filament"
+}

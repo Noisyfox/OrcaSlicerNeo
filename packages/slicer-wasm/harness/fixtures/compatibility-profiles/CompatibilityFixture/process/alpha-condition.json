@@ -1,0 +1,9 @@
+{
+  "type": "process",
+  "name": "Alpha Condition Process",
+  "inherits": "fixture_process_common",
+  "from": "system",
+  "instantiation": "true",
+  "compatible_printers": [],
+  "compatible_printers_condition": "printer_notes == \"alpha\""
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Compatibility Fixture",
+  "version": "1.0.0",
+  "description": "Deterministic FDM compatibility fixture",
+  "machine_model_list": [
+    { "name": "Compatibility Alpha", "sub_path": "machine-model/alpha.json" },
+    { "name": "Compatibility Beta", "sub_path": "machine-model/beta.json" }
+  ],
+  "process_list": [
+    { "name": "fixture_process_common", "sub_path": "process/common.json" },
+    { "name": "Alpha Explicit Process", "sub_path": "process/alpha-explicit.json" },
+    { "name": "Alpha Condition Process", "sub_path": "process/alpha-condition.json" },
+    { "name": "Beta Explicit Process", "sub_path": "process/beta-explicit.json" }
+  ],
+  "filament_list": [
+    { "name": "fixture_filament_common", "sub_path": "filament/common.json" },
+    { "name": "Alpha Explicit Filament", "sub_path": "filament/alpha-explicit.json" },
+    { "name": "Alpha Condition Filament", "sub_path": "filament/alpha-condition.json" },
+    { "name": "Beta Explicit Filament", "sub_path": "filament/beta-explicit.json" }
+  ],
+  "machine_list": [
+    { "name": "fixture_machine_common", "sub_path": "machine/common.json" },
+    { "name": "Compatibility Alpha 0.4 nozzle", "sub_path": "machine/alpha.json" },
+    { "name": "Compatibility Beta 0.4 nozzle", "sub_path": "machine/beta.json" }
+  ]
+}

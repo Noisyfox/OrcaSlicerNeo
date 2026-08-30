@@ -1,0 +1,12 @@
+{
+  "type": "filament",
+  "name": "Alpha Explicit Filament",
+  "inherits": "fixture_filament_common",
+  "from": "system",
+  "instantiation": "true",
+  "filament_id": "alpha-explicit",
+  "compatible_printers": ["Compatibility Alpha 0.4 nozzle"],
+  "compatible_printers_condition": "",
+  "compatible_prints": ["Alpha Explicit Process"],
+  "compatible_prints_condition": ""
+}

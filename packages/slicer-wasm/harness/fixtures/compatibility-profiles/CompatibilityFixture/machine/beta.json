@@ -1,0 +1,13 @@
+{
+  "type": "machine",
+  "name": "Compatibility Beta 0.4 nozzle",
+  "inherits": "fixture_machine_common",
+  "from": "system",
+  "instantiation": "true",
+  "printer_model": "Compatibility Beta",
+  "printer_variant": "0.4",
+  "nozzle_diameter": ["0.4"],
+  "printer_notes": "beta",
+  "default_print_profile": "Beta Explicit Process",
+  "default_filament_profile": ["Beta Explicit Filament"]
+}
