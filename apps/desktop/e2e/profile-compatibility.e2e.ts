@@ -74,12 +74,14 @@ test('printer transitions atomically replace compatible Process and Filament pic
     await expect(page.getByTestId('filament-preset-select')).toBeEnabled();
 
     // Exact mock graph candidates: old X1C Process and Filament entries must
-    // not survive the printer switch in either picker.
+    // not survive the printer switch. The bundled generic library filament
+    // remains available after every compatible printer transition.
     await expect(optionNames(page, 'process-preset-select')).resolves.toEqual([
       '0.20mm Standard @BBL P1S',
     ]);
     await expect(optionNames(page, 'filament-preset-select')).resolves.toEqual([
       'Bambu PLA Basic @BBL P1S',
+      'Generic PLA @System',
     ]);
 
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');

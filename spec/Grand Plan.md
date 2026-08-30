@@ -327,6 +327,16 @@ and drives structural operations through the typed client.
 - [x] After success, count down before closing and optionally switch to Device;
       this preference is persisted and enabled by default
 
+## Filament Library Selector Completeness
+
+> [!info] Implemented 2026-08-30. Details:
+> `doc/2026-08-30-filament-library-selector.md`.
+
+- [x] Every FFF filament successfully loaded from the bundled profile packages
+      is available to the selector.
+- [x] Compatibility and generic-profile supersession remain in OrcaSlicer's
+      `PresetBundle`; the shared UI does not reproduce them.
+
 ## Cross-cutting titlebar/native menu implementation
 
 > [!info] Implemented 2026-08-25; real macOS manual verification remains open.

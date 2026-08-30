@@ -1,0 +1,12 @@
+{
+  "name": "OrcaFilamentLibrary",
+  "version": "1.0.0",
+  "description": "Minimal Orca generic-filament fixture",
+  "machine_model_list": [],
+  "process_list": [],
+  "filament_list": [
+    { "name": "fixture_library_filament_common", "sub_path": "filament/common.json" },
+    { "name": "Generic PLA @System", "sub_path": "filament/generic-pla.json" }
+  ],
+  "machine_list": []
+}

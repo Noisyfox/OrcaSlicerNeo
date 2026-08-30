@@ -231,11 +231,24 @@ bool apply_app_config(const json& j) {
     return has_models;
 }
 
-// Fresh-config default: install every printer the bundle ships. The
-// vendor/model/variant triple only exists in the preset configs, so this
+// The shared application installs every shipped profile package before calling
+// orc_init(). Preserve that delivery decision in the native visibility gate:
+// the legacy AppConfig fields are an implementation detail here, not a second
+// record of which profiles the user installed.
+void install_all_filaments() {
+    AppConfig& cfg = state().profile_config;
+    for (const Preset& p : state().presets.filaments) {
+        if (p.is_system)
+            cfg.set(AppConfig::SECTION_FILAMENTS, p.name, "true");
+    }
+}
+
+// Fresh-config default: install every printer and filament the bundle ships.
+// The vendor/model/variant triple only exists in the preset configs, so this
 // runs after load_presets (chicken-and-egg with set_visible_from_appconfig
-// otherwise). Visibility is then recomputed via load_installed_printers —
-// the real mechanism (Preset.cpp:855), not a scan hack.
+// otherwise). Visibility is then recomputed through the native AppConfig
+// path; compatibility, including OrcaFilamentLibrary generic supersession,
+// remains wholly owned by PresetBundle.
 void install_all_printers() {
     AppConfig& cfg = state().profile_config;
     for (const Preset& p : state().presets.printers) {  // begin()/end(): skips generated defaults
@@ -245,17 +258,11 @@ void install_all_printers() {
         if (model.empty() || variant.empty()) continue;
         cfg.set_variant(p.vendor->id, model, variant, true);
     }
-    // load_selections is the public entry that also runs the (private)
-    // load_installed_filaments — the real mechanism that records each
-    // visible printer's default filaments into the config's "filaments"
-    // section. It must run AFTER the variants above are set: during
-    // load_presets (earlier in init) no variant exists yet, so nothing is
-    // visible and no filament gets recorded — a fresh install would then
-    // persist an empty "filaments" section. (M4 probe section 3 regression
-    // after the REPLACE-semantics reset fix; pre-clear it was populated by
-    // a stale vendors map leaking across inits, which the reset removed.)
-    // With an empty fresh config the selection steps inside are no-ops;
-    // reselect_after_app_config establishes the baseline selection next.
+    install_all_filaments();
+    // load_selections is the public entry that recomputes visibility and
+    // compatibility from the now-complete package-derived installed state.
+    // With no saved selection, reselect_after_app_config establishes the
+    // baseline selection next.
     state().presets.load_selections(cfg);
 }
 

@@ -431,6 +431,19 @@
 - [x] After success, count down before closing and optionally switch to Device;
       this preference is persisted and enabled by default
 
+### Maintenance — Filament Library Selector Completeness
+
+> **Status: implemented 2026-08-30.** The full bundled filament library is
+> marked available in the bridge's legacy installed-state gate before native
+> compatibility is evaluated. This preserves OrcaSlicer's generic-profile
+> supersession rules instead of duplicating them in the shared UI. See
+> `doc/2026-08-30-filament-library-selector.md`.
+
+- [x] Successfully installed profile packages contribute every loaded FFF
+      filament profile to the selector.
+- [x] Generic OrcaFilamentLibrary profiles remain suppressed only when native
+      alias-based matching selects a printer-specific profile.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

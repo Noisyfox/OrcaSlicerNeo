@@ -16,7 +16,8 @@
     { "name": "fixture_filament_common", "sub_path": "filament/common.json" },
     { "name": "Alpha Explicit Filament", "sub_path": "filament/alpha-explicit.json" },
     { "name": "Alpha Condition Filament", "sub_path": "filament/alpha-condition.json" },
-    { "name": "Beta Explicit Filament", "sub_path": "filament/beta-explicit.json" }
+    { "name": "Beta Explicit Filament", "sub_path": "filament/beta-explicit.json" },
+    { "name": "Generic PLA @Compatibility Alpha", "sub_path": "filament/generic-pla-alpha.json" }
   ],
   "machine_list": [
     { "name": "fixture_machine_common", "sub_path": "machine/common.json" },

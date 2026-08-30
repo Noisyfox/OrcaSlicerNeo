@@ -144,6 +144,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       { name: 'Bambu PLA Matte @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
       { name: 'Bambu PLA Silk @BBL X1C', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.16mm Optimal @BBL X1C'] },
       { name: 'Bambu PLA Basic @BBL P1S', is_visible: true, is_default: false, vendor_id: 'bambulab', model: '', variant: '', compatible_printers: ['Bambu Lab P1S 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL P1S'] },
+      { name: 'Generic PLA @System', is_visible: true, is_default: false, vendor_id: 'OrcaFilamentLibrary', model: '', variant: '' },
       { name: 'Hidden filament', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
     ],
   };

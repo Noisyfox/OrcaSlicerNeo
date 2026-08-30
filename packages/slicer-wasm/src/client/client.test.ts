@@ -35,6 +35,7 @@ describe('SlicerClient bridge contract', () => {
     expect(snapshot.filaments.map((preset) => preset.name)).toEqual([
       'Bambu PLA Basic @BBL X1C',
       'Bambu PLA Matte @BBL X1C',
+      'Generic PLA @System',
     ]);
     expect(snapshot.printer.name).toBe('Bambu Lab X1 Carbon 0.4 nozzle');
     expect(snapshot.print.name).toBe('0.20mm Standard @BBL X1C');
@@ -50,7 +51,10 @@ describe('SlicerClient bridge contract', () => {
     expect(r.print.name).toBe('0.20mm Standard @BBL P1S');
     expect(r.filament.name).toBe('Bambu PLA Basic @BBL P1S');
     expect(r.prints.map((preset) => preset.name)).toEqual(['0.20mm Standard @BBL P1S']);
-    expect(r.filaments.map((preset) => preset.name)).toEqual(['Bambu PLA Basic @BBL P1S']);
+    expect(r.filaments.map((preset) => preset.name)).toEqual([
+      'Bambu PLA Basic @BBL P1S',
+      'Generic PLA @System',
+    ]);
   });
 
   it('selecting a process refreshes its dependent filament candidates and fallbacks', async () => {
@@ -65,6 +69,7 @@ describe('SlicerClient bridge contract', () => {
     expect(r.filaments.map((preset) => preset.name)).toEqual([
       'Bambu PLA Basic @BBL X1C',
       'Bambu PLA Silk @BBL X1C',
+      'Generic PLA @System',
     ]);
   });
 

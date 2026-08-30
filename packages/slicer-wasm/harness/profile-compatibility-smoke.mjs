@@ -65,12 +65,13 @@ try {
 
   // Alpha is first in native collection order. Its explicit default selects
   // the name-list-compatible process and filament. The condition-based
-  // process is also visible because Alpha's printer_notes satisfies it.
+  // process is also visible because Alpha's printer_notes satisfies it. Its
+  // printer-specific Generic PLA supersedes the OrcaFilamentLibrary generic.
   let snapshot = callJson(Module, 'orc_get_preset_snapshot');
   assertSnapshot(snapshot, {
     printers: ['Compatibility Alpha 0.4 nozzle', 'Compatibility Beta 0.4 nozzle'],
     prints: ['Alpha Condition Process', 'Alpha Explicit Process'],
-    filaments: ['Alpha Explicit Filament'],
+    filaments: ['Generic PLA @Compatibility Alpha', 'Alpha Explicit Filament'],
     printer: 'Compatibility Alpha 0.4 nozzle',
     print: 'Alpha Explicit Process',
     filament: 'Alpha Explicit Filament',
@@ -84,24 +85,25 @@ try {
   assertSnapshot(snapshot, {
     printers: ['Compatibility Alpha 0.4 nozzle', 'Compatibility Beta 0.4 nozzle'],
     prints: ['Alpha Condition Process', 'Alpha Explicit Process'],
-    filaments: ['Alpha Condition Filament'],
+    filaments: ['Generic PLA @Compatibility Alpha', 'Alpha Condition Filament'],
     printer: 'Compatibility Alpha 0.4 nozzle',
     print: 'Alpha Condition Process',
-    filament: 'Alpha Condition Filament',
+    filament: 'Generic PLA @Compatibility Alpha',
   });
 
   // Switching to Beta makes both selected Alpha profiles incompatible. The
   // C++ profile engine performs the printer -> process -> filament fallback
-  // before the bridge emits its replacement snapshot.
+  // before the bridge emits its replacement snapshot. With no Beta-specific
+  // Generic PLA, the installed OrcaFilamentLibrary generic is available.
   snapshot = callJson(Module, 'orc_select_preset', ['string', 'string'],
     ['printer', 'Compatibility Beta 0.4 nozzle']);
   assertSnapshot(snapshot, {
     printers: ['Compatibility Alpha 0.4 nozzle', 'Compatibility Beta 0.4 nozzle'],
     prints: ['Beta Explicit Process'],
-    filaments: ['Beta Explicit Filament'],
+    filaments: ['Generic PLA @System', 'Beta Explicit Filament'],
     printer: 'Compatibility Beta 0.4 nozzle',
     print: 'Beta Explicit Process',
-    filament: 'Beta Explicit Filament',
+    filament: 'Generic PLA @System',
   });
 
   // The native list and condition rules must also be enforced by the bridge

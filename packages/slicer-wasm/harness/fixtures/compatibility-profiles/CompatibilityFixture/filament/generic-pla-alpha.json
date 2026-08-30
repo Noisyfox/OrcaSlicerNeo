@@ -1,0 +1,9 @@
+{
+  "type": "filament",
+  "name": "Generic PLA @Compatibility Alpha",
+  "inherits": "Generic PLA @System",
+  "from": "system",
+  "instantiation": "true",
+  "compatible_printers": ["Compatibility Alpha 0.4 nozzle"],
+  "compatible_prints": []
+}

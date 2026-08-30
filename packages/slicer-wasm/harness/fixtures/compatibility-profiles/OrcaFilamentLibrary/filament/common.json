@@ -1,0 +1,15 @@
+{
+  "type": "filament",
+  "name": "fixture_library_filament_common",
+  "from": "system",
+  "instantiation": "false",
+  "filament_type": ["PLA"],
+  "filament_diameter": ["1.75"],
+  "filament_id": "fixture-generic-pla",
+  "nozzle_temperature": ["200"],
+  "nozzle_temperature_initial_layer": ["200"],
+  "compatible_printers": [],
+  "compatible_printers_condition": "",
+  "compatible_prints": [],
+  "compatible_prints_condition": ""
+}
