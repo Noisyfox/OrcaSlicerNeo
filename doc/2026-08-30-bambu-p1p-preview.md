@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-30
 
-**Status:** Implemented — verification in progress
+**Status:** Implemented and verified
 
 **Scope:** Ensure a Bambu Lab P1P slice produces a visible toolpath preview,
 and surface every failure that prevents preview generation in the shared app.
@@ -25,3 +25,6 @@ and surface every failure that prevents preview generation in the shared app.
   a successful slice plus a non-zero layer and toolpath-vertex count.
 - The shared UI test verifies that an `orc_get_slice_result` failure changes
   the status to `Error` and renders the bridge error in the status bar.
+- `pnpm test`, `pnpm typecheck`, and the serial `scripts\\build-windows.bat
+  quick --variant serial` build pass. The standard desktop E2E suite passes
+  22 tests; its two existing platform/real-WASM-gated cases are skipped.
