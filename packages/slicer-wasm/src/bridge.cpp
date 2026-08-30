@@ -1396,6 +1396,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
             }
         }
 
+        // The native GUI sets this on BackgroundSlicingProcess before both
+        // validation and processing.  The bridge bypasses that GUI layer, so
+        // carry the active preset bundle's vendor identity across explicitly.
+        // Without it Bambu G-code takes the non-Bambu nozzle/context path and
+        // a successful P1P slice can later yield an empty preview.
+        state().print.is_BBL_printer() = state().presets.is_bbl_vendor();
         state().print.apply(state().model, config);
         // Drift at the pinned SHA: validate() returns StringObjectException
         // (PrintBase.hpp:30); use its .string member (same adaptation as

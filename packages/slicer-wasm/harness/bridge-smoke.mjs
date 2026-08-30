@@ -828,6 +828,33 @@ check('slice error surfaces the real message, not the bare category',
   }
 }
 
+// 11. Bambu P1P regression: the bridge has no wx GUI background-slicing
+// process, so it must set Print's Bambu-vendor identity itself.  Otherwise
+// the P1P emits G-code but preview reconstruction yields zero moves/layers.
+{
+  callJson('orc_clear_model', [], []);
+  const p1p = callJson('orc_select_preset', ['string', 'string'], ['printer', 'Bambu Lab P1P 0.4 nozzle']);
+  check('P1P selection resolves a Bambu printer profile',
+        p1p.ok === true && p1p.printer?.name === 'Bambu Lab P1P 0.4 nozzle', JSON.stringify(p1p.printer));
+  const p = Number(Module._malloc(stl.length));
+  Module.HEAPU8.set(stl, p);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'], [p, stl.length, 'stl']);
+  Module._free(p);
+  // The generic bridge fixture has no plater placement service. P1P's
+  // profile coordinates start at (0, 0), so put this 20 mm cube at its
+  // 256 mm plate centre before slicing.
+  const positioned = callJson('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
+                              [0, 0, 128, 128, 10]);
+  check('P1P cube loads and is positioned on its plate',
+        loaded.ok === true && positioned.ok === true, JSON.stringify({ loaded, positioned }));
+  const sliced = callJson('orc_slice', ['string'], ['{}']);
+  check('P1P cube slices successfully', sliced.ok === true, JSON.stringify(sliced));
+  const result = callJson('orc_get_slice_result', [], []);
+  check('P1P cube produces a non-empty preview',
+        result.ok === true && result.layers > 0 && result.toolpath?.vertex_count > 0,
+        JSON.stringify(result).slice(0, 200));
+}
+
 // Keep the harness useful in CI: a run that printed one or more FAIL checks
 // must not be reported as successful merely because the script reached EOF.
 if (failures > 0) {

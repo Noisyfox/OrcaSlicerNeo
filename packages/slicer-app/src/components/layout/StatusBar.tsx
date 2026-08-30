@@ -19,7 +19,11 @@ export function StatusBar() {
       {status === 'done' && layers > 0 && (
         <span>{layers} layers</span>
       )}
-      {error && <span className="text-destructive truncate">{error}</span>}
+      {error && (
+        <span className="min-w-0 text-destructive" data-testid="slicer-error" role="alert" title={error}>
+          {error}
+        </span>
+      )}
       {platform.chrome.kind === 'web' && typeof crossOriginIsolated !== 'undefined' && !crossOriginIsolated && (
         <span className="ml-auto shrink-0" data-testid="serial-runtime-status">Single-thread fallback</span>
       )}

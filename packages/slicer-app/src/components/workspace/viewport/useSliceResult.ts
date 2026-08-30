@@ -43,7 +43,16 @@ export function useSliceResult() {
         setLayers(r.layers);
         setMaxLayer(Math.max(0, r.layers - 1));
       } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : String(err);
         console.error('slice result fetch failed:', err);
+        // Slicing and preview extraction are separate worker calls.  Do not
+        // leave a failed extraction looking like a completed slice with an
+        // empty viewport; surface its bridge error through the same status
+        // path as an orc_slice failure.
+        const slicer = useSlicerStore.getState();
+        slicer.setStatus('error');
+        slicer.setError(`preview: ${message}`);
       }
     })();
     return () => { cancelled = true; };
