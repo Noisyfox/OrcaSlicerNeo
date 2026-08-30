@@ -8,6 +8,7 @@ import { startWorker } from '@slicer/client';
 import type { OrcaModuleFactory, OrcaModule } from '@slicer/client';
 import { createMockModule } from '@slicer/testing';
 import { createFetchProfileSource, installProfiles, resolveDeploymentBase, resolveProfileBaseUrl } from '../profiles';
+import { loadWasmArtifact, type WasmArtifactVariant } from './wasm-artifact';
 
 const useMock = import.meta.env.VITE_USE_MOCK === '1';
 const mockInstanceCount = Number(import.meta.env.VITE_MOCK_INSTANCE_COUNT ?? 1);
@@ -43,18 +44,24 @@ const factory: OrcaModuleFactory = useMock
       // preference or a guessed browser string.
       const isolated = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated
         && typeof SharedArrayBuffer === 'function' && typeof Atomics === 'object';
-      const artifactDir = isolated ? 'threaded' : 'serial';
+      const artifactDir: WasmArtifactVariant = isolated ? 'threaded' : 'serial';
       const wasmBase = resolveDeploymentBase(import.meta.env.BASE_URL, workerUrl);
-      const wasmUrl = new URL(`wasm/${artifactDir}/orca_slice.js`, wasmBase).href;
-      // Emscripten's scriptDirectory inside a worker derives from the
-      // WORKER script's URL (assets/), not the imported module's — so
-      // .wasm/.data fetches 404 unless locateFile points at wasm/ (the
-      // harness never hits this: Node resolves from the module itself).
-      const locateFile = (path: string) => new URL(`wasm/${artifactDir}/${path}`, wasmBase).href;
-      const mod = (await import(/* @vite-ignore */ wasmUrl)) as {
-        default: (opts?: { noInitialRun?: boolean; locateFile?: (path: string) => string }) => OrcaModule;
+      const load = async (variant: WasmArtifactVariant): Promise<OrcaModule> => {
+        const wasmUrl = new URL(`wasm/${variant}/orca_slice.js`, wasmBase).href;
+        // Emscripten's scriptDirectory inside a worker derives from the
+        // WORKER script's URL (assets/), not the imported module's — so
+        // .wasm/.data fetches 404 unless locateFile points at wasm/ (the
+        // harness never hits this: Node resolves from the module itself).
+        const locateFile = (path: string) => new URL(`wasm/${variant}/${path}`, wasmBase).href;
+        const mod = (await import(/* @vite-ignore */ wasmUrl)) as {
+          default: (opts?: { noInitialRun?: boolean; locateFile?: (path: string) => string }) => OrcaModule;
+        };
+        return mod.default({ noInitialRun: true, locateFile });
       };
-      return mod.default({ noInitialRun: true, locateFile });
+      const loaded = await loadWasmArtifact(artifactDir, load, (error) => {
+        console.warn('[slicer] threaded WASM failed to start; falling back to serial', error);
+      });
+      return loaded.module;
     };
 
 // Profile bytes are fetched and mounted by the Worker before the first bridge

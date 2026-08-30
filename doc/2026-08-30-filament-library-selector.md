@@ -2,8 +2,9 @@
 
 **Date:** 2026-08-30
 
-**Status:** Implemented — serial native verification complete; the threaded
-quick build remains blocked by a wasm-opt parse failure.
+**Status:** Implemented — serial native verification complete. The runtime
+recovers to the serial artifact if a threaded artifact cannot instantiate, and
+the staging step rejects malformed WebAssembly artifacts.
 
 **Scope:** Make every successfully installed FFF filament profile available in
 the shared filament selector while retaining OrcaSlicer's native compatibility
@@ -21,6 +22,9 @@ and generic-profile supersession rules.
   alias. The application does not reimplement that matching in TypeScript.
 - Failed vendor-package installs remain absent because their profiles never
   reach the native bundle.
+- A malformed or incomplete threaded WASM artifact cannot block startup on an
+  otherwise capable host: the Worker retries the serial artifact. The build
+  staging command refuses to copy invalid WebAssembly to host public assets.
 
 ## Verification
 
@@ -32,6 +36,11 @@ and generic-profile supersession rules.
 - The native profile-compatibility smoke fixture covers a generic library
   profile, its printer-specific superseding profile, and the generic fallback
   on a different printer. It passes against the serial WASM artifact.
-- `scripts\\build-windows.bat quick` compiled the changed bridge, but the
-  threaded link then failed in Emscripten's `wasm-opt` with `parse exception:
-  invalid UTF-8 string`; no native smoke result is claimed.
+- The threaded link currently fails in Emscripten's `wasm-opt` with `parse
+  exception: invalid UTF-8 string`. Its partial output is invalid WebAssembly
+  (browser error `unknown section code #0x4e`); the staging validation rejects
+  it and the Worker safely falls back to serial while that toolchain issue is
+  investigated.
+- `pnpm --filter @orca/desktop test:e2e:real` passes all 18 real-WASM Electron
+  checks with the malformed threaded artifact present, verifying the serial
+  fallback on the actual startup path.

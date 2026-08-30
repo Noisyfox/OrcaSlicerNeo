@@ -6,7 +6,7 @@
 // --soft: warn and exit 0 when the build is missing — used by the desktop `predev`
 // hook so mock-mode UI dev (VITE_USE_MOCK=1) still boots on a fresh checkout
 // with no wasm build.
-import { copyFile, cp, mkdir } from 'node:fs/promises';
+import { copyFile, cp, mkdir, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,16 +42,31 @@ for (const variant of ['threaded', 'serial']) {
     console.error(`missing ${variant} artifact directory in ${outRoot}`);
     process.exit(1);
   }
-  await mkdir(dst, { recursive: true });
-  for (const f of ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data']) {
+  const files = ['orca_slice.js', 'orca_slice.wasm', 'orca_slice.data'];
+  let complete = true;
+  for (const f of files) {
     if (!existsSync(join(src, f))) {
       if (soft) {
         console.warn(`[stage-wasm] missing ${variant}/${f} — skipping (mock-mode / UI-only dev)`);
-        continue;
+        complete = false;
+        break;
       }
       console.error(`missing ${variant}/${f} in ${src}`);
       process.exit(1);
     }
+  }
+  if (!complete) continue;
+  if (!WebAssembly.validate(await readFile(join(src, 'orca_slice.wasm')))) {
+    const message = `[stage-wasm] invalid ${variant}/orca_slice.wasm — refusing to stage a module that browsers cannot instantiate`;
+    if (soft) {
+      console.warn(message);
+      continue;
+    }
+    console.error(message);
+    process.exit(1);
+  }
+  await mkdir(dst, { recursive: true });
+  for (const f of files) {
     await copyFile(join(src, f), join(dst, f));
     console.log(`staged ${variant}/${f}`);
   }
