@@ -37,11 +37,13 @@ describe('useSettingsStore', () => {
   });
 
   it('hydrates all picker boot state from one final compatibility snapshot', () => {
+    useSettingsStore.getState().setValues({ layer_height: '0.12' });
     useSettingsStore.getState().hydratePresetSnapshot(bootSnapshot);
     const state = useSettingsStore.getState();
     expect(state.printers).toBe(bootSnapshot.printers);
     expect(state.prints).toBe(bootSnapshot.prints);
     expect(state.filaments).toBe(bootSnapshot.filaments);
     expect([state.selectedPrinter, state.selectedPrint, state.selectedFilament]).toEqual(['P', 'Q', 'F']);
+    expect(state.values).toEqual({});
   });
 });

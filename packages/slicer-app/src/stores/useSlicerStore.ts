@@ -18,6 +18,8 @@ interface SlicerState {
   setLayer: (n: number) => void;
   setMaxLayer: (n: number) => void;
   setResultExported: (exported: boolean) => void;
+  /** Clear every renderer-visible consequence of a completed slice in one state update. */
+  invalidateSliceResult: () => void;
 }
 
 export const useSlicerStore = create<SlicerState>((set) => ({
@@ -35,4 +37,13 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setLayer: (layer) => set({ layer }),
   setMaxLayer: (maxLayer) => set({ maxLayer }),
   setResultExported: (resultExported) => set({ resultExported }),
+  invalidateSliceResult: () => set({
+    status: 'idle',
+    progress: 0,
+    layers: 0,
+    error: null,
+    resultExported: false,
+    layer: 0,
+    maxLayer: 0,
+  }),
 }));

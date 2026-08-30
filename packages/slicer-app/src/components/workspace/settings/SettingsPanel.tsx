@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/settings/SettingsPanel.tsx
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
@@ -41,14 +41,12 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   const selectedPrinter = useSettingsStore((s) => s.selectedPrinter);
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
   const selectedFilament = useSettingsStore((s) => s.selectedFilament);
-  const setSelections = useSettingsStore((s) => s.setSelections);
+  const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
   const values = useSettingsStore((s) => s.values);
   const setValue = useSettingsStore((s) => s.setValue);
   const setError = useSlicerStore((s) => s.setError);
-  const setStatus = useSlicerStore((s) => s.setStatus);
-  const setLayers = useSlicerStore((s) => s.setLayers);
-  const setProgress = useSlicerStore((s) => s.setProgress);
-  const setResultExported = useSlicerStore((s) => s.setResultExported);
+  const invalidateSliceResult = useSlicerStore((s) => s.invalidateSliceResult);
+  const [presetTransitionPending, setPresetTransitionPending] = useState(false);
 
   // Only render option keys the metadata actually declares (no duplicated
   // schema — PROCESS_KEYS is a render hint, not the schema).
@@ -60,21 +58,36 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   // A system profile selection is session state; only its three names and UI
   // preferences are persisted. Compatibility remains in the C++ bridge.
   async function handleSelectPreset(kind: PresetKind, name: string) {
+    if (presetTransitionPending) return;
+    setPresetTransitionPending(true);
     try {
       const r = await platform.runtime.selectPreset(kind, name);
       if (!r.ok) throw new Error(r.error ?? 'selectPreset failed');
-      setSelections(r.printer.name, r.print.name, r.filament.name);
-      // A completed result belongs to the old profile combination.
-      setStatus('idle'); setLayers(0); setProgress(0); setError(null);
-      setResultExported(false);
-      const prefs = await platform.preferences.load();
-      await platform.preferences.save({ ...prefs, selectedProfiles: {
-        printer: r.printer.name, print: r.print.name, filament: r.filament.name,
-      } });
+      // The bridge's arrays are already the complete picker-ready candidate
+      // sets, in engine order. Replace every picker and resolved name together
+      // rather than composing a selection with independently fetched lists.
+      hydratePresetSnapshot(r);
+      // The result belongs to the old profile combination. One action clears
+      // export, toolpath-layer state, progress, and completed status together.
+      invalidateSliceResult();
+
+      // Persistence failure is non-fatal: the engine-resolved snapshot remains
+      // the active session state even when the next-launch preference cannot
+      // be written.
+      try {
+        const prefs = await platform.preferences.load();
+        await platform.preferences.save({ ...prefs, selectedProfiles: {
+          printer: r.printer.name, print: r.print.name, filament: r.filament.name,
+        } });
+      } catch (error) {
+        console.error('preset preference save failed; keeping resolved session state', error);
+      }
     } catch (err) {
       // TODO(profile-compat): define and implement the atomic compatibility
       // transition failure policy before the snapshot-based selection flow ships.
       setError(`select ${kind}: ${String(err)}`);
+    } finally {
+      setPresetTransitionPending(false);
     }
   }
 
@@ -89,9 +102,10 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       <ScalePanel sceneInteraction={sceneInteraction} />
       <section>
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
-        <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} testId="preset-select" />
-        <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} />
-        <PresetRow label="Filament" items={filaments} value={selectedFilament} onValue={(v) => handleSelectPreset('filament', v)} />
+        {presetTransitionPending && <p className="py-1 text-xs text-muted-foreground" data-testid="preset-transition-loading" role="status">Updating compatible presets…</p>}
+        <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} disabled={presetTransitionPending} testId="preset-select" />
+        <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />
+        <PresetRow label="Filament" items={filaments} value={selectedFilament} onValue={(v) => handleSelectPreset('filament', v)} disabled={presetTransitionPending} testId="filament-preset-select" />
       </section>
       <section>
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Process</h2>
@@ -103,20 +117,20 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   );
 }
 
-// Installed (visible) presets only. Visibility comes from the bridge's REAL
-// set_visible_from_appconfig result — never client-side logic. Searchable:
+// Picker-ready candidates only. The bridge has already applied visibility and
+// compatibility filtering, and its original order is authoritative. Searchable:
 // typing in the popup's search input filters the list (case-insensitive
 // substring) — the shadcn base-mira popup style: a button trigger showing
 // the current value, search input inside the popup.
-function PresetRow({ label, items, value, onValue, testId }: {
+function PresetRow({ label, items, value, onValue, disabled, testId }: {
   label: string;
   items: PresetInfo[];
   value: string;
   onValue: (name: string) => void;
+  disabled: boolean;
   testId?: string;
 }) {
-  const installed = items.filter((p) => p.is_visible);
-  if (installed.length === 0) return null;
+  if (items.length === 0) return null;
   return (
     <div className="space-y-1 py-1">
       <Label className="text-xs text-muted-foreground">{label}</Label>
@@ -128,10 +142,12 @@ function PresetRow({ label, items, value, onValue, testId }: {
       <Combobox
         value={value || null}
         onValueChange={(v) => v != null && onValue(v)}
-        items={installed.map((p) => p.name)}
+        items={items.map((p) => p.name)}
+        disabled={disabled}
       >
         <ComboboxTrigger
           data-testid={testId}
+          disabled={disabled}
           render={
             <Button variant="outline" className="w-full justify-between font-normal" />
           }

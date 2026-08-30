@@ -51,6 +51,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     selectedPrinter: snapshot.printer.name,
     selectedPrint: snapshot.print.name,
     selectedFilament: snapshot.filament.name,
+    // A system preset transition replaces the base configuration. Temporary
+    // renderer overrides belong to the previous combination and must not leak
+    // into the next slice.
+    values: {},
   }),
   setPresets: (printers, prints, filaments) => set({
     printers, prints, filaments,
