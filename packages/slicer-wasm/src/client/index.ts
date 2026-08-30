@@ -4,7 +4,8 @@ export { startWorker, createWorkerClient } from './worker';
 export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
-  InitResult, PresetInfo, PresetList, SelectPresetResult,
+  InitResult, PresetInfo, PresetSelection, PresetSnapshot,
+  PresetSnapshotError, PresetSnapshotResult, SelectPresetResult,
   OptionMetadata, OptionMeta,
   LoadModelResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,

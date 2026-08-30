@@ -7,11 +7,12 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { argv } from 'node:process';
+import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory, validateGcode } from './run-slice.mjs';
 
-const [moduleArg, stlArg] = argv.slice(2);
+const [moduleArg, stlArg, profileRootArg] = argv.slice(2);
 if (!moduleArg || !stlArg) {
-  console.error('usage: node bridge-smoke.mjs <out/orca_slice.js> <cube.stl>');
+  console.error('usage: node bridge-smoke.mjs <out/orca_slice.js> <cube.stl> [profile-package-root]');
   process.exit(2);
 }
 
@@ -20,8 +21,15 @@ if (!moduleArg || !stlArg) {
 // after the chdir would root them at the module dir).
 const stlPath = resolve(stlArg);
 const boxStlPath = resolve(dirname(stlPath), 'floating-box.stl');
+const repoRoot = resolve(import.meta.dirname, '../../..');
+const profileRoot = resolve(profileRootArg ?? `${repoRoot}/packages/profile-resources/dist`);
 const factory = await loadModuleFactory(moduleArg);
 const Module = await factory({ noInitialRun: true, print: console.error, printErr: console.error });
+// The bridge has no built-in profile payload: production hosts install the
+// versioned packages into MEMFS before orc_init. Do the same here so the
+// compatibility checks exercise actual installed system profiles, not just
+// the generated default placeholders.
+await installProfilePackages(Module, createNodeProfileSource(profileRoot));
 
 // wasm64: pointer-bearing arguments must be typed 'pointer' — Emscripten 6's
 // ccall toC converts them to the BigInt the raw i64 wasm param requires
@@ -66,13 +74,45 @@ check('variant reports a consistent TBB pool',
       threading.ok === true && poolOk,
       `${JSON.stringify(threading)} runtimeCores=${runtimeCores}`);
 
-// 2. presets
-const printers = callJson('orc_get_presets', ['string'], ['printer']);
-check('orc_get_presets(printer)', Array.isArray(printers.presets) && printers.presets.length > 0,
-      `count=${printers.presets?.length}`);
-const prints = callJson('orc_get_presets', ['string'], ['print']);
-check('orc_get_presets(print)', Array.isArray(prints.presets) && prints.presets.length > 0,
-      `count=${prints.presets?.length}`);
+// 2. Compatibility snapshots are the coherent picker source. They carry the
+// engine-selected triple and remain coherent after native fallback paths.
+const snapshot = callJson('orc_get_preset_snapshot', [], []);
+const snapshotHasSelection = (s, kind) => Array.isArray(s[`${kind}s`])
+  && s[`${kind}s`].some((p) => p.name === s[kind]?.name && p.selected === true);
+check('orc_get_preset_snapshot returns coherent picker candidates',
+      snapshot.ok === true
+      && Array.isArray(snapshot.printers) && snapshot.printers.length > 0
+      && Array.isArray(snapshot.prints) && snapshot.prints.length > 0
+      && Array.isArray(snapshot.filaments) && snapshot.filaments.length > 0
+      && snapshotHasSelection(snapshot, 'printer')
+      && snapshotHasSelection(snapshot, 'print')
+      && snapshotHasSelection(snapshot, 'filament'),
+      JSON.stringify({ printer: snapshot.printer, print: snapshot.print, filament: snapshot.filament }));
+// Select a different visible printer and then process.  Their returned
+// snapshots prove that the bridge runs Orca's printer -> process -> filament
+// and process -> filament compatibility/fallback chains before responding.
+const nextPrinter = snapshot.printers.find((preset) => preset.name !== snapshot.printer.name);
+check('real profile set contains an alternate visible printer', nextPrinter !== undefined,
+      nextPrinter?.name ?? 'none');
+let selectedSnapshot = snapshot;
+if (nextPrinter) {
+  selectedSnapshot = callJson('orc_select_preset', ['string', 'string'], ['printer', nextPrinter.name]);
+  check('printer selection returns a complete resolved compatibility snapshot',
+        selectedSnapshot.ok === true && selectedSnapshot.printer?.name === nextPrinter.name
+        && snapshotHasSelection(selectedSnapshot, 'print')
+        && snapshotHasSelection(selectedSnapshot, 'filament'),
+        JSON.stringify({ printer: selectedSnapshot.printer, print: selectedSnapshot.print, filament: selectedSnapshot.filament }));
+}
+const nextPrint = selectedSnapshot.prints?.find((preset) => preset.name !== selectedSnapshot.print?.name);
+check('resolved printer has an alternate compatible process', nextPrint !== undefined,
+      nextPrint?.name ?? 'none');
+if (nextPrint) {
+  selectedSnapshot = callJson('orc_select_preset', ['string', 'string'], ['print', nextPrint.name]);
+  check('process selection re-resolves and returns a filament-compatible snapshot',
+        selectedSnapshot.ok === true && selectedSnapshot.print?.name === nextPrint.name
+        && snapshotHasSelection(selectedSnapshot, 'filament'),
+        JSON.stringify({ print: selectedSnapshot.print, filament: selectedSnapshot.filament }));
+}
 
 // 3. option metadata
 const meta = callJson('orc_get_option_metadata', [], []);

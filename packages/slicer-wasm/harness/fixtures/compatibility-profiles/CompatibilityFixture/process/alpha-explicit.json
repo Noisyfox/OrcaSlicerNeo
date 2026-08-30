@@ -1,0 +1,9 @@
+{
+  "type": "process",
+  "name": "Alpha Explicit Process",
+  "inherits": "fixture_process_common",
+  "from": "system",
+  "instantiation": "true",
+  "compatible_printers": ["Compatibility Alpha 0.4 nozzle"],
+  "compatible_printers_condition": ""
+}

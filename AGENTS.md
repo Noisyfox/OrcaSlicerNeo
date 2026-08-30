@@ -30,7 +30,11 @@
   for the milestone checklist; keep both in sync with delivered work.
 - Read `project_structure_and_guidelines.md` for structure and engineering
   constraints.
-- Read `doc/` for dated engineering docs; create task-specific notes there.
+- Read `doc/` for dated engineering docs. Start a task with one dated, living
+  task document and update it in place through every phase; do not split one
+  task into phase-specific notes. It records only accepted product behaviour
+  and decisions. Promote the same document to `spec/` when approved and remove
+  superseded task notes.
 - Approved designs live in `spec/`. Any feature/design change must be reflected
   in `doc/` and, once approved, `spec/`.
 
@@ -154,9 +158,11 @@ The WASM build is an iteration surface, not a finished pipeline. When it fails:
 1. **libslic3r is reused with minimum changes.** Prefer build-scaffold exclusions,
    stubs, and shim headers over editing the submodule. Any submodule edit needs a
    `patches/*.patch` (or an intentional, documented submodule commit).
-2. **Docs first.** New work gets a dated note in `doc/` before/with code; approved
-   designs move to `spec/`. Follow the repo's doc conventions (dated
-   `YYYY-MM-DD-topic.md`).
+2. **Docs first.** New work gets one dated, living task document in `doc/`
+   before/with code. Update it in place throughout the task instead of creating
+   phase notes; retain only accepted product behaviour and decisions. Approved
+   designs promote to `spec/` as that same document. Follow the repo's dated
+   `YYYY-MM-DD-topic.md` convention.
 
 ## Required development and verification workflow
 

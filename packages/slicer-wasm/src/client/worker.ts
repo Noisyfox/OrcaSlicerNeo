@@ -31,6 +31,7 @@ export function startWorker(
     (self as unknown as { onmessage: (e: MessageEvent<WorkerMessage>) => void }).onmessage = (e) => fn(e.data);
   },
   beforeInit?: (module: import('./types').OrcaModule) => Promise<void>,
+  beforeRequest?: (op: string, args: unknown[]) => Promise<void> | void,
 ): void {
   // Serial builds forward their permanent bridge callback. Threaded builds
   // send a SharedArrayBuffer mailbox; the renderer polls it independently
@@ -47,6 +48,7 @@ export function startWorker(
     try {
       const method = (client as unknown as Record<string, (...a: unknown[]) => unknown>)[op];
       if (typeof method !== 'function') throw new Error(`unknown op: ${op}`);
+      await beforeRequest?.(op, args ?? []);
       const result = await method(...(args ?? []));
       post({ type: 'response', id, ok: true, result });
     } catch (err) {

@@ -1,0 +1,12 @@
+{
+  "type": "filament",
+  "name": "Alpha Condition Filament",
+  "inherits": "fixture_filament_common",
+  "from": "system",
+  "instantiation": "true",
+  "filament_id": "alpha-condition",
+  "compatible_printers": [],
+  "compatible_printers_condition": "printer_notes == \"alpha\"",
+  "compatible_prints": ["Alpha Condition Process"],
+  "compatible_prints_condition": ""
+}

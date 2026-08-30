@@ -58,18 +58,39 @@ export interface PresetInfo {
   selected: boolean;
 }
 
-export interface PresetList {
-  presets: PresetInfo[];
-  error?: string;
+export interface PresetSelection {
+  name: string;
+  /** Index in the engine's complete collection, not the filtered candidate list. */
+  idx: number;
 }
 
-export interface SelectPresetResult {
-  ok: boolean;
-  printer: { name: string; idx: number };
-  print: { name: string; idx: number };
-  filament: { name: string; idx: number };
-  error?: string;
+/**
+ * One coherent, picker-ready FFF preset state from the C++ profile engine.
+ * The candidate arrays are already filtered by the engine: printers are
+ * visible, while prints and filaments are visible and compatible with the
+ * final selection context. Preserve their order; do not re-filter or sort in
+ * JavaScript.
+ */
+export interface PresetSnapshot {
+  ok: true;
+  printers: PresetInfo[];
+  prints: PresetInfo[];
+  filaments: PresetInfo[];
+  printer: PresetSelection;
+  print: PresetSelection;
+  filament: PresetSelection;
 }
+
+/** A bridge rejection has no partial snapshot and leaves engine state unchanged. */
+export interface PresetSnapshotError {
+  ok?: false;
+  error: string;
+}
+
+export type PresetSnapshotResult = PresetSnapshot | PresetSnapshotError;
+
+/** @deprecated Use PresetSnapshotResult; retained during the API migration. */
+export type SelectPresetResult = PresetSnapshotResult;
 
 export type OptionMetaType =
   | 'float' | 'int' | 'string' | 'bool' | 'percent' | 'floats' | 'ints'
@@ -332,7 +353,8 @@ export interface ReadLogResult {
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
-  getPresets(kind: 'printer' | 'print' | 'filament'): Promise<PresetList>;
+  /** Read the engine-resolved, atomic picker state for initial loading. */
+  getPresetSnapshot(): Promise<PresetSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
   addModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult>;
@@ -384,9 +406,8 @@ export interface SlicerClient {
   setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult>;
   /** Toggle a single instance's printable state by its stable ObjectID. */
   setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult>;
-  /** Select a preset by name; printer selection re-runs compatibility so
-   *  print/filament follow the active machine. Reports all three selections. */
-  selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<SelectPresetResult>;
+  /** Select a preset by name and return the final atomic compatibility state. */
+  selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<PresetSnapshotResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   getSliceResult(): Promise<ClientSliceResult>;
   exportGcode(): Promise<ExportGcodeResult>;
