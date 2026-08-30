@@ -129,6 +129,22 @@ while [[ $# -gt 0 ]]; do
 done
 
 NINJA_JOBS=(); [[ -n "$JOBS" ]] && NINJA_JOBS=(-j "$JOBS")
+VALIDATE_WASM="$ROOT/scripts/validate-wasm.mjs"
+
+# A failed em++/wasm-opt invocation can leave partial target files behind.
+# Remove only generated final link outputs so Ninja cannot treat a stale .js
+# as a successful link on the next incremental invocation.
+discard_invalid_link_outputs() {
+  local bd="$1"
+  if [[ ! -e "$bd/orca_slice.js" && ! -e "$bd/orca_slice.wasm" && ! -e "$bd/orca_slice.data" ]]; then
+    return
+  fi
+  if [[ -f "$bd/orca_slice.wasm" ]] && node "$VALIDATE_WASM" "$bd/orca_slice.wasm" >/dev/null 2>&1; then
+    return
+  fi
+  log "Discarding incomplete or invalid prior WASM link output in $bd"
+  rm -f -- "$bd/orca_slice.js" "$bd/orca_slice.wasm" "$bd/orca_slice.data"
+}
 
 # ---------------- per-variant helpers ----------------
 # Incremental ninja + stage for ONE variant ($1 = threaded|serial).
@@ -141,8 +157,10 @@ quick_variant() {
   if [[ "$DEBUG" == 1 ]] && ! grep -q '^WASM_DEBUG:BOOL=ON' "$bd/CMakeCache.txt"; then
     die "Tree $bd was configured without WASM_DEBUG — run: bash scripts/build.sh build --debug (reconfigures both variants)"
   fi
+  discard_invalid_link_outputs "$bd"
   log "Incremental: emmake ninja -C $bd orca_slice ${NINJA_JOBS[*]+"${NINJA_JOBS[*]}"}"
   emmake ninja -C "$bd" orca_slice ${NINJA_JOBS[@]+"${NINJA_JOBS[@]}"}
+  node "$VALIDATE_WASM" "$bd/orca_slice.wasm" || die "Link produced invalid WebAssembly at $bd/orca_slice.wasm"
   for f in orca_slice.js orca_slice.wasm orca_slice.data; do
     [[ -f "$bd/$f" ]] || die "Build did not produce $bd/$f"
     cp -f "$bd/$f" "$outd/"

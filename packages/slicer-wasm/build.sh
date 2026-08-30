@@ -34,6 +34,7 @@ SHIM_INCLUDE="$VARIANT_WORK_DIR/shim-include"
 GEN_INCLUDE="$VARIANT_WORK_DIR/gen"
 BUILD_DIR="$VARIANT_WORK_DIR/build"
 OUT_DIR="${WASM_OUT_DIR:-$PKG_DIR/out/$ARTIFACT_VARIANT}"
+VALIDATE_WASM="$PKG_DIR/../../scripts/validate-wasm.mjs"
 # Emscripten evaluates this expression in the runtime and creates one pthread
 # worker per available logical core. Callers can override it for profiling.
 WASM_PTHREAD_POOL_SIZE="${WASM_PTHREAD_POOL_SIZE:-navigator.hardwareConcurrency}"
@@ -148,6 +149,20 @@ apply_patches() {
 }
 apply_patches
 
+# A failed em++/wasm-opt invocation can leave partial target files behind.
+# Remove only generated final link outputs so Ninja cannot treat its stale .js
+# output as a successful link on the next invocation.
+discard_invalid_link_outputs() {
+  if [[ ! -e "$BUILD_DIR/orca_slice.js" && ! -e "$BUILD_DIR/orca_slice.wasm" && ! -e "$BUILD_DIR/orca_slice.data" ]]; then
+    return
+  fi
+  if [[ -f "$BUILD_DIR/orca_slice.wasm" ]] && node "$VALIDATE_WASM" "$BUILD_DIR/orca_slice.wasm" >/dev/null 2>&1; then
+    return
+  fi
+  log "Discarding incomplete or invalid prior WASM link output in $BUILD_DIR"
+  rm -f -- "$BUILD_DIR/orca_slice.js" "$BUILD_DIR/orca_slice.wasm" "$BUILD_DIR/orca_slice.data"
+}
+
 mkdir -p "$WORK_DIR" "$OUT_DIR" "$GEN_INCLUDE"
 # fetch-deps.sh historically writes the OpenSSL compatibility header in the
 # shared work tree. Variant-specific CMake trees must receive the same header
@@ -222,11 +237,13 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   || die "CMake configure failed. Fix include paths / missing deps and re-run."
 
 log "Building (emmake ninja) — expect to iterate on compile errors"
+discard_invalid_link_outputs
 emmake ninja -C "$BUILD_DIR" orca_slice || die "Build failed. Common next steps:
   - Missing <tbb/X.h>: add X to TBB_HEADERS in build.sh and re-run.
   - Undefined symbol from an excluded file (SLA/CGAL/OCCT): add a stub in
     stubs/ or exclude its caller via DROP_PATTERNS in CMakeLists.txt.
   - Boost/Eigen not found: fix *_INCLUDE paths (run fetch-deps.sh first)."
+node "$VALIDATE_WASM" "$BUILD_DIR/orca_slice.wasm" || die "Link produced invalid WebAssembly at $BUILD_DIR/orca_slice.wasm"
 
 # ---------------- Collect artifacts ----------------
 # Fail loudly: a missing artifact is a build defect, not a warning. The .data

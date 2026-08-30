@@ -25,6 +25,10 @@ and generic-profile supersession rules.
 - A malformed or incomplete threaded WASM artifact cannot block startup on an
   otherwise capable host: the Worker retries the serial artifact. The build
   staging command refuses to copy invalid WebAssembly to host public assets.
+- Emscripten link outputs are verified before every staging boundary. If an
+  interrupted or failed `wasm-opt` pass left a partial final module that Ninja
+  would otherwise consider current, the build drivers discard only those final
+  generated files and force a fresh link.
 
 ## Verification
 
@@ -44,3 +48,9 @@ and generic-profile supersession rules.
 - `pnpm --filter @orca/desktop test:e2e:real` passes all 18 real-WASM Electron
   checks with the malformed threaded artifact present, verifying the serial
   fallback on the actual startup path.
+- A clean threaded `-O3` relink with Emscripten 6.0.6 succeeds; its staged
+  artifact passes `WebAssembly.compile` before the real-WASM Electron tests.
+- `scripts\\build-windows.bat smoke --variant threaded` and the native profile
+  compatibility smoke both pass against that rebuilt artifact. The complete
+  workspace test/typecheck suites, regular desktop Electron suite (22 passed,
+  2 skipped), and the real-WASM Electron suite (18 passed) also pass.

@@ -6,10 +6,11 @@
 // --soft: warn and exit 0 when the build is missing — used by the desktop `predev`
 // hook so mock-mode UI dev (VITE_USE_MOCK=1) still boots on a fresh checkout
 // with no wasm build.
-import { copyFile, cp, mkdir, readFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { assertValidWasm } from './validate-wasm.mjs';
 
 const soft = process.argv.includes('--soft');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -56,8 +57,10 @@ for (const variant of ['threaded', 'serial']) {
     }
   }
   if (!complete) continue;
-  if (!WebAssembly.validate(await readFile(join(src, 'orca_slice.wasm')))) {
-    const message = `[stage-wasm] invalid ${variant}/orca_slice.wasm — refusing to stage a module that browsers cannot instantiate`;
+  try {
+    await assertValidWasm(join(src, 'orca_slice.wasm'));
+  } catch (error) {
+    const message = `[stage-wasm] ${error instanceof Error ? error.message : String(error)} — refusing to stage a module that browsers cannot instantiate`;
     if (soft) {
       console.warn(message);
       continue;

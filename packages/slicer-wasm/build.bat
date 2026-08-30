@@ -44,6 +44,7 @@ if defined WASM_ARTIFACT_VARIANT (
 ) else (
   if "%WASM_THREADING%"=="0" (set "ARTIFACT_VARIANT=serial") else (set "ARTIFACT_VARIANT=threaded")
 )
+set "VALIDATE_WASM=%PKG_DIR%\..\..\scripts\validate-wasm.mjs"
 set "VARIANT_WORK_DIR=%WORK_DIR%\%ARTIFACT_VARIANT%"
 set "SHIM_INCLUDE=%VARIANT_WORK_DIR%\shim-include"
 set "GEN_INCLUDE=%VARIANT_WORK_DIR%\gen"
@@ -260,6 +261,7 @@ if errorlevel 1 (
 )
 
 echo [wasm] Building (emmake ninja) - expect to iterate on compile errors
+call :discard_invalid_link_outputs
 emmake ninja -C "%BUILD_DIR%" orca_slice
 if errorlevel 1 (
   echo [wasm] ERROR: Build failed. Common next steps:
@@ -267,6 +269,11 @@ if errorlevel 1 (
   echo   - Undefined symbol from an excluded file ^(SLA/CGAL/OCCT^): add a stub in
   echo     stubs\ or exclude its caller via DROP_PATTERNS in CMakeLists.txt.
   echo   - Boost/Eigen not found: fix *_INCLUDE paths ^(run fetch-deps.bat first^).
+  exit /b 1
+)
+node "%VALIDATE_WASM%" "%BUILD_DIR%\orca_slice.wasm"
+if errorlevel 1 (
+  echo [wasm] ERROR: Link produced invalid WebAssembly. Clean link outputs and retry.
   exit /b 1
 )
 
@@ -291,4 +298,20 @@ if /i not "%OUT_DIR%"=="%PKG_DIR%\out" if /i "%ARTIFACT_VARIANT%"=="threaded" (
 dir "%OUT_DIR%"
 echo [wasm] Done. Artifacts in %OUT_DIR%\
 echo [wasm] Smoke test: node harness\run-slice.mjs --module out\%ARTIFACT_VARIANT%\orca_slice.js --stl fixtures\cube.stl --config fixtures\config.json
+exit /b 0
+
+REM A failed em++/wasm-opt link can leave partial output files that Ninja
+REM considers up-to-date on the next run. Remove only those generated files.
+:discard_invalid_link_outputs
+if exist "%BUILD_DIR%\orca_slice.js" goto :check_invalid_link_output
+if exist "%BUILD_DIR%\orca_slice.wasm" goto :check_invalid_link_output
+if exist "%BUILD_DIR%\orca_slice.data" goto :check_invalid_link_output
+exit /b 0
+:check_invalid_link_output
+if not exist "%BUILD_DIR%\orca_slice.wasm" goto :discard_link_output
+node "%VALIDATE_WASM%" "%BUILD_DIR%\orca_slice.wasm" >nul 2>nul
+if not errorlevel 1 exit /b 0
+:discard_link_output
+echo [wasm] Discarding invalid prior link output in %BUILD_DIR%
+del /q "%BUILD_DIR%\orca_slice.js" "%BUILD_DIR%\orca_slice.wasm" "%BUILD_DIR%\orca_slice.data" >nul 2>nul
 exit /b 0

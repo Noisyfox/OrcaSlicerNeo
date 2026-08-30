@@ -32,6 +32,7 @@ REM out\<variant>. OUT_DIR is the legacy single-artifact location kept in sync
 REM for the threaded variant.
 set "OUT_DIR=%PKG%\out"
 set "BOOST_STAGE=%WORK%\deps\boost-1.84.0\stage-wasm64\lib"
+set "VALIDATE_WASM=%ROOT%\scripts\validate-wasm.mjs"
 
 set "JOBS="
 set "AUTO_ENV=1"
@@ -296,11 +297,14 @@ if "%DBG%"=="1" (
     exit /b 1
   )
 )
+call :discard_invalid_link_outputs "%QBUILD%"
 if defined JOBS (
   emmake ninja -C "%QBUILD%" orca_slice -j %JOBS%
 ) else (
   emmake ninja -C "%QBUILD%" orca_slice
 )
+if errorlevel 1 exit /b 1
+node "%VALIDATE_WASM%" "%QBUILD%\orca_slice.wasm"
 if errorlevel 1 exit /b 1
 for %%f in (orca_slice.js orca_slice.wasm orca_slice.data) do (
   if not exist "%QBUILD%\%%f" (
@@ -318,6 +322,24 @@ if /i "%QV%"=="threaded" (
 )
 echo [winbuild] Staged %QV% to %QOUT%:
 dir "%QOUT%"
+exit /b 0
+
+REM A failed em++/wasm-opt invocation can leave partial target files behind.
+REM Remove only the generated final link outputs so Ninja must perform a new
+REM link rather than treating its stale .js output as current.
+:discard_invalid_link_outputs
+set "INVALID_BUILD=%~1"
+if exist "%INVALID_BUILD%\orca_slice.js" goto :check_invalid_link_output
+if exist "%INVALID_BUILD%\orca_slice.wasm" goto :check_invalid_link_output
+if exist "%INVALID_BUILD%\orca_slice.data" goto :check_invalid_link_output
+exit /b 0
+:check_invalid_link_output
+if not exist "%INVALID_BUILD%\orca_slice.wasm" goto :discard_link_output
+node "%VALIDATE_WASM%" "%INVALID_BUILD%\orca_slice.wasm" >nul 2>nul
+if not errorlevel 1 exit /b 0
+:discard_link_output
+echo [winbuild] Discarding invalid prior WASM link output in %INVALID_BUILD%
+del /q "%INVALID_BUILD%\orca_slice.js" "%INVALID_BUILD%\orca_slice.wasm" "%INVALID_BUILD%\orca_slice.data" >nul 2>nul
 exit /b 0
 
 REM ---- harnesses against ONE variant (%1 = threaded|serial) ----
