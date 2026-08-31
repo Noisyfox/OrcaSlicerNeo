@@ -1,9 +1,10 @@
 // packages/slicer-app/src/App.tsx (boot effect: app config load → worker
 // client init → atomic preset snapshot → option metadata → settings store)
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AppShell, type AppPage } from './components/layout/AppShell';
+import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
-import { Toolbar, type AppTab, type WorkspaceTab } from './components/layout/Toolbar';
+import { Toolbar } from './components/layout/Toolbar';
+import type { AppTab } from './components/layout/appTabs';
 import { Workspace } from './components/workspace/Workspace';
 import { DevicePanel } from './components/device/DevicePanel';
 import { StatusBar } from './components/layout/StatusBar';
@@ -30,15 +31,9 @@ export default function App() {
   const resultExported = useSlicerStore((s) => s.resultExported);
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
-  const [activePage, setActivePage] = useState<AppPage>('workspace');
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('home');
+  const [activeTab, setActiveTab] = useState<AppTab>('home');
   const handleTabChange = useCallback((tab: AppTab) => {
-    if (tab === 'Device') {
-      setActivePage('device');
-      return;
-    }
-    setActiveWorkspaceTab(tab);
-    setActivePage('workspace');
+    setActiveTab(tab);
   }, []);
   // Workspace owns the controller; the dispatcher only ever reads it lazily at
   // dispatch time, so mirroring it into a ref keeps App out of the re-render.
@@ -212,9 +207,9 @@ export default function App() {
   return (
     <AppShell
       titleBar={titleBar}
-      toolbar={<Toolbar activeTab={activePage === 'device' ? 'Device' : activeWorkspaceTab} onTabChange={handleTabChange} onNavigateToDevice={() => setActivePage('device')} />}
-      activePage={activePage}
-      workspaceLabelledBy={`app-tab-${activeWorkspaceTab}`}
+      toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => setActiveTab('device')} />}
+      activeTab={activeTab}
+      home={<div data-testid="home-page" />}
       workspace={<Workspace onSceneInteractionChange={handleSceneInteractionChange} />}
       device={<DevicePanel />}
       status={<StatusBar />}
