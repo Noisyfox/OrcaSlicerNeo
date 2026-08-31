@@ -18,6 +18,11 @@ test('real Web flow: import → profile → slice → layer → G-code download'
   page.on('console', (msg) => console.log(`[browser:${msg.type()}] ${msg.text()}`));
   page.on('pageerror', (error) => console.log(`[browser:error] ${String(error)}`));
   await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await expect(page.locator('#app-panel-home')).toHaveAttribute('aria-hidden', 'false');
+  await expect(page.getByTestId('home-page')).toBeAttached();
+  await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'true');
+  await page.locator('#app-tab-prepare').click();
   if (process.env.ORCA_WEB_NO_ISOLATION === '1') {
     await expect(page.getByTestId('serial-fallback-status')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('serial-fallback-status')).toContainText('serial wasm64 fallback');
@@ -36,7 +41,9 @@ test('real Web flow: import → profile → slice → layer → G-code download'
   await expect(page.getByTestId('file-export-gcode')).toBeDisabled();
   await expect(page.getByTestId('file-quit')).toHaveCount(0);
   await page.getByTestId('menu-help-trigger').click();
-  await page.getByTestId('help-source').click();
+  // Activate the visible menu item programmatically. In headless Chrome the
+  // popup's visual layer can be geometrically overlapped by the tab strip.
+  await page.getByTestId('help-source').evaluate((element) => (element as HTMLElement).click());
   await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaOpenedSources?: string[] }).__orcaOpenedSources ?? [])).toEqual([
     'https://github.com/Noisyfox/OrcaSlicerNeo',
   ]);

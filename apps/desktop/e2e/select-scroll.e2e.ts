@@ -42,6 +42,8 @@ async function launchApp() {
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
   const page = await app.firstWindow();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: PRESET_READY_TIMEOUT });
+  await page.locator('#app-tab-prepare').click();
   // Short viewport so the sidebar actually scrolls (at 1280x800 its content
   // fits and nothing can be scrolled — the bug only shows in a scrolled
   // sidebar).

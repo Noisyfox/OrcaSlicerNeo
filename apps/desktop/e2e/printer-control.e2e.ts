@@ -138,12 +138,13 @@ async function waitForConsoleKey(fixture: MoonrakerFixture, key: string): Promis
 }
 
 async function waitForReady(page: Page): Promise<void> {
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+  await page.locator('#app-tab-prepare').click();
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
 }
 
 async function addFixtureModelAndSlice(page: Page): Promise<void> {
-  await page.locator('[role="tab"]').first().click();
+  await page.locator('#app-tab-prepare').click();
   await page.getByTestId('btn-add-model').click();
   await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
   await page.getByTestId('btn-slice').click();

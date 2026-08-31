@@ -28,6 +28,8 @@ test('real packaged threaded runtime loads dual artifacts and completes slice/ex
     const requests: string[] = [];
     page.on('request', (request) => requests.push(request.url()));
     await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:\d+\/index\.html$/);
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
+    await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 300_000 });
     const resourceUrls = await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => entry.name));
     const threaded = [...requests, ...resourceUrls].filter((url) => url.includes('/wasm/threaded/'));

@@ -78,7 +78,7 @@ interface LaunchResult {
   exportPath: string;
 }
 
-async function launchApp(): Promise<LaunchResult> {
+async function launchApp({ initialTab = 'prepare' }: { initialTab?: 'home' | 'prepare' } = {}): Promise<LaunchResult> {
   const exportDir = mkdtempSync(join(tmpdir(), 'orca-e2e-'));
   const exportPath = join(exportDir, 'out.gcode');
   const env = {
@@ -101,8 +101,50 @@ async function launchApp(): Promise<LaunchResult> {
     cwd: DESKTOP_ROOT,
     env,
   });
+  // The production app deliberately starts on the blank Home tab. Existing
+  // flow tests exercise the workspace, so opt them into Prepare at the test
+  // boundary rather than weakening the product default.
+  if (initialTab === 'prepare') {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: PRESET_READY_TIMEOUT });
+    await page.locator('#app-tab-prepare').click();
+  }
   return { app, exportPath };
 }
+
+test('starts on blank Home and keeps the workspace DOM mounted across tabs', async () => {
+  const { app } = await launchApp({ initialTab: 'home' });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.locator('#app-panel-home')).toHaveAttribute('aria-hidden', 'false', { timeout: PRESET_READY_TIMEOUT });
+    await expect(page.getByTestId('home-page')).toBeAttached();
+    await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'true');
+
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    const sidebarIdentity = await page.evaluate(() => {
+      const sidebar = document.querySelector('#app-panel-workspace aside');
+      (window as unknown as { __orcaSidebar?: Element }).__orcaSidebar = sidebar ?? undefined;
+      return Boolean(sidebar);
+    });
+    expect(sidebarIdentity).toBe(true);
+
+    await page.locator('#app-tab-preview').click();
+    await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'false');
+    await page.locator('#app-tab-home').click();
+    await expect(page.locator('#app-panel-home')).toHaveAttribute('aria-hidden', 'false');
+    await page.getByTestId('tab-device').click();
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('preset-select')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => {
+      const current = document.querySelector('#app-panel-workspace aside');
+      const original = (window as unknown as { __orcaSidebar?: Element }).__orcaSidebar;
+      return current === original;
+    })).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
 
 async function selectStableRealPrinter(page: Page): Promise<void> {
   await page.getByTestId('preset-select').click();
@@ -280,9 +322,13 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     await expect(page.getByTestId('ctx-menu')).toBeHidden();
 
     // Clear Scene now lives in the scene context menu: right-click empty
-    // space (top-right of the canvas) and pick the item. It resets the model
-    // and invalidates the finished export.
+    // space is suppressed in Preview, so switch back to Prepare first. It
+    // resets the model and invalidates the finished export.
     const emptySpace = { x: box.x + box.width - 40, y: box.y + 40 };
+    await page.mouse.click(emptySpace.x, emptySpace.y, { button: 'right' });
+    await expect(page.getByTestId('ctx-menu')).toBeHidden();
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'false');
     await page.mouse.click(emptySpace.x, emptySpace.y, { button: 'right' });
     await expect(page.getByTestId('ctx-menu')).toBeVisible();
     await page.getByTestId('btn-clear-scene').click();
@@ -1087,6 +1133,10 @@ test('scene selection: gizmo priority, multi-instance move, slice sync, reset', 
       // The bridge is synchronized at Slice (not gesture release).
       await page.getByTestId('btn-slice').click();
       await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
+      // Slicing enters passive Preview. Return to Prepare before asserting
+      // transform fields: entering Preview closes the gizmo by design.
+      await page.locator('#app-tab-prepare').click();
+      await page.getByTestId('gizmo-btn-move').click();
       await expect(page.getByTestId('move-x')).toHaveValue('45.000');
     } catch (err) {
       await diag.dump();

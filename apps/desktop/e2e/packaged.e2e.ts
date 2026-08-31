@@ -38,6 +38,8 @@ test('packaged app loads loopback Worker, threaded capability, WASM and profiles
     const page = await app.firstWindow();
     page.on('pageerror', (err) => rendererErrors.push(String(err)));
     await expect(page).toHaveURL(/^http:\/\/127\.0\.0\.1:\d+\/index\.html$/);
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
+    await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 300_000 });
     const probe = await page.evaluate(async () => ({
       isolated: crossOriginIsolated,
