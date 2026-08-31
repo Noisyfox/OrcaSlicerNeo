@@ -210,7 +210,7 @@ export default function App() {
       toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => setActiveTab('device')} />}
       activeTab={activeTab}
       home={<div data-testid="home-page" />}
-      workspace={<Workspace onSceneInteractionChange={handleSceneInteractionChange} />}
+      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} />}
       device={<DevicePanel />}
       status={<StatusBar />}
     />

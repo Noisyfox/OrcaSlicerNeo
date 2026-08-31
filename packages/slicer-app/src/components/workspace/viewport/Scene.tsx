@@ -2,43 +2,34 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
-import { useModelLoader } from './useModelLoader';
+import type { LoadedObject } from './useModelLoader';
 import { BedPlate } from './BedPlate';
 import { GLVolumeMesh } from './ModelMesh';
-import { useSliceResult } from './useSliceResult';
+import type { ToolpathGeometry } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
 import { TransformGizmo, type TransformGizmoMode } from './gizmo/TransformGizmo';
-import { glVolumeCollection } from './GLVolume';
 import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import { SelectionBoundsBox } from './SelectionBoundsBox';
 
-export function Scene({ onControllerChange }: {
-  onControllerChange: (controller: SceneInteractionController | null) => void;
+export function Scene({ activeTab, controller, glVolumes, toolpath }: {
+  activeTab: 'prepare' | 'preview';
+  controller: SceneInteractionController;
+  glVolumes: LoadedObject[];
+  toolpath: ToolpathGeometry | null;
 }) {
-  // This controller is deliberately constructed by Scene, not App: selection
-  // and pointer ownership cannot outlive a canvas remount.
-  const controllerRef = useRef<SceneInteractionController | null>(null);
-  if (!controllerRef.current) {
-    controllerRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
-  }
-  const controller = controllerRef.current;
-
-  useEffect(() => {
-    onControllerChange(controller);
-    return () => onControllerChange(null);
-  }, [controller, onControllerChange]);
-
   return (
     <SceneInteractionProvider controller={controller}>
-      <SceneContents />
+      <SceneContents activeTab={activeTab} glVolumes={glVolumes} toolpath={toolpath} />
     </SceneInteractionProvider>
   );
 }
 
-function SceneContents() {
-  const glVolumes = useModelLoader();
-  const { toolpath } = useSliceResult();
+function SceneContents({ activeTab, glVolumes, toolpath }: {
+  activeTab: 'prepare' | 'preview';
+  glVolumes: LoadedObject[];
+  toolpath: ToolpathGeometry | null;
+}) {
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
   // Test-only projection hook (mock/e2e builds): Playwright needs exact
@@ -147,6 +138,44 @@ function SceneContents() {
       {/* height along Z — scene is Z-up slicer convention */}
       <directionalLight position={[100, 150, 200]} intensity={1.2} />
       <BedPlate />
+      {activeTab === 'preview' ? (
+        <PreviewScene glVolumes={glVolumes} toolpath={toolpath} />
+      ) : (
+        <PrepareScene glVolumes={glVolumes} toolpath={toolpath} />
+      )}
+    </>
+  );
+}
+
+/**
+ * Explicit content-tree seams for the two Workspace modes. The trees share
+ * the persistent Canvas, camera, controller, loaded volumes and toolpath;
+ * mode-specific rendering/interaction policy is intentionally layered here
+ * by the later Preview implementation step.
+ */
+function PrepareScene({ glVolumes, toolpath }: {
+  glVolumes: LoadedObject[];
+  toolpath: ToolpathGeometry | null;
+}) {
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} />;
+}
+
+function PreviewScene({ glVolumes, toolpath }: {
+  glVolumes: LoadedObject[];
+  toolpath: ToolpathGeometry | null;
+}) {
+  // Keep current rendering behavior until the Preview interaction/rendering
+  // policy is implemented. This separate seam prevents that policy from
+  // requiring a Canvas or resource-owner rewrite.
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} />;
+}
+
+function SceneContentTree({ glVolumes, toolpath }: {
+  glVolumes: LoadedObject[];
+  toolpath: ToolpathGeometry | null;
+}) {
+  return (
+    <>
       {glVolumes.map((volume) => (
         <GLVolumeMesh key={volume.id} data={volume} />
       ))}

@@ -9,6 +9,8 @@ import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
 import { SceneContextMenu } from './SceneContextMenu';
 import type { SceneInteractionController } from './SceneInteractionController';
+import type { LoadedObject } from './useModelLoader';
+import type { ToolpathGeometry } from './useSliceResult';
 import { filterBuildPlateOccludedIntersections, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
@@ -60,9 +62,11 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
-  onSceneInteractionChange: (controller: SceneInteractionController | null) => void;
-  sceneInteraction: SceneInteractionController | null;
+export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
+  activeTab: 'prepare' | 'preview';
+  glVolumes: LoadedObject[];
+  toolpath: ToolpathGeometry | null;
+  sceneInteraction: SceneInteractionController;
 }) {
   const platform = usePlatform();
   const slicing = useSlicerStore((s) => s.status === 'slicing');
@@ -101,17 +105,19 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
       y: (1 - projected.y) * 0.5 * state.size.height,
     };
   }, []);
-  const handleSceneInteractionChange = useCallback((controller: SceneInteractionController | null) => {
+  useEffect(() => {
     unsubscribeSceneInteractionRef.current?.();
     unsubscribeSceneInteractionRef.current = null;
-    sceneInteractionRef.current = controller;
-    if (controller) {
-      unsubscribeSceneInteractionRef.current = controller.subscribe(updateRaycastingEnabled);
-      controller.registerBoxSelectProjector(projectWorldToViewport);
-    }
+    sceneInteractionRef.current = sceneInteraction;
+    unsubscribeSceneInteractionRef.current = sceneInteraction.subscribe(updateRaycastingEnabled);
+    sceneInteraction.registerBoxSelectProjector(projectWorldToViewport);
     updateRaycastingEnabled();
-    onSceneInteractionChange(controller);
-  }, [onSceneInteractionChange, projectWorldToViewport, updateRaycastingEnabled]);
+    return () => {
+      unsubscribeSceneInteractionRef.current?.();
+      unsubscribeSceneInteractionRef.current = null;
+      sceneInteractionRef.current = null;
+    };
+  }, [projectWorldToViewport, sceneInteraction, updateRaycastingEnabled]);
   useEffect(() => {
     return () => {
       unsubscribeSceneInteractionRef.current?.();
@@ -315,7 +321,12 @@ export function Viewport({ onSceneInteractionChange, sceneInteraction }: {
                 it to the viewport container and force absolute (the container
                 is itself an absolute-positioned box). Click a panel to switch. */}
             <Stats parent={viewportRef} className="absolute!" />
-            <Scene onControllerChange={handleSceneInteractionChange} />
+            <Scene
+              activeTab={activeTab}
+              controller={sceneInteraction}
+              glVolumes={glVolumes}
+              toolpath={toolpath}
+            />
             <OrbitControls
               makeDefault
               enableDamping
