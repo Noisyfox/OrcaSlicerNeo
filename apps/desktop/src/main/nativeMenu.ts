@@ -3,6 +3,7 @@ import type {
   MenuItem,
   MenuModel,
   MenuStateSnapshot,
+  AppTab,
   TitlebarMenuMode,
 } from '../../../../packages/platform-contract/src/menu';
 import { isMenuCommandId, SOURCE_URL } from '../shared/ipc';
@@ -10,6 +11,7 @@ import { isMenuCommandId, SOURCE_URL } from '../shared/ipc';
 const MENU_MODES = ['custom', 'native', 'browser'] as const satisfies readonly TitlebarMenuMode[];
 const BOOT_PHASES = ['starting', 'ready', 'failed'] as const;
 const SLICER_STATUSES = ['idle', 'slicing', 'done', 'error'] as const;
+const APP_TABS = ['home', 'prepare', 'preview', 'device'] as const satisfies readonly AppTab[];
 const MAX_MENU_DEPTH = 8;
 const MAX_MENU_ITEMS = 128;
 
@@ -69,6 +71,7 @@ export const STARTUP_DISABLED_MENU_MODEL: MenuModel = {
 
 export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
   version: 1,
+  activeTab: 'home',
   boot: { phase: 'starting', error: null },
   slicer: { status: 'idle', progress: 0, error: null },
   scene: { hasModel: false },
@@ -153,6 +156,7 @@ export function validateMenuModel(value: unknown, expectedMode?: TitlebarMenuMod
 
 function cloneState(value: unknown): MenuStateSnapshot | null {
   if (!isRecord(value) || value.version !== 1) return null;
+  if (!isOneOf(APP_TABS, value.activeTab)) return null;
   if (!isRecord(value.boot) || !isOneOf(BOOT_PHASES, value.boot.phase) || (value.boot.error !== null && !isString(value.boot.error))) return null;
   if (!isRecord(value.slicer) || !isOneOf(SLICER_STATUSES, value.slicer.status) || typeof value.slicer.progress !== 'number' || !Number.isFinite(value.slicer.progress) || value.slicer.progress < 0 || value.slicer.progress > 1 || (value.slicer.error !== null && !isString(value.slicer.error))) return null;
   if (!isRecord(value.scene) || typeof value.scene.hasModel !== 'boolean') return null;
@@ -172,6 +176,7 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
 
   return {
     version: 1,
+    activeTab: value.activeTab,
     boot: { phase: value.boot.phase, error: value.boot.error },
     slicer: { status: value.slicer.status, progress: value.slicer.progress, error: value.slicer.error },
     scene: { hasModel: value.scene.hasModel },

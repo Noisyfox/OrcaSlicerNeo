@@ -65,10 +65,10 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
         </TabsList>
       </Tabs>
       {showActions && <div className="flex items-center gap-2" data-testid="toolbar-actions">
-        <Button size="xs" variant="secondary" onClick={slice} disabled={busy || !modelLoaded} data-testid="btn-slice">
+        <Button size="xs" variant="secondary" onClick={slice} disabled={busy || !modelLoaded || status === 'done'} data-testid="btn-slice">
           <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
         </Button>
-        <Button size="xs" variant="default" disabled={busy || exporting || !modelLoaded || status !== 'done'} onClick={saveExport} title="Export G-code" data-testid="btn-export">
+        <Button size="xs" variant="default" disabled={busy || exporting || status !== 'done'} onClick={saveExport} title="Export G-code" data-testid="btn-export">
           <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
         </Button>
         <Button size="xs" variant="secondary" disabled={busy || status !== 'done'} onClick={() => setSendAction('send')} title="Send G-code to printer" data-testid="btn-send">

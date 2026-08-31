@@ -99,4 +99,22 @@ describe('Toolbar send navigation', () => {
     expect(container.querySelector('[data-testid="btn-send"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="btn-send-and-print"]')).not.toBeNull();
   });
+
+  it('disables Slice after a valid result while keeping export and send available', async () => {
+    useSettingsStore.setState({ modelLoaded: true });
+    useSlicerStore.setState({ status: 'done' });
+    const { platform } = makePlatform();
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" /></PlatformProvider>);
+    });
+
+    expect((container.querySelector('[data-testid="btn-slice"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('[data-testid="btn-export"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector('[data-testid="btn-send"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector('[data-testid="btn-send-and-print"]') as HTMLButtonElement).disabled).toBe(false);
+  });
 });

@@ -124,6 +124,12 @@ the Preview tab. A File-menu Slice command in Prepare follows the same flow as
 the top-toolbar Slice command: it immediately enters Preview and starts the
 single shared slice task.
 
+The shared `MenuStateSnapshot` carries the current `activeTab`, so the native
+Electron menu and the HTML titlebar derive identical command enablement. The
+command dispatcher re-reads that snapshot at invocation time and rejects stale
+or disabled Add Model, Clear Scene, and Slice requests; UI disabled state alone
+is not a security or correctness boundary.
+
 ## 7. Preview Feature Scope
 
 This milestone exposes the existing coloured toolpath and Layer Scrubber only.
@@ -151,6 +157,11 @@ use this one coordinator. It records a request before the existing slice helper
 awaits model-transform synchronization, so concurrent entry points cannot start
 duplicate worker tasks. It is not a second tab/mode state and it does not move
 `useSliceResult` to App.
+
+The coordinator is reached from App through a ref-backed callback only; App
+continues to own `activeTab` as the sole routing state. Menu state is derived
+from that tab and the current slicer/result stores, while the long-lived
+Workspace resources remain outside the menu policy.
 
 ## 9. Verification Requirements
 

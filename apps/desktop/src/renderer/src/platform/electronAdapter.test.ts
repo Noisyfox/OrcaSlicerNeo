@@ -74,7 +74,7 @@ describe('Electron adapter', () => {
   it('provides type-compatible menu and external-link placeholders', () => {
     const { adapter, menu, externalLinks } = setup();
     const model = { version: 1 as const, menuMode: 'custom' as const, menus: [] };
-    const state = { version: 1 as const, boot: { phase: 'starting' as const, error: null }, slicer: { status: 'idle' as const, progress: 0, error: null }, scene: { hasModel: false }, result: { hasResult: false, exported: false }, host: { isElectron: true, menuMode: 'custom' as const }, items: { 'add-model': { enabled: false }, 'clear-scene': { enabled: false }, slice: { enabled: false }, 'export-gcode': { enabled: false }, quit: { enabled: false }, 'open-source': { enabled: true } } };
+    const state = { version: 1 as const, activeTab: 'home' as const, boot: { phase: 'starting' as const, error: null }, slicer: { status: 'idle' as const, progress: 0, error: null }, scene: { hasModel: false }, result: { hasResult: false, exported: false }, host: { isElectron: true, menuMode: 'custom' as const }, items: { 'add-model': { enabled: false }, 'clear-scene': { enabled: false }, slice: { enabled: false }, 'export-gcode': { enabled: false }, quit: { enabled: false }, 'open-source': { enabled: true } } };
     adapter.menu.syncModel(model);
     adapter.menu.syncState(state);
     adapter.externalLinks.openSource();

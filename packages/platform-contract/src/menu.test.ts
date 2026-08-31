@@ -10,6 +10,7 @@ const model: MenuModel = {
 
 const snapshot: MenuStateSnapshot = {
   version: 1,
+  activeTab: 'home',
   boot: { phase: 'starting', error: null },
   slicer: { status: 'idle', progress: 0, error: null },
   scene: { hasModel: false },

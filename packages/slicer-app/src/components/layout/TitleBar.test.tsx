@@ -7,6 +7,7 @@ import { TitleBar } from './TitleBar';
 function state(chrome: PlatformChrome): MenuStateSnapshot {
   return buildMenuStateSnapshot({
     version: 1,
+    activeTab: 'prepare',
     boot: { phase: 'ready', error: null },
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: true },

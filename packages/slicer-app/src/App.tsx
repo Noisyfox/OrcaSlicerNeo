@@ -57,6 +57,7 @@ export default function App() {
 
   const menuState = useMemo(() => buildMenuStateSnapshot({
     version: 1,
+    activeTab,
     boot: { phase: boot, error: bootError },
     slicer: { status, progress, error: slicerError },
     scene: { hasModel: modelLoaded },
@@ -67,6 +68,7 @@ export default function App() {
     },
   }, platform.chrome), [
     boot,
+    activeTab,
     bootError,
     modelLoaded,
     platform.chrome,

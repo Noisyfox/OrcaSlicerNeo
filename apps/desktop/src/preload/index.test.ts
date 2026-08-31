@@ -28,6 +28,7 @@ describe('Electron preload bridge', () => {
     const model = { version: 1 as const, menuMode: 'native' as const, menus: [] };
     const snapshot = {
       version: 1 as const,
+      activeTab: 'home' as const,
       boot: { phase: 'starting' as const, error: null },
       slicer: { status: 'idle' as const, progress: 0, error: null },
       scene: { hasModel: false },

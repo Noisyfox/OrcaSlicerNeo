@@ -1,6 +1,9 @@
 /** The menu surface supplied by a host. */
 export type TitlebarMenuMode = 'custom' | 'native' | 'browser';
 
+/** Top-level application page used by the shared menu policy. */
+export type AppTab = 'home' | 'prepare' | 'preview' | 'device';
+
 export type MenuCommandId =
   | 'add-model'
   | 'clear-scene'
@@ -47,6 +50,7 @@ export type MenuStateSnapshotInput = Omit<MenuStateSnapshot, 'items'>;
 /** The complete dynamic state replacement sent to a host. */
 export interface MenuStateSnapshot {
   version: 1;
+  activeTab: AppTab;
   boot: {
     phase: MenuBootPhase;
     error: string | null;
