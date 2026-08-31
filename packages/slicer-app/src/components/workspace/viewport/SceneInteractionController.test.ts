@@ -70,6 +70,15 @@ describe('SceneInteractionController', () => {
     expect(controller.gizmo).toBeNull();
   });
 
+  it('closes an armed gizmo without clearing the shared selection', () => {
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.toggleGizmo('move')).toBe(true);
+    expect(controller.closeGizmo()).toBe(true);
+    expect(controller.gizmo).toBeNull();
+    expect(controller.selectedVolumes()).toEqual([volumes[0], volumes[1]]);
+    expect(controller.closeGizmo()).toBe(false);
+  });
+
   it('selectFromHit expands per the active selection mode', () => {
     expect(controller.setSelectionMode('object')).toBe(true);
     controller.selectFromHit(volumes[0], false);

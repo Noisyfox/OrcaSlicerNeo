@@ -32,6 +32,15 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
 }) {
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
+  const previousActiveTabRef = useRef<'prepare' | 'preview' | null>(null);
+  useEffect(() => {
+    if (activeTab === 'preview' && previousActiveTabRef.current !== 'preview') {
+      // Preview retains the shared selection for sidebar use, but never an
+      // armed viewport gizmo. Prepare will render that selection again.
+      sceneInteraction.closeGizmo();
+    }
+    previousActiveTabRef.current = activeTab;
+  }, [activeTab, sceneInteraction]);
   // Test-only projection hook (mock/e2e builds): Playwright needs exact
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
   // No-op in production builds (VITE_USE_MOCK is unset).
@@ -157,31 +166,29 @@ function PrepareScene({ glVolumes, toolpath }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive />;
 }
 
 function PreviewScene({ glVolumes, toolpath }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
 }) {
-  // Keep current rendering behavior until the Preview interaction/rendering
-  // policy is implemented. This separate seam prevents that policy from
-  // requiring a Canvas or resource-owner rewrite.
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview />;
 }
 
-function SceneContentTree({ glVolumes, toolpath }: {
+function SceneContentTree({ glVolumes, toolpath, interactive, preview = false }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
+  interactive: boolean;
+  preview?: boolean;
 }) {
   return (
     <>
       {glVolumes.map((volume) => (
-        <GLVolumeMesh key={volume.id} data={volume} />
+        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} />
       ))}
-      {/* Native render order: opaque models, then the selection box, then gizmos. */}
-      <SelectionBoundsBox />
-      <SelectionTransformGizmo />
+      {interactive && <SelectionBoundsBox />}
+      {interactive && <SelectionTransformGizmo />}
       {toolpath && <ToolpathLines data={toolpath} />}
     </>
   );

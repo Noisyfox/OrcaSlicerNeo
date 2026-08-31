@@ -137,7 +137,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
   // all (which also closes the gizmo). Inputs, modifier combos and active
   // drags are ignored so shortcuts never hijack typing or a gesture.
   useEffect(() => {
-    if (!sceneInteraction) return;
+    if (!sceneInteraction || activeTab === 'preview') return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
@@ -161,7 +161,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [platform.runtime, sceneInteraction, slicing]);
+  }, [activeTab, platform.runtime, sceneInteraction, slicing]);
 
   const viewportPointOf = useCallback((clientX: number, clientY: number) => {
     const rect = viewportRef.current.getBoundingClientRect();
@@ -261,7 +261,15 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
       ref={viewportRef}
       className="absolute inset-0"
       data-testid="viewport"
+      onContextMenuCapture={(event) => {
+        // Keep the Web canvas from exposing the browser host menu in every
+        // mode. Prepare's SceneContextMenu still handles its own custom menu;
+        // Preview stops propagation so no model/scene menu can open.
+        event.preventDefault();
+        if (activeTab === 'preview') event.stopPropagation();
+      }}
       onPointerDownCapture={(event) => {
+        if (activeTab === 'preview') return;
         const native = event.nativeEvent;
         // Capture runs before three/drei target handlers. Recheck the live
         // picker here so a stale hover frame cannot start an overlapping body
@@ -280,11 +288,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
         // OrbitControls normally emits `end`, but reset here as well so a
         // released or cancelled pointer can never leave picking disabled.
         setCameraGestureActive(false);
-        sceneInteractionRef.current?.releasePointer();
+        if (activeTab !== 'preview') sceneInteractionRef.current?.releasePointer();
       }}
       onPointerCancelCapture={() => {
         setCameraGestureActive(false);
-        sceneInteractionRef.current?.releasePointer();
+        if (activeTab !== 'preview') sceneInteractionRef.current?.releasePointer();
       }}
     >
       <ViewportErrorBoundary>
@@ -311,7 +319,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
               updateRaycastingEnabled();
             }}
             onPointerMissed={() => {
-              sceneInteractionRef.current?.clearSelection();
+              if (activeTab !== 'preview') sceneInteractionRef.current?.clearSelection();
             }}
           >
             <color attach="background" args={['#0f172a']} />
@@ -359,9 +367,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
           </Canvas>
         </SceneContextMenu>
       </ViewportErrorBoundary>
-      <BoxSelectionOverlay sceneInteraction={sceneInteraction} />
-      <LayerScrubber />
-      <GizmoToolbar sceneInteraction={sceneInteraction} />
+      {activeTab === 'prepare' && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
+      {activeTab === 'preview' && toolpath && <LayerScrubber />}
+      {activeTab === 'prepare' && <GizmoToolbar sceneInteraction={sceneInteraction} />}
     </div>
   );
 }
