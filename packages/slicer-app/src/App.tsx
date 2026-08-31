@@ -11,6 +11,7 @@ import { StatusBar } from './components/layout/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
+import type { WorkspaceSliceCoordinator } from './components/workspace/sliceCoordinator';
 import { usePlatform } from '@orca/platform-contract';
 import { persistRestoredSelections, restoreSelections } from './preferences';
 import { addModel, clearScene } from './components/workspace/actions/sceneActions';
@@ -41,6 +42,18 @@ export default function App() {
   const handleSceneInteractionChange = useCallback((controller: SceneInteractionController | null) => {
     sceneInteractionRef.current = controller;
   }, []);
+  const workspaceSliceCoordinatorRef = useRef<WorkspaceSliceCoordinator | null>(null);
+  const handleSliceCoordinatorChange = useCallback((coordinator: WorkspaceSliceCoordinator | null) => {
+    workspaceSliceCoordinatorRef.current = coordinator;
+  }, []);
+  const requestPreviewSlice = useCallback(() => {
+    const coordinator = workspaceSliceCoordinatorRef.current;
+    if (coordinator) return coordinator.requestPreviewSlice();
+    // The Workspace is always mounted once the shell is ready, but preserve a
+    // safe fallback for an early host callback during React effect setup.
+    setActiveTab('preview');
+    return sliceModel(platform);
+  }, [platform]);
 
   const menuState = useMemo(() => buildMenuStateSnapshot({
     version: 1,
@@ -73,7 +86,7 @@ export default function App() {
     actions: {
       addModel: () => addModel(platform, sceneInteractionRef.current),
       clearScene: () => clearScene(platform, sceneInteractionRef.current),
-      slice: () => sliceModel(platform),
+      slice: requestPreviewSlice,
       exportGcode: () => exportGcode(platform),
       openSource: async () => { await platform.externalLinks.openSource(); },
       quit: async () => { await platform.menu.execute('quit'); },
@@ -207,10 +220,10 @@ export default function App() {
   return (
     <AppShell
       titleBar={titleBar}
-      toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => setActiveTab('device')} />}
+      toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => setActiveTab('device')} onSlice={requestPreviewSlice} />}
       activeTab={activeTab}
       home={<div data-testid="home-page" />}
-      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} />}
+      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={() => setActiveTab('preview')} />}
       device={<DevicePanel />}
       status={<StatusBar />}
     />

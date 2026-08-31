@@ -16,10 +16,11 @@ export type { AppTab } from './appTabs';
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see
 // doc/2026-08-22-scene-toolbar-and-context-menu.md). This row is Slice and
 // Export only.
-export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice }: {
+export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, onSlice }: {
   activeTab?: AppTab;
   onTabChange?: (tab: AppTab) => void;
   onNavigateToDevice?: () => void;
+  onSlice?: () => Promise<void>;
 } = {}) {
   const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
@@ -29,7 +30,7 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice }:
   const [sendAction, setSendAction] = useState<SendGcodeAction | null>(null);
   const showActions = isWorkspaceTab(activeTab);
 
-  async function slice() { await sliceModel(platform); }
+  async function slice() { await (onSlice?.() ?? sliceModel(platform)); }
 
   async function saveExport() {
     setExporting(true);

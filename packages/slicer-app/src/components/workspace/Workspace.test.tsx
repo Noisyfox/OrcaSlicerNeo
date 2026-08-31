@@ -4,6 +4,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { Workspace } from './Workspace';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useSlicerStore } from '../../stores/useSlicerStore';
+
+const sliceModelMock = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('./actions/sliceActions', () => ({ sliceModel: sliceModelMock }));
 
 const testMocks = vi.hoisted(() => ({
   viewportProps: [] as Array<Record<string, unknown>>,
@@ -35,6 +40,9 @@ describe('Workspace ownership', () => {
     root = undefined;
     testMocks.viewportProps.length = 0;
     document.body.innerHTML = '';
+    useSettingsStore.setState({ modelLoaded: false });
+    useSlicerStore.setState({ status: 'idle', progress: 0, error: null });
+    sliceModelMock.mockClear();
   });
 
   it('contains only the profile/settings sidebar and 3D scene', async () => {
@@ -74,5 +82,23 @@ describe('Workspace ownership', () => {
     expect(prepareProps?.sceneInteraction).toBe(previewProps?.sceneInteraction);
     expect(prepareProps?.glVolumes).toBe(previewProps?.glVolumes);
     expect(prepareProps?.toolpath).toBe(previewProps?.toolpath);
+  });
+
+  it('automatically ensures a slice on an actual transition into Preview', async () => {
+    useSettingsStore.setState({ modelLoaded: true });
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Workspace activeTab="prepare" /></PlatformProvider>);
+    });
+    expect(sliceModelMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>);
+    });
+
+    expect(sliceModelMock).toHaveBeenCalledOnce();
   });
 });

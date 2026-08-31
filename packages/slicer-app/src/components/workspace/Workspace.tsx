@@ -19,6 +19,10 @@ import { glVolumeCollection } from './viewport/GLVolume';
 import { useModelLoader } from './viewport/useModelLoader';
 import { useSliceResult } from './viewport/useSliceResult';
 import type { AppTab } from '../layout/appTabs';
+import { createWorkspaceSliceCoordinator, type WorkspaceSliceCoordinator } from './sliceCoordinator';
+import { sliceModel } from './actions/sliceActions';
+import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -28,11 +32,13 @@ function clampSidebarWidth(value: number | undefined): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
 }
 
-export function Workspace({ activeTab = 'prepare', onSceneInteractionChange }: {
+export function Workspace({ activeTab = 'prepare', onSceneInteractionChange, onSliceCoordinatorChange, onRequestPreview }: {
   activeTab?: AppTab;
   // The scene controller lives here, but the menu command dispatcher needs it
   // too; this hands it up without making the owner re-render on every change.
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
+  onSliceCoordinatorChange?: (coordinator: WorkspaceSliceCoordinator | null) => void;
+  onRequestPreview?: () => void;
 }) {
   const platform = usePlatform();
   const glVolumes = useModelLoader();
@@ -45,6 +51,16 @@ export function Workspace({ activeTab = 'prepare', onSceneInteractionChange }: {
     sceneInteractionRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
   }
   const sceneInteraction = sceneInteractionRef.current;
+  const sliceCoordinatorRef = useRef<WorkspaceSliceCoordinator | null>(null);
+  if (!sliceCoordinatorRef.current) {
+    sliceCoordinatorRef.current = createWorkspaceSliceCoordinator({
+      isModelLoaded: () => useSettingsStore.getState().modelLoaded,
+      getStatus: () => useSlicerStore.getState().status,
+      slice: () => sliceModel(platform),
+      requestPreview: () => onRequestPreview?.(),
+    });
+  }
+  const sliceCoordinator = sliceCoordinatorRef.current;
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizeActiveRef = useRef(false);
@@ -54,6 +70,18 @@ export function Workspace({ activeTab = 'prepare', onSceneInteractionChange }: {
     onSceneInteractionChange?.(sceneInteraction);
     return () => onSceneInteractionChange?.(null);
   }, [onSceneInteractionChange, sceneInteraction]);
+
+  useEffect(() => {
+    onSliceCoordinatorChange?.(sliceCoordinator);
+    return () => onSliceCoordinatorChange?.(null);
+  }, [onSliceCoordinatorChange, sliceCoordinator]);
+
+  const previousActiveTabRef = useRef<AppTab>(activeTab);
+  useEffect(() => {
+    const enteredPreview = activeTab === 'preview' && previousActiveTabRef.current !== 'preview';
+    previousActiveTabRef.current = activeTab;
+    if (enteredPreview) void sliceCoordinator.ensureSlice();
+  }, [activeTab, sliceCoordinator]);
 
   useEffect(() => {
     let active = true;
