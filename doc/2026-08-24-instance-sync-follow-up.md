@@ -45,3 +45,10 @@ the other instances of the same object. This shares scale and X/Y orientation
 while preserving each instance's independent rotation around world Z. A pure
 Z rotation intentionally does not synchronize other instances. Translation and
 the existing part-scoped volume fan-out retain their previous behavior.
+
+## Shared instance Z position
+
+Every instance of the same object shares one world-space Z position. An
+instance-scoped edit propagates the source instance's absolute Z translation
+to all of that object's copies, including transforms represented by an
+authoritative affine matrix. X and Y placement remain per-instance.

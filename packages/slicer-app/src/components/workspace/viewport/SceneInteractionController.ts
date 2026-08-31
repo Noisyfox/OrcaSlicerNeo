@@ -915,6 +915,7 @@ export class SceneInteractionController {
       }
 
       this.synchronizeInstanceLinearTransforms(instanceEntries, oldByInstance);
+      this.synchronizeInstanceZPositions(instanceEntries);
     } else {
       // ModelVolume transforms are stored once per object volume in the native
       // model, while the renderer keeps one GLVolume for every instance copy.
@@ -985,6 +986,28 @@ export class SceneInteractionController {
     for (const volume of this.getVolumes()) {
       const transform = synchronized.get(instanceKeyOf(volume));
       if (transform) volume.instanceTransform = cloneTransform(transform);
+    }
+  }
+
+  /** Every copy of an object stays on the source instance's Z plane. */
+  private synchronizeInstanceZPositions(entries: Extract<DragTargetEntry, { kind: 'instance' }>[]): void {
+    const zByObject = new Map<number, number>();
+    for (const entry of entries) {
+      const objectIdx = this.objectIndex(entry.instanceKey);
+      if (!zByObject.has(objectIdx)) zByObject.set(objectIdx, matrixFromTransform(entry.transform).elements[14]);
+    }
+    for (const volume of this.getVolumes()) {
+      const z = zByObject.get(volume.buffer.objectIdx);
+      if (z === undefined) continue;
+      if (!volume.instanceTransform.matrix) {
+        const transform = cloneTransform(volume.instanceTransform);
+        transform.offset[2] = z;
+        volume.instanceTransform = transform;
+        continue;
+      }
+      const matrix = matrixFromTransform(volume.instanceTransform);
+      matrix.elements[14] = z;
+      volume.instanceTransform = normalizeTransform(transformFromMatrix(matrix, volume.instanceTransform));
     }
   }
 

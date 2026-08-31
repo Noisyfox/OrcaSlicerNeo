@@ -242,6 +242,17 @@ describe('SceneInteractionController', () => {
     expect(controller.owner).toBe('none');
   });
 
+  it('shares the edited instance Z position with every copy of its object', () => {
+    for (const volume of [volumes[2], volumes[3]]) volume.instanceTransform.offset[2] = 10;
+    controller.selectFromHit(volumes[0], false);
+
+    expect(controller.moveSelectionBy(new THREE.Vector3(0, 0, 5))).toBe(true);
+    expect(volumes.map((v) => v.instanceTransform.offset[2])).toEqual([5, 5, 5, 5]);
+    expect(volumes.map((v) => v.instanceTransform.offset.slice(0, 2))).toEqual([
+      [0, 0], [0, 0], [20, 5], [20, 5],
+    ]);
+  });
+
   it('keeps the complete selection when a gizmo drag ends over one member', () => {
     controller.selectFromHit(volumes[0], false);
     controller.selectFromHit(volumes[2], true);
