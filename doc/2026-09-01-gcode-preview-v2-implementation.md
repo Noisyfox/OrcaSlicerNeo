@@ -360,6 +360,11 @@ selects the printer through the bridge, slices through the real serial or
 threaded WASM module, reads the v2 result, and frees all result buffers. It
 does not retain G-code or screenshots. Both variants matched exactly:
 
+The follow-up B4 harness fix also releases the bridge's v1 compatibility
+`vertex_ptr`, `layer_ptr`, and `feature_ptr` allocations. A pointer-address set
+deduplicates these frees against v2 primary arrays, so both independent and
+future aliased bridge layouts are safe.
+
 - 12,718 G-code lines, 21,609 preview segments, and 100 layers;
 - feature roles `[1, 2, 4, 5, 6, 7, 10, 18]`;
 - move types `[1, 2, 3, 4, 8, 9, 10]`; and

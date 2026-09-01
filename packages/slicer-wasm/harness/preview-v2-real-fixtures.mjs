@@ -50,16 +50,24 @@ function callJson(name, argTypes, args) {
   return JSON.parse(text);
 }
 
+// The bridge currently exposes v1 compatibility buffers beside the v2 primary
+// arrays. They may be aliases today or become independent allocations later;
+// keep one address set so either layout is safe to release exactly once.
+const freedPointers = new Set();
+
+function freeArray(ptr) {
+  const address = Number(ptr ?? 0);
+  if (!address || freedPointers.has(address)) return;
+  Module._free(address);
+  freedPointers.add(address);
+}
+
 function readArray(ptr, Constructor, length) {
   if (!ptr || length <= 0) return new Constructor(0);
   const bytes = Constructor.BYTES_PER_ELEMENT * length;
   const result = new Constructor(Module.HEAPU8.buffer.slice(Number(ptr), Number(ptr) + bytes));
-  Module._free(Number(ptr));
+  freeArray(ptr);
   return result;
-}
-
-function freeArray(ptr) {
-  if (ptr) Module._free(Number(ptr));
 }
 
 const init = callJson('orc_init', ['string'], ['']);
@@ -107,6 +115,12 @@ readArray(toolpath.gcode_id_ptr, Uint32Array, count);
 readArray(toolpath.width_ptr, Float32Array, count);
 readArray(toolpath.height_ptr, Float32Array, count);
 for (const metric of Object.values(toolpath.metrics ?? {})) freeArray(metric.ptr);
+// v1 compatibility allocations are independent bridge buffers in the current
+// implementation. If a future bridge aliases one to a v2 primary allocation,
+// freeArray's address set prevents a double-free.
+freeArray(toolpath.vertex_ptr);
+freeArray(toolpath.layer_ptr);
+freeArray(toolpath.feature_ptr);
 
 const gcode = Module.FS.readFile('/out.gcode');
 const gcodeLines = Buffer.from(gcode).toString('utf8').split('\n').length;
