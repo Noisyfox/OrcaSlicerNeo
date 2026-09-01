@@ -1,7 +1,8 @@
 # G-code Preview v2 implementation plan
 
 **Date:** 2026-09-01
-**Status:** B3 self-verified; awaiting parent acceptance
+**Status:** B4 evidence recorded; release gate blocked pending external/native
+and representative-hardware evidence
 **Scope:** Repository-owned fixtures, Preview data v2, the shared Web/Electron
 renderer, and the read-only Phase-C inspection increment
 
@@ -346,6 +347,81 @@ B4 is the Phase-B release gate. It passes only when all existing regressions,
 both real WASM variants, both hosts, performance targets, same-renderer
 screenshots, and the manually reviewed fixed-reference comparison pass.
 Phase C must not begin before this gate is accepted.
+
+#### B4 implementation record
+
+The manifest now records one reproducible real bridge probe for the
+feature-rich-single-material entry. It uses the existing repository cube STL,
+the pinned `Bambu Lab P1P 0.4 nozzle` profile, and
+`feature-rich-single-material.config.json`; it is deliberately marked
+`verified-real-probe-not-full-fixture`, not approved as the planned dedicated
+feature-rich fixture. The probe runner installs the real profile packages,
+selects the printer through the bridge, slices through the real serial or
+threaded WASM module, reads the v2 result, and frees all result buffers. It
+does not retain G-code or screenshots. Both variants matched exactly:
+
+- 12,718 G-code lines, 21,609 preview segments, and 100 layers;
+- feature roles `[1, 2, 4, 5, 6, 7, 10, 18]`;
+- move types `[1, 2, 3, 4, 8, 9, 10]`; and
+- one tool/color-print id (`[0]`).
+
+The probe proves real perimeter/infill/solid/top roles and travel/control
+data, but not support/bridge output and not a dedicated feature-rich model.
+The multi-material entry remains `blocked`: the current public bridge has no
+object/part extruder assignment operation, and no repository-owned two-colour
+fixture exists. The existing real smoke and probe both observe only
+`extruders=[0]`, `colorPrints=[0]`; no multi-material artifact is claimed.
+
+Native comparison is also blocked with evidence preserved in the manifest.
+The submodule is at the fixed clean-reference SHA
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde`, but its working tree contains
+pre-existing changes in six `src/libslic3r` files and no native OrcaSlicer
+executable exists in the checkout. No reset, checkout, build, or capture was
+attempted. Therefore no native screenshot path, hash, reviewer, or approval
+is recorded. The browser/Electron screenshot evidence remains same-renderer
+behavior checks only; no cross-renderer pixel diff is used.
+
+The exact B4 verification run on 2026-09-01 produced the following results:
+
+- `pnpm test` — passed (all workspace packages; slicer-app 37 files / 246
+  tests, slicer-wasm 78 tests, and all host/runtime suites green).
+- `pnpm typecheck` — passed (all workspace packages and hosts).
+- `scripts\\build-windows.bat quick` — passed; threaded and serial wasm64
+  artifacts rebuilt/staged with emcc 6.0.6.
+- `node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json` — passed (100 layers, 13,234 lines).
+- Same `run-slice.mjs` command with `out/threaded/orca_slice.js` — passed
+  (100 layers, 13,234 lines).
+- `node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js packages/slicer-wasm/fixtures/cube.stl` — passed.
+- Same `bridge-smoke.mjs` command with `out/threaded/orca_slice.js` — passed.
+- `node packages/slicer-wasm/harness/preview-v2-real-fixtures.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --fixture feature-rich-single-material` — passed with the probe counts above.
+- Same real-fixture command with `out/threaded/orca_slice.js` — passed with
+  identical counts/categories.
+- `pnpm --filter @orca/desktop test:e2e` — passed (25 passed, 3 existing
+  intentional skips).
+- `pnpm --filter @orca/web test:e2e:threaded` — passed (1 real Web flow).
+- `pnpm --filter @orca/web test:e2e:serial` — passed (1 real Web serial
+  fallback flow).
+- `git diff --check` — passed before the evidence commit.
+
+The existing host E2E suites exercise same-renderer preview screenshot/pixel
+change assertions around layer scrubbing and camera gestures, plus the B3
+overlay contract. There is no approved golden screenshot set yet, so this
+record does not claim full screenshot approval.
+
+Performance measurement was attempted at the evidence level but cannot be
+claimed: the repository's deterministic chunking tests cover exactly 250,000
+and 1,000,000 segments, while no real browser FPS harness is connected to
+those streams. The measured machine is Windows with an NVIDIA GeForce RTX
+3080 (driver `32.0.16.1088`) and AMD Ryzen 9 5900X (24 logical processors),
+not a representative 2020 integrated-GPU laptop. No 60/30 FPS result or
+GPU-memory compliance is asserted. A future gate must add a real browser
+benchmark and run it on the stated representative target.
+
+Accordingly, B4 is evidence-complete but release-gate blocked by the
+dedicated feature-rich fixture, multi-material fixture/assignment path,
+native clean executable/capture, approved screenshot baseline, and
+representative-GPU performance measurement. No C1 work is included or
+unblocked by this record.
 
 ### C1 — Phase-C schemes and preaggregated statistics
 
