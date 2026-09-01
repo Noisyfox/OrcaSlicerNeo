@@ -302,3 +302,36 @@ The fixture suite will include feature-rich single-material and multi-material
 reference slices as well as the ordinary and large performance cases. Fixture
 selection is a prerequisite to implementation and must be documented before
 the Phase-B bridge contract is changed.
+
+### Approved fixture plan
+
+The implementation creates and records the following repository-owned fixtures
+before changing the bridge contract:
+
+- **Command matrix:** a small synthetic `PreviewSource` command stream covering
+  every Phase-B feature, travel, layer/move boundaries, width/height variation,
+  and each Phase-C core metric. It is the deterministic unit and renderer
+  fixture; it is not a substitute for a real slice.
+- **Single-material reference:** the existing
+  `packages/slicer-wasm/fixtures/cube.stl` sliced with the already-established
+  `Bambu Lab P1P 0.4 nozzle`
+  profile. This is the compact real bridge, Web, desktop, and native-reference
+  fixture.
+- **Feature-rich reference:** a new, small repository-owned model/profile
+  fixture that deterministically emits perimeters, infill, top/bottom skin,
+  bridge/overhang where supported, support, and travel. It is used for legend,
+  filtering, dimming, range, and screenshot approval.
+- **Multi-material reference:** a new small repository-owned multi-material
+  fixture with two configured distinct filament colours. It validates the
+  Phase-C Filament/Tool palette and legend without requiring external G-code
+  import.
+- **Performance streams:** deterministic synthetic segment streams containing
+  exactly 250,000 and 1,000,000 segments, partitioned like real layer chunks.
+  They isolate renderer throughput and adaptive-detail measurements from the
+  slicing duration and from future profile changes.
+
+The fixture manifest records the native reference SHA, profile names/config,
+camera pose, selected ranges, theme, browser viewport, expected command/segment
+counts, and approved reference captures. Generated G-code and screenshots are
+checked in only where they are needed for deterministic visual or text mapping
+tests; otherwise a reproducible fixture-generation command is recorded.
