@@ -1,7 +1,8 @@
 # G-code Preview v2
 
-**Status:** Living major design specification — foundation decisions accepted;
-interaction and information-architecture decisions remain in discovery.
+**Status:** Living major design specification — foundation and interaction
+decisions accepted; accessibility, delivery sequencing, and release gates remain
+in discovery.
 
 **Started:** 2026-09-01
 
@@ -34,8 +35,7 @@ Phase B is the first shipping target. It provides:
 - true extrusion-band rendering, based on each segment's width and height,
   rather than fixed-width screen-space lines;
 - Orca-style inspection emphasis: the current upper layer is prominent and
-  earlier visible layers are dimmed by default, with this as a persistable
-  preview preference;
+  earlier visible layers are dimmed by default;
 - a lightweight camera-facing nozzle marker at the final move in the active
   range;
 - the existing Preview shell behaviour: model shells remain at alpha 0.15 and
@@ -104,6 +104,66 @@ omitted when a source cannot provide it.
 Full G-code text is not copied to the renderer during initial preview loading.
 Phase C will obtain it through an on-demand, chunked source-text API.
 
+## Interaction and information architecture
+
+### Layout
+
+Preview controls use Orca-style canvas overlays and do not change the existing
+left workspace sidebar or resize the 3D viewport.
+
+- The dual-thumb layer-range slider is fixed to the canvas's right edge.
+- The dual-thumb move-range slider is fixed to its bottom edge.
+- The colour-scheme selector, legend, and statistics occupy a collapsible,
+  right-top canvas overlay.
+- In Phase C, the G-code text window is a separately toggled, larger overlay
+  rather than content that compresses the legend or statistics.
+
+The layer slider controls the inclusive visible layer range. The upper active
+layer is visually prominent; earlier visible layers are dimmed by default. The
+move slider controls the inclusive movement range within that active layer. Its
+upper/end move is the current inspection position and drives the nozzle marker.
+
+### Filter and state semantics
+
+Legend filters have Orca's hide semantics: disabling a feature, material/tool,
+or travel category removes those paths from the rendered result rather than
+only reducing their opacity.
+
+Filtering and legend items are scoped to the active colour scheme. For example,
+Feature/Line Type filtering does not affect Filament/Tool filtering. Travel
+visibility is global across colour schemes.
+
+All preview controls are ephemeral for the initial delivery. Colour scheme,
+legend/filter state, travel visibility, dimming state, overlay expansion, and
+all range positions reset to their defaults when a new slice result is loaded;
+none are persisted across sessions. Persisted preview preferences are a future
+product decision.
+
+### Read-only navigation and G-code linking
+
+No Phase-B or Phase-C control modifies the slice result. In particular,
+custom-G-code actions, pause insertion, and filament changes remain out of
+scope.
+
+Phase C's G-code window has two-way inspection navigation:
+
+- Moving either slider or advancing the active move highlights the matching
+  source line in the text window.
+- Selecting a mappable source line updates the active layer and move range.
+
+The 3D path itself is not pickable. Dense overlapping extrusion bands make
+pointer picking imprecise and costly; deterministic slider and text navigation
+are the supported ways to select a move.
+
+### Current-move information
+
+Phase B renders a lightweight camera-facing marker at the current move. Phase
+C adds a native-style inspection card next to the marker or in the right-top
+overlay. It displays, when available: layer number and Z, X/Y/Z position, move
+type, feature, source G-code line, and the values relevant to the selected
+colour scheme. Missing source fields are omitted rather than represented by
+invented values.
+
 ## Renderer and performance policy
 
 Toolpaths are GPU-rendered, camera-facing extrusion bands. Rotation, pan, and
@@ -143,4 +203,3 @@ tests for range/filter/dimming semantics; and shared Web/Electron end-to-end
 coverage for the Phase-B controls. Large-slice benchmarks must exercise the
 chunking/adaptive-detail path and verify that camera navigation never triggers
 a full path rebuild.
-
