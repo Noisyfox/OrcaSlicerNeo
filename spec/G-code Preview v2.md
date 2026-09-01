@@ -1,8 +1,7 @@
 # G-code Preview v2
 
-**Status:** Living major design specification — foundation and interaction
-decisions accepted; accessibility, delivery sequencing, and release gates remain
-in discovery.
+**Status:** Living major design specification — foundation, interaction, and
+Phase-B release decisions accepted; Phase-C detail remains in discovery.
 
 **Started:** 2026-09-01
 
@@ -164,6 +163,24 @@ type, feature, source G-code line, and the values relevant to the selected
 colour scheme. Missing source fields are omitted rather than represented by
 invented values.
 
+### Keyboard and theme behaviour
+
+When the viewport, rather than a text input or other ordinary focusable control,
+owns keyboard focus, preview supports the Orca-style inspection shortcuts:
+
+- Up/Down adjust the active end of the layer range.
+- Left/Right adjust the active end of the move range.
+- Shift or Ctrl accelerates range stepping.
+- `L` toggles single-layer inspection.
+- In Phase C, `C` toggles the G-code text window.
+
+These shortcuts must not break text editing or standard Tab focus navigation.
+
+All Phase-B and Phase-C overlays, controls, legend states, and colour ramps
+must adapt to the application's light and dark themes. Semantic feature colours
+remain stable between themes; surface, text, inactive, and gradient supporting
+colours adapt to maintain legibility.
+
 ## Renderer and performance policy
 
 Toolpaths are GPU-rendered, camera-facing extrusion bands. Rotation, pan, and
@@ -184,6 +201,23 @@ Statistics are preaggregated by the Worker/bridge during preview preparation;
 opening or changing an information panel must not rescan the entire path on the
 UI thread.
 
+The minimum performance baseline is a typical 2020-era integrated-GPU laptop:
+
+- a representative ordinary slice of roughly 250,000 segments sustains at
+  least 60 FPS while rotating; and
+- a representative large slice of roughly 1,000,000 segments sustains at
+  least 30 FPS while rotating.
+
+The adaptive-detail policy may apply above those conditions, but it cannot
+reduce detail in the currently active inspection range.
+
+## Delivery and release approach
+
+Phase B is an independently shippable replacement for the current preview. It
+must reach its functional and performance release gates before Phase C begins.
+Phase C is a later independent increment on the accepted Preview data v2
+contract; it must not require replacement of the Phase-B renderer or controls.
+
 ## Product constraints retained from existing specifications
 
 - Prepare and Preview keep their shared Canvas, camera, resource lifetime, and
@@ -202,4 +236,7 @@ layer and move indexes, palettes, optional metrics, and metadata; renderer
 tests for range/filter/dimming semantics; and shared Web/Electron end-to-end
 coverage for the Phase-B controls. Large-slice benchmarks must exercise the
 chunking/adaptive-detail path and verify that camera navigation never triggers
-a full path rebuild.
+a full path rebuild. The benchmark fixtures must cover the two minimum
+performance baselines. Release verification continues to include the existing
+unit, typecheck, serial/threaded WASM build and smoke, Web threaded/serial E2E,
+and desktop E2E requirements.
