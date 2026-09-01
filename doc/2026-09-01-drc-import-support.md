@@ -24,6 +24,12 @@
   without usable triangle geometry fail atomically: show an understandable
   error, add no partial model, and preserve the current scene and any existing
   slice result.
+- User-facing failures use one concise message, “Unable to import DRC file”.
+  Decoder-specific diagnostics belong in the runtime log rather than in the
+  UI.
+- DRC adds no file-size, triangle-count, or post-decompression memory limit.
+  Like the current STL support and OrcaSlicer, it is bounded by the resources
+  available to the running application.
 
 ## Constraints
 
