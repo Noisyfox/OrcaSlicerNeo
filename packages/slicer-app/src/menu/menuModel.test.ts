@@ -5,6 +5,7 @@ import { buildMenuModel, buildMenuStateSnapshot, deriveMenuItemStates, resolveMe
 function input(overrides: Partial<MenuStateSnapshotInput> = {}): MenuStateSnapshotInput {
   return {
     version: 1,
+    activeTab: 'prepare',
     boot: { phase: 'ready', error: null },
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: false },
@@ -71,6 +72,30 @@ describe('buildMenuModel', () => {
     expect(stateFor(withModel, 'slice').enabled).toBe(true);
   });
 
+  it.each([
+    ['home', false, false, false],
+    ['prepare', true, true, true],
+    ['preview', false, false, true],
+    ['device', false, false, false],
+  ] as const)('applies the active-tab policy on %s', (activeTab, addModel, clearScene, slice) => {
+    const state = buildMenuStateSnapshot(input({ activeTab, scene: { hasModel: true } }), web);
+    expect(stateFor(state, 'add-model').enabled).toBe(addModel);
+    expect(stateFor(state, 'clear-scene').enabled).toBe(clearScene);
+    expect(stateFor(state, 'slice').enabled).toBe(slice);
+  });
+
+  it('keeps export enabled from every page when a valid result exists', () => {
+    for (const activeTab of ['home', 'prepare', 'preview', 'device'] as const) {
+      const state = buildMenuStateSnapshot(input({
+        activeTab,
+        scene: { hasModel: true },
+        slicer: { status: 'done', progress: 100, error: null },
+        result: { hasResult: true, exported: false },
+      }), web);
+      expect(stateFor(state, 'export-gcode').enabled).toBe(true);
+    }
+  });
+
   it('disables all four slicing-period commands and gates export on completed result', () => {
     const slicing = buildMenuStateSnapshot(input({
       scene: { hasModel: true },
@@ -104,7 +129,7 @@ describe('buildMenuModel', () => {
       result: { hasResult: true, exported: false },
     }), mac);
     expect(completed.slicer.progress).toBe(1);
-    expect(stateFor(completed, 'slice').enabled).toBe(true);
+    expect(stateFor(completed, 'slice').enabled).toBe(false);
     expect(stateFor(completed, 'export-gcode').enabled).toBe(true);
 
     const midSlice = buildMenuStateSnapshot(input({

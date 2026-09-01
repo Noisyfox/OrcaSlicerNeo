@@ -34,6 +34,8 @@ testCustom('Windows/Linux custom titlebar tracks shared model and result state',
   const app = await launchMenuApp();
   try {
     const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('titlebar')).toBeVisible();
     await expect(page.getByTestId('titlebar-menu')).toBeVisible();
     await expect(page.getByTestId('menu-file-trigger')).toHaveClass(/no-drag/);
@@ -63,6 +65,11 @@ testCustom('Windows/Linux custom titlebar tracks shared model and result state',
     await openFileMenu(page);
     await expect(page.getByTestId('file-export-gcode')).toBeEnabled();
 
+    // Slice enters passive Preview; scene-mutating menu commands become
+    // available again only after returning to Prepare.
+    await page.keyboard.press('Escape');
+    await page.locator('#app-tab-prepare').click();
+    await openFileMenu(page);
     await page.getByTestId('file-clear-scene').click();
     await expect(page.getByTestId('btn-slice')).toBeDisabled();
     await openFileMenu(page);

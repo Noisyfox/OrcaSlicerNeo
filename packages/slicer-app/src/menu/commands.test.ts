@@ -9,6 +9,7 @@ function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], bool
   });
   return {
     version: 1,
+    activeTab: 'prepare',
     boot: { phase: 'ready', error: null },
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: true },
@@ -52,6 +53,29 @@ describe('shared menu command dispatcher', () => {
     current = snapshot({ 'add-model': false });
     await expect(pending).resolves.toBe(true);
     expect(calls.addModel).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['home', 'preview', 'device'] as const)('rejects model mutations and slice commands outside Prepare/Preview policy on %s', async (activeTab) => {
+    const calls = actions();
+    const base = snapshot({ 'add-model': true, 'clear-scene': true, slice: true });
+    const current = {
+      ...base,
+      activeTab,
+      items: {
+        ...base.items,
+        'add-model': { enabled: false },
+        'clear-scene': { enabled: false },
+        slice: { enabled: activeTab === 'preview' },
+      },
+    };
+    const dispatcher = createCommandDispatcher({ getSnapshot: () => current, actions: calls });
+
+    await expect(dispatcher.dispatch('add-model')).resolves.toBe(false);
+    await expect(dispatcher.dispatch('clear-scene')).resolves.toBe(false);
+    if (activeTab !== 'preview') await expect(dispatcher.dispatch('slice')).resolves.toBe(false);
+    expect(calls.addModel).not.toHaveBeenCalled();
+    expect(calls.clearScene).not.toHaveBeenCalled();
+    if (activeTab !== 'preview') expect(calls.slice).not.toHaveBeenCalled();
   });
 
   it('rechecks a stale command immediately before action selection', async () => {

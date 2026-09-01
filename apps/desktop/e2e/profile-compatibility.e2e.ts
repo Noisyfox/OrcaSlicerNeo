@@ -37,6 +37,8 @@ test('printer transitions atomically replace compatible Process and Filament pic
   const app = await launchApp();
   try {
     const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
 

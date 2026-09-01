@@ -14,7 +14,15 @@ import { usePlatform } from '@orca/platform-contract';
 import { ObjectList } from './objectList/ObjectList';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { Viewport } from './viewport/Viewport';
-import type { SceneInteractionController } from './viewport/SceneInteractionController';
+import { SceneInteractionController } from './viewport/SceneInteractionController';
+import { glVolumeCollection } from './viewport/GLVolume';
+import { useModelLoader } from './viewport/useModelLoader';
+import { useSliceResult } from './viewport/useSliceResult';
+import { hasEnteredPreview, isPreviewTab, type AppTab } from '../layout/appTabs';
+import { createWorkspaceSliceCoordinator, type WorkspaceSliceCoordinator } from './sliceCoordinator';
+import { sliceModel } from './actions/sliceActions';
+import { useSlicerStore } from '../../stores/useSlicerStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -24,22 +32,56 @@ function clampSidebarWidth(value: number | undefined): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
 }
 
-export function Workspace({ onSceneInteractionChange }: {
+export function Workspace({ activeTab = 'prepare', onSceneInteractionChange, onSliceCoordinatorChange, onRequestPreview }: {
+  activeTab?: AppTab;
   // The scene controller lives here, but the menu command dispatcher needs it
   // too; this hands it up without making the owner re-render on every change.
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
+  onSliceCoordinatorChange?: (coordinator: WorkspaceSliceCoordinator | null) => void;
+  onRequestPreview?: () => void;
 }) {
   const platform = usePlatform();
-  const [sceneInteraction, setSceneInteraction] = useState<SceneInteractionController | null>(null);
+  const glVolumes = useModelLoader();
+  const sliceResult = useSliceResult();
+  // Workspace is kept mounted by AppShell. Keep the controller here, beside
+  // the model/result hooks, so a Prepare↔Preview content-tree switch never
+  // recreates the interaction state or its volume collection.
+  const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
+  if (!sceneInteractionRef.current) {
+    sceneInteractionRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
+  }
+  const sceneInteraction = sceneInteractionRef.current;
+  const sliceCoordinatorRef = useRef<WorkspaceSliceCoordinator | null>(null);
+  if (!sliceCoordinatorRef.current) {
+    sliceCoordinatorRef.current = createWorkspaceSliceCoordinator({
+      isModelLoaded: () => useSettingsStore.getState().modelLoaded,
+      getStatus: () => useSlicerStore.getState().status,
+      slice: () => sliceModel(platform),
+      requestPreview: () => onRequestPreview?.(),
+    });
+  }
+  const sliceCoordinator = sliceCoordinatorRef.current;
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizeActiveRef = useRef(false);
   const stopResizeRef = useRef<(() => void) | null>(null);
 
-  const handleSceneInteractionChange = useCallback((controller: SceneInteractionController | null) => {
-    setSceneInteraction(controller);
-    onSceneInteractionChange?.(controller);
-  }, [onSceneInteractionChange]);
+  useEffect(() => {
+    onSceneInteractionChange?.(sceneInteraction);
+    return () => onSceneInteractionChange?.(null);
+  }, [onSceneInteractionChange, sceneInteraction]);
+
+  useEffect(() => {
+    onSliceCoordinatorChange?.(sliceCoordinator);
+    return () => onSliceCoordinatorChange?.(null);
+  }, [onSliceCoordinatorChange, sliceCoordinator]);
+
+  const previousActiveTabRef = useRef<AppTab>(activeTab);
+  useEffect(() => {
+    const enteredPreview = hasEnteredPreview(previousActiveTabRef.current, activeTab);
+    previousActiveTabRef.current = activeTab;
+    if (enteredPreview) void sliceCoordinator.ensureSlice();
+  }, [activeTab, sliceCoordinator]);
 
   useEffect(() => {
     let active = true;
@@ -175,8 +217,10 @@ export function Workspace({ onSceneInteractionChange }: {
       />
       <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card">
         <Viewport
-          onSceneInteractionChange={handleSceneInteractionChange}
           sceneInteraction={sceneInteraction}
+          activeTab={isPreviewTab(activeTab) ? 'preview' : 'prepare'}
+          glVolumes={glVolumes}
+          toolpath={sliceResult.toolpath}
         />
       </main>
     </div>

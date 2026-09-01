@@ -59,10 +59,62 @@ describe('Toolbar send navigation', () => {
     root = createRoot(container);
 
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar onNavigateToDevice={navigateToDevice} /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" onNavigateToDevice={navigateToDevice} /></PlatformProvider>);
     });
     await act(async () => { (container.querySelector('[data-testid="mock-send-navigate"]') as HTMLElement).click(); });
 
     expect(navigateToDevice).toHaveBeenCalledOnce();
+  });
+
+  it.each(['home', 'device'] as const)('hides slice/export/send actions on %s', async (activeTab) => {
+    const { platform } = makePlatform();
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab={activeTab} /></PlatformProvider>);
+    });
+
+    expect(container.querySelector('[data-testid="toolbar-actions"]')).toBeNull();
+    expect(container.querySelector('[data-testid="btn-slice"]')).toBeNull();
+    expect(container.querySelector('[data-testid="btn-export"]')).toBeNull();
+    expect(container.querySelector('[data-testid="btn-send"]')).toBeNull();
+    expect(container.querySelector('[data-testid="btn-send-and-print"]')).toBeNull();
+  });
+
+  it.each(['prepare', 'preview'] as const)('shows slice/export/send actions on %s', async (activeTab) => {
+    const { platform } = makePlatform();
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab={activeTab} /></PlatformProvider>);
+    });
+
+    expect(container.querySelector('[data-testid="toolbar-actions"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="btn-slice"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="btn-export"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="btn-send"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="btn-send-and-print"]')).not.toBeNull();
+  });
+
+  it('disables Slice after a valid result while keeping export and send available', async () => {
+    useSettingsStore.setState({ modelLoaded: true });
+    useSlicerStore.setState({ status: 'done' });
+    const { platform } = makePlatform();
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" /></PlatformProvider>);
+    });
+
+    expect((container.querySelector('[data-testid="btn-slice"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('[data-testid="btn-export"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector('[data-testid="btn-send"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector('[data-testid="btn-send-and-print"]') as HTMLButtonElement).disabled).toBe(false);
   });
 });

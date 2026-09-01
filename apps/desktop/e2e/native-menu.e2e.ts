@@ -53,6 +53,8 @@ testMac('native menu re-enables Slice/Export after slice completes', async () =>
   });
   const page: Page = await app.firstWindow();
   try {
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
 

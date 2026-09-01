@@ -1,6 +1,12 @@
 /** The menu surface supplied by a host. */
 export type TitlebarMenuMode = 'custom' | 'native' | 'browser';
 
+/** Top-level application pages, shared by UI navigation and host validation. */
+export const APP_TABS = ['home', 'prepare', 'preview', 'device'] as const;
+
+/** Top-level application page used by the shared menu policy. */
+export type AppTab = (typeof APP_TABS)[number];
+
 export type MenuCommandId =
   | 'add-model'
   | 'clear-scene'
@@ -47,6 +53,7 @@ export type MenuStateSnapshotInput = Omit<MenuStateSnapshot, 'items'>;
 /** The complete dynamic state replacement sent to a host. */
 export interface MenuStateSnapshot {
   version: 1;
+  activeTab: AppTab;
   boot: {
     phase: MenuBootPhase;
     error: string | null;

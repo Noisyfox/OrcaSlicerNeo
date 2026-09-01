@@ -19,7 +19,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
   }, [data, layer, invalidate]);
 
   return (
-    <lineSegments ref={ref} geometry={data.geometry} frustumCulled={false}>
+    <lineSegments ref={ref} geometry={data.geometry} frustumCulled={false} renderOrder={1000}>
       <lineBasicMaterial vertexColors depthTest={false} transparent opacity={0.95} />
     </lineSegments>
   );

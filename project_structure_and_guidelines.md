@@ -154,6 +154,12 @@ See the design doc §C++/WASM Build and the spike's README iterate loop. Key rul
   non-blocking status).
 - **Settings UI**: rendered generically from `orc_get_option_metadata()` JSON —
   never duplicate option definitions in TS.
+- **Top-level page lifetime**: every application tab/page remains mounted for
+  the lifetime of the ready application. Inactive pages must be made
+  layout-neutral and inaccessible (for example, `hidden` and `inert`) rather
+  than unmounted. This preserves expensive WebGL/Worker-backed state and makes
+  tab switching immediate; it applies to Home, Prepare, Preview, Device, and
+  future top-level pages.
 - **i18n**: English only in v1; i18next + `.po`→JSON conversion later.
 
 ---

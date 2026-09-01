@@ -16,6 +16,8 @@ async function launch(preferences: string, exportPath: string): Promise<{ app: E
   delete env.ELECTRON_RUN_AS_NODE;
   const app = await _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
   const page = await app.firstWindow();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: PRESET_READY_TIMEOUT });
+  await page.locator('#app-tab-prepare').click();
   const diagnostics: string[] = [];
   page.on('console', (message) => diagnostics.push(`[${message.type()}] ${message.text()}`));
   page.on('pageerror', (error) => diagnostics.push(`[pageerror] ${String(error)}`));

@@ -34,6 +34,8 @@ test('a rejecting model surfaces its real error message in the status bar', asyn
   const page: Page = await app.firstWindow();
   try {
     await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: PRESET_READY_TIMEOUT });
+    await page.locator('#app-tab-prepare').click();
 
     // The real module parses the complete preset tree before this appears.
     await page.getByTestId('preset-select').waitFor({ timeout: PRESET_READY_TIMEOUT });

@@ -1,15 +1,17 @@
 // packages/slicer-app/src/App.tsx (boot effect: app config load → worker
 // client init → atomic preset snapshot → option metadata → settings store)
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { AppShell, type AppPage } from './components/layout/AppShell';
+import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
-import { Toolbar, type AppTab, type WorkspaceTab } from './components/layout/Toolbar';
+import { Toolbar } from './components/layout/Toolbar';
+import type { AppTab } from './components/layout/appTabs';
 import { Workspace } from './components/workspace/Workspace';
 import { DevicePanel } from './components/device/DevicePanel';
 import { StatusBar } from './components/layout/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
+import type { WorkspaceSliceCoordinator } from './components/workspace/sliceCoordinator';
 import { usePlatform } from '@orca/platform-contract';
 import { persistRestoredSelections, restoreSelections } from './preferences';
 import { addModel, clearScene } from './components/workspace/actions/sceneActions';
@@ -30,15 +32,12 @@ export default function App() {
   const resultExported = useSlicerStore((s) => s.resultExported);
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
-  const [activePage, setActivePage] = useState<AppPage>('workspace');
-  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('home');
+  const [activeTab, setActiveTab] = useState<AppTab>('home');
   const handleTabChange = useCallback((tab: AppTab) => {
-    if (tab === 'Device') {
-      setActivePage('device');
-      return;
-    }
-    setActiveWorkspaceTab(tab);
-    setActivePage('workspace');
+    setActiveTab(tab);
+  }, []);
+  const navigateToPreview = useCallback(() => {
+    setActiveTab('preview');
   }, []);
   // Workspace owns the controller; the dispatcher only ever reads it lazily at
   // dispatch time, so mirroring it into a ref keeps App out of the re-render.
@@ -46,9 +45,22 @@ export default function App() {
   const handleSceneInteractionChange = useCallback((controller: SceneInteractionController | null) => {
     sceneInteractionRef.current = controller;
   }, []);
+  const workspaceSliceCoordinatorRef = useRef<WorkspaceSliceCoordinator | null>(null);
+  const handleSliceCoordinatorChange = useCallback((coordinator: WorkspaceSliceCoordinator | null) => {
+    workspaceSliceCoordinatorRef.current = coordinator;
+  }, []);
+  const requestPreviewSlice = useCallback(() => {
+    const coordinator = workspaceSliceCoordinatorRef.current;
+    if (coordinator) return coordinator.requestPreviewSlice();
+    // The Workspace is always mounted once the shell is ready, but preserve a
+    // safe fallback for an early host callback during React effect setup.
+    navigateToPreview();
+    return sliceModel(platform);
+  }, [navigateToPreview, platform]);
 
   const menuState = useMemo(() => buildMenuStateSnapshot({
     version: 1,
+    activeTab,
     boot: { phase: boot, error: bootError },
     slicer: { status, progress, error: slicerError },
     scene: { hasModel: modelLoaded },
@@ -59,6 +71,7 @@ export default function App() {
     },
   }, platform.chrome), [
     boot,
+    activeTab,
     bootError,
     modelLoaded,
     platform.chrome,
@@ -78,7 +91,7 @@ export default function App() {
     actions: {
       addModel: () => addModel(platform, sceneInteractionRef.current),
       clearScene: () => clearScene(platform, sceneInteractionRef.current),
-      slice: () => sliceModel(platform),
+      slice: requestPreviewSlice,
       exportGcode: () => exportGcode(platform),
       openSource: async () => { await platform.externalLinks.openSource(); },
       quit: async () => { await platform.menu.execute('quit'); },
@@ -212,10 +225,10 @@ export default function App() {
   return (
     <AppShell
       titleBar={titleBar}
-      toolbar={<Toolbar activeTab={activePage === 'device' ? 'Device' : activeWorkspaceTab} onTabChange={handleTabChange} onNavigateToDevice={() => setActivePage('device')} />}
-      activePage={activePage}
-      workspaceLabelledBy={`app-tab-${activeWorkspaceTab}`}
-      workspace={<Workspace onSceneInteractionChange={handleSceneInteractionChange} />}
+      toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />}
+      activeTab={activeTab}
+      home={<div data-testid="home-page" />}
+      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={navigateToPreview} />}
       device={<DevicePanel />}
       status={<StatusBar />}
     />

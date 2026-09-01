@@ -8,6 +8,7 @@ import type {
   PlatformChrome,
   TitlebarMenuMode,
 } from '@orca/platform-contract';
+import { isPrepareTab, isWorkspaceTab } from '../components/layout/appTabs';
 
 function item(testId: string, label: string, command: MenuCommandId): MenuItem {
   return { testId, label, command };
@@ -72,16 +73,18 @@ export function deriveMenuItemStates(
 ): MenuItemStates {
   const ready = snapshot.boot.phase === 'ready';
   const slicing = snapshot.slicer.status === 'slicing';
-  const fileActionsEnabled = ready && !slicing;
   const hasCompletedResult = snapshot.result.hasResult && snapshot.slicer.status === 'done';
+  const workspaceTab = isWorkspaceTab(snapshot.activeTab);
+  const prepareTab = isPrepareTab(snapshot.activeTab);
+  const fileActionsEnabled = ready && !slicing;
   const electron = isElectronHost(snapshot, chrome);
   const state = (enabled: boolean): { enabled: boolean; checked: false } => ({ enabled, checked: false });
 
   return {
-    'add-model': state(fileActionsEnabled),
-    'clear-scene': state(fileActionsEnabled && snapshot.scene.hasModel),
-    'slice': state(fileActionsEnabled && snapshot.scene.hasModel),
-    'export-gcode': state(fileActionsEnabled && hasCompletedResult),
+    'add-model': state(fileActionsEnabled && prepareTab),
+    'clear-scene': state(fileActionsEnabled && prepareTab && snapshot.scene.hasModel),
+    'slice': state(fileActionsEnabled && workspaceTab && snapshot.scene.hasModel && !hasCompletedResult),
+    'export-gcode': state(ready && !slicing && hasCompletedResult),
     'quit': state(electron),
     'open-source': state(true),
   };

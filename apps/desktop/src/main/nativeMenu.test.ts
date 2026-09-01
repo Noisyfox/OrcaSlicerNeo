@@ -98,6 +98,7 @@ describe('Electron native menu boundary', () => {
     // never re-enabled after slicing.
     const completed: MenuStateSnapshot = {
       version: 1,
+      activeTab: 'prepare',
       boot: { phase: 'ready', error: null },
       slicer: { status: 'done', progress: 1, error: null },
       scene: { hasModel: true },

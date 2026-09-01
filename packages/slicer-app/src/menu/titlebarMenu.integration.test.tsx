@@ -14,6 +14,7 @@ const mac: PlatformChrome = {
 function input(overrides: Partial<MenuStateSnapshotInput> = {}): MenuStateSnapshotInput {
   return {
     version: 1,
+    activeTab: 'prepare',
     boot: { phase: 'ready', error: null },
     slicer: { status: 'idle', progress: 0, error: null },
     scene: { hasModel: false },
@@ -70,6 +71,19 @@ describe('shared titlebar menu integration projection', () => {
       result: { hasResult: true, exported: false },
     }).state;
     expect(enabled(withResult, 'export-gcode')).toBe(true);
+
+    for (const activeTab of ['home', 'device'] as const) {
+      const completedElsewhere = items(windows, {
+        ...raw,
+        activeTab,
+        slicer: { status: 'done', progress: 100, error: null },
+        result: { hasResult: true, exported: false },
+      }).state;
+      expect(enabled(completedElsewhere, 'export-gcode')).toBe(true);
+      expect(enabled(completedElsewhere, 'add-model')).toBe(false);
+      expect(enabled(completedElsewhere, 'clear-scene')).toBe(false);
+      expect(enabled(completedElsewhere, 'slice')).toBe(false);
+    }
 
     const failed = items(windows, {
       ...raw,
