@@ -32,10 +32,13 @@
   OrcaSlicer.  Import only positions and triangular faces; colour, normals,
   texture coordinates, materials, metadata, hierarchy, instances, and slicer
   settings are not preserved.
-- Draco point clouds, malformed files, files that cannot be decoded, and files
-  without usable triangle geometry fail atomically: show an understandable
+- Draco point clouds and ordinary malformed or undecodable files that the
+  upstream loader reports as failures fail atomically: show an understandable
   error, add no partial model, and preserve the current scene and any existing
-  slice result.
+  slice result.  Do not harden or patch upstream `DRC.cpp` for pathological
+  decodable streams (for example, a triangular mesh with no `POSITION`
+  attribute) that expose an existing upstream fault; these remain outside this
+  delivery's failure guarantee.
 - User-facing failures use one concise message, “Unable to import DRC file”.
   Decoder-specific diagnostics belong in the runtime log rather than in the
   UI.
