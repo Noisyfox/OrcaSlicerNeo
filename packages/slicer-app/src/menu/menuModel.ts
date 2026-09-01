@@ -8,6 +8,7 @@ import type {
   PlatformChrome,
   TitlebarMenuMode,
 } from '@orca/platform-contract';
+import { isWorkspaceTab } from '../components/layout/appTabs';
 
 function item(testId: string, label: string, command: MenuCommandId): MenuItem {
   return { testId, label, command };
@@ -73,7 +74,7 @@ export function deriveMenuItemStates(
   const ready = snapshot.boot.phase === 'ready';
   const slicing = snapshot.slicer.status === 'slicing';
   const hasCompletedResult = snapshot.result.hasResult && snapshot.slicer.status === 'done';
-  const workspaceTab = snapshot.activeTab === 'prepare' || snapshot.activeTab === 'preview';
+  const workspaceTab = isWorkspaceTab(snapshot.activeTab);
   const prepareTab = snapshot.activeTab === 'prepare';
   const fileActionsEnabled = ready && !slicing;
   const electron = isElectronHost(snapshot, chrome);
