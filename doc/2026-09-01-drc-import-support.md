@@ -35,6 +35,11 @@
   `libslic3r/Format/DRC.cpp` and `.hpp` and use a C++ Draco static dependency
   in both the threaded and serial wasm64 artifacts.  The bridge may connect
   the existing model-import flow but must not reimplement DRC parsing.
+- Source Draco using the same dependency pattern as the existing WASM build:
+  download it into the untracked `.work/deps` directory, pin a version or
+  commit compatible with the current OrcaSlicer submodule, verify the download
+  with SHA-256, and build it from source for both wasm64 variants.  Do not add
+  a Draco Git submodule or use a runtime CDN.
 
 ## Required validation gate
 
