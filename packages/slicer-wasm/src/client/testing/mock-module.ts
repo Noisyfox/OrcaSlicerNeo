@@ -462,7 +462,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (const [k, v] of Object.entries(metadata)) out[k] = { ...v };
       return out;
     },
-    orc_add_model(_ptr: number, len: number, _ext: string) {
+    orc_add_model(_ptr: number, len: number, _ext: string, _displayName: string) {
       if (len <= 0) return { error: 'no model bytes' };
       modelLoaded = true;
       objectTransforms.push(createObjectTransforms());
@@ -928,7 +928,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_get_option_metadata: { ret: 'number', args: [] },
-    orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string'] },
+    orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string', 'string'] },
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
