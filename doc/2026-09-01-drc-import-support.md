@@ -12,6 +12,13 @@
   DRC file from outside the application.
 - An imported DRC is appended to the current plate.  It never replaces the
   existing scene.
+- Preserve OrcaSlicer source-name behaviour for every model format.  Pass a
+  sanitized selected-file basename to the existing loader as its MEMFS staging
+  filename instead of always using `uploaded_model.<ext>`.  This gives STL and
+  DRC their selected filename where their upstream loaders derive an object
+  name from the input path, while project formats such as 3MF retain the names
+  defined inside the project.  Never pass a host absolute path into shared
+  state or the WASM filesystem.
 - Placement matches the current STL behaviour: centre the imported mesh on
   the XY origin, rest it on the bed, and do not perform collision avoidance or
   automatic arrangement.  Multiple imported models may overlap.
