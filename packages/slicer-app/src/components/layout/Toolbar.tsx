@@ -10,8 +10,6 @@ import { usePlatform } from '@orca/platform-contract';
 import { SendGcodeDialog, type SendGcodeAction } from '../send/SendGcodeDialog';
 import { isAppTab, isWorkspaceTab, type AppTab } from './appTabs';
 
-export type { AppTab } from './appTabs';
-
 // The scene actions (Add Model / Clear Scene) live elsewhere now: Add Model
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see
 // doc/2026-08-22-scene-toolbar-and-context-menu.md). This row is Slice and

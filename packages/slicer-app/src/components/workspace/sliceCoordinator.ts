@@ -7,7 +7,7 @@ export interface WorkspaceSliceCoordinator {
   requestPreviewSlice(): Promise<void>;
 }
 
-export interface WorkspaceSliceCoordinatorDeps {
+interface WorkspaceSliceCoordinatorDeps {
   isModelLoaded: () => boolean;
   getStatus: () => SliceStatus;
   slice: () => Promise<void>;
