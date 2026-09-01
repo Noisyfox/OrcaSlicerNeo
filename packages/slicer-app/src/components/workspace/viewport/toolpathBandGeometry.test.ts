@@ -4,7 +4,9 @@ import {
   buildLayerAlignedChunkRanges,
   createToolpathBandChunk,
   selectToolpathChunks,
+  ToolpathBandCache,
 } from './toolpathBandGeometry';
+import type { ClientToolpath } from '@slicer/client';
 
 describe('toolpath band geometry', () => {
   it('keeps chunk boundaries aligned to complete layers', () => {
@@ -50,10 +52,49 @@ describe('toolpath band geometry', () => {
       firstLayer: layer,
       lastLayer: layer,
     }));
-    expect(selectToolpathChunks(chunks, 3, 3, 1_000_000, true)).toEqual([2, 3, 4]);
+    expect(selectToolpathChunks(chunks, 3, 3, 1_000_000, true)).toEqual([3]);
     expect(selectToolpathChunks(chunks, 3, 3, 1_000_000, false)).toEqual([3]);
-    expect(selectToolpathChunks(chunks, 2, 3, 1_000_000, true)).toEqual([1, 2, 3, 4]);
+    expect(selectToolpathChunks(chunks, 2, 3, 1_000_000, true)).toEqual([2, 3]);
     expect(selectToolpathChunks(chunks, 3, 3, 250_000, true)).toEqual([3]);
+  });
+
+  it('reuses prepared geometry across camera-only state changes', () => {
+    const source: ClientToolpath = {
+      vertexCount: 2,
+      positions: Float32Array.from([1, 0, 0, 2, 0, 0]),
+      layers: Uint32Array.from([0, 0]),
+      features: Uint32Array.from([0, 0]),
+      palette: [{ id: 0, name: 'perimeter', color: [255, 0, 0] }],
+      segmentCount: 2,
+      starts: Float32Array.from([0, 0, 0, 1, 0, 0]),
+      ends: Float32Array.from([1, 0, 0, 2, 0, 0]),
+      layerIds: Uint32Array.from([0, 0]),
+      moveOrders: Uint32Array.from([0, 1]),
+      gcodeIds: Uint32Array.from([1, 2]),
+      moveTypes: Uint8Array.from([0, 0]),
+      extrusionRoles: Uint16Array.from([0, 0]),
+      extruderIds: Uint8Array.from([0, 0]),
+      colorPrintIds: Uint8Array.from([0, 0]),
+      widths: Float32Array.from([0.4, 0.5]),
+      heights: Float32Array.from([0.2, 0.2]),
+      metrics: {},
+    };
+    const cache = new ToolpathBandCache();
+    const prepared = cache.prepare(source);
+    const geometry = prepared.chunks[0]?.geometry;
+    for (const cameraGestureActive of [false, true, false]) {
+      expect(selectToolpathChunks(
+        prepared.chunks,
+        0,
+        0,
+        source.segmentCount,
+        cameraGestureActive,
+      )).toEqual([0]);
+      expect(cache.prepare(source)).toBe(prepared);
+      expect(cache.prepare(source).chunks[0]?.geometry).toBe(geometry);
+    }
+    expect(cache.buildCount).toBe(1);
+    prepared.dispose();
   });
 
   it('partitions the exact performance fixture sizes in linear time', () => {

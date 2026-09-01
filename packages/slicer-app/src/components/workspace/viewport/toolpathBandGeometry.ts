@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { ClientToolpath } from '@slicer/client';
 
 /** A layer-aligned range in the source segment stream. */
 export interface ToolpathChunkRange {
@@ -11,6 +12,13 @@ export interface ToolpathChunkRange {
 /** A GPU-resident chunk and the source range it represents. */
 export interface ToolpathBandChunk extends ToolpathChunkRange {
   geometry: THREE.InstancedBufferGeometry;
+}
+
+export interface PreparedToolpathBands {
+  chunks: ToolpathBandChunk[];
+  layerRanges: Array<[number, number]>;
+  segmentCount: number;
+  dispose: () => void;
 }
 
 /**
@@ -95,8 +103,8 @@ export function chunkIntersectsLayerRange(
 /**
  * Select chunks for the current inspection range. The legacy single-layer
  * scrubber remains the active interval until B3 introduces its dual-thumb
- * range. During camera gestures a large stream may additionally keep one
- * nearby layer on screen; the active interval always retains full detail.
+ * range. Camera gestures never change this selection: nearby chunks may be
+ * GPU-resident cache entries, but they are not made visible by this policy.
  */
 export function selectToolpathChunks(
   chunks: readonly ToolpathChunkRange[],
@@ -109,15 +117,13 @@ export function selectToolpathChunks(
   const active = chunks
     .map((chunk, index) => chunkIntersectsLayerRange(chunk, firstLayer, lastLayer) ? index : -1)
     .filter((index) => index >= 0);
-  if (!cameraGestureActive || segmentCount <= 250_000) return active;
-  const radius = Math.max(0, Math.floor(nearbyLayerRadius));
-  const selected: number[] = [];
-  const expandedFirst = firstLayer - radius;
-  const expandedLast = lastLayer + radius;
-  chunks.forEach((chunk, index) => {
-    if (chunkIntersectsLayerRange(chunk, expandedFirst, expandedLast)) selected.push(index);
-  });
-  return selected;
+  // These parameters are deliberately accepted for the future B3 visible /
+  // active-range API. B2 has no wider visible range, so camera-only changes
+  // must not expose paths outside the active interval.
+  void segmentCount;
+  void cameraGestureActive;
+  void nearbyLayerRadius;
+  return active;
 }
 
 function finitePositive(value: number | undefined, fallback: number): number {
@@ -158,6 +164,68 @@ export function createToolpathBandChunk(
   geometry.setAttribute('instanceColor', new THREE.InstancedBufferAttribute(color, 3));
   geometry.instanceCount = count;
   return { ...range, geometry };
+}
+
+/** Prepare all renderer-owned arrays for one immutable slice result. */
+export function buildPreparedToolpathBands(t: ClientToolpath): PreparedToolpathBands {
+  const segmentCount = Math.max(0, Math.min(
+    t.segmentCount,
+    Math.floor(t.starts.length / 3),
+    Math.floor(t.ends.length / 3),
+  ));
+  const colors = new Float32Array(segmentCount * 3);
+  for (let i = 0; i < segmentCount; i++) {
+    const c = t.palette[t.features[i] ?? 0]?.color ?? [255, 255, 255];
+    colors[i * 3] = c[0] / 255;
+    colors[i * 3 + 1] = c[1] / 255;
+    colors[i * 3 + 2] = c[2] / 255;
+  }
+  const chunkRanges = buildLayerAlignedChunkRanges(t.layerIds, segmentCount);
+  const chunks = chunkRanges.map((range) => createToolpathBandChunk(
+    t.starts, t.ends, t.widths, t.heights, colors, range,
+  ));
+  const layerRanges: Array<[number, number]> = [];
+  if (segmentCount > 0) {
+    let layerStart = 0;
+    let layer = t.layerIds[0] ?? 0;
+    for (let i = 1; i <= segmentCount; i++) {
+      const nextLayer = i < segmentCount ? t.layerIds[i] : undefined;
+      if (nextLayer === layer) continue;
+      layerRanges[layer] = [layerStart, i - layerStart];
+      layerStart = i;
+      layer = nextLayer ?? layer;
+    }
+  }
+  return {
+    chunks,
+    layerRanges,
+    segmentCount,
+    dispose: () => chunks.forEach((chunk) => chunk.geometry.dispose()),
+  };
+}
+
+/**
+ * Identity cache for the expensive result-to-GPU preparation step. Camera and
+ * visibility state are intentionally absent from the key, so camera-only
+ * rerenders cannot replace the prepared geometry.
+ */
+export class ToolpathBandCache {
+  private source: ClientToolpath | null = null;
+  private prepared: PreparedToolpathBands | null = null;
+  buildCount = 0;
+
+  prepare(source: ClientToolpath): PreparedToolpathBands {
+    if (this.source === source && this.prepared) return this.prepared;
+    this.source = source;
+    this.prepared = buildPreparedToolpathBands(source);
+    this.buildCount++;
+    return this.prepared;
+  }
+
+  clear(): void {
+    this.source = null;
+    this.prepared = null;
+  }
 }
 
 /** Shader for camera-facing rectangular bands with physical width/height. */

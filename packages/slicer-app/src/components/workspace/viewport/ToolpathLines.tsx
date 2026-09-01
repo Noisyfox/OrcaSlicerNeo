@@ -36,8 +36,8 @@ export function ToolpathLines({
     const selected = new Set(visibleChunks);
     data.chunks.forEach((chunk, index) => {
       // Keep the existing single-layer scrubber behavior until B3 replaces it
-      // with the inclusive dual-thumb range. Adaptive camera mode expands the
-      // active layer to nearby chunks only for large streams.
+      // with the inclusive dual-thumb range. Nearby chunks remain cached but
+      // are not exposed by camera-only state changes.
       chunk.geometry.instanceCount = selected.has(index)
         ? chunk.segmentCount
         : 0;

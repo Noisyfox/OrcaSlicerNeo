@@ -1,11 +1,10 @@
 // packages/slicer-app/src/components/viewport/useSliceResult.ts
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ClientSliceResult } from '@slicer/client';
 import {
-  buildLayerAlignedChunkRanges,
-  createToolpathBandChunk,
+  ToolpathBandCache,
   type ToolpathBandChunk,
 } from './toolpathBandGeometry';
 
@@ -26,6 +25,7 @@ export function useSliceResult() {
   const setMaxLayer = useSlicerStore((s) => s.setMaxLayer);
   const setLayer = useSlicerStore((s) => s.setLayer);
   const [result, setResult] = useState<ClientSliceResult | null>(null);
+  const bandCache = useRef(new ToolpathBandCache());
 
   useEffect(() => {
     if (status !== 'done') {
@@ -66,44 +66,11 @@ export function useSliceResult() {
   }, [status, setLayers, setMaxLayer, setLayer]);
 
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
-    if (!result) return null;
-    const t = result.toolpath;
-    const segmentCount = Math.max(0, Math.min(
-      t.segmentCount,
-      Math.floor(t.starts.length / 3),
-      Math.floor(t.ends.length / 3),
-    ));
-    const colors = new Float32Array(segmentCount * 3);
-    for (let i = 0; i < segmentCount; i++) {
-      const c = t.palette[t.features[i] ?? 0]?.color ?? [255, 255, 255];
-      colors[i * 3] = c[0] / 255;
-      colors[i * 3 + 1] = c[1] / 255;
-      colors[i * 3 + 2] = c[2] / 255;
+    if (!result) {
+      bandCache.current.clear();
+      return null;
     }
-
-    const chunkRanges = buildLayerAlignedChunkRanges(t.layerIds, segmentCount);
-    const chunks = chunkRanges.map((range) => createToolpathBandChunk(
-      t.starts, t.ends, t.widths, t.heights, colors, range,
-    ));
-
-    const layerRanges: Array<[number, number]> = [];
-    if (segmentCount > 0) {
-      let layerStart = 0;
-      let layer = t.layerIds[0] ?? 0;
-      for (let i = 1; i <= segmentCount; i++) {
-        const nextLayer = i < segmentCount ? t.layerIds[i] : undefined;
-        if (nextLayer === layer) continue;
-        layerRanges[layer] = [layerStart, i - layerStart];
-        layerStart = i;
-        layer = nextLayer ?? layer;
-      }
-    }
-    return {
-      chunks,
-      layerRanges,
-      segmentCount,
-      dispose: () => chunks.forEach((chunk) => chunk.geometry.dispose()),
-    };
+    return bandCache.current.prepare(result.toolpath);
   }, [result]);
 
   // A result replacement owns the old GPU buffers until React commits the new
