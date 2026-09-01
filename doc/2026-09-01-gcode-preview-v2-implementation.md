@@ -1,7 +1,7 @@
 # G-code Preview v2 implementation plan
 
 **Date:** 2026-09-01
-**Status:** B1 self-verified; awaiting parent acceptance
+**Status:** B2 self-verified; awaiting parent acceptance
 **Scope:** Repository-owned fixtures, Preview data v2, the shared Web/Electron
 renderer, and the read-only Phase-C inspection increment
 
@@ -207,6 +207,37 @@ both performance fixtures exercise layer chunks, and ordinary/large targets
 meet 60/30 FPS without reducing the active range. If hardware cannot be
 measured, record the exact machine and a blocked performance gate; do not
 claim compliance from a mock renderer.
+
+**Accepted implementation:** `ToolpathLines` now renders instanced rectangular
+extrusion bands instead of `LineSegments`. Segment start/end, width, height,
+and palette colour are GPU attributes; the vertex shader derives a
+camera-facing side vector and keeps physical width/height in world units.
+`useSliceResult` builds layer-aligned chunks once per completed result and
+disposes them when that result is invalidated. Camera movement changes only
+the normal Three.js camera uniforms. The existing single-layer scrubber
+continues to select the active layer until B3 introduces the dual-thumb
+range. During camera gestures on streams larger than 250,000 segments, the
+active layer plus one adjacent layer are kept resident for interaction; the
+active layer is never reduced. The geometry remains complete and the full
+active-layer detail is restored when the gesture ends. Empty and legacy v1
+aliases fall back safely to zero/compatibility data, and the renderer remains
+host-independent for Electron and Web.
+
+**B2 verification:**
+
+- `pnpm --filter @orca/slicer-app test -- toolpathBandGeometry useSliceResult` — passed, 2 files / 5 tests.
+- `pnpm --filter @orca/slicer-app test` — passed, 35 files / 235 tests.
+- `pnpm --filter @orca/slicer-app typecheck` — passed.
+- `pnpm test` — passed across all workspace packages.
+- `pnpm typecheck` — passed across all workspace packages and hosts.
+- `pnpm --filter @orca/desktop test:e2e` — passed, 24 tests; 3 existing intentional skips.
+- `git diff --check` — passed.
+
+The exact 250,000- and 1,000,000-segment synthetic streams are exercised by
+the chunking test, including total-count preservation and layer-aligned
+partitioning. FPS and GPU-memory measurements were not available in this
+headless validation environment; the 60/30 FPS hardware gate remains open
+for the parent acceptance run on the representative 2020-era integrated GPU.
 
 ### B3 — Phase-B controls and inspection semantics
 

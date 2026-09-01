@@ -1,26 +1,63 @@
 // packages/slicer-app/src/components/viewport/ToolpathLines.tsx
-import { useEffect, useRef } from 'react';
-import * as THREE from 'three';
+import { useEffect, useMemo } from 'react';
 import { useThree } from '@react-three/fiber';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
+import {
+  createToolpathBandMaterial,
+  selectToolpathChunks,
+} from './toolpathBandGeometry';
 
-export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
-  const ref = useRef<THREE.LineSegments>(null);
+/**
+ * GPU toolpath renderer. Each segment is an instanced rectangular prism whose
+ * width/height are world-space attributes. OrbitControls only changes the
+ * camera uniforms consumed by the shader; the chunk geometries are created
+ * once per slice result and remain resident until that result is invalidated.
+ */
+export function ToolpathLines({
+  data,
+  cameraGestureActive = false,
+}: {
+  data: ToolpathGeometry;
+  cameraGestureActive?: boolean;
+}) {
   const layer = useSlicerStore((s) => s.layer);
-  // setDrawRange mutates the geometry imperatively — invisible to the r3f
-  // reconciler, so demand mode needs an explicit invalidate to redraw.
   const invalidate = useThree((s) => s.invalidate);
+  const material = useMemo(() => createToolpathBandMaterial(), []);
+  const visibleChunks = useMemo(() => selectToolpathChunks(
+    data.chunks,
+    layer,
+    layer,
+    data.segmentCount,
+    cameraGestureActive,
+  ), [cameraGestureActive, data.chunks, data.segmentCount, layer]);
 
   useEffect(() => {
-    const range = data.layerRanges[layer] ?? [0, 0];
-    data.geometry.setDrawRange(range[0], range[1]);
+    const selected = new Set(visibleChunks);
+    data.chunks.forEach((chunk, index) => {
+      // Keep the existing single-layer scrubber behavior until B3 replaces it
+      // with the inclusive dual-thumb range. Adaptive camera mode expands the
+      // active layer to nearby chunks only for large streams.
+      chunk.geometry.instanceCount = selected.has(index)
+        ? chunk.segmentCount
+        : 0;
+    });
     invalidate();
-  }, [data, layer, invalidate]);
+  }, [data.chunks, invalidate, layer, visibleChunks]);
+
+  useEffect(() => () => material.dispose(), [material]);
 
   return (
-    <lineSegments ref={ref} geometry={data.geometry} frustumCulled={false} renderOrder={1000}>
-      <lineBasicMaterial vertexColors depthTest={false} transparent opacity={0.95} />
-    </lineSegments>
+    <group renderOrder={1000}>
+      {data.chunks.map((chunk) => (
+        <mesh
+          key={`${chunk.firstSegment}:${chunk.segmentCount}`}
+          geometry={chunk.geometry}
+          material={material}
+          frustumCulled={false}
+          renderOrder={1000}
+        />
+      ))}
+    </group>
   );
 }

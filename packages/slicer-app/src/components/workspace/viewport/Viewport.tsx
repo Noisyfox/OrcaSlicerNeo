@@ -81,6 +81,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
   const sceneStateRef = useRef<RootState | null>(null);
   const cameraGestureActiveRef = useRef(false);
+  const [cameraGestureActive, setCameraGestureActiveState] = useState(false);
   const unsubscribeSceneInteractionRef = useRef<(() => void) | null>(null);
   const boxGestureRef = useRef<{
     pointerId: number;
@@ -132,6 +133,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
 
   const setCameraGestureActive = useCallback((active: boolean) => {
     cameraGestureActiveRef.current = active;
+    setCameraGestureActiveState(active);
     updateRaycastingEnabled();
   }, [updateRaycastingEnabled]);
 
@@ -337,6 +339,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
               controller={sceneInteraction}
               glVolumes={glVolumes}
               toolpath={toolpath}
+              cameraGestureActive={cameraGestureActive}
             />
             <ViewportFrameGate mode={activeTab} onRendered={() => onSceneFrameRendered?.(activeTab)} />
             <OrbitControls
