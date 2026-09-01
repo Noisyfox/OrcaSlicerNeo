@@ -462,14 +462,19 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       for (const [k, v] of Object.entries(metadata)) out[k] = { ...v };
       return out;
     },
-    orc_add_model(_ptr: number, len: number, _ext: string, displayName: string) {
+    orc_add_model(_ptr: number, len: number, ext: string, displayName: string) {
       if (len <= 0) return { error: 'no model bytes' };
       modelLoaded = true;
       objectTransforms.push(createObjectTransforms());
       objectVolumeTransforms.push(createObjectVolumeTransforms());
       objectMeta.push({
         id: nextObjectId++,
-        name: displayName || `Object ${objectTransforms.length}`,
+        // Keep the established STL mock labels distinct for object-list
+        // regressions.  DRC alone models its upstream filename behaviour,
+        // which is what the widened bridge call needs to assert.
+        name: ext.toLowerCase() === 'drc' && displayName
+          ? displayName
+          : `Object ${objectTransforms.length}`,
         printable: true,
       });
       volumeMeta.push(Array.from({ length: volumeCount }, (_, vi) => ({
