@@ -49,10 +49,12 @@
   in both the threaded and serial wasm64 artifacts.  The bridge may connect
   the existing model-import flow but must not reimplement DRC parsing.
 - Source Draco using the same dependency pattern as the existing WASM build:
-  download it into the untracked `.work/deps` directory, pin a version or
-  commit compatible with the current OrcaSlicer submodule, verify the download
-  with SHA-256, and build it from source for both wasm64 variants.  Do not add
-  a Draco Git submodule or use a runtime CDN.
+  download it into the untracked `.work/deps` directory and build it from
+  source for both wasm64 variants.  Pin the same source as the upstream
+  `cpp/deps/Draco/Draco.cmake` recipe: Draco 1.5.7 from
+  `https://github.com/google/draco/archive/refs/tags/1.5.7.zip`, verified with
+  SHA-256 `27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77`.
+  Do not add a Draco Git submodule or use a runtime CDN.
 
 ## Required validation gate
 
