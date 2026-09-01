@@ -22,6 +22,11 @@
 - Placement matches the current STL behaviour: centre the imported mesh on
   the XY origin, rest it on the bed, and do not perform collision avoidance or
   automatic arrangement.  Multiple imported models may overlap.
+- Interpret DRC position values as millimetres, exactly as STL input is
+  interpreted.  Preserve the source X/Y/Z axes and handedness without unit
+  conversion, axis swapping, mirroring, or rotation.  The loader may reverse
+  triangle winding only when needed to correct a negative signed volume; that
+  operation must not alter vertex coordinates.
 - Compatibility follows OrcaSlicer's DRC model-import behaviour.  Accept any
   valid Draco triangular-mesh file, including files not produced by
   OrcaSlicer.  Import only positions and triangular faces; colour, normals,
