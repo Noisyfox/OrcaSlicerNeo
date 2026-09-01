@@ -1,8 +1,6 @@
 # G-code Preview v2
 
-**Status:** Living major design specification — product scope and release
-decisions accepted; implementation sequencing and visual-reference verification
-remain in discovery.
+**Status:** Major design approved for phased implementation.
 
 **Started:** 2026-09-01
 
@@ -256,6 +254,27 @@ must reach its functional and performance release gates before Phase C begins.
 Phase C is a later independent increment on the accepted Preview data v2
 contract; it must not require replacement of the Phase-B renderer or controls.
 
+## Visual reference and approval
+
+The fixed native visual and interaction reference is the repository's existing
+engine baseline: `Noisyfox/OrcaSlicer` commit
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde`
+(`version_2.4.0-12323-gb97ca3c0ac`). Its dirty working tree is never part of
+the reference. Changing this reference requires an explicit specification
+update and approval.
+
+Visual approval has two complementary layers:
+
+- Web and Electron use repeatable same-renderer screenshot regressions for
+  preview controls and scene output.
+- Approved fixed-reference captures from native Orca guide manual visual
+  comparison of layout, colours, dimming, ranges, and information density.
+
+Native OpenGL output and browser WebGL output are not compared with a direct
+pixel-diff assertion: platform fonts, driver rendering, and rasterisation would
+make that noisy and misleading. A visual change is accepted when internal
+regressions pass and the approved reference comparison is reviewed.
+
 ## Product constraints retained from existing specifications
 
 - Prepare and Preview keep their shared Canvas, camera, resource lifetime, and
@@ -278,3 +297,8 @@ a full path rebuild. The benchmark fixtures must cover the two minimum
 performance baselines. Release verification continues to include the existing
 unit, typecheck, serial/threaded WASM build and smoke, Web threaded/serial E2E,
 and desktop E2E requirements.
+
+The fixture suite will include feature-rich single-material and multi-material
+reference slices as well as the ordinary and large performance cases. Fixture
+selection is a prerequisite to implementation and must be documented before
+the Phase-B bridge contract is changed.
