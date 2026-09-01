@@ -399,6 +399,10 @@
 - Electron e2e: the full flow clears via the context menu; an emptied plate
   shows the disabled menu item after Delete; Add Cube and the context-menu
   Add Model entry unlock Slice and (mock mode) report a 20 mm selectable box.
+- **DRC import delivered 2026-09-01:** the same Add Model flow accepts Draco
+  `.drc` meshes in Electron and Web through the upstream C++ loader and a
+  statically linked Draco 1.5.7 dependency.  The approved behavior and
+  release-gate evidence are in `spec/2026-09-01-drc-import-support.md`.
 
 ### Milestone 13 — Object List and Object Parts
 

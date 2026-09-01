@@ -17,7 +17,7 @@ import { createElectronPrinterTransport } from './electronPrinterTransport';
 import { createElectronWebViewHost } from './electronWebView';
 
 const MODEL_FILTERS: FileDialogFilter[] = [
-  { name: 'Models', extensions: ['stl', '3mf'] },
+  { name: 'Models', extensions: ['stl', '3mf', 'drc'] },
   { name: 'All files', extensions: ['*'] },
 ];
 

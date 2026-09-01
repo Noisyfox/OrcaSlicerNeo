@@ -39,6 +39,14 @@ await installProfilePackages(Module, createNodeProfileSource(profileRoot));
 // Heap pointers keep their Number form on the JS side (_malloc/_free are
 // wrapped to return/accept Numbers; HEAPU8.set needs a Number offset).
 function callJson(name, argTypes, args) {
+  // Keep the long-lived STL regression calls below source-compatible while
+  // exercising the current four-argument bridge contract.  Production JS
+  // always supplies the selected basename; legacy smoke calls intentionally
+  // use the bridge's safe fallback name.
+  if (name === 'orc_add_model' && args.length === 3) {
+    argTypes = [...argTypes, 'string'];
+    args = [...args, ''];
+  }
   const ptr = Number(Module.ccall(name, 'number', argTypes, args));
   const s = Module.UTF8ToString(ptr);
   Module._free(ptr);

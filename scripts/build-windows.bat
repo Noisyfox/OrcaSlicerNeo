@@ -117,7 +117,7 @@ echo             limit to one build tree.
 echo   shim      Regenerate the TBB/boost::thread/libnoise/libjpeg shim headers
 echo             ^(build.bat --shim-only^) after editing TBB_HEADERS in build.bat.
 echo   smoke     Run both harnesses against out\threaded and out\serial:
-echo             run-slice.mjs + bridge-smoke.mjs ^(--variant to limit^).
+echo             run-slice.mjs + bridge-smoke.mjs + drc-smoke.mjs ^(--variant to limit^).
 echo   test      vitest + typecheck for @orca/slicer-wasm and @orca/desktop.
 echo   dev       Launch the Electron app in dev mode ^(pnpm --filter @orca/desktop dev^).
 echo   e2e       Playwright Electron e2e ^(pnpm --filter @orca/desktop test:e2e^).
@@ -353,6 +353,8 @@ pushd "%PKG%"
 node harness\run-slice.mjs --module out\%SV%\orca_slice.js --stl fixtures\cube.stl --config fixtures\config.json
 if errorlevel 1 (popd & exit /b 1)
 node harness\bridge-smoke.mjs out\%SV%\orca_slice.js fixtures\cube.stl
+if errorlevel 1 (popd & exit /b 1)
+node harness\drc-smoke.mjs out\%SV%\orca_slice.js fixtures\drc
 set "RC=%errorlevel%"
 popd
 exit /b %RC%

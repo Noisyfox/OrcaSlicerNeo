@@ -46,6 +46,9 @@ TBB_ROOT="$WORK_DIR/deps/oneTBB-$WASM_TBB_COMMIT/stage-wasm64-pthreads"
 EIGEN_INCLUDE="${EIGEN_INCLUDE:-$WORK_DIR/deps/eigen-5.0.1}"
 BOOST_INCLUDE="${BOOST_INCLUDE:-$WORK_DIR/deps/boost-1.84.0}"
 CEREAL_INCLUDE="${CEREAL_INCLUDE:-$WORK_DIR/deps/cereal-1.3.0/include}"
+DRACO_ROOT="$WORK_DIR/deps/draco-1.5.7/stage-wasm64-$ARTIFACT_VARIANT"
+DRACO_INCLUDE="${DRACO_INCLUDE:-$DRACO_ROOT/include}"
+DRACO_ARCHIVE="${DRACO_ARCHIVE:-$DRACO_ROOT/lib/libdraco.a}"
 
 log()  { printf '\033[1;36m[wasm]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[wasm] WARNING:\033[0m %s\n' "$*" >&2; }
@@ -182,6 +185,11 @@ if [[ "$WASM_THREADING" != "0" && ! -f "$TBB_ROOT/lib/libtbb.a" ]]; then
   log "Building pinned oneTBB (wasm64 + pthreads)"
   bash "$PKG_DIR/build-onetbb.sh"
 fi
+if [[ ! -f "$DRACO_ARCHIVE" ]]; then
+  log "Building Draco 1.5.7 ($ARTIFACT_VARIANT wasm64)"
+  WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
+    bash "$PKG_DIR/build-draco-wasm64.sh"
+fi
 
 # ---------------- Version header (fork-derived) ----------------
 # Replaces the spike's static stub: version + commit hash come from the
@@ -230,6 +238,8 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DEIGEN_INCLUDE="$EIGEN_INCLUDE" \
   -DBOOST_INCLUDE="$BOOST_INCLUDE" \
   -DCEREAL_INCLUDE="$CEREAL_INCLUDE" \
+  -DDRACO_INCLUDE="$DRACO_INCLUDE" \
+  -DDRACO_ARCHIVE="$DRACO_ARCHIVE" \
   -DWASM_THREADING="$WASM_THREADING" \
   -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
   -DTBB_ROOT="$TBB_ROOT" \

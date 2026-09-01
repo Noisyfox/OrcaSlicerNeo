@@ -23,6 +23,8 @@ REM Versions match OrcaSlicer v2.4.2 deps/ recipes (cereal 1.3.x is API-compatib
 set "EIGEN_VER=5.0.1"
 set "BOOST_VER=1.84.0"
 set "CEREAL_VER=1.3.0"
+set "DRACO_VER=1.5.7"
+set "DRACO_SHA256=27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77"
 
 if not exist "%DEPS%" mkdir "%DEPS%"
 if not exist "%GEN%\openssl" mkdir "%GEN%\openssl"
@@ -144,6 +146,23 @@ if not exist "%DEPS%\cereal-%CEREAL_VER%\include\cereal" (
   )
 )
 
+REM ---- Draco (native C++ codec source; built separately per wasm variant) ----
+if not exist "%DEPS%\draco-%DRACO_VER%\CMakeLists.txt" (
+  echo [deps] Fetching Draco %DRACO_VER%
+  "%CURL%" -fsSL --retry 3 -o "%DEPS%\draco-%DRACO_VER%.zip" "https://github.com/google/draco/archive/refs/tags/%DRACO_VER%.zip"
+  if errorlevel 1 (
+    echo [deps] ERROR: Draco download failed.
+    exit /b 1
+  )
+  call :verify_draco_hash "%DEPS%\draco-%DRACO_VER%.zip"
+  if errorlevel 1 exit /b 1
+  tar -xf "%DEPS%\draco-%DRACO_VER%.zip" -C "%DEPS%"
+  if errorlevel 1 (
+    echo [deps] ERROR: Draco extract failed.
+    exit /b 1
+  )
+)
+
 REM ---- Generated / stub headers ----
 echo [deps] Writing generated + stub headers in .work\gen
 > "%GEN%\libslic3r_version.h" echo #ifndef __SLIC3R_VERSION_H
@@ -180,4 +199,13 @@ REM small MD5 implementation).
 >> "%GEN%\openssl\md5.h" echo #endif
 
 echo [deps] Done. deps in %DEPS%, generated headers in %GEN%
+exit /b 0
+
+:verify_draco_hash
+set "DRACO_ACTUAL_SHA256="
+for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%~1" SHA256') do if not defined DRACO_ACTUAL_SHA256 set "DRACO_ACTUAL_SHA256=%%H"
+if /i not "%DRACO_ACTUAL_SHA256%"=="%DRACO_SHA256%" (
+  echo [deps] ERROR: Draco SHA-256 mismatch.
+  exit /b 1
+)
 exit /b 0

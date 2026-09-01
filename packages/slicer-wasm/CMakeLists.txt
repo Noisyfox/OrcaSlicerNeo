@@ -91,7 +91,6 @@ set(DROP_PATTERNS
   "CutSurface"            # CGAL
   "MeshBoolean"           # CGAL boolean ops
   "/Format/STEP"          # OpenCASCADE
-  "/Format/DRC"           # Google Draco; load/store_drc stubbed in stubs/format-stubs.cpp
   "/Format/svg"           # SVG->mesh needs OpenCASCADE; load_svg stubbed in stubs/format-stubs.cpp
   "/Shape/TextShape"      # OCCT font->mesh; no kept callers
   "/Arrange.cpp"          # libnest2d bed arrangement (nlopt + boost::geometry deps)
@@ -134,6 +133,13 @@ foreach(dep EIGEN_INCLUDE BOOST_INCLUDE CEREAL_INCLUDE)
     target_include_directories(slic3r_core PUBLIC "${${dep}}")
   endif()
 endforeach()
+if(NOT DEFINED DRACO_INCLUDE OR "${DRACO_INCLUDE}" STREQUAL "" OR NOT EXISTS "${DRACO_INCLUDE}/draco")
+  message(FATAL_ERROR "DRACO_INCLUDE must name the staged Draco include directory.")
+endif()
+if(NOT DEFINED DRACO_ARCHIVE OR "${DRACO_ARCHIVE}" STREQUAL "" OR NOT EXISTS "${DRACO_ARCHIVE}")
+  message(FATAL_ERROR "DRACO_ARCHIVE must name the staged Draco static archive.")
+endif()
+target_include_directories(slic3r_core PUBLIC "${DRACO_INCLUDE}")
 # In-tree vendored deps (deps_src/ inside the submodule) — the spike's proven
 # include set from its per-file compile recipe.
 target_include_directories(slic3r_core PUBLIC
@@ -342,7 +348,7 @@ if(WASM_DEBUG)
 else()
   target_compile_options(orca_slice PRIVATE -fexceptions)
 endif()
-target_link_libraries(orca_slice PRIVATE slic3r_core deps_core)
+target_link_libraries(orca_slice PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
 if(WASM_THREADING)
   target_link_libraries(orca_slice PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
 endif()

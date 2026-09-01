@@ -68,12 +68,21 @@ export async function runSlice({ createModule, stagedFiles, mainArgs, outputPath
 // (the C++ side can never open it inside its virtual FS — config.load() gets
 // an empty stream and dies with "parse error ... unexpected end of input")
 // fails the self-test instead of the next 40-minute CI cycle.
-export function buildSliceArgs(stlPath, configPath, out = '/out.gcode') {
+export function buildSliceArgs(modelPath, configPath, out = '/out.gcode') {
   const configName = configPath.split(/[\\/]/).pop();
+  const modelName = modelPath.split(/[\\/]/).pop() ?? 'model.stl';
+  // Model::read_from_file selects the decoder from the staged filename, so
+  // retain the source extension instead of always writing /model.stl.  This
+  // keeps the original STL call surface while letting the CLI harness cover
+  // other native formats such as DRC.
+  const extension = modelName.match(/(\.[A-Za-z0-9]+)$/)?.[1].toLowerCase() ?? '.stl';
+  const modelMemfsPath = `/model${extension}`;
   return {
-    stlMemfsPath: '/model.stl',
+    modelMemfsPath,
+    // Compatibility alias for callers of the original STL-only helper.
+    stlMemfsPath: modelMemfsPath,
     configMemfsPath: `/${configName}`,
-    mainArgs: ['/model.stl', `/${configName}`, out],
+    mainArgs: [modelMemfsPath, `/${configName}`, out],
   };
 }
 
@@ -134,10 +143,10 @@ function parseArgs(args) {
 
 async function main() {
   const opts = parseArgs(argv.slice(2));
-  const { module, stl, config, out = '/out.gcode', loglevel = 'info' } = opts;
-  if (!module || !stl || !config) {
+  const { module, model = opts.stl, config, out = '/out.gcode', loglevel = 'info' } = opts;
+  if (!module || !model || !config) {
     console.error(
-      'usage: node run-slice.mjs --module out/orca_slice.js --stl fixtures/cube.stl --config fixtures/config.json [--loglevel trace|debug|info|warning|error|fatal]'
+      'usage: node run-slice.mjs --module out/orca_slice.js --model fixtures/cube.stl --config fixtures/config.json [--loglevel trace|debug|info|warning|error|fatal]'
     );
     process.exit(2);
   }
@@ -152,17 +161,17 @@ async function main() {
 
   // Fixture paths must be absolutized BEFORE loadModuleFactory chdirs —
   // resolve() against the old CWD would silently join the module dir instead.
-  const stlPath = resolve(stl);
+  const modelPath = resolve(model);
   const configPath = resolve(config);
   const factory = await loadModuleFactory(module);
   // The BBS fork of libslic3r only loads .json configs (load_from_ini was
   // removed); stage the config under its real basename so is_json_file()
   // picks it up. e.g. --config fixtures/config.json -> /config.json.
-  const inv = buildSliceArgs(stlPath, configPath, out);
+  const inv = buildSliceArgs(modelPath, configPath, out);
   const result = await runSlice({
     createModule: factory,
     stagedFiles: {
-      [inv.stlMemfsPath]: await readFile(stlPath),
+      [inv.modelMemfsPath]: await readFile(modelPath),
       [inv.configMemfsPath]: await readFile(configPath),
     },
     mainArgs: inv.mainArgs,

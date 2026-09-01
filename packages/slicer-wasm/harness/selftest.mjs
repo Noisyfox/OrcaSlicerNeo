@@ -21,6 +21,9 @@ for (const arg of inv.mainArgs) {
 assert.equal(inv.mainArgs[1], '/config.json');
 assert.equal(inv.configMemfsPath, '/config.json');
 assert.equal(inv.stlMemfsPath, '/model.stl');
+const drcInv = buildSliceArgs('C:/repo/fixtures/cube_att.drc', 'C:/repo/fixtures/config.json');
+assert.equal(drcInv.modelMemfsPath, '/model.drc');
+assert.equal(drcInv.mainArgs[0], '/model.drc');
 
 const result = await runSlice({
   createModule: createMockModule,

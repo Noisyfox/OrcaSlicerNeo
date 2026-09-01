@@ -11,6 +11,7 @@ describe('browser adapter', () => {
     vi.spyOn(document, 'createElement').mockReturnValue(input);
     const result = await createBrowserAdapter({} as never).models.pick();
     expect(click).toHaveBeenCalled();
+    expect(input.accept).toBe('.stl,.3mf,.drc');
     expect(result?.displayName).toBe('cube.stl');
     expect([...result!.bytes]).toEqual([1, 2]);
   });

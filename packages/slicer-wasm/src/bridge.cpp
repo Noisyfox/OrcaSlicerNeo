@@ -110,6 +110,20 @@ const char* error_json(const std::string& msg) {
     return dup_json(json{{"error", msg}}.dump());
 }
 
+std::string sanitized_model_basename(const char* filename, const char* ext) {
+    std::string name = filename ? filename : "";
+    const auto slash = name.find_last_of("\\/");
+    if (slash != std::string::npos) name.erase(0, slash + 1);
+    for (char& c : name) {
+        const unsigned char uc = static_cast<unsigned char>(c);
+        if (!(std::isalnum(uc) || c == '.' || c == '_' || c == '-')) c = '_';
+    }
+    std::string fallback_ext = ext && *ext ? ext : "stl";
+    if (name.empty() || name == "." || name == "..") name = "uploaded_model." + fallback_ext;
+    if (name.find_last_of('.') == std::string::npos) name += "." + fallback_ext;
+    return name;
+}
+
 // SlicingErrors' what() is just the category "Errors" (Exception.hpp:44) —
 // the real per-object messages live in its errors_ vector (GCode.cpp:
 // collect_layers_to_print aggregates per-object SlicingErrors and rethrows).
@@ -645,11 +659,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_option_metadata() {
 
 // Model bytes arrive in the WASM heap (JS: _malloc + HEAPU8 + _free).
 // Stage them to a MEMFS file so the format loaders can open a real path.
-EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const char* ext) {
+EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const char* ext, const char* filename) {
     try {
         if (!data || len <= 0) return error_json("no model bytes");
-        const std::string path =
-            "/tmp/uploaded_model." + std::string(ext && *ext ? ext : "stl");
+        const std::string path = "/tmp/" + sanitized_model_basename(filename, ext);
         std::FILE* f = std::fopen(path.c_str(), "wb");
         if (!f) return error_json("cannot open /tmp for model upload");
         std::fwrite(data, 1, size_t(len), f);

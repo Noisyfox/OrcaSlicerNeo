@@ -51,13 +51,14 @@ export async function addModel(
   const file = await platform.models.pick();
   if (!file) return;
   try {
-    const ext = file.displayName.split('.').pop() ?? 'stl';
+    const ext = (file.displayName.split('.').pop() ?? 'stl').toLowerCase();
     await commitAdded(platform, sceneInteraction, file.displayName,
-      () => platform.runtime.addModel(file.bytes, ext));
+      () => platform.runtime.addModel(file.bytes, ext, file.displayName));
   } catch (err) {
     // errorText unwraps "Error: <msg>" (String(err)); the status bar
     // already prefixes "Error" (StatusBar statusText).
-    useSlicerStore.getState().setError(errorText(err));
+    const ext = (file.displayName.split('.').pop() ?? '').toLowerCase();
+    useSlicerStore.getState().setError(ext === 'drc' ? 'Unable to import DRC file' : errorText(err));
     console.error('add model failed:', err);
   }
 }

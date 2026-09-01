@@ -163,6 +163,9 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 
 - [x] Toolbar model import is labeled **Add Model** and appends files to the
       current scene.
+- [x] Native `.drc` import follows the same Add Model flow in Electron and
+      Web, using upstream Draco 1.5.7 decoding in both wasm64 variants; see
+      [`2026-09-01-drc-import-support.md`](2026-09-01-drc-import-support.md).
 - [x] **Clear Scene** explicitly resets the WASM model, slicer result,
       renderer collection, and selection.
 

@@ -12,6 +12,10 @@ const DESKTOP_ROOT = resolve(__dirname, '..');
 const MODEL_PATH = process.env.ORCA_E2E_MODEL
   ? resolve(process.env.ORCA_E2E_MODEL)
   : resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
+const DRC_MODEL_PATH = resolve(
+  DESKTOP_ROOT,
+  '../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc',
+);
 const REAL = process.env.ORCA_E2E_REAL === '1';
 const MODEL_COUNT = Math.max(1, Number.parseInt(process.env.ORCA_E2E_MODEL_COUNT ?? '1', 10) || 1);
 // Creality's bed has no Bambu exclusion zones, making cube.stl a stable
@@ -78,13 +82,19 @@ interface LaunchResult {
   exportPath: string;
 }
 
-async function launchApp({ initialTab = 'prepare' }: { initialTab?: 'home' | 'prepare' } = {}): Promise<LaunchResult> {
+async function launchApp({
+  initialTab = 'prepare',
+  modelPath = MODEL_PATH,
+}: {
+  initialTab?: 'home' | 'prepare';
+  modelPath?: string;
+} = {}): Promise<LaunchResult> {
   const exportDir = mkdtempSync(join(tmpdir(), 'orca-e2e-'));
   const exportPath = join(exportDir, 'out.gcode');
   const env = {
     ...process.env,
     ORCA_E2E: '1',
-    ORCA_E2E_MODEL: MODEL_PATH,
+    ORCA_E2E_MODEL: modelPath,
     ORCA_E2E_EXPORT: exportPath,
   } as Record<string, string>;
   // Ambient shells sometimes carry ELECTRON_RUN_AS_NODE=1, which forces
@@ -338,6 +348,29 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
       await diag.dump();
       throw err;
     }
+  } finally {
+    await app.close();
+  }
+});
+
+// Keep the DRC regression independently scoped: this verifies the complete
+// real Electron path without changing the 20 mm STL geometry assumptions in
+// the broader desktop regression suite.
+test('real DRC flow: import → slice → export gcode', async () => {
+  test.skip(!REAL, 'the production DRC path needs real wasm64 artifacts');
+  const { app, exportPath } = await launchApp({ modelPath: DRC_MODEL_PATH });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await expect(page.getByTestId('viewport')).toBeVisible();
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await page.getByTestId('btn-export').click();
+    await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
+    expect(readFileSync(exportPath, 'utf8')).toContain('G1');
   } finally {
     await app.close();
   }

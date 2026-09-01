@@ -6,7 +6,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 // This suite intentionally has no mock mode. The staging step must have
 // published both real wasm64 variants before either invocation is run.
-test('real Web flow: import → profile → slice → layer → G-code download', async ({ page }) => {
+test('real Web flow: import DRC → profile → slice → layer → G-code download', async ({ page }) => {
   await page.addInitScript(() => {
     const opened: string[] = [];
     (window as unknown as { __orcaOpenedSources: string[] }).__orcaOpenedSources = opened;
@@ -57,7 +57,10 @@ test('real Web flow: import → profile → slice → layer → G-code download'
 
   const chooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
-  await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await (await chooser).setFiles(resolve(
+    here,
+    '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc',
+  ));
   await expect(page.getByTestId('btn-slice')).toBeEnabled();
   await page.getByTestId('menu-file-trigger').click();
   await expect(page.getByTestId('file-clear-scene')).toBeEnabled();

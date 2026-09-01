@@ -357,7 +357,7 @@ export interface SlicerClient {
   getPresetSnapshot(): Promise<PresetSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
-  addModel(bytes: Uint8Array, ext: string): Promise<LoadModelResult>;
+  addModel(bytes: Uint8Array, ext: string, displayName?: string): Promise<LoadModelResult>;
   /** Add an OrcaSlicer primitive to the current scene, exactly like its
    *  Add Cube: the bridge mirrors ObjectList::load_shape_object →
    *  create_mesh → load_mesh_object, building the mesh in the engine
