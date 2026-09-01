@@ -40,7 +40,8 @@ for (let i = 0; i < count; ++i) {
   const ptr = Number(Module._malloc(bytes.length));
   try {
     Module.HEAPU8.set(bytes, ptr);
-    const added = callJson('orc_add_model', ['pointer', 'number', 'string'], [ptr, bytes.length, 'stl']);
+    const added = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                           [ptr, bytes.length, 'stl', 'model.stl']);
     if (!added.ok || added.objects !== i + 1)
       throw new Error(`add ${i + 1} failed: ${JSON.stringify(added)}`);
   } finally {

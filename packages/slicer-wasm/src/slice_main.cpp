@@ -5,7 +5,7 @@
 // libslic3r's public API, avoiding OrcaSlicer's GUI-entangled CLI. Driven from
 // Node (harness/run-slice.mjs) through Emscripten MEMFS + callMain.
 //
-// Usage:  orca_slice <model.stl> <config.json> <out.gcode>
+// Usage:  orca_slice <model-file> <config.json> <out.gcode>
 //
 // The libslic3r API is version-sensitive across the Slic3r/Prusa/Orca lineage;
 // this targets the pinned ORCA_REF and is the expected place to adjust call
@@ -29,7 +29,7 @@ int main(int argc, char** argv) {
   wasm_log::init_with_level(wasm_log::level_from_js_global());
 
   if (argc < 4) {
-    std::fprintf(stderr, "usage: orca_slice <model.stl> <config.json> <out.gcode>\n");
+    std::fprintf(stderr, "usage: orca_slice <model-file> <config.json> <out.gcode>\n");
     return 2;
   }
   const std::string model_path = argv[1];

@@ -33,8 +33,13 @@ describe('Electron adapter', () => {
   });
 
   it('maps native import success to display name and bytes', async () => {
-    const { adapter } = setup({ openFileDialog: vi.fn(async () => ({ canceled: false, path: 'C:\\models\\cube.stl' })), readFile: vi.fn(async () => Uint8Array.from([1, 2]).buffer) });
-    await expect(adapter.models.pick()).resolves.toEqual({ displayName: 'cube.stl', bytes: Uint8Array.from([1, 2]) });
+    const openFileDialog = vi.fn(async () => ({ canceled: false, path: 'C:\\models\\cube.drc' }));
+    const { adapter } = setup({ openFileDialog, readFile: vi.fn(async () => Uint8Array.from([1, 2]).buffer) });
+    await expect(adapter.models.pick()).resolves.toEqual({ displayName: 'cube.drc', bytes: Uint8Array.from([1, 2]) });
+    expect(openFileDialog).toHaveBeenCalledWith([
+      { name: 'Models', extensions: ['stl', '3mf', 'drc'] },
+      { name: 'All files', extensions: ['*'] },
+    ]);
   });
 
   it('returns cancellation without reading a file', async () => {

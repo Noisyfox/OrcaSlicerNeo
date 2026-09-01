@@ -98,12 +98,15 @@ describe('SlicerClient bridge contract', () => {
     expect(m.sparse_infill_pattern?.enum_values).toContain('grid');
   });
 
-  it('addModel stages bytes and reports objects', async () => {
+  it('addModel stages bytes, preserves the selected basename, and reports objects', async () => {
     const c = makeClient();
     const bytes = new Uint8Array([1, 2, 3, 4]);
-    const r = await c.addModel(bytes, 'stl');
+    const r = await c.addModel(bytes, 'drc', 'cube_att.drc');
     expect(r.ok).toBe(true);
     expect(r.objects).toBe(1);
+    await expect(c.getModelStructure()).resolves.toMatchObject({
+      objects: [{ name: 'cube_att.drc' }],
+    });
   });
 
   it('addShape builds every primitive with the engine tessellation', async () => {
