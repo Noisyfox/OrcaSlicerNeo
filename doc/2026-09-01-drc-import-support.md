@@ -1,6 +1,6 @@
 # DRC Import Support
 
-**Status:** Discovery — implementation not started
+**Status:** Design ready for approval — implementation not started
 
 ## Accepted product behaviour
 
@@ -97,6 +97,62 @@
   to the rest of libslic3r and Boost.Log, which were outside the probe.
 - Continue with the direct upstream implementation; no fallback patch or
   replacement adapter is needed based on this validation.
+
+## Implementation plan
+
+1. **Stage Draco for both wasm64 variants.** Extend `fetch-deps.sh` and its
+   cmd-native `.bat` counterpart to download the pinned archive into
+   `.work/deps`, validate its SHA-256 before extraction, and retain no
+   downloaded source in the repository.  Add matching `build-draco-wasm64`
+   shell and cmd-native scripts, modelled on the existing oneTBB dependency
+   build.  They build the complete `draco_static` archive separately for the
+   serial and threaded variants, with `-m64` (and `-pthread` for threaded),
+   `DRACO_JS_GLUE=OFF`, and tests disabled.  The scripts stage the source
+   headers, CMake-generated `draco_features.h`, and `libdraco.a` under the
+   variant's untracked dependency directory.
+2. **Restore the upstream format in the WASM build.** In
+   `packages/slicer-wasm/CMakeLists.txt`, remove only the DRC exclusion,
+   require the staged Draco include/archive paths, add both source and
+   generated include roots to `slic3r_core`, and link `draco_static` into the
+   final module.  Remove only the DRC stand-ins from
+   `stubs/format-stubs.cpp`; retain the unrelated SVG stubs.  No submodule
+   file and no upstream `DRC.cpp` source is edited.
+3. **Preserve the selected-file name through the existing bridge.** Extend the
+   typed `SlicerClient.addModel`/Worker request and the `orc_add_model` bridge
+   call with a sanitized basename in addition to the extension.  Stage bytes
+   at `/tmp/<sanitized-basename>` (with a safe extension fallback), never a
+   host path.  This lets upstream STL and DRC naming run unchanged, while 3MF
+   keeps its project-defined names.  Keep the current temporary-model parse,
+   post-load centring/bed placement, and append-on-success sequence.
+4. **Expose the same picker capability in both hosts.** Pass the existing
+   `ModelFile.displayName` from shared scene actions to the runtime, and add
+   `drc` to the Electron model filter and Web input `accept` list.  No new
+   platform contract, picker route, host privilege, or UI surface is needed.
+   Map a returned DRC-load failure to the agreed generic UI message while
+   retaining the original bridge/Draco diagnostic in worker logs.
+5. **Add a compact, attributable fixture set and layered verification.** Store
+   the approved four Google Draco 1.5.7 fixtures with their notice.  Extend
+   the bridge smoke harness to import the three mesh fixtures, check object
+   structure, vertex/index counts and bounding boxes, check filename
+   propagation for both DRC and STL, verify DRC append/failed-import atomicity,
+   and slice one imported DRC to non-empty G-code.  Add mock-client and shared
+   action tests for the widened filename argument and generic DRC error.
+   Extend the real Electron and real Web threaded/serial Playwright flows to
+   select a DRC fixture, render it, and slice it.  Point cloud and test-time
+   truncation cover the agreed rejection paths.
+
+## Delivery sequence
+
+- Commit 1: reproducible Draco fetch/build and CMake restoration, verified by
+  a serial and threaded quick WASM build plus the existing smoke harness.
+- Commit 2: bridge/client basename propagation and both host picker filters,
+  verified by focused unit tests, typecheck, and the existing Electron mock
+  E2E.
+- Commit 3: licensed fixtures and native/real-artifact DRC coverage,
+  verified by both bridge-smoke variants, real Electron E2E, and real Web
+  threaded and serial E2E.
+- Before handoff, run the repository-required `pnpm test`, `pnpm typecheck`,
+  dual-variant quick WASM build, and desktop E2E; report every actual result.
 
 ## Acceptance requirements
 
