@@ -58,6 +58,10 @@
 - Compile the complete upstream Draco encoder and decoder library.  The first
   product delivery exposes import only, but retaining the complete library
   avoids splitting or stubbing the upstream `DRC.cpp` translation unit.
+- Configure the native static-library build with `DRACO_JS_GLUE=OFF`; its
+  generated JavaScript wrapper is not used by this C++ integration.  Draco
+  1.5.7 also requires the Emscripten directory in the `EMSCRIPTEN` environment
+  variable while configuring.
 
 ## Required validation gate
 
@@ -68,6 +72,19 @@
 - If that validation fails, stop work and request a new decision.  Do not
   patch the upstream DRC implementation or introduce a replacement adapter
   without explicit approval.
+
+## Feasibility result
+
+- The required gate passed in an isolated 2026-09-01 probe.  A wasm64 program
+  using the existing Boost `mapped_file_source` successfully read a MEMFS
+  file.  Draco 1.5.7 built as a complete static library for both serial
+  (`-m64`) and threaded (`-m64 -pthread`) configurations.
+- The unmodified upstream `Format/DRC.cpp` compiled as wasm64 against that
+  library.  An isolated link probe resolved its Draco and Boost.Iostreams
+  dependencies; its only deliberately tolerated unresolved symbols belonged
+  to the rest of libslic3r and Boost.Log, which were outside the probe.
+- Continue with the direct upstream implementation; no fallback patch or
+  replacement adapter is needed based on this validation.
 
 ## Acceptance requirements
 
