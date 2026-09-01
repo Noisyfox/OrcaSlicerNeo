@@ -12,6 +12,10 @@
   DRC file from outside the application.
 - An imported DRC is appended to the current plate.  It never replaces the
   existing scene.
+- A single DRC triangular mesh becomes one model object with one volume, even
+  when its triangle set contains disconnected shells.  Do not automatically
+  split it into separate objects or volumes; this matches the existing STL
+  path and upstream DRC loader.
 - Preserve OrcaSlicer source-name behaviour for every model format.  Pass a
   sanitized selected-file basename to the existing loader as its MEMFS staging
   filename instead of always using `uploaded_model.<ext>`.  This gives STL and
