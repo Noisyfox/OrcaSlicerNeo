@@ -1,7 +1,7 @@
 # G-code Preview v2 implementation plan
 
 **Date:** 2026-09-01
-**Status:** B0 accepted; later steps queued behind acceptance gates
+**Status:** B1 self-verified; awaiting parent acceptance
 **Scope:** Repository-owned fixtures, Preview data v2, the shared Web/Electron
 renderer, and the read-only Phase-C inspection increment
 
@@ -139,6 +139,41 @@ B1 passes only when both variants expose the same typed contract, the focused
 tests and real smoke are green (or a documented toolchain blocker is recorded),
 and the existing v1 result path remains green. B2 cannot start on a mock-only
 contract.
+
+#### B1 implementation record
+
+The bridge now emits `preview_version: 2` with explicit continuous segments
+(`start`/`end` xyz plus layer, per-layer move order, source G-code id, move
+type, extrusion role, tool, colour-print id, width and height) in parallel
+typed buffers. The result metadata carries result identity, source filename,
+layer ranges/Z values, feature palette, and source-line availability without
+copying G-code text. The bridge exposes all metrics available from the pinned
+`GCodeProcessorResult`; the client treats each metric as optional and omits it
+when its pointer is absent. The typed client copies each heap allocation and
+frees it exactly once. Worker responses transfer each distinct ArrayBuffer once
+and retain compatibility aliases for the pre-v2 endpoint client until B2's
+renderer migration.
+
+Mock fixtures cover segment continuity, array lengths, layer/move indexes,
+palettes, optional metric omission/presence, metadata, and Worker transfer
+ownership. `bridge-smoke.mjs` asserts the same v2 fields against both real
+serial and threaded artifacts.
+
+Actual B1 verification (2026-09-01):
+
+- `pnpm --filter @orca/slicer-wasm typecheck` — passed.
+- `pnpm --filter @orca/slicer-wasm test` — passed (78 tests).
+- `git diff --check` — passed.
+- `scripts\\build-windows.bat quick` — passed; rebuilt/staged threaded and
+  serial wasm64 artifacts.
+- `node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json` — passed.
+- Same `run-slice.mjs` command with `out/threaded/orca_slice.js` — passed.
+- `node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js packages/slicer-wasm/fixtures/cube.stl` — passed, including v2 SoA/continuity/metric assertions.
+- Same `bridge-smoke.mjs` command with `out/threaded/orca_slice.js` — passed,
+  including v2 SoA/continuity/metric assertions.
+
+The full workspace `pnpm test` and `pnpm typecheck` remain parent-level release
+checks. No native G-code result is claimed beyond the two bridge smoke runs.
 
 ### B2 — GPU extrusion-band renderer and chunking
 

@@ -1745,17 +1745,33 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
     }
 }
 
-// Binary toolpath + stats. Contract mirrors the Task 1 mock; JS reads the
-// heap buffers and _free()s the pointers.
+// Binary preview result. v2 publishes explicit continuous segments as
+// structure-of-arrays buffers. The returned pointers are transferred exactly
+// once to the Worker client; that client copies each array and frees the
+// corresponding heap allocation immediately (the JSON itself is freed by the
+// normal callJson path).
 EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     try {
         auto& print = state().print;
-        if (print.objects().empty())
-            return dup_json(json{{"ok", true}, {"objects", 0}, {"layers", 0},
-                                 {"toolpath", json{{"vertex_ptr", 0}, {"vertex_count", 0},
-                                                   {"layer_ptr", 0}, {"layer_count", 0},
-                                                   {"feature_ptr", 0}, {"feature_count", 0},
-                                                   {"features", json::array()}}}}.dump());
+        if (print.objects().empty()) {
+            json empty_toolpath{{"segment_count", 0},
+                                {"starts_ptr", 0}, {"ends_ptr", 0},
+                                {"layer_id_ptr", 0}, {"move_order_ptr", 0},
+                                {"gcode_id_ptr", 0}, {"move_type_ptr", 0},
+                                {"extrusion_role_ptr", 0}, {"extruder_id_ptr", 0},
+                                {"color_print_id_ptr", 0}, {"width_ptr", 0}, {"height_ptr", 0},
+                                // v1 aliases, retained until the renderer
+                                // migration is complete.
+                                {"vertex_ptr", 0}, {"vertex_count", 0},
+                                {"layer_ptr", 0}, {"layer_count", 0},
+                                {"feature_ptr", 0}, {"feature_count", 0},
+                                {"features", json::array()}, {"metrics", json::object()}};
+            return dup_json(json{{"ok", true}, {"preview_version", 2},
+                                 {"objects", 0}, {"layers", 0},
+                                 {"metadata", json{{"result_id", 0}, {"layer_ranges", json::array()},
+                                                    {"feature_palette", json::array()}}},
+                                 {"toolpath", std::move(empty_toolpath)}}.dump());
+        }
 
         // The toolpath comes from post-processing the exported gcode
         // (GCodeProcessor::process_file — the GUI's own mechanism). Export
@@ -1777,30 +1793,89 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         const size_t layers = tp.layerCount;
 
         // Feature palette (local id → name/color). build_toolpath assigns
-        // ids 0..N-1 in order of first use; the features buffer holds those
-        // ids, so this list lines up 1:1.
+        // ids 0..N-1 in order of first use; the compatibility feature buffer
+        // and the v2 extrusion_roles array both remain stable across calls.
         json features = json::array();
+        json feature_palette = json::array();
         for (const auto& [role, info] : tp.palette_used) {
-            (void)role;
-            features.push_back({{"id", static_cast<int>(features.size())},
-                                {"name", info.name},
+            const auto id = static_cast<int>(features.size());
+            features.push_back({{"id", id}, {"name", info.name},
                                 {"color", {info.color[0], info.color[1], info.color[2]}}});
+            feature_palette.push_back({{"id", id}, {"role", static_cast<unsigned>(role)},
+                                       {"name", info.name},
+                                       {"color", {info.color[0], info.color[1], info.color[2]}}});
         }
 
+        json layer_ranges = json::array();
+        for (const auto& range : tp.layer_ranges)
+            if (range.count > 0)
+                layer_ranges.push_back({{"id", range.id}, {"z", range.z},
+                                         {"first_segment", range.first},
+                                         {"segment_count", range.count}});
+
+        auto ptr = [](const MallocBuffer& buffer) -> std::uintptr_t {
+            return reinterpret_cast<std::uintptr_t>(buffer.data);
+        };
+        json metrics = {
+            {"feedrate", { {"ptr", ptr(tp.feedrates)}, {"count", tp.segmentCount} }},
+            {"actual_feedrate", { {"ptr", ptr(tp.actual_feedrates)}, {"count", tp.segmentCount} }},
+            {"volumetric_flow", { {"ptr", ptr(tp.volumetric_flows)}, {"count", tp.segmentCount} }},
+            {"actual_volumetric_flow", { {"ptr", ptr(tp.actual_volumetric_flows)}, {"count", tp.segmentCount} }},
+            {"fan_speed", { {"ptr", ptr(tp.fan_speeds)}, {"count", tp.segmentCount} }},
+            {"temperature", { {"ptr", ptr(tp.temperatures)}, {"count", tp.segmentCount} }},
+            {"pressure_advance", { {"ptr", ptr(tp.pressure_advances)}, {"count", tp.segmentCount} }},
+            {"acceleration", { {"ptr", ptr(tp.accelerations)}, {"count", tp.segmentCount} }},
+            {"jerk", { {"ptr", ptr(tp.jerks)}, {"count", tp.segmentCount} }},
+            {"time", { {"ptr", ptr(tp.times)}, {"count", tp.segmentCount} }},
+            {"layer_duration", { {"ptr", ptr(tp.layer_durations)}, {"count", tp.segmentCount} }},
+        };
+
         // wasm64: heap pointers as uintptr_t (see orc_get_model_mesh).
-        const std::uintptr_t tvptr = reinterpret_cast<std::uintptr_t>(tp.positions.data);
+        const std::uintptr_t tvptr = ptr(tp.positions);
+        const std::uintptr_t ts = ptr(tp.starts);
+        const std::uintptr_t te = ptr(tp.ends);
         const std::uintptr_t tlptr = reinterpret_cast<std::uintptr_t>(tp.layers.data);
         const std::uintptr_t tfptr = reinterpret_cast<std::uintptr_t>(tp.features.data);
         const size_t n_verts = tp.positions.size / 12;
-        tp.positions.release(); tp.layers.release(); tp.features.release();
 
-        json out{{"ok", true}, {"objects", print.objects().size()}, {"layers", layers}};
+        json out{{"ok", true}, {"preview_version", 2},
+                 {"objects", print.objects().size()}, {"layers", layers}};
+        out["metadata"] = {
+            {"result_id", gcode_result.id}, {"source_filename", gcode_result.filename},
+            {"layer_ranges", std::move(layer_ranges)},
+            {"feature_palette", std::move(feature_palette)},
+            // Full G-code text is intentionally not copied. gcode_ids are
+            // source-line identifiers; lines_ends records that source mapping
+            // is available for a future chunked text API.
+            {"source_line_mapping", json{{"available", !gcode_result.lines_ends.empty()},
+                                           {"line_count", gcode_result.lines_ends.size()}}},
+        };
         out["toolpath"] = {
+            {"segment_count", tp.segmentCount},
+            {"starts_ptr", ts}, {"ends_ptr", te},
+            {"layer_id_ptr", ptr(tp.layers)}, {"move_order_ptr", ptr(tp.move_orders)},
+            {"gcode_id_ptr", ptr(tp.gcode_ids)}, {"move_type_ptr", ptr(tp.move_types)},
+            {"extrusion_role_ptr", ptr(tp.extrusion_roles)},
+            {"extruder_id_ptr", ptr(tp.extruders)},
+            {"color_print_id_ptr", ptr(tp.color_prints)},
+            {"width_ptr", ptr(tp.widths)}, {"height_ptr", ptr(tp.heights)},
+            {"metrics", std::move(metrics)},
             {"vertex_ptr", tvptr}, {"vertex_count", n_verts},
-            {"layer_ptr", tlptr}, {"layer_count", n_verts},
+            {"layer_ptr", ptr(tp.layers)}, {"layer_count", n_verts},
             {"feature_ptr", tfptr}, {"feature_count", n_verts},
             {"features", std::move(features)},
         };
+        // Every pointer above is released after it has been recorded. JS now
+        // owns the corresponding bytes and must _free() each exactly once.
+        tp.starts.release(); tp.ends.release(); tp.positions.release();
+        tp.layers.release(); tp.move_orders.release(); tp.gcode_ids.release();
+        tp.move_types.release(); tp.extrusion_roles.release(); tp.extruders.release();
+        tp.color_prints.release(); tp.widths.release(); tp.heights.release();
+        tp.features.release(); tp.feedrates.release(); tp.actual_feedrates.release();
+        tp.volumetric_flows.release(); tp.actual_volumetric_flows.release();
+        tp.fan_speeds.release(); tp.temperatures.release(); tp.pressure_advances.release();
+        tp.accelerations.release(); tp.jerks.release(); tp.times.release();
+        tp.layer_durations.release();
         return dup_json(out.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());

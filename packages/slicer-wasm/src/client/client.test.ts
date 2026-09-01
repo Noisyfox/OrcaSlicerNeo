@@ -793,6 +793,48 @@ describe('SlicerClient bridge contract', () => {
     expect(r.toolpath.features.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('decodes continuous v2 segments, indexes, palettes and metadata', async () => {
+    const c = createClient(async () => createMockModule({
+      sliceFixture: {
+        layers: 2, toolpathVertices: 4,
+        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }, { id: 1, name: 'Infill', color: [0, 0, 255] }],
+        extruderPalette: [{ id: 0, name: 'Red PLA', color: [255, 0, 0], tool: 0 }],
+        resultId: 42,
+        optionalMetrics: { feedrate: [10, 20, 30, 40], volumetric_flow: [1, 2, 3, 4] },
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const r = await c.getSliceResult();
+    const t = r.toolpath;
+    expect(t.segmentCount).toBe(4);
+    expect(t.starts.length).toBe(12);
+    expect(t.ends.length).toBe(12);
+    for (let i = 1; i < t.segmentCount; i++)
+      expect(Array.from(t.starts.slice(i * 3, i * 3 + 3))).toEqual(Array.from(t.ends.slice((i - 1) * 3, i * 3)));
+    expect(t.layerIds.length).toBe(4);
+    expect(t.moveOrders).toEqual(new Uint32Array([0, 1, 0, 1]));
+    expect(t.gcodeIds).toEqual(new Uint32Array([1, 2, 3, 4]));
+    expect(t.widths[1]).toBeCloseTo(0.45);
+    expect(t.metrics.feedrate).toEqual(new Float32Array([10, 20, 30, 40]));
+    expect(t.metrics.actualFeedrate).toBeUndefined();
+    expect(r.metadata.resultId).toBe(42);
+    expect(r.metadata.layerRanges).toHaveLength(2);
+    expect(r.metadata.extruderPalette?.[0].tool).toBe(0);
+  });
+
+  it('omits unavailable optional metrics while preserving required arrays', async () => {
+    const c = createClient(async () => createMockModule({
+      sliceFixture: { layers: 1, toolpathVertices: 2, features: [{ id: 0, name: 'Travel', color: [1, 2, 3] }] },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const r = await c.getSliceResult();
+    expect(r.toolpath.segmentCount).toBe(2);
+    expect(r.toolpath.metrics).toEqual({});
+    expect(r.metadata.sourceLineMapping?.available).toBe(true);
+  });
+
   it('exportGcode returns the MEMFS bytes', async () => {
     const c = makeClient();
     const r = await c.exportGcode();

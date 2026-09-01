@@ -15,7 +15,7 @@ import type {
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
-  ProgressMailbox, ReadLogResult,
+  ProgressMailbox, ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
 } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
@@ -296,8 +296,23 @@ export function createClient(
     async getSliceResult(): Promise<ClientSliceResult> {
       const m = await module();
       const r = callJson(m, 'orc_get_slice_result', [], []) as {
-        ok: boolean; error?: string; objects?: number; layers?: number;
+        ok: boolean; error?: string; objects?: number; layers?: number; preview_version?: number;
+        metadata?: {
+          result_id?: number; source_filename?: string;
+          layer_ranges?: Array<{ id: number; z: number; first_segment: number; segment_count: number }>;
+          feature_palette?: ToolpathFeature[];
+          extruder_palette?: Array<ToolpathFeature & { tool?: number }>;
+          source_line_mapping?: { available: boolean; line_count: number };
+          feature_statistics?: Array<Record<string, number>>;
+        };
         toolpath?: {
+          segment_count?: number;
+          starts_ptr?: number; ends_ptr?: number;
+          layer_id_ptr?: number; move_order_ptr?: number; gcode_id_ptr?: number;
+          move_type_ptr?: number; extrusion_role_ptr?: number;
+          extruder_id_ptr?: number; color_print_id_ptr?: number;
+          width_ptr?: number; height_ptr?: number;
+          metrics?: Record<string, { ptr: number; count: number }>;
           vertex_ptr: number; vertex_count: number;
           layer_ptr: number; layer_count: number;
           feature_ptr: number; feature_count: number;
@@ -307,15 +322,81 @@ export function createClient(
       if (!r.ok || !r.toolpath) return r as unknown as ClientSliceResult;
 
       const t = r.toolpath;
+      const segmentCount = Number(t.segment_count ?? t.vertex_count ?? 0);
+      const readF32 = (ptr: number | undefined, count: number): Float32Array =>
+        ptr && count > 0 ? new Float32Array(readBytes(m, Number(ptr), count * 4).buffer) : new Float32Array(count);
+      const readU32 = (ptr: number | undefined, count: number): Uint32Array =>
+        ptr && count > 0 ? new Uint32Array(readBytes(m, Number(ptr), count * 4).buffer) : new Uint32Array(count);
+      const readU16 = (ptr: number | undefined, count: number): Uint16Array =>
+        ptr && count > 0 ? new Uint16Array(readBytes(m, Number(ptr), count * 2).buffer) : new Uint16Array(count);
+      const readU8 = (ptr: number | undefined, count: number): Uint8Array =>
+        ptr && count > 0 ? readBytes(m, Number(ptr), count) : new Uint8Array(count);
+      const starts = readF32(t.starts_ptr, segmentCount * 3);
+      const ends = readF32(t.ends_ptr, segmentCount * 3);
+      // v1 result fallback: old bridges only had endpoint positions. Keep the
+      // aliases usable while making the v2 arrays total and typed.
+      // The bridge keeps vertex_ptr as a v1 compatibility allocation. Read it
+      // even for v2 responses so its heap ownership is released exactly once;
+      // v2 rendering uses ends instead.
+      const legacyPositions = t.ends_ptr && t.vertex_ptr === t.ends_ptr
+        ? new Float32Array(0)
+        : t.ends_ptr
+        ? (readF32(t.vertex_ptr, (t.vertex_count ?? segmentCount) * 3), new Float32Array(0))
+        : readF32(t.vertex_ptr, (t.vertex_count ?? segmentCount) * 3);
+      const resolvedEnds = t.ends_ptr ? ends : legacyPositions;
+      const resolvedStarts = t.starts_ptr ? starts : resolvedEnds.slice();
+      const layerIds = readU32(t.layer_id_ptr ?? t.layer_ptr, segmentCount);
+      const features = readU32(t.feature_ptr, segmentCount);
+      const metricKeyMap: Record<string, keyof PreviewToolpathMetrics> = {
+        feedrate: 'feedrate', actual_feedrate: 'actualFeedrate',
+        volumetric_flow: 'volumetricFlow', actual_volumetric_flow: 'actualVolumetricFlow',
+        fan_speed: 'fanSpeed', temperature: 'temperature', pressure_advance: 'pressureAdvance',
+        acceleration: 'acceleration', jerk: 'jerk', time: 'time', layer_duration: 'layerDuration',
+      };
+      const metrics: PreviewToolpathMetrics = {};
+      for (const [wireName, field] of Object.entries(metricKeyMap)) {
+        const descriptor = t.metrics?.[wireName];
+        if (descriptor && descriptor.ptr && descriptor.count === segmentCount)
+          metrics[field] = readF32(descriptor.ptr, descriptor.count);
+      }
+      const metadata: PreviewMetadata = {
+        resultId: Number(r.metadata?.result_id ?? 0),
+        ...(r.metadata?.source_filename ? { sourceFilename: r.metadata.source_filename } : {}),
+        layerRanges: (r.metadata?.layer_ranges ?? []).map((layer) => ({
+          id: layer.id, z: layer.z, firstSegment: layer.first_segment, segmentCount: layer.segment_count,
+        })),
+        featurePalette: r.metadata?.feature_palette ?? t.features,
+        ...(r.metadata?.extruder_palette ? { extruderPalette: r.metadata.extruder_palette } : {}),
+        ...(r.metadata?.source_line_mapping ? {
+          sourceLineMapping: {
+            available: r.metadata.source_line_mapping.available,
+            lineCount: r.metadata.source_line_mapping.line_count,
+          },
+        } : {}),
+        ...(r.metadata?.feature_statistics ? { featureStatistics: r.metadata.feature_statistics } : {}),
+      };
       const toolpath: ClientToolpath = {
-        vertexCount: t.vertex_count,
-        positions: new Float32Array(readBytes(m, Number(t.vertex_ptr), t.vertex_count * 3 * 4).buffer),
-        layers: new Uint32Array(readBytes(m, Number(t.layer_ptr), t.layer_count * 4).buffer),
-        features: new Uint32Array(readBytes(m, Number(t.feature_ptr), t.feature_count * 4).buffer),
+        vertexCount: segmentCount,
+        positions: resolvedEnds,
+        layers: layerIds,
+        features,
         palette: t.features,
+        segmentCount,
+        starts: resolvedStarts,
+        ends: resolvedEnds,
+        layerIds,
+        moveOrders: readU32(t.move_order_ptr, segmentCount),
+        gcodeIds: readU32(t.gcode_id_ptr, segmentCount),
+        moveTypes: readU8(t.move_type_ptr, segmentCount),
+        extrusionRoles: readU16(t.extrusion_role_ptr, segmentCount),
+        extruderIds: readU8(t.extruder_id_ptr, segmentCount),
+        colorPrintIds: readU8(t.color_print_id_ptr, segmentCount),
+        widths: readF32(t.width_ptr, segmentCount),
+        heights: readF32(t.height_ptr, segmentCount),
+        metrics,
       };
 
-      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath };
+      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath, metadata };
     },
 
     async exportGcode(): Promise<ExportGcodeResult> {

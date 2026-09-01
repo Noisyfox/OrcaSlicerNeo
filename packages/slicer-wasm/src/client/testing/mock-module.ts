@@ -19,6 +19,10 @@ export interface MockSliceFixture {
   layers: number;
   toolpathVertices: number; // per vertex: xyz (Float32)
   features: MockFeature[];
+  optionalMetrics?: Record<string, number[]>;
+  extruderPalette?: Array<MockFeature & { tool?: number }>;
+  resultId?: number;
+  sourceFilename?: string;
 }
 
 const HEAP_BYTES = 64 * 1024 * 1024;
@@ -891,26 +895,77 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_slice_result() {
       if (!sliced) return { error: 'no slice result' };
       const n = fixture.toolpathVertices;
-      const vptr = malloc(n * 3 * 4);
-      const lptr = malloc(n * 4);
-      const fptr = malloc(n * 4);
-      const vo = vptr / 4;
-      const lo = lptr / 4;
-      const fo = fptr / 4;
+      const allocF32 = (values: number[]) => {
+        const ptr = malloc(values.length * 4);
+        HEAPF32.set(values, ptr / 4);
+        return ptr;
+      };
+      const allocU32 = (values: number[]) => {
+        const ptr = malloc(values.length * 4);
+        HEAPU32.set(values, ptr / 4);
+        return ptr;
+      };
+      const allocU8 = (values: number[]) => {
+        const ptr = malloc(values.length);
+        HEAPU8.set(values, ptr);
+        return ptr;
+      };
+      const allocU16 = (values: number[]) => {
+        const ptr = malloc(values.length * 2);
+        new Uint16Array(heap, ptr, values.length).set(values);
+        return ptr;
+      };
+      const starts: number[] = [], ends: number[] = [];
+      const layerIds: number[] = [], moveOrders: number[] = [], gcodeIds: number[] = [];
+      const moveTypes: number[] = [], roles: number[] = [], extruders: number[] = [], colors: number[] = [];
+      const widths: number[] = [], heights: number[] = [];
+      let previousLayer = -1;
       for (let i = 0; i < n; i++) {
-        const layer = Math.floor((i / n) * fixture.layers);
-        HEAPF32.set([i % 200, (i * 3) % 200, layer * 0.2], vo + i * 3);
-        HEAPU32[lo + i] = layer;
-        HEAPU32[fo + i] = i % fixture.features.length;
+        const layer = Math.floor((i / Math.max(1, n)) * fixture.layers);
+        const order = layer === previousLayer ? moveOrders[i - 1] + 1 : 0;
+        previousLayer = layer;
+        starts.push(i === 0 ? 0 : i, i === 0 ? 0 : ((i - 1) * 3 + 1) % 200,
+          i === 0 ? 0 : Math.floor(((i - 1) / Math.max(1, n)) * fixture.layers) * 0.2);
+        ends.push(i + 1, (i * 3 + 1) % 200, layer * 0.2);
+        layerIds.push(layer); moveOrders.push(order); gcodeIds.push(i + 1);
+        moveTypes.push(i % 4 === 0 ? 8 : 10); // Travel / Extrude
+        roles.push(i % fixture.features.length); extruders.push(i % 2); colors.push(i % 2);
+        widths.push(0.4 + (i % 3) * 0.05); heights.push(0.2);
       }
+      const sptr = allocF32(starts), eptr = allocF32(ends);
+      const lptr = allocU32(layerIds), optr = allocU32(moveOrders), gptr = allocU32(gcodeIds);
+      const mtptr = allocU8(moveTypes), rptr = allocU16(roles), xptr = allocU8(extruders), cptr = allocU8(colors);
+      const wptr = allocF32(widths), hptr = allocF32(heights);
+      const metrics: Record<string, { ptr: number; count: number }> = {};
+      for (const [name, values] of Object.entries(fixture.optionalMetrics ?? {})) {
+        if (values.length !== n) throw new Error(`mock metric ${name} must match segment count`);
+        metrics[name] = { ptr: allocF32(values), count: n };
+      }
+      const layerRanges = Array.from({ length: fixture.layers }, (_, id) => {
+        const first = layerIds.indexOf(id);
+        return { id, z: id * 0.2, first_segment: Math.max(0, first), segment_count: layerIds.filter((v) => v === id).length };
+      }).filter((x) => x.segment_count > 0);
       return {
-        ok: true,
+        ok: true, preview_version: 2,
         objects: objectTransforms.length,
         layers: fixture.layers,
+        metadata: {
+          result_id: fixture.resultId ?? 1,
+          source_filename: fixture.sourceFilename ?? '/out.gcode',
+          layer_ranges: layerRanges,
+          feature_palette: fixture.features,
+          ...(fixture.extruderPalette ? { extruder_palette: fixture.extruderPalette } : {}),
+          source_line_mapping: { available: true, line_count: n + 1 },
+        },
         toolpath: {
-          vertex_ptr: vptr, vertex_count: n,
+          segment_count: n, starts_ptr: sptr, ends_ptr: eptr,
+          layer_id_ptr: lptr, move_order_ptr: optr, gcode_id_ptr: gptr,
+          move_type_ptr: mtptr, extrusion_role_ptr: rptr,
+          extruder_id_ptr: xptr, color_print_id_ptr: cptr,
+          width_ptr: wptr, height_ptr: hptr, metrics,
+          vertex_ptr: eptr, vertex_count: n,
           layer_ptr: lptr, layer_count: n,
-          feature_ptr: fptr, feature_count: n,
+          feature_ptr: allocU32(roles), feature_count: n,
           features: fixture.features,
         },
       };

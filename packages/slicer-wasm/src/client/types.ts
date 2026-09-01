@@ -307,6 +307,42 @@ export interface ToolpathFeature {
   id: number;
   name: string;
   color: [number, number, number];
+  role?: number;
+}
+
+export interface PreviewLayerRange {
+  id: number;
+  z: number;
+  firstSegment: number;
+  segmentCount: number;
+}
+
+export interface PreviewPaletteEntry extends ToolpathFeature {
+  tool?: number;
+}
+
+export interface PreviewMetadata {
+  resultId: number;
+  sourceFilename?: string;
+  layerRanges: PreviewLayerRange[];
+  featurePalette: ToolpathFeature[];
+  extruderPalette?: PreviewPaletteEntry[];
+  sourceLineMapping?: { available: boolean; lineCount: number };
+  featureStatistics?: Array<Record<string, number>>;
+}
+
+export interface PreviewToolpathMetrics {
+  feedrate?: Float32Array;
+  actualFeedrate?: Float32Array;
+  volumetricFlow?: Float32Array;
+  actualVolumetricFlow?: Float32Array;
+  fanSpeed?: Float32Array;
+  temperature?: Float32Array;
+  pressureAdvance?: Float32Array;
+  acceleration?: Float32Array;
+  jerk?: Float32Array;
+  time?: Float32Array;
+  layerDuration?: Float32Array;
 }
 
 export interface ClientToolpath {
@@ -319,6 +355,20 @@ export interface ClientToolpath {
   features: Uint32Array;
   /** per-feature id → palette color (palette may index beyond, client clamps) */
   palette: ToolpathFeature[];
+  /** Explicit continuous segment arrays. Every array has segmentCount entries. */
+  segmentCount: number;
+  starts: Float32Array;
+  ends: Float32Array;
+  layerIds: Uint32Array;
+  moveOrders: Uint32Array;
+  gcodeIds: Uint32Array;
+  moveTypes: Uint8Array;
+  extrusionRoles: Uint16Array;
+  extruderIds: Uint8Array;
+  colorPrintIds: Uint8Array;
+  widths: Float32Array;
+  heights: Float32Array;
+  metrics: PreviewToolpathMetrics;
 }
 
 export interface ClientSliceResult {
@@ -326,6 +376,7 @@ export interface ClientSliceResult {
   objects: number;
   layers: number;
   toolpath: ClientToolpath;
+  metadata: PreviewMetadata;
   error?: string;
 }
 

@@ -14,7 +14,8 @@ export type {
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
   ModelInstanceStructure, VolumeType,
   SliceResultStatus, ClientSliceResult, ClientToolpath,
-  ToolpathFeature, ExportGcodeResult, CancelResult,
+  ToolpathFeature, PreviewLayerRange, PreviewPaletteEntry, PreviewMetadata,
+  PreviewToolpathMetrics, ExportGcodeResult, CancelResult,
 } from './types';
 export { createMockModule } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';
