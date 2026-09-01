@@ -70,7 +70,7 @@ orca-slicer-neo/
 ├── spec/                         # approved specs
 ├── tools/                        # dev utilities
 ├── scripts/                      # CI / packaging scripts (incl. build-wasm-dual.*,
-│                                 #   stage-wasm.mjs, web/desktop e2e runners)
+│                                 #   stage.mjs, web/desktop e2e runners)
 ├── package.json                  # root scripts
 └── pnpm-workspace.yaml
 ```

@@ -7,7 +7,7 @@ REM Each invocation of packages\slicer-wasm\build.bat has its own CMake
 REM cache and output directory, so a serial build can never accidentally
 REM reuse pthread objects (or vice versa). Stages both variants into the
 REM renderer's public dir (apps\desktop\src\renderer\public\wasm\<variant>)
-REM via scripts\stage-wasm.mjs when done.
+REM via scripts\stage.mjs when done.
 REM
 REM Usage:
 REM   build-wasm-dual.bat [--debug] [options passed implicitly via env]
@@ -45,5 +45,5 @@ set "WASM_ARTIFACT_VARIANT=serial"
 call "%PKG%\build.bat"
 if errorlevel 1 exit /b 1
 
-node "%ROOT%\scripts\stage-wasm.mjs"
+node "%ROOT%\scripts\stage.mjs"
 exit /b %errorlevel%

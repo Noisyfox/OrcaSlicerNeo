@@ -1,7 +1,7 @@
-// scripts/stage-wasm.mjs — copy the built WASM module into the renderer's
-// public dir so the worker can load it. Run after `bash packages/slicer-wasm/build.sh`
-// (or `build-windows.bat build`). Also copies the profile packages from
-// packages/profile-resources/dist, which must be built first:
+// scripts/stage.mjs — stage every generated renderer asset into the hosts'
+// shared public directory: the built WASM variants, profile packages, and
+// shared-app handy models. Run after `bash packages/slicer-wasm/build.sh`
+// (or `build-windows.bat build`) and after profile-resource generation.
 //   pnpm --filter @orca/profile-resources build
 // --soft: warn and exit 0 when the build is missing — used by the desktop `predev`
 // hook so mock-mode UI dev (VITE_USE_MOCK=1) still boots on a fresh checkout
@@ -24,7 +24,7 @@ await stageHandyModels();
 
 if (!existsSync(outRoot)) {
   if (soft) {
-    console.warn('[stage-wasm] no WASM build — skipping (mock-mode / UI-only dev)');
+    console.warn('[stage] no WASM build — skipped WASM/profile staging (mock-mode / UI-only dev)');
     process.exit(0);
   }
   console.error('no WASM build found — run: bash packages/slicer-wasm/build.sh');
@@ -33,7 +33,7 @@ if (!existsSync(outRoot)) {
 if (existsSync(profileSrc)) {
   await cp(profileSrc, profileDst, { recursive: true, force: true });
 } else if (soft) {
-  console.warn('[stage-wasm] no profile packages — skipping (build with: pnpm --filter @orca/profile-resources build)');
+  console.warn('[stage] no profile packages — skipping (build with: pnpm --filter @orca/profile-resources build)');
 } else {
   console.error('no profile packages in packages/profile-resources/dist — run: pnpm --filter @orca/profile-resources build');
   process.exit(1);
@@ -42,7 +42,7 @@ for (const variant of ['threaded', 'serial']) {
   const src = join(outRoot, variant);
   const dst = join(dstRoot, variant);
   if (!existsSync(src)) {
-    if (soft) { console.warn(`[stage-wasm] missing ${variant} artifact directory — skipping`); continue; }
+    if (soft) { console.warn(`[stage] missing ${variant} artifact directory — skipping`); continue; }
     console.error(`missing ${variant} artifact directory in ${outRoot}`);
     process.exit(1);
   }
@@ -51,7 +51,7 @@ for (const variant of ['threaded', 'serial']) {
   for (const f of files) {
     if (!existsSync(join(src, f))) {
       if (soft) {
-        console.warn(`[stage-wasm] missing ${variant}/${f} — skipping (mock-mode / UI-only dev)`);
+        console.warn(`[stage] missing ${variant}/${f} — skipping (mock-mode / UI-only dev)`);
         complete = false;
         break;
       }
@@ -63,7 +63,7 @@ for (const variant of ['threaded', 'serial']) {
   try {
     await assertValidWasm(join(src, 'orca_slice.wasm'));
   } catch (error) {
-    const message = `[stage-wasm] ${error instanceof Error ? error.message : String(error)} — refusing to stage a module that browsers cannot instantiate`;
+    const message = `[stage] ${error instanceof Error ? error.message : String(error)} — refusing to stage a module that browsers cannot instantiate`;
     if (soft) {
       console.warn(message);
       continue;

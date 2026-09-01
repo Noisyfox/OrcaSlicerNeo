@@ -105,7 +105,7 @@ proved feasibility and contains reusable machinery:
   `env deps boost build full quick shim smoke test dev e2e` wrap every step
   below. `build`/`full` produce the production **dual-variant** set
   (threaded + serial wasm64 via `scripts/build-wasm-dual.bat` /
-  `build-wasm-dual.sh`, staged into the renderer by `scripts/stage-wasm.mjs`);
+  `build-wasm-dual.sh`, staged into the renderer by `scripts/stage.mjs`);
   `quick` is the incremental ninja loop for bridge changes, rebuilding both
   variant trees by default (`--variant threaded|serial` limits it); `smoke`
   runs the harnesses against both variants. The driver auto-activates emsdk

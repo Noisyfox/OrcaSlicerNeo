@@ -1,6 +1,6 @@
 # apps/desktop/electron-builder.yml — M3 packaging (design §Packaging).
-# All six targets ship the same WASM module: stage:wasm runs before packaging
-# (CI: artifact download → scripts/stage-wasm.mjs). Unsigned v1 (macOS signing
+# All six targets ship the same generated assets: `pnpm stage:assets` runs before
+# packaging (CI: artifact download → scripts/stage.mjs). Unsigned v1 (macOS signing
 # deferred). Config is cross-validated in CI; only Windows x64 is buildable on
 # the dev machine (NSIS), the other five targets build on the CI matrix.
 appId: com.orcaslicerne.neo

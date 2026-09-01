@@ -8,9 +8,9 @@
   "license": "AGPL-3.0",
   "main": "out/main/index.js",
   "scripts": {
-    "predev": "node ../../scripts/stage-wasm.mjs --soft",
+    "predev": "node ../../scripts/stage.mjs --soft",
     "dev": "electron-vite dev --noSandbox",
-    "prebuild": "node ../../scripts/stage-wasm.mjs",
+    "prebuild": "node ../../scripts/stage.mjs",
     "build": "electron-vite build",
     "test": "vitest run --passWithNoTests",
     "test:css": "electron-vite build && node scripts/check-renderer-css.mjs",
@@ -19,7 +19,7 @@
     "package:dir": "electron-vite build && electron-builder --dir --publish never",
     "package": "electron-vite build && electron-builder --publish never",
     "postinstall": "install-electron",
-    "test:e2e": "node ../../scripts/stage-wasm.mjs --soft && electron-vite build --mode e2e && node scripts/check-renderer-css.mjs && playwright test e2e/app.e2e.ts e2e/titlebar-menu.e2e.ts e2e/native-menu.e2e.ts e2e/slice-error.e2e.ts e2e/select-scroll.e2e.ts e2e/printer-control.e2e.ts e2e/profile-compatibility.e2e.ts",
+    "test:e2e": "node ../../scripts/stage.mjs --soft && electron-vite build --mode e2e && node scripts/check-renderer-css.mjs && playwright test e2e/app.e2e.ts e2e/titlebar-menu.e2e.ts e2e/native-menu.e2e.ts e2e/slice-error.e2e.ts e2e/select-scroll.e2e.ts e2e/printer-control.e2e.ts e2e/profile-compatibility.e2e.ts",
     "test:e2e:real": "node ../../scripts/run-desktop-e2e-real.mjs"
   },
   "dependencies": {

@@ -1,7 +1,7 @@
 // apps/desktop/playwright.config.ts — Playwright Electron e2e (M3).
 // Run modes:
 //   pnpm test:e2e          build (VITE_USE_MOCK=1) + run — mock module, no emsdk
-//   pnpm test:e2e:real     build (real module, stage:wasm first) + run with
+//   pnpm test:e2e:real     build (real module, pnpm stage:assets first) + run with
 //                          ORCA_E2E_REAL=1 — real wasm, CI job e2e-real
 // Electron is driven via @playwright/test's _electron.launch — no browser
 // download needed. One app at a time (workers: 1) — Electron is heavyweight

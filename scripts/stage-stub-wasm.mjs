@@ -11,4 +11,4 @@ const src = join(root, 'apps/desktop/e2e/stub/orca_slice.js');
 const dst = join(root, 'apps/desktop/src/renderer/public/wasm/orca_slice.js');
 await mkdir(dirname(dst), { recursive: true });
 await copyFile(src, dst);
-console.log('staged stub module — packaged probe only; run stage:wasm to replace with the real build');
+console.log('staged stub module — packaged probe only; run pnpm stage:assets to replace with the real build');

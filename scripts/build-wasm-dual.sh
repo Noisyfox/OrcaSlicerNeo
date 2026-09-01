@@ -20,4 +20,4 @@ done
 WASM_THREADING=1 WASM_ARTIFACT_VARIANT=threaded WASM_DEBUG="$DEBUG" bash "$PKG/build.sh"
 WASM_THREADING=0 WASM_ARTIFACT_VARIANT=serial WASM_DEBUG="$DEBUG" bash "$PKG/build.sh"
 
-node "$ROOT/scripts/stage-wasm.mjs"
+node "$ROOT/scripts/stage.mjs"

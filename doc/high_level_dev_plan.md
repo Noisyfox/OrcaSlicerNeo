@@ -138,7 +138,8 @@
 - Config (electron-builder.yml): win x64/arm64 (NSIS), linux x64/arm64
   (AppImage), mac x64/arm64 (DMG); unsigned v1; `asarUnpack` for
   `out/renderer/wasm/**` (fetch() cannot read inside asar); NSIS license
-  page shows AGPL-3.0. One `stage:wasm` artifact feeds all six bundles.
+  page shows AGPL-3.0. One `stage:assets` command feeds all generated assets to all
+  six bundles.
 
 **Epic 3.2: e2e + CI**
 - Playwright Electron (`@playwright/test`, `_electron.launch`): full v1 flow
@@ -304,7 +305,7 @@
   guarding. Docs: `doc/2026-08-20-m9-step4-web-host.md`,
   `doc/2026-08-20-fix-dev-wasm-url-shared-runtime.md`.
 - **Step 10 delivered:** dual-variant build/staging (separate CMake/output
-  trees per variant via `scripts/build-wasm-dual.*` + `stage-wasm.mjs`) and
+  trees per variant via `scripts/build-wasm-dual.*` + `stage.mjs`) and
   real-artifact Chrome e2e for both variants —
   `doc/2026-08-20-m9-step10-dual-wasm-web-e2e.md`.
 - **Step 11 delivered:** release/regression audit — see the M9 status block
