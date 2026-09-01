@@ -55,6 +55,9 @@
   `https://github.com/google/draco/archive/refs/tags/1.5.7.zip`, verified with
   SHA-256 `27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77`.
   Do not add a Draco Git submodule or use a runtime CDN.
+- Compile the complete upstream Draco encoder and decoder library.  The first
+  product delivery exposes import only, but retaining the complete library
+  avoids splitting or stubbing the upstream `DRC.cpp` translation unit.
 
 ## Required validation gate
 
