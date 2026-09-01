@@ -1,0 +1,102 @@
+{
+  "schema": "orca-preview-v2-fixture-manifest",
+  "schemaVersion": 1,
+  "status": "baseline-scaffolding",
+  "nativeReference": {
+    "repository": "Noisyfox/OrcaSlicer",
+    "commit": "b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde",
+    "version": "version_2.4.0-12323-gb97ca3c0ac",
+    "dirtyTreeIncluded": false,
+    "captureComparison": "manual-only-cross-renderer"
+  },
+  "artifactPolicy": {
+    "generatedGcode": "retain-only-for-deterministic-text-mapping-tests",
+    "screenshots": "retain-only-after-manual-approval",
+    "unmaterializedFixtureCommand": "record-reproducible-command"
+  },
+  "fixtures": [
+    {
+      "id": "command-matrix",
+      "kind": "synthetic-preview-source",
+      "status": "planned",
+      "owner": "packages/slicer-app",
+      "sourcePath": null,
+      "profile": null,
+      "configPath": null,
+      "generationCommand": null,
+      "expected": {
+        "commands": null,
+        "segments": null,
+        "layers": null
+      },
+      "artifacts": []
+    },
+    {
+      "id": "single-material-cube",
+      "kind": "real-slice",
+      "status": "input-existing",
+      "owner": "packages/slicer-wasm",
+      "sourcePath": "packages/slicer-wasm/fixtures/cube.stl",
+      "profile": "Bambu Lab P1P 0.4 nozzle",
+      "configPath": "packages/slicer-wasm/fixtures/config.json",
+      "generationCommand": "node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json",
+      "verificationVariants": ["serial", "threaded"],
+      "expected": {
+        "commands": null,
+        "segments": null,
+        "layers": null
+      },
+      "artifacts": []
+    },
+    {
+      "id": "feature-rich-single-material",
+      "kind": "real-slice",
+      "status": "planned",
+      "owner": "packages/slicer-wasm",
+      "sourcePath": null,
+      "profile": null,
+      "configPath": null,
+      "generationCommand": null,
+      "expected": {
+        "commands": null,
+        "segments": null,
+        "layers": null
+      },
+      "artifacts": []
+    },
+    {
+      "id": "multi-material",
+      "kind": "real-slice",
+      "status": "planned",
+      "owner": "packages/slicer-wasm",
+      "sourcePath": null,
+      "profile": null,
+      "configPath": null,
+      "generationCommand": null,
+      "expected": {
+        "commands": null,
+        "segments": null,
+        "layers": null
+      },
+      "artifacts": []
+    },
+    {
+      "id": "performance-streams",
+      "kind": "synthetic-renderer",
+      "status": "planned",
+      "owner": "packages/slicer-app",
+      "sourcePath": null,
+      "profile": null,
+      "configPath": null,
+      "generationCommand": null,
+      "requiredSegmentCounts": [250000, 1000000],
+      "partitioning": "layer-aligned",
+      "expected": {
+        "commands": null,
+        "segments": null,
+        "layers": null
+      },
+      "artifacts": []
+    }
+  ]
+}
