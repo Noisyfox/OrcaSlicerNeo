@@ -1,7 +1,8 @@
 # G-code Preview v2
 
-**Status:** Living major design specification — foundation, interaction, and
-Phase-B release decisions accepted; Phase-C detail remains in discovery.
+**Status:** Living major design specification — product scope and release
+decisions accepted; implementation sequencing and visual-reference verification
+remain in discovery.
 
 **Started:** 2026-09-01
 
@@ -61,6 +62,43 @@ lifecycle and export design in a future specification.
 Advanced metric schemes — actual speed, actual volumetric flow, line width,
 layer height, pressure advance, acceleration, and jerk — are deliberately
 outside the initial Phase-C scope, but the data contract must admit them.
+
+### Phase-C information semantics
+
+Phase C displays only standard estimated time. Stealth/silent time is not
+exported to the UI or made selectable.
+
+The summary shows total estimated time, total filament length and weight, and
+total cost. Cost follows current Orca's presentation: a bare decimal rounded to
+two places, without an inferred currency symbol. The initial shared application
+has no global unit preference, so all preview units are metric. A future global
+unit system may replace that presentation; one is not created by this work.
+
+Per-feature statistics show standard time and filament consumption. Per-tool
+breakdowns and tool/filament-change counts remain outside the Phase-C target.
+
+Numerical colour schemes derive their legend min/max values from the active
+slice result, rather than using global physical ranges. Their ramps use current
+Orca colour schemes as the visual reference. User-customisable colour ramps are
+an explicit future extension, not a Phase-C preference feature.
+
+For multi-material output, the Filament/Tool scheme uses the configured actual
+filament colours and identifies the associated filament/tool in its legend. A
+single-material preview remains on the Feature/Line Type default unless the
+user selects a different scheme.
+
+The G-code text window is virtualised plain text with active-line highlighting;
+syntax highlighting is deferred. A selected line maps to its exact preview move
+when one exists. Selecting an otherwise unmappable line positions the preview
+at the nearest preceding mappable move; if none precedes it, the current
+inspection position remains unchanged.
+
+Phase C displays no read-only layer-slider ticks for existing pauses, colour
+changes, tool changes, or custom G-code. They will be designed with a future
+result-editing feature instead of being partially exposed here.
+
+The Phase-C current-move marker is a generic 3D nozzle/tool visual, not a
+printer-model-specific asset.
 
 ## Data-source boundary
 
