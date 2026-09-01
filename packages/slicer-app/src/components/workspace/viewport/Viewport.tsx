@@ -17,6 +17,7 @@ import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { deleteSelection } from '../actions/deleteSelection';
+import { isPrepareTab, isPreviewTab } from '../../layout/appTabs';
 
 // Launch camera: look at the plate center (the bed spans [0, BED_SIZE]² in
 // XY with Z up), with the plate at 45° to the screen plane and its X axis
@@ -70,6 +71,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
 }) {
   const platform = usePlatform();
   const slicing = useSlicerStore((s) => s.status === 'slicing');
+  const previewTab = isPreviewTab(activeTab);
+  const prepareTab = isPrepareTab(activeTab);
   // Ref is only consumed as a prop target (drei Stats `parent`), never read
   // by this component — so it can be typed without the null union, which
   // React 19's RefObject<T> = { current: T } requires for assignability.
@@ -137,7 +140,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
   // all (which also closes the gizmo). Inputs, modifier combos and active
   // drags are ignored so shortcuts never hijack typing or a gesture.
   useEffect(() => {
-    if (!sceneInteraction || activeTab === 'preview') return;
+    if (!sceneInteraction || previewTab) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
@@ -161,7 +164,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeTab, platform.runtime, sceneInteraction, slicing]);
+  }, [platform.runtime, previewTab, sceneInteraction, slicing]);
 
   const viewportPointOf = useCallback((clientX: number, clientY: number) => {
     const rect = viewportRef.current.getBoundingClientRect();
@@ -256,6 +259,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
     sceneInteractionRef.current?.cancelBoxSelect();
   };
 
+  const releaseViewportPointer = () => {
+    // OrbitControls normally emits `end`, but reset here as well so a
+    // released or cancelled pointer can never leave picking disabled.
+    setCameraGestureActive(false);
+    if (!previewTab) sceneInteractionRef.current?.releasePointer();
+  };
+
   return (
     <div
       ref={viewportRef}
@@ -266,10 +276,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
         // mode. Prepare's SceneContextMenu still handles its own custom menu;
         // Preview stops propagation so no model/scene menu can open.
         event.preventDefault();
-        if (activeTab === 'preview') event.stopPropagation();
+        if (previewTab) event.stopPropagation();
       }}
       onPointerDownCapture={(event) => {
-        if (activeTab === 'preview') return;
+        if (previewTab) return;
         const native = event.nativeEvent;
         // Capture runs before three/drei target handlers. Recheck the live
         // picker here so a stale hover frame cannot start an overlapping body
@@ -284,16 +294,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
           native.preventDefault();
         }
       }}
-      onPointerUpCapture={() => {
-        // OrbitControls normally emits `end`, but reset here as well so a
-        // released or cancelled pointer can never leave picking disabled.
-        setCameraGestureActive(false);
-        if (activeTab !== 'preview') sceneInteractionRef.current?.releasePointer();
-      }}
-      onPointerCancelCapture={() => {
-        setCameraGestureActive(false);
-        if (activeTab !== 'preview') sceneInteractionRef.current?.releasePointer();
-      }}
+      onPointerUpCapture={releaseViewportPointer}
+      onPointerCancelCapture={releaseViewportPointer}
     >
       <ViewportErrorBoundary>
         <SceneContextMenu sceneInteraction={sceneInteraction} sceneStateRef={sceneStateRef}>
@@ -319,7 +321,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
               updateRaycastingEnabled();
             }}
             onPointerMissed={() => {
-              if (activeTab !== 'preview') sceneInteractionRef.current?.clearSelection();
+              if (!previewTab) sceneInteractionRef.current?.clearSelection();
             }}
           >
             <color attach="background" args={['#0f172a']} />
@@ -367,9 +369,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
           </Canvas>
         </SceneContextMenu>
       </ViewportErrorBoundary>
-      {activeTab === 'prepare' && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
-      {activeTab === 'preview' && toolpath && <LayerScrubber />}
-      {activeTab === 'prepare' && <GizmoToolbar sceneInteraction={sceneInteraction} />}
+      {prepareTab && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
+      {previewTab && toolpath && <LayerScrubber />}
+      {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
     </div>
   );
 }

@@ -18,7 +18,7 @@ import { SceneInteractionController } from './viewport/SceneInteractionControlle
 import { glVolumeCollection } from './viewport/GLVolume';
 import { useModelLoader } from './viewport/useModelLoader';
 import { useSliceResult } from './viewport/useSliceResult';
-import type { AppTab } from '../layout/appTabs';
+import { hasEnteredPreview, isPreviewTab, type AppTab } from '../layout/appTabs';
 import { createWorkspaceSliceCoordinator, type WorkspaceSliceCoordinator } from './sliceCoordinator';
 import { sliceModel } from './actions/sliceActions';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -78,7 +78,7 @@ export function Workspace({ activeTab = 'prepare', onSceneInteractionChange, onS
 
   const previousActiveTabRef = useRef<AppTab>(activeTab);
   useEffect(() => {
-    const enteredPreview = activeTab === 'preview' && previousActiveTabRef.current !== 'preview';
+    const enteredPreview = hasEnteredPreview(previousActiveTabRef.current, activeTab);
     previousActiveTabRef.current = activeTab;
     if (enteredPreview) void sliceCoordinator.ensureSlice();
   }, [activeTab, sliceCoordinator]);
@@ -218,7 +218,7 @@ export function Workspace({ activeTab = 'prepare', onSceneInteractionChange, onS
       <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card">
         <Viewport
           sceneInteraction={sceneInteraction}
-          activeTab={activeTab === 'preview' ? 'preview' : 'prepare'}
+          activeTab={isPreviewTab(activeTab) ? 'preview' : 'prepare'}
           glVolumes={glVolumes}
           toolpath={sliceResult.toolpath}
         />

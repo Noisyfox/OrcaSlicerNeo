@@ -11,6 +11,7 @@ import { TransformGizmo, type TransformGizmoMode } from './gizmo/TransformGizmo'
 import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import { SelectionBoundsBox } from './SelectionBoundsBox';
+import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
 
 export function Scene({ activeTab, controller, glVolumes, toolpath }: {
   activeTab: 'prepare' | 'preview';
@@ -34,7 +35,7 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
   useSceneInteractionVersion();
   const previousActiveTabRef = useRef<'prepare' | 'preview' | null>(null);
   useEffect(() => {
-    if (activeTab === 'preview' && previousActiveTabRef.current !== 'preview') {
+    if (hasEnteredPreview(previousActiveTabRef.current, activeTab)) {
       // Preview retains the shared selection for sidebar use, but never an
       // armed viewport gizmo. Prepare will render that selection again.
       sceneInteraction.closeGizmo();
@@ -147,7 +148,7 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
       {/* height along Z — scene is Z-up slicer convention */}
       <directionalLight position={[100, 150, 200]} intensity={1.2} />
       <BedPlate />
-      {activeTab === 'preview' ? (
+      {isPreviewTab(activeTab) ? (
         <PreviewScene glVolumes={glVolumes} toolpath={toolpath} />
       ) : (
         <PrepareScene glVolumes={glVolumes} toolpath={toolpath} />

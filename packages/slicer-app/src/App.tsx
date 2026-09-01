@@ -36,6 +36,9 @@ export default function App() {
   const handleTabChange = useCallback((tab: AppTab) => {
     setActiveTab(tab);
   }, []);
+  const navigateToPreview = useCallback(() => {
+    setActiveTab('preview');
+  }, []);
   // Workspace owns the controller; the dispatcher only ever reads it lazily at
   // dispatch time, so mirroring it into a ref keeps App out of the re-render.
   const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
@@ -51,9 +54,9 @@ export default function App() {
     if (coordinator) return coordinator.requestPreviewSlice();
     // The Workspace is always mounted once the shell is ready, but preserve a
     // safe fallback for an early host callback during React effect setup.
-    setActiveTab('preview');
+    navigateToPreview();
     return sliceModel(platform);
-  }, [platform]);
+  }, [navigateToPreview, platform]);
 
   const menuState = useMemo(() => buildMenuStateSnapshot({
     version: 1,
@@ -222,10 +225,10 @@ export default function App() {
   return (
     <AppShell
       titleBar={titleBar}
-      toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => setActiveTab('device')} onSlice={requestPreviewSlice} />}
+      toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />}
       activeTab={activeTab}
       home={<div data-testid="home-page" />}
-      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={() => setActiveTab('preview')} />}
+      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={navigateToPreview} />}
       device={<DevicePanel />}
       status={<StatusBar />}
     />
