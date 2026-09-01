@@ -1,0 +1,12 @@
+[
+  { "label": "Orca Cube", "files": ["OrcaCube_v2.drc", "OrcaPlug_v2.drc"] },
+  { "label": "OrcaSliced Combo", "files": ["OrcaSliced.3mf", "OrcaCube_v2.drc", "OrcaPlug_v2.drc"] },
+  { "label": "Orca Badge", "files": ["OrcaBadge.3mf"] },
+  { "label": "Orca Tolerance Test", "files": ["OrcaToleranceTest.drc"] },
+  { "label": "3DBenchy", "files": ["3DBenchy.drc"] },
+  { "label": "Cali Cat", "files": ["calicat.drc"] },
+  { "label": "Autodesk FDM Test", "files": ["ksr_fdmtest_v4.drc"] },
+  { "label": "Voron Cube", "files": ["Voron_Design_Cube_v7.drc"] },
+  { "label": "Stanford Bunny", "files": ["Stanford_Bunny.drc"] },
+  { "label": "Orca String Hell", "files": ["Orca_stringhell.drc"] }
+]

@@ -824,6 +824,42 @@ test('scene context menu: Add Primitive submenu appends engine-built shapes', as
   }
 });
 
+// OrcaSlicer's bundled samples are available from their own scene-menu
+// flyout.  3DBenchy remains one choice, not the whole catalogue; selecting it
+// still uses the standard append-model path in both mock and real runs.
+test('scene context menu: Add Handy models imports the bundled catalogue', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    try {
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+      await expect(page.getByTestId('ctx-menu')).toBeVisible();
+      await page.getByTestId('btn-add-handy-models').click();
+      const handyMenu = page.getByTestId('ctx-handy-models-menu');
+      await expect(handyMenu).toBeVisible();
+      await expect(handyMenu.getByRole('menuitem')).toHaveCount(10);
+      await expect(handyMenu).toContainText('Orca Cube');
+      await expect(handyMenu).toContainText('3DBenchy');
+      await expect(handyMenu).toContainText('Orca String Hell');
+
+      await page.getByTestId('btn-add-handy-3dbenchy').click();
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    } catch (err) {
+      await diag.dump();
+      throw err;
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 // The scene right-click menu's Add Model routes through the same host file
 // picker as the gizmo toolbar (ORCA_E2E_MODEL in e2e): Slice unlocks
 // immediately and (mock mode) the imported fixture is a selectable 20 mm box.

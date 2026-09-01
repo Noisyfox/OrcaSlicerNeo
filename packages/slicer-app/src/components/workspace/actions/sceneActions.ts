@@ -1,13 +1,17 @@
-// Shared Add Model / Add Primitive / Clear Scene actions. They moved out of
-// the app toolbar row (Add Model → gizmo toolbar, Add Primitive + Clear
-// Scene → scene context menu), but the store/runtime choreography is
-// identical for every surface that invokes them, so they live here once.
+// Shared Add Model / Add Primitive / Add Handy models / Clear Scene actions.
+// They moved out of the app toolbar row (Add Model → gizmo toolbar; Add
+// Primitive, Add Handy models, and Clear Scene → scene context menu), but
+// the store/runtime choreography is identical for every surface that invokes
+// them, so they live here once.
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
+import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
+
+export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 
 /**
  * Shared post-add choreography for file imports and engine-built primitives:
@@ -60,6 +64,51 @@ export async function addModel(
     const ext = (file.displayName.split('.').pop() ?? '').toLowerCase();
     useSlicerStore.getState().setError(ext === 'drc' ? 'Unable to import DRC file' : errorText(err));
     console.error('add model failed:', err);
+  }
+}
+
+async function fetchHandyModelFile(fileName: string): Promise<Uint8Array> {
+  // document.baseURI tracks Vite's configured base, including a Web
+  // subpath deployment; it is also the loopback origin Electron serves its
+  // renderer from. No host path or remote service is involved.
+  // The Node-only unit suite has no DOM; its fixed origin is only a test
+  // fallback and is never used by either product host.
+  const deploymentBase = typeof document === 'undefined' ? 'http://localhost/' : document.baseURI;
+  const url = new URL(fileName, new URL('handy-models/', deploymentBase));
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`handy model asset request failed (${response.status}): ${fileName}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/**
+ * Append one of OrcaSlicer's bundled handy-model entries. The two compound
+ * entries preserve the source order used by Orca desktop's `load_files`.
+ * Resource bytes are fetched before changing the scene so a missing asset
+ * cannot partially add a model.
+ */
+export async function addHandyModel(
+  platform: PlatformCapabilities,
+  sceneInteraction: SceneInteractionController | null,
+  model: HandyModel,
+): Promise<void> {
+  try {
+    const files = await Promise.all(model.files.map(async (displayName) => ({
+      displayName,
+      bytes: await fetchHandyModelFile(displayName),
+    })));
+    await commitAdded(platform, sceneInteraction, model.label, async () => {
+      for (const file of files) {
+        const ext = (file.displayName.split('.').pop() ?? '').toLowerCase();
+        const result = await platform.runtime.addModel(file.bytes, ext, file.displayName);
+        if (!result.ok) return result;
+      }
+      return { ok: true };
+    });
+  } catch (err) {
+    useSlicerStore.getState().setError(errorText(err));
+    console.error(`add handy model failed: ${model.label}`, err);
   }
 }
 

@@ -396,6 +396,11 @@
   standard model pipeline — no bridge or WASM changes
   (`doc/2026-08-22-scene-context-menu-add-cube.md`). The menu's Add Model
   entry (below Add Cube) reuses the shared host-picker import.
+- Add Handy models submenu in the same scene menu, with OrcaSlicer's ten
+  bundled benchmark/calibration entries (not only 3DBenchy), whose shared-app
+  manifest stages the pinned submodule's `.drc`/`.3mf` resources for desktop
+  and Web without committing duplicate model binaries
+  (`doc/2026-09-01-handy-models-context-menu.md`).
 - Electron e2e: the full flow clears via the context menu; an emptied plate
   shows the disabled menu item after Delete; Add Cube and the context-menu
   Add Model entry unlock Slice and (mock mode) report a 20 mm selectable box.

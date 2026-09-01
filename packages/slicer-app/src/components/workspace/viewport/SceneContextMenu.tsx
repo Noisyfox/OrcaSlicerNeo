@@ -20,7 +20,7 @@ import {
 } from 'react';
 import type { RootState } from '@react-three/fiber';
 import {
-  Box, Circle, Cone, Cylinder, Disc3, Donut, FolderPlus, Shapes, Trash2,
+  Box, Boxes, Circle, Cone, Cylinder, Disc3, Donut, FolderPlus, Shapes, Trash2,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -38,7 +38,8 @@ import type { ModelObjectStructure } from '@slicer/client';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import {
-  addModel, addPrimitive, clearScene, PRIMITIVE_TYPES, type PrimitiveType,
+  addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS,
+  PRIMITIVE_TYPES, type HandyModel, type PrimitiveType,
 } from '../actions/sceneActions';
 import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
 import { useObjectListStore } from '../objectList/useObjectListStore';
@@ -171,6 +172,11 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     void addPrimitive(platform, sceneInteraction, type);
   }, [platform, sceneInteraction, closeMenu]);
 
+  const handleAddHandyModel = useCallback((model: HandyModel) => {
+    closeMenu();
+    void addHandyModel(platform, sceneInteraction, model);
+  }, [platform, sceneInteraction, closeMenu]);
+
   const handleAddModel = useCallback(() => {
     closeMenu();
     void addModel(platform, sceneInteraction);
@@ -236,6 +242,24 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
                   </ContextMenuItem>
                 );
               })}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          {/* Bundled benchmark and calibration models from OrcaSlicer. */}
+          <ContextMenuSub>
+            <ContextMenuSubTrigger data-testid="btn-add-handy-models" disabled={busy}>
+              <Boxes /> Add Handy models
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent data-testid="ctx-handy-models-menu" className="min-w-48">
+              {HANDY_MODELS.map((model) => (
+                <ContextMenuItem
+                  key={model.label}
+                  data-testid={`btn-add-handy-${model.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
+                  disabled={busy}
+                  onClick={() => handleAddHandyModel(model)}
+                >
+                  {model.label}
+                </ContextMenuItem>
+              ))}
             </ContextMenuSubContent>
           </ContextMenuSub>
           <ContextMenuItem

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
@@ -10,7 +10,7 @@ vi.mock('@orca/slicer-runtime', () => ({
   errorText: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
-import { addModel } from './sceneActions';
+import { addHandyModel, addModel, HANDY_MODELS } from './sceneActions';
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
   const addModel = vi.fn(async () => result);
@@ -25,9 +25,14 @@ function platformFor(fileName: string, result: { ok: boolean; error?: string }) 
 
 describe('scene add-model action', () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     useSlicerStore.setState({ status: 'idle', error: null, resultExported: false });
     useSettingsStore.setState({ values: {}, modelLoaded: false });
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('passes the selected DRC basename to the runtime', async () => {
@@ -41,5 +46,52 @@ describe('scene add-model action', () => {
     const { platform } = platformFor('broken.drc', { ok: false, error: 'Draco decoder detail' });
     await addModel(platform, null);
     expect(useSlicerStore.getState().error).toBe('Unable to import DRC file');
+  });
+
+  it('imports the bundled 3DBenchy resource through the normal model pipeline', async () => {
+    const { platform, addModel: runtimeAdd } = platformFor('unused.stl', { ok: true });
+    const fetch = vi.fn(async () => ({
+      ok: true,
+      arrayBuffer: async () => Uint8Array.from([3, 13]).buffer,
+    }));
+    vi.stubGlobal('fetch', fetch);
+
+    await addHandyModel(platform, null, HANDY_MODELS[4]);
+
+    expect(fetch).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/handy-models/3DBenchy.drc' }));
+    expect(runtimeAdd).toHaveBeenCalledWith(Uint8Array.from([3, 13]), 'drc', '3DBenchy.drc');
+    expect(useSettingsStore.getState()).toMatchObject({
+      modelLoaded: true,
+      values: { modelPath: '3DBenchy' },
+    });
+  });
+
+  it('keeps all source files when importing a multi-file handy model', async () => {
+    const { platform, addModel: runtimeAdd } = platformFor('unused.stl', { ok: true });
+    vi.stubGlobal('fetch', vi.fn(async (url: URL) => ({
+      ok: true,
+      arrayBuffer: async () => Uint8Array.from([url.pathname.length]).buffer,
+    })));
+
+    await addHandyModel(platform, null, HANDY_MODELS[0]);
+
+    expect(runtimeAdd).toHaveBeenNthCalledWith(
+      1, Uint8Array.from(['/handy-models/OrcaCube_v2.drc'.length]), 'drc', 'OrcaCube_v2.drc',
+    );
+    expect(runtimeAdd).toHaveBeenNthCalledWith(
+      2, Uint8Array.from(['/handy-models/OrcaPlug_v2.drc'.length]), 'drc', 'OrcaPlug_v2.drc',
+    );
+    expect(useSettingsStore.getState().values.modelPath).toBe('Orca Cube');
+  });
+
+  it('does not modify the scene when a bundled asset cannot be fetched', async () => {
+    const { platform, addModel: runtimeAdd } = platformFor('unused.stl', { ok: true });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 })));
+
+    await addHandyModel(platform, null, HANDY_MODELS[4]);
+
+    expect(runtimeAdd).not.toHaveBeenCalled();
+    expect(useSlicerStore.getState().error).toBe('handy model asset request failed (404): 3DBenchy.drc');
+    expect(useSettingsStore.getState().modelLoaded).toBe(false);
   });
 });

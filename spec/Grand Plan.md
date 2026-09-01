@@ -289,6 +289,11 @@ cross-origin isolation is available, and serial WASM otherwise.
       separator): appends OrcaSlicer's 20 mm cube primitive through the
       standard model pipeline (`doc/2026-08-22-scene-context-menu-add-cube.md`);
       no bridge changes
+- [x] Add Handy models submenu in the scene context menu: ships all ten of
+      OrcaSlicer's bundled benchmark/calibration entries through the standard
+      model-import pipeline (`doc/2026-09-01-handy-models-context-menu.md`),
+      including multi-file Orca Cube and OrcaSliced Combo; the shared-app
+      resource manifest stages pinned upstream files without duplicating them
 - [x] Electron e2e: the full flow clears via the context menu; an emptied
       plate shows the disabled menu item after Delete; Add Cube and the
       context-menu Add Model entry unlock Slice and (mock mode) report a
