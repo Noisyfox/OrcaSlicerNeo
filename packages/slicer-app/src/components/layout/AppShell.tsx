@@ -4,6 +4,7 @@ import { isWorkspaceTab } from './appTabs';
 
 export interface AppPagePanelProps {
   active: boolean;
+  prewarming?: boolean;
   id: string;
   labelledBy: string;
   children: ReactNode;
@@ -14,23 +15,23 @@ export interface AppPagePanelProps {
  * and layout-neutral. Stateful pages (the WebGL scene and printer console)
  * therefore survive navigation without receiving input while hidden.
  */
-export function AppPagePanel({ active, id, labelledBy, children }: AppPagePanelProps) {
+export function AppPagePanel({ active, prewarming = false, id, labelledBy, children }: AppPagePanelProps) {
   return (
     <div
       id={id}
       role="tabpanel"
       aria-labelledby={labelledBy}
       aria-hidden={!active}
-      hidden={!active}
+      hidden={!active && !prewarming}
       inert={!active}
-      className="flex min-h-0 flex-1 px-1"
+      className={`flex min-h-0 flex-1 px-1${prewarming && !active ? ' invisible absolute inset-0' : ''}`}
     >
       {children}
     </div>
   );
 }
 
-export function AppShell({ titleBar, home, workspace, device, activeTab = 'home', toolbar, status }: {
+export function AppShell({ titleBar, home, workspace, device, activeTab = 'home', toolbar, status, prewarmWorkspace = false }: {
   titleBar: ReactNode;
   toolbar: ReactNode;
   home: ReactNode;
@@ -39,21 +40,24 @@ export function AppShell({ titleBar, home, workspace, device, activeTab = 'home'
   workspace: ReactNode;
   device: ReactNode;
   activeTab?: AppTab;
+  prewarmWorkspace?: boolean;
   status: ReactNode;
 }) {
   return (
     <div className="flex h-full flex-col">
       {titleBar}
       <div className="flex h-6 items-center gap-2 px-1 mb-0.5">{toolbar}</div>
-      <AppPagePanel active={activeTab === 'home'} id="app-panel-home" labelledBy="app-tab-home">
-        {home}
-      </AppPagePanel>
-      <AppPagePanel active={isWorkspaceTab(activeTab)} id="app-panel-workspace" labelledBy={`app-tab-${activeTab}`}>
-        {workspace}
-      </AppPagePanel>
-      <AppPagePanel active={activeTab === 'device'} id="app-panel-device" labelledBy="app-tab-device">
-        {device}
-      </AppPagePanel>
+      <div className="relative flex min-h-0 flex-1">
+        <AppPagePanel active={activeTab === 'home'} id="app-panel-home" labelledBy="app-tab-home">
+          {home}
+        </AppPagePanel>
+        <AppPagePanel active={isWorkspaceTab(activeTab)} prewarming={prewarmWorkspace} id="app-panel-workspace" labelledBy={`app-tab-${activeTab}`}>
+          {workspace}
+        </AppPagePanel>
+        <AppPagePanel active={activeTab === 'device'} id="app-panel-device" labelledBy="app-tab-device">
+          {device}
+        </AppPagePanel>
+      </div>
       <footer className="h-6 flex items-center px-1 text-xs text-muted-foreground">{status}</footer>
     </div>
   );

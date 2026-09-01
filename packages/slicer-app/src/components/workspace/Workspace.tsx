@@ -27,18 +27,33 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 560;
+export interface PreviewRenderTransition {
+  begin(): void;
+  cancel(): void;
+}
 function clampSidebarWidth(value: number | undefined): number {
   if (!Number.isFinite(value)) return DEFAULT_SIDEBAR_WIDTH;
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
 }
 
-export function Workspace({ activeTab = 'prepare', onSceneInteractionChange, onSliceCoordinatorChange, onRequestPreview }: {
+export function Workspace({
+  activeTab = 'prepare',
+  onSceneInteractionChange,
+  onSliceCoordinatorChange,
+  onRequestPreview,
+  onPreviewRenderReady,
+  onPreviewTransitionChange,
+}: {
   activeTab?: AppTab;
   // The scene controller lives here, but the menu command dispatcher needs it
   // too; this hands it up without making the owner re-render on every change.
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
   onSliceCoordinatorChange?: (coordinator: WorkspaceSliceCoordinator | null) => void;
   onRequestPreview?: () => void;
+  // Home/Device → Preview first renders the Preview tree while this persistent
+  // workspace panel is still hidden, then App reveals the panel on this signal.
+  onPreviewRenderReady?: () => void;
+  onPreviewTransitionChange?: (transition: PreviewRenderTransition | null) => void;
 }) {
   const platform = usePlatform();
   const glVolumes = useModelLoader();
@@ -61,6 +76,8 @@ export function Workspace({ activeTab = 'prepare', onSceneInteractionChange, onS
     });
   }
   const sliceCoordinator = sliceCoordinatorRef.current;
+  const [previewRenderPending, setPreviewRenderPending] = useState(false);
+  const previewRenderPendingRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const sidebarWidthRef = useRef(sidebarWidth);
   const resizeActiveRef = useRef(false);
@@ -75,6 +92,30 @@ export function Workspace({ activeTab = 'prepare', onSceneInteractionChange, onS
     onSliceCoordinatorChange?.(sliceCoordinator);
     return () => onSliceCoordinatorChange?.(null);
   }, [onSliceCoordinatorChange, sliceCoordinator]);
+
+  const beginPreviewRender = useCallback(() => {
+    if (isPreviewTab(activeTab)) return;
+    previewRenderPendingRef.current = true;
+    setPreviewRenderPending(true);
+  }, [activeTab]);
+  const cancelPreviewRender = useCallback(() => {
+    previewRenderPendingRef.current = false;
+    setPreviewRenderPending(false);
+  }, []);
+  useEffect(() => {
+    onPreviewTransitionChange?.({ begin: beginPreviewRender, cancel: cancelPreviewRender });
+    return () => onPreviewTransitionChange?.(null);
+  }, [beginPreviewRender, cancelPreviewRender, onPreviewTransitionChange]);
+  useEffect(() => {
+    if (!isPreviewTab(activeTab)) return;
+    previewRenderPendingRef.current = false;
+    setPreviewRenderPending(false);
+  }, [activeTab]);
+  const handleSceneFrameRendered = useCallback((mode: 'prepare' | 'preview') => {
+    if (mode !== 'preview' || !previewRenderPendingRef.current) return;
+    previewRenderPendingRef.current = false;
+    onPreviewRenderReady?.();
+  }, [onPreviewRenderReady]);
 
   const previousActiveTabRef = useRef<AppTab>(activeTab);
   useEffect(() => {
@@ -218,9 +259,10 @@ export function Workspace({ activeTab = 'prepare', onSceneInteractionChange, onS
       <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card">
         <Viewport
           sceneInteraction={sceneInteraction}
-          activeTab={isPreviewTab(activeTab) ? 'preview' : 'prepare'}
+          activeTab={isPreviewTab(activeTab) || previewRenderPending ? 'preview' : 'prepare'}
           glVolumes={glVolumes}
           toolpath={sliceResult.toolpath}
+          onSceneFrameRendered={handleSceneFrameRendered}
         />
       </main>
     </div>

@@ -18,13 +18,14 @@ describe('AppShell top-level pages', () => {
     document.body.innerHTML = '';
   });
 
-  async function renderPage(container: HTMLElement, activeTab: AppTab) {
+  async function renderPage(container: HTMLElement, activeTab: AppTab, prewarmWorkspace = false) {
     await act(async () => {
       root?.render(
         <AppShell
           titleBar={<div />}
           toolbar={<div />}
           activeTab={activeTab}
+          prewarmWorkspace={prewarmWorkspace}
           home={<StatefulPage label="home" />}
           workspace={<StatefulPage label="workspace" />}
           device={<StatefulPage label="device" />}
@@ -76,5 +77,17 @@ describe('AppShell top-level pages', () => {
     expect(home.hasAttribute('inert')).toBe(false);
     expect(workspace.hidden).toBe(true);
     expect(device.hidden).toBe(true);
+  });
+
+  it('keeps a prewarming Workspace laid out but visually inaccessible', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await renderPage(container, 'home', true);
+    const workspace = container.querySelector('#app-panel-workspace') as HTMLElement;
+    expect(workspace.hidden).toBe(false);
+    expect(workspace.hasAttribute('inert')).toBe(true);
+    expect(workspace.classList.contains('invisible')).toBe(true);
   });
 });

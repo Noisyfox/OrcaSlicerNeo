@@ -101,4 +101,33 @@ describe('Workspace ownership', () => {
 
     expect(sliceModelMock).toHaveBeenCalledOnce();
   });
+
+  it('renders Preview while Home or Device is still active, then completes the navigation after that frame', async () => {
+    const onPreviewRenderReady = vi.fn();
+    let transition: { begin(): void } | null = null;
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <PlatformProvider value={platform}>
+          <Workspace
+            activeTab="home"
+            onPreviewTransitionChange={(next) => { transition = next; }}
+            onPreviewRenderReady={onPreviewRenderReady}
+          />
+        </PlatformProvider>,
+      );
+    });
+
+    await act(async () => { transition?.begin(); });
+    const previewProps = testMocks.viewportProps.at(-1);
+    expect(previewProps?.activeTab).toBe('preview');
+
+    await act(async () => {
+      (previewProps?.onSceneFrameRendered as ((mode: 'prepare' | 'preview') => void) | undefined)?.('preview');
+    });
+    expect(onPreviewRenderReady).toHaveBeenCalledOnce();
+  });
 });

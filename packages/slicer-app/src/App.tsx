@@ -4,8 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar } from './components/layout/Toolbar';
-import type { AppTab } from './components/layout/appTabs';
-import { Workspace } from './components/workspace/Workspace';
+import { isWorkspaceTab, type AppTab } from './components/layout/appTabs';
+import { Workspace, type PreviewRenderTransition } from './components/workspace/Workspace';
 import { DevicePanel } from './components/device/DevicePanel';
 import { StatusBar } from './components/layout/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
@@ -33,10 +33,33 @@ export default function App() {
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('home');
+  const [prewarmingWorkspace, setPrewarmingWorkspace] = useState(false);
+  const previewTransitionRef = useRef<PreviewRenderTransition | null>(null);
   const handleTabChange = useCallback((tab: AppTab) => {
+    if (tab !== 'preview') {
+      previewTransitionRef.current?.cancel();
+      setPrewarmingWorkspace(false);
+      setActiveTab(tab);
+      return;
+    }
+    if (tab === 'preview' && !isWorkspaceTab(activeTab)) {
+      const transition = previewTransitionRef.current;
+      if (transition) {
+        setPrewarmingWorkspace(true);
+        transition.begin();
+        return;
+      }
+    }
     setActiveTab(tab);
-  }, []);
+  }, [activeTab]);
   const navigateToPreview = useCallback(() => {
+    handleTabChange('preview');
+  }, [handleTabChange]);
+  const handlePreviewTransitionChange = useCallback((transition: PreviewRenderTransition | null) => {
+    previewTransitionRef.current = transition;
+  }, []);
+  const completePreviewTransition = useCallback(() => {
+    setPrewarmingWorkspace(false);
     setActiveTab('preview');
   }, []);
   // Workspace owns the controller; the dispatcher only ever reads it lazily at
@@ -227,8 +250,9 @@ export default function App() {
       titleBar={titleBar}
       toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />}
       activeTab={activeTab}
+      prewarmWorkspace={prewarmingWorkspace}
       home={<div data-testid="home-page" />}
-      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={navigateToPreview} />}
+      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={navigateToPreview} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
       device={<DevicePanel />}
       status={<StatusBar />}
     />

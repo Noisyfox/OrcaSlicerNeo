@@ -1,7 +1,7 @@
 // packages/slicer-app/src/components/viewport/Viewport.tsx
 import { Component, useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
-import { Canvas, events as createPointerEvents, type RootState } from '@react-three/fiber';
+import { Canvas, events as createPointerEvents, useFrame, type RootState } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
 import { BED_SIZE } from './BedPlate';
 import { Scene } from './Scene';
@@ -63,11 +63,12 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
+export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onSceneFrameRendered }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   sceneInteraction: SceneInteractionController;
+  onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
 }) {
   const platform = usePlatform();
   const slicing = useSlicerStore((s) => s.status === 'slicing');
@@ -337,6 +338,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
               glVolumes={glVolumes}
               toolpath={toolpath}
             />
+            <ViewportFrameGate mode={activeTab} onRendered={() => onSceneFrameRendered?.(activeTab)} />
             <OrbitControls
               makeDefault
               enableDamping
@@ -374,6 +376,20 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction }: {
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
     </div>
   );
+}
+
+/** Notify Workspace after the current Prepare/Preview scene reaches the render loop. */
+function ViewportFrameGate({ mode, onRendered }: {
+  mode: 'prepare' | 'preview';
+  onRendered: () => void;
+}) {
+  const renderedModeRef = useRef<typeof mode | null>(null);
+  useFrame(() => {
+    if (renderedModeRef.current === mode) return;
+    renderedModeRef.current = mode;
+    onRendered();
+  });
+  return null;
 }
 
 /** The screen-space marquee rendered while a Shift+drag box selection is live. */
