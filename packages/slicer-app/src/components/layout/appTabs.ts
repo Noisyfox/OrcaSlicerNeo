@@ -1,9 +1,7 @@
-import type { AppTab } from '@orca/platform-contract';
+import { APP_TABS, type AppTab } from '@orca/platform-contract';
 
 /** Top-level navigation tabs shared by the app shell and toolbar. */
 export type { AppTab } from '@orca/platform-contract';
-
-const APP_TABS = ['home', 'prepare', 'preview', 'device'] as const;
 
 /** Narrow a DOM tab value to the application's supported top-level tabs. */
 export function isAppTab(tab: unknown): tab is AppTab {

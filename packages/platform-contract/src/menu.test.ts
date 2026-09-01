@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ExternalLinks, PlatformCapabilities } from './contracts';
-import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu } from './menu';
+import { APP_TABS, type MenuCommandId, type MenuModel, type MenuStateSnapshot, type PlatformMenu } from './menu';
 
 const model: MenuModel = {
   version: 1,
@@ -27,6 +27,10 @@ const snapshot: MenuStateSnapshot = {
 };
 
 describe('platform menu contract', () => {
+  it('defines the complete app-tab vocabulary once for UI and host consumers', () => {
+    expect(APP_TABS).toEqual(['home', 'prepare', 'preview', 'device']);
+  });
+
   it('supports complete model/state replacement and host command callbacks', async () => {
     const commands: MenuCommandId[] = [];
     const menu: PlatformMenu = {

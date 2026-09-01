@@ -1,17 +1,16 @@
-import type {
-  MenuCommandId,
-  MenuItem,
-  MenuModel,
-  MenuStateSnapshot,
-  AppTab,
-  TitlebarMenuMode,
+import {
+  APP_TABS,
+  type MenuCommandId,
+  type MenuItem,
+  type MenuModel,
+  type MenuStateSnapshot,
+  type TitlebarMenuMode,
 } from '../../../../packages/platform-contract/src/menu';
 import { isMenuCommandId, SOURCE_URL } from '../shared/ipc';
 
 const MENU_MODES = ['custom', 'native', 'browser'] as const satisfies readonly TitlebarMenuMode[];
 const BOOT_PHASES = ['starting', 'ready', 'failed'] as const;
 const SLICER_STATUSES = ['idle', 'slicing', 'done', 'error'] as const;
-const APP_TABS = ['home', 'prepare', 'preview', 'device'] as const satisfies readonly AppTab[];
 const MAX_MENU_DEPTH = 8;
 const MAX_MENU_ITEMS = 128;
 
