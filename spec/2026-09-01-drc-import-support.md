@@ -1,6 +1,6 @@
 # DRC Import Support
 
-**Status:** Approved — implementation in progress
+**Status:** Delivered — 2026-09-01
 
 ## Accepted product behaviour
 
@@ -153,6 +153,23 @@
   threaded and serial E2E.
 - Before handoff, run the repository-required `pnpm test`, `pnpm typecheck`,
   dual-variant quick WASM build, and desktop E2E; report every actual result.
+
+## Delivery record
+
+- Draco 1.5.7 is fetched, SHA-256 verified, and built as the complete native
+  static library for both wasm64 variants.  The WASM build now compiles the
+  unmodified upstream `Format/DRC.cpp`; no `cpp` submodule file was changed.
+- The Electron filter and Web file picker accept `.drc`.  The shared action
+  passes a selected filename basename to the typed runtime/bridge, so DRC
+  object names follow upstream while STL retains its existing behaviour.
+- `fixtures/drc/` contains the four approved official Google Draco samples,
+  their Apache-2.0 license, and exact v1.5.7 provenance.  The native DRC
+  smoke test verifies the three mesh encodings, topology/bounding boxes,
+  append semantics, atomic point-cloud/truncated-input rejection, and real
+  G-code export on both artifacts.
+- Release-gate evidence completed on 2026-09-01: dual `quick` WASM build;
+  dual artifact smoke; `pnpm test`; `pnpm typecheck`; standard Electron E2E;
+  focused real Electron DRC E2E; real Web threaded and serial DRC E2E.
 
 ## Acceptance requirements
 
