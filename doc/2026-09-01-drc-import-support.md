@@ -31,3 +31,17 @@
   access continue to be supplied through platform contracts.
 - The Web implementation must ship all decoder resources with the application;
   it must not depend on a third-party CDN at runtime.
+- Prefer the upstream C++ implementation.  Restore and compile the existing
+  `libslic3r/Format/DRC.cpp` and `.hpp` and use a C++ Draco static dependency
+  in both the threaded and serial wasm64 artifacts.  The bridge may connect
+  the existing model-import flow but must not reimplement DRC parsing.
+
+## Required validation gate
+
+- Upstream DRC input currently uses `boost::iostreams::mapped_file_source` to
+  map the staged input file before passing its bytes to Draco.  Verify that
+  this works with the Emscripten MEMFS input path before implementing the
+  feature further.
+- If that validation fails, stop work and request a new decision.  Do not
+  patch the upstream DRC implementation or introduce a replacement adapter
+  without explicit approval.
