@@ -1,12 +1,14 @@
 // packages/slicer-app/src/components/viewport/ToolpathLines.tsx
 import { useEffect, useMemo } from 'react';
+import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import {
   createToolpathBandMaterial,
-  selectToolpathChunks,
+  updateToolpathChunkVisibility,
 } from './toolpathBandGeometry';
+import { buildPreviewVisibility } from './previewSemantics';
 
 /**
  * GPU toolpath renderer. Each segment is an instanced rectangular prism whose
@@ -21,29 +23,24 @@ export function ToolpathLines({
   data: ToolpathGeometry;
   cameraGestureActive?: boolean;
 }) {
-  const layer = useSlicerStore((s) => s.layer);
+  const preview = useSlicerStore((s) => s.preview);
   const invalidate = useThree((s) => s.invalidate);
   const material = useMemo(() => createToolpathBandMaterial(), []);
-  const visibleChunks = useMemo(() => selectToolpathChunks(
-    data.chunks,
-    layer,
-    layer,
-    data.segmentCount,
-    cameraGestureActive,
-  ), [cameraGestureActive, data.chunks, data.segmentCount, layer]);
+  void cameraGestureActive;
+  const visibility = useMemo(() => buildPreviewVisibility(data, {
+    ...preview,
+    // B2 camera gestures only change camera uniforms; keeping this input
+    // explicit documents that gestures do not participate in filtering.
+    visibleLayerStart: preview.visibleLayerStart,
+    visibleLayerEnd: preview.visibleLayerEnd,
+  }), [data, preview]);
 
   useEffect(() => {
-    const selected = new Set(visibleChunks);
-    data.chunks.forEach((chunk, index) => {
-      // Keep the existing single-layer scrubber behavior until B3 replaces it
-      // with the inclusive dual-thumb range. Nearby chunks remain cached but
-      // are not exposed by camera-only state changes.
-      chunk.geometry.instanceCount = selected.has(index)
-        ? chunk.segmentCount
-        : 0;
-    });
+    // Keep every instance in the draw call. The visibility attribute is a
+    // prebuilt GPU buffer, so range/filter changes do not rebuild geometry.
+    updateToolpathChunkVisibility(data.chunks, visibility);
     invalidate();
-  }, [data.chunks, invalidate, layer, visibleChunks]);
+  }, [data.chunks, invalidate, visibility]);
 
   useEffect(() => () => material.dispose(), [material]);
 

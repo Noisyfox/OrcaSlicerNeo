@@ -31,4 +31,22 @@ describe('useSlicerStore', () => {
       resultExported: false, layer: 0, maxLayer: 0,
     });
   });
+
+  it('keeps preview ranges inclusive and resets ephemeral controls', () => {
+    useSlicerStore.getState().setPreviewBounds(4, 8, 42);
+    useSlicerStore.getState().setPreviewLayerRange([1, 3]);
+    useSlicerStore.getState().setPreviewMoveRange([2, 6]);
+    useSlicerStore.getState().setPreviewShowTravel(false);
+    useSlicerStore.getState().setPreviewFeatureVisibility(7, false);
+    expect(useSlicerStore.getState().preview).toMatchObject({
+      visibleLayerStart: 1, visibleLayerEnd: 3, activeMoveStart: 2,
+      activeMoveEnd: 6, showTravel: false, resultId: 42,
+    });
+    useSlicerStore.getState().resetPreviewState();
+    expect(useSlicerStore.getState().preview).toMatchObject({
+      visibleLayerStart: 0, visibleLayerEnd: 0, activeMoveStart: 0,
+      activeMoveEnd: 0, showTravel: true, dimPreviousLayers: true,
+      featureVisibility: {}, resultId: null,
+    });
+  });
 });

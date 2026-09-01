@@ -18,6 +18,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { deleteSelection } from '../actions/deleteSelection';
 import { isPrepareTab, isPreviewTab } from '../../layout/appTabs';
+import { maxMoveOrderForLayer, previewViewportOwnsKeyboardFocus } from './previewSemantics';
 
 // Launch camera: look at the plate center (the bed spans [0, BED_SIZE]² in
 // XY with Z up), with the plate at 45° to the screen plane and its X axis
@@ -74,6 +75,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   const slicing = useSlicerStore((s) => s.status === 'slicing');
   const previewTab = isPreviewTab(activeTab);
   const prepareTab = isPrepareTab(activeTab);
+  const previewState = useSlicerStore((s) => s.preview);
+  const setPreviewLayerEnd = useSlicerStore((s) => s.setPreviewLayerEnd);
+  const setPreviewMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
+  const setPreviewSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
+  const setPreviewMoveRange = useSlicerStore((s) => s.setPreviewMoveRange);
   // Ref is only consumed as a prop target (drei Stats `parent`), never read
   // by this component — so it can be typed without the null union, which
   // React 19's RefObject<T> = { current: T } requires for assignability.
@@ -168,6 +174,40 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [platform.runtime, previewTab, sceneInteraction, slicing]);
+
+  // Preview inspection shortcuts are scoped to the viewport focus and are
+  // separate from Prepare's object-editing bindings above.
+  useEffect(() => {
+    if (!sceneInteraction || !previewTab) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!previewViewportOwnsKeyboardFocus(target, viewportRef.current, document.activeElement)) return;
+      const step = event.shiftKey || event.ctrlKey || event.metaKey ? 5 : 1;
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowUp' ? step : -step;
+        const nextLayer = Math.max(0, Math.min(useSlicerStore.getState().maxLayer, previewState.visibleLayerEnd + delta));
+        setPreviewLayerEnd(nextLayer);
+        if (toolpath) {
+          const maxMove = maxMoveOrderForLayer(toolpath, nextLayer);
+          setPreviewMoveRange([0, Math.min(maxMove, previewState.activeMoveEnd)]);
+        }
+        return;
+      }
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowRight' ? step : -step;
+        setPreviewMoveEnd(previewState.activeMoveEnd + delta);
+        return;
+      }
+      if (event.key.toLowerCase() === 'l') {
+        event.preventDefault();
+        setPreviewSingleLayer(!previewState.singleLayer);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewState, previewTab, sceneInteraction, setPreviewLayerEnd, setPreviewMoveEnd, setPreviewMoveRange, setPreviewSingleLayer, toolpath]);
 
   const viewportPointOf = useCallback((clientX: number, clientY: number) => {
     const rect = viewportRef.current.getBoundingClientRect();
@@ -273,6 +313,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
     <div
       ref={viewportRef}
       className="absolute inset-0"
+      tabIndex={0}
+      aria-label={previewTab ? 'G-code preview viewport' : '3D viewport'}
       data-testid="viewport"
       onContextMenuCapture={(event) => {
         // Keep the Web canvas from exposing the browser host menu in every
@@ -282,7 +324,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
         if (previewTab) event.stopPropagation();
       }}
       onPointerDownCapture={(event) => {
-        if (previewTab) return;
+        if (previewTab) {
+          if ((event.target as HTMLElement | null)?.closest('canvas')) viewportRef.current.focus();
+          return;
+        }
         const native = event.nativeEvent;
         // Capture runs before three/drei target handlers. Recheck the live
         // picker here so a stale hover frame cannot start an overlapping body
@@ -375,7 +420,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
         </SceneContextMenu>
       </ViewportErrorBoundary>
       {prepareTab && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
-      {previewTab && toolpath && <LayerScrubber />}
+      {previewTab && toolpath && <LayerScrubber data={toolpath} />}
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
     </div>
   );

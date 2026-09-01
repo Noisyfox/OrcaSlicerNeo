@@ -7,6 +7,7 @@ import { BedPlate } from './BedPlate';
 import { GLVolumeMesh } from './ModelMesh';
 import type { ToolpathGeometry } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
+import { ToolpathMarker } from './ToolpathMarker';
 import { TransformGizmo, type TransformGizmoMode } from './gizmo/TransformGizmo';
 import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
@@ -195,6 +196,7 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, c
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}
       {toolpath && <ToolpathLines data={toolpath} cameraGestureActive={cameraGestureActive} />}
+      {toolpath && <ToolpathMarker data={toolpath} />}
     </>
   );
 }

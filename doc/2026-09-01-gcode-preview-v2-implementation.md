@@ -1,7 +1,7 @@
 # G-code Preview v2 implementation plan
 
 **Date:** 2026-09-01
-**Status:** B2 self-verified; awaiting parent acceptance
+**Status:** B3 self-verified; awaiting parent acceptance
 **Scope:** Repository-owned fixtures, Preview data v2, the shared Web/Electron
 renderer, and the read-only Phase-C inspection increment
 
@@ -271,6 +271,47 @@ pnpm --filter @orca/web test:e2e:serial
 B3 passes only when both hosts agree on control semantics and resetting a new
 result cannot render stale paths. No Phase-C scheme or G-code text window may
 be required for this gate.
+
+#### B3 implementation record
+
+The shared preview state now owns ephemeral inclusive visible-layer and
+active-layer move ranges, Feature/Line Type visibility, global travel
+visibility, previous-layer dimming, single-layer mode, and the default
+Feature/Line Type scheme. A completed slice initializes the active end at the
+last layer/move; invalidation and a new result reset all preview choices and
+remove stale toolpath data. No preview state is persisted.
+
+The canvas overlay provides Orca-style right-edge layer and bottom move
+controls, a feature legend with hide semantics, travel and dimming toggles,
+and a single-layer toggle. Empty and single-layer results retain valid
+bounds. The overlay uses theme-aware surface/text tokens while palette colors
+remain semantic and stable. Viewport focus supports Up/Down and Left/Right
+inspection stepping, Shift/Ctrl acceleration, and `L`; text inputs, overlay
+controls, and normal Prepare bindings retain their existing focus behavior.
+
+Filtering and dimming update prebuilt per-instance GPU attributes. Camera
+gesture state is not a geometry or visibility-cache input, so camera movement
+continues to reuse the prepared chunks. The generic Phase-B marker is a
+camera-facing sprite at the last move at or before the active move end.
+
+Actual B3 verification (2026-09-01):
+
+- `pnpm --filter @orca/slicer-app test` — passed (38 files, 243 tests).
+- `pnpm --filter @orca/slicer-app typecheck` — passed.
+- `pnpm test` — passed across all workspace packages.
+- `pnpm typecheck` — passed across all workspace packages and hosts.
+- `pnpm --filter @orca/desktop test:e2e` — passed (24 passed, 3 existing
+  intentional skips).
+- `pnpm --filter @orca/web test:e2e:threaded` — passed (real Web slice flow).
+- `pnpm --filter @orca/web test:e2e:serial` — passed (real Web serial slice
+  flow).
+- `git diff --check` — passed.
+
+The desktop and Web suites currently exercise the existing real slice flows;
+the dedicated B3 controls are additionally covered by shared semantic tests
+for inclusive ranges, empty bounds, travel/feature hiding, dimming, reset,
+marker selection, keyboard focus, and renderer buffer reuse. No Phase-C scheme, G-code text
+window, or external-G-code path is included.
 
 ### B4 — Phase-B integration, native comparison, and release gate
 

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ClientToolpath } from '@slicer/client';
+import type { PreviewVisibility } from './previewSemantics';
 
 /** A layer-aligned range in the source segment stream. */
 export interface ToolpathChunkRange {
@@ -18,6 +19,13 @@ export interface PreparedToolpathBands {
   chunks: ToolpathBandChunk[];
   layerRanges: Array<[number, number]>;
   segmentCount: number;
+  palette: ClientToolpath['palette'];
+  /** Immutable source arrays retained for visibility and marker updates. */
+  layerIds: Uint32Array;
+  moveOrders: Uint32Array;
+  features: Uint32Array;
+  moveTypes: Uint8Array;
+  ends: Float32Array;
   dispose: () => void;
 }
 
@@ -162,6 +170,8 @@ export function createToolpathBandChunk(
   geometry.setAttribute('instanceWidth', new THREE.InstancedBufferAttribute(width, 1));
   geometry.setAttribute('instanceHeight', new THREE.InstancedBufferAttribute(height, 1));
   geometry.setAttribute('instanceColor', new THREE.InstancedBufferAttribute(color, 3));
+  geometry.setAttribute('instanceVisibility', new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1));
+  geometry.setAttribute('instanceDimmed', new THREE.InstancedBufferAttribute(new Float32Array(count), 1));
   geometry.instanceCount = count;
   return { ...range, geometry };
 }
@@ -200,8 +210,33 @@ export function buildPreparedToolpathBands(t: ClientToolpath): PreparedToolpathB
     chunks,
     layerRanges,
     segmentCount,
+    palette: t.palette,
+    layerIds: t.layerIds,
+    moveOrders: t.moveOrders,
+    features: t.features,
+    moveTypes: t.moveTypes,
+    ends: t.ends,
     dispose: () => chunks.forEach((chunk) => chunk.geometry.dispose()),
   };
+}
+
+/** Update visibility/dimming attributes without replacing any geometry. */
+export function updateToolpathChunkVisibility(
+  chunks: readonly ToolpathBandChunk[],
+  visibility: PreviewVisibility,
+): void {
+  chunks.forEach((chunk) => {
+    const visibilityAttribute = chunk.geometry.getAttribute('instanceVisibility') as THREE.InstancedBufferAttribute;
+    const dimmedAttribute = chunk.geometry.getAttribute('instanceDimmed') as THREE.InstancedBufferAttribute;
+    for (let i = 0; i < chunk.segmentCount; i++) {
+      const sourceIndex = chunk.firstSegment + i;
+      visibilityAttribute.setX(i, visibility.visible[sourceIndex] ?? 0);
+      dimmedAttribute.setX(i, visibility.dimmed[sourceIndex] ?? 0);
+    }
+    visibilityAttribute.needsUpdate = true;
+    dimmedAttribute.needsUpdate = true;
+    chunk.geometry.instanceCount = chunk.segmentCount;
+  });
 }
 
 /**
@@ -239,8 +274,15 @@ export function createToolpathBandMaterial(): THREE.ShaderMaterial {
       attribute float instanceWidth;
       attribute float instanceHeight;
       attribute vec3 instanceColor;
+      attribute float instanceVisibility;
+      attribute float instanceDimmed;
       varying vec3 vColor;
+      varying float vDimmed;
       void main() {
+        if (instanceVisibility < 0.5) {
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+          return;
+        }
         vec3 segment = instanceEnd - instanceStart;
         float lengthSegment = max(length(segment), 0.00001);
         vec3 direction = segment / lengthSegment;
@@ -254,13 +296,15 @@ export function createToolpathBandMaterial(): THREE.ShaderMaterial {
           + side * corner.y * instanceWidth * 0.5
           + vec3(0.0, 0.0, corner.z * instanceHeight * 0.5);
         vColor = instanceColor;
+        vDimmed = instanceDimmed;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(worldPosition, 1.0);
       }
     `,
     fragmentShader: `
       uniform float opacity;
       varying vec3 vColor;
-      void main() { gl_FragColor = vec4(vColor, opacity); }
+      varying float vDimmed;
+      void main() { gl_FragColor = vec4(vColor, opacity * mix(1.0, 0.34, vDimmed)); }
     `,
     transparent: true,
     depthTest: false,

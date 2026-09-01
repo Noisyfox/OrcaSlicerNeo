@@ -5,6 +5,7 @@ import {
   createToolpathBandChunk,
   selectToolpathChunks,
   ToolpathBandCache,
+  updateToolpathChunkVisibility,
 } from './toolpathBandGeometry';
 import type { ClientToolpath } from '@slicer/client';
 
@@ -95,6 +96,23 @@ describe('toolpath band geometry', () => {
     }
     expect(cache.buildCount).toBe(1);
     prepared.dispose();
+  });
+
+  it('updates range buffers in place without reconstructing geometry', () => {
+    const range = { firstSegment: 0, segmentCount: 2, firstLayer: 0, lastLayer: 0 };
+    const chunk = createToolpathBandChunk(
+      Float32Array.from([0, 0, 0, 1, 0, 0]), Float32Array.from([1, 0, 0, 2, 0, 0]),
+      Float32Array.from([0.4, 0.4]), Float32Array.from([0.2, 0.2]),
+      Float32Array.from([1, 0, 0, 1, 0, 0]), range,
+    );
+    const geometry = chunk.geometry;
+    updateToolpathChunkVisibility([chunk], {
+      visible: Uint8Array.from([1, 0]), dimmed: Uint8Array.from([0, 1]),
+    });
+    expect(chunk.geometry).toBe(geometry);
+    expect((geometry.getAttribute('instanceVisibility').array as Float32Array)[1]).toBe(0);
+    expect((geometry.getAttribute('instanceDimmed').array as Float32Array)[1]).toBe(1);
+    geometry.dispose();
   });
 
   it('partitions the exact performance fixture sizes in linear time', () => {

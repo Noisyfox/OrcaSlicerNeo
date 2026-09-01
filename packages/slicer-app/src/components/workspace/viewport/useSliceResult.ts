@@ -14,6 +14,12 @@ export interface ToolpathGeometry {
   /** Per-layer [start, count] ranges into the source segment stream. */
   layerRanges: Array<[number, number]>;
   segmentCount: number;
+  palette: ClientSliceResult['toolpath']['palette'];
+  layerIds: Uint32Array;
+  moveOrders: Uint32Array;
+  features: Uint32Array;
+  moveTypes: Uint8Array;
+  ends: Float32Array;
   dispose: () => void;
 }
 
@@ -24,6 +30,8 @@ export function useSliceResult() {
   const setLayers = useSlicerStore((s) => s.setLayers);
   const setMaxLayer = useSlicerStore((s) => s.setMaxLayer);
   const setLayer = useSlicerStore((s) => s.setLayer);
+  const setPreviewBounds = useSlicerStore((s) => s.setPreviewBounds);
+  const resetPreviewState = useSlicerStore((s) => s.resetPreviewState);
   const [result, setResult] = useState<ClientSliceResult | null>(null);
   const bandCache = useRef(new ToolpathBandCache());
 
@@ -38,6 +46,7 @@ export function useSliceResult() {
       setResult(null);
       setLayer(0);
       setMaxLayer(0);
+      resetPreviewState();
       return;
     }
     let cancelled = false;
@@ -49,6 +58,9 @@ export function useSliceResult() {
         setResult(r);
         setLayers(r.layers);
         setMaxLayer(Math.max(0, r.layers - 1));
+        let maxMove = 0;
+        for (let i = 0; i < r.toolpath.segmentCount; i++) maxMove = Math.max(maxMove, r.toolpath.moveOrders[i] ?? 0);
+        setPreviewBounds(Math.max(0, r.layers - 1), maxMove, r.metadata.resultId);
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -63,14 +75,15 @@ export function useSliceResult() {
       }
     })();
     return () => { cancelled = true; };
-  }, [status, setLayers, setMaxLayer, setLayer]);
+  }, [resetPreviewState, setLayers, setMaxLayer, setLayer, setPreviewBounds, status]);
 
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
     if (!result) {
       bandCache.current.clear();
       return null;
     }
-    return bandCache.current.prepare(result.toolpath);
+    const prepared = bandCache.current.prepare(result.toolpath);
+    return prepared;
   }, [result]);
 
   // A result replacement owns the old GPU buffers until React commits the new
