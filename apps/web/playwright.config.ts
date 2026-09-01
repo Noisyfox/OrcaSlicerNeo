@@ -26,7 +26,7 @@ export default defineConfig({
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
-    env: serial ? { ORCA_WEB_NO_ISOLATION: '1' } : {},
+    env: serial ? { ORCA_WEB_NO_ISOLATION: '1', VITE_E2E: '1' } : { VITE_E2E: '1' },
   },
   metadata: { runtime: serial ? 'serial-wasm64' : 'threaded-wasm64' },
 });

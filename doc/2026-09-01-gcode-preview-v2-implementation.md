@@ -288,6 +288,9 @@ bounds. The overlay uses theme-aware surface/text tokens while palette colors
 remain semantic and stable. Viewport focus supports Up/Down and Left/Right
 inspection stepping, Shift/Ctrl acceleration, and `L`; text inputs, overlay
 controls, and normal Prepare bindings retain their existing focus behavior.
+Changing the active layer atomically replaces the move bound with that layer's
+local maximum and resets the inspection end to a valid position, so keyboard
+and dual-thumb changes cannot retain a move index from another layer.
 
 Filtering and dimming update prebuilt per-instance GPU attributes. Camera
 gesture state is not a geometry or visibility-cache input, so camera movement
@@ -296,22 +299,23 @@ camera-facing sprite at the last move at or before the active move end.
 
 Actual B3 verification (2026-09-01):
 
-- `pnpm --filter @orca/slicer-app test` — passed (38 files, 243 tests).
+- `pnpm --filter @orca/slicer-app test` — passed (37 files, 246 tests).
 - `pnpm --filter @orca/slicer-app typecheck` — passed.
 - `pnpm test` — passed across all workspace packages.
 - `pnpm typecheck` — passed across all workspace packages and hosts.
-- `pnpm --filter @orca/desktop test:e2e` — passed (24 passed, 3 existing
+- `pnpm --filter @orca/desktop test:e2e` — passed (25 passed, 3 existing
   intentional skips).
 - `pnpm --filter @orca/web test:e2e:threaded` — passed (real Web slice flow).
 - `pnpm --filter @orca/web test:e2e:serial` — passed (real Web serial slice
   flow).
 - `git diff --check` — passed.
 
-The desktop and Web suites currently exercise the existing real slice flows;
-the dedicated B3 controls are additionally covered by shared semantic tests
-for inclusive ranges, empty bounds, travel/feature hiding, dimming, reset,
-marker selection, keyboard focus, and renderer buffer reuse. No Phase-C scheme, G-code text
-window, or external-G-code path is included.
+Both host suites now exercise the dedicated B3 overlay contract after a real
+slice: legend hide/show, travel visibility, layer controls, marker presence,
+and theme-token stability. Shared tests additionally cover inclusive ranges,
+empty bounds, travel/feature hiding, dimming, reset, local move normalization,
+marker selection, keyboard focus and renderer buffer reuse. No Phase-C scheme,
+G-code text window, or external-G-code path is included.
 
 ### B4 — Phase-B integration, native comparison, and release gate
 

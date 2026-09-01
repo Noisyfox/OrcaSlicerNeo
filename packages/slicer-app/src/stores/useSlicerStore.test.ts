@@ -49,4 +49,18 @@ describe('useSlicerStore', () => {
       featureVisibility: {}, resultId: null,
     });
   });
+
+  it('normalizes move bounds to the newly active layer atomically', () => {
+    useSlicerStore.getState().setPreviewBounds(2, 10, 43);
+    useSlicerStore.getState().setPreviewMoveRange([8, 10]);
+    useSlicerStore.getState().setPreviewLayerEnd(1, 2);
+    expect(useSlicerStore.getState().preview).toMatchObject({
+      visibleLayerEnd: 1,
+      maxMove: 2,
+      activeMoveStart: 0,
+      activeMoveEnd: 2,
+    });
+    useSlicerStore.getState().setPreviewMoveEnd(1);
+    expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(1);
+  });
 });

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { buildPreviewVisibility, lastMovePosition, maxMoveOrderForLayer, previewViewportOwnsKeyboardFocus, TRAVEL_MOVE_TYPE } from './previewSemantics';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { buildPreviewVisibility, isPreviewInspectionKey, lastMovePosition, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus, TRAVEL_MOVE_TYPE } from './previewSemantics';
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data = {
@@ -43,7 +44,34 @@ describe('preview inspection semantics', () => {
     const button = document.createElement('button'); viewport.append(button);
     expect(previewViewportOwnsKeyboardFocus(canvas, viewport, viewport)).toBe(true);
     expect(previewViewportOwnsKeyboardFocus(button, viewport, viewport)).toBe(false);
-    expect(previewViewportOwnsKeyboardFocus(canvas, viewport, button)).toBe(true);
+    expect(previewViewportOwnsKeyboardFocus(canvas, viewport, button)).toBe(false);
+    const input = document.createElement('input'); viewport.append(input);
+    expect(previewViewportOwnsKeyboardFocus(input, viewport, viewport)).toBe(false);
+    expect(previewViewportOwnsKeyboardFocus(canvas, viewport, viewport)).toBe(true);
     expect(previewViewportOwnsKeyboardFocus(document.body, viewport, document.body)).toBe(false);
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    if (previewViewportOwnsKeyboardFocus(canvas, viewport, viewport) && isPreviewInspectionKey(tab.key)) tab.preventDefault();
+    expect(tab.defaultPrevented).toBe(false);
+  });
+
+  it('accelerates inspection arrows with Shift or Ctrl, but not Tab', () => {
+    expect(previewKeyboardStep({ shiftKey: false, ctrlKey: false, metaKey: false })).toBe(1);
+    expect(previewKeyboardStep({ shiftKey: true, ctrlKey: false, metaKey: false })).toBe(5);
+    expect(previewKeyboardStep({ shiftKey: false, ctrlKey: true, metaKey: false })).toBe(5);
+    expect(isPreviewInspectionKey('Tab')).toBe(false);
+    expect(isPreviewInspectionKey('ArrowUp')).toBe(true);
+  });
+
+  it('keeps the marker moving after a large-move layer changes to a smaller one', () => {
+    useSlicerStore.getState().setPreviewBounds(2, 10, 44);
+    useSlicerStore.getState().setPreviewMoveRange([8, 10]);
+    const before = lastMovePosition(data, 2, useSlicerStore.getState().preview.activeMoveEnd);
+    useSlicerStore.getState().setPreviewLayerEnd(1, maxMoveOrderForLayer(data, 1));
+    const afterLayerChange = lastMovePosition(data, 1, useSlicerStore.getState().preview.activeMoveEnd);
+    expect(useSlicerStore.getState().preview).toMatchObject({ maxMove: 2, activeMoveStart: 0, activeMoveEnd: 2 });
+    expect(afterLayerChange).not.toEqual(before);
+    useSlicerStore.getState().setPreviewMoveEnd(1);
+    expect(lastMovePosition(data, 1, useSlicerStore.getState().preview.activeMoveEnd)).toEqual([3, 0, 0]);
+    useSlicerStore.getState().resetPreviewState();
   });
 });

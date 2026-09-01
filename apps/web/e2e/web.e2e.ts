@@ -92,6 +92,29 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
     expect(await range.inputValue()).not.toBe(before);
   }
 
+  // Phase-B Orca-style overlay contract: feature legend uses hide/show
+  // semantics, travel is a global toggle, layer/move controls are present,
+  // and the camera-facing marker is in the scene at the inspection position.
+  await page.locator('#app-tab-preview').click();
+  await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: 30_000 });
+  const feature = page.locator('[data-testid^="preview-feature-visibility-"]').first();
+  await expect(feature).toHaveAttribute('aria-pressed', 'true');
+  await feature.click();
+  await expect(feature).toHaveAttribute('aria-pressed', 'false');
+  await feature.click();
+  await expect(feature).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('preview-travel-toggle').click();
+  await expect(page.getByTestId('preview-travel-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await page.getByTestId('preview-travel-toggle').click();
+  await expect(page.getByTestId('preview-travel-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('preview-layer-range')).toBeVisible();
+  await expect(page.getByTestId('preview-move-range')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e?: { previewMarkerPresent?: () => boolean } }).__orcaE2e?.previewMarkerPresent?.() ?? false)).toBe(true);
+  const themeToken = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--color-card').trim());
+  expect(themeToken).not.toBe('');
+  await page.evaluate(() => document.documentElement.classList.toggle('dark'));
+  await expect(page.getByTestId('preview-controls')).toBeVisible();
+
   // A settings override invalidates the old toolpath and therefore export.
   if (await layerHeight.count()) {
     await layerHeight.fill('0.2');

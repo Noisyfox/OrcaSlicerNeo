@@ -65,10 +65,10 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
       <div data-testid="preview-layer-range" className="pointer-events-auto absolute right-2 top-1/2 z-10 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <Label className="sr-only">Visible layer range</Label>
         <div data-testid="layer-scrubber" className="relative h-full w-6">
-          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setLayerRange([values[0] ?? 0, layerEnd]); }} aria-label="Visible layer range start" />
+          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setLayerRange([values[0] ?? 0, layerEnd], maxMove); }} aria-label="Visible layer range start" />
         </div>
         <div className="pointer-events-none absolute inset-2 [&_[data-slot=slider-thumb]]:pointer-events-auto">
-          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setLayerRange([layerStart, values[0] ?? layerEnd]); }} aria-label="Visible layer range end" />
+          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextEnd = values[0] ?? layerEnd; let nextMaxMove = 0; for (let i = 0; i < data.segmentCount; i++) if (data.layerIds[i] === nextEnd) nextMaxMove = Math.max(nextMaxMove, data.moveOrders[i] ?? 0); setLayerRange([layerStart, nextEnd], nextMaxMove); }} aria-label="Visible layer range end" />
         </div>
         <span className="sr-only">Layers {layerStart + 1} through {layerEnd + 1}</span>
       </div>

@@ -4,9 +4,18 @@ import type { ToolpathGeometry } from './useSliceResult';
 export const TRAVEL_MOVE_TYPE = 8;
 
 export function previewViewportOwnsKeyboardFocus(target: Element | null, viewport: Element | null, activeElement: Element | null): boolean {
-  if (!viewport || !target) return false;
+  if (!viewport || !target || activeElement !== viewport || !viewport.contains(target)) return false;
   if (target.closest('input, textarea, select, [contenteditable="true"], button, [role="slider"]')) return false;
-  return activeElement === viewport || Boolean(target.closest('canvas'));
+  return true;
+}
+
+/** Keyboard acceleration shared by the DOM handler and focused unit tests. */
+export function previewKeyboardStep(modifiers: Pick<KeyboardEvent, 'shiftKey' | 'ctrlKey' | 'metaKey'>): number {
+  return modifiers.shiftKey || modifiers.ctrlKey || modifiers.metaKey ? 5 : 1;
+}
+
+export function isPreviewInspectionKey(key: string): boolean {
+  return key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight' || key.toLowerCase() === 'l';
 }
 
 export interface PreviewVisibilityOptions {

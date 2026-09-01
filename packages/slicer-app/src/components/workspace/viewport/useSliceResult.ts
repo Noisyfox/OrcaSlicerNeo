@@ -58,8 +58,11 @@ export function useSliceResult() {
         setResult(r);
         setLayers(r.layers);
         setMaxLayer(Math.max(0, r.layers - 1));
+        const activeLayer = Math.max(0, r.layers - 1);
         let maxMove = 0;
-        for (let i = 0; i < r.toolpath.segmentCount; i++) maxMove = Math.max(maxMove, r.toolpath.moveOrders[i] ?? 0);
+        for (let i = 0; i < r.toolpath.segmentCount; i++) {
+          if (r.toolpath.layerIds[i] === activeLayer) maxMove = Math.max(maxMove, r.toolpath.moveOrders[i] ?? 0);
+        }
         setPreviewBounds(Math.max(0, r.layers - 1), maxMove, r.metadata.resultId);
       } catch (err) {
         if (cancelled) return;

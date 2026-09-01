@@ -49,8 +49,10 @@ interface SlicerState {
   setMaxLayer: (n: number) => void;
   setResultExported: (exported: boolean) => void;
   setPreviewBounds: (maxLayer: number, maxMove: number, resultId?: number | null) => void;
-  setPreviewLayerRange: (range: [number, number]) => void;
-  setPreviewLayerEnd: (layer: number) => void;
+  /** Update the inclusive visible range and the active layer's local move bound atomically. */
+  setPreviewLayerRange: (range: [number, number], activeLayerMaxMove?: number) => void;
+  /** Move the active inspection layer, resetting its local move range atomically. */
+  setPreviewLayerEnd: (layer: number, activeLayerMaxMove?: number) => void;
   setPreviewMoveRange: (range: [number, number]) => void;
   setPreviewMoveEnd: (move: number) => void;
   setPreviewShowTravel: (show: boolean) => void;
@@ -96,20 +98,39 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     layers: Math.max(0, maxLayer + 1),
     error: state.error,
   })),
-  setPreviewLayerRange: ([first, last]) => set((state) => {
+  setPreviewLayerRange: ([first, last], activeLayerMaxMove) => set((state) => {
     const max = Math.max(0, state.maxLayer);
     const a = Math.max(0, Math.min(max, Math.floor(first)));
     const b = Math.max(a, Math.min(max, Math.floor(last)));
+    const layerChanged = b !== state.preview.visibleLayerEnd;
+    const maxMove = activeLayerMaxMove === undefined
+      ? state.preview.maxMove
+      : Math.max(0, Math.floor(activeLayerMaxMove));
+    const activeMoveStart = layerChanged ? 0 : Math.min(maxMove, state.preview.activeMoveStart);
+    const activeMoveEnd = layerChanged ? maxMove : Math.max(activeMoveStart, Math.min(maxMove, state.preview.activeMoveEnd));
     return {
       layer: b,
-      preview: { ...state.preview, visibleLayerStart: a, visibleLayerEnd: b },
+      preview: { ...state.preview, visibleLayerStart: a, visibleLayerEnd: b, maxMove, activeMoveStart, activeMoveEnd },
     };
   }),
-  setPreviewLayerEnd: (layer) => set((state) => {
+  setPreviewLayerEnd: (layer, activeLayerMaxMove) => set((state) => {
     const max = Math.max(0, state.maxLayer);
     const end = Math.max(0, Math.min(max, Math.floor(layer)));
     const start = state.preview.singleLayer ? end : Math.min(state.preview.visibleLayerStart, end);
-    return { layer: end, preview: { ...state.preview, visibleLayerStart: start, visibleLayerEnd: end } };
+    const maxMove = activeLayerMaxMove === undefined
+      ? state.preview.maxMove
+      : Math.max(0, Math.floor(activeLayerMaxMove));
+    return {
+      layer: end,
+      preview: {
+        ...state.preview,
+        visibleLayerStart: start,
+        visibleLayerEnd: end,
+        maxMove,
+        activeMoveStart: 0,
+        activeMoveEnd: maxMove,
+      },
+    };
   }),
   setPreviewMoveRange: ([first, last]) => set((state) => {
     const max = Math.max(0, state.preview.maxMove);

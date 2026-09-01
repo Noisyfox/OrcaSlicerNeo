@@ -353,6 +353,47 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
   }
 });
 
+test('preview overlay: legend, local ranges, marker, and theme tokens', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await page.locator('#app-tab-preview').click();
+    await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
+    await expect(page.getByTestId('preview-legend')).toBeVisible();
+    const feature = page.locator('[data-testid^="preview-feature-visibility-"]').first();
+    await expect(feature).toBeVisible();
+    await expect(feature).toHaveAttribute('aria-pressed', 'true');
+    await feature.click();
+    await expect(feature).toHaveAttribute('aria-pressed', 'false');
+    await feature.click();
+    await expect(feature).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('preview-travel-toggle').click();
+    await expect(page.getByTestId('preview-travel-toggle')).toHaveAttribute('aria-pressed', 'false');
+    await page.getByTestId('preview-travel-toggle').click();
+    await expect(page.getByTestId('preview-travel-toggle')).toHaveAttribute('aria-pressed', 'true');
+
+    const layerInputs = page.getByTestId('preview-layer-range').locator('input[type="range"]');
+    await expect(layerInputs).toHaveCount(2);
+    const layerBefore = await layerInputs.nth(1).inputValue();
+    await layerInputs.nth(1).focus();
+    await page.keyboard.press('Home');
+    await expect.poll(() => layerInputs.nth(1).inputValue()).not.toBe(layerBefore);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e?: { previewMarkerPresent?: () => boolean } }).__orcaE2e?.previewMarkerPresent?.() ?? false)).toBe(true);
+
+    const token = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--color-card').trim());
+    expect(token).not.toBe('');
+    await page.evaluate(() => document.documentElement.classList.toggle('dark'));
+    await expect(page.getByTestId('preview-controls')).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});
+
 // Keep the DRC regression independently scoped: this verifies the complete
 // real Electron path without changing the 20 mm STL geometry assumptions in
 // the broader desktop regression suite.

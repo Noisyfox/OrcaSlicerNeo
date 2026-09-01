@@ -18,7 +18,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { deleteSelection } from '../actions/deleteSelection';
 import { isPrepareTab, isPreviewTab } from '../../layout/appTabs';
-import { maxMoveOrderForLayer, previewViewportOwnsKeyboardFocus } from './previewSemantics';
+import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus } from './previewSemantics';
 
 // Launch camera: look at the plate center (the bed spans [0, BED_SIZE]² in
 // XY with Z up), with the plate at 45° to the screen plane and its X axis
@@ -79,7 +79,6 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   const setPreviewLayerEnd = useSlicerStore((s) => s.setPreviewLayerEnd);
   const setPreviewMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
   const setPreviewSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
-  const setPreviewMoveRange = useSlicerStore((s) => s.setPreviewMoveRange);
   // Ref is only consumed as a prop target (drei Stats `parent`), never read
   // by this component — so it can be typed without the null union, which
   // React 19's RefObject<T> = { current: T } requires for assignability.
@@ -182,16 +181,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (!previewViewportOwnsKeyboardFocus(target, viewportRef.current, document.activeElement)) return;
-      const step = event.shiftKey || event.ctrlKey || event.metaKey ? 5 : 1;
+      if (!isPreviewInspectionKey(event.key)) return;
+      const step = previewKeyboardStep(event);
       if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
         event.preventDefault();
         const delta = event.key === 'ArrowUp' ? step : -step;
         const nextLayer = Math.max(0, Math.min(useSlicerStore.getState().maxLayer, previewState.visibleLayerEnd + delta));
-        setPreviewLayerEnd(nextLayer);
-        if (toolpath) {
-          const maxMove = maxMoveOrderForLayer(toolpath, nextLayer);
-          setPreviewMoveRange([0, Math.min(maxMove, previewState.activeMoveEnd)]);
-        }
+        setPreviewLayerEnd(nextLayer, toolpath ? maxMoveOrderForLayer(toolpath, nextLayer) : previewState.maxMove);
         return;
       }
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
@@ -207,7 +203,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [previewState, previewTab, sceneInteraction, setPreviewLayerEnd, setPreviewMoveEnd, setPreviewMoveRange, setPreviewSingleLayer, toolpath]);
+  }, [previewState, previewTab, sceneInteraction, setPreviewLayerEnd, setPreviewMoveEnd, setPreviewSingleLayer, toolpath]);
 
   const viewportPointOf = useCallback((clientX: number, clientY: number) => {
     const rect = viewportRef.current.getBoundingClientRect();
