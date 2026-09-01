@@ -16,8 +16,23 @@ mkdir -p "$DEPS" "$GEN/openssl"
 EIGEN_VER="5.0.1"
 BOOST_VER="1.84.0"
 CEREAL_VER="1.3.0"
+DRACO_VER="1.5.7"
+DRACO_SHA256="27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77"
 
 log() { printf '\033[1;36m[deps]\033[0m %s\n' "$*"; }
+die() { printf '\033[1;31m[deps]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
+
+verify_sha256() {
+  local actual
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual="$(sha256sum "$1" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    actual="$(shasum -a 256 "$1" | awk '{print $1}')"
+  else
+    die "sha256sum or shasum is required to verify $1"
+  fi
+  [[ "$actual" == "$2" ]] || die "SHA-256 mismatch for $1 (got $actual)"
+}
 
 # ---- Eigen (header-only) ----
 if [[ ! -d "$DEPS/eigen-$EIGEN_VER/Eigen" ]]; then
@@ -43,6 +58,16 @@ if [[ ! -d "$DEPS/cereal-$CEREAL_VER/include/cereal" ]]; then
   curl -sL -o "$DEPS/cereal.tar.gz" \
     "https://github.com/USCiLab/cereal/archive/refs/tags/v$CEREAL_VER.tar.gz"
   tar xzf "$DEPS/cereal.tar.gz" -C "$DEPS"
+fi
+
+# ---- Draco (native C++ codec source; built separately per wasm variant) ----
+if [[ ! -f "$DEPS/draco-$DRACO_VER/CMakeLists.txt" ]]; then
+  DRACO_ARCHIVE="$DEPS/draco-$DRACO_VER.zip"
+  log "Fetching Draco $DRACO_VER"
+  curl -fsSL --retry 3 -o "$DRACO_ARCHIVE" \
+    "https://github.com/google/draco/archive/refs/tags/$DRACO_VER.zip"
+  verify_sha256 "$DRACO_ARCHIVE" "$DRACO_SHA256"
+  unzip -q -o "$DRACO_ARCHIVE" -d "$DEPS"
 fi
 
 # ---- Generated / stub headers ----

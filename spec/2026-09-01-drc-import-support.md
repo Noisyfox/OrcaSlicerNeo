@@ -1,6 +1,6 @@
 # DRC Import Support
 
-**Status:** Approved — implementation not started
+**Status:** Approved — implementation in progress
 
 ## Accepted product behaviour
 
