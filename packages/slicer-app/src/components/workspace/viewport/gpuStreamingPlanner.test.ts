@@ -102,6 +102,41 @@ describe('GPU streaming source adapter and page planner', () => {
     expect(Object.isFrozen(source.layers)).toBe(true);
   });
 
+  it.each([
+    ['empty', []],
+    ['gapped', [{ id: 0, firstSegment: 0, segmentCount: 3 }, { id: 2, firstSegment: 5, segmentCount: 6 }]],
+    ['overlapping', [{ id: 0, firstSegment: 0, segmentCount: 3 }, { id: 1, firstSegment: 2, segmentCount: 3 }]],
+    ['mismatched ids', [{ id: 99, firstSegment: 0, segmentCount: 11 }]],
+  ] as const)('normalizes a direct source with a %s layer table', (_name, layers) => {
+    const adapted = adaptClientToolpath(clientToolpath());
+    const directSource = { ...adapted, layers };
+    const plan = planGpuStreamingPages(directSource);
+    expect(plan.source).not.toBe(directSource);
+    expect(plan.layers).not.toBe(layers);
+    expect(plan.layers).toEqual([
+      { id: 0, firstSegment: 0, segmentCount: 3 },
+      { id: 1, firstSegment: 3, segmentCount: 2 },
+      { id: 2, firstSegment: 5, segmentCount: 6 },
+    ]);
+    expect(plan.pages.at(0)?.firstSegment).toBe(0);
+    expect(plan.pages.at(-1)!.firstSegment + plan.pages.at(-1)!.segmentCount).toBe(plan.source.segmentCount);
+    expect(Object.isFrozen(plan.layers)).toBe(true);
+    expect(Object.isFrozen(plan.pages)).toBe(true);
+    expect(Object.isFrozen(plan.pages[0])).toBe(true);
+  });
+
+  it('rejects a direct source whose static SoA cannot cover every segment', () => {
+    const adapted = adaptClientToolpath(clientToolpath());
+    expect(() => planGpuStreamingPages({
+      ...adapted,
+      ends: adapted.ends.subarray(0, adapted.ends.length - 3),
+    })).toThrow(/ends/);
+    expect(() => planGpuStreamingPages({
+      ...adapted,
+      metrics: { feedrate: new Float32Array(adapted.segmentCount - 1) },
+    })).toThrow(/metrics.feedrate/);
+  });
+
   it('keeps normal pages layer-aligned and marks a soft-target exception', () => {
     const plan = createGpuStreamingPagePlan(clientToolpath(), undefined, { softPageTarget: 5 });
     expect(plan.pages.map(({ firstSegment, segmentCount, firstLayer, lastLayer, oversized }) => ({

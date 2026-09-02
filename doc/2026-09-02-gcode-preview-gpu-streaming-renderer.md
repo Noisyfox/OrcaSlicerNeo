@@ -23,11 +23,16 @@ Three.js objects, WebGL resources, or a mock GPU.
 ## Accepted step-2 implementation
 
 `gpuStreamingPlanner.ts` adapts the existing `ClientToolpath` structure of
-arrays without copying shape, palette, or metric buffers. It derives small,
-planner-owned layer records (retaining optional layer Z values) and freezes the
-source wrapper, layer records, page table, and diagnostics. Typed arrays remain
-owned by the accepted slice result and are treated as immutable by contract;
-the planner makes no per-segment object allocations.
+arrays without copying shape, palette, or metric buffers. The direct
+`GpuStreamingSource` entry point validates every static SoA length (including
+optional metric/angle/bias arrays), rejects non-ordered layer IDs, and always
+regenerates layer ranges from `layerIds`; caller-provided empty, gapped,
+overlapping, or mismatched tables therefore cannot silently omit or duplicate
+segments. It derives small, planner-owned layer records (retaining optional
+layer Z values) and freezes the source wrapper, layer records, page table, and
+diagnostics. Typed arrays remain owned by the accepted slice result and are
+treated as immutable by contract; the planner makes no per-segment object
+allocations.
 
 Pages are assembled in source order at layer boundaries. The 65,536 target is
 soft: an ordinary layer may exceed it and is marked `oversized`. A supplied

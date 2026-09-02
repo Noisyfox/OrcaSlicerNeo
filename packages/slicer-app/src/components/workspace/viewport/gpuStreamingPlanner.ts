@@ -158,6 +158,13 @@ function integer(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isFinite(value) ? Math.floor(value) : fallback;
 }
 
+function validatedSegmentCount(value: number): number {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 0) {
+    throw new RangeError('GPU streaming source segmentCount must be a non-negative integer');
+  }
+  return value;
+}
+
 function positiveInteger(value: number | undefined, fallback: number): number {
   return Math.max(1, integer(value, fallback));
 }
@@ -203,6 +210,13 @@ function ensureArrayLength(name: string, actual: number, expected: number): void
   if (actual < expected) throw new RangeError(`ClientToolpath ${name} is shorter than segmentCount`);
 }
 
+function ensureMetricLengths(metrics: PreviewToolpathMetrics, expected: number): void {
+  for (const [name, values] of Object.entries(metrics) as Array<[string, Float32Array | undefined]>) {
+    // layerDuration is indexed by layer rather than by segment.
+    if (name !== 'layerDuration' && values) ensureArrayLength(`metrics.${name}`, values.length, expected);
+  }
+}
+
 /**
  * Adapt the existing WASM client result without copying shape or metadata
  * arrays. Layer ranges are small planner-owned metadata records; palette and
@@ -212,7 +226,7 @@ export function adaptClientToolpath(
   toolpath: ClientToolpath,
   metadata?: Pick<PreviewMetadata, 'layerRanges'>,
 ): GpuStreamingSource {
-  const count = Math.max(0, integer(toolpath.segmentCount, 0));
+  const count = validatedSegmentCount(toolpath.segmentCount);
   ensureArrayLength('starts', Math.floor(toolpath.starts.length / 3), count);
   ensureArrayLength('ends', Math.floor(toolpath.ends.length / 3), count);
   ensureArrayLength('widths', toolpath.widths.length, count);
@@ -228,6 +242,7 @@ export function adaptClientToolpath(
   const extended = toolpath as ExtendedClientToolpath;
   if (extended.capAngles) ensureArrayLength('capAngles', extended.capAngles.length, count);
   if (extended.angles) ensureArrayLength('angles', extended.angles.length, count);
+  ensureMetricLengths(toolpath.metrics, count);
   if (extended.biases) ensureArrayLength('biases', extended.biases.length, count);
 
   return Object.freeze({
@@ -251,6 +266,40 @@ export function adaptClientToolpath(
     ...(extended.capAngles ? { capAngles: extended.capAngles } : {}),
     ...(extended.biases ? { biases: extended.biases } : {}),
   });
+}
+
+/**
+ * Validate and normalize the direct source API. The caller's layer table is
+ * advisory metadata only: ranges are always regenerated from layerIds, so an
+ * empty, gapped, overlapping, or mismatched table cannot drop or duplicate a
+ * segment. The returned source owns a frozen layer table while retaining all
+ * typed SoA buffers by reference.
+ */
+export function normalizeGpuStreamingSource(source: GpuStreamingSource): GpuStreamingSource {
+  const count = validatedSegmentCount(source.segmentCount);
+  ensureArrayLength('starts', Math.floor(source.starts.length / 3), count);
+  ensureArrayLength('ends', Math.floor(source.ends.length / 3), count);
+  ensureArrayLength('widths', source.widths.length, count);
+  ensureArrayLength('heights', source.heights.length, count);
+  ensureArrayLength('layerIds', source.layerIds.length, count);
+  ensureArrayLength('moveOrders', source.moveOrders.length, count);
+  ensureArrayLength('gcodeIds', source.gcodeIds.length, count);
+  ensureArrayLength('moveTypes', source.moveTypes.length, count);
+  ensureArrayLength('extrusionRoles', source.extrusionRoles.length, count);
+  ensureArrayLength('extruderIds', source.extruderIds.length, count);
+  ensureArrayLength('colorPrintIds', source.colorPrintIds.length, count);
+  ensureArrayLength('features', source.features.length, count);
+  if (source.angles) ensureArrayLength('angles', source.angles.length, count);
+  if (source.capAngles) ensureArrayLength('capAngles', source.capAngles.length, count);
+  if (source.biases) ensureArrayLength('biases', source.biases.length, count);
+  ensureMetricLengths(source.metrics, count);
+  for (let i = 1; i < count; i++) {
+    if ((source.layerIds[i] ?? 0) < (source.layerIds[i - 1] ?? 0)) {
+      throw new RangeError('GPU streaming source layerIds must be non-decreasing');
+    }
+  }
+  const layers = Object.freeze(deriveLayerRanges(source.layerIds, count, source.layers));
+  return Object.freeze({ ...source, segmentCount: count, layers });
 }
 
 function mergeSchema(options: GpuStreamingPlannerOptions): Readonly<GpuStreamingTexelSchema> {
@@ -331,6 +380,7 @@ export function planGpuStreamingPages(
   source: GpuStreamingSource,
   options: GpuStreamingPlannerOptions = {},
 ): GpuStreamingPagePlan {
+  const normalizedSource = normalizeGpuStreamingSource(source);
   const schema = mergeSchema(options);
   const softTarget = positiveInteger(options.softPageTarget, GPU_STREAMING_SOFT_PAGE_TARGET);
   const hard = hardCapacity(options, schema);
@@ -349,7 +399,7 @@ export function planGpuStreamingPages(
     pending = null;
   };
 
-  for (const layer of source.layers) {
+  for (const layer of normalizedSource.layers) {
     if (layer.segmentCount > softTarget) oversizedLayerCount++;
     if (hard !== null && layer.segmentCount > hard) {
       splitOversizedLayerCount++;
@@ -384,9 +434,9 @@ export function planGpuStreamingPages(
   const budgetBytes = options.gpuBudgetBytes !== undefined && Number.isFinite(options.gpuBudgetBytes)
     ? Math.max(0, options.gpuBudgetBytes) : null;
   return Object.freeze({
-    source,
+    source: normalizedSource,
     pages: Object.freeze(pages),
-    layers: source.layers,
+    layers: normalizedSource.layers,
     diagnostics: Object.freeze({
       sourceSegmentCount: source.segmentCount,
       pageCount: pages.length,
