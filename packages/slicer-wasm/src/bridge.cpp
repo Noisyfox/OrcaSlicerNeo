@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "libslic3r/AppConfig.hpp"
+#include "libslic3r/Color.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -1814,6 +1815,24 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                          {"first_segment", range.first},
                                          {"segment_count", range.count}});
 
+        // GCodeProcessorResult keeps the configured filament colours parsed
+        // from the completed G-code and the selected filament preset names.
+        // Tool ids are stable zero-based indices. An undecodable source color
+        // is omitted rather than replaced with an invented value.
+        json extruder_palette = json::array();
+        for (size_t tool = 0; tool < gcode_result.extruder_colors.size(); ++tool) {
+            ColorRGB color;
+            if (!decode_color(gcode_result.extruder_colors[tool], color)) continue;
+            const std::string name = tool < gcode_result.settings_ids.filament.size() &&
+                    !gcode_result.settings_ids.filament[tool].empty()
+                ? gcode_result.settings_ids.filament[tool]
+                : "Tool " + std::to_string(tool + 1);
+            extruder_palette.push_back({
+                {"id", tool}, {"tool", tool}, {"name", name},
+                {"color", {color.r_uchar(), color.g_uchar(), color.b_uchar()}},
+            });
+        }
+
         auto ptr = [](const MallocBuffer& buffer) -> std::uintptr_t {
             return reinterpret_cast<std::uintptr_t>(buffer.data);
         };
@@ -1851,6 +1870,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             {"source_line_mapping", json{{"available", !gcode_result.lines_ends.empty()},
                                            {"line_count", gcode_result.lines_ends.size()}}},
         };
+        if (!extruder_palette.empty()) out["metadata"]["extruder_palette"] = std::move(extruder_palette);
         json summary = json::object();
         if (analysis.has_estimated_time) summary["estimated_time_seconds"] = analysis.estimated_time_seconds;
         if (analysis.has_filament_length) summary["filament_length_meters"] = analysis.filament_length_meters;

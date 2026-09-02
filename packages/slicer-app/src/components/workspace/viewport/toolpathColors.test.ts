@@ -55,5 +55,8 @@ describe('Phase-C preview color schemes', () => {
     expect(previewSchemeAvailable(noMetrics, 'filament')).toBe(false);
     expect(previewSchemeAvailable(noMetrics, 'speed')).toBe(false);
     expect(describePreviewScheme(source(), 'filament')?.items.map((item) => item.label)).toEqual(['Red PLA', 'Blue PLA']);
+
+    const missingTool = source({ extruderPalette: [{ id: 0, tool: 0, name: 'Red PLA', color: [255, 0, 0] }] });
+    expect(previewSchemeAvailable(missingTool, 'filament')).toBe(false);
   });
 });

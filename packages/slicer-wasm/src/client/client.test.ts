@@ -798,7 +798,10 @@ describe('SlicerClient bridge contract', () => {
       sliceFixture: {
         layers: 2, toolpathVertices: 4,
         features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }, { id: 1, name: 'Infill', color: [0, 0, 255] }],
-        extruderPalette: [{ id: 0, name: 'Red PLA', color: [255, 0, 0], tool: 0 }],
+        extruderPalette: [
+          { id: 0, name: 'Red PLA', color: [255, 0, 0], tool: 0 },
+          { id: 1, name: 'Blue PETG', color: [0, 0, 255], tool: 1 },
+        ],
         resultId: 42,
         optionalMetrics: { feedrate: [10, 20, 30, 40], volumetric_flow: [1, 2, 3, 4] },
         analysis: {
@@ -825,6 +828,10 @@ describe('SlicerClient bridge contract', () => {
     expect(r.metadata.resultId).toBe(42);
     expect(r.metadata.layerRanges).toHaveLength(2);
     expect(r.metadata.extruderPalette?.[0].tool).toBe(0);
+    expect(r.metadata.extruderPalette).toEqual([
+      { id: 0, name: 'Red PLA', color: [255, 0, 0], tool: 0 },
+      { id: 1, name: 'Blue PETG', color: [0, 0, 255], tool: 1 },
+    ]);
     expect(r.metadata.analysis?.summary).toEqual({
       estimatedTimeSeconds: 12.5, filamentLengthMeters: 1.25, filamentWeightGrams: 3.5, filamentCost: 0.07,
     });

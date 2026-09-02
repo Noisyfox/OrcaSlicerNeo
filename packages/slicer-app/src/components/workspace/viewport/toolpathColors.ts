@@ -76,7 +76,7 @@ function paletteColor(entry: ToolpathFeature | undefined): [number, number, numb
 }
 
 function filamentEntry(source: PreviewColorSource, tool: number): PreviewPaletteEntry | undefined {
-  return source.extruderPalette?.find((entry) => entry.tool === tool || entry.id === tool) ?? source.extruderPalette?.[tool];
+  return source.extruderPalette?.find((entry) => entry.tool === tool || entry.id === tool);
 }
 
 function numericValue(source: PreviewColorSource, scheme: PreviewColorScheme, index: number): number | undefined {
@@ -104,7 +104,10 @@ export function colorForPreviewValue(value: number, min: number, max: number): [
 
 export function previewSchemeAvailable(source: PreviewColorSource, scheme: PreviewColorScheme): boolean {
   if (scheme === 'feature') return source.features.length > 0;
-  if (scheme === 'filament') return Boolean(source.extruderPalette?.length);
+  if (scheme === 'filament') {
+    if (!source.extruderPalette?.length) return false;
+    return [...new Set(Array.from(source.extruderIds))].every((tool) => filamentEntry(source, tool) !== undefined);
+  }
   return rangeForScheme(source, scheme) !== null;
 }
 
