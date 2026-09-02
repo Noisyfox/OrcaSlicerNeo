@@ -13,6 +13,75 @@ export const TOOLPATH_ENTITY_PROFILE = 'diamond' as const;
 
 /** Unit cross-section half extents in the local side/up plane. */
 export const TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT = 0.5;
+const WORLD_UP = new THREE.Vector3(0, 0, 1);
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+
+/** Native-style continuity guard used to hide caps at real move junctions. */
+export function isToolpathSegmentContinuous(
+  starts: Float32Array,
+  ends: Float32Array,
+  first: number,
+  second: number,
+  layerIds?: Uint32Array,
+  moveTypes?: Uint8Array,
+): boolean {
+  if (first < 0 || second < 0 || first >= Math.floor(ends.length / 3) || second >= Math.floor(starts.length / 3)) return false;
+  // Without the source categories we cannot prove this is a native-style
+  // continuing move (rather than a travel/extrusion or layer boundary).
+  if (!layerIds || !moveTypes) return false;
+  if (layerIds[first] !== layerIds[second]) return false;
+  if (moveTypes[first] !== moveTypes[second]) return false;
+  const offset = first * 3;
+  const next = second * 3;
+  const dx = (ends[offset] ?? 0) - (starts[next] ?? 0);
+  const dy = (ends[offset + 1] ?? 0) - (starts[next + 1] ?? 0);
+  const dz = (ends[offset + 2] ?? 0) - (starts[next + 2] ?? 0);
+  return dx * dx + dy * dy + dz * dz <= 1e-10;
+}
+
+export interface ToolpathEntityMatrixOptions {
+  /** Extend this end into the adjacent entity so their open side surfaces overlap. */
+  readonly extendStart?: boolean;
+  readonly extendEnd?: boolean;
+  readonly bias?: number;
+}
+
+/**
+ * Build a physical diamond-band transform.  The template intentionally has
+ * no endpoint faces: native libvgcode's pointy cap is hidden at a continuing
+ * junction, while a flat face on every independent prism produces the dark
+ * diamonds seen in the old adaptation.  Continuing segments overlap by half
+ * their width at each shared endpoint, so removing those faces cannot create
+ * a seam at a straight run or corner.
+ */
+export function buildToolpathEntityMatrix(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  width: number,
+  height: number,
+  options: ToolpathEntityMatrixOptions = {},
+  target = new THREE.Matrix4(),
+): THREE.Matrix4 {
+  const axis = end.clone().sub(start);
+  const length = axis.length();
+  if (length > 1e-6) axis.multiplyScalar(1 / length);
+  else axis.set(1, 0, 0);
+  const halfWidth = Math.max(0, width) * 0.5;
+  const adjustedStart = start.clone().addScaledVector(axis, options.extendStart ? -halfWidth : 0);
+  const adjustedEnd = end.clone().addScaledVector(axis, options.extendEnd ? halfWidth : 0);
+  const adjustedAxis = adjustedEnd.clone().sub(adjustedStart);
+  const adjustedLength = Math.max(adjustedAxis.length(), 1e-5);
+  adjustedAxis.multiplyScalar(1 / adjustedLength);
+  const side = new THREE.Vector3().crossVectors(adjustedAxis, WORLD_UP);
+  if (side.lengthSq() < 1e-12) side.crossVectors(X_AXIS, adjustedAxis);
+  side.normalize();
+  const up = new THREE.Vector3().crossVectors(side, adjustedAxis).normalize();
+  const center = adjustedStart.add(adjustedEnd).multiplyScalar(0.5);
+  if (Number.isFinite(options.bias)) center.z += options.bias!;
+  return target.makeBasis(adjustedAxis, side, up)
+    .scale(new THREE.Vector3(adjustedLength, Math.max(0, width), Math.max(0, height)))
+    .setPosition(center);
+}
 
 export function createToolpathEntityGeometry(): THREE.BufferGeometry {
   const half = 0.5;
@@ -31,12 +100,6 @@ export function createToolpathEntityGeometry(): THREE.BufferGeometry {
   for (let i = 0; i < ring.length; i++) {
     const next = (i + 1) % ring.length;
     pushQuad([-half, ring[next]], [half, ring[next]], [half, ring[i]], [-half, ring[i]]);
-  }
-  // Capped ends. Separate cap vertices keep the end normals planar.
-  for (let i = 0; i < ring.length; i++) {
-    const next = (i + 1) % ring.length;
-    push(half, [0, 0]); push(half, ring[i]); push(half, ring[next]);
-    push(-half, [0, 0]); push(-half, ring[next]); push(-half, ring[i]);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));

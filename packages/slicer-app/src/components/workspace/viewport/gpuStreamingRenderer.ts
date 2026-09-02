@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { ToolpathFeature } from '@slicer/client';
 import type { GpuStreamingPage, GpuStreamingPagePlan, GpuStreamingSelection } from './gpuStreamingPlanner';
-import { createToolpathEntityGeometry, createToolpathEntityMaterial } from './toolpathEntityGeometry';
+import { buildToolpathEntityMatrix, createToolpathEntityGeometry, createToolpathEntityMaterial, isToolpathSegmentContinuous } from './toolpathEntityGeometry';
 import { resolveToolpathColor } from './toolpathColors';
 
 /**
@@ -64,8 +64,6 @@ function onceDispose(dispose: () => void): () => void {
   let done = false;
   return () => { if (!done) { done = true; dispose(); } };
 }
-const WORLD_UP = new THREE.Vector3(0, 0, 1);
-const X_AXIS = new THREE.Vector3(1, 0, 0);
 /** Build the real world-space transform for one libvgcode-compatible prism. */
 export function buildGpuStreamingInstanceMatrix(
   source: GpuStreamingPagePlan['source'],
@@ -82,25 +80,13 @@ export function buildGpuStreamingInstanceMatrix(
     source.ends[sourceIndex * 3 + 1] ?? start.y,
     source.ends[sourceIndex * 3 + 2] ?? start.z,
   );
-  const axis = end.clone().sub(start);
-  const length = axis.length();
-  if (length > 1e-6) axis.multiplyScalar(1 / length);
-  else axis.copy(X_AXIS);
-  // Matches libvgcode's line_right/line_up basis, including its vertical
-  // fallback, while keeping all dimensions in the instance matrix.
-  const side = new THREE.Vector3().crossVectors(axis, WORLD_UP);
-  if (side.lengthSq() < 1e-12) side.crossVectors(X_AXIS, axis);
-  side.normalize();
-  const up = new THREE.Vector3().crossVectors(side, axis).normalize();
   const width = Math.max(0, source.widths[sourceIndex] ?? 0);
   const height = Math.max(0, source.heights[sourceIndex] ?? 0);
-  const center = start.clone().add(end).multiplyScalar(0.5);
-  center.z += source.biases?.[sourceIndex] ?? 0;
-  // The unit centered diamond profile spans +/-0.5 on its local axis and
-  // diagonals, so these scales produce the requested full dimensions.
-  target.makeBasis(axis, side, up).scale(new THREE.Vector3(Math.max(length, 1e-5), width, height));
-  target.setPosition(center);
-  return target;
+  return buildToolpathEntityMatrix(start, end, width, height, {
+    extendStart: isToolpathSegmentContinuous(source.starts, source.ends, sourceIndex - 1, sourceIndex, source.layerIds, source.moveTypes),
+    extendEnd: isToolpathSegmentContinuous(source.starts, source.ends, sourceIndex, sourceIndex + 1, source.layerIds, source.moveTypes),
+    bias: source.biases?.[sourceIndex] ?? 0,
+  }, target);
 }
 
 function createEntityTemplate(): GpuStreamingEntityTemplateResource {

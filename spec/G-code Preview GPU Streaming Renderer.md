@@ -325,16 +325,18 @@ geometry and that no toolpath use alpha blending. The active implementation
 uses one shared faceted, diamond-profile solid-prism geometry template and one
 page-local `THREE.InstancedMesh` per planner page. Selection rebuilds materialize
 each segment's endpoint midpoint, direction basis, width, height, and optional
-bias in the instance matrix; the prism supplies real side facets and end caps.
+bias in the instance matrix; the prism supplies the real side facets of the
+diamond band. Endpoint faces are omitted so a continuing move cannot expose a
+flat, dark diamond cap.
 The profile is a four-point diamond in the local `line_right`/`line_up` plane,
 matching libvgcode's cardinal endpoint construction rather than a square or
 chamfered ring.
 
 Toolpath materials are standard Three `MeshStandardMaterial` instances with
 flat face shading, `color: 0xffffff`, `roughness: 0.82`, and `metalness: 0`.
-The scene's ambient/directional lights produce stable top/side/cap contrast
-from the real diamond-prism normals, making adjacent same-colour paths readable
-without an artificial gap or alpha outline. They use `transparent: true` solely to
+The scene's ambient/directional lights produce stable top/side contrast from
+the real diamond-prism normals, making adjacent same-colour paths readable
+without an artificial gap, endpoint block, or alpha outline. They use `transparent: true` solely to
 place them after the transparent preview shell in Three's render queue,
 `opacity: 1`, `blending: THREE.NoBlending`, `depthTest: true`,
 `depthWrite: true`, and `FrontSide`. This queue flag does not enable alpha

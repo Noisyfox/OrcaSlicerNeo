@@ -15,7 +15,9 @@ describe('toolpath band geometry', () => {
     const geometry = createToolpathEntityGeometry();
     const positions = geometry.getAttribute('position');
     const bounds = new THREE.Box3().setFromBufferAttribute(positions as THREE.BufferAttribute);
-    expect(positions.count).toBe(48);
+    // Four diamond-ring side facets; endpoint faces are intentionally absent
+    // so every continuing move cannot expose a dark flat cap.
+    expect(positions.count).toBe(24);
     expect(bounds.min.toArray()).toEqual([-0.5, -0.5, -0.5]);
     expect(bounds.max.toArray()).toEqual([0.5, 0.5, 0.5]);
     expect(TOOLPATH_ENTITY_PROFILE).toBe('diamond');
@@ -30,7 +32,7 @@ describe('toolpath band geometry', () => {
     const normals = geometry.getAttribute('normal');
     const unique = new Set<string>();
     for (let i = 0; i < normals.count; i++) unique.add([normals.getX(i), normals.getY(i), normals.getZ(i)].map((value) => value.toFixed(3)).join(','));
-    expect(unique.size).toBeGreaterThanOrEqual(6);
+    expect(unique.size).toBeGreaterThanOrEqual(4);
     geometry.dispose();
   });
 

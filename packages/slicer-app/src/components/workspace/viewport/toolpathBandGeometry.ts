@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { ClientToolpath } from '@slicer/client';
 import type { PreviewVisibility } from './previewSemantics';
-import { createToolpathEntityGeometry, createToolpathEntityMaterial } from './toolpathEntityGeometry';
+import { buildToolpathEntityMatrix, createToolpathEntityGeometry, createToolpathEntityMaterial, isToolpathSegmentContinuous } from './toolpathEntityGeometry';
 import { resolveToolpathColor, TOOLPATH_FALLBACK_COLOR } from './toolpathColors';
 
 export interface ToolpathChunkRange {
@@ -32,25 +32,16 @@ export interface PreparedToolpathBands {
   dispose: () => void;
 }
 export const DEFAULT_TOOLPATH_CHUNK_TARGET = 16_384;
-const WORLD_UP = new THREE.Vector3(0, 0, 1);
-const X_AXIS = new THREE.Vector3(1, 0, 0);
 function finitePositive(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : fallback;
 }
-function buildMatrix(starts: Float32Array, ends: Float32Array, widths: Float32Array, heights: Float32Array, index: number): THREE.Matrix4 {
+function buildMatrix(starts: Float32Array, ends: Float32Array, widths: Float32Array, heights: Float32Array, layerIds: Uint32Array | undefined, moveTypes: Uint8Array | undefined, index: number): THREE.Matrix4 {
   const start = new THREE.Vector3(starts[index * 3] ?? 0, starts[index * 3 + 1] ?? 0, starts[index * 3 + 2] ?? 0);
   const end = new THREE.Vector3(ends[index * 3] ?? start.x, ends[index * 3 + 1] ?? start.y, ends[index * 3 + 2] ?? start.z);
-  const axis = end.clone().sub(start);
-  const length = axis.length();
-  if (length > 1e-6) axis.multiplyScalar(1 / length); else axis.copy(X_AXIS);
-  const side = new THREE.Vector3().crossVectors(axis, WORLD_UP);
-  if (side.lengthSq() < 1e-12) side.crossVectors(X_AXIS, axis);
-  side.normalize();
-  const up = new THREE.Vector3().crossVectors(side, axis).normalize();
-  const center = start.clone().add(end).multiplyScalar(0.5);
-  return new THREE.Matrix4().makeBasis(axis, side, up).scale(new THREE.Vector3(
-    Math.max(length, 1e-5), finitePositive(widths[index], 0.08), finitePositive(heights[index], 0.03),
-  )).setPosition(center);
+  return buildToolpathEntityMatrix(start, end, finitePositive(widths[index], 0.08), finitePositive(heights[index], 0.03), {
+    extendStart: isToolpathSegmentContinuous(starts, ends, index - 1, index, layerIds, moveTypes),
+    extendEnd: isToolpathSegmentContinuous(starts, ends, index, index + 1, layerIds, moveTypes),
+  });
 }
 function createMaterial(): THREE.MeshStandardMaterial { return createToolpathEntityMaterial(); }
 function clampCount(count: number, length: number): number {
@@ -88,8 +79,8 @@ export function selectToolpathChunks(chunks: readonly ToolpathChunkRange[], firs
   return chunks.map((chunk, index) => chunkIntersectsLayerRange(chunk, firstLayer, lastLayer) ? index : -1).filter((index) => index >= 0);
 }
 
-/** Create physical capped prisms, with width/height/direction in each matrix. */
-export function createToolpathBandChunk(starts: Float32Array, ends: Float32Array, widths: Float32Array, heights: Float32Array, colors: Float32Array, range: ToolpathChunkRange): ToolpathBandChunk {
+/** Create physical diamond side bands, with width/height/direction in each matrix. */
+export function createToolpathBandChunk(starts: Float32Array, ends: Float32Array, widths: Float32Array, heights: Float32Array, colors: Float32Array, range: ToolpathChunkRange, layerIds?: Uint32Array, moveTypes?: Uint8Array): ToolpathBandChunk {
   const geometry = createToolpathEntityGeometry();
   const mesh = new THREE.InstancedMesh(geometry, createMaterial(), range.segmentCount);
   mesh.count = range.segmentCount;
@@ -100,7 +91,7 @@ export function createToolpathBandChunk(starts: Float32Array, ends: Float32Array
   const instanceColors: THREE.Color[] = [];
   for (let i = 0; i < range.segmentCount; i++) {
     const source = range.firstSegment + i;
-    const matrix = buildMatrix(starts, ends, widths, heights, source);
+    const matrix = buildMatrix(starts, ends, widths, heights, layerIds, moveTypes, source);
     const color = new THREE.Color(colors[source * 3] ?? TOOLPATH_FALLBACK_COLOR[0], colors[source * 3 + 1] ?? TOOLPATH_FALLBACK_COLOR[1], colors[source * 3 + 2] ?? TOOLPATH_FALLBACK_COLOR[2]);
     instanceMatrices.push(matrix);
     instanceColors.push(color);
@@ -118,7 +109,7 @@ export function buildPreparedToolpathBands(t: ClientToolpath): PreparedToolpathB
     const normalized = resolveToolpathColor(t.palette, t.features[i] ?? 0, t.moveTypes[i] ?? 0);
     colors[i * 3] = normalized[0]; colors[i * 3 + 1] = normalized[1]; colors[i * 3 + 2] = normalized[2];
   }
-  const chunks = buildLayerAlignedChunkRanges(t.layerIds, segmentCount).map((range) => createToolpathBandChunk(t.starts, t.ends, t.widths, t.heights, colors, range));
+  const chunks = buildLayerAlignedChunkRanges(t.layerIds, segmentCount).map((range) => createToolpathBandChunk(t.starts, t.ends, t.widths, t.heights, colors, range, t.layerIds, t.moveTypes));
   const layerRanges: Array<[number, number]> = [];
   for (const chunk of chunks) layerRanges[chunk.firstLayer] = [chunk.firstSegment, chunk.segmentCount];
   return { chunks, layerRanges, segmentCount, palette: t.palette, layerIds: t.layerIds, moveOrders: t.moveOrders, features: t.features, moveTypes: t.moveTypes, ends: t.ends, dispose: () => chunks.forEach((chunk) => { (chunk.mesh.material as THREE.Material).dispose(); chunk.geometry.dispose(); }) };
@@ -149,3 +140,4 @@ export class ToolpathBandCache {
   }
   clear(): void { this.source = null; this.prepared = null; }
 }
+

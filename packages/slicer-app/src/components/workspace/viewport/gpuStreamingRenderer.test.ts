@@ -60,6 +60,31 @@ describe('opaque GPU entity renderer', () => {
     expect(new THREE.Vector3(e[8], e[9], e[10]).length()).toBeCloseTo(0.2);
   });
 
+  it('overlaps contiguous straight and corner moves instead of drawing endpoint caps', () => {
+    const straight = { ...source(), moveTypes: new Uint8Array([1, 1, 1, 1]) };
+    const straightPlan = planGpuStreamingPages(straight, { softPageTarget: 4 });
+    const first = buildGpuStreamingInstanceMatrix(straightPlan.source, 0);
+    expect(new THREE.Vector3().setFromMatrixPosition(first).x).toBeCloseTo(0.6);
+    expect(new THREE.Vector3().setFromMatrixScale(first).x).toBeCloseTo(1.2);
+
+    const corner = {
+      ...straight,
+      starts: Float32Array.from([0, 0, 0, 1, 0, 0]),
+      ends: Float32Array.from([1, 0, 0, 1, 1, 0]),
+      layerIds: new Uint32Array([0, 0]),
+      moveTypes: new Uint8Array([0, 0]),
+      widths: new Float32Array([0.4, 0.4]),
+      heights: new Float32Array([0.2, 0.2]),
+      segmentCount: 2,
+    };
+    const cornerPlan = planGpuStreamingPages(corner, { softPageTarget: 4 });
+    const horizontal = buildGpuStreamingInstanceMatrix(cornerPlan.source, 0);
+    const vertical = buildGpuStreamingInstanceMatrix(cornerPlan.source, 1);
+    expect(new THREE.Vector3().setFromMatrixScale(horizontal).x).toBeCloseTo(1.2);
+    expect(new THREE.Vector3().setFromMatrixPosition(vertical).y).toBeCloseTo(0.4);
+    expect(new THREE.Vector3().setFromMatrixScale(vertical).x).toBeCloseTo(1.2);
+  });
+
   it('constructs page-local InstancedMesh objects with opaque direct materials', () => {
     const plan = planGpuStreamingPages(source(), { softPageTarget: 2 });
     const result = createGpuStreamingRenderer(plan, { context: context(), compile: false });
@@ -69,7 +94,7 @@ describe('opaque GPU entity renderer', () => {
     for (const mesh of result.backend.sceneObjects) {
       expect(mesh).toBeInstanceOf(THREE.InstancedMesh);
       expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
-      expect(mesh.geometry.getAttribute('position').count).toBe(48);
+      expect(mesh.geometry.getAttribute('position').count).toBe(24);
       expect(mesh.geometry.index).toBeNull();
       expect(mesh.material).toBeInstanceOf(THREE.MeshStandardMaterial);
       const material = mesh.material as THREE.MeshStandardMaterial;

@@ -22,6 +22,20 @@ that receives WASM data, and `libslic3r` plus
 metadata only; it deliberately does not allocate positions, band geometry,
 Three.js objects, WebGL resources, or a mock GPU.
 
+## Endpoint continuity correction (2026-09-02)
+
+The first solid-entity implementation emitted a flat diamond face at both
+ends of every independent prism. Those faces were lit as dark diamond blocks
+at every move junction. Native libvgcode's `SegmentTemplate` uses a pointy
+endpoint only when a path terminates; its continuing junction is covered by
+the next segment. The shared adaptation now uses the same observable rule:
+the diamond profile remains the side cross-section, endpoint faces are omitted,
+and same-layer, same-move-type contiguous segments overlap by half their
+width at each shared endpoint. This keeps straight and corner joins closed
+without an endpoint cap draw, while preserving opaque `NoBlending` materials,
+depth ordering, instance streaming, and B2/streaming matrix parity. Disjoint
+or move-type-changing segments are never extended into one another.
+
 ## Accepted step-2 implementation
 
 `gpuStreamingPlanner.ts` adapts the existing `ClientToolpath` structure of

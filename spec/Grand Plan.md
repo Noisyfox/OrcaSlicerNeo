@@ -378,8 +378,10 @@ and drives structural operations through the typed client.
 > difference required by the physical diamond-profile adaptation.
 > Toolpath materials use flat-shaded `MeshStandardMaterial` with the existing
 > scene lights. A shared four-point diamond-profile prism follows native
-> libvgcode's cardinal `line_right`/`line_up` cross-section; no square/chamfer,
-> gap, alpha outline, or blend pass is introduced.
+> libvgcode's cardinal `line_right`/`line_up` cross-section; it omits flat
+> endpoint faces and overlaps same-type contiguous moves by half-width, so no
+> dark endpoint block, square/chamfer, gap, alpha outline, or blend pass is
+> introduced.
 > Travel segments are coloured by their move type rather than any preserved
 > extrusion role, using libvgcode's `Travels` colour `RGB(56, 72, 155)`;
 > extrusion feature filters do not hide travel, and the global travel toggle
