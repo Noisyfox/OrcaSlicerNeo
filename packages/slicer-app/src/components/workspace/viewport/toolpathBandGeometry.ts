@@ -140,4 +140,3 @@ export class ToolpathBandCache {
   }
   clear(): void { this.source = null; this.prepared = null; }
 }
-
