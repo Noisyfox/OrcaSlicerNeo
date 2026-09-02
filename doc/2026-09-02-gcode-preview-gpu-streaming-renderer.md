@@ -1,7 +1,7 @@
 # G-code Preview GPU streaming renderer
 
 **Date:** 2026-09-02
-**Status:** Living implementation entry; step 2 source adapter/page planner complete
+**Status:** Living implementation entry; step 3 backend implementation complete; browser evidence and default integration remain open
 **Scope:** GPU streaming/indexed-segment redesign for the shared G-code preview
 
 ## Purpose and boundary
@@ -169,20 +169,53 @@ Browser performance acceptance is a later gate: a real WebGL2 browser harness
 must measure FPS during camera gestures, GPU allocations, index rebuilds, and
 active-range preservation on the stated representative integrated-GPU target.
 
+## Accepted step-3 backend implementation
+
+`gpuStreamingRenderer.ts` is an independent WebGL2/Three.js backend and is not
+imported by `ToolpathLines` or the preview scene. It consumes an existing
+`GpuStreamingPagePlan`, packs each page's four-texel schema once into a padded
+RGBA32F geometry atlas plus RGBA32UI identity atlas, and creates no physical
+band geometry or per-segment JavaScript objects. The identity texel preserves
+layer, move order, feature, and move-type values losslessly. The shared
+template is an eight-corner, 36-index prism with GLSL ES 3.00 shaders; its
+vertex shader uses `gl_InstanceID`, `usampler2D`, integer `texelFetch`,
+camera-facing side/up fallbacks, zero-length direction fallback, cap angle,
+and bias.
+
+Each selection update receives the planner's page-local inclusive index
+streams and uploads only replacement R32UI index textures. Streams are
+published transactionally and retired until `commitDrawBoundary()`; camera
+and dimming methods only update material uniforms. Static upload and dynamic
+upload counts, draw instance counts, and page-local upload payloads are
+observable for tests and diagnostics.
+
+`probeGpuStreamingCapabilities` requires WebGL2, integer texture formats,
+three texture units, vertex texture fetch, and a valid `MAX_TEXTURE_SIZE`.
+Construction returns a diagnostic unavailable result on missing capabilities,
+unsupported schema, allocation failure, or compile failure. The injected
+resource facade is used by tests; the default facade creates nearest/no-mipmap
+Three `DataTexture`s, an indexed `InstancedBufferGeometry`, and a shared
+`ShaderMaterial`. All owned resources are wrapped in idempotent disposal,
+including partial construction, context loss, explicit disposal, and retired
+index streams. The caller's renderer, scene, and camera are never disposed.
+
+The backend intentionally does not claim browser FPS or GPU compatibility
+evidence. A later integration step must gate selection behind B2 fallback and
+run real Web/Electron WebGL2 measurements before changing the default path.
+
 ## Migration and verification state
 
 1. **Step 1:** accept this architecture, add the metadata-only fixture/test
    contract, and add concise links from the existing Preview v2 documents. No
    renderer, bridge, or behaviour change.
-2. **Step 2 (this commit):** implement the source adapter and page/index planner
+2. **Step 2:** implement the source adapter and page/index planner
    with unit tests, while keeping the current backend selected by default.
-3. **Step 3:** implement WebGL2 static atlas + dynamic index pages behind a
-   feature gate and run shared renderer tests plus browser measurements.
+3. **Step 3 (backend portion):** implement WebGL2 static atlas + dynamic index
+   pages and capability/lifetime diagnostics. Browser measurements and the
+   feature-gate integration remain pending.
 4. **Step 4:** compare same-renderer Web/Electron behaviour and approved native
    references; switch the default only after all acceptance criteria pass.
 
 The current B2 backend remains the fallback until the streaming backend passes
 functional, memory/lifetime, capability/fallback, and representative-browser
-performance gates. It is not removed in this design step. The step-2 gate is
-limited to pure planner/adapter tests, existing package tests/typechecks, and
-`git diff --check`; WebGL/shader/renderer takeover remains step 3.
+performance gates. It is not removed or changed by this backend-only step.
