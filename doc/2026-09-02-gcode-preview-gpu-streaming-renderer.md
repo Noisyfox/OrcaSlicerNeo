@@ -338,12 +338,15 @@ counts. Camera movement performs no entity reconstruction or upload. The
 planner remains source-order/layer/page metadata only and does not allocate
 render resources.
 
-This matches libvgcode's observable baseline where applicable: the shared
-eight-corner prism topology, page-local enabled selection, layer-ordered pages,
-vertical direction fallback, disabled culling, and shell-visible depth state.
-The intentional WebGL2/Three adaptation materializes libvgcode's shader-derived
-shape in CPU instance matrices because this product requirement prohibits a
-custom shader for thickness. The old atlas, integer texture, texelFetch,
+This matches libvgcode's observable scheduling/render-state baseline where
+applicable: page-local selected instances, layer-ordered pages, vertical
+direction fallback, disabled culling, and shell-visible depth state. The native
+libvgcode eight-corner template has camera-dependent spike/silhouette vertices
+and therefore cannot be represented exactly by one static affine mesh without
+reintroducing shader-derived shape logic. The deliberate Three adaptation uses
+a physically solid cuboid template and materializes direction/width/height in
+CPU instance matrices because this product requirement prohibits a custom
+shader for thickness. The old atlas, integer texture, texelFetch,
 custom shader, retired index-stream, and palette-texture resources are removed
 from the active renderer. Context loss, source invalidation, unmount, and
 construction failure dispose the template and all page meshes; failure falls

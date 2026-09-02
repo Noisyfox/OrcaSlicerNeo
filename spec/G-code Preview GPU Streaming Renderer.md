@@ -329,13 +329,15 @@ texture, enabled-index texture, or shader-derived outline/width/height. The
 planner remains a pure source/page/selection planner and can retain its page
 metadata accounting for deterministic partitioning.
 
-The baseline correspondence to native libvgcode is the shared prism topology,
-page-local selected instances, ordered layer ranges, vertical direction
-fallback, disabled culling, and shell-visible depth state. Three/WebGL2
-materializes the shape on the CPU because the product requirement deliberately
-forbids libvgcode's shader-side thickness derivation. Camera updates only
-update camera/render state. Layer, move, travel, and feature filters rebuild
-selected page matrices/colors and counts without re-parsing or slicing.
+The baseline correspondence to native libvgcode is page-local selected
+instances, ordered layer ranges, vertical direction fallback, disabled culling,
+and shell-visible depth state. Native libvgcode's eight-corner template has
+camera-dependent spike/silhouette vertices and cannot be represented exactly
+by one static affine mesh without reintroducing shader-derived shape logic.
+Three/WebGL2 therefore uses a physically solid cuboid template and
+materializes direction/width/height on the CPU, as required. Camera updates
+only update camera/render state. Layer, move, travel, and feature filters
+rebuild selected page matrices/colors and counts without re-parsing or slicing.
 
 Both the opt-in backend and B2 fallback use opaque solid entities. On result
 invalidation, unmount, context loss, or construction failure all owned

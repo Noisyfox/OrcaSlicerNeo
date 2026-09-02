@@ -4,7 +4,6 @@ import { planGpuStreamingPages, rebuildGpuStreamingSelection, type GpuStreamingS
 import {
   buildGpuStreamingInstanceMatrix,
   createGpuStreamingRenderer,
-  GPU_STREAMING_TEMPLATE_FACE_INDICES,
   probeGpuStreamingCapabilities,
   type GpuStreamingEntityTemplateResource,
   type GpuStreamingResourceFacade,
@@ -65,10 +64,12 @@ describe('opaque GPU entity renderer', () => {
     const result = createGpuStreamingRenderer(plan, { context: context(), compile: false });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(GPU_STREAMING_TEMPLATE_FACE_INDICES).toHaveLength(24);
     expect(result.backend.sceneObjects).toHaveLength(2);
     for (const mesh of result.backend.sceneObjects) {
       expect(mesh).toBeInstanceOf(THREE.InstancedMesh);
+      expect(mesh.geometry).toBeInstanceOf(THREE.BoxGeometry);
+      expect(mesh.geometry.getAttribute('position').count).toBe(24);
+      expect(mesh.geometry.index?.count).toBe(36);
       expect(mesh.material).toBeInstanceOf(THREE.MeshBasicMaterial);
       const material = mesh.material as THREE.MeshBasicMaterial;
       expect(material.transparent).toBe(false);

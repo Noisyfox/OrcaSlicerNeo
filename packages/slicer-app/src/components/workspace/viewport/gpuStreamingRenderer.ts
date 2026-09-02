@@ -8,10 +8,6 @@ import type { GpuStreamingPage, GpuStreamingPagePlan, GpuStreamingSelection } fr
  * Segment shape is materialized in instance matrices on the CPU; no custom
  * shader or texture fetch participates in toolpath rendering.
  */
-export const GPU_STREAMING_TEMPLATE_FACE_INDICES = new Uint8Array([
-  0, 1, 2, 3, 4, 6, 5, 7, 0, 4, 5, 1,
-  1, 5, 6, 2, 2, 6, 7, 3, 4, 0, 3, 7,
-]);
 
 export interface GpuStreamingCapabilityLimits {
   readonly maxTextureSize: number | null;
@@ -107,8 +103,8 @@ export function buildGpuStreamingInstanceMatrix(
   const height = Math.max(0, source.heights[sourceIndex] ?? 0);
   const center = start.clone().add(end).multiplyScalar(0.5);
   center.z += source.biases?.[sourceIndex] ?? 0;
-  // BoxGeometry is a unit centered prism. Local X/Y/Z map to direction,
-  // width, and height, giving every segment actual solid geometry and caps.
+  // The unit centered cuboid spans +/-0.5 on each axis, so these scales
+  // produce the requested full dimensions.
   target.makeBasis(axis, side, up).scale(new THREE.Vector3(Math.max(length, 1e-5), width, height));
   target.setPosition(center);
   return target;
