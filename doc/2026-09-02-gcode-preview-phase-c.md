@@ -37,7 +37,8 @@ analysis card so its thumbs remain reachable when overlays are crowded.
 The right-top overlay presents bridge-precomputed summary values and
 per-feature standard time/filament rows. It does not scan toolpath segments
 when opening or updating the panel. The current-move card follows the active
-layer and move-end selection through a result-local index, showing available
+layer and move-end selection through the bridge-supplied layer intervals and
+an in-range binary search, showing available
 layer/Z, endpoint XYZ, move type, feature, filament/tool, mapped G-code line,
 and selected-scheme value. Unknown or unavailable fields are omitted; travel
 does not claim a stale extrusion feature. The card remains in the existing

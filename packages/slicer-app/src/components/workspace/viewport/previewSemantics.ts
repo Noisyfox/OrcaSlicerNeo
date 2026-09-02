@@ -1,3 +1,4 @@
+import type { PreviewLayerRange } from '@slicer/client';
 import type { ToolpathGeometry } from './useSliceResult';
 import { TRAVEL_MOVE_TYPE } from './toolpathColors';
 
@@ -63,28 +64,29 @@ export function lastMovePosition(data: Pick<ToolpathGeometry, 'segmentCount' | '
 }
 
 /**
- * A result-local lookup for inspection.  Building this once per result keeps
- * slider updates logarithmic and avoids repeatedly scanning million-segment
- * toolpaths on the React render path.
+ * A result-local lookup for inspection. Layer ranges are supplied by the
+ * bridge as contiguous segment intervals, so this only retains one small
+ * range record per layer; it never creates or sorts a per-segment index.
  */
 export interface PreviewInspectionIndex {
-  readonly movesByLayer: ReadonlyMap<number, readonly number[]>;
+  readonly rangesByLayer: ReadonlyMap<number, Pick<PreviewLayerRange, 'firstSegment' | 'segmentCount'>>;
 }
 
 export function createPreviewInspectionIndex(
-  data: Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders'>,
+  data: Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'metadata'>,
 ): PreviewInspectionIndex {
-  const byLayer = new Map<number, number[]>();
-  for (let index = 0; index < data.segmentCount; index++) {
-    const layer = data.layerIds[index] ?? 0;
-    const moves = byLayer.get(layer);
-    if (moves) moves.push(index);
-    else byLayer.set(layer, [index]);
+  const rangesByLayer = new Map<number, Pick<PreviewLayerRange, 'firstSegment' | 'segmentCount'>>();
+  for (const range of data.metadata?.layerRanges ?? []) {
+    const firstSegment = Math.floor(range.firstSegment);
+    const segmentCount = Math.floor(range.segmentCount);
+    const lastSegment = firstSegment + segmentCount - 1;
+    // A malformed metadata interval must never make the inspector read an
+    // unrelated layer. The normal bridge path always satisfies this contract.
+    if (firstSegment < 0 || segmentCount <= 0 || lastSegment >= data.segmentCount) continue;
+    if (data.layerIds[firstSegment] !== range.id || data.layerIds[lastSegment] !== range.id) continue;
+    rangesByLayer.set(range.id, { firstSegment, segmentCount });
   }
-  for (const moves of byLayer.values()) {
-    moves.sort((a, b) => (data.moveOrders[a] ?? 0) - (data.moveOrders[b] ?? 0) || a - b);
-  }
-  return { movesByLayer: byLayer };
+  return { rangesByLayer };
 }
 
 /** Return the nearest move at or before the requested local move order. */
@@ -94,14 +96,14 @@ export function findPreviewMove(
   layer: number,
   move: number,
 ): number | null {
-  const moves = index.movesByLayer.get(layer);
-  if (!moves?.length) return null;
-  let low = 0;
-  let high = moves.length - 1;
-  let best = 0;
+  const range = index.rangesByLayer.get(layer);
+  if (!range) return null;
+  let low = range.firstSegment;
+  let high = range.firstSegment + range.segmentCount - 1;
+  let best = range.firstSegment;
   while (low <= high) {
     const middle = (low + high) >> 1;
-    const order = data.moveOrders[moves[middle]!] ?? 0;
+    const order = data.moveOrders[middle] ?? 0;
     if (order <= move) {
       best = middle;
       low = middle + 1;
@@ -109,7 +111,7 @@ export function findPreviewMove(
       high = middle - 1;
     }
   }
-  return moves[best] ?? null;
+  return best;
 }
 
 /**

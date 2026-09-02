@@ -12,7 +12,16 @@ const data = {
   features: Uint32Array.from([0, 1, 0, 1, 0, 1]),
   extruderIds: new Uint8Array(6),
   ends: Float32Array.from([0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0, 0, 5, 0, 0]),
-} satisfies Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'moveTypes' | 'features' | 'extruderIds' | 'ends'>;
+  metadata: {
+    resultId: 1,
+    layerRanges: [
+      { id: 0, z: 0.2, firstSegment: 0, segmentCount: 2 },
+      { id: 1, z: 0.4, firstSegment: 2, segmentCount: 3 },
+      { id: 2, z: 0.6, firstSegment: 5, segmentCount: 1 },
+    ],
+    featurePalette: [],
+  },
+} satisfies Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'moveTypes' | 'features' | 'extruderIds' | 'ends' | 'metadata'>;
 
 describe('preview inspection semantics', () => {
   it('shows the active layer from its start through the inclusive move end', () => {
@@ -91,5 +100,14 @@ describe('preview inspection semantics', () => {
     expect(findPreviewMove(data, indexed, 1, 1)).toBe(3);
     expect(findPreviewMove(data, indexed, 1, 99)).toBe(4);
     expect(findPreviewMove(data, indexed, 7, 0)).toBeNull();
+  });
+
+  it('omits an invalid metadata range instead of falling back to a full scan', () => {
+    const malformed = {
+      ...data,
+      metadata: { ...data.metadata, layerRanges: [{ id: 1, z: 0.4, firstSegment: 0, segmentCount: 99 }] },
+    };
+    const indexed = createPreviewInspectionIndex(malformed);
+    expect(findPreviewMove(malformed, indexed, 1, 0)).toBeNull();
   });
 });
