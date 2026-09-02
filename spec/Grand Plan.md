@@ -370,7 +370,10 @@ and drives structural operations through the typed client.
 > remains opt-in and representative integrated-GPU performance evidence is
 > pending, so the default stays off with automatic B2 fallback. Browser
 > hardware limits and measurements are recorded in the living implementation
-> entry.
+> entry. The accepted depth policy is transparent-queue ordering only
+> (`transparent: true`, `NoBlending`) with `depthTest: true`, `depthWrite: true`,
+> and `FrontSide`: preview shells do not write depth, while solid toolpaths
+> self-occlude and cull their back faces.
 >
 > Major renderer/performance specification:
 > [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)

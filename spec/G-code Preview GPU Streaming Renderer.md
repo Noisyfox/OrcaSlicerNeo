@@ -323,18 +323,20 @@ in the instance matrix; the box supplies real side faces and end caps.
 Toolpath materials are standard Three `MeshBasicMaterial` instances with
 `transparent: true` solely to place them after the transparent preview shell
 in Three's render queue, `opacity: 1`, `blending: THREE.NoBlending`,
-`depthTest: false`, `depthWrite: false`, and `DoubleSide`. This queue flag does
+`depthTest: true`, `depthWrite: true`, and `FrontSide`. This queue flag does
 not enable alpha compositing; the renderer's blend state is explicitly
-disabled. Per-instance RGB colours implement the feature palette and an
-opaque gray unknown-feature fallback. There is no custom toolpath shader,
+disabled. Depth is intentionally enabled for the solid entities themselves:
+the preview shell does not write depth, while the toolpaths establish depth
+and therefore self-occlude from the camera-facing side. Per-instance RGB
+colours implement the feature palette and an opaque gray unknown-feature fallback. There is no custom toolpath shader,
 `texelFetch`, atlas, integer texture, enabled-index texture, or
 shader-derived outline/width/height. The planner remains a pure
 source/page/selection planner and can retain its page metadata accounting for
 deterministic partitioning.
 
 The baseline correspondence to native libvgcode is page-local selected
-instances, ordered layer ranges, vertical direction fallback, disabled culling,
-and shell-visible depth state. Native libvgcode's eight-corner template has
+instances, ordered layer ranges, vertical direction fallback, front-face
+culling, and shell-visible depth state. Native libvgcode's eight-corner template has
 camera-dependent spike/silhouette vertices and cannot be represented exactly
 by one static affine mesh without reintroducing shader-derived shape logic.
 Three/WebGL2 therefore uses a physically solid cuboid template and

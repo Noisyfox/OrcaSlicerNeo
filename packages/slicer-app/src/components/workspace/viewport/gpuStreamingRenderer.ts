@@ -131,10 +131,14 @@ function createEntityTemplate(): GpuStreamingEntityTemplateResource {
     transparent: true,
     opacity: 1,
     blending: THREE.NoBlending,
-    // Match libvgcode's render_segments state and Preview v2 shell policy.
-    depthTest: false,
-    depthWrite: false,
-    side: THREE.DoubleSide,
+    // The preview shell is transparent and does not write depth, so the
+    // transparent queue plus renderOrder keeps paths visible through it.
+    // The entities themselves must still participate in depth testing and
+    // write their solid depth, otherwise rear segments/faces show through
+    // the front of the toolpath when the camera is below the model.
+    depthTest: true,
+    depthWrite: true,
+    side: THREE.FrontSide,
   });
   material.forceSinglePass = true;
   return { geometry, material, dispose: onceDispose(() => { geometry.dispose(); material.dispose(); }) };

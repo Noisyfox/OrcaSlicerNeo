@@ -71,9 +71,13 @@ function createMaterial(): THREE.MeshBasicMaterial {
     transparent: true,
     opacity: 1,
     blending: THREE.NoBlending,
-    depthTest: false,
-    depthWrite: false,
-    side: THREE.DoubleSide,
+    // The path entities must establish and obey their own depth buffer. The
+    // preview shell does not write depth, so this still leaves paths visible
+    // through the shell while preventing rear entities/faces from showing
+    // through the front when viewed from underneath.
+    depthTest: true,
+    depthWrite: true,
+    side: THREE.FrontSide,
   });
   material.forceSinglePass = true;
   return material;

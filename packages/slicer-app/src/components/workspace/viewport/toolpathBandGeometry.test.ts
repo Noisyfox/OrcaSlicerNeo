@@ -41,6 +41,9 @@ describe('toolpath band geometry', () => {
     expect(material.transparent).toBe(true);
     expect(material.opacity).toBe(1);
     expect(material.blending).toBe(THREE.NoBlending);
+    expect(material.depthTest).toBe(true);
+    expect(material.depthWrite).toBe(true);
+    expect(material.side).toBe(THREE.FrontSide);
     expect(material.forceSinglePass).toBe(true);
     expect(chunk.mesh.instanceColor).not.toBeNull();
     expect(Array.from(chunk.mesh.instanceColor!.array.slice(0, 6))).toEqual([1, 0, 0, 0, 1, 0]);

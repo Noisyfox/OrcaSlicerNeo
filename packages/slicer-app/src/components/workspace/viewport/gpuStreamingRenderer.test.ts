@@ -77,8 +77,9 @@ describe('opaque GPU entity renderer', () => {
       expect(material.transparent).toBe(true);
       expect(material.opacity).toBe(1);
       expect(material.blending).toBe(THREE.NoBlending);
-      expect(material.depthTest).toBe(false);
-      expect(material.depthWrite).toBe(false);
+      expect(material.depthTest).toBe(true);
+      expect(material.depthWrite).toBe(true);
+      expect(material.side).toBe(THREE.FrontSide);
       // BoxGeometry has no vertex color attribute. The renderer must leave
       // vertexColors off so Three does not multiply the instance color by a
       // missing (zero-valued) `color` attribute.
