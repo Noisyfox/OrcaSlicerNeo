@@ -192,10 +192,10 @@ describe('GPU streaming source adapter and page planner', () => {
       cursor += page.segmentCount;
     }
     expect(cursor).toBe(count);
-    expect(plan.diagnostics.estimatedStaticBytes).toBe(count * 64);
+    const estimatedStaticBytes = plan.pages.reduce((sum, page) => sum + page.estimatedStaticBytes, 0);
+    expect(plan.diagnostics.estimatedStaticBytes).toBe(estimatedStaticBytes);
     expect(plan.diagnostics.estimatedIndexCapacityBytes).toBe(count * GPU_STREAMING_BYTES_PER_INDEX);
-    expect(plan.diagnostics.estimatedBytes).toBe(count * (64 + GPU_STREAMING_BYTES_PER_INDEX));
-    expect(plan.diagnostics.estimatedStaticBytes).toBeLessThanOrEqual(count * 64);
+    expect(plan.diagnostics.estimatedBytes).toBe(estimatedStaticBytes + count * GPU_STREAMING_BYTES_PER_INDEX);
   });
 
   it('exposes budget and texture-capacity inputs without querying WebGL', () => {
@@ -207,7 +207,7 @@ describe('GPU streaming source adapter and page planner', () => {
       sharedTemplateBytes: 64,
     });
     expect(plan.diagnostics.texelSchema.texelsPerSegment).toBe(4);
-    expect(plan.diagnostics.hardCapacity).toBe(Math.floor(64 / 4));
+    expect(plan.diagnostics.hardCapacity).toBe(Math.floor(64 / 3));
     expect(plan.pages.every((page) => page.atlasWidth <= 8)).toBe(true);
     expect(plan.diagnostics.allocatedBytes).toBeNull();
   });

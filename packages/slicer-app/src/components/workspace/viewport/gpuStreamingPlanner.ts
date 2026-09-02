@@ -82,6 +82,15 @@ export interface GpuStreamingPage {
   readonly atlasWidth: number;
   readonly atlasHeight: number;
   readonly atlasTexelCount: number;
+  /** Physical geometry atlas dimensions for the three float texels/segment. */
+  readonly geometryAtlasWidth: number;
+  readonly geometryAtlasHeight: number;
+  /** Physical identity atlas dimensions for the one integer texel/segment. */
+  readonly identityAtlasWidth: number;
+  readonly identityAtlasHeight: number;
+  readonly geometryAtlasTexelCount: number;
+  readonly identityAtlasTexelCount: number;
+  readonly staticPaddingTexels: number;
   readonly estimatedStaticBytes: number;
   /** Upper-bound index allocation; actual enabled count is selection state. */
   readonly estimatedIndexCapacityBytes: number;
@@ -324,6 +333,27 @@ function atlasDimensions(texelCount: number, maxTextureSize: number | undefined)
   return [width, Math.ceil(texelCount / width)];
 }
 
+function staticBytesForSegments(segmentCount: number, schema: GpuStreamingTexelSchema, maxTextureSize: number | undefined): number {
+  const geometryTexels = segmentCount * (schema.endpointTexels + schema.shapeTexels);
+  const identityTexels = segmentCount * schema.identityTexels;
+  const [geometryWidth, geometryHeight] = atlasDimensions(geometryTexels, maxTextureSize);
+  const [identityWidth, identityHeight] = atlasDimensions(identityTexels, maxTextureSize);
+  return (geometryWidth * geometryHeight + identityWidth * identityHeight) * schema.bytesPerTexel;
+}
+
+function budgetCapacity(budget: number, schema: GpuStreamingTexelSchema, maxTextureSize: number | undefined, overhead: number): number {
+  let low = 0;
+  let high = Math.max(1, Math.floor(Math.max(0, budget - overhead) / (schema.bytesPerStaticSegment + GPU_STREAMING_BYTES_PER_INDEX)));
+  while (staticBytesForSegments(high, schema, maxTextureSize) + high * GPU_STREAMING_BYTES_PER_INDEX > budget - overhead && high > 1) high = Math.floor(high / 2);
+  if (staticBytesForSegments(high, schema, maxTextureSize) + high * GPU_STREAMING_BYTES_PER_INDEX > budget - overhead) return 1;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (staticBytesForSegments(middle, schema, maxTextureSize) + middle * GPU_STREAMING_BYTES_PER_INDEX <= budget - overhead) low = middle;
+    else high = middle - 1;
+  }
+  return Math.max(1, low);
+}
+
 function hardCapacity(options: GpuStreamingPlannerOptions, schema: GpuStreamingTexelSchema): number | null {
   const candidates: number[] = [];
   if (options.hardCapacity !== undefined && Number.isFinite(options.hardCapacity)) {
@@ -331,14 +361,16 @@ function hardCapacity(options: GpuStreamingPlannerOptions, schema: GpuStreamingT
   }
   if (options.maxTextureSize !== undefined && Number.isFinite(options.maxTextureSize) && options.maxTextureSize > 0) {
     const max = Math.floor(options.maxTextureSize);
-    candidates.push(Math.floor((max * max) / schema.texelsPerSegment));
+    // Float geometry is the dominant atlas (endpoint + shape texels). The
+    // identity atlas has its own dimensions and therefore does not consume
+    // the geometry texture's 4-texel/segment grid.
+    candidates.push(Math.floor((max * max) / Math.max(1, schema.endpointTexels + schema.shapeTexels)));
   }
   if (options.gpuBudgetBytes !== undefined && Number.isFinite(options.gpuBudgetBytes)) {
     const budget = Math.max(0, options.gpuBudgetBytes);
     const overhead = Math.max(0, integer(options.pageOverheadBytes, 0))
       + Math.max(0, integer(options.sharedTemplateBytes, 0));
-    candidates.push(Math.floor(Math.max(0, budget - overhead)
-      / (schema.bytesPerStaticSegment + GPU_STREAMING_BYTES_PER_INDEX)));
+    candidates.push(budgetCapacity(budget, schema, options.maxTextureSize, overhead));
   }
   if (candidates.length === 0) return null;
   return Math.max(1, Math.min(...candidates));
@@ -355,8 +387,14 @@ function makePage(
   maxTextureSize: number | undefined,
 ): GpuStreamingPage {
   const atlasTexelCount = segmentCount * schema.texelsPerSegment;
-  const [atlasWidth, atlasHeight] = atlasDimensions(atlasTexelCount, maxTextureSize);
-  const estimatedStaticBytes = segmentCount * schema.bytesPerStaticSegment;
+  const geometryTexelCount = segmentCount * (schema.endpointTexels + schema.shapeTexels);
+  const identityTexelCount = segmentCount * schema.identityTexels;
+  const [geometryAtlasWidth, geometryAtlasHeight] = atlasDimensions(geometryTexelCount, maxTextureSize);
+  const [identityAtlasWidth, identityAtlasHeight] = atlasDimensions(identityTexelCount, maxTextureSize);
+  const geometryAllocatedTexels = geometryAtlasWidth * geometryAtlasHeight;
+  const identityAllocatedTexels = identityAtlasWidth * identityAtlasHeight;
+  const staticPaddingTexels = geometryAllocatedTexels - geometryTexelCount + identityAllocatedTexels - identityTexelCount;
+  const estimatedStaticBytes = (geometryAllocatedTexels + identityAllocatedTexels) * schema.bytesPerTexel;
   const estimatedIndexCapacityBytes = segmentCount * GPU_STREAMING_BYTES_PER_INDEX;
   return Object.freeze({
     firstSegment,
@@ -365,9 +403,17 @@ function makePage(
     lastLayer,
     oversized,
     oversizedLayer,
-    atlasWidth,
-    atlasHeight,
+    // atlasWidth/Height remain the geometry atlas compatibility aliases.
+    atlasWidth: geometryAtlasWidth,
+    atlasHeight: geometryAtlasHeight,
     atlasTexelCount,
+    geometryAtlasWidth,
+    geometryAtlasHeight,
+    identityAtlasWidth,
+    identityAtlasHeight,
+    geometryAtlasTexelCount: geometryAllocatedTexels,
+    identityAtlasTexelCount: identityAllocatedTexels,
+    staticPaddingTexels,
     estimatedStaticBytes,
     estimatedIndexCapacityBytes,
     estimatedBytes: estimatedStaticBytes + estimatedIndexCapacityBytes,

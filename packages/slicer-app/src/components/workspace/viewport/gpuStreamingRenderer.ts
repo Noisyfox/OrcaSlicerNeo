@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { ToolpathFeature } from '@slicer/client';
 import type {
   GpuStreamingPage,
   GpuStreamingPagePlan,
@@ -15,7 +16,8 @@ in vec3 position;
 uniform sampler2D uStaticAtlas;
 uniform usampler2D uStaticIdentity;
 uniform usampler2D uEnabledIndices;
-uniform int uAtlasWidth;
+uniform int uGeometryAtlasWidth;
+uniform int uIdentityAtlasWidth;
 uniform int uIndexTextureWidth;
 uniform vec3 uCameraPosition;
 uniform int uActiveLayer;
@@ -30,11 +32,11 @@ ivec2 atlasCoord(int index, int width) {
 void main() {
   int enabledIndex = int(texelFetch(
     uEnabledIndices, atlasCoord(gl_InstanceID, uIndexTextureWidth), 0).r);
-  int base = enabledIndex * 4;
-  vec3 start = texelFetch(uStaticAtlas, atlasCoord(base, uAtlasWidth), 0).xyz;
-  vec3 end = texelFetch(uStaticAtlas, atlasCoord(base + 1, uAtlasWidth), 0).xyz;
-  vec4 shape = texelFetch(uStaticAtlas, atlasCoord(base + 2, uAtlasWidth), 0);
-  uvec4 ids = texelFetch(uStaticIdentity, atlasCoord(base + 3, uAtlasWidth), 0);
+  int base = enabledIndex * 3;
+  vec3 start = texelFetch(uStaticAtlas, atlasCoord(base, uGeometryAtlasWidth), 0).xyz;
+  vec3 end = texelFetch(uStaticAtlas, atlasCoord(base + 1, uGeometryAtlasWidth), 0).xyz;
+  vec4 shape = texelFetch(uStaticAtlas, atlasCoord(base + 2, uGeometryAtlasWidth), 0);
+  uvec4 ids = texelFetch(uStaticIdentity, atlasCoord(enabledIndex, uIdentityAtlasWidth), 0);
   vLayer = ids.r;
   vFeature = ids.b;
 
@@ -63,7 +65,8 @@ void main() {
 export const GPU_STREAMING_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 precision highp int;
-uniform vec3 uColor;
+uniform sampler2D uPalette;
+uniform int uPaletteWidth;
 uniform float uEarlierLayerDim;
 uniform int uActiveLayer;
 flat in uint vLayer;
@@ -72,11 +75,14 @@ out vec4 outColor;
 void main() {
   float dim = (uActiveLayer >= 0 && int(vLayer) < uActiveLayer)
     ? uEarlierLayerDim : 1.0;
-  outColor = vec4(uColor * dim, 1.0);
+  vec4 paletteColor = texelFetch(uPalette, ivec2(min(int(vFeature), max(uPaletteWidth - 1, 0)), 0), 0);
+  outColor = vec4(paletteColor.rgb * dim, paletteColor.a);
 }`;
 
 const STATIC_SCHEMA_TEXELS = 4;
-const REQUIRED_TEXTURE_UNITS = 3;
+const STATIC_FLOAT_TEXELS = 3;
+const STATIC_IDENTITY_TEXELS = 1;
+const REQUIRED_TEXTURE_UNITS = 4;
 
 /** Six quad faces, represented by the 24 byte-sized corner indices. */
 export const GPU_STREAMING_TEMPLATE_FACE_INDICES = new Uint8Array([
@@ -105,13 +111,20 @@ export interface GpuStreamingRendererHost {
 }
 
 export interface GpuStreamingStaticAtlasUpload {
-  readonly width: number;
-  readonly height: number;
+  readonly geometryWidth: number;
+  readonly geometryHeight: number;
+  readonly identityWidth: number;
+  readonly identityHeight: number;
   readonly texelCount: number;
   /** RGBA32F data; unused padding texels are zero. */
   readonly geometry: Float32Array;
   /** RGBA32UI data; one integer texel (four lossless channels) per atlas texel. */
   readonly identity: Uint32Array;
+  readonly geometryTexelCount: number;
+  readonly identityTexelCount: number;
+  readonly staticPaddingTexels: number;
+  readonly uploadedBytes: number;
+  readonly unknownFeatureIds: readonly number[];
 }
 
 export interface GpuStreamingIndexStreamUpload {
@@ -127,12 +140,27 @@ export interface GpuStreamingResource {
 export interface GpuStreamingStaticAtlasResource extends GpuStreamingResource {
   readonly geometryTexture?: THREE.Texture;
   readonly identityTexture?: THREE.Texture;
+  readonly uploadedBytes?: number;
+}
+
+export interface GpuStreamingPaletteUpload {
+  readonly width: number;
+  readonly height: number;
+  readonly colors: Float32Array;
+  readonly unknownFeatureIds: readonly number[];
+}
+
+export interface GpuStreamingPaletteResource extends GpuStreamingResource {
+  readonly texture?: THREE.Texture;
+  readonly width?: number;
+  readonly uploadedBytes?: number;
 }
 
 export interface GpuStreamingIndexStreamResource extends GpuStreamingResource {
   readonly texture?: THREE.Texture;
   readonly width?: number;
   readonly height?: number;
+  readonly uploadedBytes?: number;
 }
 
 export interface GpuStreamingTemplateResource extends GpuStreamingResource {
@@ -147,6 +175,7 @@ export interface GpuStreamingTemplateResource extends GpuStreamingResource {
 export interface GpuStreamingResourceFacade {
   createStaticAtlas(upload: GpuStreamingStaticAtlasUpload): GpuStreamingStaticAtlasResource;
   createIndexStream(upload: GpuStreamingIndexStreamUpload): GpuStreamingIndexStreamResource;
+  createPalette?: (upload: GpuStreamingPaletteUpload) => GpuStreamingPaletteResource;
   createSharedTemplate(): GpuStreamingTemplateResource;
 }
 
@@ -172,6 +201,11 @@ export type GpuStreamingBuildResult =
 export interface GpuStreamingSelectionUpdate {
   readonly uploadedPageCount: number;
   readonly drawInstanceCounts: readonly number[];
+}
+
+export interface GpuStreamingPaletteUpdate {
+  readonly uploaded: boolean;
+  readonly unknownFeatureIds: readonly number[];
 }
 
 function onceDispose(dispose: () => void): () => void {
@@ -219,13 +253,14 @@ function threeShaderSource(source: string): string {
 
 const threeResourceFacade: GpuStreamingResourceFacade = {
   createStaticAtlas(upload) {
-    const geometry = createThreeTexture(upload.geometry, upload.width, upload.height, false);
-    const identity = createThreeTexture(upload.identity, upload.width, upload.height, true, true);
+    const geometry = createThreeTexture(upload.geometry, upload.geometryWidth, upload.geometryHeight, false);
+    const identity = createThreeTexture(upload.identity, upload.identityWidth, upload.identityHeight, true, true);
     identity.internalFormat = 'RGBA32UI';
     let disposed = false;
     return {
       geometryTexture: geometry,
       identityTexture: identity,
+      uploadedBytes: upload.uploadedBytes,
       dispose: onceDispose(() => {
         if (disposed) return;
         disposed = true;
@@ -236,7 +271,11 @@ const threeResourceFacade: GpuStreamingResourceFacade = {
   },
   createIndexStream(upload) {
     const texture = createThreeTexture(upload.indices, upload.width, upload.height, true);
-    return { texture, width: upload.width, height: upload.height, dispose: onceDispose(() => texture.dispose()) };
+    return { texture, width: upload.width, height: upload.height, uploadedBytes: upload.indices.byteLength, dispose: onceDispose(() => texture.dispose()) };
+  },
+  createPalette(upload) {
+    const texture = createThreeTexture(upload.colors, upload.width, upload.height, false);
+    return { texture, width: upload.width, uploadedBytes: upload.colors.byteLength, dispose: onceDispose(() => texture.dispose()) };
   },
   createSharedTemplate() {
     // Eight corners and the six quad faces are the shared libvgcode-equivalent
@@ -269,12 +308,14 @@ const threeResourceFacade: GpuStreamingResourceFacade = {
         uStaticAtlas: { value: null },
         uStaticIdentity: { value: null },
         uEnabledIndices: { value: null },
-        uAtlasWidth: { value: 1 },
+        uGeometryAtlasWidth: { value: 1 },
+        uIdentityAtlasWidth: { value: 1 },
         uIndexTextureWidth: { value: 1 },
         uCameraPosition: { value: new THREE.Vector3(0, 0, 1) },
         uActiveLayer: { value: -1 },
         uEarlierLayerDim: { value: 0.25 },
-        uColor: { value: new THREE.Color(0.9, 0.9, 0.9) },
+        uPalette: { value: null },
+        uPaletteWidth: { value: 1 },
         uViewProjection: { value: new THREE.Matrix4() },
       },
       side: THREE.DoubleSide,
@@ -315,18 +356,66 @@ export function probeGpuStreamingCapabilities(context: WebGLRenderingContext): G
   return { supported: true, reason: null, limits };
 }
 
-function atlasUpload(plan: GpuStreamingPagePlan, page: GpuStreamingPage): GpuStreamingStaticAtlasUpload {
+function paletteSlots(palette: readonly ToolpathFeature[]): Map<number, number> {
+  const slots = new Map<number, number>();
+  palette.forEach((entry, index) => {
+    if (Number.isInteger(entry.id) && !slots.has(entry.id)) slots.set(entry.id, index + 1);
+  });
+  return slots;
+}
+
+function colorComponent(value: number): number {
+  return Number.isFinite(value) ? (Math.abs(value) > 1 ? value / 255 : value) : 0;
+}
+
+function paletteUpload(palette: readonly ToolpathFeature[], stableSlots?: ReadonlyMap<number, number>): GpuStreamingPaletteUpload {
+  const slots = stableSlots ?? paletteSlots(palette);
+  const width = Math.max(1, ...slots.values(), palette.length) + 1;
+  const colors = new Float32Array(width * 4);
+  // Slot zero is deterministic for missing/unknown feature IDs.
+  colors.set([0.58, 0.58, 0.58, 1], 0);
+  const seen = new Set<number>();
+  const unknownFeatureIds: number[] = [];
+  palette.forEach((entry, index) => {
+    if (!Number.isInteger(entry.id)) return;
+    if (seen.has(entry.id)) {
+      unknownFeatureIds.push(entry.id);
+      return;
+    }
+    seen.add(entry.id);
+    const slot = slots.get(entry.id);
+    if (slot === undefined) return;
+    const offset = slot * 4;
+    colors[offset] = colorComponent(entry.color[0]);
+    colors[offset + 1] = colorComponent(entry.color[1]);
+    colors[offset + 2] = colorComponent(entry.color[2]);
+    colors[offset + 3] = 1;
+  });
+  return {
+    width,
+    height: 1,
+    colors,
+    unknownFeatureIds: Object.freeze(unknownFeatureIds.sort((a, b) => a - b)),
+  };
+}
+
+function atlasUpload(
+  plan: GpuStreamingPagePlan,
+  page: GpuStreamingPage,
+  featureSlots = paletteSlots(plan.source.palette),
+): GpuStreamingStaticAtlasUpload {
   const schema = plan.diagnostics.texelSchema;
   if (schema.endpointTexels !== 2 || schema.shapeTexels !== 1 || schema.identityTexels !== 1
     || schema.paletteTexels !== 0 || schema.metricTexels !== 0 || schema.texelsPerSegment !== STATIC_SCHEMA_TEXELS) {
     throw new Error('unsupported-static-schema: expected the four-texel endpoint/shape/identity layout');
   }
   const { source } = plan;
-  const geometry = new Float32Array(page.atlasWidth * page.atlasHeight * 4);
-  const identity = new Uint32Array(page.atlasWidth * page.atlasHeight * 4);
+  const geometry = new Float32Array(page.geometryAtlasTexelCount * 4);
+  const identity = new Uint32Array(page.identityAtlasTexelCount * 4);
+  const unknownFeatureIds = new Set<number>();
   for (let local = 0; local < page.segmentCount; local++) {
     const sourceIndex = page.firstSegment + local;
-    const base = local * STATIC_SCHEMA_TEXELS;
+    const base = local * STATIC_FLOAT_TEXELS;
     const endpoint0 = base * 4;
     const endpoint1 = (base + 1) * 4;
     const shape = (base + 2) * 4;
@@ -341,13 +430,29 @@ function atlasUpload(plan: GpuStreamingPagePlan, page: GpuStreamingPage): GpuStr
     geometry[shape + 1] = source.heights[sourceIndex] ?? 0;
     geometry[shape + 2] = source.capAngles?.[sourceIndex] ?? source.angles?.[sourceIndex] ?? 0;
     geometry[shape + 3] = source.biases?.[sourceIndex] ?? 0;
-    const identityTexel = (base + 3) * 4;
+    const identityTexel = local * STATIC_IDENTITY_TEXELS * 4;
     identity[identityTexel] = source.layerIds[sourceIndex] ?? 0;
     identity[identityTexel + 1] = source.moveOrders[sourceIndex] ?? 0;
-    identity[identityTexel + 2] = source.features[sourceIndex] ?? 0;
+    const featureId = source.features[sourceIndex] ?? 0;
+    const featureSlot = featureSlots.get(featureId);
+    if (featureSlot === undefined) unknownFeatureIds.add(featureId);
+    identity[identityTexel + 2] = featureSlot ?? 0;
     identity[identityTexel + 3] = source.moveTypes[sourceIndex] ?? 0;
   }
-  return { width: page.atlasWidth, height: page.atlasHeight, texelCount: page.atlasTexelCount, geometry, identity };
+  return {
+    geometryWidth: page.geometryAtlasWidth,
+    geometryHeight: page.geometryAtlasHeight,
+    identityWidth: page.identityAtlasWidth,
+    identityHeight: page.identityAtlasHeight,
+    texelCount: page.atlasTexelCount,
+    geometry,
+    identity,
+    geometryTexelCount: page.geometryAtlasTexelCount,
+    identityTexelCount: page.identityAtlasTexelCount,
+    staticPaddingTexels: page.staticPaddingTexels,
+    uploadedBytes: geometry.byteLength + identity.byteLength,
+    unknownFeatureIds: Object.freeze([...unknownFeatureIds].sort((a, b) => a - b)),
+  };
 }
 
 function indexUpload(selection: GpuStreamingPageSelection, maxTextureSize: number): GpuStreamingIndexStreamUpload {
@@ -361,6 +466,7 @@ function indexUpload(selection: GpuStreamingPageSelection, maxTextureSize: numbe
 
 interface PageState {
   readonly planPage: GpuStreamingPage;
+  readonly staticUpload: GpuStreamingStaticAtlasUpload;
   readonly staticAtlas: GpuStreamingStaticAtlasResource;
   indexStream: GpuStreamingIndexStreamResource | null;
   instanceCount: number;
@@ -377,6 +483,14 @@ export class GpuStreamingRenderer {
   readonly capabilities: GpuStreamingCapabilityProbe;
   readonly template: GpuStreamingTemplateResource;
   readonly pages: readonly PageState[];
+  private paletteResource: GpuStreamingPaletteResource | null;
+  private paletteWidth: number;
+  private readonly retiredPaletteResources: GpuStreamingPaletteResource[] = [];
+  private readonly _unknownFeatureIds: readonly number[];
+  private readonly featureSlots: ReadonlyMap<number, number>;
+  private readonly sourceFeatureIds: readonly number[];
+  private _dynamicIndexBytes = 0;
+  private _paletteBytes = 0;
   private readonly retiredIndexStreams: GpuStreamingIndexStreamResource[] = [];
   private readonly contextElement?: GpuStreamingRendererOptions['renderer'];
   private disposed = false;
@@ -392,12 +506,23 @@ export class GpuStreamingRenderer {
     renderer?: GpuStreamingRendererHost,
     private readonly resourceFacade?: GpuStreamingResourceFacade,
     staticUploadCount = pages.length,
+    paletteResource: GpuStreamingPaletteResource | null = null,
+    paletteWidth = 1,
+    unknownFeatureIds: readonly number[] = [],
+    featureSlots: ReadonlyMap<number, number> = new Map(),
+    sourceFeatureIds: readonly number[] = [],
   ) {
     this.capabilities = capabilities;
     this.template = template;
     this.pages = pages;
     this.contextElement = renderer;
     this._staticUploadCount = staticUploadCount;
+    this.paletteResource = paletteResource;
+    this.paletteWidth = paletteWidth;
+    this._paletteBytes = paletteResource?.uploadedBytes ?? 0;
+    this._unknownFeatureIds = Object.freeze([...unknownFeatureIds]);
+    this.featureSlots = featureSlots;
+    this.sourceFeatureIds = sourceFeatureIds;
     const element = renderer?.domElement;
     element?.addEventListener?.('webglcontextlost', this.handleContextLost);
     void plan;
@@ -407,6 +532,23 @@ export class GpuStreamingRenderer {
   get indexUploadCount(): number { return this._indexUploadCount; }
   /** Driver-reported allocation is intentionally unavailable until a real GL query is wired. */
   get allocatedBytes(): number | null { return null; }
+  get staticUploadedBytes(): number { return this.pages.reduce((sum, page) => sum + page.staticUpload.uploadedBytes, 0); }
+  get dynamicIndexBytes(): number { return this._dynamicIndexBytes; }
+  get paletteBytes(): number { return this._paletteBytes; }
+  get knownResidentBytes(): number { return this.staticUploadedBytes + this.dynamicIndexBytes + this.paletteBytes; }
+  get unknownFeatureIds(): readonly number[] { return this._unknownFeatureIds; }
+  /** Read-only page mesh handles for the future scene integration step. */
+  get sceneObjects(): readonly THREE.Mesh[] {
+    return this.pages.flatMap((page) => page.mesh ? [page.mesh] : []);
+  }
+  /** Attach owned page draw objects without taking ownership of the caller's scene. */
+  attachToScene(scene: THREE.Object3D): void {
+    for (const mesh of this.sceneObjects) if (mesh.parent !== scene) scene.add(mesh);
+  }
+  /** Remove only this backend's objects; the external scene is never disposed. */
+  detachFromScene(scene: THREE.Object3D): void {
+    for (const mesh of this.sceneObjects) if (mesh.parent === scene) scene.remove(mesh);
+  }
   get status(): 'ready' | 'context-lost' | 'disposed' { return this.disposed ? 'disposed' : this.contextLost ? 'context-lost' : 'ready'; }
   get drawInstanceCounts(): readonly number[] { return this.pages.map((page) => page.instanceCount); }
 
@@ -422,6 +564,7 @@ export class GpuStreamingRenderer {
     if (this.disposed || this.contextLost) throw new Error('GPU streaming renderer is unavailable');
     if (selection.pages.length !== this.pages.length) throw new RangeError('selection page count does not match page plan');
     const created: GpuStreamingIndexStreamResource[] = [];
+    let createdBytes = 0;
     try {
       for (let i = 0; i < this.pages.length; i++) {
         const pageSelection = selection.pages[i]!;
@@ -440,6 +583,7 @@ export class GpuStreamingRenderer {
           dispose: onceDispose(createdStream.dispose),
         };
         created.push(stream);
+        createdBytes += stream.uploadedBytes ?? 0;
       }
       // Publish all replacement streams together. Until this point an
       // allocation failure leaves the previous draw state intact.
@@ -451,6 +595,7 @@ export class GpuStreamingRenderer {
         if (page.geometry) page.geometry.instanceCount = page.instanceCount;
       }
       this._indexUploadCount += this.pages.length;
+      this._dynamicIndexBytes = createdBytes;
       return { uploadedPageCount: this.pages.length, drawInstanceCounts: this.drawInstanceCounts };
     } catch (error) {
       created.forEach((stream) => safeDispose(stream));
@@ -474,9 +619,32 @@ export class GpuStreamingRenderer {
     if (uniforms?.uEarlierLayerDim) uniforms.uEarlierLayerDim.value = earlierLayerDim;
   }
 
+  /**
+   * Replace only the small palette texture. Segment atlases and enabled
+   * streams are intentionally not rebuilt; unknown IDs use slot zero.
+   */
+  updatePalette(palette: readonly ToolpathFeature[]): GpuStreamingPaletteUpdate {
+    if (this.disposed || this.contextLost) throw new Error('GPU streaming renderer is unavailable');
+    const upload = paletteUpload(palette, this.featureSlots);
+    const paletteIds = new Set(palette.filter((entry) => Number.isInteger(entry.id)).map((entry) => entry.id));
+    const unknownFeatureIds = this.sourceFeatureIds.filter((id) => !this.featureSlots.has(id) || !paletteIds.has(id));
+    const createPalette = this.resourceFacade?.createPalette;
+    if (!createPalette) return { uploaded: false, unknownFeatureIds: Object.freeze(unknownFeatureIds) };
+    const created = createPalette(upload);
+    const resource: GpuStreamingPaletteResource = { ...created, dispose: onceDispose(created.dispose) };
+    if (this.paletteResource) this.retiredPaletteResources.push(this.paletteResource);
+    this.paletteResource = resource;
+    this.paletteWidth = upload.width;
+    this._paletteBytes = resource.uploadedBytes ?? upload.colors.byteLength;
+    if (this.template.material?.uniforms.uPalette) this.template.material.uniforms.uPalette.value = resource.texture ?? null;
+    if (this.template.material?.uniforms.uPaletteWidth) this.template.material.uniforms.uPaletteWidth.value = upload.width;
+    return { uploaded: true, unknownFeatureIds: Object.freeze(unknownFeatureIds) };
+  }
+
   /** Release streams retired after a completed draw boundary. */
   commitDrawBoundary(): void {
     while (this.retiredIndexStreams.length > 0) safeDispose(this.retiredIndexStreams.pop());
+    while (this.retiredPaletteResources.length > 0) safeDispose(this.retiredPaletteResources.pop());
   }
 
   private disposeGpuResources(): void {
@@ -488,6 +656,10 @@ export class GpuStreamingRenderer {
       page.instanceCount = 0;
     }
     this.commitDrawBoundary();
+    safeDispose(this.paletteResource);
+    this.paletteResource = null;
+    this._dynamicIndexBytes = 0;
+    this._paletteBytes = 0;
     safeDispose(this.template);
   }
 
@@ -526,22 +698,32 @@ export function createGpuStreamingRenderer(
   }
   const factory = options.resourceFacade ?? threeResourceFacade;
   let template: GpuStreamingTemplateResource | null = null;
+  let paletteResource: GpuStreamingPaletteResource | null = null;
   const pages: PageState[] = [];
+  const unknownFeatureIds = new Set<number>();
+  const featureSlots = paletteSlots(plan.source.palette);
+  const sourceFeatureIds = [...new Set(Array.from(plan.source.features))];
   try {
     const createdTemplate = factory.createSharedTemplate();
     template = { ...createdTemplate, dispose: onceDispose(createdTemplate.dispose) };
+    const initialPalette = paletteUpload(plan.source.palette);
+    if (factory.createPalette) {
+      const createdPalette = factory.createPalette(initialPalette);
+      paletteResource = { ...createdPalette, dispose: onceDispose(createdPalette.dispose) };
+    }
     for (let i = 0; i < plan.pages.length; i++) {
       const page = plan.pages[i]!;
       if (page.atlasWidth > capabilities.limits.maxTextureSize! || page.atlasHeight > capabilities.limits.maxTextureSize!) {
         throw new Error(`page ${i} atlas dimensions exceed MAX_TEXTURE_SIZE`);
       }
-      const upload = atlasUpload(plan, page);
+      const upload = atlasUpload(plan, page, featureSlots);
+      upload.unknownFeatureIds.forEach((id) => unknownFeatureIds.add(id));
       const createdStaticAtlas = factory.createStaticAtlas(upload);
       const staticAtlas: GpuStreamingStaticAtlasResource = {
         ...createdStaticAtlas,
         dispose: onceDispose(createdStaticAtlas.dispose),
       };
-      const state: PageState = { planPage: page, staticAtlas, indexStream: null, instanceCount: 0 };
+      const state: PageState = { planPage: page, staticUpload: upload, staticAtlas, indexStream: null, instanceCount: 0 };
       // Register immediately so any later template/mesh setup failure also
       // releases the atlas just allocated for this page.
       pages.push(state);
@@ -562,13 +744,18 @@ export function createGpuStreamingRenderer(
           uniforms.uStaticAtlas.value = state.staticAtlas.geometryTexture ?? null;
           uniforms.uStaticIdentity.value = state.staticAtlas.identityTexture ?? null;
           uniforms.uEnabledIndices.value = state.indexStream?.texture ?? null;
-          uniforms.uAtlasWidth.value = page.atlasWidth;
+          uniforms.uGeometryAtlasWidth.value = page.geometryAtlasWidth;
+          uniforms.uIdentityAtlasWidth.value = page.identityAtlasWidth;
           uniforms.uIndexTextureWidth.value = state.indexStream?.width ?? 1;
           pageGeometry.instanceCount = state.instanceCount;
         };
       }
     }
-    const backend = new GpuStreamingRenderer(plan, capabilities, template, pages, options.renderer, factory, pages.length);
+    if (template.material) {
+      template.material.uniforms.uPalette.value = paletteResource?.texture ?? null;
+      template.material.uniforms.uPaletteWidth.value = initialPalette.width;
+    }
+    const backend = new GpuStreamingRenderer(plan, capabilities, template, pages, options.renderer, factory, pages.length, paletteResource, initialPalette.width, [...unknownFeatureIds], featureSlots, sourceFeatureIds);
     if (options.compile !== false && options.renderer?.compile) {
       const scene = new THREE.Scene();
       for (const page of pages) if (page.mesh) scene.add(page.mesh);
@@ -581,6 +768,7 @@ export function createGpuStreamingRenderer(
       safeDispose(page.staticAtlas);
       try { page.geometry?.dispose(); } catch { /* continue releasing sibling GPU handles */ }
     }
+    safeDispose(paletteResource);
     safeDispose(template);
     return {
       ok: false,

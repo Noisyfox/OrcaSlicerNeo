@@ -173,14 +173,16 @@ active-range preservation on the stated representative integrated-GPU target.
 
 `gpuStreamingRenderer.ts` is an independent WebGL2/Three.js backend and is not
 imported by `ToolpathLines` or the preview scene. It consumes an existing
-`GpuStreamingPagePlan`, packs each page's four-texel schema once into a padded
-RGBA32F geometry atlas plus RGBA32UI identity atlas, and creates no physical
-band geometry or per-segment JavaScript objects. The identity texel preserves
-layer, move order, feature, and move-type values losslessly. The shared
-template is an eight-corner, 36-index prism with GLSL ES 3.00 shaders; its
-vertex shader uses `gl_InstanceID`, `usampler2D`, integer `texelFetch`,
-camera-facing side/up fallbacks, zero-length direction fallback, cap angle,
-and bias.
+`GpuStreamingPagePlan`, packs each page's four-texel schema once into separate
+textures: three float texels per segment (start, end, shape) and one RGBA
+integer identity texel per segment (layer, move order, feature palette slot,
+and move type). Geometry and identity have independent dimensions and
+explicit padding counts; known upload byte lengths are reported, while
+driver-reported allocation remains `null`. No physical band geometry or
+per-segment JavaScript objects are created. The shared template is an
+eight-corner, 36-index prism with GLSL ES 3.00 shaders; its vertex shader uses
+`gl_InstanceID`, `usampler2D`, integer `texelFetch`, camera-facing side/up
+fallbacks, zero-length direction fallback, cap angle, and bias.
 
 Each selection update receives the planner's page-local inclusive index
 streams and uploads only replacement R32UI index textures. Streams are
@@ -189,13 +191,19 @@ and dimming methods only update material uniforms. Static upload and dynamic
 upload counts, draw instance counts, and page-local upload payloads are
 observable for tests and diagnostics.
 
+The source feature palette is uploaded as a small RGBA32F palette texture;
+feature IDs are mapped to stable palette slots without per-segment objects.
+`updatePalette()` replaces only that texture, with slot zero as the
+deterministic unknown-feature fallback, and never reuploads static atlases.
 `probeGpuStreamingCapabilities` requires WebGL2, integer texture formats,
-three texture units, vertex texture fetch, and a valid `MAX_TEXTURE_SIZE`.
+four texture units, vertex texture fetch, and a valid `MAX_TEXTURE_SIZE`.
 Construction returns a diagnostic unavailable result on missing capabilities,
 unsupported schema, allocation failure, or compile failure. The injected
 resource facade is used by tests; the default facade creates nearest/no-mipmap
 Three `DataTexture`s, an indexed `InstancedBufferGeometry`, and a shared
-`ShaderMaterial`. All owned resources are wrapped in idempotent disposal,
+`ShaderMaterial`. Read-only `sceneObjects` plus `attachToScene()` and
+`detachFromScene()` let a later integration step add page meshes without
+transferring scene ownership. All owned resources are wrapped in idempotent disposal,
 including partial construction, context loss, explicit disposal, and retired
 index streams. The caller's renderer, scene, and camera are never disposed.
 

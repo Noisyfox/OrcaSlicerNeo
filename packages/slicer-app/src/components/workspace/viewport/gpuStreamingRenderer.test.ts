@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import * as THREE from 'three';
 import { planGpuStreamingPages, type GpuStreamingPagePlan, type GpuStreamingSource } from './gpuStreamingPlanner';
 import {
   GPU_STREAMING_FRAGMENT_SHADER,
@@ -27,7 +28,10 @@ function source(): GpuStreamingSource {
     extruderIds: new Uint8Array([0, 0, 1, 1]),
     colorPrintIds: new Uint8Array([0, 0, 1, 1]),
     features: new Uint32Array([4, 5, 6, 7]),
-    palette: [],
+    palette: [
+      { id: 4, name: 'feature', color: [1, 2, 3] },
+      { id: 5, name: 'travel', color: [4, 5, 6] },
+    ],
     metrics: {},
     layers: [],
   };
@@ -61,8 +65,10 @@ function context(overrides: Record<string, unknown> = {}): WebGLRenderingContext
 function facade() {
   const staticUploads: GpuStreamingStaticAtlasUpload[] = [];
   const indexUploads: GpuStreamingIndexStreamUpload[] = [];
+  const paletteUploads: Array<{ width: number; colors: Float32Array; unknownFeatureIds: readonly number[] }> = [];
   const staticDisposals: Array<ReturnType<typeof vi.fn>> = [];
   const indexDisposals: Array<ReturnType<typeof vi.fn>> = [];
+  const paletteDisposals: Array<ReturnType<typeof vi.fn>> = [];
   const templateDispose = vi.fn();
   const resourceFacade: GpuStreamingResourceFacade = {
     createSharedTemplate: () => ({ dispose: templateDispose }),
@@ -78,8 +84,14 @@ function facade() {
       indexDisposals.push(dispose);
       return { width: upload.width, height: upload.height, dispose };
     },
+    createPalette: (upload) => {
+      paletteUploads.push(upload);
+      const dispose = vi.fn();
+      paletteDisposals.push(dispose);
+      return { width: upload.width, dispose };
+    },
   };
-  return { resourceFacade, staticUploads, indexUploads, staticDisposals, indexDisposals, templateDispose };
+  return { resourceFacade, staticUploads, indexUploads, paletteUploads, staticDisposals, indexDisposals, paletteDisposals, templateDispose };
 }
 
 describe('GPU streaming WebGL2 renderer backend', () => {
@@ -94,14 +106,21 @@ describe('GPU streaming WebGL2 renderer backend', () => {
   it('packs planner pages using exact atlas dimensions/schema and round-trips static values', () => {
     const p = plan();
     const upload = packGpuStreamingStaticAtlas(p, p.pages[0]!);
-    expect([upload.width, upload.height]).toEqual([p.pages[0]!.atlasWidth, p.pages[0]!.atlasHeight]);
+    expect([upload.geometryWidth, upload.geometryHeight]).toEqual([p.pages[0]!.geometryAtlasWidth, p.pages[0]!.geometryAtlasHeight]);
+    expect([upload.identityWidth, upload.identityHeight]).toEqual([p.pages[0]!.identityAtlasWidth, p.pages[0]!.identityAtlasHeight]);
+    expect(upload.geometry.length / 4).toBe(p.pages[0]!.geometryAtlasTexelCount);
+    expect(upload.identity.length / 4).toBe(p.pages[0]!.identityAtlasTexelCount);
+    expect(upload.geometryTexelCount).toBe(6); // 3 float texels × 2 segments
+    expect(upload.identityTexelCount).toBe(2); // 1 integer texel × 2 segments
+    expect(upload.geometryTexelCount + upload.identityTexelCount).toBe(4 * p.pages[0]!.segmentCount);
+    expect(upload.uploadedBytes).toBe(upload.geometry.byteLength + upload.identity.byteLength);
     expect(upload.texelCount).toBe(p.pages[0]!.atlasTexelCount);
     expect(Array.from(upload.geometry.slice(0, 8))).toEqual([0, 0, 0, 0, 1, 0, 0, 0]);
     expect(upload.geometry[8]).toBeCloseTo(0.4);
     expect(upload.geometry[9]).toBeCloseTo(0.2);
     expect(Array.from(upload.geometry.slice(10, 12))).toEqual([0, 0]);
     // Identity is RGBA32UI: layer, move order, feature and move type.
-    expect(Array.from(upload.identity.slice(12, 16))).toEqual([0, 0, 4, 1]);
+    expect(Array.from(upload.identity.slice(0, 4))).toEqual([0, 0, 1, 1]);
   });
 
   it('constructs the default Three resources without requiring a renderer compile', () => {
@@ -110,6 +129,11 @@ describe('GPU streaming WebGL2 renderer backend', () => {
     if (!result.ok) return;
     expect(result.backend.template.material?.glslVersion).toBe('300 es');
     expect(GPU_STREAMING_TEMPLATE_FACE_INDICES).toHaveLength(24);
+    const scene = new THREE.Group();
+    result.backend.attachToScene(scene);
+    expect(scene.children).toHaveLength(2);
+    result.backend.detachFromScene(scene);
+    expect(scene.children).toHaveLength(0);
     result.backend.dispose();
   });
 
@@ -120,6 +144,9 @@ describe('GPU streaming WebGL2 renderer backend', () => {
     if (!result.ok) return;
     const backend = result.backend;
     expect(f.staticUploads).toHaveLength(2);
+    expect(backend.staticUploadedBytes).toBe(f.staticUploads.reduce((sum, upload) => sum + upload.uploadedBytes, 0));
+    expect(backend.unknownFeatureIds).toEqual([6, 7]);
+    expect(f.paletteUploads).toHaveLength(1);
     const selection = {
       pages: plan().pages.map((page) => ({ firstSegment: page.firstSegment, indices: new Uint32Array([0]), emittedCount: 1 })),
       visitedSegments: 4,
@@ -128,14 +155,18 @@ describe('GPU streaming WebGL2 renderer backend', () => {
     expect(backend.updateSelection(selection)).toEqual({ uploadedPageCount: 2, drawInstanceCounts: [1, 1] });
     expect(f.staticUploads).toHaveLength(2);
     expect(f.indexUploads).toHaveLength(2);
+    expect(backend.updatePalette([{ id: 4, name: 'feature', color: [9, 8, 7] }])).toEqual({ uploaded: true, unknownFeatureIds: [5, 6, 7] });
+    expect(f.paletteUploads).toHaveLength(2);
     backend.updateCamera({ position: { x: 1, y: 2, z: 3 } as never });
     expect(f.staticUploads).toHaveLength(2);
     expect(f.indexUploads).toHaveLength(2);
+    expect(f.paletteUploads).toHaveLength(2);
     backend.dispose();
     backend.dispose();
     expect(f.templateDispose).toHaveBeenCalledTimes(1);
     expect(f.staticDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
     expect(f.indexDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
+    expect(f.paletteDisposals.every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
   });
 
   it('keeps old index streams until draw boundary and reports page draw counts', () => {
@@ -205,6 +236,7 @@ describe('GPU streaming WebGL2 renderer backend', () => {
     element.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
     expect(result.backend.status).toBe('context-lost');
     expect(f.templateDispose).toHaveBeenCalledTimes(1);
+    expect(f.paletteDisposals[0]).toHaveBeenCalledTimes(1);
     result.backend.dispose();
     expect(f.templateDispose).toHaveBeenCalledTimes(1);
   });
@@ -218,6 +250,8 @@ describe('GPU streaming shader source contract', () => {
     expect(GPU_STREAMING_VERTEX_SHADER).toContain('gl_InstanceID');
     expect(GPU_STREAMING_VERTEX_SHADER).toContain('uCameraPosition');
     expect(GPU_STREAMING_VERTEX_SHADER).not.toContain('samplerBuffer');
+    expect(GPU_STREAMING_FRAGMENT_SHADER).toContain('uPalette');
+    expect(GPU_STREAMING_FRAGMENT_SHADER).toContain('texelFetch');
     expect(GPU_STREAMING_FRAGMENT_SHADER).toContain('uEarlierLayerDim');
   });
 });
