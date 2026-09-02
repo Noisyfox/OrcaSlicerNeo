@@ -77,15 +77,20 @@ export interface PreviewSourceLineIndex {
   /** Source line numbers are 1-based, matching GCodeProcessor's gcode_id. */
   readonly moveByLine: ReadonlyMap<number, number>;
   readonly mappedLines: readonly number[];
+  /** Ordered ids are owned by the result; lookups use binary search without a duplicate map. */
+  readonly orderedGcodeIds?: Uint32Array;
 }
 
 /** Build the result-local source map once; line clicks never rescan segments. */
 export function createPreviewSourceLineIndex(
-  data: Pick<ToolpathGeometry, 'segmentCount' | 'gcodeIds' | 'metadata'>,
+  data: Pick<ToolpathGeometry, 'segmentCount' | 'gcodeIds' | 'metadata' | 'sourceLineOrderValid'>,
 ): PreviewSourceLineIndex {
   const moveByLine = new Map<number, number>();
   if (!data.metadata?.sourceLineMapping?.available || !data.gcodeIds) {
     return { moveByLine, mappedLines: [] };
+  }
+  if (data.sourceLineOrderValid === true) {
+    return { moveByLine, mappedLines: [], orderedGcodeIds: data.gcodeIds };
   }
   for (let move = 0; move < data.segmentCount; move++) {
     const line = data.gcodeIds[move];
@@ -99,7 +104,25 @@ export function createPreviewSourceLineIndex(
 
 /** Return the exact mapped move, or the nearest preceding mapped move. */
 export function findPreviewMoveForSourceLine(index: PreviewSourceLineIndex, lineNumber: number): number | null {
-  if (!Number.isSafeInteger(lineNumber) || lineNumber < 1 || index.mappedLines.length === 0) return null;
+  if (!Number.isSafeInteger(lineNumber) || lineNumber < 1) return null;
+  if (index.orderedGcodeIds) {
+    let low = 0;
+    let high = index.orderedGcodeIds.length - 1;
+    let firstAtOrAfter = index.orderedGcodeIds.length;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if (index.orderedGcodeIds[middle] >= lineNumber) {
+        firstAtOrAfter = middle;
+        high = middle - 1;
+      } else low = middle + 1;
+    }
+    if (firstAtOrAfter >= index.orderedGcodeIds.length || index.orderedGcodeIds[firstAtOrAfter] > lineNumber) {
+      const predecessor = firstAtOrAfter - 1;
+      return predecessor < 0 || index.orderedGcodeIds[predecessor] < 1 ? null : predecessor;
+    }
+    return firstAtOrAfter;
+  }
+  if (index.mappedLines.length === 0) return null;
   const exact = index.moveByLine.get(lineNumber);
   if (exact !== undefined) return exact;
   let low = 0;
@@ -121,7 +144,9 @@ export function sourceLineForPreviewMove(
   move: number,
 ): number | null {
   const line = data.gcodeIds?.[move];
-  return line !== undefined && index.moveByLine.get(line) === move ? line : null;
+  if (line === undefined || line < 1) return null;
+  if (index.orderedGcodeIds) return findPreviewMoveForSourceLine(index, line) === move ? line : null;
+  return index.moveByLine.get(line) === move ? line : null;
 }
 
 export function createPreviewInspectionIndex(

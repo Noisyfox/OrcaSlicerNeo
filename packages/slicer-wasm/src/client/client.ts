@@ -19,7 +19,7 @@ import type {
   PreviewAnalysis, PreviewMetricKey,
   PreviewTextChunk, PreviewTextChunkRequest,
 } from './types';
-import { PREVIEW_TEXT_CHUNK_MAX_BYTES } from './types';
+import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
 export function createClient(
@@ -438,6 +438,9 @@ export function createClient(
         } : {}),
         ...(analysis ? { analysis } : {}),
       };
+      const moveOrders = readU32(t.move_order_ptr, segmentCount);
+      const gcodeIds = readU32(t.gcode_id_ptr, segmentCount);
+      const sourceLineOrderValid = gcodeIds.every((line, index) => index === 0 || line >= gcodeIds[index - 1]);
       const toolpath: ClientToolpath = {
         vertexCount: segmentCount,
         positions: resolvedEnds,
@@ -448,8 +451,9 @@ export function createClient(
         starts: resolvedStarts,
         ends: resolvedEnds,
         layerIds,
-        moveOrders: readU32(t.move_order_ptr, segmentCount),
-        gcodeIds: readU32(t.gcode_id_ptr, segmentCount),
+        moveOrders,
+        gcodeIds,
+        sourceLineOrderValid,
         moveTypes: readU8(t.move_type_ptr, segmentCount),
         extrusionRoles: readU16(t.extrusion_role_ptr, segmentCount),
         extruderIds: readU8(t.extruder_id_ptr, segmentCount),
@@ -498,7 +502,7 @@ export function createClient(
       const byteLength = Number(r.bytes_length ?? r.length ?? 0);
       if (!Number.isSafeInteger(actualOffset) || actualOffset < 0 ||
           !Number.isSafeInteger(byteLength) || byteLength < 0 ||
-          byteLength > PREVIEW_TEXT_CHUNK_MAX_BYTES + 3 || !r.bytes_ptr)
+          byteLength > PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES || !r.bytes_ptr)
         throw new Error('preview text bridge returned an invalid chunk');
       const bytes = readBytes(m, Number(r.bytes_ptr), byteLength);
       // The bridge aligns the range to UTF-8 boundaries. Decode as one

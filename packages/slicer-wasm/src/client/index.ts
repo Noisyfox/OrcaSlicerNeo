@@ -20,7 +20,7 @@ export type {
   PreviewSourceKind, PreviewTextChunkRequest, PreviewTextChunk, PreviewSource,
   ExportGcodeResult, CancelResult,
 } from './types';
-export { PREVIEW_TEXT_CHUNK_MAX_BYTES } from './types';
+export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 export { createMockModule } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';
 export const CLIENT_VERSION = '0.1.0-m2';

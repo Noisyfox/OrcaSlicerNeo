@@ -5,6 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { createMockModule } from './testing/mock-module';
 import { createClient } from './client';
+import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 import type { ModelTransform, VolumeType } from './types';
 
 function makeClient() {
@@ -885,6 +886,28 @@ describe('SlicerClient bridge contract', () => {
     expect(tail.text).toBe('\n');
     await expect(c.readTextChunk({ resultId: 16, offset: 0, length: 1 })).rejects.toThrow('unavailable');
     await expect(c.readTextChunk({ resultId: 17, offset: 0, length: 64 * 1024 + 1 })).rejects.toThrow('at most');
+  });
+
+  it('bounds both UTF-8 alignment edges for a maximum-size request', async () => {
+    const sourceText = `😀${'a'.repeat(65534)}😀tail`;
+    const c = createClient(async () => createMockModule({
+      sliceFixture: {
+        layers: 1, toolpathVertices: 2,
+        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        resultId: 18, sourceText,
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const result = await c.getSliceResult();
+    const chunk = await c.readTextChunk({
+      resultId: result.metadata.resultId,
+      offset: 3,
+      length: PREVIEW_TEXT_CHUNK_MAX_BYTES,
+    });
+    expect(chunk.offset).toBe(0);
+    expect(new TextEncoder().encode(chunk.text).byteLength).toBe(PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES);
+    expect(chunk.eof).toBe(false);
   });
 
   it('cancel is safe', async () => {

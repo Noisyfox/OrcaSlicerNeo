@@ -123,6 +123,14 @@ describe('preview inspection semantics', () => {
     expect(findPreviewMoveForSourceLine(indexed, 3)).toBeNull();
   });
 
+  it('uses the result-owned ordered ids without creating a duplicate line map', () => {
+    const indexed = createPreviewSourceLineIndex({ ...data, sourceLineOrderValid: true });
+    expect(indexed.orderedGcodeIds).toBe(data.gcodeIds);
+    expect(indexed.mappedLines).toEqual([]);
+    expect(indexed.moveByLine.size).toBe(0);
+    expect(findPreviewMoveForSourceLine(indexed, 12)).toBe(3);
+  });
+
   it('does not fabricate source navigation when mapping is unavailable', () => {
     const indexed = createPreviewSourceLineIndex({ ...data, metadata: { ...data.metadata, sourceLineMapping: { available: false, lineCount: 0 } } });
     expect(indexed.mappedLines).toEqual([]);

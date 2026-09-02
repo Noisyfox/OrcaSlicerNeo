@@ -6,7 +6,6 @@ import type { PreviewTextChunk, PreviewTextChunkRequest } from '@slicer/client';
 import type { ToolpathGeometry } from './useSliceResult';
 import {
   createPreviewInspectionIndex,
-  createPreviewSourceLineIndex,
   findPreviewMove,
   findPreviewMoveForSourceLine,
   maxMoveOrderForLayer,
@@ -44,6 +43,7 @@ function appendChunk(document: TextDocument, chunk: PreviewTextChunk): TextDocum
 function sourceTextAvailable(data: ToolpathGeometry): boolean {
   return data.metadata?.sourceLineMapping?.available === true &&
     data.metadata?.sourceText?.available === true &&
+    data.sourceLineIndex !== undefined &&
     (data.metadata.sourceLineMapping.lineCount ?? 0) > 0;
 }
 
@@ -64,9 +64,11 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const lineCount = data.metadata?.sourceLineMapping?.lineCount ?? 0;
   const lines = useMemo(() => completeLines(document, lineCount), [document, lineCount]);
   const inspectionIndex = useMemo(() => createPreviewInspectionIndex(data), [data]);
-  const sourceIndex = useMemo(() => createPreviewSourceLineIndex(data), [data]);
+  // The result construction path builds this once. Opening/closing the
+  // window and repeated line clicks only reuse the compact result-local index.
+  const sourceIndex = data.sourceLineIndex;
   const activeMove = findPreviewMove(data, inspectionIndex, preview.visibleLayerEnd, preview.activeMoveEnd);
-  const activeLine = activeMove === null ? null : sourceLineForPreviewMove(data, sourceIndex, activeMove);
+  const activeLine = activeMove === null || !sourceIndex ? null : sourceLineForPreviewMove(data, sourceIndex, activeMove);
 
   useEffect(() => {
     setDocument({ text: '', byteEnd: 0, eof: false });
@@ -117,13 +119,13 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     return () => { cancelled = true; };
   }, [activeLine, data, error, lineCount, loadNextChunk]);
 
-  if (!sourceTextAvailable(data)) return null;
   const totalRows = Math.max(1, lineCount);
   const firstRow = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN_ROWS);
   const visibleRows = Math.ceil(VIEWPORT_HEIGHT / ROW_HEIGHT) + OVERSCAN_ROWS * 2;
   const lastRow = Math.min(totalRows, firstRow + visibleRows);
 
   const selectLine = (lineNumber: number) => {
+    if (!sourceIndex) return;
     const move = findPreviewMoveForSourceLine(sourceIndex, lineNumber);
     // No mapped predecessor means the inspection position deliberately stays
     // unchanged; this also prevents comments/header lines from jumping to 0.
@@ -133,6 +135,8 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     setPreviewLayerEnd(layer, maxMoveOrderForLayer(data, layer));
     setPreviewMoveEnd(order);
   };
+
+  if (!sourceTextAvailable(data) || !sourceIndex) return null;
 
   return (
     <section data-testid="gcode-text-window" aria-label="G-code text" className="pointer-events-auto absolute left-3 top-3 z-40 flex w-[min(58%,48rem)] flex-col overflow-hidden rounded-md border bg-card/95 text-card-foreground shadow-xl backdrop-blur">

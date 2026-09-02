@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis } from '@slicer/client';
+import { createPreviewSourceLineIndex, type PreviewSourceLineIndex } from './previewSemantics';
 
 export interface ToolpathGeometry {
   /** Immutable source arrays consumed by the native SegmentTemplate renderer. */
@@ -15,6 +16,10 @@ export interface ToolpathGeometry {
   ends: Float32Array;
   /** Optional source identifiers used by the read-only Phase-C inspector. */
   gcodeIds?: Uint32Array;
+  /** Prevalidated processor ordering; lets the text window use binary lookup. */
+  sourceLineOrderValid?: boolean;
+  /** Result-local source index built once while the slice result is created. */
+  sourceLineIndex?: PreviewSourceLineIndex;
   extruderIds: Uint8Array;
   metrics: PreviewToolpathMetrics;
   extruderPalette?: readonly PreviewPaletteEntry[];
@@ -93,6 +98,13 @@ export function useSliceResult() {
       moveTypes: source.moveTypes,
       ends: source.ends,
       gcodeIds: source.gcodeIds,
+      sourceLineOrderValid: source.sourceLineOrderValid,
+      sourceLineIndex: createPreviewSourceLineIndex({
+        segmentCount: source.segmentCount,
+        gcodeIds: source.gcodeIds,
+        sourceLineOrderValid: source.sourceLineOrderValid,
+        metadata: result.metadata,
+      }),
       extruderIds: source.extruderIds,
       metrics: source.metrics,
       ...(result.metadata.extruderPalette ? { extruderPalette: result.metadata.extruderPalette } : {}),

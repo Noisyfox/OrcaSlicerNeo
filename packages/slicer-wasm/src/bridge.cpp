@@ -1991,6 +1991,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_id_number,
                                                       double length_number) {
     try {
         constexpr std::size_t max_chunk_bytes = 64 * 1024;
+        constexpr std::size_t max_alignment_overrun_bytes = 3;
+        constexpr std::size_t max_response_bytes = max_chunk_bytes + max_alignment_overrun_bytes * 2;
         auto& bridge_state = state();
         const auto valid_integer = [](double value) {
             return std::isfinite(value) && value >= 0.0 &&
@@ -2033,18 +2035,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_id_number,
         if (requested_length > 0 && actual_offset > 0) {
             unsigned char byte = 0;
             std::size_t continuation_bytes = 0;
-            while (actual_offset > 0 && continuation_bytes < 3 && read_byte(actual_offset, byte) &&
+            while (actual_offset > 0 && continuation_bytes < max_alignment_overrun_bytes && read_byte(actual_offset, byte) &&
                    (byte & 0xc0u) == 0x80u)
                 --actual_offset, ++continuation_bytes;
         }
         if (requested_length > 0 && actual_end < bridge_state.preview_gcode_size) {
             unsigned char byte = 0;
             while (actual_end < bridge_state.preview_gcode_size &&
-                   actual_end < requested_offset + requested_length + 3 &&
+                   actual_end < requested_offset + requested_length + max_alignment_overrun_bytes &&
                    read_byte(actual_end, byte) && (byte & 0xc0u) == 0x80u)
                 ++actual_end;
         }
         const auto byte_count = actual_end - actual_offset;
+        if (byte_count > max_response_bytes)
+            return dup_json(json{{"ok", false}, {"error", "aligned chunk exceeds bounded response"}}.dump());
         auto* bytes = static_cast<std::uint8_t*>(std::malloc(byte_count == 0 ? 1 : byte_count));
         if (byte_count > 0) {
             source.clear();

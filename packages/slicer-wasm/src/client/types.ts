@@ -365,6 +365,10 @@ export interface PreviewTextChunk {
 
 /** Maximum source bytes returned by one lazy preview text request. */
 export const PREVIEW_TEXT_CHUNK_MAX_BYTES = 64 * 1024;
+/** At most three UTF-8 continuation bytes may be included at either edge. */
+export const PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES = 3;
+/** Explicit upper bound after both UTF-8 edge alignments. */
+export const PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES = PREVIEW_TEXT_CHUNK_MAX_BYTES + PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES * 2;
 
 /** Source-neutral read-only preview input; external G-code is future work. */
 export interface PreviewSource {
@@ -415,6 +419,8 @@ export interface ClientToolpath {
   layerIds: Uint32Array;
   moveOrders: Uint32Array;
   gcodeIds: Uint32Array;
+  /** True when processor source ids are non-decreasing in move order. */
+  sourceLineOrderValid?: boolean;
   moveTypes: Uint8Array;
   extrusionRoles: Uint16Array;
   extruderIds: Uint8Array;

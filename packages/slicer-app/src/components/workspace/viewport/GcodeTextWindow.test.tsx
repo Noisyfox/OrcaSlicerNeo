@@ -7,12 +7,16 @@ import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { GcodeTextWindow } from './GcodeTextWindow';
 import type { ToolpathGeometry } from './useSliceResult';
 
+const gcodeIds = Uint32Array.from([4, 7, 11]);
+
 const data: ToolpathGeometry = {
   segmentCount: 3,
   palette: [],
   layerIds: Uint32Array.from([0, 0, 1]),
   moveOrders: Uint32Array.from([0, 1, 0]),
-  gcodeIds: Uint32Array.from([4, 7, 11]),
+  gcodeIds,
+  sourceLineOrderValid: true,
+  sourceLineIndex: { moveByLine: new Map(), mappedLines: [], orderedGcodeIds: gcodeIds },
   features: new Uint32Array(3),
   moveTypes: new Uint8Array(3),
   extruderIds: new Uint8Array(3),

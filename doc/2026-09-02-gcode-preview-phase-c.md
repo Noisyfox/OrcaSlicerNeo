@@ -58,9 +58,10 @@ metadata without copying its full G-code into the initial preview payload.
 G-code only when requested. The bridge validates a matching completed result
 ID, non-negative integer offsets, and a maximum request length of 64 KiB;
 requests past EOF are clamped to EOF. Returned bytes are aligned to UTF-8
-code-point boundaries and are decoded by the typed client before crossing the
-Worker boundary. Invalid or stale requests fail without exposing a partial
-result.
+code-point boundaries; at most three continuation bytes may be added at each
+edge, so a 64 KiB request has an explicit 64 KiB + 6 byte response bound. The
+typed client validates that bound before decoding and crossing the Worker
+boundary. Invalid or stale requests fail without exposing a partial result.
 
 The text window is a separately toggled, larger overlay (`C` while the preview
 viewport owns focus, or its close button). It renders only a bounded visible
@@ -68,8 +69,10 @@ row window of plain text and highlights the active mapped source line. Slider
 movement updates that highlight. Selecting an exact mapped line moves the
 preview to its layer and move; an unmappable line uses the nearest preceding
 mapped move, while a line before the first mapping leaves the inspection state
-unchanged. A result-local sorted source-line index makes repeated navigation
-independent of full path scans. Missing mapping or text metadata leaves the
+unchanged. A result-local source index is built once during slice-result
+construction; ordered processor IDs are binary-searched without a duplicate
+React-side map, so repeated opening and navigation are independent of full
+path scans. Missing mapping or text metadata leaves the
 window unavailable rather than fabricating source content. The view remains
 read-only: no editing, pauses, filament changes, or external import actions.
 
