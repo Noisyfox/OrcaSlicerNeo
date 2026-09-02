@@ -1,15 +1,11 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { App, installGpuStreamingBrowserHarness } from '@orca/slicer-app';
+import { App } from '@orca/slicer-app';
 import { PlatformProvider } from '@orca/platform-contract';
 import { createBrowserAdapter } from './browserAdapter';
 import { detectWebCapabilities } from './capabilities';
 import { startWebApp } from './startup';
 import './styles.css';
-
-// Diagnostic-only real-browser renderer harness. The helper is a no-op in
-// normal Web builds and therefore cannot become a product setting.
-installGpuStreamingBrowserHarness();
 
 function message(text: string, detail: string) {
   document.getElementById('root')!.innerHTML = `<main class="web-startup"><h1>OrcaSlicerNeo</h1><h2>${text}</h2><p>${detail}</p><a href="https://github.com/Noisyfox/OrcaSlicerNeo" target="_blank" rel="noreferrer">AGPL-3.0 source</a></main>`;

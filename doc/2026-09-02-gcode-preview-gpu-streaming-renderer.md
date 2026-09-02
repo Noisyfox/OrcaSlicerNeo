@@ -92,8 +92,8 @@ duplicate shape data.
 
 The fixture contract is intentionally CPU-only. It validates deterministic
 layer/page partitioning and enabled-index semantics without claiming a frame
-rate. Real FPS, upload time, GPU memory, and driver compatibility require a
-later browser benchmark on representative hardware.
+rate. Real FPS, upload time, GPU memory, and driver compatibility are manual
+diagnostics outside the application bundle.
 
 ## libvgcode reference points
 
@@ -184,16 +184,15 @@ generator is deterministic and uses a fixed formula; no wall clock is involved.
    geometry. The test may assert exact visited counts and output ordering, but
    must not assert FPS or machine-dependent timing.
 
-Browser performance acceptance is a later gate: a real WebGL2 browser harness
-must measure FPS during camera gestures, GPU allocations, index rebuilds, and
-active-range preservation on the stated representative integrated-GPU target.
+Browser performance measurements are manual diagnostics rather than part of
+the application bundle or normal e2e flow. The deterministic fixture and
+renderer unit tests cover allocation shape and selection semantics.
 
 ## Accepted step-3 backend implementation
 
 `gpuStreamingRenderer.ts` is an independent WebGL2/Three.js backend. It consumes an existing
 `GpuStreamingPagePlan`, uploads immutable endpoint position,
-height/width/angle/bias, and colour/layer data to RGBA32F textures. Known upload
-byte lengths are reported, while driver-reported allocation remains `null`.
+height/width/angle/bias, and colour/layer data to RGBA32F textures.
 The shared template is the native eight-logical-vertex/24-invocation
 vertex-ID pattern. Its GLSL ES 3.00 vertex shader uses `gl_InstanceID`,
 `usampler2D`, integer `texelFetch`, camera-facing side/up fallbacks,
@@ -201,10 +200,8 @@ zero-length direction fallback, `POINTY_CAPS`, `FIX_TWISTING`, cap angle, and
 bias.
 
 Each selection update receives the planner's page-local inclusive index
-streams and updates only the page R32UI index texture and draw count. Camera
-and dimming methods only update material uniforms. Static upload and dynamic
-upload counts, draw instance counts, and page-local upload payloads are
-observable for tests and diagnostics.
+streams and updates only the page R32UI index texture and draw count. Dimming
+updates material uniforms; camera movement is handled by Three.js uniforms.
 
 The source feature palette is resolved into the static RGBA32F colour texture;
 `updatePalette()` updates that texture without rebuilding the template or
@@ -215,9 +212,8 @@ Construction returns a diagnostic unavailable result on missing capabilities,
 unsupported schema, allocation failure, or compile failure. The injected
 resource facade is used by tests; the default facade creates nearest/no-mipmap
 Three `DataTexture`s, one shared 24-invocation `BufferGeometry`, and page-local
-`InstancedMesh` draws with `ShaderMaterial`. Read-only `sceneObjects` plus `attachToScene()` and
-`detachFromScene()` let a later integration step add page meshes without
-transferring scene ownership. All owned resources are wrapped in idempotent disposal,
+`InstancedMesh` draws with `ShaderMaterial`. `attachToScene()` and
+`detachFromScene()` let the owning component manage page meshes. All owned resources are wrapped in idempotent disposal,
 including partial construction, context loss, explicit disposal, and retired
 index streams. The caller's renderer, scene, and camera are never disposed.
 
@@ -226,28 +222,22 @@ evidence. Browser measurements remain a separate acceptance gate.
 
 ## Accepted native preview integration
 
-`gpuStreamingIntegration.ts` exposes only host-neutral options and diagnostics
-for the native renderer. `ToolpathLines` always builds the immutable page plan,
+`ToolpathLines` directly builds the immutable page plan,
 creates `GpuStreamingRenderer` against the current Three renderer, uploads the
 initial selection, and attaches its page meshes directly to the shared scene.
 There is no feature gate, e2e enable switch, B2 construction, or alternate
 entity-matrix path.
 
 Layer range, active move end, travel visibility, and feature hide changes call
-only `updateSelection`; active-layer dimming calls `updateDimming`; camera
-frames call `updateCamera`; and a distinct palette calls `updatePalette`. None
+only `updateSelection`; active-layer dimming calls `updateDimming`; and a
+distinct palette calls `updatePalette`. None
 of those paths rebuilds the static plan/atlas.
 
 Planner, capability, budget, shader/atlas construction, context-loss, and
 selection/palette update failures report a non-blocking diagnostic and leave the
 toolpath preview unavailable. Cleanup detaches native meshes and disposes all
 backend resources on source replacement/invalidation, context loss, and
-unmount. The
-backend seam exposes `commitDrawBoundary()`, and each owned page mesh calls the
-backend's page-complete hook from `onAfterRender`; retired index/palette
-textures are released only after every page has completed that frame. This
-keeps replacement streams alive while a draw may still reference them and
-avoids an integration-side retirement leak.
+unmount. The renderer has no frame-retirement compatibility seam.
 The
 e2e-only status hook reports `ready`, `context-lost`, `disposed`, or
 `unavailable`; an unavailable state always has a diagnostic reason. This is
@@ -269,26 +259,20 @@ preview controls remain outside the renderer diagnostics.
    SegmentTemplate renderer the sole/default implementation. (Complete.)
 
 The native renderer is now the production path. Functional, memory/lifetime,
-capability, and dual-host gates passed. Browser benchmark results remain
-diagnostic evidence only; a missing WebGL2 capability or failed allocation is
+capability, and dual-host gates passed. A missing WebGL2 capability or failed allocation is
 reported as an unavailable preview rather than selecting a second renderer.
 
 ## Accepted step-5 browser and dual-host verification (2026-09-02)
 
-The shared integration always selects the native renderer. There is no feature
+The preview always selects the native renderer. There is no feature
 gate, opt-in switch, B2 override, or entity-matrix fallback. When a streaming
 plan, WebGL2 capability probe, budget check, shader/atlas construction, or
 selection update fails, the integration reports a non-blocking diagnostic and
 leaves the toolpath preview unavailable. No persistent UI setting was added.
 
-The opt-in `ORCA_E2E_GPU_STREAMING_PERF=1` browser harness is exposed only by
-e2e builds. It creates the deterministic metadata fixture, adds bulk typed SoA
-geometry, plans pages, constructs `GpuStreamingRenderer` against a real
-Three.js WebGL2 context, renders to force texture/index uploads, measures
-selection replacement and 30 requestAnimationFrame camera updates, then
-detaches and disposes all resources. It does not create a segment object or
-assert a wall-clock threshold. The regular Web and Electron default e2e flows
-assert `ready`, or `unavailable` with a non-empty diagnostic reason.
+The regular Web and Electron e2e flows assert `ready`, or `unavailable` with a
+non-empty diagnostic reason. Large synthetic GPU timing measurements are kept
+outside normal application startup and are not release-gating tests.
 
 Evidence from this Windows runner (2026-09-02; values vary by run):
 
@@ -299,23 +283,20 @@ Evidence from this Windows runner (2026-09-02; values vary by run):
 | Electron 43.4, ANGLE NVIDIA GeForce RTX 3080 D3D11 | 250k | 4 | 16,027,360 / 36.48 | 14.41 / 786,432 | 30 / 262.34 | native | geometries 4→0 |
 | Electron 43.4, ANGLE NVIDIA GeForce RTX 3080 D3D11 | 1m | 16 | 64,108,032 / 79.41 | 14.40 / 3,145,728 | 30 / 262.42 | native | geometries 16→0 |
 
-All four runs visited exactly the requested segment count during selection and
-reported `cameraIndexUploadCountDelta = 0`. Web used `MAX_TEXTURE_SIZE=8192`
+The historical runs visited exactly the requested segment count during selection.
+Web used `MAX_TEXTURE_SIZE=8192`
 and 32/32 texture units; Electron used 16384 and 16/16. The Web runner is
 explicitly configured with `--use-angle=swiftshader-webgl`, so its FPS is
 software-driver evidence rather than proof of the Preview v2 2020 integrated
 GPU baseline. Electron evidence is a discrete RTX 3080, not that baseline;
 therefore no claim of representative integrated-GPU 60/30 FPS equivalence or
 native Orca bit-for-bit screenshots is made. Driver-reported texture
-allocation remains unavailable (`null` in the backend contract); the harness
-records observable geometry lifetime and all owned resources are disposed.
+allocation remained unavailable in that diagnostic run; all owned resources
+were disposed.
 
-The browser harness and default flow passed on both hosts, with the latest Web
-SwiftShader rerun completing 250k but timing out during the subsequent 1m
-case after 120 seconds; an earlier independent Web run supplied the 1m row
-shown above. That timeout reinforces that this runner cannot establish the
-representative integrated-GPU gate. It does not affect renderer selection:
-unsupported or failed native initialization leaves the preview unavailable.
+Those historical measurements are retained as context only and are not
+implemented as a runtime browser harness. Unsupported or failed native
+initialization leaves the preview unavailable.
 
 ## Native SegmentTemplate GPU path (2026-09-02)
 
@@ -353,12 +334,10 @@ shape, and colour texels. This preserves local index capacity while ensuring
 every page renders its own source range; the regression test covers a selection
 split across two pages.
 
-The browser harness reports static texture and selected-index uploads. Legacy
-entity report fields remain aliases for dashboard compatibility only. Unit
-coverage asserts native template cardinality, texture dimensions/formats/
+Unit coverage asserts native template cardinality, texture dimensions/formats/
 nearest filtering, pointy-cap shader invariants, opaque NoBlending materials,
-multi-page selection, index-only slider updates, camera no-upload behaviour,
-and idempotent disposal. Native WASM C++ remains untouched.
+multi-page selection, index-only slider updates, and idempotent disposal.
+Native WASM C++ remains untouched.
 
 ## Accepted native-style tool marker (2026-09-02)
 

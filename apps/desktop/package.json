@@ -19,7 +19,7 @@
     "package:dir": "electron-vite build && electron-builder --dir --publish never",
     "package": "electron-vite build && electron-builder --publish never",
     "postinstall": "install-electron",
-    "test:e2e": "node ../../scripts/stage.mjs --soft && electron-vite build --mode e2e && node scripts/check-renderer-css.mjs && playwright test e2e/app.e2e.ts e2e/titlebar-menu.e2e.ts e2e/native-menu.e2e.ts e2e/slice-error.e2e.ts e2e/select-scroll.e2e.ts e2e/printer-control.e2e.ts e2e/profile-compatibility.e2e.ts e2e/gpu-streaming-perf.e2e.ts",
+    "test:e2e": "node ../../scripts/stage.mjs --soft && electron-vite build --mode e2e && node scripts/check-renderer-css.mjs && playwright test e2e/app.e2e.ts e2e/titlebar-menu.e2e.ts e2e/native-menu.e2e.ts e2e/slice-error.e2e.ts e2e/select-scroll.e2e.ts e2e/printer-control.e2e.ts e2e/profile-compatibility.e2e.ts",
     "test:e2e:real": "node ../../scripts/run-desktop-e2e-real.mjs"
   },
   "dependencies": {

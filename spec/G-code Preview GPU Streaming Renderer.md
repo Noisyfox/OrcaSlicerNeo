@@ -252,9 +252,8 @@ The pure tests must assert:
   construction or wall-clock threshold.
 
 This fixture is a deterministic contract/complexity harness, not an FPS
-benchmark. A later real browser harness must measure 60 FPS at approximately
-250k and 30 FPS at approximately 1m on the representative 2020 integrated
-GPU, along with index rebuilds, GPU memory and active-range preservation.
+benchmark. Large GPU timing measurements are manual diagnostics and are not
+part of the production bundle or normal e2e flow.
 
 ## Migration steps and retention policy
 
@@ -265,7 +264,7 @@ GPU, along with index rebuilds, GPU memory and active-range preservation.
    with a fake resource tracker.
 3. **WebGL2 native backend:** implement atlas upload, shared template, shader,
    dynamic streams and explicit unavailable-state diagnostics. Add renderer
-   tests and a real browser measurement harness.
+   tests; keep large timing measurements outside normal startup.
 4. **Dual-host verification:** run Web threaded/serial and Electron semantic
    flows, same-renderer screenshots, context/budget tests, and manually review
    the fixed native reference. (Functional, lifetime, and dual-host

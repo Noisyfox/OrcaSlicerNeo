@@ -14,25 +14,23 @@ import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersi
 import { SelectionBoundsBox } from './SelectionBoundsBox';
 import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
 
-export function Scene({ activeTab, controller, glVolumes, toolpath, cameraGestureActive }: {
+export function Scene({ activeTab, controller, glVolumes, toolpath }: {
   activeTab: 'prepare' | 'preview';
   controller: SceneInteractionController;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
-  cameraGestureActive?: boolean;
 }) {
   return (
     <SceneInteractionProvider controller={controller}>
-      <SceneContents activeTab={activeTab} glVolumes={glVolumes} toolpath={toolpath} cameraGestureActive={cameraGestureActive} />
+      <SceneContents activeTab={activeTab} glVolumes={glVolumes} toolpath={toolpath} />
     </SceneInteractionProvider>
   );
 }
 
-function SceneContents({ activeTab, glVolumes, toolpath, cameraGestureActive }: {
+function SceneContents({ activeTab, glVolumes, toolpath }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
-  cameraGestureActive?: boolean;
 }) {
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
@@ -157,7 +155,7 @@ function SceneContents({ activeTab, glVolumes, toolpath, cameraGestureActive }: 
       <directionalLight position={[100, 150, 200]} intensity={1.2} />
       <BedPlate />
       {isPreviewTab(activeTab) ? (
-        <PreviewScene glVolumes={glVolumes} toolpath={toolpath} cameraGestureActive={cameraGestureActive} />
+        <PreviewScene glVolumes={glVolumes} toolpath={toolpath} />
       ) : (
         <PrepareScene glVolumes={glVolumes} toolpath={toolpath} />
       )}
@@ -178,20 +176,18 @@ function PrepareScene({ glVolumes, toolpath }: {
   return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive />;
 }
 
-function PreviewScene({ glVolumes, toolpath, cameraGestureActive }: {
+function PreviewScene({ glVolumes, toolpath }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
-  cameraGestureActive?: boolean;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview cameraGestureActive={cameraGestureActive} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview />;
 }
 
-function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, cameraGestureActive = false }: {
+function SceneContentTree({ glVolumes, toolpath, interactive, preview = false }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   interactive: boolean;
   preview?: boolean;
-  cameraGestureActive?: boolean;
 }) {
   return (
     <>
@@ -200,7 +196,7 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, c
       ))}
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}
-      {toolpath && <ToolpathLines data={toolpath} cameraGestureActive={cameraGestureActive} />}
+      {toolpath && <ToolpathLines data={toolpath} />}
       {toolpath && <ToolpathMarker data={toolpath} />}
     </>
   );

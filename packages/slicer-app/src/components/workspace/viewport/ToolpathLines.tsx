@@ -1,17 +1,28 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useThree } from '@react-three/fiber';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import {
-  buildGpuStreamingPlan,
-  createGpuStreamingBackend,
-  DEFAULT_GPU_STREAMING_OPTIONS,
-  reportGpuStreamingDiagnostic,
-  type GpuStreamingBackend,
-  type GpuStreamingDiagnostic,
-} from './gpuStreamingIntegration';
-import { rebuildGpuStreamingSelection } from './gpuStreamingPlanner';
+  createGpuStreamingPagePlan,
+  rebuildGpuStreamingSelection,
+  type GpuStreamingPagePlan,
+} from './gpuStreamingPlanner';
+import {
+  createGpuStreamingRenderer,
+  type GpuStreamingRenderer,
+  type GpuStreamingRendererHost,
+  type GpuStreamingUnavailableDiagnostics,
+} from './gpuStreamingRenderer';
+
+interface GpuStreamingDiagnostic {
+  readonly reason: string;
+  readonly message: string;
+}
+
+function reportGpuStreamingDiagnostic(diagnostic: GpuStreamingDiagnostic): void {
+  console.warn(`[gpu-streaming] ${diagnostic.reason}: ${diagnostic.message}`);
+}
 
 /**
  * Native Orca/libvgcode-style SegmentTemplate renderer.
@@ -22,15 +33,14 @@ import { rebuildGpuStreamingSelection } from './gpuStreamingPlanner';
  * different geometry and hid renderer failures behind a visually incomplete
  * result.
  */
-export function ToolpathLines({ data, cameraGestureActive = false }: { data: ToolpathGeometry; cameraGestureActive?: boolean }) {
+export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
   const preview = useSlicerStore((s) => s.preview);
   const invalidate = useThree((s) => s.invalidate);
   const gl = useThree((s) => s.gl);
   const scene = useThree((s) => s.scene);
-  const camera = useThree((s) => s.camera);
   const [active, setActive] = useState<{
-    plan: ReturnType<typeof buildGpuStreamingPlan>;
-    backend: GpuStreamingBackend;
+    plan: GpuStreamingPagePlan;
+    backend: GpuStreamingRenderer;
   } | null>(null);
   const activeRef = useRef<typeof active>(null);
   const diagnosticRef = useRef<GpuStreamingDiagnostic | null>(null);
@@ -46,7 +56,7 @@ export function ToolpathLines({ data, cameraGestureActive = false }: { data: Too
     }
     try {
       return {
-        plan: buildGpuStreamingPlan(source, data.metadata, DEFAULT_GPU_STREAMING_OPTIONS),
+        plan: createGpuStreamingPagePlan(source, data.metadata),
         error: null as Error | null,
       };
     } catch (error) {
@@ -73,7 +83,7 @@ export function ToolpathLines({ data, cameraGestureActive = false }: { data: Too
         message: 'The slice result did not expose ClientToolpath data',
       };
       diagnosticRef.current = diagnostic;
-      reportGpuStreamingDiagnostic(DEFAULT_GPU_STREAMING_OPTIONS, diagnostic);
+      reportGpuStreamingDiagnostic(diagnostic);
       setActive(null);
       return;
     }
@@ -83,15 +93,15 @@ export function ToolpathLines({ data, cameraGestureActive = false }: { data: Too
         message: planState.error.message,
       };
       diagnosticRef.current = diagnostic;
-      reportGpuStreamingDiagnostic(DEFAULT_GPU_STREAMING_OPTIONS, diagnostic);
+      reportGpuStreamingDiagnostic(diagnostic);
       setActive(null);
       return;
     }
     if (!plan) return;
 
     let cancelled = false;
-    let backend: GpuStreamingBackend | null = null;
-    const host = {
+    let backend: GpuStreamingRenderer | null = null;
+    const host: GpuStreamingRendererHost = {
       getContext: () => gl.getContext() as WebGLRenderingContext,
       domElement: gl.domElement,
       compile: (nextScene: THREE.Scene, nextCamera: THREE.Camera) => gl.compile(nextScene, nextCamera),
@@ -101,7 +111,7 @@ export function ToolpathLines({ data, cameraGestureActive = false }: { data: Too
       const message = error instanceof Error ? error.message : error ? String(error) : reason;
       const diagnostic = { reason, message };
       diagnosticRef.current = diagnostic;
-      reportGpuStreamingDiagnostic(DEFAULT_GPU_STREAMING_OPTIONS, diagnostic);
+      reportGpuStreamingDiagnostic(diagnostic);
       if (backend) {
         try { backend.detachFromScene(scene); } catch { /* best effort */ }
         backend.dispose();
@@ -112,7 +122,7 @@ export function ToolpathLines({ data, cameraGestureActive = false }: { data: Too
     };
 
     try {
-      const result = createGpuStreamingBackend(plan, host, DEFAULT_GPU_STREAMING_OPTIONS);
+      const result = createGpuStreamingRenderer(plan, { renderer: host });
       if (!result.ok) {
         unavailable(result.diagnostics.reason, result.diagnostics.message);
         return;
@@ -161,7 +171,7 @@ export function ToolpathLines({ data, cameraGestureActive = false }: { data: Too
         message: error instanceof Error ? error.message : String(error),
       };
       diagnosticRef.current = diagnostic;
-      reportGpuStreamingDiagnostic(DEFAULT_GPU_STREAMING_OPTIONS, diagnostic);
+      reportGpuStreamingDiagnostic(diagnostic);
       try { current.backend.detachFromScene(scene); } catch { /* best effort */ }
       current.backend.dispose();
       activeRef.current = null;
@@ -176,7 +186,7 @@ export function ToolpathLines({ data, cameraGestureActive = false }: { data: Too
     try {
       current.backend.updateDimming(preview.visibleLayerEnd, preview.dimPreviousLayers ? 0.34 : 1);
     } catch (error) {
-      reportGpuStreamingDiagnostic(DEFAULT_GPU_STREAMING_OPTIONS, {
+      reportGpuStreamingDiagnostic({
         reason: 'dimming-update-failed',
         message: error instanceof Error ? error.message : String(error),
       });
@@ -189,18 +199,12 @@ export function ToolpathLines({ data, cameraGestureActive = false }: { data: Too
     try {
       current.backend.updatePalette(data.palette);
     } catch (error) {
-      reportGpuStreamingDiagnostic(DEFAULT_GPU_STREAMING_OPTIONS, {
+      reportGpuStreamingDiagnostic({
         reason: 'palette-update-failed',
         message: error instanceof Error ? error.message : String(error),
       });
     }
   }, [data.palette, plan]);
-
-  useFrame(() => {
-    const current = activeRef.current;
-    if (current?.plan === plan) current.backend.updateCamera({ position: camera.position });
-    void cameraGestureActive;
-  });
 
   // Diagnostic-only test seam; it never selects another renderer.
   useEffect(() => {

@@ -374,8 +374,8 @@ and drives structural operations through the typed client.
 > occlusion. Entity matrices/caps are no longer the active GPU implementation.
 > The native SegmentTemplate renderer is now the default and sole toolpath
 > backend. WebGL2/capability/context failures leave the preview unavailable and
-> expose a diagnostic; no B2/entity fallback remains. Browser hardware limits
-> are recorded in the living entry.
+> expose a diagnostic; no B2/entity fallback remains. Large GPU timing
+> measurements are manual diagnostics and are not part of normal startup/e2e.
 > Travel segments are coloured by their move type rather than any preserved
 > extrusion role, using libvgcode's `Travels` colour `RGB(56, 72, 155)`;
 > extrusion feature filters do not hide travel, and the global travel toggle

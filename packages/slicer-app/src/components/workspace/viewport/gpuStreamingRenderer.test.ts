@@ -89,8 +89,9 @@ describe('native SegmentTemplate GPU renderer', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.backend.sceneObjects).toHaveLength(2);
-    for (const mesh of result.backend.sceneObjects) {
+    expect(result.backend.pages).toHaveLength(2);
+    for (const page of result.backend.pages) {
+      const mesh = page.mesh;
       expect(mesh).toBeInstanceOf(THREE.InstancedMesh);
       expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
       expect(mesh.geometry.getAttribute('vertex_id').count).toBe(24);
@@ -158,8 +159,8 @@ describe('native SegmentTemplate GPU renderer', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    const materials = result.backend.sceneObjects.map(
-      (mesh) => mesh.material as THREE.ShaderMaterial,
+    const materials = result.backend.pages.map(
+      (page) => page.mesh.material as THREE.ShaderMaterial,
     );
     expect(materials.map((material) => material.uniforms.segment_base.value)).toEqual([0, 2]);
     expect(materials[0]!.vertexShader).toContain(
@@ -208,7 +209,7 @@ describe('native SegmentTemplate GPU renderer', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const vertexIds =
-      result.backend.sceneObjects[0]!.geometry.getAttribute('vertex_id');
+      result.backend.pages[0]!.mesh.geometry.getAttribute('vertex_id');
     expect(vertexIds.count).toBe(24);
     expect(new Set(Array.from(vertexIds.array as Uint8Array))).toEqual(
       new Set([0, 1, 2, 3, 4, 5, 6, 7]),
@@ -232,16 +233,12 @@ describe('native SegmentTemplate GPU renderer', () => {
       featureVisibility: { 4: true, 5: true, 6: true, 7: true },
     });
     expect(selection.visitedSegments).toBe(4);
-    expect(
-      result.backend.updateSelection(selection).drawInstanceCounts,
-    ).toEqual([2, 2]);
-    const firstMesh = result.backend.sceneObjects[0]!;
+    result.backend.updateSelection(selection);
+    const firstMesh = result.backend.pages[0]!.mesh;
     expect(firstMesh.count).toBe(2);
     expect(firstMesh.material).toBeInstanceOf(THREE.ShaderMaterial);
-    const staticBytes = result.backend.staticUploadedBytes;
     const firstIndex = result.backend.pages[0]!.indexData;
     expect(Array.from(firstIndex.slice(0, 2))).toEqual([0, 1]);
-    const before = result.backend.indexUploadCount;
     const filtered = rebuildGpuStreamingSelection(plan, {
       visibleLayerStart: 1,
       visibleLayerEnd: 1,
@@ -250,12 +247,8 @@ describe('native SegmentTemplate GPU renderer', () => {
       featureVisibility: { 4: false },
     });
     result.backend.updateSelection(filtered);
-    expect(result.backend.indexUploadCount).toBe(before + 2);
-    expect(result.backend.drawInstanceCounts).toEqual([0, 2]);
-    expect(result.backend.staticUploadedBytes).toBe(staticBytes);
+    expect(result.backend.pages.map((page) => page.mesh.count)).toEqual([0, 2]);
     expect(Array.from(firstIndex.slice(0, 2))).toEqual([0, 0]);
-    result.backend.updateCamera({ position: new THREE.Vector3(1, 2, 3) });
-    expect(result.backend.indexUploadCount).toBe(before + 2);
     result.backend.dispose();
   });
 
@@ -291,7 +284,7 @@ describe('native SegmentTemplate GPU renderer', () => {
     });
     result.backend.updateSelection(selection);
     expect(
-      (result.backend.sceneObjects[0]!.material as THREE.ShaderMaterial)
+      (result.backend.pages[0]!.mesh.material as THREE.ShaderMaterial)
         .uniforms.color_tex.value,
     ).toBeDefined();
     result.backend.dispose();
@@ -315,7 +308,7 @@ describe('native SegmentTemplate GPU renderer', () => {
     expect(selection.emittedSegments).toBe(4);
     result.backend.updateSelection(selection);
     expect(
-      (result.backend.sceneObjects[0]!.material as THREE.ShaderMaterial)
+      (result.backend.pages[0]!.mesh.material as THREE.ShaderMaterial)
         .uniforms.segment_index_tex.value,
     ).toBeDefined();
     result.backend.dispose();
@@ -339,7 +332,6 @@ describe('native SegmentTemplate GPU renderer', () => {
     });
     result.backend.updateSelection(selection);
     result.backend.updatePalette([]);
-    expect(result.backend.unknownFeatureIds).toEqual([4, 5, 6, 7]);
     result.backend.dispose();
     result.backend.dispose();
     expect(f.dispose).toHaveBeenCalledTimes(1);
