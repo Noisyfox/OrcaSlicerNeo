@@ -321,13 +321,16 @@ segment's endpoint midpoint, direction basis, width, height, and optional bias
 in the instance matrix; the box supplies real side faces and end caps.
 
 Toolpath materials are standard Three `MeshBasicMaterial` instances with
-`transparent: false`, `opacity: 1`, `blending: THREE.NoBlending`,
-`depthTest: false`, `depthWrite: false`, and `DoubleSide`. Per-instance RGB
-colours implement the feature palette and an opaque gray unknown-feature
-fallback. There is no custom toolpath shader, `texelFetch`, atlas, integer
-texture, enabled-index texture, or shader-derived outline/width/height. The
-planner remains a pure source/page/selection planner and can retain its page
-metadata accounting for deterministic partitioning.
+`transparent: true` solely to place them after the transparent preview shell
+in Three's render queue, `opacity: 1`, `blending: THREE.NoBlending`,
+`depthTest: false`, `depthWrite: false`, and `DoubleSide`. This queue flag does
+not enable alpha compositing; the renderer's blend state is explicitly
+disabled. Per-instance RGB colours implement the feature palette and an
+opaque gray unknown-feature fallback. There is no custom toolpath shader,
+`texelFetch`, atlas, integer texture, enabled-index texture, or
+shader-derived outline/width/height. The planner remains a pure
+source/page/selection planner and can retain its page metadata accounting for
+deterministic partitioning.
 
 The baseline correspondence to native libvgcode is page-local selected
 instances, ordered layer ranges, vertical direction fallback, disabled culling,

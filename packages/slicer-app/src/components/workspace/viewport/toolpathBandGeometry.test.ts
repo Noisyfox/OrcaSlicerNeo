@@ -36,6 +36,14 @@ describe('toolpath band geometry', () => {
     expect(chunk.geometry).toBeInstanceOf(THREE.BoxGeometry);
     expect(chunk.mesh).toBeInstanceOf(THREE.InstancedMesh);
     expect(chunk.mesh.count).toBe(2);
+    const material = chunk.mesh.material as THREE.MeshBasicMaterial;
+    expect(material.vertexColors).toBe(true);
+    expect(material.transparent).toBe(true);
+    expect(material.opacity).toBe(1);
+    expect(material.blending).toBe(THREE.NoBlending);
+    expect(material.forceSinglePass).toBe(true);
+    expect(chunk.mesh.instanceColor).not.toBeNull();
+    expect(Array.from(chunk.mesh.instanceColor!.array.slice(0, 6))).toEqual([1, 0, 0, 0, 1, 0]);
     expect(chunk.instanceMatrices).toHaveLength(2);
     expect(new THREE.Vector3().setFromMatrixScale(chunk.instanceMatrices[0]!).x).toBeCloseTo(1);
     expect(new THREE.Vector3().setFromMatrixScale(chunk.instanceMatrices[0]!).y).toBeCloseTo(0.42);
@@ -93,6 +101,36 @@ describe('toolpath band geometry', () => {
       expect(cache.prepare(source).chunks[0]?.geometry).toBe(geometry);
     }
     expect(cache.buildCount).toBe(1);
+    prepared.dispose();
+  });
+
+  it('maps legacy indexed palettes to the actual instance colors', () => {
+    const source: ClientToolpath = {
+      vertexCount: 2,
+      positions: Float32Array.from([1, 0, 0, 2, 0, 0]),
+      layers: Uint32Array.from([0, 0]),
+      features: Uint32Array.from([0, 1]),
+      palette: [
+        { id: 100, name: 'first', color: [255, 0, 0] },
+        { id: 101, name: 'second', color: [0, 255, 0] },
+      ],
+      segmentCount: 2,
+      starts: Float32Array.from([0, 0, 0, 1, 0, 0]),
+      ends: Float32Array.from([1, 0, 0, 2, 0, 0]),
+      layerIds: Uint32Array.from([0, 0]),
+      moveOrders: Uint32Array.from([0, 1]),
+      gcodeIds: Uint32Array.from([1, 2]),
+      moveTypes: Uint8Array.from([0, 0]),
+      extrusionRoles: Uint16Array.from([0, 0]),
+      extruderIds: Uint8Array.from([0, 0]),
+      colorPrintIds: Uint8Array.from([0, 0]),
+      widths: Float32Array.from([0.4, 0.5]),
+      heights: Float32Array.from([0.2, 0.2]),
+      metrics: {},
+    };
+    const prepared = new ToolpathBandCache().prepare(source);
+    const colors = prepared.chunks[0]!.mesh.instanceColor!;
+    expect(Array.from(colors.array.slice(0, 6))).toEqual([1, 0, 0, 0, 1, 0].map((value) => expect.closeTo(value, 5)));
     prepared.dispose();
   });
 

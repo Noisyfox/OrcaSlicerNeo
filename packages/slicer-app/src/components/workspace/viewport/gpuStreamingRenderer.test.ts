@@ -72,11 +72,15 @@ describe('opaque GPU entity renderer', () => {
       expect(mesh.geometry.index?.count).toBe(36);
       expect(mesh.material).toBeInstanceOf(THREE.MeshBasicMaterial);
       const material = mesh.material as THREE.MeshBasicMaterial;
-      expect(material.transparent).toBe(false);
+      // Transparent queue membership is used only to draw after the
+      // transparent model shell; the actual blend state remains disabled.
+      expect(material.transparent).toBe(true);
       expect(material.opacity).toBe(1);
       expect(material.blending).toBe(THREE.NoBlending);
       expect(material.depthTest).toBe(false);
       expect(material.depthWrite).toBe(false);
+      expect(material.vertexColors).toBe(true);
+      expect(material.forceSinglePass).toBe(true);
     }
     result.backend.dispose();
   });
@@ -92,6 +96,8 @@ describe('opaque GPU entity renderer', () => {
     const firstMesh = result.backend.sceneObjects[0]!;
     expect(firstMesh.count).toBe(2);
     expect(firstMesh.instanceMatrix.count).toBeGreaterThanOrEqual(2);
+    expect(firstMesh.instanceColor).not.toBeNull();
+    expect(Array.from(firstMesh.instanceColor!.array.slice(0, 6))).toEqual([1, 2, 3, 4, 5, 6].map((value) => expect.closeTo(value / 255, 5)));
     const before = result.backend.entityUploadCount;
     const filtered = rebuildGpuStreamingSelection(plan, { visibleLayerStart: 1, visibleLayerEnd: 1, activeMoveEnd: Number.MAX_SAFE_INTEGER, showTravel: false, featureVisibility: { 4: false } });
     result.backend.updateSelection(filtered);
@@ -99,6 +105,26 @@ describe('opaque GPU entity renderer', () => {
     expect(result.backend.drawInstanceCounts).toEqual([0, 2]);
     result.backend.updateCamera({ position: new THREE.Vector3(1, 2, 3) });
     expect(result.backend.entityUploadCount).toBe(before + 2);
+    result.backend.dispose();
+  });
+
+  it('resolves indexed legacy palettes as well as explicit feature ids', () => {
+    const legacy = {
+      ...source(),
+      palette: [
+        { id: 100, name: 'first', color: [255, 0, 0] as [number, number, number] },
+        { id: 101, name: 'second', color: [0, 255, 0] as [number, number, number] },
+      ],
+      features: new Uint32Array([0, 1, 0, 1]),
+    };
+    const plan = planGpuStreamingPages(legacy, { softPageTarget: 4 });
+    const result = createGpuStreamingRenderer(plan, { context: context(), compile: false });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const selection = rebuildGpuStreamingSelection(plan, { visibleLayerStart: 0, visibleLayerEnd: 1, activeMoveEnd: Number.MAX_SAFE_INTEGER, showTravel: true });
+    result.backend.updateSelection(selection);
+    const colors = result.backend.sceneObjects[0]!.instanceColor!;
+    expect(Array.from(colors.array.slice(0, 6))).toEqual([1, 0, 0, 0, 1, 0]);
     result.backend.dispose();
   });
 

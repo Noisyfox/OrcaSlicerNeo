@@ -329,14 +329,17 @@ are therefore real geometry; no vertex shader derives a segment outline,
 thickness, height, direction, or cap from an atlas.
 
 The material is Three's direct `MeshBasicMaterial` with
-`transparent: false`, `opacity: 1`, and `blending: THREE.NoBlending`.
-`depthTest: false`, `depthWrite: false`, `side: DoubleSide`, and render order
-1000 preserve Preview v2 shell visibility. Feature colours are per-instance
-RGB values; unknown feature IDs use an opaque 0.58 gray fallback. Filters and
-layer/move range changes rewrite only selected page matrices/colors and mesh
-counts. Camera movement performs no entity reconstruction or upload. The
-planner remains source-order/layer/page metadata only and does not allocate
-render resources.
+`transparent: true` only for transparent-queue ordering, `opacity: 1`, and
+`blending: THREE.NoBlending`. The queue flag does not enable alpha
+compositing. `depthTest: false`, `depthWrite: false`, `side: DoubleSide`,
+`forceSinglePass: true`, and render order 1000 preserve Preview v2 shell
+visibility while ensuring the path draw occurs after the transparent shell.
+Feature colours are per-instance RGB values; unknown feature IDs use an opaque
+0.58 gray fallback. Both explicit feature IDs and legacy palette-position IDs
+are accepted. Filters and layer/move range changes rewrite only selected page
+matrices/colors and mesh counts. Camera movement performs no entity
+reconstruction or upload. The planner remains source-order/layer/page
+metadata only and does not allocate render resources.
 
 This matches libvgcode's observable scheduling/render-state baseline where
 applicable: page-local selected instances, layer-ordered pages, vertical
@@ -372,7 +375,9 @@ page-boundary, atlas-addressing, palette, or frustum failure.
 
 The earlier atlas implementation exposed a shell-depth cutoff because its
 material used Three's default depth state. That implementation is no longer
-active. The solid entity material now explicitly uses `transparent: false`,
-`opacity: 1`, `blending: THREE.NoBlending`, `depthTest: false`, and
-`depthWrite: false`, preserving the Preview v2 rule that paths remain visible
-through model shells.
+active. The solid entity material now explicitly uses transparent-queue
+ordering with `opacity: 1`, `blending: THREE.NoBlending`, `depthTest: false`,
+and `depthWrite: false`, preserving the Preview v2 rule that paths remain
+visible through model shells without alpha compositing. The regression tests
+also inspect actual per-instance RGB attributes and cover legacy indexed
+palettes.

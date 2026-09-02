@@ -62,15 +62,21 @@ function onceDispose(dispose: () => void): () => void {
   let done = false;
   return () => { if (!done) { done = true; dispose(); } };
 }
-function colorComponent(value: number): number {
-  return Number.isFinite(value) ? (Math.abs(value) > 1 ? value / 255 : value) : 0;
-}
 const FALLBACK_COLOR = new THREE.Color(0.58, 0.58, 0.58);
 const WORLD_UP = new THREE.Vector3(0, 0, 1);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 function paletteColor(palette: readonly ToolpathFeature[], feature: number): THREE.Color {
-  const entry = palette.find((candidate) => candidate.id === feature);
-  return entry ? new THREE.Color(colorComponent(entry.color[0]), colorComponent(entry.color[1]), colorComponent(entry.color[2])) : FALLBACK_COLOR;
+  // Bridges normally emit local ids, but older preview payloads used the
+  // feature's position as the id. Accept both wire forms so an otherwise
+  // valid segment never silently falls back to gray.
+  const entry = palette.find((candidate) => candidate.id === feature) ?? palette[feature];
+  if (!entry) return FALLBACK_COLOR.clone();
+  const scale = entry.color.some((value) => Number.isFinite(value) && Math.abs(value) > 1) ? 1 / 255 : 1;
+  return new THREE.Color(
+    (Number.isFinite(entry.color[0]) ? entry.color[0] : 0) * scale,
+    (Number.isFinite(entry.color[1]) ? entry.color[1] : 0) * scale,
+    (Number.isFinite(entry.color[2]) ? entry.color[2] : 0) * scale,
+  );
 }
 
 /** Build the real world-space transform for one libvgcode-compatible prism. */
@@ -114,7 +120,10 @@ function createEntityTemplate(): GpuStreamingEntityTemplateResource {
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const material = new THREE.MeshBasicMaterial({
     vertexColors: true,
-    transparent: false,
+    // The preview model is a transparent Three queue item. Keep toolpaths
+    // after it in the transparent queue while explicitly disabling blending;
+    // this is ordering only, never alpha compositing.
+    transparent: true,
     opacity: 1,
     blending: THREE.NoBlending,
     // Match libvgcode's render_segments state and Preview v2 shell policy.
@@ -122,6 +131,7 @@ function createEntityTemplate(): GpuStreamingEntityTemplateResource {
     depthWrite: false,
     side: THREE.DoubleSide,
   });
+  material.forceSinglePass = true;
   return { geometry, material, dispose: onceDispose(() => { geometry.dispose(); material.dispose(); }) };
 }
 const threeResourceFacade: GpuStreamingResourceFacade = { createEntityTemplate };

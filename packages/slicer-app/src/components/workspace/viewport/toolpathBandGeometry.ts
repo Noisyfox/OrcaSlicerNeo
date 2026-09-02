@@ -36,8 +36,13 @@ const FALLBACK_COLOR = new THREE.Color(0.58, 0.58, 0.58);
 function finitePositive(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : fallback;
 }
-function colorComponent(value: number): number {
-  return Number.isFinite(value) ? (Math.abs(value) > 1 ? value / 255 : value) : 0;
+function colorComponents(color: readonly [number, number, number]): [number, number, number] {
+  const scale = color.some((value) => Number.isFinite(value) && Math.abs(value) > 1) ? 1 / 255 : 1;
+  return [
+    (Number.isFinite(color[0]) ? color[0] : 0) * scale,
+    (Number.isFinite(color[1]) ? color[1] : 0) * scale,
+    (Number.isFinite(color[2]) ? color[2] : 0) * scale,
+  ];
 }
 function buildMatrix(starts: Float32Array, ends: Float32Array, widths: Float32Array, heights: Float32Array, index: number): THREE.Matrix4 {
   const start = new THREE.Vector3(starts[index * 3] ?? 0, starts[index * 3 + 1] ?? 0, starts[index * 3 + 2] ?? 0);
@@ -55,15 +60,19 @@ function buildMatrix(starts: Float32Array, ends: Float32Array, widths: Float32Ar
   )).setPosition(center);
 }
 function createMaterial(): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
+  const material = new THREE.MeshBasicMaterial({
     vertexColors: true,
-    transparent: false,
+    // Match the GPU backend: transparent queue ordering is required because
+    // preview model shells are transparent, but blending itself is disabled.
+    transparent: true,
     opacity: 1,
     blending: THREE.NoBlending,
     depthTest: false,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
+  material.forceSinglePass = true;
+  return material;
 }
 function clampCount(count: number, length: number): number {
   return Math.max(0, Math.min(length, Math.floor(Number.isFinite(count) ? count : 0)));
@@ -127,8 +136,10 @@ export function buildPreparedToolpathBands(t: ClientToolpath): PreparedToolpathB
   const segmentCount = Math.max(0, Math.min(t.segmentCount, Math.floor(t.starts.length / 3), Math.floor(t.ends.length / 3)));
   const colors = new Float32Array(segmentCount * 3);
   for (let i = 0; i < segmentCount; i++) {
-    const c = t.palette.find((entry) => entry.id === (t.features[i] ?? 0))?.color ?? [255, 255, 255];
-    colors[i * 3] = colorComponent(c[0]); colors[i * 3 + 1] = colorComponent(c[1]); colors[i * 3 + 2] = colorComponent(c[2]);
+    const feature = t.features[i] ?? 0;
+    const c = (t.palette.find((entry) => entry.id === feature) ?? t.palette[feature])?.color ?? [255, 255, 255];
+    const normalized = colorComponents(c);
+    colors[i * 3] = normalized[0]; colors[i * 3 + 1] = normalized[1]; colors[i * 3 + 2] = normalized[2];
   }
   const chunks = buildLayerAlignedChunkRanges(t.layerIds, segmentCount).map((range) => createToolpathBandChunk(t.starts, t.ends, t.widths, t.heights, colors, range));
   const layerRanges: Array<[number, number]> = [];
