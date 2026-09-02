@@ -16,6 +16,7 @@ import {
   resolveGpuStreamingFeatureGate,
   useGpuStreamingFeatureGate,
   type GpuStreamingBackend,
+  type GpuStreamingDiagnostic,
   type GpuStreamingFeatureGate,
 } from './gpuStreamingIntegration';
 import { rebuildGpuStreamingSelection } from './gpuStreamingPlanner';
@@ -50,6 +51,7 @@ export function ToolpathLines({
   const [activeStreaming, setActiveStreaming] = useState<{ plan: ReturnType<typeof buildGpuStreamingPlan>; backend: GpuStreamingBackend } | null>(null);
   const activeStreamingRef = useRef<typeof activeStreaming>(null);
   const initialSelectionBackendRef = useRef<GpuStreamingBackend | null>(null);
+  const fallbackDiagnosticRef = useRef<GpuStreamingDiagnostic | null>(null);
   activeStreamingRef.current = activeStreaming;
   const source = data.source;
   const planState = useMemo(() => {
@@ -82,11 +84,15 @@ export function ToolpathLines({
   useLayoutEffect(() => {
     if (!gate.enabled) return;
     if (!source) {
-      reportGpuStreamingDiagnostic(gate, { reason: 'source-unavailable', message: 'The B2 preview source did not expose ClientToolpath data' });
+      const diagnostic = { reason: 'source-unavailable', message: 'The B2 preview source did not expose ClientToolpath data' };
+      fallbackDiagnosticRef.current = diagnostic;
+      reportGpuStreamingDiagnostic(gate, diagnostic);
       return;
     }
     if (planState.error) {
-      reportGpuStreamingDiagnostic(gate, { reason: 'planner-failed', message: planState.error.message });
+      const diagnostic = { reason: 'planner-failed', message: planState.error.message };
+      fallbackDiagnosticRef.current = diagnostic;
+      reportGpuStreamingDiagnostic(gate, diagnostic);
       return;
     }
     if (!plan) return;
@@ -100,7 +106,9 @@ export function ToolpathLines({
     const fallback = (reason: string, error?: unknown) => {
       if (cancelled) return;
       const message = error instanceof Error ? error.message : error ? String(error) : reason;
-      reportGpuStreamingDiagnostic(gate, { reason, message });
+      const diagnostic = { reason, message };
+      fallbackDiagnosticRef.current = diagnostic;
+      reportGpuStreamingDiagnostic(gate, diagnostic);
       if (backend) {
         try { backend.detachFromScene(scene); } catch { /* best effort before disposal */ }
         backend.dispose();
@@ -165,7 +173,9 @@ export function ToolpathLines({
       current.backend.updateSelection(selection);
       invalidate();
     } catch (error) {
-      reportGpuStreamingDiagnostic(gate, { reason: 'selection-update-failed', message: error instanceof Error ? error.message : String(error) });
+      const diagnostic = { reason: 'selection-update-failed', message: error instanceof Error ? error.message : String(error) };
+      fallbackDiagnosticRef.current = diagnostic;
+      reportGpuStreamingDiagnostic(gate, diagnostic);
       try { current.backend.detachFromScene(scene); } catch { /* best effort */ }
       current.backend.dispose();
       activeStreamingRef.current = null;
@@ -210,15 +220,19 @@ export function ToolpathLines({
     const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
     if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
     const testWindow = globalThis as typeof globalThis & {
-      __orcaE2e?: { gpuStreamingStatus?: () => 'ready' | 'context-lost' | 'disposed' | 'b2' };
+      __orcaE2e?: {
+        gpuStreamingStatus?: () => 'ready' | 'context-lost' | 'disposed' | 'b2';
+        gpuStreamingDiagnostic?: () => GpuStreamingDiagnostic | null;
+      };
     };
     testWindow.__orcaE2e = {
       ...testWindow.__orcaE2e,
       gpuStreamingStatus: () => activeStreamingRef.current?.backend.status ?? 'b2',
+      gpuStreamingDiagnostic: () => fallbackDiagnosticRef.current,
     };
     return () => {
       if (!testWindow.__orcaE2e) return;
-      const { gpuStreamingStatus: _status, ...rest } = testWindow.__orcaE2e;
+      const { gpuStreamingStatus: _status, gpuStreamingDiagnostic: _diagnostic, ...rest } = testWindow.__orcaE2e;
       testWindow.__orcaE2e = rest;
     };
   }, []);

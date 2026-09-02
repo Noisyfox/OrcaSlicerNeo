@@ -234,9 +234,16 @@ Planner, capability, budget, shader/atlas construction, context-loss, and
 selection/palette update failures report non-blocking diagnostics and return to
 B2. Cleanup detaches streaming meshes and disposes all backend resources on
 fallback, source replacement/invalidation, context loss, and unmount. The
+backend seam exposes `commitDrawBoundary()`, and each owned page mesh calls the
+backend's page-complete hook from `onAfterRender`; retired index/palette
+textures are released only after every page has completed that frame. This
+keeps replacement streams alive while a draw may still reference them and
+avoids an integration-side retirement leak.
+The
 e2e-only status hook reports `ready` or `b2` for the opt-in desktop/Web smoke;
-it is not a performance claim. The existing marker, shell/depth policy, and
-all preview controls remain outside this backend switch.
+when it reports `b2`, the companion diagnostic hook includes the fallback
+reason. This is not a performance claim. The existing marker, shell/depth
+policy, and all preview controls remain outside this backend switch.
 
 ## Migration and verification state
 

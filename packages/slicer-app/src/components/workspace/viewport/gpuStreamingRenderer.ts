@@ -495,6 +495,7 @@ export class GpuStreamingRenderer {
   private _dynamicIndexBytes = 0;
   private _paletteBytes = 0;
   private readonly retiredIndexStreams: GpuStreamingIndexStreamResource[] = [];
+  private readonly renderedPages = new Set<number>();
   private readonly contextElement?: GpuStreamingRendererOptions['renderer'];
   private disposed = false;
   private contextLost = false;
@@ -526,6 +527,12 @@ export class GpuStreamingRenderer {
     this._unknownFeatureIds = Object.freeze([...unknownFeatureIds]);
     this.featureSlots = featureSlots;
     this.sourceFeatureIds = sourceFeatureIds;
+    // Each page reports after its own draw. Retired resources are released
+    // only once every page participating in this backend has completed the
+    // frame, so a later page can never observe its old index texture gone.
+    pages.forEach((page, index) => {
+      if (page.mesh) page.mesh.onAfterRender = () => this.notifyPageRendered(index);
+    });
     const element = renderer?.domElement;
     element?.addEventListener?.('webglcontextlost', this.handleContextLost);
     void plan;
@@ -554,6 +561,13 @@ export class GpuStreamingRenderer {
   }
   get status(): 'ready' | 'context-lost' | 'disposed' { return this.disposed ? 'disposed' : this.contextLost ? 'context-lost' : 'ready'; }
   get drawInstanceCounts(): readonly number[] { return this.pages.map((page) => page.instanceCount); }
+
+  /** Called by owned page meshes after their draw; public for render-boundary tests. */
+  notifyPageRendered(pageIndex: number): void {
+    if (this.disposed || this.contextLost || pageIndex < 0 || pageIndex >= this.pages.length) return;
+    this.renderedPages.add(pageIndex);
+    if (this.renderedPages.size === this.pages.length) this.commitDrawBoundary();
+  }
 
   private readonly handleContextLost = (event?: Event) => {
     event?.preventDefault?.();
@@ -646,11 +660,13 @@ export class GpuStreamingRenderer {
 
   /** Release streams retired after a completed draw boundary. */
   commitDrawBoundary(): void {
+    this.renderedPages.clear();
     while (this.retiredIndexStreams.length > 0) safeDispose(this.retiredIndexStreams.pop());
     while (this.retiredPaletteResources.length > 0) safeDispose(this.retiredPaletteResources.pop());
   }
 
   private disposeGpuResources(): void {
+    this.renderedPages.clear();
     for (const page of this.pages) {
       safeDispose(page.indexStream);
       page.indexStream = null;

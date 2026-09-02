@@ -208,7 +208,13 @@ test('GPU streaming preview: explicit gate selects backend or fallback', async (
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
   await expect.poll(() => page.evaluate(() => {
-    const status = (window as unknown as { __orcaE2e?: { gpuStreamingStatus?: () => string } }).__orcaE2e?.gpuStreamingStatus?.();
-    return status === 'ready' || status === 'b2';
+    const hooks = (window as unknown as {
+      __orcaE2e?: {
+        gpuStreamingStatus?: () => string;
+        gpuStreamingDiagnostic?: () => { reason?: string } | null;
+      };
+    }).__orcaE2e;
+    const status = hooks?.gpuStreamingStatus?.();
+    return status === 'ready' || (status === 'b2' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
   }), { timeout: 20_000 }).toBe(true);
 });

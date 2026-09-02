@@ -182,8 +182,17 @@ describe('GPU streaming WebGL2 renderer backend', () => {
     result.backend.updateSelection(selection);
     result.backend.updateSelection(selection);
     expect(f.indexDisposals.every((dispose) => dispose.mock.calls.length === 0)).toBe(true);
-    result.backend.commitDrawBoundary();
+    // Palette replacement follows the same retirement contract.
+    result.backend.updatePalette([{ id: 4, name: 'feature', color: [9, 8, 7] }]);
+    expect(f.paletteDisposals[0]).not.toHaveBeenCalled();
+    // Simulate Three's post-draw callbacks. Both pages must finish before
+    // either page's retired stream is released.
+    result.backend.notifyPageRendered(0);
+    expect(f.indexDisposals.slice(0, 2).every((dispose) => dispose.mock.calls.length === 0)).toBe(true);
+    expect(f.paletteDisposals[0]).not.toHaveBeenCalled();
+    result.backend.notifyPageRendered(1);
     expect(f.indexDisposals.slice(0, 2).every((dispose) => dispose.mock.calls.length === 1)).toBe(true);
+    expect(f.paletteDisposals[0]).toHaveBeenCalledTimes(1);
   });
 
   it('returns unavailable and cleans partial construction failures', () => {

@@ -29,6 +29,8 @@ export interface GpuStreamingBackend {
   updateCamera(camera: { readonly position?: import('three').Vector3; readonly viewProjection?: import('three').Matrix4 }): void;
   updateDimming(activeLayer: number, earlierLayerDim?: number): void;
   updatePalette(palette: readonly ToolpathFeature[]): unknown;
+  /** Releases retired streams only after the completed draw boundary. */
+  commitDrawBoundary(): void;
   dispose(): void;
 }
 
