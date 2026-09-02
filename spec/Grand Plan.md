@@ -392,6 +392,12 @@ and drives structural operations through the typed client.
 > Major renderer/performance specification:
 > [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)
 
+> Cross-host adapter policy: the shared WebGL/R3F canvas requests
+> `powerPreference: 'high-performance'`, and Electron uses Chromium's
+> `force_high_performance_gpu` startup preference. These are hints only; no
+> named/discrete GPU is required, and browser/Electron software/integrated-GPU
+> fallbacks remain available.
+
 - [x] Step 1 — accept the source-neutral planner and deterministic 250k/1m
       metadata fixture contract (no bridge change)
 - [x] Step 2 — source adapter/page planner behind the current B2 backend

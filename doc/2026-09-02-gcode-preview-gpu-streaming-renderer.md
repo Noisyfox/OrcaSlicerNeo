@@ -409,6 +409,23 @@ it remains at the last move at or before the active move, including the nearest
 preceding mapped move behaviour already defined by Preview v2. This change is
 marker-only: toolpath entities retain their opaque `NoBlending` contract.
 
+## Accepted GPU adapter preference (2026-09-02)
+
+The shared R3F `Canvas` passes Three.js's standard
+`powerPreference: 'high-performance'` WebGL context hint. This asks the
+browser to choose a high-performance/discrete adapter when one is available;
+it does not name a GPU, require a discrete adapter, or set
+`failIfMajorPerformanceCaveat`. Static Web therefore keeps the browser's normal
+integrated-GPU and software-rendering fallback, including the existing WebGL2
+capability/error handling.
+
+Electron applies Chromium's supported `force_high_performance_gpu` command-line
+switch before window creation. The switch is a preference only: Chromium may
+ignore it when no discrete adapter exists or when that adapter is unavailable.
+The existing Linux SwiftShader branch remains authoritative for GPU-less or
+known-broken Linux environments, so the startup preference never prevents the
+safe software fallback.
+
 ## Historical shell depth regression (superseded)
 
 An opt-in real bridge probe using the repository's `3DBenchy.drc` handy model

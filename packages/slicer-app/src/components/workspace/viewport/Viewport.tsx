@@ -14,6 +14,7 @@ import type { ToolpathGeometry } from './useSliceResult';
 import { filterBuildPlateOccludedIntersections, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
+import { HIGH_PERFORMANCE_WEBGL_CONTEXT } from './renderingPreferences';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { deleteSelection } from '../actions/deleteSelection';
@@ -345,6 +346,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
         <SceneContextMenu sceneInteraction={sceneInteraction} sceneStateRef={sceneStateRef}>
           <Canvas
             events={viewportEvents}
+            // WebGL's adapter-selection hint prefers a discrete/high-
+            // performance GPU when available. It is only a hint: browsers
+            // retain their normal integrated-GPU/software fallback.
+            gl={HIGH_PERFORMANCE_WEBGL_CONTEXT}
             // Render only when something invalidates the frame (camera change,
             // scene data update, resize) — never render continuously. See
             // doc/2026-08-16-demand-render-viewport.md. OrbitControls in demand

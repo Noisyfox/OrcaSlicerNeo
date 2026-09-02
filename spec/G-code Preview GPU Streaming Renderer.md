@@ -18,6 +18,13 @@ and preserves the platform boundary: only the typed client/Worker path may
 receive WASM data. `libslic3r` and `packages/slicer-wasm/cpp` are read-only for
 this work; no submodule edit, patch, or pointer update is permitted.
 
+Both hosts request a high-performance WebGL adapter as a preference. The
+shared R3F `Canvas` uses Three.js `powerPreference: 'high-performance'`, while
+Electron adds Chromium's `force_high_performance_gpu` startup switch before
+creating a window. Neither setting selects a named adapter or makes a discrete
+GPU mandatory; browser/Electron capability checks and the existing WebGL2,
+software-rendering, and B2 fallbacks remain authoritative.
+
 ## Goals and non-goals
 
 Goals:
