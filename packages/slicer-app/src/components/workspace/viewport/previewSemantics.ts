@@ -145,8 +145,12 @@ export function sourceLineForPreviewMove(
 ): number | null {
   const line = data.gcodeIds?.[move];
   if (line === undefined || line < 1) return null;
-  if (index.orderedGcodeIds) return findPreviewMoveForSourceLine(index, line) === move ? line : null;
-  return index.moveByLine.get(line) === move ? line : null;
+  // Reverse navigation is intentionally many-to-one: duplicate source IDs
+  // still highlight the selected move's own source line. Forward clicks use
+  // the index's first duplicate, but active-move highlighting must not drop
+  // later moves from the same source line.
+  if (index.orderedGcodeIds) return line;
+  return index.moveByLine.has(line) ? line : null;
 }
 
 export function createPreviewInspectionIndex(

@@ -131,6 +131,19 @@ describe('preview inspection semantics', () => {
     expect(findPreviewMoveForSourceLine(indexed, 12)).toBe(3);
   });
 
+  it('highlights duplicate source ids for both ordered and fallback indexes', () => {
+    const duplicateIds = Uint32Array.from([4, 7, 11, 11, 15, 20]);
+    const orderedData = { ...data, gcodeIds: duplicateIds, sourceLineOrderValid: true };
+    const ordered = createPreviewSourceLineIndex(orderedData);
+    expect(findPreviewMoveForSourceLine(ordered, 11)).toBe(2);
+    expect(sourceLineForPreviewMove(orderedData, ordered, 3)).toBe(11);
+
+    const fallbackData = { ...data, gcodeIds: duplicateIds };
+    const fallback = createPreviewSourceLineIndex(fallbackData);
+    expect(findPreviewMoveForSourceLine(fallback, 11)).toBe(2);
+    expect(sourceLineForPreviewMove(fallbackData, fallback, 3)).toBe(11);
+  });
+
   it('does not fabricate source navigation when mapping is unavailable', () => {
     const indexed = createPreviewSourceLineIndex({ ...data, metadata: { ...data.metadata, sourceLineMapping: { available: false, lineCount: 0 } } });
     expect(indexed.mappedLines).toEqual([]);
