@@ -363,6 +363,21 @@ and drives structural operations through the typed client.
 
 ## Post-v1 Expansion (queued, not yet scheduled)
 
+### G-code preview GPU streaming renderer
+
+> [!info] Design accepted 2026-09-02; implementation not started
+>
+> Major renderer/performance specification:
+> [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)
+
+- [x] Step 1 — accept the static-atlas/dynamic-enabled-index architecture and
+      deterministic 250k/1m metadata fixture contract (no renderer or bridge
+      change)
+- [ ] Step 2 — source adapter/page planner behind the current B2 backend
+- [ ] Step 3 — WebGL2 streaming backend, capability fallback, and browser
+      performance evidence
+- [ ] Step 4 — dual-host verification, default switch, and later B2 cleanup
+
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)
 - [ ] Gizmos: cut/measure/arrange/orient (move/rotate/scale delivered in

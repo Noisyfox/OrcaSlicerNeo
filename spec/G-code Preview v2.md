@@ -229,6 +229,12 @@ colours adapt to maintain legibility.
 
 ## Renderer and performance policy
 
+The implementation architecture for the GPU streaming/indexed-segment path is
+recorded in [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md).
+That specification is an implementation refinement only: the behaviour and
+performance goals below remain authoritative, and the current backend remains
+the migration fallback until its gates pass.
+
 Toolpaths are GPU-rendered, camera-facing extrusion bands. Rotation, pan, and
 zoom only update camera uniforms and must never reconstruct toolpath geometry.
 Layer ranges, the move end, legend filters, dimming, and colour-scheme changes

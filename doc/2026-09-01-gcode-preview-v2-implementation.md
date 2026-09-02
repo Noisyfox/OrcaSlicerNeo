@@ -21,6 +21,11 @@ G-code, screenshot files, binary models, or bridge changes. The existing cube
 input remains the only real preview input until the later generation steps are
 accepted.
 
+The approved GPU streaming/indexed-segment redesign is recorded separately in
+[`G-code Preview GPU Streaming Renderer`](../spec/G-code%20Preview%20GPU%20Streaming%20Renderer.md).
+Its step-1 fixture is metadata-only and does not change the B2 renderer or
+Preview v2 behaviour; follow-up renderer migration remains gated here.
+
 ## Accepted product constraints
 
 - Phase B is the shipping foundation: explicit continuous segments, true
