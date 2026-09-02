@@ -150,6 +150,10 @@ left workspace sidebar or resize the 3D viewport.
 - The single-thumb move-end slider is fixed to its bottom edge.
 - The colour-scheme selector, legend, and statistics occupy a collapsible,
   right-top canvas overlay.
+- The right-top Feature/Line Type overlay reserves a horizontal gutter for the
+  right-edge layer slider. The two overlays must not intersect at any desktop
+  viewport size, including when a long legend makes the right-top overlay
+  scroll; the gutter must not intercept either layer thumb.
 - In Phase C, the G-code text window is a separately toggled, larger overlay
   rather than content that compresses the legend or statistics.
 

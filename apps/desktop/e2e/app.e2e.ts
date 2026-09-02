@@ -362,6 +362,7 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await page.setViewportSize({ width: 720, height: 520 });
     await page.locator('#app-tab-preview').click();
     await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
     await expect(page.getByTestId('preview-legend')).toBeVisible();
@@ -379,6 +380,20 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
 
     const layerInputs = page.getByTestId('preview-layer-range').locator('input[type="range"]');
     await expect(layerInputs).toHaveCount(2);
+    const overlayGeometry = await page.evaluate(() => {
+      const controls = document.querySelector('[data-testid="preview-controls"]')?.getBoundingClientRect();
+      const layer = document.querySelector('[data-testid="preview-layer-range"]')?.getBoundingClientRect();
+      if (!controls || !layer) return null;
+      return {
+        intersects: controls.left < layer.right && controls.right > layer.left
+          && controls.top < layer.bottom && controls.bottom > layer.top,
+      };
+    });
+    expect(overlayGeometry).not.toBeNull();
+    expect(overlayGeometry?.intersects).toBe(false);
+    await layerInputs.nth(1).focus();
+    await page.keyboard.press('Home');
+    await expect(layerInputs.nth(1)).toHaveValue('0');
     const moveInputs = page.getByTestId('preview-move-range').locator('input[type="range"]');
     await expect(moveInputs).toHaveCount(1);
     await expect(page.getByTestId('preview-move-range').locator('[role="group"]')).toHaveAttribute('aria-label', 'Active layer move end');

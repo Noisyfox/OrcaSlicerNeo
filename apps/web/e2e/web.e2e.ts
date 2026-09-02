@@ -72,6 +72,7 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   if (await layerHeight.count()) await layerHeight.fill('0.21');
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  await page.setViewportSize({ width: 720, height: 520 });
   await page.getByTestId('menu-file-trigger').click();
   await expect(page.getByTestId('file-export-gcode')).toBeEnabled();
   await page.getByTestId('menu-file-trigger').click();
@@ -109,6 +110,17 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   await expect(page.getByTestId('preview-travel-toggle')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('preview-layer-range')).toBeVisible();
   await expect(page.getByTestId('preview-move-range')).toBeVisible();
+  const overlayGeometry = await page.evaluate(() => {
+    const controls = document.querySelector('[data-testid="preview-controls"]')?.getBoundingClientRect();
+    const layer = document.querySelector('[data-testid="preview-layer-range"]')?.getBoundingClientRect();
+    if (!controls || !layer) return null;
+    return {
+      intersects: controls.left < layer.right && controls.right > layer.left
+        && controls.top < layer.bottom && controls.bottom > layer.top,
+    };
+  });
+  expect(overlayGeometry).not.toBeNull();
+  expect(overlayGeometry?.intersects).toBe(false);
   const moveInputs = page.getByTestId('preview-move-range').locator('input[type="range"]');
   await expect(moveInputs).toHaveCount(1);
   await expect(page.getByTestId('preview-move-range').locator('[role="group"]')).toHaveAttribute('aria-label', 'Active layer move end');
@@ -118,6 +130,9 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   await expect(moveInput).toHaveValue('0');
   const layerInputs = page.getByTestId('preview-layer-range').locator('input[type="range"]');
   await expect(layerInputs).toHaveCount(2);
+  await layerInputs.nth(1).focus();
+  await page.keyboard.press('Home');
+  await expect(layerInputs.nth(1)).toHaveValue('0');
 
   // Single-layer inspection keeps the vertical control dual-thumb. Starting
   // from a multi-layer range, both thumbs collapse to the active layer and

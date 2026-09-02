@@ -39,7 +39,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
 
   return (
     <>
-      <aside data-testid="preview-controls" aria-label="G-code preview controls" className="pointer-events-auto absolute right-3 top-3 z-20 flex max-h-[calc(100%-6rem)] w-52 flex-col gap-3 overflow-auto rounded-md border bg-card/90 p-3 text-card-foreground shadow-lg backdrop-blur">
+      <aside data-testid="preview-controls" aria-label="G-code preview controls" className="pointer-events-auto absolute right-20 top-3 z-20 flex max-h-[calc(100%-6rem)] w-52 flex-col gap-3 overflow-auto rounded-md border bg-card/90 p-3 text-card-foreground shadow-lg backdrop-blur">
         <div className="flex items-center justify-between">
           <Label className="text-xs font-semibold">Preview</Label>
           <Button variant="ghost" size="xs" aria-pressed={preview.singleLayer} data-testid="preview-single-layer" onClick={() => setSingleLayer(!preview.singleLayer)}>

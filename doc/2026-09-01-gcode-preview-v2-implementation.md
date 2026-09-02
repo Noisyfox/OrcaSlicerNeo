@@ -308,6 +308,14 @@ operable move-start thumb. The correction applies to the approved product
 behavior and its shared Web/Electron tests; the vertical layer control remains
 dual-thumb.
 
+**B3 layout correction (2026-09-02):** the right-top Feature/Line Type
+overlay is inset from the canvas's right edge by a dedicated gutter for the
+fixed dual-thumb layer slider. The overlay and slider must have disjoint
+`getBoundingClientRect()` rectangles at desktop sizes, including with a long,
+scrolling legend, so the gutter cannot intercept either layer thumb. The
+shared desktop and Web E2E suites verify the separation and keyboard operation
+of the layer control at a compact viewport.
+
 Filtering and dimming update prebuilt per-instance GPU attributes. Camera
 gesture state is not a geometry or visibility-cache input, so camera movement
 continues to reuse the prepared chunks. The generic Phase-B marker is a
