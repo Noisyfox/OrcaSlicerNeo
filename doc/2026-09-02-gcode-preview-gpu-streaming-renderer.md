@@ -317,7 +317,48 @@ representative integrated-GPU gate. B2 remains the automatic
 capability/budget/compile/source/context/selection fallback; its removal is
 still a separately approved cleanup after a release cycle.
 
-## Follow-up: shell depth regression (2026-09-02)
+## Superseding decision: opaque solid entity instances (2026-09-02)
+
+The atlas/texel-fetch backend described earlier in this living document is
+superseded by the user's explicit rendering requirement. The accepted path is
+now a shared `THREE.BoxGeometry` solid prism template and one page-local
+`THREE.InstancedMesh` per planned page. At construction and every selection
+rebuild, each selected segment's endpoint midpoint, direction basis, width,
+height, and optional z bias are written into its instance matrix. Box end caps
+are therefore real geometry; no vertex shader derives a segment outline,
+thickness, height, direction, or cap from an atlas.
+
+The material is Three's direct `MeshBasicMaterial` with
+`transparent: false`, `opacity: 1`, and `blending: THREE.NoBlending`.
+`depthTest: false`, `depthWrite: false`, `side: DoubleSide`, and render order
+1000 preserve Preview v2 shell visibility. Feature colours are per-instance
+RGB values; unknown feature IDs use an opaque 0.58 gray fallback. Filters and
+layer/move range changes rewrite only selected page matrices/colors and mesh
+counts. Camera movement performs no entity reconstruction or upload. The
+planner remains source-order/layer/page metadata only and does not allocate
+render resources.
+
+This matches libvgcode's observable baseline where applicable: the shared
+eight-corner prism topology, page-local enabled selection, layer-ordered pages,
+vertical direction fallback, disabled culling, and shell-visible depth state.
+The intentional WebGL2/Three adaptation materializes libvgcode's shader-derived
+shape in CPU instance matrices because this product requirement prohibits a
+custom shader for thickness. The old atlas, integer texture, texelFetch,
+custom shader, retired index-stream, and palette-texture resources are removed
+from the active renderer. Context loss, source invalidation, unmount, and
+construction failure dispose the template and all page meshes; failure falls
+back to B2. Successful construction removes B2 so no double draw occurs.
+
+The browser harness now measures solid entity template/instance allocation and
+selection matrix/color uploads. Legacy report field names remain aliases for
+dashboard compatibility but no longer describe atlas or index textures.
+Unit coverage asserts real `InstancedMesh`/`BoxGeometry`, matrix scale for
+width/height, opaque NoBlending materials, unknown-feature fallback, complete
+multi-page upper-layer selection, filter rebuild, camera no-upload behavior,
+and idempotent disposal. `pnpm typecheck` and the focused slicer-app Vitest
+suite pass; native WASM C++ remains untouched.
+
+## Historical shell depth regression (superseded)
 
 An opt-in real bridge probe using the repository's `3DBenchy.drc` handy model
 and the staged `Bambu Lab P1S 0.4 nozzle` profile produced 100,295 segments
@@ -326,12 +367,9 @@ width/height segments). The planner therefore produced complete multi-page
 selection data; the reported missing upper toolpath was not an active-range,
 page-boundary, atlas-addressing, palette, or frustum failure.
 
-The streaming `ShaderMaterial` had retained Three's default depth testing and
-depth writes, unlike the existing B2 preview material. Opaque Benchy shell
-triangles consequently hid valid bands behind the shell, with the symptom
-appearing as a height-dependent cutoff. The material now explicitly uses
-`transparent: true`, `depthTest: false`, and `depthWrite: false`, preserving
-the Preview v2 rule that paths remain visible through model shells. A
-deterministic 70,000-segment, four-layer stream test also asserts that all
-segments across multiple pages are selected/drawn and that these depth
-semantics remain enabled.
+The earlier atlas implementation exposed a shell-depth cutoff because its
+material used Three's default depth state. That implementation is no longer
+active. The solid entity material now explicitly uses `transparent: false`,
+`opacity: 1`, `blending: THREE.NoBlending`, `depthTest: false`, and
+`depthWrite: false`, preserving the Preview v2 rule that paths remain visible
+through model shells.

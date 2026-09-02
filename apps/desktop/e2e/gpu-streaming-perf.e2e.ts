@@ -18,10 +18,10 @@ test('real Electron WebGL2 GPU streaming benchmark emits 250k/1m evidence', asyn
       const report = await page.evaluate(async (segmentCount) => {
         const benchmark = (window as unknown as {
           __orcaE2e?: { gpuStreamingBenchmark?: (n: number, options?: { frameCount?: number }) => Promise<{
-            segmentCount: number; pageCount: number; staticUploadBytes: number; staticUploadCount: number; indexUploadCount: number; staticUploadMs: number | null;
+            segmentCount: number; pageCount: number; entityTemplateBytes: number; entityUploadBytes: number; entityUploadCount: number; staticUploadMs: number | null;
             selectionRebuildUploadMs: number | null; selectionVisitedSegments: number; selectionUploadedBytes: number;
             cameraFrames: number; cameraAverageFrameMs: number | null; cameraFps: number | null;
-            cameraIndexUploadCountDelta: number; fallbackReason: string | null; fallbackMessage: string | null;
+            cameraEntityUploadCountDelta: number; fallbackReason: string | null; fallbackMessage: string | null;
             disposed: boolean;
           }> };
         }).__orcaE2e?.gpuStreamingBenchmark;
@@ -36,9 +36,9 @@ test('real Electron WebGL2 GPU streaming benchmark emits 250k/1m evidence', asyn
         expect(report.fallbackMessage).toBeTruthy();
         continue;
       }
-      expect(report.staticUploadBytes).toBeGreaterThanOrEqual(count * 64);
-      expect(report.staticUploadCount).toBe(report.pageCount);
-      expect(report.indexUploadCount).toBeGreaterThanOrEqual(report.pageCount * 2);
+      expect(report.entityTemplateBytes).toBeGreaterThanOrEqual(count * 64);
+      expect(report.entityUploadBytes).toBeGreaterThan(0);
+      expect(report.entityUploadCount).toBeGreaterThanOrEqual(report.pageCount * 2);
       expect(report.staticUploadMs).not.toBeNull();
       expect(report.selectionRebuildUploadMs).not.toBeNull();
       expect(report.selectionVisitedSegments).toBe(count);
@@ -46,7 +46,7 @@ test('real Electron WebGL2 GPU streaming benchmark emits 250k/1m evidence', asyn
       expect(report.cameraFrames).toBe(30);
       expect(report.cameraAverageFrameMs).toBeGreaterThan(0);
       expect(report.cameraFps).toBeGreaterThan(0);
-      expect(report.cameraIndexUploadCountDelta).toBe(0);
+      expect(report.cameraEntityUploadCountDelta).toBe(0);
     }
   } finally {
     await app.close();

@@ -1,7 +1,7 @@
 # G-code Preview GPU Streaming Renderer
 
 **Date:** 2026-09-02
-**Status:** Approved architecture; streaming backend verified on Web/Electron, with default preference blocked pending representative integrated-GPU evidence
+**Status:** Approved architecture; opaque solid-entity instance backend supersedes the atlas/shader implementation (2026-09-02)
 **Scope:** Shared Web/Electron G-code preview renderer performance redesign
 
 ## Relationship to existing preview specifications
@@ -309,3 +309,38 @@ RTX 3080; no representative integrated-GPU or native Orca pixel-equivalence
 claim is made. The default preference remains blocked until the stated 2020
 integrated-GPU 250k/1m gate is measured. The current B2 backend remains the
 production path and automatic fallback and is not removed by this change.
+
+## Superseding architecture: opaque solid entities (2026-09-02)
+
+The prior static-atlas/texel-fetch shader architecture is superseded by the
+explicit product requirement that toolpath thickness and height be real
+geometry and that no toolpath use alpha blending. The active implementation
+uses one shared `THREE.BoxGeometry` prism template and one page-local
+`THREE.InstancedMesh` per planner page. Selection rebuilds materialize each
+segment's endpoint midpoint, direction basis, width, height, and optional bias
+in the instance matrix; the box supplies real side faces and end caps.
+
+Toolpath materials are standard Three `MeshBasicMaterial` instances with
+`transparent: false`, `opacity: 1`, `blending: THREE.NoBlending`,
+`depthTest: false`, `depthWrite: false`, and `DoubleSide`. Per-instance RGB
+colours implement the feature palette and an opaque gray unknown-feature
+fallback. There is no custom toolpath shader, `texelFetch`, atlas, integer
+texture, enabled-index texture, or shader-derived outline/width/height. The
+planner remains a pure source/page/selection planner and can retain its page
+metadata accounting for deterministic partitioning.
+
+The baseline correspondence to native libvgcode is the shared prism topology,
+page-local selected instances, ordered layer ranges, vertical direction
+fallback, disabled culling, and shell-visible depth state. Three/WebGL2
+materializes the shape on the CPU because the product requirement deliberately
+forbids libvgcode's shader-side thickness derivation. Camera updates only
+update camera/render state. Layer, move, travel, and feature filters rebuild
+selected page matrices/colors and counts without re-parsing or slicing.
+
+Both the opt-in backend and B2 fallback use opaque solid entities. On result
+invalidation, unmount, context loss, or construction failure all owned
+templates, meshes, materials, and attributes are released and B2 is retained;
+successful construction removes B2 to prevent double drawing. The browser
+harness reports entity allocation and matrix/color uploads, not atlas/index
+uploads. Existing atlas-specific acceptance measurements are historical and
+must not be used as evidence for this architecture.

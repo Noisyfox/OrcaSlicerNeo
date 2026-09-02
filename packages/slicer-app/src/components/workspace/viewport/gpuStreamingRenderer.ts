@@ -1,89 +1,13 @@
 import * as THREE from 'three';
 import type { ToolpathFeature } from '@slicer/client';
-import type {
-  GpuStreamingPage,
-  GpuStreamingPagePlan,
-  GpuStreamingPageSelection,
-  GpuStreamingSelection,
-} from './gpuStreamingPlanner';
+import type { GpuStreamingPage, GpuStreamingPagePlan, GpuStreamingSelection } from './gpuStreamingPlanner';
 
-/** GLSL ES 3.00 vertex shader for the indexed, camera-facing segment band. */
-export const GPU_STREAMING_VERTEX_SHADER = `#version 300 es
-precision highp float;
-precision highp int;
-
-uniform sampler2D uStaticAtlas;
-uniform usampler2D uStaticIdentity;
-uniform usampler2D uEnabledIndices;
-uniform int uGeometryAtlasWidth;
-uniform int uIdentityAtlasWidth;
-uniform int uIndexTextureWidth;
-uniform vec3 uCameraPosition;
-uniform int uActiveLayer;
-uniform mat4 uViewProjection;
-flat out uint vLayer;
-flat out uint vFeature;
-
-ivec2 atlasCoord(int index, int width) {
-  return ivec2(index - (index / width) * width, index / width);
-}
-
-void main() {
-  int enabledIndex = int(texelFetch(
-    uEnabledIndices, atlasCoord(gl_InstanceID, uIndexTextureWidth), 0).r);
-  int base = enabledIndex * 3;
-  vec3 start = texelFetch(uStaticAtlas, atlasCoord(base, uGeometryAtlasWidth), 0).xyz;
-  vec3 end = texelFetch(uStaticAtlas, atlasCoord(base + 1, uGeometryAtlasWidth), 0).xyz;
-  vec4 shape = texelFetch(uStaticAtlas, atlasCoord(base + 2, uGeometryAtlasWidth), 0);
-  uvec4 ids = texelFetch(uStaticIdentity, atlasCoord(enabledIndex, uIdentityAtlasWidth), 0);
-  vLayer = ids.r;
-  vFeature = ids.b;
-
-  vec3 direction = end - start;
-  float lengthDirection = length(direction);
-  vec3 axis = lengthDirection > 1e-6 ? direction / lengthDirection : vec3(1.0, 0.0, 0.0);
-  vec3 toCamera = uCameraPosition - mix(start, end, 0.5);
-  vec3 side = cross(axis, toCamera);
-  if (length(side) < 1e-6) side = cross(axis, vec3(0.0, 0.0, 1.0));
-  if (length(side) < 1e-6) side = cross(axis, vec3(0.0, 1.0, 0.0));
-  side = normalize(side);
-  vec3 up = normalize(cross(side, axis));
-
-  // Shape is width, height, cap angle and z-fighting bias.  The cap shift is
-  // deliberately bounded so pathological source angles remain stable.
-  float capShift = tan(clamp(shape.z, -1.4, 1.4)) * max(shape.y, 0.0) * 0.5;
-  float along = position.x * lengthDirection + (position.x * 2.0 - 1.0) * capShift;
-  vec3 world = start + axis * along
-    + side * position.y * max(shape.x, 0.0) * 0.5
-    + up * position.z * max(shape.y, 0.0) * 0.5;
-  world += vec3(0.0, 0.0, shape.w);
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(world, 1.0);
-}`;
-
-/** GLSL ES 3.00 fragment shader. Dimming is uniform-only and filter-safe. */
-export const GPU_STREAMING_FRAGMENT_SHADER = `#version 300 es
-precision highp float;
-precision highp int;
-uniform sampler2D uPalette;
-uniform int uPaletteWidth;
-uniform float uEarlierLayerDim;
-uniform int uActiveLayer;
-flat in uint vLayer;
-flat in uint vFeature;
-out vec4 outColor;
-void main() {
-  float dim = (uActiveLayer >= 0 && int(vLayer) < uActiveLayer)
-    ? uEarlierLayerDim : 1.0;
-  vec4 paletteColor = texelFetch(uPalette, ivec2(min(int(vFeature), max(uPaletteWidth - 1, 0)), 0), 0);
-  outColor = vec4(paletteColor.rgb * dim, paletteColor.a);
-}`;
-
-const STATIC_SCHEMA_TEXELS = 4;
-const STATIC_FLOAT_TEXELS = 3;
-const STATIC_IDENTITY_TEXELS = 1;
-const REQUIRED_TEXTURE_UNITS = 4;
-
-/** Six quad faces, represented by the 24 byte-sized corner indices. */
+/**
+ * The renderer follows libvgcode's SegmentTemplate ownership model: one
+ * shared indexed prism template is drawn through page-local instances.
+ * Segment shape is materialized in instance matrices on the CPU; no custom
+ * shader or texture fetch participates in toolpath rendering.
+ */
 export const GPU_STREAMING_TEMPLATE_FACE_INDICES = new Uint8Array([
   0, 1, 2, 3, 4, 6, 5, 7, 0, 4, 5, 1,
   1, 5, 6, 2, 2, 6, 7, 3, 4, 0, 3, 7,
@@ -95,113 +19,44 @@ export interface GpuStreamingCapabilityLimits {
   readonly maxVertexTextureImageUnits: number | null;
   readonly textureUnitsRequired: number;
 }
-
 export interface GpuStreamingCapabilityProbe {
   readonly supported: boolean;
   readonly reason: string | null;
   readonly limits: GpuStreamingCapabilityLimits;
 }
-
-/** The smallest host surface needed by this module; it is easy to mock. */
 export interface GpuStreamingRendererHost {
   getContext(): WebGLRenderingContext;
   readonly domElement?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>;
   compile?: (scene: THREE.Scene, camera: THREE.Camera) => void;
 }
-
-export interface GpuStreamingStaticAtlasUpload {
-  readonly geometryWidth: number;
-  readonly geometryHeight: number;
-  readonly identityWidth: number;
-  readonly identityHeight: number;
-  readonly texelCount: number;
-  /** RGBA32F data; unused padding texels are zero. */
-  readonly geometry: Float32Array;
-  /** RGBA32UI data; one integer texel (four lossless channels) per atlas texel. */
-  readonly identity: Uint32Array;
-  readonly geometryTexelCount: number;
-  readonly identityTexelCount: number;
-  readonly staticPaddingTexels: number;
-  readonly uploadedBytes: number;
-  readonly unknownFeatureIds: readonly number[];
-}
-
-export interface GpuStreamingIndexStreamUpload {
-  readonly width: number;
-  readonly height: number;
-  readonly indices: Uint32Array;
-}
-
-export interface GpuStreamingResource {
+export interface GpuStreamingEntityTemplateResource {
+  readonly geometry?: THREE.BufferGeometry;
+  readonly material?: THREE.MeshBasicMaterial;
   readonly dispose: () => void;
 }
-
-export interface GpuStreamingStaticAtlasResource extends GpuStreamingResource {
-  readonly geometryTexture?: THREE.Texture;
-  readonly identityTexture?: THREE.Texture;
-  readonly uploadedBytes?: number;
-}
-
-export interface GpuStreamingPaletteUpload {
-  readonly width: number;
-  readonly height: number;
-  readonly colors: Float32Array;
-  readonly unknownFeatureIds: readonly number[];
-}
-
-export interface GpuStreamingPaletteResource extends GpuStreamingResource {
-  readonly texture?: THREE.Texture;
-  readonly width?: number;
-  readonly uploadedBytes?: number;
-}
-
-export interface GpuStreamingIndexStreamResource extends GpuStreamingResource {
-  readonly texture?: THREE.Texture;
-  readonly width?: number;
-  readonly height?: number;
-  readonly uploadedBytes?: number;
-}
-
-export interface GpuStreamingTemplateResource extends GpuStreamingResource {
-  readonly geometry?: THREE.BufferGeometry;
-  readonly material?: THREE.ShaderMaterial;
-}
-
-/**
- * Resource seam used by tests and by future host-specific allocation policy.
- * Implementations receive typed bulk uploads, never per-segment objects.
- */
+/** Resource seam used by tests and host-specific allocation policy. */
 export interface GpuStreamingResourceFacade {
-  createStaticAtlas(upload: GpuStreamingStaticAtlasUpload): GpuStreamingStaticAtlasResource;
-  createIndexStream(upload: GpuStreamingIndexStreamUpload): GpuStreamingIndexStreamResource;
-  createPalette?: (upload: GpuStreamingPaletteUpload) => GpuStreamingPaletteResource;
-  createSharedTemplate(): GpuStreamingTemplateResource;
+  createEntityTemplate: () => GpuStreamingEntityTemplateResource;
 }
-
 export interface GpuStreamingRendererOptions {
   readonly renderer?: GpuStreamingRendererHost;
-  /** A test context can be supplied when no Three renderer exists. */
   readonly context?: WebGLRenderingContext;
   readonly resourceFacade?: GpuStreamingResourceFacade;
   readonly compile?: boolean;
 }
-
 export interface GpuStreamingUnavailableDiagnostics {
   readonly reason: string;
   readonly message: string;
   readonly capabilities: GpuStreamingCapabilityProbe | null;
   readonly failedPage?: number;
 }
-
 export type GpuStreamingBuildResult =
   | { readonly ok: true; readonly backend: GpuStreamingRenderer }
   | { readonly ok: false; readonly diagnostics: GpuStreamingUnavailableDiagnostics };
-
 export interface GpuStreamingSelectionUpdate {
   readonly uploadedPageCount: number;
   readonly drawInstanceCounts: readonly number[];
 }
-
 export interface GpuStreamingPaletteUpdate {
   readonly uploaded: boolean;
   readonly unknownFeatureIds: readonly number[];
@@ -209,486 +64,219 @@ export interface GpuStreamingPaletteUpdate {
 
 function onceDispose(dispose: () => void): () => void {
   let done = false;
-  return () => {
-    if (done) return;
-    done = true;
-    dispose();
-  };
+  return () => { if (!done) { done = true; dispose(); } };
+}
+function colorComponent(value: number): number {
+  return Number.isFinite(value) ? (Math.abs(value) > 1 ? value / 255 : value) : 0;
+}
+const FALLBACK_COLOR = new THREE.Color(0.58, 0.58, 0.58);
+const WORLD_UP = new THREE.Vector3(0, 0, 1);
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+function paletteColor(palette: readonly ToolpathFeature[], feature: number): THREE.Color {
+  const entry = palette.find((candidate) => candidate.id === feature);
+  return entry ? new THREE.Color(colorComponent(entry.color[0]), colorComponent(entry.color[1]), colorComponent(entry.color[2])) : FALLBACK_COLOR;
 }
 
-function safeDispose(resource: GpuStreamingResource | undefined | null): void {
-  try { resource?.dispose(); } catch { /* continue releasing sibling GPU handles */ }
+/** Build the real world-space transform for one libvgcode-compatible prism. */
+export function buildGpuStreamingInstanceMatrix(
+  source: GpuStreamingPagePlan['source'],
+  sourceIndex: number,
+  target = new THREE.Matrix4(),
+): THREE.Matrix4 {
+  const start = new THREE.Vector3(
+    source.starts[sourceIndex * 3] ?? 0,
+    source.starts[sourceIndex * 3 + 1] ?? 0,
+    source.starts[sourceIndex * 3 + 2] ?? 0,
+  );
+  const end = new THREE.Vector3(
+    source.ends[sourceIndex * 3] ?? start.x,
+    source.ends[sourceIndex * 3 + 1] ?? start.y,
+    source.ends[sourceIndex * 3 + 2] ?? start.z,
+  );
+  const axis = end.clone().sub(start);
+  const length = axis.length();
+  if (length > 1e-6) axis.multiplyScalar(1 / length);
+  else axis.copy(X_AXIS);
+  // Matches libvgcode's line_right/line_up basis, including its vertical
+  // fallback, while keeping all dimensions in the instance matrix.
+  const side = new THREE.Vector3().crossVectors(axis, WORLD_UP);
+  if (side.lengthSq() < 1e-12) side.crossVectors(X_AXIS, axis);
+  side.normalize();
+  const up = new THREE.Vector3().crossVectors(side, axis).normalize();
+  const width = Math.max(0, source.widths[sourceIndex] ?? 0);
+  const height = Math.max(0, source.heights[sourceIndex] ?? 0);
+  const center = start.clone().add(end).multiplyScalar(0.5);
+  center.z += source.biases?.[sourceIndex] ?? 0;
+  // BoxGeometry is a unit centered prism. Local X/Y/Z map to direction,
+  // width, and height, giving every segment actual solid geometry and caps.
+  target.makeBasis(axis, side, up).scale(new THREE.Vector3(Math.max(length, 1e-5), width, height));
+  target.setPosition(center);
+  return target;
 }
 
-function textureDefaults(texture: THREE.DataTexture, integer: boolean): THREE.DataTexture {
-  texture.minFilter = THREE.NearestFilter;
-  texture.magFilter = THREE.NearestFilter;
-  texture.wrapS = THREE.ClampToEdgeWrapping;
-  texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.generateMipmaps = false;
-  texture.unpackAlignment = 1;
-  texture.colorSpace = THREE.NoColorSpace;
-  if (integer) texture.internalFormat = 'R32UI';
-  texture.needsUpdate = true;
-  return texture;
+function createEntityTemplate(): GpuStreamingEntityTemplateResource {
+  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const material = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: false,
+    opacity: 1,
+    blending: THREE.NoBlending,
+    // Match libvgcode's render_segments state and Preview v2 shell policy.
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  return { geometry, material, dispose: onceDispose(() => { geometry.dispose(); material.dispose(); }) };
 }
-
-function createThreeTexture(data: Float32Array | Uint32Array, width: number, height: number, integer: boolean, rgbaInteger = false): THREE.DataTexture {
-  return textureDefaults(new THREE.DataTexture(
-    data,
-    width,
-    height,
-    integer ? (rgbaInteger ? THREE.RGBAIntegerFormat : THREE.RedIntegerFormat) : THREE.RGBAFormat,
-    integer ? THREE.UnsignedIntType : THREE.FloatType,
-  ), integer);
-}
-
-// ShaderMaterial asks Three to prepend the GLSL3 version line. Keep the
-// exported source self-describing for contract tests, but avoid a duplicate
-// #version directive in the actual WebGLProgram.
-function threeShaderSource(source: string): string {
-  return source.replace(/^#version 300 es\s*/, '');
-}
-
-const threeResourceFacade: GpuStreamingResourceFacade = {
-  createStaticAtlas(upload) {
-    const geometry = createThreeTexture(upload.geometry, upload.geometryWidth, upload.geometryHeight, false);
-    const identity = createThreeTexture(upload.identity, upload.identityWidth, upload.identityHeight, true, true);
-    identity.internalFormat = 'RGBA32UI';
-    let disposed = false;
-    return {
-      geometryTexture: geometry,
-      identityTexture: identity,
-      uploadedBytes: upload.uploadedBytes,
-      dispose: onceDispose(() => {
-        if (disposed) return;
-        disposed = true;
-        geometry.dispose();
-        identity.dispose();
-      }),
-    };
-  },
-  createIndexStream(upload) {
-    const texture = createThreeTexture(upload.indices, upload.width, upload.height, true);
-    return { texture, width: upload.width, height: upload.height, uploadedBytes: upload.indices.byteLength, dispose: onceDispose(() => texture.dispose()) };
-  },
-  createPalette(upload) {
-    const texture = createThreeTexture(upload.colors, upload.width, upload.height, false);
-    return { texture, width: upload.width, uploadedBytes: upload.colors.byteLength, dispose: onceDispose(() => texture.dispose()) };
-  },
-  createSharedTemplate() {
-    // Eight corners and the six quad faces are the shared libvgcode-equivalent
-    // template. No instance matrix or segment-shaped geometry is allocated.
-    const corners = new Float32Array([
-      0, -1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1,
-      1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1,
-    ]);
-    // WebGL2 has no GL_QUADS, so the six-face/24-byte index topology is
-    // triangulated once in the shared template (still no per-segment data).
-    const indices = new Uint8Array(36);
-    for (let face = 0; face < 6; face++) {
-      const source = face * 4;
-      const target = face * 6;
-      indices[target] = GPU_STREAMING_TEMPLATE_FACE_INDICES[source]!;
-      indices[target + 1] = GPU_STREAMING_TEMPLATE_FACE_INDICES[source + 1]!;
-      indices[target + 2] = GPU_STREAMING_TEMPLATE_FACE_INDICES[source + 2]!;
-      indices[target + 3] = GPU_STREAMING_TEMPLATE_FACE_INDICES[source]!;
-      indices[target + 4] = GPU_STREAMING_TEMPLATE_FACE_INDICES[source + 2]!;
-      indices[target + 5] = GPU_STREAMING_TEMPLATE_FACE_INDICES[source + 3]!;
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(corners, 3));
-    geometry.setIndex(new THREE.Uint8BufferAttribute(indices, 1));
-    const material = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3,
-      vertexShader: threeShaderSource(GPU_STREAMING_VERTEX_SHADER),
-      fragmentShader: threeShaderSource(GPU_STREAMING_FRAGMENT_SHADER),
-      uniforms: {
-        uStaticAtlas: { value: null },
-        uStaticIdentity: { value: null },
-        uEnabledIndices: { value: null },
-        uGeometryAtlasWidth: { value: 1 },
-        uIdentityAtlasWidth: { value: 1 },
-        uIndexTextureWidth: { value: 1 },
-        uCameraPosition: { value: new THREE.Vector3(0, 0, 1) },
-        uActiveLayer: { value: -1 },
-        uEarlierLayerDim: { value: 0.25 },
-        uPalette: { value: null },
-        uPaletteWidth: { value: 1 },
-        uViewProjection: { value: new THREE.Matrix4() },
-      },
-      // Preview toolpaths must remain visible through the model shell, matching
-      // the B2 renderer and the Preview v2 shell/depth contract.  The streaming
-      // pages are drawn at a late render order; depth testing here would hide
-      // legitimate bands behind opaque Benchy shell triangles.
-      transparent: true,
-      depthTest: false,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    return { geometry, material, dispose: onceDispose(() => { geometry.dispose(); material.dispose(); }) };
-  },
-};
-
+const threeResourceFacade: GpuStreamingResourceFacade = { createEntityTemplate };
 function isWebGL2Context(context: WebGLRenderingContext): boolean {
   const version = String(context.getParameter?.(context.VERSION) ?? '');
   return /WebGL\s*2/i.test(version)
     || (typeof WebGL2RenderingContext !== 'undefined' && context instanceof WebGL2RenderingContext);
 }
-
 function numberParameter(context: WebGLRenderingContext, parameter: number): number | null {
   const value = context.getParameter?.(parameter);
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
-
-/** Probe all limits needed by the three-texture vertex shader. */
+/** WebGL2 remains the shared app baseline; entity rendering needs no texture fetch. */
 export function probeGpuStreamingCapabilities(context: WebGLRenderingContext): GpuStreamingCapabilityProbe {
-  const gl = context as WebGL2RenderingContext;
-  const limits: GpuStreamingCapabilityLimits = {
+  const limits = {
     maxTextureSize: numberParameter(context, context.MAX_TEXTURE_SIZE),
     maxTextureImageUnits: numberParameter(context, context.MAX_TEXTURE_IMAGE_UNITS),
     maxVertexTextureImageUnits: numberParameter(context, context.MAX_VERTEX_TEXTURE_IMAGE_UNITS),
-    textureUnitsRequired: REQUIRED_TEXTURE_UNITS,
-  };
+    textureUnitsRequired: 0,
+  } satisfies GpuStreamingCapabilityLimits;
   if (!isWebGL2Context(context)) return { supported: false, reason: 'webgl2-required', limits };
-  if (!gl.R32UI || !gl.RED_INTEGER) return { supported: false, reason: 'integer-textures-unavailable', limits };
-  if ((limits.maxTextureSize ?? 0) < 1) return { supported: false, reason: 'invalid-max-texture-size', limits };
-  if ((limits.maxVertexTextureImageUnits ?? 0) < REQUIRED_TEXTURE_UNITS) {
-    return { supported: false, reason: 'vertex-texture-fetch-unavailable', limits };
-  }
-  if ((limits.maxTextureImageUnits ?? 0) < REQUIRED_TEXTURE_UNITS) {
-    return { supported: false, reason: 'texture-unit-budget-too-small', limits };
-  }
   return { supported: true, reason: null, limits };
 }
-
-function paletteSlots(palette: readonly ToolpathFeature[]): Map<number, number> {
-  const slots = new Map<number, number>();
-  palette.forEach((entry, index) => {
-    if (Number.isInteger(entry.id) && !slots.has(entry.id)) slots.set(entry.id, index + 1);
-  });
-  return slots;
-}
-
-function colorComponent(value: number): number {
-  return Number.isFinite(value) ? (Math.abs(value) > 1 ? value / 255 : value) : 0;
-}
-
-function paletteUpload(palette: readonly ToolpathFeature[], stableSlots?: ReadonlyMap<number, number>): GpuStreamingPaletteUpload {
-  const slots = stableSlots ?? paletteSlots(palette);
-  const width = Math.max(1, ...slots.values(), palette.length) + 1;
-  const colors = new Float32Array(width * 4);
-  // Fill every stable slot first.  A later palette may omit an ID that was
-  // present in the initial palette; leaving that texel zero would make the
-  // source identity resolve to transparent black instead of the deterministic
-  // fallback color.
-  const fallbackColor = [0.58, 0.58, 0.58, 1];
-  for (let slot = 0; slot < width; slot++) colors.set(fallbackColor, slot * 4);
-  const seen = new Set<number>();
-  const unknownFeatureIds: number[] = [];
-  palette.forEach((entry, index) => {
-    if (!Number.isInteger(entry.id)) return;
-    if (seen.has(entry.id)) {
-      unknownFeatureIds.push(entry.id);
-      return;
-    }
-    seen.add(entry.id);
-    const slot = slots.get(entry.id);
-    if (slot === undefined) return;
-    const offset = slot * 4;
-    colors[offset] = colorComponent(entry.color[0]);
-    colors[offset + 1] = colorComponent(entry.color[1]);
-    colors[offset + 2] = colorComponent(entry.color[2]);
-    colors[offset + 3] = 1;
-  });
-  return {
-    width,
-    height: 1,
-    colors,
-    unknownFeatureIds: Object.freeze(unknownFeatureIds.sort((a, b) => a - b)),
-  };
-}
-
-function atlasUpload(
-  plan: GpuStreamingPagePlan,
-  page: GpuStreamingPage,
-  featureSlots = paletteSlots(plan.source.palette),
-): GpuStreamingStaticAtlasUpload {
-  const schema = plan.diagnostics.texelSchema;
-  if (schema.endpointTexels !== 2 || schema.shapeTexels !== 1 || schema.identityTexels !== 1
-    || schema.paletteTexels !== 0 || schema.metricTexels !== 0 || schema.texelsPerSegment !== STATIC_SCHEMA_TEXELS) {
-    throw new Error('unsupported-static-schema: expected the four-texel endpoint/shape/identity layout');
-  }
-  const { source } = plan;
-  const geometry = new Float32Array(page.geometryAtlasTexelCount * 4);
-  const identity = new Uint32Array(page.identityAtlasTexelCount * 4);
-  const unknownFeatureIds = new Set<number>();
-  for (let local = 0; local < page.segmentCount; local++) {
-    const sourceIndex = page.firstSegment + local;
-    const base = local * STATIC_FLOAT_TEXELS;
-    const endpoint0 = base * 4;
-    const endpoint1 = (base + 1) * 4;
-    const shape = (base + 2) * 4;
-    const start = sourceIndex * 3;
-    geometry[endpoint0] = source.starts[start] ?? 0;
-    geometry[endpoint0 + 1] = source.starts[start + 1] ?? 0;
-    geometry[endpoint0 + 2] = source.starts[start + 2] ?? 0;
-    geometry[endpoint1] = source.ends[start] ?? 0;
-    geometry[endpoint1 + 1] = source.ends[start + 1] ?? 0;
-    geometry[endpoint1 + 2] = source.ends[start + 2] ?? 0;
-    geometry[shape] = source.widths[sourceIndex] ?? 0;
-    geometry[shape + 1] = source.heights[sourceIndex] ?? 0;
-    geometry[shape + 2] = source.capAngles?.[sourceIndex] ?? source.angles?.[sourceIndex] ?? 0;
-    geometry[shape + 3] = source.biases?.[sourceIndex] ?? 0;
-    const identityTexel = local * STATIC_IDENTITY_TEXELS * 4;
-    identity[identityTexel] = source.layerIds[sourceIndex] ?? 0;
-    identity[identityTexel + 1] = source.moveOrders[sourceIndex] ?? 0;
-    const featureId = source.features[sourceIndex] ?? 0;
-    const featureSlot = featureSlots.get(featureId);
-    if (featureSlot === undefined) unknownFeatureIds.add(featureId);
-    identity[identityTexel + 2] = featureSlot ?? 0;
-    identity[identityTexel + 3] = source.moveTypes[sourceIndex] ?? 0;
-  }
-  return {
-    geometryWidth: page.geometryAtlasWidth,
-    geometryHeight: page.geometryAtlasHeight,
-    identityWidth: page.identityAtlasWidth,
-    identityHeight: page.identityAtlasHeight,
-    texelCount: page.atlasTexelCount,
-    geometry,
-    identity,
-    geometryTexelCount: page.geometryAtlasTexelCount,
-    identityTexelCount: page.identityAtlasTexelCount,
-    staticPaddingTexels: page.staticPaddingTexels,
-    uploadedBytes: geometry.byteLength + identity.byteLength,
-    unknownFeatureIds: Object.freeze([...unknownFeatureIds].sort((a, b) => a - b)),
-  };
-}
-
-function indexUpload(selection: GpuStreamingPageSelection, maxTextureSize: number): GpuStreamingIndexStreamUpload {
-  const count = selection.indices.length;
-  const width = Math.max(1, Math.min(maxTextureSize, Math.max(1, count)));
-  const height = Math.max(1, Math.ceil(Math.max(1, count) / width));
-  const indices = new Uint32Array(width * height);
-  indices.set(selection.indices);
-  return { width, height, indices };
-}
-
 interface PageState {
   readonly planPage: GpuStreamingPage;
-  readonly staticUpload: GpuStreamingStaticAtlasUpload;
-  readonly staticAtlas: GpuStreamingStaticAtlasResource;
-  indexStream: GpuStreamingIndexStreamResource | null;
+  readonly mesh?: THREE.InstancedMesh;
+  readonly selectedSourceIndices: number[];
   instanceCount: number;
-  geometry?: THREE.InstancedBufferGeometry;
-  mesh?: THREE.Mesh;
 }
 
-/**
- * A ready static-atlas renderer. ToolpathLines owns feature-gating and B2
- * fallback selection; this class owns only its page resources and draw state.
- */
 export class GpuStreamingRenderer {
   readonly capabilities: GpuStreamingCapabilityProbe;
-  readonly template: GpuStreamingTemplateResource;
+  readonly template: GpuStreamingEntityTemplateResource;
   readonly pages: readonly PageState[];
-  private paletteResource: GpuStreamingPaletteResource | null;
-  private paletteWidth: number;
-  private readonly retiredPaletteResources: GpuStreamingPaletteResource[] = [];
-  private readonly _unknownFeatureIds: readonly number[];
-  private readonly featureSlots: ReadonlyMap<number, number>;
-  private readonly sourceFeatureIds: readonly number[];
-  private _dynamicIndexBytes = 0;
-  private _paletteBytes = 0;
-  private readonly retiredIndexStreams: GpuStreamingIndexStreamResource[] = [];
-  private readonly renderedPages = new Set<number>();
-  private readonly contextElement?: GpuStreamingRendererOptions['renderer'];
+  private readonly source: GpuStreamingPagePlan['source'];
+  private palette: readonly ToolpathFeature[];
+  private dimmingLayer = -1;
+  private dimming = 1;
+  private readonly contextElement?: GpuStreamingRendererHost;
   private disposed = false;
   private contextLost = false;
-  private _staticUploadCount: number;
-  private _indexUploadCount = 0;
-
-  constructor(
-    plan: GpuStreamingPagePlan,
-    capabilities: GpuStreamingCapabilityProbe,
-    template: GpuStreamingTemplateResource,
-    pages: readonly PageState[],
-    renderer?: GpuStreamingRendererHost,
-    private readonly resourceFacade?: GpuStreamingResourceFacade,
-    staticUploadCount = pages.length,
-    paletteResource: GpuStreamingPaletteResource | null = null,
-    paletteWidth = 1,
-    unknownFeatureIds: readonly number[] = [],
-    featureSlots: ReadonlyMap<number, number> = new Map(),
-    sourceFeatureIds: readonly number[] = [],
-  ) {
+  private _entityUploadCount = 0;
+  private _entityUploadedBytes = 0;
+  constructor(plan: GpuStreamingPagePlan, capabilities: GpuStreamingCapabilityProbe, template: GpuStreamingEntityTemplateResource, pages: readonly PageState[], renderer?: GpuStreamingRendererHost) {
+    this.source = plan.source;
+    this.palette = plan.source.palette;
     this.capabilities = capabilities;
     this.template = template;
     this.pages = pages;
     this.contextElement = renderer;
-    this._staticUploadCount = staticUploadCount;
-    this.paletteResource = paletteResource;
-    this.paletteWidth = paletteWidth;
-    this._paletteBytes = paletteResource?.uploadedBytes ?? 0;
-    this._unknownFeatureIds = Object.freeze([...unknownFeatureIds]);
-    this.featureSlots = featureSlots;
-    this.sourceFeatureIds = sourceFeatureIds;
-    // Each page reports after its own draw. Retired resources are released
-    // only once every page participating in this backend has completed the
-    // frame, so a later page can never observe its old index texture gone.
-    pages.forEach((page, index) => {
-      if (page.mesh) page.mesh.onAfterRender = () => this.notifyPageRendered(index);
-    });
-    const element = renderer?.domElement;
-    element?.addEventListener?.('webglcontextlost', this.handleContextLost);
-    void plan;
+    renderer?.domElement?.addEventListener?.('webglcontextlost', this.handleContextLost);
   }
-
-  get staticUploadCount(): number { return this._staticUploadCount; }
-  get indexUploadCount(): number { return this._indexUploadCount; }
-  /** Driver-reported allocation is intentionally unavailable until a real GL query is wired. */
+  /** Entity geometry is uploaded once per selection rebuild; camera never touches it. */
+  get entityUploadCount(): number { return this._entityUploadCount; }
+  get entityUploadedBytes(): number { return this._entityUploadedBytes; }
+  // Compatibility diagnostics retained for existing browser reports. They now
+  // describe entity instance uploads, never index textures or atlas bytes.
+  get staticUploadCount(): number { return 1; }
+  get indexUploadCount(): number { return this._entityUploadCount; }
+  get staticUploadedBytes(): number {
+    const templateBytes = this.template.geometry?.attributes.position?.array.byteLength ?? 0;
+    // InstancedMesh allocates one matrix (16 floats) and one RGB color (3
+    // floats) per page capacity. These are the resident solid-entity buffers.
+    return templateBytes + this.pages.reduce((sum, page) => sum + page.planPage.segmentCount * (16 + 3) * 4, 0);
+  }
+  get dynamicIndexBytes(): number { return this._entityUploadedBytes; }
+  get paletteBytes(): number { return 0; }
   get allocatedBytes(): number | null { return null; }
-  get staticUploadedBytes(): number { return this.pages.reduce((sum, page) => sum + page.staticUpload.uploadedBytes, 0); }
-  get dynamicIndexBytes(): number { return this._dynamicIndexBytes; }
-  get paletteBytes(): number { return this._paletteBytes; }
-  get knownResidentBytes(): number { return this.staticUploadedBytes + this.dynamicIndexBytes + this.paletteBytes; }
-  get unknownFeatureIds(): readonly number[] { return this._unknownFeatureIds; }
-  /** Read-only page mesh handles for the optional streaming scene. */
-  get sceneObjects(): readonly THREE.Mesh[] {
-    return this.pages.flatMap((page) => page.mesh ? [page.mesh] : []);
-  }
-  /** Attach owned page draw objects without taking ownership of the caller's scene. */
-  attachToScene(scene: THREE.Object3D): void {
-    for (const mesh of this.sceneObjects) if (mesh.parent !== scene) scene.add(mesh);
-  }
-  /** Remove only this backend's objects; the external scene is never disposed. */
-  detachFromScene(scene: THREE.Object3D): void {
-    for (const mesh of this.sceneObjects) if (mesh.parent === scene) scene.remove(mesh);
-  }
+  get knownResidentBytes(): number { return this.staticUploadedBytes + this._entityUploadedBytes; }
+  get unknownFeatureIds(): readonly number[] { return this.collectUnknownFeatures(this.palette); }
+  get sceneObjects(): readonly THREE.InstancedMesh[] { return this.pages.flatMap((page) => page.mesh ? [page.mesh] : []); }
   get status(): 'ready' | 'context-lost' | 'disposed' { return this.disposed ? 'disposed' : this.contextLost ? 'context-lost' : 'ready'; }
   get drawInstanceCounts(): readonly number[] { return this.pages.map((page) => page.instanceCount); }
-
-  /** Called by owned page meshes after their draw; public for render-boundary tests. */
-  notifyPageRendered(pageIndex: number): void {
-    if (this.disposed || this.contextLost || pageIndex < 0 || pageIndex >= this.pages.length) return;
-    this.renderedPages.add(pageIndex);
-    if (this.renderedPages.size === this.pages.length) this.commitDrawBoundary();
-  }
-
+  attachToScene(scene: THREE.Object3D): void { for (const mesh of this.sceneObjects) if (mesh.parent !== scene) scene.add(mesh); }
+  detachFromScene(scene: THREE.Object3D): void { for (const mesh of this.sceneObjects) if (mesh.parent === scene) scene.remove(mesh); }
+  notifyPageRendered(_pageIndex: number): void { /* retained as a draw-boundary seam */ }
+  commitDrawBoundary(): void { /* no retired texture/index resources exist */ }
   private readonly handleContextLost = (event?: Event) => {
     event?.preventDefault?.();
     if (this.disposed || this.contextLost) return;
     this.contextLost = true;
     this.disposeGpuResources();
   };
-
-  /** Upload only page-local R32UI streams; static atlas textures are untouched. */
+  private collectUnknownFeatures(palette: readonly ToolpathFeature[]): readonly number[] {
+    const known = new Set(palette.map((entry) => entry.id));
+    return Object.freeze([...new Set(Array.from(this.source.features).filter((id) => !known.has(id)))].sort((a, b) => a - b));
+  }
+  private writeInstance(page: PageState, slot: number, sourceIndex: number): void {
+    const mesh = page.mesh;
+    if (!mesh) return;
+    mesh.setMatrixAt(slot, buildGpuStreamingInstanceMatrix(this.source, sourceIndex));
+    const color = paletteColor(this.palette, this.source.features[sourceIndex] ?? 0);
+    if (this.dimmingLayer >= 0 && (this.source.layerIds[sourceIndex] ?? 0) < this.dimmingLayer) color.multiplyScalar(this.dimming);
+    mesh.setColorAt(slot, color);
+  }
+  /** Rebuild only selected page instances; source parsing and page planning stay untouched. */
   updateSelection(selection: GpuStreamingSelection): GpuStreamingSelectionUpdate {
-    if (this.disposed || this.contextLost) throw new Error('GPU streaming renderer is unavailable');
+    if (this.disposed || this.contextLost) throw new Error('GPU entity renderer is unavailable');
     if (selection.pages.length !== this.pages.length) throw new RangeError('selection page count does not match page plan');
-    const created: GpuStreamingIndexStreamResource[] = [];
-    let createdBytes = 0;
-    try {
-      for (let i = 0; i < this.pages.length; i++) {
-        const pageSelection = selection.pages[i]!;
-        const page = this.pages[i]!;
-        if (pageSelection.firstSegment !== page.planPage.firstSegment || pageSelection.indices.length !== pageSelection.emittedCount) {
-          throw new RangeError(`selection page ${i} does not match page plan`);
-        }
-        for (const index of pageSelection.indices) {
-          if (index >= page.planPage.segmentCount) throw new RangeError(`selection page ${i} contains an out-of-range local index`);
-        }
-        const createdStream = (this.resourceFacade ?? threeResourceFacade).createIndexStream(
-          indexUpload(pageSelection, this.capabilities.limits.maxTextureSize!),
-        );
-        const stream: GpuStreamingIndexStreamResource = {
-          ...createdStream,
-          dispose: onceDispose(createdStream.dispose),
-        };
-        created.push(stream);
-        createdBytes += stream.uploadedBytes ?? 0;
+    let uploadedBytes = 0;
+    for (let pageIndex = 0; pageIndex < this.pages.length; pageIndex++) {
+      const page = this.pages[pageIndex]!;
+      const selected = selection.pages[pageIndex]!;
+      if (selected.firstSegment !== page.planPage.firstSegment || selected.indices.length !== selected.emittedCount) throw new RangeError(`selection page ${pageIndex} does not match page plan`);
+      if (selected.emittedCount > page.planPage.segmentCount) throw new RangeError(`selection page ${pageIndex} exceeds instance capacity`);
+      page.selectedSourceIndices.length = 0;
+      selected.indices.forEach((local, slot) => {
+        if (local >= page.planPage.segmentCount) throw new RangeError(`selection page ${pageIndex} contains an out-of-range local index`);
+        const sourceIndex = page.planPage.firstSegment + local;
+        page.selectedSourceIndices.push(sourceIndex);
+        this.writeInstance(page, slot, sourceIndex);
+      });
+      page.instanceCount = selected.emittedCount;
+      if (page.mesh) {
+        page.mesh.count = page.instanceCount;
+        page.mesh.instanceMatrix.needsUpdate = true;
+        if (page.mesh.instanceColor) page.mesh.instanceColor.needsUpdate = true;
       }
-      // Publish all replacement streams together. Until this point an
-      // allocation failure leaves the previous draw state intact.
-      for (let i = 0; i < this.pages.length; i++) {
-        const page = this.pages[i]!;
-        if (page.indexStream) this.retiredIndexStreams.push(page.indexStream);
-        page.indexStream = created[i]!;
-        page.instanceCount = selection.pages[i]!.emittedCount;
-        if (page.geometry) page.geometry.instanceCount = page.instanceCount;
-      }
-      this._indexUploadCount += this.pages.length;
-      this._dynamicIndexBytes = createdBytes;
-      return { uploadedPageCount: this.pages.length, drawInstanceCounts: this.drawInstanceCounts };
-    } catch (error) {
-      created.forEach((stream) => safeDispose(stream));
-      throw error;
+      uploadedBytes += selected.emittedCount * (16 * 4 + 3 * 4);
     }
+    this._entityUploadCount += this.pages.length;
+    this._entityUploadedBytes = uploadedBytes;
+    return { uploadedPageCount: this.pages.length, drawInstanceCounts: this.drawInstanceCounts };
   }
-
-  /** Set camera uniforms only; this cannot rebuild plans, indices, or textures. */
-  updateCamera(camera: { readonly position?: THREE.Vector3; readonly viewProjection?: THREE.Matrix4 }): void {
-    if (this.disposed || this.contextLost) return;
-    const uniforms = this.template.material?.uniforms;
-    if (!uniforms) return;
-    if (camera.position && uniforms.uCameraPosition) (uniforms.uCameraPosition.value as THREE.Vector3).copy(camera.position);
-    if (camera.viewProjection && uniforms.uViewProjection) (uniforms.uViewProjection.value as THREE.Matrix4).copy(camera.viewProjection);
-  }
-
-  /** Update dimming uniforms without touching static or enabled-index data. */
+  updateCamera(_camera: { readonly position?: THREE.Vector3; readonly viewProjection?: THREE.Matrix4 }): void { /* matrices are camera-independent */ }
   updateDimming(activeLayer: number, earlierLayerDim = 0.25): void {
-    const uniforms = this.template.material?.uniforms;
-    if (uniforms?.uActiveLayer) uniforms.uActiveLayer.value = activeLayer;
-    if (uniforms?.uEarlierLayerDim) uniforms.uEarlierLayerDim.value = earlierLayerDim;
-  }
-
-  /**
-   * Replace only the small palette texture. Segment atlases and enabled
-   * streams are intentionally not rebuilt; unknown IDs use slot zero.
-   */
-  updatePalette(palette: readonly ToolpathFeature[]): GpuStreamingPaletteUpdate {
-    if (this.disposed || this.contextLost) throw new Error('GPU streaming renderer is unavailable');
-    const upload = paletteUpload(palette, this.featureSlots);
-    const paletteIds = new Set(palette.filter((entry) => Number.isInteger(entry.id)).map((entry) => entry.id));
-    const unknownFeatureIds = this.sourceFeatureIds.filter((id) => !this.featureSlots.has(id) || !paletteIds.has(id));
-    const createPalette = this.resourceFacade?.createPalette;
-    if (!createPalette) return { uploaded: false, unknownFeatureIds: Object.freeze(unknownFeatureIds) };
-    const created = createPalette(upload);
-    const resource: GpuStreamingPaletteResource = { ...created, dispose: onceDispose(created.dispose) };
-    if (this.paletteResource) this.retiredPaletteResources.push(this.paletteResource);
-    this.paletteResource = resource;
-    this.paletteWidth = upload.width;
-    this._paletteBytes = resource.uploadedBytes ?? upload.colors.byteLength;
-    if (this.template.material?.uniforms.uPalette) this.template.material.uniforms.uPalette.value = resource.texture ?? null;
-    if (this.template.material?.uniforms.uPaletteWidth) this.template.material.uniforms.uPaletteWidth.value = upload.width;
-    return { uploaded: true, unknownFeatureIds: Object.freeze(unknownFeatureIds) };
-  }
-
-  /** Release streams retired after a completed draw boundary. */
-  commitDrawBoundary(): void {
-    this.renderedPages.clear();
-    while (this.retiredIndexStreams.length > 0) safeDispose(this.retiredIndexStreams.pop());
-    while (this.retiredPaletteResources.length > 0) safeDispose(this.retiredPaletteResources.pop());
-  }
-
-  private disposeGpuResources(): void {
-    this.renderedPages.clear();
+    if (this.disposed || this.contextLost) return;
+    this.dimmingLayer = activeLayer;
+    this.dimming = earlierLayerDim;
     for (const page of this.pages) {
-      safeDispose(page.indexStream);
-      page.indexStream = null;
-      safeDispose(page.staticAtlas);
-      try { page.geometry?.dispose(); } catch { /* continue releasing sibling GPU handles */ }
-      page.instanceCount = 0;
+      page.selectedSourceIndices.forEach((sourceIndex, slot) => this.writeInstance(page, slot, sourceIndex));
+      if (page.mesh?.instanceColor) page.mesh.instanceColor.needsUpdate = true;
     }
-    this.commitDrawBoundary();
-    safeDispose(this.paletteResource);
-    this.paletteResource = null;
-    this._dynamicIndexBytes = 0;
-    this._paletteBytes = 0;
-    safeDispose(this.template);
   }
-
-  /** Idempotent; caller-owned scenes, cameras, and renderers are untouched. */
+  updatePalette(palette: readonly ToolpathFeature[]): GpuStreamingPaletteUpdate {
+    if (this.disposed || this.contextLost) throw new Error('GPU entity renderer is unavailable');
+    this.palette = palette;
+    for (const page of this.pages) {
+      page.selectedSourceIndices.forEach((sourceIndex, slot) => this.writeInstance(page, slot, sourceIndex));
+      if (page.mesh?.instanceColor) page.mesh.instanceColor.needsUpdate = true;
+    }
+    return { uploaded: true, unknownFeatureIds: this.collectUnknownFeatures(palette) };
+  }
+  private disposeGpuResources(): void {
+    for (const page of this.pages) {
+      page.instanceCount = 0;
+      page.selectedSourceIndices.length = 0;
+      if (page.mesh) page.mesh.count = 0;
+    }
+    this.template.dispose();
+  }
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -697,28 +285,9 @@ export class GpuStreamingRenderer {
   }
 }
 
-/** Build static atlases and shared template, returning diagnostics on failure. */
-export function createGpuStreamingRenderer(
-  plan: GpuStreamingPagePlan,
-  options: GpuStreamingRendererOptions = {},
-): GpuStreamingBuildResult {
-  if (!plan || !plan.diagnostics || !Array.isArray(plan.pages)) {
-    return { ok: false, diagnostics: { reason: 'invalid-page-plan', message: 'A valid GpuStreamingPagePlan is required', capabilities: null } };
-  }
-  // Budget rejection is deliberately before context probing and, critically,
-  // before the shared template/palette/atlas factory can allocate anything.
-  // The caller can retain its B2 path when the planner has already determined
-  // that this plan cannot fit the declared GPU budget.
-  if (plan.diagnostics.budgetExceeded) {
-    return {
-      ok: false,
-      diagnostics: {
-        reason: 'gpu-budget-exceeded',
-        message: `GPU streaming plan requires ${plan.diagnostics.estimatedBytes} bytes but the budget is ${plan.diagnostics.budgetBytes} bytes`,
-        capabilities: null,
-      },
-    };
-  }
+export function createGpuStreamingRenderer(plan: GpuStreamingPagePlan, options: GpuStreamingRendererOptions = {}): GpuStreamingBuildResult {
+  if (!plan || !plan.diagnostics || !Array.isArray(plan.pages)) return { ok: false, diagnostics: { reason: 'invalid-page-plan', message: 'A valid GpuStreamingPagePlan is required', capabilities: null } };
+  if (plan.diagnostics.budgetExceeded) return { ok: false, diagnostics: { reason: 'gpu-budget-exceeded', message: `GPU entity plan exceeds the configured budget of ${plan.diagnostics.budgetBytes} bytes`, capabilities: null } };
   let context: WebGLRenderingContext | undefined;
   try { context = options.context ?? options.renderer?.getContext(); } catch (error) {
     return { ok: false, diagnostics: { reason: 'context-query-failed', message: error instanceof Error ? error.message : String(error), capabilities: null } };
@@ -728,102 +297,31 @@ export function createGpuStreamingRenderer(
   try { capabilities = probeGpuStreamingCapabilities(context); } catch (error) {
     return { ok: false, diagnostics: { reason: 'capability-query-failed', message: error instanceof Error ? error.message : String(error), capabilities: null } };
   }
-  if (!capabilities.supported) {
-    return { ok: false, diagnostics: { reason: capabilities.reason ?? 'unsupported', message: 'GPU streaming requires WebGL2 integer vertex texture fetch', capabilities } };
-  }
-  const schema = plan.diagnostics.texelSchema;
-  if (schema.bytesPerTexel !== 16 || schema.bytesPerStaticSegment !== 64) {
-    return { ok: false, diagnostics: { reason: 'unsupported-static-schema', message: 'The runtime backend supports the planner 64-byte schema only', capabilities } };
-  }
+  if (!capabilities.supported) return { ok: false, diagnostics: { reason: capabilities.reason ?? 'unsupported', message: 'GPU entity rendering requires WebGL2', capabilities } };
   const factory = options.resourceFacade ?? threeResourceFacade;
-  let template: GpuStreamingTemplateResource | null = null;
-  let paletteResource: GpuStreamingPaletteResource | null = null;
+  let template: GpuStreamingEntityTemplateResource | undefined;
   const pages: PageState[] = [];
-  const unknownFeatureIds = new Set<number>();
-  const featureSlots = paletteSlots(plan.source.palette);
-  const sourceFeatureIds = [...new Set(Array.from(plan.source.features))];
   try {
-    const createdTemplate = factory.createSharedTemplate();
-    template = { ...createdTemplate, dispose: onceDispose(createdTemplate.dispose) };
-    const initialPalette = paletteUpload(plan.source.palette);
-    if (factory.createPalette) {
-      const createdPalette = factory.createPalette(initialPalette);
-      paletteResource = { ...createdPalette, dispose: onceDispose(createdPalette.dispose) };
+    const created = factory.createEntityTemplate();
+    template = { ...created, dispose: onceDispose(created.dispose) };
+    if (!template.geometry || !template.material) throw new Error('entity template did not provide geometry and material');
+    for (const page of plan.pages) {
+      const mesh = new THREE.InstancedMesh(template.geometry, template.material, page.segmentCount);
+      mesh.count = 0;
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 1000;
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      pages.push({ planPage: page, mesh, selectedSourceIndices: [], instanceCount: 0 });
     }
-    for (let i = 0; i < plan.pages.length; i++) {
-      const page = plan.pages[i]!;
-      if (page.geometryAtlasWidth > capabilities.limits.maxTextureSize!
-        || page.geometryAtlasHeight > capabilities.limits.maxTextureSize!
-        || page.identityAtlasWidth > capabilities.limits.maxTextureSize!
-        || page.identityAtlasHeight > capabilities.limits.maxTextureSize!) {
-        throw new Error(`page ${i} atlas dimensions exceed MAX_TEXTURE_SIZE (geometry ${page.geometryAtlasWidth}x${page.geometryAtlasHeight}, identity ${page.identityAtlasWidth}x${page.identityAtlasHeight})`);
-      }
-      const upload = atlasUpload(plan, page, featureSlots);
-      upload.unknownFeatureIds.forEach((id) => unknownFeatureIds.add(id));
-      const createdStaticAtlas = factory.createStaticAtlas(upload);
-      const staticAtlas: GpuStreamingStaticAtlasResource = {
-        ...createdStaticAtlas,
-        dispose: onceDispose(createdStaticAtlas.dispose),
-      };
-      const state: PageState = { planPage: page, staticUpload: upload, staticAtlas, indexStream: null, instanceCount: 0 };
-      // Register immediately so any later template/mesh setup failure also
-      // releases the atlas just allocated for this page.
-      pages.push(state);
-      if (template.geometry && template.material) {
-        const pageGeometry = new THREE.InstancedBufferGeometry();
-        pageGeometry.index = template.geometry.index;
-        const position = template.geometry.getAttribute('position');
-        if (!position) throw new Error('shared template has no position attribute');
-        pageGeometry.setAttribute('position', position);
-        pageGeometry.instanceCount = 0;
-        state.geometry = pageGeometry;
-        state.mesh = new THREE.Mesh(pageGeometry, template.material);
-        state.mesh.frustumCulled = false;
-        state.mesh.renderOrder = 1000;
-        state.mesh.onBeforeRender = () => {
-          const uniforms = template!.material?.uniforms;
-          if (!uniforms) return;
-          uniforms.uStaticAtlas.value = state.staticAtlas.geometryTexture ?? null;
-          uniforms.uStaticIdentity.value = state.staticAtlas.identityTexture ?? null;
-          uniforms.uEnabledIndices.value = state.indexStream?.texture ?? null;
-          uniforms.uGeometryAtlasWidth.value = page.geometryAtlasWidth;
-          uniforms.uIdentityAtlasWidth.value = page.identityAtlasWidth;
-          uniforms.uIndexTextureWidth.value = state.indexStream?.width ?? 1;
-          pageGeometry.instanceCount = state.instanceCount;
-        };
-      }
-    }
-    if (template.material) {
-      template.material.uniforms.uPalette.value = paletteResource?.texture ?? null;
-      template.material.uniforms.uPaletteWidth.value = initialPalette.width;
-    }
-    const backend = new GpuStreamingRenderer(plan, capabilities, template, pages, options.renderer, factory, pages.length, paletteResource, initialPalette.width, [...unknownFeatureIds], featureSlots, sourceFeatureIds);
+    const backend = new GpuStreamingRenderer(plan, capabilities, template, pages, options.renderer);
     if (options.compile !== false && options.renderer?.compile) {
       const scene = new THREE.Scene();
-      for (const page of pages) if (page.mesh) scene.add(page.mesh);
+      pages.forEach((page) => { if (page.mesh) scene.add(page.mesh); });
       options.renderer.compile(scene, new THREE.Camera());
     }
     return { ok: true, backend };
   } catch (error) {
-    for (const page of pages) {
-      safeDispose(page.indexStream);
-      safeDispose(page.staticAtlas);
-      try { page.geometry?.dispose(); } catch { /* continue releasing sibling GPU handles */ }
-    }
-    safeDispose(paletteResource);
-    safeDispose(template);
-    return {
-      ok: false,
-      diagnostics: {
-        reason: 'construction-failed',
-        message: error instanceof Error ? error.message : String(error),
-        capabilities,
-      },
-    };
+    template?.dispose();
+    return { ok: false, diagnostics: { reason: 'construction-failed', message: error instanceof Error ? error.message : String(error), capabilities } };
   }
-}
-
-/** Exported for contract tests and for a future worker-side atlas packer. */
-export function packGpuStreamingStaticAtlas(plan: GpuStreamingPagePlan, page: GpuStreamingPage): GpuStreamingStaticAtlasUpload {
-  return atlasUpload(plan, page);
 }

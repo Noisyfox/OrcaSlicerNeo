@@ -233,13 +233,16 @@ The implementation architecture for the GPU streaming/indexed-segment path is
 recorded in [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md).
 That specification is an implementation refinement only: the behaviour and
 performance goals below remain authoritative, and the current backend remains
-the migration fallback until its gates pass.
+the migration fallback until its gates pass. Its accepted renderer is now the
+opaque solid-entity instance design recorded in the dated living entry; the
+earlier atlas/texel-fetch shader variant is superseded.
 
 Toolpaths are GPU-rendered, camera-facing extrusion bands. Rotation, pan, and
-zoom only update camera uniforms and must never reconstruct toolpath geometry.
-Layer ranges, the move end, legend filters, dimming, and colour-scheme changes
-should normally update shader uniforms or prebuilt buffer visibility, not
-rebuild the complete scene.
+zoom only update camera/render state and must never reconstruct or upload
+toolpath entities. Layer ranges, the move end, legend filters, dimming, and
+colour-scheme changes rebuild only selected page-local instance matrices,
+colours, and counts; they do not re-parse the source or rebuild the complete
+scene. Toolpath materials remain opaque with `NoBlending`.
 
 For ordinary slices, all prepared segment data may remain GPU-resident. For
 large or multi-colour slices, segment data is partitioned into layer-aligned

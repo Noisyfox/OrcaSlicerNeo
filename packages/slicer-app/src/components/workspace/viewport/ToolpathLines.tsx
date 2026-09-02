@@ -4,10 +4,7 @@ import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
-import {
-  createToolpathBandMaterial,
-  updateToolpathChunkVisibility,
-} from './toolpathBandGeometry';
+import { updateToolpathChunkVisibility } from './toolpathBandGeometry';
 import { buildPreviewVisibility } from './previewSemantics';
 import {
   buildGpuStreamingPlan,
@@ -23,9 +20,8 @@ import { rebuildGpuStreamingSelection } from './gpuStreamingPlanner';
 
 /**
  * GPU toolpath renderer. Each segment is an instanced rectangular prism whose
- * width/height are world-space attributes. OrbitControls only changes the
- * camera uniforms consumed by the shader; the chunk geometries are created
- * once per slice result and remain resident until that result is invalidated.
+ * width/height/direction are baked into real instance matrices. Camera motion
+ * only updates the camera; it never rebuilds or uploads entity geometry.
  */
 export function ToolpathLines({
   data,
@@ -47,7 +43,6 @@ export function ToolpathLines({
     () => resolveGpuStreamingFeatureGate(gpuStreamingGate ?? contextGate),
     [contextGate, gpuStreamingGate],
   );
-  const material = useMemo(() => createToolpathBandMaterial(), []);
   const [activeStreaming, setActiveStreaming] = useState<{ plan: ReturnType<typeof buildGpuStreamingPlan>; backend: GpuStreamingBackend } | null>(null);
   const activeStreamingRef = useRef<typeof activeStreaming>(null);
   const initialSelectionBackendRef = useRef<GpuStreamingBackend | null>(null);
@@ -249,18 +244,13 @@ export function ToolpathLines({
     invalidate();
   }, [activeStreaming, data.chunks, invalidate, plan, visibility]);
 
-  useEffect(() => () => material.dispose(), [material]);
-
   const useStreaming = activeStreaming?.plan === plan;
   return (
     <group renderOrder={1000}>
       {!useStreaming && data.chunks.map((chunk) => (
-        <mesh
+        <primitive
           key={`${chunk.firstSegment}:${chunk.segmentCount}`}
-          geometry={chunk.geometry}
-          material={material}
-          frustumCulled={false}
-          renderOrder={1000}
+          object={chunk.mesh}
         />
       ))}
     </group>

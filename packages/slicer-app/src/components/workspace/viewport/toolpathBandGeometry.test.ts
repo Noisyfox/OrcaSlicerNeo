@@ -23,7 +23,7 @@ describe('toolpath band geometry', () => {
     ]);
   });
 
-  it('uses per-segment width and height attributes and remains instanced', () => {
+  it('uses a real capped prism template and per-segment instance matrices', () => {
     const range = { firstSegment: 0, segmentCount: 2, firstLayer: 4, lastLayer: 4 };
     const chunk = createToolpathBandChunk(
       Float32Array.from([0, 0, 1, 1, 0, 1]),
@@ -33,16 +33,14 @@ describe('toolpath band geometry', () => {
       Float32Array.from([1, 0, 0, 0, 1, 0]),
       range,
     );
-    expect(chunk.geometry).toBeInstanceOf(THREE.InstancedBufferGeometry);
-    expect(chunk.geometry.instanceCount).toBe(2);
-    const widths = chunk.geometry.getAttribute('instanceWidth').array as Float32Array;
-    const heights = chunk.geometry.getAttribute('instanceHeight').array as Float32Array;
-    expect(widths[0]).toBeCloseTo(0.42);
-    expect(widths[1]).toBeCloseTo(0.68);
-    expect(heights[0]).toBeCloseTo(0.2);
-    expect(heights[1]).toBeCloseTo(0.32);
-    expect(chunk.geometry.getAttribute('instanceStart').count).toBe(2);
-    expect(chunk.geometry.getAttribute('instanceEnd').count).toBe(2);
+    expect(chunk.geometry).toBeInstanceOf(THREE.BoxGeometry);
+    expect(chunk.mesh).toBeInstanceOf(THREE.InstancedMesh);
+    expect(chunk.mesh.count).toBe(2);
+    expect(chunk.instanceMatrices).toHaveLength(2);
+    expect(new THREE.Vector3().setFromMatrixScale(chunk.instanceMatrices[0]!).x).toBeCloseTo(1);
+    expect(new THREE.Vector3().setFromMatrixScale(chunk.instanceMatrices[0]!).y).toBeCloseTo(0.42);
+    expect(new THREE.Vector3().setFromMatrixScale(chunk.instanceMatrices[0]!).z).toBeCloseTo(0.2);
+    (chunk.mesh.material as THREE.Material).dispose();
     chunk.geometry.dispose();
   });
 
@@ -105,14 +103,15 @@ describe('toolpath band geometry', () => {
       Float32Array.from([0.4, 0.4]), Float32Array.from([0.2, 0.2]),
       Float32Array.from([1, 0, 0, 1, 0, 0]), range,
     );
-    const geometry = chunk.geometry;
+    const mesh = chunk.mesh;
     updateToolpathChunkVisibility([chunk], {
       visible: Uint8Array.from([1, 0]), dimmed: Uint8Array.from([0, 1]),
     });
-    expect(chunk.geometry).toBe(geometry);
-    expect((geometry.getAttribute('instanceVisibility').array as Float32Array)[1]).toBe(0);
-    expect((geometry.getAttribute('instanceDimmed').array as Float32Array)[1]).toBe(1);
-    geometry.dispose();
+    expect(chunk.mesh).toBe(mesh);
+    const hidden = new THREE.Matrix4().fromArray(Array.from(mesh.instanceMatrix.array).slice(16, 32));
+    expect(new THREE.Vector3().setFromMatrixScale(hidden).length()).toBe(0);
+    (mesh.material as THREE.Material).dispose();
+    chunk.geometry.dispose();
   });
 
   it('partitions the exact performance fixture sizes in linear time', () => {

@@ -35,6 +35,11 @@ export interface GpuStreamingBrowserBenchmarkReport {
     readonly vendor: string | null;
     readonly renderer: string | null;
   } | null;
+  /** Shared solid template plus preallocated per-page instance buffers. */
+  readonly entityTemplateBytes: number;
+  readonly entityUploadBytes: number;
+  readonly entityUploadCount: number;
+  /** Deprecated report aliases retained for existing dashboard consumers. */
   readonly staticUploadBytes: number;
   readonly staticUploadCount: number;
   readonly indexUploadCount: number;
@@ -46,6 +51,8 @@ export interface GpuStreamingBrowserBenchmarkReport {
   readonly cameraTotalMs: number | null;
   readonly cameraAverageFrameMs: number | null;
   readonly cameraFps: number | null;
+  readonly cameraEntityUploadCountDelta: number;
+  /** Deprecated alias for consumers that still use the old report schema. */
   readonly cameraIndexUploadCountDelta: number;
   readonly fallbackReason: string | null;
   readonly fallbackMessage: string | null;
@@ -68,9 +75,9 @@ type BenchmarkWindow = Window & {
 };
 
 function makeBenchmarkSource(segmentCount: number): GpuStreamingSource {
-  // The fixture remains metadata-only for unit tests.  This browser-only
-  // adapter adds bulk SoA geometry, never one object per segment, so atlas
-  // packing and actual WebGL uploads are exercised without changing the
+  // The fixture remains metadata-only for unit tests. This browser-only
+  // adapter adds bulk SoA geometry, never one object per segment, so the
+  // actual solid InstancedMesh path is exercised without changing the
   // fixture's cheap contract.
   const metadata = createGpuStreamingMetadata({
     segmentCount,
@@ -170,6 +177,9 @@ function unavailableReport(
       maxVertexTextureImageUnits: capabilities.limits.maxVertexTextureImageUnits,
     } : null,
     browser: null,
+    entityTemplateBytes: 0,
+    entityUploadBytes: 0,
+    entityUploadCount: 0,
     staticUploadBytes: 0,
     staticUploadCount: 0,
     indexUploadCount: 0,
@@ -181,6 +191,7 @@ function unavailableReport(
     cameraTotalMs: null,
     cameraAverageFrameMs: null,
     cameraFps: null,
+    cameraEntityUploadCountDelta: 0,
     cameraIndexUploadCountDelta: 0,
     fallbackReason: diagnostics.reason,
     fallbackMessage: diagnostics.message,
@@ -246,7 +257,7 @@ export async function runGpuStreamingBrowserBenchmark(
     });
     backend.updateSelection(initialSelection);
     backend.attachToScene(scene);
-    renderer.render(scene, camera); // force Three.js to issue atlas/index uploads
+    renderer.render(scene, camera); // force Three.js to issue solid entity uploads
     const staticUploadMs = performance.now() - buildStart;
 
     const selectionStart = performance.now();
@@ -260,7 +271,7 @@ export async function runGpuStreamingBrowserBenchmark(
     backend.updateSelection(selection);
     renderer.render(scene, camera); // complete the draw boundary
     const selectionRebuildUploadMs = performance.now() - selectionStart;
-    const indexUploadCountBeforeCamera = backend.indexUploadCount;
+    const entityUploadCountBeforeCamera = backend.entityUploadCount;
 
     const frameCountTarget = Math.max(1, Math.floor(options.frameCount ?? 30));
     let cameraFrames = 0;
@@ -278,9 +289,10 @@ export async function runGpuStreamingBrowserBenchmark(
     });
     const cameraTotalMs = performance.now() - cameraStart;
     beforeDispose = resourceCounts(renderer);
-    const staticUploadBytes = backend.staticUploadedBytes;
-    const selectionUploadedBytes = backend.dynamicIndexBytes;
-    const cameraIndexUploadCountDelta = backend.indexUploadCount - indexUploadCountBeforeCamera;
+    const entityTemplateBytes = backend.staticUploadedBytes;
+    const entityUploadBytes = backend.entityUploadedBytes;
+    const selectionUploadedBytes = entityUploadBytes;
+    const cameraEntityUploadCountDelta = backend.entityUploadCount - entityUploadCountBeforeCamera;
     const capabilities = capabilitySummary(backend);
     backend.detachFromScene(scene);
     backend.dispose();
@@ -293,7 +305,10 @@ export async function runGpuStreamingBrowserBenchmark(
       pageCount: plan.pages.length,
       capabilities,
       browser,
-      staticUploadBytes,
+      entityTemplateBytes,
+      entityUploadBytes,
+      entityUploadCount: backend.entityUploadCount,
+      staticUploadBytes: entityTemplateBytes,
       staticUploadCount: backend.staticUploadCount,
       indexUploadCount: backend.indexUploadCount,
       staticUploadMs,
@@ -304,7 +319,8 @@ export async function runGpuStreamingBrowserBenchmark(
       cameraTotalMs,
       cameraAverageFrameMs: cameraTotalMs / Math.max(1, cameraFrames),
       cameraFps: cameraFrames * 1000 / Math.max(0.001, cameraTotalMs),
-      cameraIndexUploadCountDelta,
+      cameraEntityUploadCountDelta,
+      cameraIndexUploadCountDelta: cameraEntityUploadCountDelta,
       fallbackReason: null,
       fallbackMessage: null,
       disposed: backend.status === 'disposed',

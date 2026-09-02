@@ -365,8 +365,9 @@ and drives structural operations through the typed client.
 
 ### G-code preview GPU streaming renderer
 
-> [!info] Design accepted 2026-09-02; browser/dual-host verification landed
-> 2026-09-02; representative integrated-GPU performance evidence remains
+> [!info] Opaque solid-entity design accepted 2026-09-02. The earlier
+> atlas/texel-fetch shader design is superseded; browser/dual-host verification
+> remains opt-in and representative integrated-GPU performance evidence is
 > pending, so the default stays off with automatic B2 fallback. Browser
 > hardware limits and measurements are recorded in the living implementation
 > entry.
@@ -374,12 +375,12 @@ and drives structural operations through the typed client.
 > Major renderer/performance specification:
 > [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)
 
-- [x] Step 1 — accept the static-atlas/dynamic-enabled-index architecture and
-      deterministic 250k/1m metadata fixture contract (no renderer or bridge
-      change)
+- [x] Step 1 — accept the source-neutral planner and deterministic 250k/1m
+      metadata fixture contract (no bridge change)
 - [x] Step 2 — source adapter/page planner behind the current B2 backend
-- [x] Step 3 — WebGL2 streaming backend and capability/lifetime fallback
-      (browser performance evidence remains pending)
+- [x] Step 3 — WebGL2 opaque solid-entity backend and capability/lifetime
+      fallback (shared BoxGeometry + page-local InstancedMesh; no custom
+      thickness shader or alpha blend)
 - [x] Step 4 — real preview integration behind an explicit default-off gate,
       fallback diagnostics, and opt-in dual-host smoke coverage
 - [ ] Step 5 — dual-host verification and browser performance evidence landed;
