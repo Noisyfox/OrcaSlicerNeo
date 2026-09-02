@@ -317,6 +317,13 @@ const threeResourceFacade: GpuStreamingResourceFacade = {
         uPaletteWidth: { value: 1 },
         uViewProjection: { value: new THREE.Matrix4() },
       },
+      // Preview toolpaths must remain visible through the model shell, matching
+      // the B2 renderer and the Preview v2 shell/depth contract.  The streaming
+      // pages are drawn at a late render order; depth testing here would hide
+      // legitimate bands behind opaque Benchy shell triangles.
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
       side: THREE.DoubleSide,
     });
     return { geometry, material, dispose: onceDispose(() => { geometry.dispose(); material.dispose(); }) };

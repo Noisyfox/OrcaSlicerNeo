@@ -316,3 +316,22 @@ shown above. That timeout reinforces that this runner cannot establish the
 representative integrated-GPU gate. B2 remains the automatic
 capability/budget/compile/source/context/selection fallback; its removal is
 still a separately approved cleanup after a release cycle.
+
+## Follow-up: shell depth regression (2026-09-02)
+
+An opt-in real bridge probe using the repository's `3DBenchy.drc` handy model
+and the staged `Bambu Lab P1S 0.4 nozzle` profile produced 100,295 segments
+across 170 ordered layers (the final layers 140–169 all contained positive
+width/height segments). The planner therefore produced complete multi-page
+selection data; the reported missing upper toolpath was not an active-range,
+page-boundary, atlas-addressing, palette, or frustum failure.
+
+The streaming `ShaderMaterial` had retained Three's default depth testing and
+depth writes, unlike the existing B2 preview material. Opaque Benchy shell
+triangles consequently hid valid bands behind the shell, with the symptom
+appearing as a height-dependent cutoff. The material now explicitly uses
+`transparent: true`, `depthTest: false`, and `depthWrite: false`, preserving
+the Preview v2 rule that paths remain visible through model shells. A
+deterministic 70,000-segment, four-layer stream test also asserts that all
+segments across multiple pages are selected/drawn and that these depth
+semantics remain enabled.

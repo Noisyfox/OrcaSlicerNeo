@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import { planGpuStreamingPages, type GpuStreamingPagePlan, type GpuStreamingSource } from './gpuStreamingPlanner';
+import {
+  planGpuStreamingPages,
+  rebuildGpuStreamingSelection,
+  type GpuStreamingPagePlan,
+  type GpuStreamingSource,
+} from './gpuStreamingPlanner';
 import {
   GPU_STREAMING_FRAGMENT_SHADER,
   GPU_STREAMING_TEMPLATE_FACE_INDICES,
@@ -39,6 +44,46 @@ function source(): GpuStreamingSource {
 
 function plan(): GpuStreamingPagePlan {
   return planGpuStreamingPages(source(), { softPageTarget: 2 });
+}
+
+/** A deterministic high-layer stream that necessarily spans several pages. */
+function multiPageHighLayerSource(): GpuStreamingSource {
+  const layerCounts = [18_000, 17_000, 16_000, 19_000];
+  const segmentCount = layerCounts.reduce((sum, count) => sum + count, 0);
+  const layerIds = new Uint32Array(segmentCount);
+  const moveOrders = new Uint32Array(segmentCount);
+  const starts = new Float32Array(segmentCount * 3);
+  const ends = new Float32Array(segmentCount * 3);
+  const widths = new Float32Array(segmentCount).fill(0.4);
+  const heights = new Float32Array(segmentCount).fill(0.2);
+  const features = new Uint32Array(segmentCount);
+  let cursor = 0;
+  layerCounts.forEach((count, layer) => {
+    for (let move = 0; move < count; move++, cursor++) {
+      layerIds[cursor] = layer;
+      moveOrders[cursor] = move;
+      starts[cursor * 3] = cursor;
+      ends[cursor * 3] = cursor + 1;
+    }
+  });
+  return {
+    segmentCount,
+    starts,
+    ends,
+    widths,
+    heights,
+    layerIds,
+    moveOrders,
+    gcodeIds: new Uint32Array(segmentCount),
+    moveTypes: new Uint8Array(segmentCount).fill(1),
+    extrusionRoles: new Uint16Array(segmentCount),
+    extruderIds: new Uint8Array(segmentCount),
+    colorPrintIds: new Uint8Array(segmentCount),
+    features,
+    palette: [{ id: 0, name: 'feature', color: [255, 128, 0] }],
+    metrics: {},
+    layers: [],
+  };
 }
 
 function context(overrides: Record<string, unknown> = {}): WebGLRenderingContext {
@@ -134,6 +179,31 @@ describe('GPU streaming WebGL2 renderer backend', () => {
     expect(scene.children).toHaveLength(2);
     result.backend.detachFromScene(scene);
     expect(scene.children).toHaveLength(0);
+    result.backend.dispose();
+  });
+
+  it('keeps high layers visible across page boundaries and through the model shell', () => {
+    const highLayerPlan = planGpuStreamingPages(multiPageHighLayerSource(), { softPageTarget: 20_000 });
+    expect(highLayerPlan.pages.length).toBeGreaterThan(1);
+    const result = createGpuStreamingRenderer(highLayerPlan, { context: context() });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const selection = rebuildGpuStreamingSelection(highLayerPlan, {
+      visibleLayerStart: 0,
+      visibleLayerEnd: 3,
+      activeMoveEnd: Number.MAX_SAFE_INTEGER,
+      showTravel: true,
+      featureVisibility: { 0: true },
+    });
+    expect(selection.visitedSegments).toBe(highLayerPlan.source.segmentCount);
+    expect(selection.emittedSegments).toBe(highLayerPlan.source.segmentCount);
+    const update = result.backend.updateSelection(selection);
+    expect(update.drawInstanceCounts.reduce((sum, count) => sum + count, 0))
+      .toBe(highLayerPlan.source.segmentCount);
+    expect(update.drawInstanceCounts.at(-1)).toBe(19_000);
+    expect(result.backend.template.material?.depthTest).toBe(false);
+    expect(result.backend.template.material?.depthWrite).toBe(false);
+    expect(result.backend.template.material?.transparent).toBe(true);
     result.backend.dispose();
   });
 
