@@ -353,8 +353,12 @@ contract applies to both the streaming renderer and the B2 fallback.
 
 This matches libvgcode's observable scheduling/render-state baseline where
 applicable: page-local selected instances, layer-ordered pages, vertical
-direction fallback, front-face culling, and shell-visible depth state. The native
-libvgcode eight-corner template has camera-dependent spike/silhouette vertices
+direction fallback, and shell-visible depth state. Native
+`ViewerImpl::render_segments` explicitly disables `GL_CULL_FACE`; the current
+Three adaptation intentionally uses `side: FrontSide` (back-face culling)
+because its physical cuboid entities must self-occlude. This is a deliberate
+adaptation difference, not a claim that the native renderer culls back faces.
+The native libvgcode eight-corner template has camera-dependent spike/silhouette vertices
 and therefore cannot be represented exactly by one static affine mesh without
 reintroducing shader-derived shape logic. The deliberate Three adaptation uses
 a physically solid cuboid template and materializes direction/width/height in

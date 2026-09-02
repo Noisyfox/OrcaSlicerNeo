@@ -372,8 +372,10 @@ and drives structural operations through the typed client.
 > hardware limits and measurements are recorded in the living implementation
 > entry. The accepted depth policy is transparent-queue ordering only
 > (`transparent: true`, `NoBlending`) with `depthTest: true`, `depthWrite: true`,
-> and `FrontSide`: preview shells do not write depth, while solid toolpaths
-> self-occlude and cull their back faces.
+> and `FrontSide` in the Three adaptation: preview shells do not write depth,
+> while solid toolpaths self-occlude and cull their back faces. Native
+> libvgcode disables `GL_CULL_FACE`; this culling flag is an intentional
+> difference required by the physical cuboid adaptation.
 >
 > Major renderer/performance specification:
 > [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)
