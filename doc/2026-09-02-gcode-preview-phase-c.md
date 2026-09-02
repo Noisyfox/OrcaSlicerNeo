@@ -83,6 +83,12 @@ path scans. Missing mapping or text metadata leaves the
 window unavailable rather than fabricating source content. The view remains
 read-only: no editing, pauses, filament changes, or external import actions.
 
+Arc commands such as G2/G3 are one logical preview move even when the
+processor tessellates them into several consecutive render segments sharing
+one positive `gcode_id`. All segment geometry and per-segment metrics remain
+available for rendering. Unmapped zero ids and distinct/non-consecutive source
+ids remain separate moves, and layer boundaries always reset the move order.
+
 ## Source limitations
 
 The pinned G-code processor provides authoritative normal-mode time and

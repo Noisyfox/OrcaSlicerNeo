@@ -48,6 +48,7 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
 
     std::uint32_t move_order = 0;
     std::uint32_t previous_layer = static_cast<std::uint32_t>(result.moves.front().layer_id);
+    std::uint32_t previous_gcode_id = 0;
     for (size_t i = 1; i < result.moves.size(); ++i) {
         const auto& previous = result.moves[i - 1];
         const auto& mv = result.moves[i];
@@ -58,6 +59,12 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
         const std::uint32_t layer_id = static_cast<std::uint32_t>(mv.layer_id);
         if (layer_id != previous_layer) move_order = 0;
         previous_layer = layer_id;
+        const std::uint32_t gcode_id = static_cast<std::uint32_t>(mv.gcode_id);
+        // One source command can be represented by several consecutive
+        // processor endpoints (notably G2/G3 arcs). Keep every segment for
+        // rendering, but expose one logical move to the preview slider. Zero
+        // is the processor's unmapped sentinel and must never be coalesced.
+        const bool same_logical_move = i > 1 && gcode_id > 0 && gcode_id == previous_gcode_id && layer_id == static_cast<std::uint32_t>(previous.layer_id);
 
         out.starts.appendF32(static_cast<float>(previous.position.x()));
         out.starts.appendF32(static_cast<float>(previous.position.y()));
@@ -69,8 +76,9 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
         out.positions.appendF32(static_cast<float>(mv.position.y()));
         out.positions.appendF32(static_cast<float>(mv.position.z()));
         out.layers.appendU32(layer_id);
-        out.move_orders.appendU32(move_order++);
-        out.gcode_ids.appendU32(static_cast<std::uint32_t>(mv.gcode_id));
+        out.move_orders.appendU32(move_order);
+        if (!same_logical_move) ++move_order;
+        out.gcode_ids.appendU32(gcode_id);
         out.move_types.appendU8(static_cast<std::uint8_t>(mv.type));
         out.extrusion_roles.appendU16(static_cast<std::uint16_t>(mv.extrusion_role));
         out.extruders.appendU8(static_cast<std::uint8_t>(mv.extruder_id));
@@ -109,6 +117,7 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
         out.features.appendU32(fid->second);
 
         max_layer_id = std::max(max_layer_id, layer_id);
+        previous_gcode_id = gcode_id;
         ++out.segmentCount;
     }
     out.layerCount = out.segmentCount > 0 ? static_cast<size_t>(max_layer_id) + 1 : 0;

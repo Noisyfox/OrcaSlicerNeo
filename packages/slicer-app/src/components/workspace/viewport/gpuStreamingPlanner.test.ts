@@ -3,6 +3,7 @@ import type { ClientToolpath } from '@slicer/client';
 import {
   adaptClientToolpath,
   createGpuStreamingPagePlan,
+  deriveLogicalMoveOrders,
   planGpuStreamingPages,
   rebuildGpuStreamingSelection,
 } from './gpuStreamingPlanner';
@@ -44,6 +45,31 @@ function clientToolpath(overrides: Partial<ClientToolpath> = {}): ClientToolpath
 }
 
 describe('GPU streaming source adapter and page planner', () => {
+  it('coalesces consecutive arc-like source ids into one logical move while retaining segments', () => {
+    const layerIds = Uint32Array.from([0, 0, 0, 0]);
+    const gcodeIds = Uint32Array.from([41, 41, 41, 42]);
+    expect(deriveLogicalMoveOrders(layerIds, gcodeIds, 4)).toEqual(new Uint32Array([0, 0, 0, 1]));
+
+    const input = clientToolpath({
+      layerIds: Uint32Array.from([...layerIds, 1, 1, 2, 2, 2, 2, 2]),
+      gcodeIds: Uint32Array.from([...gcodeIds, 50, 51, 52, 53, 54, 55, 56]),
+    });
+    const source = adaptClientToolpath(input);
+    expect(source.segmentCount).toBe(11);
+    expect(source.starts).toBe(input.starts);
+    expect(source.ends).toBe(input.ends);
+    expect(source.metrics).toBe(input.metrics);
+    expect(source.moveOrders.slice(0, 4)).toEqual(new Uint32Array([0, 0, 0, 1]));
+  });
+
+  it('keeps distinct commands, unmapped ids, and layer starts separate', () => {
+    expect(deriveLogicalMoveOrders(
+      Uint32Array.from([0, 0, 0, 1, 1, 1]),
+      Uint32Array.from([7, 7, 0, 0, 7, 7]),
+      6,
+    )).toEqual(new Uint32Array([0, 0, 1, 0, 1, 1]));
+  });
+
   it('retains source SoA arrays and derives immutable layer metadata', () => {
     const input = clientToolpath();
     const source = adaptClientToolpath(input, {

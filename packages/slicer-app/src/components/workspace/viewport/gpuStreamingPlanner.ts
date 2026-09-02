@@ -232,6 +232,35 @@ function ensureMetricLengths(metrics: PreviewToolpathMetrics, expected: number):
 }
 
 /**
+ * Collapse tessellated segments belonging to one source command into one
+ * logical preview move. Geometry and per-segment metrics remain unchanged;
+ * this order is used only by the layer slider and visibility selection.
+ * Unmapped (zero) source ids deliberately remain separate.
+ */
+export function deriveLogicalMoveOrders(
+  layerIds: Uint32Array,
+  gcodeIds: Uint32Array,
+  count: number,
+): Uint32Array {
+  const orders = new Uint32Array(count);
+  let previousLayer = layerIds[0] ?? 0;
+  let previousGcodeId = 0;
+  let order = 0;
+  for (let i = 0; i < count; i++) {
+    const layer = layerIds[i] ?? 0;
+    const gcodeId = gcodeIds[i] ?? 0;
+    if (i > 0) {
+      if (layer !== previousLayer) order = 0;
+      else if (gcodeId === 0 || gcodeId !== previousGcodeId) order++;
+    }
+    orders[i] = order;
+    previousLayer = layer;
+    previousGcodeId = gcodeId;
+  }
+  return orders;
+}
+
+/**
  * Adapt the existing WASM client result without copying shape or metadata
  * arrays. Layer ranges are small planner-owned metadata records; palette and
  * metric ownership remains with the source result.
@@ -257,6 +286,7 @@ export function adaptClientToolpath(
   if (extended.capAngles) ensureArrayLength('capAngles', extended.capAngles.length, count);
   if (extended.angles) ensureArrayLength('angles', extended.angles.length, count);
   ensureMetricLengths(toolpath.metrics, count);
+  const moveOrders = deriveLogicalMoveOrders(toolpath.layerIds, toolpath.gcodeIds, count);
   if (extended.biases) ensureArrayLength('biases', extended.biases.length, count);
 
   return Object.freeze({
@@ -266,7 +296,7 @@ export function adaptClientToolpath(
     widths: toolpath.widths,
     heights: toolpath.heights,
     layerIds: toolpath.layerIds,
-    moveOrders: toolpath.moveOrders,
+    moveOrders,
     gcodeIds: toolpath.gcodeIds,
     moveTypes: toolpath.moveTypes,
     extrusionRoles: toolpath.extrusionRoles,
@@ -309,13 +339,14 @@ export function normalizeGpuStreamingSource(source: GpuStreamingSource): GpuStre
   if (source.capAngles) ensureArrayLength('capAngles', source.capAngles.length, count);
   if (source.biases) ensureArrayLength('biases', source.biases.length, count);
   ensureMetricLengths(source.metrics, count);
+  const moveOrders = deriveLogicalMoveOrders(source.layerIds, source.gcodeIds, count);
   for (let i = 1; i < count; i++) {
     if ((source.layerIds[i] ?? 0) < (source.layerIds[i - 1] ?? 0)) {
       throw new RangeError('GPU streaming source layerIds must be non-decreasing');
     }
   }
   const layers = Object.freeze(deriveLayerRanges(source.layerIds, count, source.layers));
-  return Object.freeze({ ...source, segmentCount: count, layers });
+  return Object.freeze({ ...source, segmentCount: count, moveOrders, layers });
 }
 
 function mergeSchema(options: GpuStreamingPlannerOptions): Readonly<GpuStreamingTexelSchema> {
