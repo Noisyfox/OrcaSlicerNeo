@@ -71,8 +71,9 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
     visibleLayerEnd: preview.visibleLayerEnd,
     activeMoveEnd: preview.activeMoveEnd,
     showTravel: preview.showTravel,
-    featureVisibility: preview.featureVisibility,
-  }) : null, [plan, preview]);
+    visibility: preview.schemeVisibility[preview.colorScheme],
+    visibilityField: preview.colorScheme === 'filament' ? 'filament' : 'feature',
+  }) : null, [plan, preview.activeMoveEnd, preview.colorScheme, preview.schemeVisibility, preview.showTravel, preview.visibleLayerEnd, preview.visibleLayerStart]);
 
   useLayoutEffect(() => {
     if (!source) {
@@ -193,16 +194,17 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
 
   useEffect(() => {
     const current = activeRef.current;
-    if (!current || current.plan !== plan || data.palette === current.plan.source.palette) return;
+    if (!current || current.plan !== plan) return;
     try {
-      current.backend.updatePalette(data.palette);
+      current.backend.updateColorScheme(preview.colorScheme);
+      invalidate();
     } catch (error) {
       reportGpuStreamingDiagnostic({
-        reason: 'palette-update-failed',
+        reason: 'color-scheme-update-failed',
         message: error instanceof Error ? error.message : String(error),
       });
     }
-  }, [data.palette, plan]);
+  }, [invalidate, plan, preview.colorScheme]);
 
   // Diagnostic-only test seam; it never selects another renderer.
   useEffect(() => {

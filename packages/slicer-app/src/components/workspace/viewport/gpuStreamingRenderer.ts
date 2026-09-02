@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import type { ToolpathFeature } from '@slicer/client';
+import type { PreviewColorScheme } from '../../../stores/useSlicerStore';
 import type {
   GpuStreamingPage,
   GpuStreamingPagePlan,
   GpuStreamingSelection,
 } from './gpuStreamingPlanner';
-import { resolveToolpathColor } from './toolpathColors';
+import { resolvePreviewColor } from './toolpathColors';
 
 /** WebGL2 adapter for Orca/libvgcode's native SegmentTemplate renderer. */
 export interface GpuStreamingCapabilityLimits {
@@ -179,6 +179,7 @@ function indexTexture(
 function buildStaticTextures(
   source: GpuStreamingPagePlan['source'],
   max: number,
+  scheme: PreviewColorScheme = 'feature',
 ): StaticTextures {
   const n = source.segmentCount * 2;
   const positions = new Float32Array(n * 4);
@@ -198,11 +199,7 @@ function buildStaticTextures(
       shapes[o + 1] = Math.max(0, source.widths[i] ?? 0);
       shapes[o + 2] = source.capAngles?.[i] ?? source.angles?.[i] ?? 0;
       shapes[o + 3] = source.biases?.[i] ?? 0;
-      const c = resolveToolpathColor(
-        source.palette,
-        source.features[i] ?? 0,
-        source.moveTypes[i] ?? 0,
-      );
+      const c = resolvePreviewColor(source, i, scheme);
       colors[o] = c[0];
       colors[o + 1] = c[1];
       colors[o + 2] = c[2];
@@ -391,18 +388,12 @@ export class GpuStreamingRenderer {
       uniforms.earlier_layer_dim.value = earlierLayerDim;
     }
   }
-  updatePalette(
-    palette: readonly ToolpathFeature[],
-  ): void {
+  updateColorScheme(scheme: PreviewColorScheme): void {
     if (this.disposed || this.contextLost)
       throw new Error('GPU SegmentTemplate renderer is unavailable');
     const colors = this.staticTextures.color.image.data as Float32Array;
     for (let i = 0; i < this.source.segmentCount; i++) {
-      const c = resolveToolpathColor(
-        palette,
-        this.source.features[i] ?? 0,
-        this.source.moveTypes[i] ?? 0,
-      );
+      const c = resolvePreviewColor(this.source, i, scheme);
       for (const endpoint of [i * 2, i * 2 + 1]) {
         const o = endpoint * 4;
         colors[o] = c[0];

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 
 export type SliceStatus = 'idle' | 'slicing' | 'done' | 'error';
-export type PreviewColorScheme = 'feature';
+export type PreviewColorScheme = 'feature' | 'filament' | 'speed' | 'volumetricFlow' | 'layerTime' | 'temperature' | 'fanSpeed';
+export type PreviewSchemeVisibility = Partial<Record<PreviewColorScheme, Record<number, boolean>>>;
 
 export interface PreviewState {
   visibleLayerStart: number;
@@ -11,7 +12,7 @@ export interface PreviewState {
   showTravel: boolean;
   dimPreviousLayers: boolean;
   colorScheme: PreviewColorScheme;
-  featureVisibility: Record<number, boolean>;
+  schemeVisibility: PreviewSchemeVisibility;
   singleLayer: boolean;
   resultId: number | null;
 }
@@ -24,7 +25,7 @@ export const DEFAULT_PREVIEW_STATE: PreviewState = {
   showTravel: true,
   dimPreviousLayers: true,
   colorScheme: 'feature',
-  featureVisibility: {},
+  schemeVisibility: {},
   singleLayer: false,
   resultId: null,
 };
@@ -55,7 +56,7 @@ interface SlicerState {
   setPreviewShowTravel: (show: boolean) => void;
   setPreviewDimPreviousLayers: (dim: boolean) => void;
   setPreviewColorScheme: (scheme: PreviewColorScheme) => void;
-  setPreviewFeatureVisibility: (feature: number, visible: boolean) => void;
+  setPreviewSchemeVisibility: (scheme: PreviewColorScheme, item: number, visible: boolean) => void;
   setPreviewSingleLayer: (singleLayer: boolean) => void;
   resetPreviewState: () => void;
   /** Clear every renderer-visible consequence of a completed slice in one state update. */
@@ -164,8 +165,14 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setPreviewShowTravel: (showTravel) => set((state) => ({ preview: { ...state.preview, showTravel } })),
   setPreviewDimPreviousLayers: (dimPreviousLayers) => set((state) => ({ preview: { ...state.preview, dimPreviousLayers } })),
   setPreviewColorScheme: (colorScheme) => set((state) => ({ preview: { ...state.preview, colorScheme } })),
-  setPreviewFeatureVisibility: (feature, visible) => set((state) => ({
-    preview: { ...state.preview, featureVisibility: { ...state.preview.featureVisibility, [feature]: visible } },
+  setPreviewSchemeVisibility: (scheme, item, visible) => set((state) => ({
+    preview: {
+      ...state.preview,
+      schemeVisibility: {
+        ...state.preview.schemeVisibility,
+        [scheme]: { ...state.preview.schemeVisibility[scheme], [item]: visible },
+      },
+    },
   })),
   setPreviewSingleLayer: (singleLayer) => set((state) => {
     const max = Math.max(0, state.maxLayer);

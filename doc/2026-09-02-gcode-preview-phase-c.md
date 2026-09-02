@@ -2,11 +2,12 @@
 
 **Date:** 2026-09-02
 
-**Status:** Implemented C1 foundation
+**Status:** Implemented C1/C2 foundation
 
-**Scope:** Read-only preview analysis data and source-neutral contract. UI,
-renderer changes, external G-code loading, and source-text retrieval remain
-future work.
+**Scope:** Read-only preview analysis data, source-neutral contract, core
+analysis schemes, native color ramps, and scheme-scoped legend filtering.
+Statistics cards, inspection-card redesign, external G-code loading, and
+source-text retrieval remain future work.
 
 ## Accepted behavior
 
@@ -21,6 +22,17 @@ toolpath metric. A range is present only when the source supplied a matching,
 finite metric array. This makes Feature/Tool, Speed, Volumetric Flow, Layer
 Time, Temperature, and Fan schemes capability-driven without scanning data in
 React or the renderer.
+
+The preview exposes the seven initial read-only schemes: Feature / Line Type,
+Filament / Tool, Speed, Volumetric Flow, Layer Time, Temperature, and Fan
+Speed. Feature and Filament / Tool use active result palettes. Numeric schemes
+use the active result range and the native libvgcode 11-color linear ramp;
+schemes with unavailable data are not offered. Legend visibility is stored per
+scheme and rebuilt as page-local selection indices, so changing a scheme or
+filter does not rebuild the native static geometry/textures. Travel remains
+the independent native Travels color and global visibility option in every
+scheme. The layer slider owns a higher overlay stacking level than the
+analysis card so its thumbs remain reachable when overlays are crowded.
 
 `PreviewSource` is source-neutral: the current slice result is one source
 kind, while a future external-G-code source can provide the same preview

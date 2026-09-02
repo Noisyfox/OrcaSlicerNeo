@@ -25,7 +25,8 @@ export interface PreviewVisibilityOptions {
   activeMoveEnd: number;
   showTravel: boolean;
   dimPreviousLayers: boolean;
-  featureVisibility?: Readonly<Record<number, boolean>>;
+  visibility?: Readonly<Record<number, boolean>>;
+  visibilityField?: 'feature' | 'filament';
 }
 
 export interface PreviewVisibility {
@@ -67,7 +68,7 @@ export function lastMovePosition(data: Pick<ToolpathGeometry, 'segmentCount' | '
  * these choices never rebuilds geometry or the scene graph.
  */
 export function buildPreviewVisibility(
-  data: Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'moveTypes' | 'features'>,
+  data: Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'moveTypes' | 'features' | 'extruderIds'>,
   options: PreviewVisibilityOptions,
 ): PreviewVisibility {
   const visible = new Uint8Array(data.segmentCount);
@@ -82,8 +83,8 @@ export function buildPreviewVisibility(
     // libvgcode keeps travel under the independent Travels option; a stale
     // extrusion role on a travel vertex must not make a feature filter hide it.
     if ((data.moveTypes[i] ?? 0) !== TRAVEL_MOVE_TYPE) {
-      const feature = data.features[i] ?? 0;
-      if (options.featureVisibility && options.featureVisibility[feature] === false) continue;
+      const id = options.visibilityField === 'filament' ? data.extruderIds[i] ?? 0 : data.features[i] ?? 0;
+      if (options.visibility && options.visibility[id] === false) continue;
     }
     visible[i] = 1;
     dimmed[i] = options.dimPreviousLayers && layer < layerEnd ? 1 : 0;

@@ -132,13 +132,31 @@ describe('GPU streaming source adapter and page planner', () => {
       visibleLayerEnd: 2,
       activeMoveEnd: 2,
       showTravel: false,
-      featureVisibility: { 1: false },
+      visibility: { 1: false },
     });
     const globalIndices = selection.pages.flatMap((page) => Array.from(page.indices, (id) => page.firstSegment + id));
     expect(selection.visitedSegments).toBe(plan.source.segmentCount);
     expect(globalIndices).toEqual([4, 6, 7]);
     expect(globalIndices).toEqual([...globalIndices].sort((a, b) => a - b));
     expect(selection.emittedSegments).toBe(globalIndices.length);
+  });
+
+  it('applies a filament legend filter by tool id while leaving travel global', () => {
+    const plan = createGpuStreamingPagePlan(clientToolpath({
+      extruderIds: Uint8Array.from([0, 1, 1, 0, 1, 0, 1, 1, 0, 1, 0]),
+    }));
+    const selection = rebuildGpuStreamingSelection(plan, {
+      visibleLayerStart: 0,
+      visibleLayerEnd: 2,
+      activeMoveEnd: Number.MAX_SAFE_INTEGER,
+      showTravel: true,
+      visibility: { 1: false },
+      visibilityField: 'filament',
+    });
+    const globalIndices = selection.pages.flatMap((page) => Array.from(page.indices, (id) => page.firstSegment + id));
+    expect(globalIndices).toEqual([0, 2, 3, 5, 8, 10]);
+    expect(globalIndices).toContain(2);
+    expect(globalIndices).not.toContain(1);
   });
 
   it('covers every segment exactly once without splitting normal layers', () => {

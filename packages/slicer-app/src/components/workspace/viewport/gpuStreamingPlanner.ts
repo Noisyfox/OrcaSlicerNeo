@@ -1,4 +1,4 @@
-import type { ClientToolpath, PreviewMetadata, PreviewToolpathMetrics, ToolpathFeature } from '@slicer/client';
+import type { ClientToolpath, PreviewAnalysis, PreviewMetadata, PreviewPaletteEntry, PreviewToolpathMetrics, ToolpathFeature } from '@slicer/client';
 import { TRAVEL_MOVE_TYPE } from './toolpathColors';
 
 /** The soft page target agreed by the streaming renderer design. */
@@ -64,6 +64,8 @@ export interface GpuStreamingSource {
   readonly features: Uint32Array;
   readonly palette: readonly ToolpathFeature[];
   readonly metrics: PreviewToolpathMetrics;
+  readonly extruderPalette?: readonly PreviewPaletteEntry[];
+  readonly analysis?: PreviewAnalysis;
   readonly layers: readonly GpuStreamingLayerRange[];
   /** Optional fields reserved by the source-neutral contract. */
   readonly angles?: Float32Array;
@@ -142,7 +144,9 @@ export interface GpuStreamingSelectionOptions {
   visibleLayerEnd: number;
   activeMoveEnd: number;
   showTravel: boolean;
-  featureVisibility?: Readonly<Record<number, boolean>>;
+  visibility?: Readonly<Record<number, boolean>>;
+  /** Selects the categorical id used by the scheme-scoped visibility map. */
+  visibilityField?: 'feature' | 'filament';
 }
 
 export interface GpuStreamingPageSelection {
@@ -234,7 +238,7 @@ function ensureMetricLengths(metrics: PreviewToolpathMetrics, expected: number):
  */
 export function adaptClientToolpath(
   toolpath: ClientToolpath,
-  metadata?: Pick<PreviewMetadata, 'layerRanges'>,
+  metadata?: Pick<PreviewMetadata, 'layerRanges' | 'extruderPalette' | 'analysis'>,
 ): GpuStreamingSource {
   const count = validatedSegmentCount(toolpath.segmentCount);
   ensureArrayLength('starts', Math.floor(toolpath.starts.length / 3), count);
@@ -271,6 +275,8 @@ export function adaptClientToolpath(
     features: toolpath.features,
     palette: toolpath.palette,
     metrics: toolpath.metrics,
+    ...(metadata?.extruderPalette ? { extruderPalette: metadata.extruderPalette } : {}),
+    ...(metadata?.analysis ? { analysis: metadata.analysis } : {}),
     layers: Object.freeze(deriveLayerRanges(toolpath.layerIds, count, metadata?.layerRanges)),
     ...(extended.angles ? { angles: extended.angles } : {}),
     ...(extended.capAngles ? { capAngles: extended.capAngles } : {}),
@@ -506,7 +512,7 @@ export function planGpuStreamingPages(
 /** Convenience entry point for the current ClientToolpath contract. */
 export function createGpuStreamingPagePlan(
   toolpath: ClientToolpath,
-  metadata?: Pick<PreviewMetadata, 'layerRanges'>,
+  metadata?: Pick<PreviewMetadata, 'layerRanges' | 'extruderPalette' | 'analysis'>,
   options: GpuStreamingPlannerOptions = {},
 ): GpuStreamingPagePlan {
   return planGpuStreamingPages(adaptClientToolpath(toolpath, metadata), options);
@@ -545,7 +551,10 @@ export function rebuildGpuStreamingSelection(
       if (layer < layerStart || layer > layerEnd) continue;
       if (layer === layerEnd && (source.moveOrders[i] ?? 0) > moveEnd) continue;
       if (!options.showTravel && (source.moveTypes[i] ?? 0) === TRAVEL_MOVE_TYPE) continue;
-      if ((source.moveTypes[i] ?? 0) !== TRAVEL_MOVE_TYPE && !visibleFeature(options.featureVisibility, source.features[i] ?? 0)) continue;
+      const visibilityId = options.visibilityField === 'filament'
+        ? source.extruderIds[i] ?? 0
+        : source.features[i] ?? 0;
+      if ((source.moveTypes[i] ?? 0) !== TRAVEL_MOVE_TYPE && !visibleFeature(options.visibility, visibilityId)) continue;
       indices[emitted++] = i - page.firstSegment;
     }
     pages.push(Object.freeze({ firstSegment: page.firstSegment, indices: indices.subarray(0, emitted), emittedCount: emitted }));

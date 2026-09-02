@@ -230,7 +230,7 @@ describe('native SegmentTemplate GPU renderer', () => {
       visibleLayerEnd: 1,
       activeMoveEnd: Number.MAX_SAFE_INTEGER,
       showTravel: true,
-      featureVisibility: { 4: true, 5: true, 6: true, 7: true },
+      visibility: { 4: true, 5: true, 6: true, 7: true },
     });
     expect(selection.visitedSegments).toBe(4);
     result.backend.updateSelection(selection);
@@ -244,7 +244,7 @@ describe('native SegmentTemplate GPU renderer', () => {
       visibleLayerEnd: 1,
       activeMoveEnd: Number.MAX_SAFE_INTEGER,
       showTravel: false,
-      featureVisibility: { 4: false },
+      visibility: { 4: false },
     });
     result.backend.updateSelection(filtered);
     expect(result.backend.pages.map((page) => page.mesh.count)).toEqual([0, 2]);
@@ -303,7 +303,7 @@ describe('native SegmentTemplate GPU renderer', () => {
       visibleLayerEnd: 1,
       activeMoveEnd: Number.MAX_SAFE_INTEGER,
       showTravel: true,
-      featureVisibility: { 5: false },
+      visibility: { 5: false },
     });
     expect(selection.emittedSegments).toBe(4);
     result.backend.updateSelection(selection);
@@ -331,7 +331,7 @@ describe('native SegmentTemplate GPU renderer', () => {
       showTravel: true,
     });
     result.backend.updateSelection(selection);
-    result.backend.updatePalette([]);
+    result.backend.updateColorScheme('feature');
     result.backend.dispose();
     result.backend.dispose();
     expect(f.dispose).toHaveBeenCalledTimes(1);

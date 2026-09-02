@@ -37,7 +37,7 @@ describe('useSlicerStore', () => {
     useSlicerStore.getState().setPreviewLayerRange([1, 3]);
     useSlicerStore.getState().setPreviewMoveEnd(6);
     useSlicerStore.getState().setPreviewShowTravel(false);
-    useSlicerStore.getState().setPreviewFeatureVisibility(7, false);
+    useSlicerStore.getState().setPreviewSchemeVisibility('feature', 7, false);
     expect(useSlicerStore.getState().preview).toMatchObject({
       visibleLayerStart: 1, visibleLayerEnd: 3, activeMoveEnd: 6,
       showTravel: false, resultId: 42,
@@ -46,7 +46,7 @@ describe('useSlicerStore', () => {
     expect(useSlicerStore.getState().preview).toMatchObject({
       visibleLayerStart: 0, visibleLayerEnd: 0,
       activeMoveEnd: 0, showTravel: true, dimPreviousLayers: true,
-      featureVisibility: {}, resultId: null,
+      schemeVisibility: {}, resultId: null,
     });
   });
 

@@ -10,8 +10,9 @@ const data = {
   moveOrders: Uint32Array.from([0, 1, 0, 1, 2, 0]),
   moveTypes: Uint8Array.from([10, TRAVEL_MOVE_TYPE, 10, 10, TRAVEL_MOVE_TYPE, 10]),
   features: Uint32Array.from([0, 1, 0, 1, 0, 1]),
+  extruderIds: new Uint8Array(6),
   ends: Float32Array.from([0, 0, 0, 1, 0, 0, 2, 0, 0, 3, 0, 0, 4, 0, 0, 5, 0, 0]),
-} satisfies Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'moveTypes' | 'features' | 'ends'>;
+} satisfies Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'moveTypes' | 'features' | 'extruderIds' | 'ends'>;
 
 describe('preview inspection semantics', () => {
   it('shows the active layer from its start through the inclusive move end', () => {
@@ -27,7 +28,7 @@ describe('preview inspection semantics', () => {
       visibleLayerStart: 0, visibleLayerEnd: 2,
       activeMoveEnd: 10,
       showTravel: false, dimPreviousLayers: false,
-      featureVisibility: { 1: false },
+      visibility: { 1: false },
     });
     expect(Array.from(result.visible)).toEqual([1, 0, 1, 0, 0, 0]);
   });
@@ -36,7 +37,7 @@ describe('preview inspection semantics', () => {
     const result = buildPreviewVisibility(data, {
       visibleLayerStart: 0, visibleLayerEnd: 0,
       activeMoveEnd: 10, showTravel: true, dimPreviousLayers: false,
-      featureVisibility: { 1: false },
+      visibility: { 1: false },
     });
     expect(Array.from(result.visible)).toEqual([1, 1, 0, 0, 0, 0]);
   });

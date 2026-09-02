@@ -416,7 +416,8 @@ loading remain future increments.
 - [x] Step C1 — typed source-neutral preview analysis contract, bridge-side
       standard-time/filament summary and per-feature statistics, and Worker-side
       optional metric ranges
-- [ ] Step C2 — read-only analysis scheme selection, palettes, and legend
+- [x] Step C2 — read-only analysis scheme selection, palettes, and legend
+      (Feature/Tool, five core native metric ramps, scheme-scoped filtering)
 - [ ] Step C3 — summary/per-feature statistics and current-move inspection card
 - [ ] Step C4 — lazy G-code text window with bidirectional line navigation
 

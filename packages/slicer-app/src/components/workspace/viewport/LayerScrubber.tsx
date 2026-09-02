@@ -6,6 +6,14 @@ import { Slider } from '@/components/ui/slider';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import { maxMoveOrderForLayer } from './previewSemantics';
+import {
+  describePreviewScheme,
+  PREVIEW_SCHEME_LABELS,
+  previewSchemeAvailable,
+  formatPreviewValue,
+  type PreviewColorSource,
+} from './toolpathColors';
+import type { PreviewColorScheme } from '../../../stores/useSlicerStore';
 
 function maxLayerOf(data: ToolpathGeometry): number {
   let max = 0;
@@ -23,11 +31,24 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const setShowTravel = useSlicerStore((s) => s.setPreviewShowTravel);
   const setDimPreviousLayers = useSlicerStore((s) => s.setPreviewDimPreviousLayers);
   const setSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
-  const toggleFeature = useSlicerStore((s) => s.setPreviewFeatureVisibility);
+  const setColorScheme = useSlicerStore((s) => s.setPreviewColorScheme);
+  const setSchemeVisibility = useSlicerStore((s) => s.setPreviewSchemeVisibility);
 
-  const palette = useMemo(() => data.features.length
-    ? data.features.reduce<number[]>((ids, id) => ids.includes(id) ? ids : [...ids, id], [])
-    : [], [data.features]);
+  const colorSource = useMemo<PreviewColorSource>(() => ({
+    palette: data.palette,
+    features: data.features,
+    moveTypes: data.moveTypes,
+    extruderIds: data.extruderIds,
+    metrics: data.metrics,
+    layerIds: data.layerIds,
+    ...(data.extruderPalette ? { extruderPalette: data.extruderPalette } : {}),
+    ...(data.analysis ? { analysis: data.analysis } : {}),
+  }), [data.analysis, data.extruderIds, data.extruderPalette, data.features, data.layerIds, data.metrics, data.moveTypes, data.palette]);
+  const schemes = (Object.keys(PREVIEW_SCHEME_LABELS) as PreviewColorScheme[])
+    .filter((scheme) => previewSchemeAvailable(colorSource, scheme));
+  const activeScheme = schemes.includes(preview.colorScheme) ? preview.colorScheme : 'feature';
+  const descriptor = describePreviewScheme(colorSource, activeScheme);
+  const visibility = preview.schemeVisibility[activeScheme] ?? {};
   const activeLayer = Math.max(0, Math.min(maxLayer, preview.visibleLayerEnd));
   let maxMove = 0;
   for (let i = 0; i < data.segmentCount; i++) {
@@ -46,24 +67,33 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
             {preview.singleLayer ? 'All layers' : 'Single layer'}
           </Button>
         </div>
+        <label className="space-y-1 text-xs">
+          <span className="sr-only">Color scheme</span>
+          <select aria-label="Preview color scheme" data-testid="preview-color-scheme" value={activeScheme} onChange={(event) => setColorScheme(event.target.value as PreviewColorScheme)} className="w-full rounded border bg-background px-2 py-1 text-xs">
+            {schemes.map((scheme) => <option key={scheme} value={scheme}>{PREVIEW_SCHEME_LABELS[scheme]}</option>)}
+          </select>
+        </label>
         <div data-testid="preview-legend" className="space-y-1">
-          <div className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">Feature / Line Type</div>
-          {palette.map((id) => {
-            const entry = data.palette[id];
-            const enabled = preview.featureVisibility[id] !== false;
+          <div className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">{descriptor?.label ?? PREVIEW_SCHEME_LABELS[activeScheme]}</div>
+          {descriptor?.kind === 'categorical' && descriptor.items.map((item) => {
+            const enabled = visibility[item.id] !== false;
             return (
-              <button key={id} type="button" aria-pressed={enabled} data-testid={`preview-feature-visibility-${id}`} onClick={() => toggleFeature(id, !enabled)} className={`flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs ${enabled ? '' : 'opacity-40 line-through'}`}>
-                <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: entry?.color ? `rgb(${entry.color.join(',')})` : '#94a3b8' }} />
-                <span>{entry?.name ?? `Feature ${id}`}</span>
+              <button key={item.id} type="button" aria-pressed={enabled} data-testid={activeScheme === 'feature' ? `preview-feature-visibility-${item.id}` : `preview-scheme-visibility-${activeScheme}-${item.id}`} onClick={() => setSchemeVisibility(activeScheme, item.id, !enabled)} className={`flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs ${enabled ? '' : 'opacity-40 line-through'}`}>
+                <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: `rgb(${item.color.map((value) => Math.round(value * 255)).join(',')})` }} />
+                <span>{item.label}</span>
               </button>
             );
           })}
-          {palette.length === 0 && <div className="text-xs text-muted-foreground">No feature data</div>}
+          {descriptor?.kind === 'numeric' && <>
+            <div className="h-2 rounded-sm" style={{ background: `linear-gradient(to right, ${descriptor.items.map((item) => `rgb(${item.color.map((value) => Math.round(value * 255)).join(',')})`).join(', ')})` }} />
+            <div className="flex justify-between text-[0.65rem] text-muted-foreground"><span>{formatPreviewValue(descriptor.min ?? 0, descriptor.unit)}</span><span>{formatPreviewValue(descriptor.max ?? 0, descriptor.unit)}</span></div>
+          </>}
+          {!descriptor && <div className="text-xs text-muted-foreground">No data for this scheme</div>}
         </div>
         <Button variant={preview.showTravel ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.showTravel} data-testid="preview-travel-toggle" onClick={() => setShowTravel(!preview.showTravel)}>{preview.showTravel ? 'Hide travel' : 'Show travel'}</Button>
         <Button variant={preview.dimPreviousLayers ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.dimPreviousLayers} data-testid="preview-dimming-toggle" onClick={() => setDimPreviousLayers(!preview.dimPreviousLayers)}>{preview.dimPreviousLayers ? 'Dim previous layers' : 'Show layers equally'}</Button>
       </aside>
-      <div data-testid="preview-layer-range" className="pointer-events-auto absolute right-2 top-1/2 z-10 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
+      <div data-testid="preview-layer-range" className="pointer-events-auto absolute right-2 top-1/2 z-30 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <Label className="sr-only">Visible layer range</Label>
         <div data-testid="layer-scrubber" className="relative h-full w-6">
           <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextStart = values[0] ?? layerStart; if (preview.singleLayer) setLayerEnd(nextStart, maxMoveOrderForLayer(data, nextStart)); else setLayerRange([nextStart, layerEnd], maxMove); }} aria-label="Visible layer range start" />

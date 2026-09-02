@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
-import type { ClientSliceResult, PreviewMetadata } from '@slicer/client';
+import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis } from '@slicer/client';
 
 export interface ToolpathGeometry {
   /** Immutable source arrays consumed by the native SegmentTemplate renderer. */
@@ -13,6 +13,10 @@ export interface ToolpathGeometry {
   features: Uint32Array;
   moveTypes: Uint8Array;
   ends: Float32Array;
+  extruderIds: Uint8Array;
+  metrics: PreviewToolpathMetrics;
+  extruderPalette?: readonly PreviewPaletteEntry[];
+  analysis?: PreviewAnalysis;
   /** Immutable source retained for the optional indexed streaming backend. */
   source?: ClientSliceResult['toolpath'];
   metadata?: PreviewMetadata;
@@ -86,6 +90,10 @@ export function useSliceResult() {
       features: source.features,
       moveTypes: source.moveTypes,
       ends: source.ends,
+      extruderIds: source.extruderIds,
+      metrics: source.metrics,
+      ...(result.metadata.extruderPalette ? { extruderPalette: result.metadata.extruderPalette } : {}),
+      ...(result.metadata.analysis ? { analysis: result.metadata.analysis } : {}),
       source,
       metadata: result.metadata,
       // The source buffers are owned by the slice result and released by the
