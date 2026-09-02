@@ -373,7 +373,7 @@ and drives structural operations through the typed client.
 - [x] Step 1 — accept the static-atlas/dynamic-enabled-index architecture and
       deterministic 250k/1m metadata fixture contract (no renderer or bridge
       change)
-- [ ] Step 2 — source adapter/page planner behind the current B2 backend
+- [x] Step 2 — source adapter/page planner behind the current B2 backend
 - [ ] Step 3 — WebGL2 streaming backend, capability fallback, and browser
       performance evidence
 - [ ] Step 4 — dual-host verification, default switch, and later B2 cleanup

@@ -1,23 +1,50 @@
 # G-code Preview GPU streaming renderer
 
 **Date:** 2026-09-02
-**Status:** Living implementation entry; architecture accepted for step 1
+**Status:** Living implementation entry; step 2 source adapter/page planner complete
 **Scope:** GPU streaming/indexed-segment redesign for the shared G-code preview
 
 ## Purpose and boundary
 
-This document records the first implementation step for the large-slice
-renderer redesign. It establishes the implementation contract and deterministic
-performance fixture; it does not replace the current renderer, change visible
-behaviour, or change the WASM bridge. The normative architecture is
+This document records the first two implementation steps for the large-slice
+renderer redesign. Step 1 established the implementation contract and
+deterministic metadata fixture; step 2 adds a source adapter and immutable
+page/index planner. Neither step replaces the current renderer, changes visible
+behaviour, or changes the WASM bridge. The normative architecture is
 [`spec/G-code Preview GPU Streaming Renderer.md`](../spec/G-code%20Preview%20GPU%20Streaming%20Renderer.md).
 
 The renderer remains a shared `packages/slicer-app` feature for Web and
 Electron. `packages/slicer-wasm/src/client` remains the only JavaScript layer
 that receives WASM data, and `libslic3r` plus
-`packages/slicer-wasm/cpp` remain untouched. The fixture added in this step
-contains metadata only; it deliberately does not allocate positions, band
-geometry, Three.js objects, WebGL resources, or a mock GPU.
+`packages/slicer-wasm/cpp` remain untouched. The step-1 fixture contains
+metadata only; it deliberately does not allocate positions, band geometry,
+Three.js objects, WebGL resources, or a mock GPU.
+
+## Accepted step-2 implementation
+
+`gpuStreamingPlanner.ts` adapts the existing `ClientToolpath` structure of
+arrays without copying shape, palette, or metric buffers. It derives small,
+planner-owned layer records (retaining optional layer Z values) and freezes the
+source wrapper, layer records, page table, and diagnostics. Typed arrays remain
+owned by the accepted slice result and are treated as immutable by contract;
+the planner makes no per-segment object allocations.
+
+Pages are assembled in source order at layer boundaries. The 65,536 target is
+soft: an ordinary layer may exceed it and is marked `oversized`. A supplied
+`hardCapacity`, future `MAX_TEXTURE_SIZE` plus texel schema, or configured
+budget can lower the capacity. A layer over that hard capacity is split only
+as an explicit `oversizedLayer` exception, with every piece retaining the layer
+ID. No WebGL capability query or allocation occurs here.
+
+The default four-texel static schema is derived as two endpoint texels, one
+shape texel, and one identity/category texel (64 bytes per static segment).
+Page diagnostics report static bytes, maximum enabled-index capacity (4 bytes
+per segment), total estimate, budget exceedance, atlas dimensions, and
+`allocatedBytes: null`. The next backend can consume page-local `Uint32Array`
+enabled indices from `rebuildGpuStreamingSelection`; the one-pass rebuild keeps
+inclusive layer/move-end, travel, and feature-hide semantics and preserves
+source order. Dimming remains a later uniform/metadata concern and does not
+duplicate shape data.
 
 ## Accepted architecture
 
@@ -139,11 +166,11 @@ active-range preservation on the stated representative integrated-GPU target.
 
 ## Migration and verification state
 
-1. **Step 1 (this commit):** accept this architecture, add the metadata-only
-   fixture/test contract, and add concise links from the existing Preview v2
-   documents. No renderer, bridge, or behaviour change.
-2. **Step 2:** implement a source adapter and page planner with unit tests,
-   while keeping the current backend selected by default.
+1. **Step 1:** accept this architecture, add the metadata-only fixture/test
+   contract, and add concise links from the existing Preview v2 documents. No
+   renderer, bridge, or behaviour change.
+2. **Step 2 (this commit):** implement the source adapter and page/index planner
+   with unit tests, while keeping the current backend selected by default.
 3. **Step 3:** implement WebGL2 static atlas + dynamic index pages behind a
    feature gate and run shared renderer tests plus browser measurements.
 4. **Step 4:** compare same-renderer Web/Electron behaviour and approved native
@@ -151,6 +178,6 @@ active-range preservation on the stated representative integrated-GPU target.
 
 The current B2 backend remains the fallback until the streaming backend passes
 functional, memory/lifetime, capability/fallback, and representative-browser
-performance gates. It is not removed in this design step. The step-1 gate is
-limited to documentation, the deterministic pure test, existing package
-tests/typechecks, and `git diff --check`.
+performance gates. It is not removed in this design step. The step-2 gate is
+limited to pure planner/adapter tests, existing package tests/typechecks, and
+`git diff --check`; WebGL/shader/renderer takeover remains step 3.
