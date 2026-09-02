@@ -75,79 +75,62 @@ branch.
 PreviewSource / ClientToolpath (SoA)
               |
               v
-     immutable static page planner
-       |                    |
-       v                    v
-  static GPU atlas       layer/page table
-  (per-segment data)     (CPU metadata)
-                              |
-                         selection/filter rebuild
-                              v
-                 dynamic enabled index stream (R32UI)
-                              |
-             shared indexed SegmentTemplate + instanced draw
+       immutable source/page plan
+          |                 |
+          v                 v
+ global RGBA32F textures   per-page R32UI local index texture
+ (endpoint/shape/color-layer)       + segment_base
+                                  |
+                 shared 8-ID / 24-invocation template
+                                  |
+                         one instanced draw per page
 ```
 
-### Static segment atlas
+### Global static textures
 
-The planned WebGL2 layout is page-local 2D textures, because WebGL2 guarantees
-GLSL ES 3.00 integer texture sampling but does not guarantee the desktop
-`samplerBuffer` path used by libvgcode's desktop shader. `texelFetch` is used
-with nearest/no-mipmap sampling; no filtering or normalised coordinate math is
-allowed for IDs.
+The renderer uploads the complete accepted source result once into three
+global `RGBA32F` textures: endpoint positions, endpoint shape values, and
+color plus layer ID. Texture sampling uses nearest filtering, clamp-to-edge,
+no mipmaps, and integer texel addressing. Endpoint and shape data remain
+unchanged for the lifetime of the result; palette changes refresh only the
+color channels in place.
 
-Each static page stores:
+The textures are global to the source result, not duplicated per page. Pages
+therefore carry only their source offset and segment count for addressing.
 
-- two `RGBA32F` texels per segment for start/end XYZ (the fourth component is
-  reserved for alignment/bias as needed);
-- one `RGBA32F` texel for width, height, cap angle and z-fighting bias;
-- one integer texel for layer/order/category IDs, packed only where the value
-  range is proven safe; otherwise use `R32UI` fields; and
-- palette/metric references in integer or float textures when a selected
-  colour scheme needs them.
+### Shared SegmentTemplate
 
-The exact packed channel schema is an implementation detail only if the
-contract tests assert that every source value round-trips. A static colour
-palette texture may be updated when a colour scheme changes; source segment
-attributes and geometry are not rewritten. Optional metric arrays are omitted
-when unavailable, as required by Preview v2.
-
-### Shared indexed segment template
-
-The template is created once per renderer context and shared by all pages. It
-is an indexed prism/pointy-cap template equivalent to libvgcode's
-`SegmentTemplate`: eight corners, 24 byte-sized indices, six faces, and an
-instanced draw. The vertex shader obtains the local segment ID from the
-enabled-index stream, fetches static attributes with `texelFetch`, derives the
-camera-facing side/up directions, and emits a physical-width/height band.
+The template is created once per renderer context and shared by all pages. Its
+`vertex_id` attribute contains libvgcode's eight logical vertex IDs expanded to
+24 vertex invocations. Each page uses a Three.js `InstancedMesh`; the vertex
+shader reads the page's selected local ID, adds `segment_base`, fetches the
+global textures, and emits the camera-facing physical-width/height band.
 
 The WebGL2 shader is GLSL ES 3.00. It keeps libvgcode's near-vertical fallback,
 zero-length direction fallback, cap-angle handling and no-cull band rendering
 semantics. Desktop GLSL 1.50 and `samplerBuffer` are references, not runtime
 requirements for the Web/Electron path.
 
-### Dynamic enabled-index stream
+The material emits alpha 1 with `THREE.NoBlending`, `depthTest: true`,
+`depthWrite: true`, and `THREE.DoubleSide`. The Three.js `transparent` flag is
+used only for render ordering; no toolpath color is alpha-blended.
 
-Each page owns an `R32UI` stream of local static segment IDs. The stream is
-rebuilt in source order when any of these change:
+### Per-page selection texture
+
+Each page owns an `R32UI` texture containing local source IDs. The texture is
+updated in place in source order when any of these change:
 
 - inclusive visible layer start/end;
 - active-layer inclusive move end;
 - travel visibility;
-- active-scheme feature/material/tool visibility; or
-- a future source-neutral visibility predicate.
+- active-scheme feature/material/tool visibility.
 
-Entries are emitted at most once, with no per-segment object allocation. A
-rebuild returns the emitted count and a visit counter for diagnostics. Draw
-count equals the stream length. Dimming is derived from static layer metadata
-and active-layer uniforms (or a compact page uniform), so dimming does not
-require duplicating or rewriting the enabled stream. Palette updates likewise
-do not rebuild static geometry.
-
-The index stream is the only per-selection GPU upload in the planned backend.
-It is replaced after the current draw boundary, then the previous stream is
-released. A camera render is forbidden from invoking either the static page
-planner or the index rebuild.
+Entries are emitted at most once, with no per-segment object allocation. The
+renderer copies selected IDs into the existing page texture, marks it for
+upload, and sets that page mesh's draw count to the emitted count. Dimming is
+implemented with page material uniforms. Palette updates rewrite only the
+global color texture. Camera renders do not invoke the planner or selection
+rebuild.
 
 ### Layer-aligned pages
 
@@ -164,9 +147,10 @@ oversized-layer exception; all pieces carry that layer ID and remain visible
 for the active layer. The planner reports this exception. It may never silently
 drop or coarsen segments in the active inspection range.
 
-The page table records `firstSegment`, `segmentCount`, `firstLayer`, `lastLayer`,
-static atlas dimensions, enabled count, and estimated/allocated bytes. A page
-table is CPU metadata, not a Three.js geometry object.
+The planner retains source order and reports each page's `firstSegment` and
+`segmentCount`, plus layer and capacity diagnostics used during construction.
+The renderer uses the source offset/count and does not create per-segment
+Three.js objects.
 
 ## Behavioural equivalence
 
@@ -198,7 +182,7 @@ integer texture support, vertex texture fetch, and a usable
 mode and limits (`MAX_TEXTURE_SIZE`, texture units, estimated budget) for
 diagnostics.
 
-If shader compilation, atlas allocation, page planning, context loss, or a
+If shader compilation, texture allocation, page planning, context loss, or a
 budget check fails, the toolpath preview becomes unavailable and reports the
 failure explicitly. No alternate renderer is constructed, preview controls do
 not change, and stale GPU handles are never retained. A later implementation
@@ -208,28 +192,20 @@ Mobile is deferred with the shared application's desktop-only first-release
 policy. Small desktop windows do not change the page format; UI controls keep
 their existing focus and keyboard semantics.
 
-## Lifetime, release, and memory contract
+## Lifetime and release contract
 
-1. Static atlas pages and the shared template are allocated after a completed
-   result is accepted, and are immutable until result invalidation.
-2. Selection changes allocate a replacement dynamic index stream, publish it at
-   a draw boundary, and release the previous stream. Camera gestures allocate
-   nothing in the streaming path.
-3. Result invalidation, unmount, WebGL context loss, and
-   failed partial construction dispose every page texture, index stream,
-   template buffer, material, and CPU planner reference exactly once.
-4. Accounting uses an upper bound of 64 bytes per static segment plus 4 bytes
-   per enabled index, page metadata, and template resources. Implementations
-   report estimated and allocated bytes; driver-reported values may be
-   unavailable and must remain `null`, not zero.
-5. A configurable budget rejects or evicts non-active nearby pages before
-   compromising the active range. Any adaptive detail outside that range is
-   visible in diagnostics and is restored after camera interaction.
+1. The three global static textures, shared template, and one index texture per
+   page are allocated after a completed result is accepted.
+2. Selection changes update each existing index texture in place and set its
+   mesh draw count. Camera gestures allocate and upload no path data.
+3. Result invalidation, unmount, WebGL context loss, and failed partial
+   construction dispose every texture, template buffer, material, and planner
+   reference exactly once.
+4. The planner may reject a result that exceeds its configured static/index
+   budget or texture capacity. No active segment is silently dropped.
 
-For planning, the static upper bound is approximately 16 MiB at 250,000
-segments and 64 MiB at 1,000,000 segments, before texture padding and page
-overhead. Enabled streams add at most 1 MiB and 4 MiB respectively when every
-segment is enabled. These are estimates, not hardware measurements or release
+The planner reports estimates for static textures and page-local index
+capacity. These are planning values, not hardware measurements or release
 claims.
 
 ## Focused verification contract
@@ -248,63 +224,24 @@ generated fixtures in the product or unit-test bundle.
 | --- | --- |
 | WebGL2 texture dimensions or integer formats vary | Capability query, page limit formula, shader compile test, unavailable diagnostic |
 | One layer exceeds page capacity | Explicit oversized-layer page split and active-range test |
-| Selection rebuild blocks interaction | Linear scan contract, worker/planner ownership in follow-up, measured browser rebuilds |
-| GPU memory pressure | 64-byte estimate, budget diagnostics, non-active eviction, active-range guarantee |
+| Selection rebuild blocks interaction | Linear page-local scan contract and browser smoke coverage |
+| GPU memory pressure | 64-byte estimate and explicit budget diagnostics |
 | Camera accidentally rebuilds data | build/rebuild counters and camera gesture test must remain unchanged |
 | Web/Electron semantic drift | shared planner/visibility tests and both-host E2E before default switch |
 | C++/source drift or external G-code mismatch | source-neutral adapter contract; no bridge/submodule edits in this stream |
 
 ## Acceptance criteria
 
-The step-1 design/fixture gate passes when:
+The native renderer is accepted as the default after its planner, template,
+selection, capability, lifetime, and dual-host behavior are covered by tests
+and smoke checks. Large-slice measurements are diagnostics rather than unit
+test gates. A missing WebGL2 capability or failed allocation leaves the
+preview unavailable with a diagnostic; it never selects another backend.
 
-1. this specification and the dated living entry are linked from the existing
-   Preview v2 and implementation documents without duplicating their product
-   behaviour;
-2. the 250k/1m metadata fixture tests are deterministic, fast, geometry-free,
-   and prove selection semantics plus a linear visit count;
-3. `pnpm --filter @orca/slicer-app test`,
-   `pnpm --filter @orca/slicer-app typecheck`, `pnpm test`, `pnpm typecheck`,
-   and `git diff --check` pass; and
-4. `packages/slicer-wasm/cpp` has no diff or pointer change attributable to
-   this work.
+## Addressing invariant
 
-The native renderer is accepted as the default after the functional,
-lifetime, capability, and dual-host gates. Its real WebGL2 browser
-measurements are recorded in the living implementation entry. The Web
-measurement uses a SwiftShader software driver and Electron uses a discrete
-RTX 3080; no representative integrated-GPU or native Orca pixel-equivalence
-claim is made. This evidence limitation does not reintroduce a second renderer;
-unsupported native initialization is reported as unavailable.
-
-## Accepted native SegmentTemplate architecture (2026-09-02)
-
-The active implementation uses one shared libvgcode-equivalent
-SegmentTemplate with eight logical vertices and 24 vertex invocations, plus one
-page-local instanced draw per planner page. Static position, height/width/angle/
-bias and colour/layer values are RGBA32F textures; selected local IDs are R32UI
-textures. The GLSL ES 3.00 vertex shader performs native camera-facing corner
-and endpoint spike calculations with `POINTY_CAPS` and `FIX_TWISTING`.
-
-The material emits opaque alpha 1 and uses `transparent: true` only for Three
-queue ordering, `blending: THREE.NoBlending`, `depthTest: true`, and
-`depthWrite: true`. `side: THREE.DoubleSide` matches libvgcode's explicit
-`GL_CULL_FACE` disable; this does not enable blending, and depth buffering
-remains responsible for occluding overlapping path faces. Slider changes
-update only R32UI index textures and draw counts; camera changes update
-uniforms only. The planner remains source/page/selection-only.
-
-The native correspondence is page-local selected instances, ordered layer
-ranges, vertical direction fallback, camera-relative corner choice, and the
-pointy-cap vertex IDs. If native capability, allocation, shader, context, or
-selection initialization fails, the preview reports an unavailable diagnostic;
-no alternate renderer is constructed. Context loss and result invalidation
-dispose all owned textures, page materials, index streams, and the shared
-template exactly once.
-
-Each page's selected IDs are local to that page. Because static attribute
-textures are global to the source result, the vertex shader adds the page's
-`firstSegment` through a `segment_base` uniform before addressing endpoint,
-shape, and colour texels. Implementations must retain this offset across every
-page draw; otherwise all pages after the first incorrectly read the first
-source range and large previews appear truncated.
+Each page's selected IDs are local to that page. Because static endpoint,
+shape, and color-layer textures are global to the source result, the vertex
+shader adds the page's `firstSegment` through a `segment_base` uniform before
+fetching them. This offset must be retained for every page draw; otherwise
+pages after the first read the wrong source range and large previews truncate.
