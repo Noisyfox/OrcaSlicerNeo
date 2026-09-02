@@ -14,6 +14,7 @@ import {
   type PreviewColorSource,
 } from './toolpathColors';
 import type { PreviewColorScheme } from '../../../stores/useSlicerStore';
+import { PreviewInspectionPanel } from './PreviewInspectionPanel';
 
 function maxLayerOf(data: ToolpathGeometry): number {
   let max = 0;
@@ -90,6 +91,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
           </>}
           {!descriptor && <div className="text-xs text-muted-foreground">No data for this scheme</div>}
         </div>
+        <PreviewInspectionPanel data={data} />
         <Button variant={preview.showTravel ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.showTravel} data-testid="preview-travel-toggle" onClick={() => setShowTravel(!preview.showTravel)}>{preview.showTravel ? 'Hide travel' : 'Show travel'}</Button>
         <Button variant={preview.dimPreviousLayers ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.dimPreviousLayers} data-testid="preview-dimming-toggle" onClick={() => setDimPreviousLayers(!preview.dimPreviousLayers)}>{preview.dimPreviousLayers ? 'Dim previous layers' : 'Show layers equally'}</Button>
       </aside>

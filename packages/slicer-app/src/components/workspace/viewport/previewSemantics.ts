@@ -63,6 +63,56 @@ export function lastMovePosition(data: Pick<ToolpathGeometry, 'segmentCount' | '
 }
 
 /**
+ * A result-local lookup for inspection.  Building this once per result keeps
+ * slider updates logarithmic and avoids repeatedly scanning million-segment
+ * toolpaths on the React render path.
+ */
+export interface PreviewInspectionIndex {
+  readonly movesByLayer: ReadonlyMap<number, readonly number[]>;
+}
+
+export function createPreviewInspectionIndex(
+  data: Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders'>,
+): PreviewInspectionIndex {
+  const byLayer = new Map<number, number[]>();
+  for (let index = 0; index < data.segmentCount; index++) {
+    const layer = data.layerIds[index] ?? 0;
+    const moves = byLayer.get(layer);
+    if (moves) moves.push(index);
+    else byLayer.set(layer, [index]);
+  }
+  for (const moves of byLayer.values()) {
+    moves.sort((a, b) => (data.moveOrders[a] ?? 0) - (data.moveOrders[b] ?? 0) || a - b);
+  }
+  return { movesByLayer: byLayer };
+}
+
+/** Return the nearest move at or before the requested local move order. */
+export function findPreviewMove(
+  data: Pick<ToolpathGeometry, 'moveOrders'>,
+  index: PreviewInspectionIndex,
+  layer: number,
+  move: number,
+): number | null {
+  const moves = index.movesByLayer.get(layer);
+  if (!moves?.length) return null;
+  let low = 0;
+  let high = moves.length - 1;
+  let best = 0;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const order = data.moveOrders[moves[middle]!] ?? 0;
+    if (order <= move) {
+      best = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return moves[best] ?? null;
+}
+
+/**
  * Implements Orca's hide semantics in a compact CPU-side visibility buffer.
  * The buffer is uploaded to a prebuilt instanced geometry attribute; changing
  * these choices never rebuilds geometry or the scene graph.

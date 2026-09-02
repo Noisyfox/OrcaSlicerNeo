@@ -2,12 +2,12 @@
 
 **Date:** 2026-09-02
 
-**Status:** Implemented C1/C2 foundation
+**Status:** Implemented C1/C2/C3 foundation
 
 **Scope:** Read-only preview analysis data, source-neutral contract, core
-analysis schemes, native color ramps, and scheme-scoped legend filtering.
-Statistics cards, inspection-card redesign, external G-code loading, and
-source-text retrieval remain future work.
+analysis schemes, native color ramps, scheme-scoped legend filtering,
+summary/per-feature statistics, and the current-move inspection card.
+External G-code loading and source-text retrieval remain future work.
 
 ## Accepted behavior
 
@@ -34,10 +34,20 @@ the independent native Travels color and global visibility option in every
 scheme. The layer slider owns a higher overlay stacking level than the
 analysis card so its thumbs remain reachable when overlays are crowded.
 
+The right-top overlay presents bridge-precomputed summary values and
+per-feature standard time/filament rows. It does not scan toolpath segments
+when opening or updating the panel. The current-move card follows the active
+layer and move-end selection through a result-local index, showing available
+layer/Z, endpoint XYZ, move type, feature, filament/tool, mapped G-code line,
+and selected-scheme value. Unknown or unavailable fields are omitted; travel
+does not claim a stale extrusion feature. The card remains in the existing
+right-top panel gutter, leaving the right layer slider and both thumbs
+reachable.
+
 `PreviewSource` is source-neutral: the current slice result is one source
 kind, while a future external-G-code source can provide the same preview
 result and an optional lazy text-chunk reader. No external source or text
-window is implemented in C1.
+window is implemented in C1-C3.
 
 ## Source limitations
 

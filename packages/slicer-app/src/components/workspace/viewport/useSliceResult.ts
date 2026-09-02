@@ -13,6 +13,8 @@ export interface ToolpathGeometry {
   features: Uint32Array;
   moveTypes: Uint8Array;
   ends: Float32Array;
+  /** Optional source identifiers used by the read-only Phase-C inspector. */
+  gcodeIds?: Uint32Array;
   extruderIds: Uint8Array;
   metrics: PreviewToolpathMetrics;
   extruderPalette?: readonly PreviewPaletteEntry[];
@@ -90,6 +92,7 @@ export function useSliceResult() {
       features: source.features,
       moveTypes: source.moveTypes,
       ends: source.ends,
+      gcodeIds: source.gcodeIds,
       extruderIds: source.extruderIds,
       metrics: source.metrics,
       ...(result.metadata.extruderPalette ? { extruderPalette: result.metadata.extruderPalette } : {}),

@@ -418,7 +418,9 @@ loading remain future increments.
       optional metric ranges
 - [x] Step C2 — read-only analysis scheme selection, palettes, and legend
       (Feature/Tool, five core native metric ramps, scheme-scoped filtering)
-- [ ] Step C3 — summary/per-feature statistics and current-move inspection card
+- [x] Step C3 — summary/per-feature statistics and current-move inspection
+      card; summary values remain bridge-precomputed and the indexed card
+      preserves the right-slider gutter
 - [ ] Step C4 — lazy G-code text window with bidirectional line navigation
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)

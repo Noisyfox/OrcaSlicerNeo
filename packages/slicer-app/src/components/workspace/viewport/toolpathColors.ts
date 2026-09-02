@@ -53,7 +53,7 @@ export const PREVIEW_SCHEME_LABELS: Readonly<Record<PreviewColorScheme, string>>
   fanSpeed: 'Fan Speed',
 };
 
-function metricForScheme(scheme: PreviewColorScheme): keyof PreviewToolpathMetrics | null {
+export function metricForPreviewScheme(scheme: PreviewColorScheme): keyof PreviewToolpathMetrics | null {
   switch (scheme) {
     case 'speed': return 'feedrate';
     case 'volumetricFlow': return 'volumetricFlow';
@@ -64,8 +64,17 @@ function metricForScheme(scheme: PreviewColorScheme): keyof PreviewToolpathMetri
   }
 }
 
+export function previewSchemeUnit(scheme: PreviewColorScheme): string | undefined {
+  return scheme === 'speed' ? 'mm/s'
+    : scheme === 'volumetricFlow' ? 'mm³/s'
+      : scheme === 'layerTime' ? 's'
+        : scheme === 'temperature' ? '°C'
+          : scheme === 'fanSpeed' ? '%'
+            : undefined;
+}
+
 function rangeForScheme(source: PreviewColorSource, scheme: PreviewColorScheme): { min: number; max: number } | null {
-  const metric = metricForScheme(scheme);
+  const metric = metricForPreviewScheme(scheme);
   if (!metric) return null;
   const values = source.analysis?.metricRanges[metric];
   return values && Number.isFinite(values.min) && Number.isFinite(values.max) ? values : null;
@@ -80,7 +89,7 @@ function filamentEntry(source: PreviewColorSource, tool: number): PreviewPalette
 }
 
 function numericValue(source: PreviewColorSource, scheme: PreviewColorScheme, index: number): number | undefined {
-  const metric = metricForScheme(scheme);
+  const metric = metricForPreviewScheme(scheme);
   if (!metric) return undefined;
   const values = source.metrics[metric];
   if (!values) return undefined;
@@ -129,7 +138,7 @@ export function describePreviewScheme(source: PreviewColorSource, scheme: Previe
   }
   const range = rangeForScheme(source, scheme);
   if (!range) return null;
-  const unit = scheme === 'speed' ? 'mm/s' : scheme === 'volumetricFlow' ? 'mm³/s' : scheme === 'layerTime' ? 's' : scheme === 'temperature' ? '°C' : '%';
+  const unit = previewSchemeUnit(scheme)!;
   const items = Array.from({ length: 5 }, (_, i) => {
     const value = range.min + (range.max - range.min) * i / 4;
     return { id: i, label: formatPreviewValue(value, unit), value, color: colorForPreviewValue(value, range.min, range.max) };

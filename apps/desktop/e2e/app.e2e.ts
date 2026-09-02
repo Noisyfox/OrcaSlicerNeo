@@ -378,6 +378,7 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
     await page.locator('#app-tab-preview').click();
     await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
     await expect(page.getByTestId('preview-legend')).toBeVisible();
+    await expect(page.getByTestId('preview-inspection-card')).toBeVisible();
     const feature = page.locator('[data-testid^="preview-feature-visibility-"]').first();
     await expect(feature).toBeVisible();
     await expect(feature).toHaveAttribute('aria-pressed', 'true');

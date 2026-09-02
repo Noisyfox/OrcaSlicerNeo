@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { buildPreviewVisibility, isPreviewInspectionKey, lastMovePosition, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus, TRAVEL_MOVE_TYPE } from './previewSemantics';
+import { buildPreviewVisibility, createPreviewInspectionIndex, findPreviewMove, isPreviewInspectionKey, lastMovePosition, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus, TRAVEL_MOVE_TYPE } from './previewSemantics';
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data = {
@@ -83,5 +83,13 @@ describe('preview inspection semantics', () => {
     useSlicerStore.getState().setPreviewMoveEnd(1);
     expect(lastMovePosition(data, 1, useSlicerStore.getState().preview.activeMoveEnd)).toEqual([3, 0, 0]);
     useSlicerStore.getState().resetPreviewState();
+  });
+
+  it('resolves the nearest available move without rescanning on every lookup', () => {
+    const indexed = createPreviewInspectionIndex(data);
+    expect(findPreviewMove(data, indexed, 1, 0)).toBe(2);
+    expect(findPreviewMove(data, indexed, 1, 1)).toBe(3);
+    expect(findPreviewMove(data, indexed, 1, 99)).toBe(4);
+    expect(findPreviewMove(data, indexed, 7, 0)).toBeNull();
   });
 });
