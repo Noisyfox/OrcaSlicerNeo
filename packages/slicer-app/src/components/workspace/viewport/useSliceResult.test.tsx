@@ -1,15 +1,65 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, useEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
+import type { ClientSliceResult } from '@slicer/client';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { StatusBar } from '../../layout/StatusBar';
-import { useSliceResult } from './useSliceResult';
+import { useSliceResult, type ToolpathGeometry } from './useSliceResult';
 
-function PreviewProbe() {
-  useSliceResult();
+function PreviewProbe({ onToolpath }: { onToolpath?: (toolpath: ToolpathGeometry) => void }) {
+  const { toolpath } = useSliceResult();
+  useEffect(() => {
+    if (toolpath) onToolpath?.(toolpath);
+  }, [onToolpath, toolpath]);
   return null;
+}
+
+function arcSliceResult(): ClientSliceResult {
+  return {
+    ok: true,
+    objects: 1,
+    layers: 1,
+    toolpath: {
+      vertexCount: 8,
+      positions: new Float32Array(24),
+      layers: new Uint32Array(8),
+      features: new Uint32Array([0, 0, 0, 0]),
+      palette: [],
+      segmentCount: 4,
+      starts: new Float32Array([
+        0, 0, 0,
+        1, 0, 0,
+        2, 0, 0,
+        3, 0, 0,
+      ]),
+      ends: new Float32Array([
+        1, 0, 0,
+        2, 0, 0,
+        3, 0, 0,
+        4, 0, 0,
+      ]),
+      layerIds: new Uint32Array([0, 0, 0, 0]),
+      // The raw client move orders remain distinct; useSliceResult derives
+      // the logical orders used by the preview controls from source ids.
+      moveOrders: new Uint32Array([0, 1, 2, 3]),
+      gcodeIds: new Uint32Array([41, 41, 41, 42]),
+      sourceLineOrderValid: true,
+      moveTypes: new Uint8Array([1, 1, 1, 1]),
+      extrusionRoles: new Uint16Array(4),
+      extruderIds: new Uint8Array(4),
+      colorPrintIds: new Uint8Array(4),
+      widths: new Float32Array([0.4, 0.4, 0.4, 0.4]),
+      heights: new Float32Array([0.2, 0.2, 0.2, 0.2]),
+      metrics: {},
+    },
+    metadata: {
+      resultId: 41,
+      layerRanges: [{ id: 0, z: 0.2, firstSegment: 0, segmentCount: 4 }],
+      featurePalette: [],
+    },
+  };
 }
 
 describe('useSliceResult', () => {
@@ -57,5 +107,42 @@ describe('useSliceResult', () => {
     expect(container.querySelector('[data-testid="slicer-error"]')?.textContent)
       .toBe('preview: nozzle context is unavailable');
     expect(consoleError).toHaveBeenCalled();
+  });
+
+  it('coalesces arc segments in the actual hook output without dropping geometry', async () => {
+    const runtime = {
+      getSliceResult: vi.fn(async () => arcSliceResult()),
+    };
+    const platform = {
+      runtime,
+      chrome: { kind: 'desktop' },
+    } as unknown as PlatformCapabilities;
+    const onToolpath = vi.fn<(toolpath: ToolpathGeometry) => void>();
+    useSlicerStore.setState({ status: 'done' });
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(
+        <PlatformProvider value={platform}>
+          <PreviewProbe onToolpath={onToolpath} />
+        </PlatformProvider>,
+      );
+    });
+
+    await vi.waitFor(() => expect(onToolpath).toHaveBeenCalled());
+    const output = onToolpath.mock.lastCall?.[0];
+    expect(output).toBeDefined();
+    expect(output?.moveOrders).toEqual(new Uint32Array([0, 0, 0, 1]));
+    expect(output?.segmentCount).toBe(4);
+    expect(output?.ends).toEqual(new Float32Array([
+      1, 0, 0,
+      2, 0, 0,
+      3, 0, 0,
+      4, 0, 0,
+    ]));
+    expect(output?.source?.moveOrders).toEqual(new Uint32Array([0, 1, 2, 3]));
+    expect(output?.source?.ends).toBe(output?.ends);
   });
 });
