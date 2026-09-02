@@ -59,6 +59,24 @@ describe('preview inspection semantics', () => {
     expect(lastMovePosition(data, 8, 0)).toBeNull();
   });
 
+  it('puts the marker at the final segment of one logical arc move', () => {
+    const arc = {
+      segmentCount: 4,
+      layerIds: Uint32Array.from([0, 0, 0, 0]),
+      // The first three rendered segments are one G2/G3 source command;
+      // the fourth is the following command.
+      moveOrders: Uint32Array.from([0, 0, 0, 1]),
+      ends: Float32Array.from([
+        1, 0, 0,
+        2, 0, 0,
+        3, 0, 0,
+        4, 0, 0,
+      ]),
+    };
+    expect(lastMovePosition(arc, 0, 0)).toEqual([3, 0, 0]);
+    expect(lastMovePosition(arc, 0, 1)).toEqual([4, 0, 0]);
+  });
+
   it('only claims keyboard shortcuts for the focused viewport', () => {
     const viewport = document.createElement('div');
     const canvas = document.createElement('canvas'); viewport.append(canvas);

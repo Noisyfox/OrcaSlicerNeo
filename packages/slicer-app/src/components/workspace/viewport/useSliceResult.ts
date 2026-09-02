@@ -4,6 +4,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis } from '@slicer/client';
 import { createPreviewSourceLineIndex, type PreviewSourceLineIndex } from './previewSemantics';
+import { deriveLogicalMoveOrders } from './gpuStreamingPlanner';
 
 export interface ToolpathGeometry {
   /** Immutable source arrays consumed by the native SegmentTemplate renderer. */
@@ -89,11 +90,17 @@ export function useSliceResult() {
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
     if (!result) return null;
     const source = result.toolpath;
+    // The client arrays describe rendered segments.  Arc commands may be
+    // tessellated into several segments, but the preview slider and nozzle
+    // marker operate on logical source moves. Keep the same coalesced order
+    // here as the GPU renderer so the marker's endpoint is the final segment
+    // of the selected arc rather than a segment in the middle of it.
+    const moveOrders = deriveLogicalMoveOrders(source.layerIds, source.gcodeIds, source.segmentCount);
     return {
       segmentCount: source.segmentCount,
       palette: source.palette,
       layerIds: source.layerIds,
-      moveOrders: source.moveOrders,
+      moveOrders,
       features: source.features,
       moveTypes: source.moveTypes,
       ends: source.ends,
