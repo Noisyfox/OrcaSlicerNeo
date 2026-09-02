@@ -7,9 +7,25 @@ import {
   ToolpathBandCache,
   updateToolpathChunkVisibility,
 } from './toolpathBandGeometry';
+import { createToolpathEntityGeometry, TOOLPATH_ENTITY_CHAMFER_RATIO } from './toolpathEntityGeometry';
 import type { ClientToolpath } from '@slicer/client';
 
 describe('toolpath band geometry', () => {
+  it('uses a unit physical chamfer with distinct edge facets, not an outline gap', () => {
+    const geometry = createToolpathEntityGeometry();
+    const positions = geometry.getAttribute('position');
+    const bounds = new THREE.Box3().setFromBufferAttribute(positions as THREE.BufferAttribute);
+    expect(positions.count).toBe(96);
+    expect(bounds.min.toArray()).toEqual([-0.5, -0.5, -0.5]);
+    expect(bounds.max.toArray()).toEqual([0.5, 0.5, 0.5]);
+    expect(TOOLPATH_ENTITY_CHAMFER_RATIO).toBeCloseTo(0.16);
+    const normals = geometry.getAttribute('normal');
+    const unique = new Set<string>();
+    for (let i = 0; i < normals.count; i++) unique.add([normals.getX(i), normals.getY(i), normals.getZ(i)].map((value) => value.toFixed(3)).join(','));
+    expect(unique.size).toBeGreaterThanOrEqual(10);
+    geometry.dispose();
+  });
+
   it('keeps chunk boundaries aligned to complete layers', () => {
     const ranges = buildLayerAlignedChunkRanges(
       Uint32Array.from([0, 0, 0, 1, 1, 2, 2, 2]),
@@ -33,11 +49,16 @@ describe('toolpath band geometry', () => {
       Float32Array.from([1, 0, 0, 0, 1, 0]),
       range,
     );
-    expect(chunk.geometry).toBeInstanceOf(THREE.BoxGeometry);
+    expect(chunk.geometry).toBeInstanceOf(THREE.BufferGeometry);
     expect(chunk.mesh).toBeInstanceOf(THREE.InstancedMesh);
     expect(chunk.mesh.count).toBe(2);
-    const material = chunk.mesh.material as THREE.MeshBasicMaterial;
+    const material = chunk.mesh.material as THREE.MeshStandardMaterial;
+    expect(material).toBeInstanceOf(THREE.MeshStandardMaterial);
     expect(material.vertexColors).toBe(false);
+    expect(material.flatShading).toBe(true);
+    expect(material.color.getHex()).toBe(0xffffff);
+    expect(material.roughness).toBeCloseTo(0.82);
+    expect(material.metalness).toBe(0);
     expect(material.transparent).toBe(true);
     expect(material.opacity).toBe(1);
     expect(material.blending).toBe(THREE.NoBlending);

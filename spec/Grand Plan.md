@@ -376,6 +376,13 @@ and drives structural operations through the typed client.
 > while solid toolpaths self-occlude and cull their back faces. Native
 > libvgcode disables `GL_CULL_FACE`; this culling flag is an intentional
 > difference required by the physical cuboid adaptation.
+> Toolpath materials use flat-shaded `MeshStandardMaterial` with the existing
+> scene lights. A shared chamfered prism supplies scale-aware physical edge
+> relief between neighbouring same-colour paths; no gap, alpha outline, or
+> blend pass is introduced.
+> Toolpath materials use flat-shaded `MeshStandardMaterial` with the existing
+> scene lights so real box face normals expose boundaries between neighbouring
+> same-colour paths; no gap, alpha outline, or blend pass is introduced.
 >
 > Major renderer/performance specification:
 > [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)
@@ -384,7 +391,7 @@ and drives structural operations through the typed client.
       metadata fixture contract (no bridge change)
 - [x] Step 2 — source adapter/page planner behind the current B2 backend
 - [x] Step 3 — WebGL2 opaque solid-entity backend and capability/lifetime
-      fallback (shared BoxGeometry + page-local InstancedMesh; no custom
+      fallback (shared chamfered prism + page-local InstancedMesh; no custom
       thickness shader or alpha blend)
 - [x] Step 4 — real preview integration behind an explicit default-off gate,
       fallback diagnostics, and opt-in dual-host smoke coverage

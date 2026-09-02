@@ -321,16 +321,20 @@ still a separately approved cleanup after a release cycle.
 
 The atlas/texel-fetch backend described earlier in this living document is
 superseded by the user's explicit rendering requirement. The accepted path is
-now a shared `THREE.BoxGeometry` solid prism template and one page-local
-`THREE.InstancedMesh` per planned page. At construction and every selection
+now a shared faceted, chamfered solid-prism geometry template and one
+page-local `THREE.InstancedMesh` per planned page. At construction and every selection
 rebuild, each selected segment's endpoint midpoint, direction basis, width,
 height, and optional z bias are written into its instance matrix. Box end caps
 are therefore real geometry; no vertex shader derives a segment outline,
 thickness, height, direction, or cap from an atlas.
 
-The material is Three's direct `MeshBasicMaterial` with
-`transparent: true` only for transparent-queue ordering, `opacity: 1`, and
-`blending: THREE.NoBlending`. The queue flag does not enable alpha
+The material is Three's direct `MeshStandardMaterial` with flat face shading,
+`color: 0xffffff`, `roughness: 0.82`, and `metalness: 0`. The existing scene
+ambient and directional lights produce distinct top, side, and cap brightness
+from the real chamfered-prism normals, matching libvgcode's face-lighting intent and
+making neighbouring same-colour paths readable without a gap or outline pass.
+It uses `transparent: true` only for transparent-queue ordering, `opacity: 1`,
+and `blending: THREE.NoBlending`. The queue flag does not enable alpha
 compositing. `depthTest: true`, `depthWrite: true`, `side: FrontSide`,
 `forceSinglePass: true`, and render order 1000 make each path a solid,
 self-occluding entity while ensuring its draw occurs after the transparent
@@ -344,8 +348,8 @@ matrices/colors and mesh counts. Camera movement performs no entity
 reconstruction or upload. The planner remains source-order/layer/page
 metadata only and does not allocate render resources.
 
-The Three material intentionally leaves `vertexColors` disabled: `BoxGeometry`
-has no per-vertex `color` attribute, while `InstancedMesh.instanceColor` is
+The Three materials intentionally leave `vertexColors` disabled: the shared
+prism has no per-vertex `color` attribute, while `InstancedMesh.instanceColor` is
 enabled independently by Three. Enabling both would make the generated
 `USE_COLOR` path multiply by the missing attribute before applying the
 instance color, rendering every toolpath black. This instance-color-only
@@ -372,7 +376,7 @@ back to B2. Successful construction removes B2 so no double draw occurs.
 The browser harness now measures solid entity template/instance allocation and
 selection matrix/color uploads. Legacy report field names remain aliases for
 dashboard compatibility but no longer describe atlas or index textures.
-Unit coverage asserts real `InstancedMesh`/`BoxGeometry`, matrix scale for
+Unit coverage asserts real `InstancedMesh`/faceted-prism geometry, matrix scale for
 width/height, opaque NoBlending materials, unknown-feature fallback, complete
 multi-page upper-layer selection, filter rebuild, camera no-upload behavior,
 and idempotent disposal. `pnpm typecheck` and the focused slicer-app Vitest

@@ -8,6 +8,7 @@ import {
   type GpuStreamingEntityTemplateResource,
   type GpuStreamingResourceFacade,
 } from './gpuStreamingRenderer';
+import { TOOLPATH_ENTITY_CHAMFER_RATIO } from './toolpathEntityGeometry';
 
 function source(): GpuStreamingSource {
   return {
@@ -34,8 +35,8 @@ function entityFacade() {
   const dispose = vi.fn();
   const resourceFacade: GpuStreamingResourceFacade = {
     createEntityTemplate: (): GpuStreamingEntityTemplateResource => ({
-      geometry: new THREE.BoxGeometry(1, 1, 1),
-      material: new THREE.MeshBasicMaterial({ vertexColors: true, transparent: false, opacity: 1, blending: THREE.NoBlending, depthTest: false, depthWrite: false }),
+      geometry: new THREE.BufferGeometry(),
+      material: new THREE.MeshStandardMaterial({ vertexColors: false, flatShading: true, color: 0xffffff, roughness: 0.82, metalness: 0, transparent: false, opacity: 1, blending: THREE.NoBlending, depthTest: false, depthWrite: false }),
       dispose,
     }),
   };
@@ -67,11 +68,11 @@ describe('opaque GPU entity renderer', () => {
     expect(result.backend.sceneObjects).toHaveLength(2);
     for (const mesh of result.backend.sceneObjects) {
       expect(mesh).toBeInstanceOf(THREE.InstancedMesh);
-      expect(mesh.geometry).toBeInstanceOf(THREE.BoxGeometry);
-      expect(mesh.geometry.getAttribute('position').count).toBe(24);
-      expect(mesh.geometry.index?.count).toBe(36);
-      expect(mesh.material).toBeInstanceOf(THREE.MeshBasicMaterial);
-      const material = mesh.material as THREE.MeshBasicMaterial;
+      expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
+      expect(mesh.geometry.getAttribute('position').count).toBe(96);
+      expect(mesh.geometry.index).toBeNull();
+      expect(mesh.material).toBeInstanceOf(THREE.MeshStandardMaterial);
+      const material = mesh.material as THREE.MeshStandardMaterial;
       // Transparent queue membership is used only to draw after the
       // transparent model shell; the actual blend state remains disabled.
       expect(material.transparent).toBe(true);
@@ -80,13 +81,22 @@ describe('opaque GPU entity renderer', () => {
       expect(material.depthTest).toBe(true);
       expect(material.depthWrite).toBe(true);
       expect(material.side).toBe(THREE.FrontSide);
-      // BoxGeometry has no vertex color attribute. The renderer must leave
+      // The physical prism has no vertex color attribute. The renderer must leave
       // vertexColors off so Three does not multiply the instance color by a
       // missing (zero-valued) `color` attribute.
       expect(material.vertexColors).toBe(false);
+      expect(material.flatShading).toBe(true);
+      expect(material.color.getHex()).toBe(0xffffff);
+      expect(material.roughness).toBeCloseTo(0.82);
+      expect(material.metalness).toBe(0);
       expect(material.forceSinglePass).toBe(true);
     }
     result.backend.dispose();
+  });
+
+  it('uses a scale-aware physical chamfer for edge relief', () => {
+    expect(TOOLPATH_ENTITY_CHAMFER_RATIO).toBeGreaterThan(0);
+    expect(TOOLPATH_ENTITY_CHAMFER_RATIO).toBeLessThan(0.5);
   });
 
   it('writes selected transforms/colors, preserves all high pages, and rebuilds filters without parsing', () => {

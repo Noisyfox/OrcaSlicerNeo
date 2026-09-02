@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ToolpathFeature } from '@slicer/client';
 import type { GpuStreamingPage, GpuStreamingPagePlan, GpuStreamingSelection } from './gpuStreamingPlanner';
+import { createToolpathEntityGeometry, createToolpathEntityMaterial } from './toolpathEntityGeometry';
 
 /**
  * The renderer follows libvgcode's SegmentTemplate ownership model: one
@@ -27,7 +28,7 @@ export interface GpuStreamingRendererHost {
 }
 export interface GpuStreamingEntityTemplateResource {
   readonly geometry?: THREE.BufferGeometry;
-  readonly material?: THREE.MeshBasicMaterial;
+  readonly material?: THREE.Material;
   readonly dispose: () => void;
 }
 /** Resource seam used by tests and host-specific allocation policy. */
@@ -117,30 +118,8 @@ export function buildGpuStreamingInstanceMatrix(
 }
 
 function createEntityTemplate(): GpuStreamingEntityTemplateResource {
-  const geometry = new THREE.BoxGeometry(1, 1, 1);
-  const material = new THREE.MeshBasicMaterial({
-    // InstancedMesh supplies `instanceColor`, not a per-vertex `color`
-    // attribute. Setting vertexColors here would enable Three's USE_COLOR
-    // path as well; BoxGeometry has no color attribute, so that path reads
-    // the default zero attribute and multiplies every instance to black.
-    // Three enables USE_INSTANCING_COLOR from mesh.instanceColor directly.
-    vertexColors: false,
-    // The preview model is a transparent Three queue item. Keep toolpaths
-    // after it in the transparent queue while explicitly disabling blending;
-    // this is ordering only, never alpha compositing.
-    transparent: true,
-    opacity: 1,
-    blending: THREE.NoBlending,
-    // The preview shell is transparent and does not write depth, so the
-    // transparent queue plus renderOrder keeps paths visible through it.
-    // The entities themselves must still participate in depth testing and
-    // write their solid depth, otherwise rear segments/faces show through
-    // the front of the toolpath when the camera is below the model.
-    depthTest: true,
-    depthWrite: true,
-    side: THREE.FrontSide,
-  });
-  material.forceSinglePass = true;
+  const geometry = createToolpathEntityGeometry();
+  const material = createToolpathEntityMaterial();
   return { geometry, material, dispose: onceDispose(() => { geometry.dispose(); material.dispose(); }) };
 }
 const threeResourceFacade: GpuStreamingResourceFacade = { createEntityTemplate };

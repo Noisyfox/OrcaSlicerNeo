@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ClientToolpath } from '@slicer/client';
 import type { PreviewVisibility } from './previewSemantics';
+import { createToolpathEntityGeometry, createToolpathEntityMaterial } from './toolpathEntityGeometry';
 
 export interface ToolpathChunkRange {
   firstSegment: number;
@@ -11,7 +12,7 @@ export interface ToolpathChunkRange {
 
 /** A layer-aligned solid entity collection used by the B2 fallback. */
 export interface ToolpathBandChunk extends ToolpathChunkRange {
-  geometry: THREE.BoxGeometry;
+  geometry: THREE.BufferGeometry;
   mesh: THREE.InstancedMesh;
   /** Original matrices/colors let visibility rebuild without parsing G-code. */
   instanceMatrices: THREE.Matrix4[];
@@ -59,29 +60,7 @@ function buildMatrix(starts: Float32Array, ends: Float32Array, widths: Float32Ar
     Math.max(length, 1e-5), finitePositive(widths[index], 0.08), finitePositive(heights[index], 0.03),
   )).setPosition(center);
 }
-function createMaterial(): THREE.MeshBasicMaterial {
-  const material = new THREE.MeshBasicMaterial({
-    // These meshes carry per-instance colors, not a per-vertex `color`
-    // attribute. Enabling vertexColors would make Three multiply by the
-    // missing BoxGeometry color attribute (zero), producing black paths;
-    // InstancedMesh enables USE_INSTANCING_COLOR from instanceColor itself.
-    vertexColors: false,
-    // Match the GPU backend: transparent queue ordering is required because
-    // preview model shells are transparent, but blending itself is disabled.
-    transparent: true,
-    opacity: 1,
-    blending: THREE.NoBlending,
-    // The path entities must establish and obey their own depth buffer. The
-    // preview shell does not write depth, so this still leaves paths visible
-    // through the shell while preventing rear entities/faces from showing
-    // through the front when viewed from underneath.
-    depthTest: true,
-    depthWrite: true,
-    side: THREE.FrontSide,
-  });
-  material.forceSinglePass = true;
-  return material;
-}
+function createMaterial(): THREE.MeshStandardMaterial { return createToolpathEntityMaterial(); }
 function clampCount(count: number, length: number): number {
   return Math.max(0, Math.min(length, Math.floor(Number.isFinite(count) ? count : 0)));
 }
@@ -119,7 +98,7 @@ export function selectToolpathChunks(chunks: readonly ToolpathChunkRange[], firs
 
 /** Create physical capped prisms, with width/height/direction in each matrix. */
 export function createToolpathBandChunk(starts: Float32Array, ends: Float32Array, widths: Float32Array, heights: Float32Array, colors: Float32Array, range: ToolpathChunkRange): ToolpathBandChunk {
-  const geometry = new THREE.BoxGeometry(1, 1, 1);
+  const geometry = createToolpathEntityGeometry();
   const mesh = new THREE.InstancedMesh(geometry, createMaterial(), range.segmentCount);
   mesh.count = range.segmentCount;
   mesh.frustumCulled = false;

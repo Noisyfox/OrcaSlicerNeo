@@ -315,20 +315,25 @@ production path and automatic fallback and is not removed by this change.
 The prior static-atlas/texel-fetch shader architecture is superseded by the
 explicit product requirement that toolpath thickness and height be real
 geometry and that no toolpath use alpha blending. The active implementation
-uses one shared `THREE.BoxGeometry` prism template and one page-local
-`THREE.InstancedMesh` per planner page. Selection rebuilds materialize each
-segment's endpoint midpoint, direction basis, width, height, and optional bias
-in the instance matrix; the box supplies real side faces and end caps.
+uses one shared faceted, chamfered solid-prism geometry template and one
+page-local `THREE.InstancedMesh` per planner page. Selection rebuilds materialize
+each segment's endpoint midpoint, direction basis, width, height, and optional
+bias in the instance matrix; the prism supplies real side facets and end caps.
 
-Toolpath materials are standard Three `MeshBasicMaterial` instances with
-`transparent: true` solely to place them after the transparent preview shell
-in Three's render queue, `opacity: 1`, `blending: THREE.NoBlending`,
-`depthTest: true`, `depthWrite: true`, and `FrontSide`. This queue flag does
-not enable alpha compositing; the renderer's blend state is explicitly
-disabled. Depth is intentionally enabled for the solid entities themselves:
-the preview shell does not write depth, while the toolpaths establish depth
-and therefore self-occlude from the camera-facing side. Per-instance RGB
-colours implement the feature palette and an opaque gray unknown-feature fallback. There is no custom toolpath shader,
+Toolpath materials are standard Three `MeshStandardMaterial` instances with
+flat face shading, `color: 0xffffff`, `roughness: 0.82`, and `metalness: 0`.
+The scene's ambient/directional lights produce stable top/side/cap contrast
+from the real chamfered-prism normals, making adjacent same-colour paths readable
+without an artificial gap or alpha outline. The chamfer is 16% of each
+cross-section dimension, so edge relief remains scale-aware. They use `transparent: true` solely to
+place them after the transparent preview shell in Three's render queue,
+`opacity: 1`, `blending: THREE.NoBlending`, `depthTest: true`,
+`depthWrite: true`, and `FrontSide`. This queue flag does not enable alpha
+compositing; the renderer's blend state is explicitly disabled. Depth is
+intentionally enabled for the solid entities themselves: the preview shell
+does not write depth, while the toolpaths establish depth and therefore
+self-occlude from the camera-facing side. Per-instance RGB colours implement
+the feature palette and an opaque gray unknown-feature fallback. There is no custom toolpath shader,
 `texelFetch`, atlas, integer texture, enabled-index texture, or
 shader-derived outline/width/height. The planner remains a pure
 source/page/selection planner and can retain its page metadata accounting for
@@ -348,7 +353,7 @@ materializes direction/width/height on the CPU, as required. Camera updates
 only update camera/render state. Layer, move, travel, and feature filters
 rebuild selected page matrices/colors and counts without re-parsing or slicing.
 
-The Three material leaves `vertexColors` disabled because `BoxGeometry` has no
+The Three material leaves `vertexColors` disabled because the shared prism has no
 per-vertex `color` attribute. `InstancedMesh.instanceColor` is enabled by
 Three independently. Enabling both paths would multiply by the missing
 attribute before applying the instance color, making every toolpath black;
