@@ -159,6 +159,11 @@ move slider controls the inclusive movement range from the active layer's
 implicit start through its current move end. Its single thumb is the current
 inspection position and drives the nozzle marker.
 
+Single-layer inspection keeps the right-edge control as a dual-thumb layer
+range slider. Both thumbs move the active layer together, so the inclusive
+range remains `[active layer, active layer]`; leaving single-layer inspection
+restores the inclusive range from layer zero through the active layer.
+
 ### Filter and state semantics
 
 Legend filters have Orca's hide semantics: disabling a feature, material/tool,

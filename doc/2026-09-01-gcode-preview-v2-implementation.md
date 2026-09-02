@@ -295,6 +295,12 @@ Changing the active layer atomically replaces the move bound with that layer's
 local maximum and resets the inspection end to a valid position, so keyboard
 and layer changes cannot retain a move index from another layer.
 
+Single-layer inspection retains the dual-thumb vertical layer control: either
+thumb moves the active layer and both endpoints stay paired at that layer. The
+move bound is replaced with the newly active layer's local maximum on each such
+change; leaving single-layer inspection restores layers zero through the active
+layer.
+
 **B3 specification correction (2026-09-02):** the bottom Move control is a
 single-thumb move-end slider, not a dual-thumb range slider. The active layer's
 toolpath is visible implicitly from its first move; there is no separately

@@ -62,4 +62,25 @@ describe('useSlicerStore', () => {
     useSlicerStore.getState().setPreviewMoveEnd(1);
     expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(1);
   });
+
+  it('keeps a single-layer range paired when either layer thumb changes', () => {
+    useSlicerStore.getState().setPreviewBounds(4, 10, 44);
+    useSlicerStore.getState().setPreviewLayerRange([1, 3], 2);
+    useSlicerStore.getState().setPreviewSingleLayer(true);
+    expect(useSlicerStore.getState().preview).toMatchObject({
+      singleLayer: true, visibleLayerStart: 3, visibleLayerEnd: 3,
+    });
+
+    // The first-thumb-shaped update must be able to move down without being
+    // clamped against the old end; both values remain a valid single layer.
+    useSlicerStore.getState().setPreviewLayerRange([2, 3], 7);
+    expect(useSlicerStore.getState().preview).toMatchObject({
+      visibleLayerStart: 2, visibleLayerEnd: 2, maxMove: 7, activeMoveEnd: 7,
+    });
+    // And the second thumb can move independently in the other direction.
+    useSlicerStore.getState().setPreviewLayerRange([2, 4], 1);
+    expect(useSlicerStore.getState().preview).toMatchObject({
+      visibleLayerStart: 4, visibleLayerEnd: 4, maxMove: 1, activeMoveEnd: 1,
+    });
+  });
 });

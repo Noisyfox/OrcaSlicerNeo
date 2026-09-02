@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
+import { maxMoveOrderForLayer } from './previewSemantics';
 
 function maxLayerOf(data: ToolpathGeometry): number {
   let max = 0;
@@ -17,6 +18,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const maxLayer = maxLayerOf(data);
   const preview = useSlicerStore((s) => s.preview);
   const setLayerRange = useSlicerStore((s) => s.setPreviewLayerRange);
+  const setLayerEnd = useSlicerStore((s) => s.setPreviewLayerEnd);
   const setMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
   const setShowTravel = useSlicerStore((s) => s.setPreviewShowTravel);
   const setDimPreviousLayers = useSlicerStore((s) => s.setPreviewDimPreviousLayers);
@@ -64,10 +66,10 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
       <div data-testid="preview-layer-range" className="pointer-events-auto absolute right-2 top-1/2 z-10 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <Label className="sr-only">Visible layer range</Label>
         <div data-testid="layer-scrubber" className="relative h-full w-6">
-          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setLayerRange([values[0] ?? 0, layerEnd], maxMove); }} aria-label="Visible layer range start" />
+          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextStart = values[0] ?? layerStart; if (preview.singleLayer) setLayerEnd(nextStart, maxMoveOrderForLayer(data, nextStart)); else setLayerRange([nextStart, layerEnd], maxMove); }} aria-label="Visible layer range start" />
         </div>
         <div className="pointer-events-none absolute inset-2 [&_[data-slot=slider-thumb]]:pointer-events-auto">
-          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextEnd = values[0] ?? layerEnd; let nextMaxMove = 0; for (let i = 0; i < data.segmentCount; i++) if (data.layerIds[i] === nextEnd) nextMaxMove = Math.max(nextMaxMove, data.moveOrders[i] ?? 0); setLayerRange([layerStart, nextEnd], nextMaxMove); }} aria-label="Visible layer range end" />
+          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextEnd = values[0] ?? layerEnd; const nextMaxMove = maxMoveOrderForLayer(data, nextEnd); if (preview.singleLayer) setLayerEnd(nextEnd, nextMaxMove); else setLayerRange([layerStart, nextEnd], nextMaxMove); }} aria-label="Visible layer range end" />
         </div>
         <span className="sr-only">Layers {layerStart + 1} through {layerEnd + 1}</span>
       </div>

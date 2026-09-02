@@ -71,4 +71,30 @@ describe('LayerScrubber preview controls', () => {
     expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(1);
     expect(moveInput.value).toBe('1');
   });
+
+  it('keeps both vertical thumbs usable while single-layer inspection is enabled', async () => {
+    useSlicerStore.getState().setPreviewBounds(1, 1, 1);
+    useSlicerStore.getState().setPreviewLayerRange([0, 1], 1);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    await act(async () => { container.querySelector('[data-testid="preview-single-layer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+
+    const layerInputs = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]');
+    expect(layerInputs).toHaveLength(2);
+    expect(Array.from(layerInputs).map((input) => (input as HTMLInputElement).value)).toEqual(['1', '1']);
+
+    // Either thumb changes the active layer in single-layer mode. The pair
+    // stays equal, so the range never reverses or expands unexpectedly.
+    await act(async () => {
+      (layerInputs[0] as HTMLInputElement).focus();
+      layerInputs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    });
+    expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerStart: 0, visibleLayerEnd: 0 });
+    await act(async () => {
+      const endInput = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]')[1] as HTMLInputElement;
+      endInput.focus();
+      endInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+    });
+    expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerStart: 1, visibleLayerEnd: 1, maxMove: 1, activeMoveEnd: 1 });
+  });
 });

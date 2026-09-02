@@ -97,6 +97,35 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   })),
   setPreviewLayerRange: ([first, last], activeLayerMaxMove) => set((state) => {
     const max = Math.max(0, state.maxLayer);
+    // In single-layer mode both vertical thumbs represent the same active
+    // layer.  The two Slider roots still report a pair of values, so choose
+    // the endpoint that changed before applying the usual non-reversing
+    // range clamp.  Otherwise lowering the end thumb from [layer, layer]
+    // would be clamped back to the old start and the control would appear
+    // stuck.
+    if (state.preview.singleLayer) {
+      const requestedFirst = Math.floor(first);
+      const requestedLast = Math.floor(last);
+      const requestedLayer = requestedLast !== state.preview.visibleLayerEnd
+        ? requestedLast
+        : requestedFirst !== state.preview.visibleLayerStart
+          ? requestedFirst
+          : requestedLast;
+      const activeLayer = Math.max(0, Math.min(max, requestedLayer));
+      const maxMove = activeLayerMaxMove === undefined
+        ? state.preview.maxMove
+        : Math.max(0, Math.floor(activeLayerMaxMove));
+      return {
+        layer: activeLayer,
+        preview: {
+          ...state.preview,
+          visibleLayerStart: activeLayer,
+          visibleLayerEnd: activeLayer,
+          maxMove,
+          activeMoveEnd: maxMove,
+        },
+      };
+    }
     const a = Math.max(0, Math.min(max, Math.floor(first)));
     const b = Math.max(a, Math.min(max, Math.floor(last)));
     const layerChanged = b !== state.preview.visibleLayerEnd;
@@ -138,14 +167,19 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setPreviewFeatureVisibility: (feature, visible) => set((state) => ({
     preview: { ...state.preview, featureVisibility: { ...state.preview.featureVisibility, [feature]: visible } },
   })),
-  setPreviewSingleLayer: (singleLayer) => set((state) => ({
-    preview: {
-      ...state.preview,
-      singleLayer,
-      visibleLayerStart: singleLayer ? state.layer : 0,
-      visibleLayerEnd: state.layer,
-    },
-  })),
+  setPreviewSingleLayer: (singleLayer) => set((state) => {
+    const max = Math.max(0, state.maxLayer);
+    const activeLayer = Math.max(0, Math.min(max, Math.floor(state.preview.visibleLayerEnd)));
+    return {
+      layer: activeLayer,
+      preview: {
+        ...state.preview,
+        singleLayer,
+        visibleLayerStart: singleLayer ? activeLayer : 0,
+        visibleLayerEnd: activeLayer,
+      },
+    };
+  }),
   resetPreviewState: () => set((state) => ({
     layer: 0,
     preview: { ...DEFAULT_PREVIEW_STATE },

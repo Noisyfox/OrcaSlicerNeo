@@ -386,6 +386,27 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
     await moveInput.focus();
     await page.keyboard.press('Home');
     await expect(moveInput).toHaveValue('0');
+
+    // Single-layer inspection keeps the vertical control dual-thumb. Starting
+    // from a multi-layer range, both thumbs collapse to the active layer and
+    // either thumb can then move that layer without reversing the range.
+    const singleLayerToggle = page.getByTestId('preview-single-layer');
+    await singleLayerToggle.click();
+    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(layerInputs.nth(0)).toHaveValue(await layerInputs.nth(1).inputValue());
+    await layerInputs.nth(0).focus();
+    await page.keyboard.press('Home');
+    await expect(layerInputs.nth(0)).toHaveValue('0');
+    await expect(layerInputs.nth(1)).toHaveValue('0');
+    await layerInputs.nth(1).focus();
+    await page.keyboard.press('ArrowUp');
+    await expect.poll(() => layerInputs.nth(0).inputValue()).toBe('1');
+    await expect(layerInputs.nth(1)).toHaveValue('1');
+    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
+    await singleLayerToggle.click();
+    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(async () => Number(await layerInputs.nth(0).inputValue()) <= Number(await layerInputs.nth(1).inputValue())).toBe(true);
+
     const layerBefore = await layerInputs.nth(1).inputValue();
     await layerInputs.nth(1).focus();
     await page.keyboard.press('Home');
