@@ -63,6 +63,13 @@ edge, so a 64 KiB request has an explicit 64 KiB + 6 byte response bound. The
 typed client validates that bound before decoding and crossing the Worker
 boundary. Invalid or stale requests fail without exposing a partial result.
 
+The text window uses the seekable `readTextLines({ resultId, startLine,
+lineCount })` path. The bridge retains only the current result's cumulative
+line-end byte offsets and returns at most 128 complete lines and 64 KiB per
+page; the line-end table never crosses into the renderer. The UI keeps at most
+six fixed line pages, requests the active page directly for late slider moves,
+and centers the active row after that page resolves.
+
 The text window is a separately toggled, larger overlay (`C` while the preview
 viewport owns focus, or its close button). It renders only a bounded visible
 row window of plain text and highlights the active mapped source line. Slider

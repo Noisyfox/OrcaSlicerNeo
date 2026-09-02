@@ -18,8 +18,9 @@ import type {
   ProgressMailbox, ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
   PreviewTextChunk, PreviewTextChunkRequest,
+  PreviewTextLines, PreviewTextLinesRequest,
 } from './types';
-import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
+import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
 export function createClient(
@@ -509,6 +510,38 @@ export function createClient(
       // complete chunk so no decoder state leaks across coalesced requests.
       return {
         offset: actualOffset,
+        text: new TextDecoder('utf-8', { fatal: false }).decode(bytes),
+        eof: r.eof === true,
+      };
+    },
+
+    async readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines> {
+      const startLine = request?.startLine;
+      const lineCount = request?.lineCount;
+      if (!Number.isSafeInteger(request?.resultId) || request.resultId < 1 ||
+          !Number.isSafeInteger(startLine) || startLine < 1 ||
+          !Number.isSafeInteger(lineCount) || lineCount < 1 || lineCount > PREVIEW_TEXT_LINES_MAX)
+        throw new RangeError(`preview text page must contain 1-${PREVIEW_TEXT_LINES_MAX} lines`);
+      const m = await module();
+      const r = callJson(m, 'orc_read_gcode_lines', ['number', 'number', 'number'], [
+        request.resultId, startLine, lineCount,
+      ]) as {
+        ok: boolean; error?: string; start_line?: number; line_count?: number;
+        eof?: boolean; bytes_ptr?: number; bytes_length?: number;
+      };
+      if (!r.ok) throw new Error(r.error ?? 'preview text page is unavailable');
+      const actualStart = Number(r.start_line);
+      const actualCount = Number(r.line_count);
+      const byteLength = Number(r.bytes_length ?? 0);
+      if (!Number.isSafeInteger(actualStart) || actualStart < 1 ||
+          !Number.isSafeInteger(actualCount) || actualCount < 1 || actualCount > PREVIEW_TEXT_LINES_MAX ||
+          !Number.isSafeInteger(byteLength) || byteLength < 0 ||
+          byteLength > PREVIEW_TEXT_CHUNK_MAX_BYTES || !r.bytes_ptr)
+        throw new Error('preview text bridge returned an invalid page');
+      const bytes = readBytes(m, Number(r.bytes_ptr), byteLength);
+      return {
+        startLine: actualStart,
+        lineCount: actualCount,
         text: new TextDecoder('utf-8', { fatal: false }).decode(bytes),
         eof: r.eof === true,
       };

@@ -35,6 +35,16 @@ const data: ToolpathGeometry = {
   dispose: () => undefined,
 };
 
+const lateData: ToolpathGeometry = {
+  ...data,
+  gcodeIds: Uint32Array.from([4, 7, 12000]),
+  sourceLineOrderValid: true,
+  sourceLineIndex: {
+    moveByLine: new Map(), mappedLines: [], orderedGcodeIds: Uint32Array.from([4, 7, 12000]),
+  },
+  metadata: { ...data.metadata!, sourceLineMapping: { available: true, lineCount: 12000 } },
+};
+
 describe('GcodeTextWindow', () => {
   let root: Root | undefined;
   afterEach(() => {
@@ -43,24 +53,24 @@ describe('GcodeTextWindow', () => {
   });
 
   it('loads source text lazily and keeps only visible line elements', async () => {
-    const readTextChunk = vi.fn(async ({ resultId, offset }: { resultId: number; offset: number; length: number }) => ({
-      resultId, offset, eof: true, text: Array.from({ length: 11 }, (_, i) => `G1 X${i}`).join('\n'),
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextChunk } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
     useSlicerStore.getState().setPreviewBounds(1, 1, 42);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
-    expect(readTextChunk).toHaveBeenCalledWith({ resultId: 42, offset: 0, length: 64 * 1024 });
+    expect(readTextLines).toHaveBeenCalledWith({ resultId: 42, startLine: 1, lineCount: 100 });
     expect(container.querySelector('[data-testid="gcode-text-window"]')).toBeTruthy();
     expect(container.querySelectorAll('[data-testid^="gcode-line-"]').length).toBeLessThan(100);
-    expect(container.querySelector('[data-testid="gcode-line-1"]')?.textContent).toContain('G1 X0');
+    expect(container.querySelector('[data-testid="gcode-line-1"]')?.textContent).toContain('G1 X1');
   });
 
   it('maps exact and unmappable line clicks using the preceding move rule', async () => {
-    const readTextChunk = vi.fn(async ({ resultId, offset }: { resultId: number; offset: number; length: number }) => ({
-      resultId, offset, eof: true, text: Array.from({ length: 11 }, (_, i) => `G1 X${i}`).join('\n'),
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextChunk } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
     useSlicerStore.getState().setPreviewBounds(1, 1, 42);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
@@ -68,5 +78,20 @@ describe('GcodeTextWindow', () => {
     expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerEnd: 0, activeMoveEnd: 0 });
     await act(async () => { (container.querySelector('[data-testid="gcode-line-3"]') as HTMLElement).click(); });
     expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerEnd: 0, activeMoveEnd: 0 });
+  });
+
+  it('seeks directly to a late active page and centers its highlight', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: false,
+      text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
+    }));
+    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    useSlicerStore.getState().setPreviewBounds(1, 0, 42);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={lateData} onClose={() => undefined} /></PlatformProvider>); });
+    expect(readTextLines).toHaveBeenCalledWith({ resultId: 42, startLine: 11905, lineCount: 96 });
+    expect(readTextLines).not.toHaveBeenCalledWith(expect.objectContaining({ startLine: 1 }));
+    expect(container.querySelector('[data-testid="gcode-line-12000"]')?.getAttribute('aria-current')).toBe('true');
+    expect((container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement).scrollTop).toBeGreaterThan(0);
   });
 });

@@ -363,12 +363,27 @@ export interface PreviewTextChunk {
   eof: boolean;
 }
 
+/** Bounded, seekable source-text page addressed by 1-based source lines. */
+export interface PreviewTextLinesRequest {
+  resultId: number;
+  startLine: number;
+  lineCount: number;
+}
+
+export interface PreviewTextLines {
+  startLine: number;
+  lineCount: number;
+  text: string;
+  eof: boolean;
+}
+
 /** Maximum source bytes returned by one lazy preview text request. */
 export const PREVIEW_TEXT_CHUNK_MAX_BYTES = 64 * 1024;
 /** At most three UTF-8 continuation bytes may be included at either edge. */
 export const PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES = 3;
 /** Explicit upper bound after both UTF-8 edge alignments. */
 export const PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES = PREVIEW_TEXT_CHUNK_MAX_BYTES + PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES * 2;
+export const PREVIEW_TEXT_LINES_MAX = 128;
 
 /** Source-neutral read-only preview input; external G-code is future work. */
 export interface PreviewSource {
@@ -522,6 +537,8 @@ export interface SlicerClient {
   getSliceResult(): Promise<ClientSliceResult>;
   /** Read a bounded UTF-8 chunk from the current completed slice result. */
   readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk>;
+  /** Read a bounded, seekable source-text page from the current result. */
+  readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
   exportGcode(): Promise<ExportGcodeResult>;
   cancel(): Promise<CancelResult>;
   /** Read the C++ boost::log file sink output from MEMFS. */

@@ -1054,6 +1054,40 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         bytes_ptr: ptr, bytes_length: bytes.length,
       };
     },
+    orc_read_gcode_lines(resultId: number, startLine: number, lineCount: number) {
+      const maxLineCount = 128;
+      const maxPageBytes = 64 * 1024;
+      if (!Number.isSafeInteger(resultId) || resultId !== (fixture.resultId ?? 1))
+        return { ok: false, error: 'preview text is unavailable' };
+      if (!Number.isSafeInteger(startLine) || startLine < 1 ||
+          !Number.isSafeInteger(lineCount) || lineCount < 1 || lineCount > maxLineCount)
+        return { ok: false, error: 'invalid source line page' };
+      if (!previewSourceBytes) {
+        const gcode = fixture.sourceText ?? [
+          '; mock gcode (unit-test fixture)', 'G21', 'G90',
+          'G1 X0 Y0 Z0.2 F1200', 'G1 X20 Y0 E1.0', 'M104 S0', '',
+        ].join('\n');
+        previewSourceBytes = new TextEncoder().encode(gcode);
+      }
+      const ends: number[] = [];
+      for (let i = 0; i < previewSourceBytes.length; i++)
+        if (previewSourceBytes[i] === 10) ends.push(i + 1);
+      if (startLine > ends.length)
+        return { ok: false, error: 'source line page is outside the preview' };
+      const endLine = Math.min(ends.length, startLine + lineCount - 1);
+      const startByte = startLine === 1 ? 0 : ends[startLine - 2];
+      const endByte = ends[endLine - 1];
+      if (endByte - startByte > maxPageBytes)
+        return { ok: false, error: 'source line page exceeds byte bound' };
+      const bytes = previewSourceBytes.slice(startByte, endByte);
+      const ptr = malloc(Math.max(1, bytes.length));
+      HEAPU8.set(bytes, ptr);
+      return {
+        ok: true, result_id: fixture.resultId ?? 1, start_line: startLine,
+        line_count: endLine - startLine + 1, eof: endLine === ends.length,
+        bytes_ptr: ptr, bytes_length: bytes.length,
+      };
+    },
     orc_cancel() {
       return { ok: true };
     },
@@ -1095,6 +1129,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_slice_result: { ret: 'number', args: [] },
     orc_export_gcode: { ret: 'number', args: [] },
     orc_read_gcode_chunk: { ret: 'number', args: ['number', 'number', 'number'] },
+    orc_read_gcode_lines: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_cancel: { ret: 'number', args: [] },
   };
 

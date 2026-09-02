@@ -910,6 +910,22 @@ describe('SlicerClient bridge contract', () => {
     expect(chunk.eof).toBe(false);
   });
 
+  it('reads a seekable bounded source-line page without a prefix request', async () => {
+    const c = createClient(async () => createMockModule({
+      sliceFixture: {
+        layers: 1, toolpathVertices: 2,
+        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        resultId: 19, sourceText: '; header\nG1 X1\nG1 X2\n',
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const result = await c.getSliceResult();
+    const page = await c.readTextLines({ resultId: result.metadata.resultId, startLine: 3, lineCount: 1 });
+    expect(page).toMatchObject({ startLine: 3, lineCount: 1, eof: true, text: 'G1 X2\n' });
+    await expect(c.readTextLines({ resultId: 19, startLine: 1, lineCount: 129 })).rejects.toThrow('1-128');
+  });
+
   it('cancel is safe', async () => {
     const c = makeClient();
     const r = await c.cancel();

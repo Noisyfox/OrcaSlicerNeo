@@ -104,6 +104,7 @@ struct BridgeState {
     std::uint32_t preview_result_id = 0;
     std::string preview_gcode_path;
     std::size_t preview_gcode_size = 0;
+    std::vector<std::size_t> preview_gcode_line_ends;
     bool preview_text_available = false;
 };
 BridgeState& state() { static BridgeState s; return s; }
@@ -114,6 +115,7 @@ void invalidate_preview_source()
     bridge_state.preview_result_id = 0;
     bridge_state.preview_gcode_path.clear();
     bridge_state.preview_gcode_size = 0;
+    bridge_state.preview_gcode_line_ends.clear();
     bridge_state.preview_text_available = false;
 }
 
@@ -1838,6 +1840,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             bridge_state.preview_gcode_size = source.good()
                 ? static_cast<std::size_t>(source.tellg())
                 : 0;
+            bridge_state.preview_gcode_line_ends.assign(gcode_result.lines_ends.begin(), gcode_result.lines_ends.end());
         }
         auto tp = bridge::build_toolpath(gcode_result);
         const auto analysis = bridge::build_preview_analysis(gcode_result, tp);
@@ -2062,6 +2065,66 @@ EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_id_number,
         return dup_json(json{{"ok", true}, {"result_id", bridge_state.preview_result_id},
                              {"offset", actual_offset}, {"length", byte_count},
                              {"eof", actual_end >= bridge_state.preview_gcode_size},
+                             {"bytes_ptr", reinterpret_cast<std::uintptr_t>(bytes)},
+                             {"bytes_length", byte_count}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Read a seekable bounded page of complete source lines. The line-end table
+// stays in the bridge's current result; only the requested bytes cross the
+// seam, so late-line inspection never walks or copies the preceding file.
+EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(double result_id_number,
+                                                      double start_line_number,
+                                                      double line_count_number) {
+    try {
+        constexpr std::size_t max_line_count = 128;
+        constexpr std::size_t max_page_bytes = 64 * 1024;
+        auto& bridge_state = state();
+        const auto valid_integer = [](double value) {
+            return std::isfinite(value) && value >= 0.0 &&
+                   std::floor(value) == value &&
+                   value <= static_cast<double>(std::numeric_limits<std::size_t>::max());
+        };
+        if (!valid_integer(result_id_number) || !valid_integer(start_line_number) ||
+            !valid_integer(line_count_number) ||
+            result_id_number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()))
+            return dup_json(json{{"ok", false}, {"error", "invalid source line page"}}.dump());
+        const auto result_id = static_cast<std::uint32_t>(result_id_number);
+        const auto start_line = static_cast<std::size_t>(start_line_number);
+        const auto line_count = static_cast<std::size_t>(line_count_number);
+        if (result_id == 0 || result_id != bridge_state.preview_result_id ||
+            !bridge_state.preview_text_available)
+            return dup_json(json{{"ok", false}, {"error", "preview text is unavailable"}}.dump());
+        if (line_count == 0 || line_count > max_line_count ||
+            start_line == 0 || start_line > bridge_state.preview_gcode_line_ends.size())
+            return dup_json(json{{"ok", false}, {"error", "source line page is outside the preview"}}.dump());
+        const auto end_line = std::min(bridge_state.preview_gcode_line_ends.size(),
+                                      start_line + line_count - 1);
+        const auto start_byte = start_line == 1 ? 0 : bridge_state.preview_gcode_line_ends[start_line - 2];
+        const auto end_byte = bridge_state.preview_gcode_line_ends[end_line - 1];
+        if (start_byte > end_byte || end_byte > bridge_state.preview_gcode_size ||
+            end_byte - start_byte > max_page_bytes)
+            return dup_json(json{{"ok", false}, {"error", "source line page exceeds byte bound"}}.dump());
+        std::ifstream source(bridge_state.preview_gcode_path, std::ios::binary);
+        if (!source.good())
+            return dup_json(json{{"ok", false}, {"error", "preview text could not be opened"}}.dump());
+        const auto byte_count = end_byte - start_byte;
+        auto* bytes = static_cast<std::uint8_t*>(std::malloc(byte_count == 0 ? 1 : byte_count));
+        source.seekg(static_cast<std::streamoff>(start_byte), std::ios::beg);
+        if (byte_count > 0) {
+            source.read(reinterpret_cast<char*>(bytes), static_cast<std::streamsize>(byte_count));
+            if (source.gcount() != static_cast<std::streamsize>(byte_count)) {
+                std::free(bytes);
+                return dup_json(json{{"ok", false}, {"error", "preview text read failed"}}.dump());
+            }
+        }
+        return dup_json(json{{"ok", true}, {"result_id", bridge_state.preview_result_id},
+                             {"start_line", start_line}, {"line_count", end_line - start_line + 1},
+                             {"eof", end_line == bridge_state.preview_gcode_line_ends.size()},
                              {"bytes_ptr", reinterpret_cast<std::uintptr_t>(bytes)},
                              {"bytes_length", byte_count}}.dump());
     } catch (const std::exception& e) {
