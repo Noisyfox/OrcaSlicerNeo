@@ -103,6 +103,7 @@ uniform sampler2D position_tex; uniform sampler2D height_width_angle_tex;
 uniform sampler2D color_tex; uniform usampler2D segment_index_tex;
 uniform ivec2 position_tex_size; uniform ivec2 shape_tex_size;
 uniform ivec2 color_tex_size; uniform ivec2 segment_index_tex_size;
+uniform int segment_base;
 uniform float active_layer; uniform float earlier_layer_dim;
 in float vertex_id; out vec3 v_color;
 ivec2 coord(ivec2 s,int id){return ivec2(id%s.x,id/s.x);}
@@ -112,7 +113,7 @@ vec4 colorAt(int id){return texelFetch(color_tex,coord(color_tex_size,id),0);}
 uint selected(){return texelFetch(segment_index_tex,coord(segment_index_tex_size,gl_InstanceID),0).r;}
 float light(vec3 p,vec3 n){const vec3 t=vec3(-.4574957,.4574957,.7624929);const vec3 f=vec3(.6985074,.1397015,.6985074);return .2+.6*.8*max(dot(n,t),0.)+.6*.2*max(dot(n,f),0.)+.6*.125*pow(max(dot(-normalize(p),reflect(-t,n)),0.),20.)+.15;}
 void main(){
- int a=int(selected())*2; int b=a+1; vec3 pa=positionAt(a).xyz; vec3 pb=positionAt(b).xyz; vec3 line=pb-pa; float len=length(line); vec3 dir=len<1e-4?vec3(1.,0.,0.):line/len;
+ int a=(int(selected())+segment_base)*2; int b=a+1; vec3 pa=positionAt(a).xyz; vec3 pb=positionAt(b).xyz; vec3 line=pb-pa; float len=length(line); vec3 dir=len<1e-4?vec3(1.,0.,0.):line/len;
  vec3 right=abs(dot(dir,UP))>.9?normalize(cross(vec3(1.,0.,0.),dir)):normalize(cross(dir,UP)); vec3 up=normalize(cross(right,dir));
  const vec2 signs[16]=vec2[](vec2(1,0),vec2(0,1),vec2(0,0),vec2(0,-1),vec2(0,-1),vec2(1,0),vec2(0,1),vec2(0,0),vec2(0,1),vec2(-1,0),vec2(0,0),vec2(1,0),vec2(1,0),vec2(0,1),vec2(-1,0),vec2(0,0));
  int id=int(vertex_id<4.?a:b); vec3 endpoint=vertex_id<4.?pa:pb; vec4 hwa=shapeAt(id);
@@ -251,6 +252,7 @@ function makeMaterial(
   staticTextures: StaticTextures,
   index: THREE.DataTexture,
   size: readonly [number, number],
+  segmentBase: number,
 ): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
@@ -265,6 +267,7 @@ function makeMaterial(
       shape_tex_size: { value: staticTextures.shapeSize },
       color_tex_size: { value: staticTextures.colorSize },
       segment_index_tex_size: { value: size },
+      segment_base: { value: segmentBase },
       active_layer: { value: -1 },
       earlier_layer_dim: { value: 1 },
     },
@@ -633,7 +636,12 @@ export function createGpuStreamingRenderer(
         new Uint32Array(page.segmentCount),
         capabilities.limits.maxTextureSize!,
       );
-      const material = makeMaterial(textures, index.texture, index.size);
+      const material = makeMaterial(
+        textures,
+        index.texture,
+        index.size,
+        page.firstSegment,
+      );
       const mesh = new THREE.InstancedMesh(
         template.geometry,
         material,

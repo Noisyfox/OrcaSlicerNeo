@@ -342,3 +342,10 @@ pointy-cap vertex IDs. B2 is retained only for unavailable GPU capability,
 allocation, shader, context, or selection initialization; it is not the active
 GPU implementation. Context loss and result invalidation dispose all owned
 textures, page materials, index streams, and the shared template exactly once.
+
+Each page's selected IDs are local to that page. Because static attribute
+textures are global to the source result, the vertex shader adds the page's
+`firstSegment` through a `segment_base` uniform before addressing endpoint,
+shape, and colour texels. Implementations must retain this offset across every
+page draw; otherwise all pages after the first incorrectly read the first
+source range and large previews appear truncated.

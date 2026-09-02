@@ -357,6 +357,15 @@ successful native construction B2 is removed, so the scene is never double
 drawn. Context loss and result invalidation dispose the shared template,
 textures, page materials, and index streams exactly once.
 
+### Cross-page source addressing fix (2026-09-02)
+
+The dynamic `R32UI` stream stores page-local segment IDs, while the static
+RGBA32F atlases contain the complete source stream. The vertex shader now adds
+each page's `firstSegment` as a `segment_base` uniform before fetching endpoint,
+shape, and colour texels. This preserves local index capacity while ensuring
+every page renders its own source range; the regression test covers a selection
+split across two pages.
+
 The browser harness reports static texture and selected-index uploads. Legacy
 entity report fields remain aliases for dashboard compatibility only. Unit
 coverage asserts native template cardinality, texture dimensions/formats/

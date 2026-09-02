@@ -400,6 +400,8 @@ and drives structural operations through the typed client.
       capability/lifetime fallback (8 logical vertices / 24 invocations,
       camera-aware POINTY_CAPS + FIX_TWISTING shader, RGBA32F static textures,
       page-local R32UI selected-index textures; no alpha blend)
+- [x] Cross-page source addressing fix — page-local selected IDs are translated
+      with each page's `firstSegment` before global static-texture fetches
 - [x] Step 4 — real preview integration behind an explicit default-off gate,
       fallback diagnostics, and opt-in dual-host smoke coverage
 - [ ] Step 5 — dual-host verification and browser performance evidence landed;

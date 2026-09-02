@@ -160,6 +160,26 @@ describe('native SegmentTemplate GPU renderer', () => {
     result.backend.dispose();
   });
 
+  it('adds each page base before reading global static segment textures', () => {
+    const plan = planGpuStreamingPages(source(), { softPageTarget: 2 });
+    expect(plan.pages.map((page) => page.firstSegment)).toEqual([0, 2]);
+    const result = createGpuStreamingRenderer(plan, {
+      context: context(),
+      compile: false,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const materials = result.backend.sceneObjects.map(
+      (mesh) => mesh.material as THREE.ShaderMaterial,
+    );
+    expect(materials.map((material) => material.uniforms.segment_base.value)).toEqual([0, 2]);
+    expect(materials[0]!.vertexShader).toContain(
+      'int a=(int(selected())+segment_base)*2;',
+    );
+    result.backend.dispose();
+  });
+
   it('streams pointy caps at selected boundaries with the same continuity as B2', () => {
     const p = planGpuStreamingPages(
       {
