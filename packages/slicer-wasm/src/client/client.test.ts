@@ -801,6 +801,10 @@ describe('SlicerClient bridge contract', () => {
         extruderPalette: [{ id: 0, name: 'Red PLA', color: [255, 0, 0], tool: 0 }],
         resultId: 42,
         optionalMetrics: { feedrate: [10, 20, 30, 40], volumetric_flow: [1, 2, 3, 4] },
+        analysis: {
+          summary: { estimatedTimeSeconds: 12.5, filamentLengthMeters: 1.25, filamentWeightGrams: 3.5, filamentCost: 0.07 },
+          featureStatistics: [{ featureId: 0, timeSeconds: 8, filamentLengthMeters: 0.75 }, { featureId: 1, timeSeconds: 4.5, filamentWeightGrams: 1.2 }],
+        },
       },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
@@ -821,6 +825,16 @@ describe('SlicerClient bridge contract', () => {
     expect(r.metadata.resultId).toBe(42);
     expect(r.metadata.layerRanges).toHaveLength(2);
     expect(r.metadata.extruderPalette?.[0].tool).toBe(0);
+    expect(r.metadata.analysis?.summary).toEqual({
+      estimatedTimeSeconds: 12.5, filamentLengthMeters: 1.25, filamentWeightGrams: 3.5, filamentCost: 0.07,
+    });
+    expect(r.metadata.analysis?.featureStatistics).toEqual([
+      { featureId: 0, timeSeconds: 8, filamentLengthMeters: 0.75 },
+      { featureId: 1, timeSeconds: 4.5, filamentWeightGrams: 1.2 },
+    ]);
+    expect(r.metadata.analysis?.metricRanges).toEqual({
+      feedrate: { min: 10, max: 40 }, volumetricFlow: { min: 1, max: 4 },
+    });
   });
 
   it('omits unavailable optional metrics while preserving required arrays', async () => {

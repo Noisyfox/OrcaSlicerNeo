@@ -321,6 +321,53 @@ export interface PreviewPaletteEntry extends ToolpathFeature {
   tool?: number;
 }
 
+export type PreviewMetricKey = keyof PreviewToolpathMetrics;
+
+export interface PreviewMetricRange {
+  min: number;
+  max: number;
+}
+
+export interface PreviewAnalysisSummary {
+  estimatedTimeSeconds?: number;
+  filamentLengthMeters?: number;
+  filamentWeightGrams?: number;
+  filamentCost?: number;
+}
+
+export interface PreviewFeatureStatistics {
+  featureId: number;
+  timeSeconds?: number;
+  filamentLengthMeters?: number;
+  filamentWeightGrams?: number;
+}
+
+export interface PreviewAnalysis {
+  summary: PreviewAnalysisSummary;
+  featureStatistics: PreviewFeatureStatistics[];
+  metricRanges: Partial<Record<PreviewMetricKey, PreviewMetricRange>>;
+}
+
+export type PreviewSourceKind = 'slice-result' | 'external-gcode';
+
+export interface PreviewTextChunkRequest {
+  offset: number;
+  length: number;
+}
+
+export interface PreviewTextChunk {
+  offset: number;
+  text: string;
+  eof: boolean;
+}
+
+/** Source-neutral read-only preview input; external G-code is future work. */
+export interface PreviewSource {
+  kind: PreviewSourceKind;
+  getPreviewResult(): Promise<ClientSliceResult>;
+  readTextChunk?: (request: PreviewTextChunkRequest) => Promise<PreviewTextChunk>;
+}
+
 export interface PreviewMetadata {
   resultId: number;
   sourceFilename?: string;
@@ -328,7 +375,7 @@ export interface PreviewMetadata {
   featurePalette: ToolpathFeature[];
   extruderPalette?: PreviewPaletteEntry[];
   sourceLineMapping?: { available: boolean; lineCount: number };
-  featureStatistics?: Array<Record<string, number>>;
+  analysis?: PreviewAnalysis;
 }
 
 export interface PreviewToolpathMetrics {

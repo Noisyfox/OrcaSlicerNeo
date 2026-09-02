@@ -23,6 +23,20 @@ export interface MockSliceFixture {
   extruderPalette?: Array<MockFeature & { tool?: number }>;
   resultId?: number;
   sourceFilename?: string;
+  analysis?: {
+    summary?: {
+      estimatedTimeSeconds?: number;
+      filamentLengthMeters?: number;
+      filamentWeightGrams?: number;
+      filamentCost?: number;
+    };
+    featureStatistics?: Array<{
+      featureId: number;
+      timeSeconds?: number;
+      filamentLengthMeters?: number;
+      filamentWeightGrams?: number;
+    }>;
+  };
 }
 
 const HEAP_BYTES = 64 * 1024 * 1024;
@@ -956,6 +970,26 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           feature_palette: fixture.features,
           ...(fixture.extruderPalette ? { extruder_palette: fixture.extruderPalette } : {}),
           source_line_mapping: { available: true, line_count: n + 1 },
+          ...(fixture.analysis ? {
+            analysis: {
+              ...(fixture.analysis.summary ? {
+                summary: {
+                  ...(fixture.analysis.summary.estimatedTimeSeconds === undefined ? {} : { estimated_time_seconds: fixture.analysis.summary.estimatedTimeSeconds }),
+                  ...(fixture.analysis.summary.filamentLengthMeters === undefined ? {} : { filament_length_meters: fixture.analysis.summary.filamentLengthMeters }),
+                  ...(fixture.analysis.summary.filamentWeightGrams === undefined ? {} : { filament_weight_grams: fixture.analysis.summary.filamentWeightGrams }),
+                  ...(fixture.analysis.summary.filamentCost === undefined ? {} : { filament_cost: fixture.analysis.summary.filamentCost }),
+                },
+              } : {}),
+              ...(fixture.analysis.featureStatistics ? {
+                feature_statistics: fixture.analysis.featureStatistics.map((stats) => ({
+                  feature_id: stats.featureId,
+                  ...(stats.timeSeconds === undefined ? {} : { time_seconds: stats.timeSeconds }),
+                  ...(stats.filamentLengthMeters === undefined ? {} : { filament_length_meters: stats.filamentLengthMeters }),
+                  ...(stats.filamentWeightGrams === undefined ? {} : { filament_weight_grams: stats.filamentWeightGrams }),
+                })),
+              } : {}),
+            },
+          } : {}),
         },
         toolpath: {
           segment_count: n, starts_ptr: sptr, ends_ptr: eptr,

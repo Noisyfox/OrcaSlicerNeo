@@ -10,6 +10,7 @@
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <string>
 #include <sstream>
@@ -122,6 +123,84 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
             range.z = reinterpret_cast<const float*>(out.ends.data)[i * 3 + 2];
         }
         ++range.count;
+    }
+    return out;
+}
+
+PreviewAnalysis build_preview_analysis(const GCodeProcessorResult& result, const ToolpathBuffers& toolpath) {
+    PreviewAnalysis out;
+    constexpr double pi = 3.14159265358979323846;
+    const auto normal_mode = static_cast<size_t>(Slic3r::PrintEstimatedStatistics::ETimeMode::Normal);
+
+    // The processor's normal-mode estimate is the only time mode exposed by
+    // the Phase-C contract. Zero is a valid estimate for an empty/degenerate
+    // source, so availability follows the presence of processed moves.
+    if (!result.moves.empty()) {
+        out.estimated_time_seconds = result.print_statistics.modes[normal_mode].time;
+        out.has_estimated_time = std::isfinite(out.estimated_time_seconds);
+    }
+
+    // Print statistics retain the processor's authoritative filament volumes
+    // per filament. Convert only when the source supplied all required
+    // physical properties; each summary field remains independently optional.
+    bool can_length = true;
+    bool can_weight = true;
+    bool can_cost = true;
+    for (const auto& [filament_id, volume] : result.print_statistics.total_volumes_per_extruder) {
+        if (!std::isfinite(volume) || filament_id >= result.filament_diameters.size() ||
+            !std::isfinite(result.filament_diameters[filament_id]) || result.filament_diameters[filament_id] <= 0.0f)
+            can_length = false;
+        if (filament_id >= result.filament_densities.size() ||
+            !std::isfinite(result.filament_densities[filament_id]) || result.filament_densities[filament_id] <= 0.0f)
+            can_weight = false;
+        if (filament_id >= result.filament_costs.size() ||
+            !std::isfinite(result.filament_costs[filament_id]) || result.filament_costs[filament_id] < 0.0f)
+            can_cost = false;
+    }
+    if (!can_weight) can_cost = false;
+    if (result.print_statistics.total_volumes_per_extruder.empty()) {
+        can_length = can_weight = can_cost = false;
+    }
+    for (const auto& [filament_id, volume] : result.print_statistics.total_volumes_per_extruder) {
+        if (can_length)
+            out.filament_length_meters += volume / (pi * std::pow(0.5 * result.filament_diameters[filament_id], 2.0)) * 0.001;
+        if (can_weight)
+            out.filament_weight_grams += volume * 0.001 * result.filament_densities[filament_id];
+        if (can_cost)
+            out.filament_cost += volume * 0.001 * result.filament_densities[filament_id] * result.filament_costs[filament_id] * 0.001;
+    }
+    out.has_filament_length = can_length;
+    out.has_filament_weight = can_weight;
+    out.has_filament_cost = can_cost;
+
+    // Time is accumulated over processed moves in the same role order as the
+    // local feature palette. Filament figures are taken from the processor's
+    // per-role usage cache, which includes its normal flush/support handling.
+    std::map<ExtrusionRole, double> role_times;
+    for (size_t i = 1; i < result.moves.size(); ++i) {
+        const auto& move = result.moves[i];
+        if (std::isfinite(move.time[normal_mode]))
+            role_times[move.extrusion_role] += std::max(0.0f, move.time[normal_mode]);
+    }
+    out.feature_statistics.reserve(toolpath.palette_used.size());
+    for (size_t feature_id = 0; feature_id < toolpath.palette_used.size(); ++feature_id) {
+        const auto role = toolpath.palette_used[feature_id].first;
+        PreviewFeatureStatistics stats;
+        stats.feature_id = static_cast<std::uint32_t>(feature_id);
+        stats.role = role;
+        const auto time = role_times.find(role);
+        if (time != role_times.end() && std::isfinite(time->second)) {
+            stats.time_seconds = time->second;
+            stats.has_time = true;
+        }
+        const auto filament = result.print_statistics.used_filaments_per_role.find(role);
+        if (filament != result.print_statistics.used_filaments_per_role.end() &&
+            std::isfinite(filament->second.first) && std::isfinite(filament->second.second)) {
+            stats.filament_length_meters = filament->second.first;
+            stats.filament_weight_grams = filament->second.second;
+            stats.has_filament = true;
+        }
+        out.feature_statistics.push_back(stats);
     }
     return out;
 }

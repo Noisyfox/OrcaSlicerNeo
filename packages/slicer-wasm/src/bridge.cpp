@@ -1787,6 +1787,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             gcode_result = processor.get_result();
         }
         auto tp = bridge::build_toolpath(gcode_result);
+        const auto analysis = bridge::build_preview_analysis(gcode_result, tp);
         // Layer count = max layer id present in the toolpath + 1. The gcode
         // spans the whole plate, so this covers every object's height — the
         // previous objects().front() cap hid taller objects' extra layers.
@@ -1849,6 +1850,25 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             // is available for a future chunked text API.
             {"source_line_mapping", json{{"available", !gcode_result.lines_ends.empty()},
                                            {"line_count", gcode_result.lines_ends.size()}}},
+        };
+        json summary = json::object();
+        if (analysis.has_estimated_time) summary["estimated_time_seconds"] = analysis.estimated_time_seconds;
+        if (analysis.has_filament_length) summary["filament_length_meters"] = analysis.filament_length_meters;
+        if (analysis.has_filament_weight) summary["filament_weight_grams"] = analysis.filament_weight_grams;
+        if (analysis.has_filament_cost) summary["filament_cost"] = analysis.filament_cost;
+        json feature_statistics = json::array();
+        for (const auto& stats : analysis.feature_statistics) {
+            json entry{{"feature_id", stats.feature_id}};
+            if (stats.has_time) entry["time_seconds"] = stats.time_seconds;
+            if (stats.has_filament) {
+                entry["filament_length_meters"] = stats.filament_length_meters;
+                entry["filament_weight_grams"] = stats.filament_weight_grams;
+            }
+            feature_statistics.push_back(std::move(entry));
+        }
+        out["metadata"]["analysis"] = {
+            {"summary", std::move(summary)},
+            {"feature_statistics", std::move(feature_statistics)},
         };
         out["toolpath"] = {
             {"segment_count", tp.segmentCount},

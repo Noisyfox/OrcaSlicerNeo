@@ -407,6 +407,19 @@ and drives structural operations through the typed client.
 - [x] Step 5 — native renderer made default and sole toolpath backend;
       unsupported native initialization is explicitly unavailable
 
+### G-code preview Phase C — read-only analysis
+
+The Phase-C foundation extends the accepted preview data contract without
+changing the Phase-B renderer or controls. External G-code and source-text
+loading remain future increments.
+
+- [x] Step C1 — typed source-neutral preview analysis contract, bridge-side
+      standard-time/filament summary and per-feature statistics, and Worker-side
+      optional metric ranges
+- [ ] Step C2 — read-only analysis scheme selection, palettes, and legend
+- [ ] Step C3 — summary/per-feature statistics and current-move inspection card
+- [ ] Step C4 — lazy G-code text window with bidirectional line navigation
+
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)
 - [ ] Gizmos: cut/measure/arrange/orient (move/rotate/scale delivered in

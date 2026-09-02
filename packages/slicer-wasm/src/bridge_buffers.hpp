@@ -132,7 +132,30 @@ struct ToolpathBuffers {
     std::vector<std::pair<ExtrusionRole, FeatureInfo>> palette_used;
 };
 
+struct PreviewFeatureStatistics {
+    std::uint32_t feature_id = 0;
+    ExtrusionRole role = ExtrusionRole::erNone;
+    double time_seconds = 0.0;
+    bool has_time = false;
+    double filament_length_meters = 0.0;
+    double filament_weight_grams = 0.0;
+    bool has_filament = false;
+};
+
+struct PreviewAnalysis {
+    double estimated_time_seconds = 0.0;
+    bool has_estimated_time = false;
+    double filament_length_meters = 0.0;
+    bool has_filament_length = false;
+    double filament_weight_grams = 0.0;
+    bool has_filament_weight = false;
+    double filament_cost = 0.0;
+    bool has_filament_cost = false;
+    std::vector<PreviewFeatureStatistics> feature_statistics;
+};
+
 const std::map<ExtrusionRole, FeatureInfo>& feature_palette();
 ToolpathBuffers build_toolpath(const Slic3r::GCodeProcessorResult& result);
+PreviewAnalysis build_preview_analysis(const Slic3r::GCodeProcessorResult& result, const ToolpathBuffers& toolpath);
 
 }  // namespace bridge

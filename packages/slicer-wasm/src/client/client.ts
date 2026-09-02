@@ -16,6 +16,7 @@ import type {
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox, ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
+  PreviewAnalysis, PreviewMetricKey,
 } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
@@ -303,7 +304,20 @@ export function createClient(
           feature_palette?: ToolpathFeature[];
           extruder_palette?: Array<ToolpathFeature & { tool?: number }>;
           source_line_mapping?: { available: boolean; line_count: number };
-          feature_statistics?: Array<Record<string, number>>;
+          analysis?: {
+            summary?: {
+              estimated_time_seconds?: number;
+              filament_length_meters?: number;
+              filament_weight_grams?: number;
+              filament_cost?: number;
+            };
+            feature_statistics?: Array<{
+              feature_id: number;
+              time_seconds?: number;
+              filament_length_meters?: number;
+              filament_weight_grams?: number;
+            }>;
+          };
         };
         toolpath?: {
           segment_count?: number;
@@ -359,6 +373,43 @@ export function createClient(
         if (descriptor && descriptor.ptr && descriptor.count === segmentCount)
           metrics[field] = readF32(descriptor.ptr, descriptor.count);
       }
+      const metricRanges: PreviewAnalysis['metricRanges'] = {};
+      for (const [field, values] of Object.entries(metrics) as Array<[PreviewMetricKey, Float32Array]>) {
+        let min = Infinity;
+        let max = -Infinity;
+        for (const value of values) {
+          if (!Number.isFinite(value)) continue;
+          min = Math.min(min, value);
+          max = Math.max(max, value);
+        }
+        if (min !== Infinity) metricRanges[field] = { min, max };
+      }
+      const rawAnalysis = r.metadata?.analysis;
+      const analysis: PreviewAnalysis | undefined = rawAnalysis ? {
+        summary: {
+          ...(Number.isFinite(rawAnalysis.summary?.estimated_time_seconds) ? {
+            estimatedTimeSeconds: rawAnalysis.summary?.estimated_time_seconds,
+          } : {}),
+          ...(Number.isFinite(rawAnalysis.summary?.filament_length_meters) ? {
+            filamentLengthMeters: rawAnalysis.summary?.filament_length_meters,
+          } : {}),
+          ...(Number.isFinite(rawAnalysis.summary?.filament_weight_grams) ? {
+            filamentWeightGrams: rawAnalysis.summary?.filament_weight_grams,
+          } : {}),
+          ...(Number.isFinite(rawAnalysis.summary?.filament_cost) ? {
+            filamentCost: rawAnalysis.summary?.filament_cost,
+          } : {}),
+        },
+        featureStatistics: (rawAnalysis.feature_statistics ?? []).map((stats) => ({
+          featureId: stats.feature_id,
+          ...(Number.isFinite(stats.time_seconds) ? { timeSeconds: stats.time_seconds } : {}),
+          ...(Number.isFinite(stats.filament_length_meters) ? { filamentLengthMeters: stats.filament_length_meters } : {}),
+          ...(Number.isFinite(stats.filament_weight_grams) ? { filamentWeightGrams: stats.filament_weight_grams } : {}),
+        })),
+        metricRanges,
+      } : (Object.keys(metricRanges).length > 0 ? {
+        summary: {}, featureStatistics: [], metricRanges,
+      } : undefined);
       const metadata: PreviewMetadata = {
         resultId: Number(r.metadata?.result_id ?? 0),
         ...(r.metadata?.source_filename ? { sourceFilename: r.metadata.source_filename } : {}),
@@ -373,7 +424,7 @@ export function createClient(
             lineCount: r.metadata.source_line_mapping.line_count,
           },
         } : {}),
-        ...(r.metadata?.feature_statistics ? { featureStatistics: r.metadata.feature_statistics } : {}),
+        ...(analysis ? { analysis } : {}),
       };
       const toolpath: ClientToolpath = {
         vertexCount: segmentCount,
