@@ -19,6 +19,7 @@ import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { deleteSelection } from '../actions/deleteSelection';
 import { isPrepareTab, isPreviewTab } from '../../layout/appTabs';
 import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus } from './previewSemantics';
+import { GcodeTextWindow } from './GcodeTextWindow';
 
 // Launch camera: look at the plate center (the bed spans [0, BED_SIZE]² in
 // XY with Z up), with the plate at 45° to the screen plane and its X axis
@@ -79,6 +80,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   const setPreviewLayerEnd = useSlicerStore((s) => s.setPreviewLayerEnd);
   const setPreviewMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
   const setPreviewSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
+  const [showGcodeText, setShowGcodeText] = useState(false);
   // Ref is only consumed as a prop target (drei Stats `parent`), never read
   // by this component — so it can be typed without the null union, which
   // React 19's RefObject<T> = { current: T } requires for assignability.
@@ -199,6 +201,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
       if (event.key.toLowerCase() === 'l') {
         event.preventDefault();
         setPreviewSingleLayer(!previewState.singleLayer);
+      }
+      if (event.key.toLowerCase() === 'c' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        setShowGcodeText((visible) => !visible);
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -420,6 +426,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
       </ViewportErrorBoundary>
       {prepareTab && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
       {previewTab && toolpath && <LayerScrubber data={toolpath} />}
+      {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
     </div>
   );

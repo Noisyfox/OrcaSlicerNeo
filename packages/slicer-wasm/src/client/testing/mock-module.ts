@@ -23,6 +23,7 @@ export interface MockSliceFixture {
   extruderPalette?: Array<MockFeature & { tool?: number }>;
   resultId?: number;
   sourceFilename?: string;
+  sourceText?: string;
   analysis?: {
     summary?: {
       estimatedTimeSeconds?: number;
@@ -79,6 +80,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const HEAPU32 = new Uint32Array(heap);
   const HEAPF32 = new Float32Array(heap);
   const files = new Map<string, Uint8Array>();
+  let previewSourceBytes: Uint8Array | undefined;
   const freedPointers: number[] = [];
 
   // ---- heap allocator (bump; free records for leak checks) ----
@@ -970,6 +972,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           feature_palette: fixture.features,
           ...(fixture.extruderPalette ? { extruder_palette: fixture.extruderPalette } : {}),
           source_line_mapping: { available: true, line_count: n + 1 },
+          source_text: { available: true },
           ...(fixture.analysis ? {
             analysis: {
               ...(fixture.analysis.summary ? {
@@ -1005,15 +1008,51 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       };
     },
     orc_export_gcode() {
-      const gcode = [
+      const gcode = fixture.sourceText ?? [
         '; mock gcode (unit-test fixture)',
         'G21', 'G90',
         'G1 X0 Y0 Z0.2 F1200',
         'G1 X20 Y0 E1.0',
         'M104 S0', '',
       ].join('\n');
-      files.set('/out.gcode', new TextEncoder().encode(gcode));
+      previewSourceBytes = new TextEncoder().encode(gcode);
+      files.set('/out.gcode', previewSourceBytes);
       return { ok: true, path: '/out.gcode' };
+    },
+    orc_read_gcode_chunk(resultId: number, offset: number, length: number) {
+      const maxChunkBytes = 64 * 1024;
+      if (!Number.isSafeInteger(resultId) || resultId !== (fixture.resultId ?? 1))
+        return { ok: false, error: 'preview text is unavailable' };
+      if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) ||
+          length < 0 || length > maxChunkBytes)
+        return { ok: false, error: 'invalid chunk range' };
+      if (!previewSourceBytes) {
+        const gcode = fixture.sourceText ?? [
+          '; mock gcode (unit-test fixture)', 'G21', 'G90',
+          'G1 X0 Y0 Z0.2 F1200', 'G1 X20 Y0 E1.0', 'M104 S0', '',
+        ].join('\n');
+        previewSourceBytes = new TextEncoder().encode(gcode);
+      }
+      if (offset > previewSourceBytes.length)
+        return { ok: false, error: 'chunk range is outside the preview text' };
+      let actualOffset = offset;
+      let actualEnd = Math.min(previewSourceBytes.length, offset + length);
+      let continuationBytes = 0;
+      while (length > 0 && actualOffset > 0 && continuationBytes < 3 &&
+             (previewSourceBytes[actualOffset] & 0xc0) === 0x80) {
+        actualOffset--;
+        continuationBytes++;
+      }
+      while (length > 0 && actualEnd < previewSourceBytes.length && actualEnd < offset + length + 3 &&
+             (previewSourceBytes[actualEnd] & 0xc0) === 0x80) actualEnd++;
+      const bytes = previewSourceBytes.slice(actualOffset, actualEnd);
+      const ptr = malloc(Math.max(1, bytes.length));
+      HEAPU8.set(bytes, ptr);
+      return {
+        ok: true, result_id: fixture.resultId ?? 1, offset: actualOffset,
+        length: bytes.length, eof: actualEnd >= previewSourceBytes.length,
+        bytes_ptr: ptr, bytes_length: bytes.length,
+      };
     },
     orc_cancel() {
       return { ok: true };
@@ -1055,6 +1094,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_slice: { ret: 'number', args: ['string'] },
     orc_get_slice_result: { ret: 'number', args: [] },
     orc_export_gcode: { ret: 'number', args: [] },
+    orc_read_gcode_chunk: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_cancel: { ret: 'number', args: [] },
   };
 

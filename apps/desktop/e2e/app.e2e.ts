@@ -448,6 +448,18 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
     expect(token).not.toBe('');
     await page.evaluate(() => document.documentElement.classList.toggle('dark'));
     await expect(page.getByTestId('preview-controls')).toBeVisible();
+
+    // Phase-C source inspection is a separate, virtualized read-only overlay.
+    // It is toggled only while the viewport itself owns keyboard focus, so C
+    // cannot hijack the sliders or any text input.
+    await page.getByTestId('viewport').focus();
+    await page.keyboard.press('c');
+    await expect(page.getByTestId('gcode-text-window')).toBeVisible();
+    await expect(page.getByTestId('gcode-text-scroll')).toBeVisible();
+    const renderedSourceRows = await page.locator('[data-testid^="gcode-line-"]').count();
+    expect(renderedSourceRows).toBeLessThan(2401);
+    await page.getByTestId('gcode-text-close').click();
+    await expect(page.getByTestId('gcode-text-window')).toBeHidden();
   } finally {
     await app.close();
   }

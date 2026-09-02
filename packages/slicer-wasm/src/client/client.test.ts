@@ -826,6 +826,7 @@ describe('SlicerClient bridge contract', () => {
     expect(t.metrics.feedrate).toEqual(new Float32Array([10, 20, 30, 40]));
     expect(t.metrics.actualFeedrate).toBeUndefined();
     expect(r.metadata.resultId).toBe(42);
+    expect(r.metadata.sourceText).toEqual({ available: true });
     expect(r.metadata.layerRanges).toHaveLength(2);
     expect(r.metadata.extruderPalette?.[0].tool).toBe(0);
     expect(r.metadata.extruderPalette).toEqual([
@@ -861,6 +862,29 @@ describe('SlicerClient bridge contract', () => {
     const r = await c.exportGcode();
     expect(r.ok).toBe(true);
     expect(new TextDecoder().decode(r.bytes.slice(0, 6))).toBe('; mock');
+  });
+
+  it('reads bounded UTF-8 source chunks by completed result id', async () => {
+    const sourceText = '; 注释\nG1 X1\nG1 X2\n';
+    const c = createClient(async () => createMockModule({
+      sliceFixture: {
+        layers: 1, toolpathVertices: 2,
+        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        resultId: 17, sourceText,
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const result = await c.getSliceResult();
+    const encoded = new TextEncoder().encode(sourceText);
+    const middle = await c.readTextChunk({ resultId: result.metadata.resultId, offset: 3, length: 5 });
+    expect(middle.offset).toBe(2);
+    expect(middle.text).toBe('注释');
+    expect(middle.eof).toBe(false);
+    const tail = await c.readTextChunk({ resultId: result.metadata.resultId, offset: encoded.length - 1, length: 1 });
+    expect(tail.text).toBe('\n');
+    await expect(c.readTextChunk({ resultId: 16, offset: 0, length: 1 })).rejects.toThrow('unavailable');
+    await expect(c.readTextChunk({ resultId: 17, offset: 0, length: 64 * 1024 + 1 })).rejects.toThrow('at most');
   });
 
   it('cancel is safe', async () => {

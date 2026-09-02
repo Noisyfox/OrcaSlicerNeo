@@ -17,7 +17,8 @@ export function previewKeyboardStep(modifiers: Pick<KeyboardEvent, 'shiftKey' | 
 }
 
 export function isPreviewInspectionKey(key: string): boolean {
-  return key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight' || key.toLowerCase() === 'l';
+  const normalized = key.toLowerCase();
+  return key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight' || normalized === 'l' || normalized === 'c';
 }
 
 export interface PreviewVisibilityOptions {
@@ -70,6 +71,57 @@ export function lastMovePosition(data: Pick<ToolpathGeometry, 'segmentCount' | '
  */
 export interface PreviewInspectionIndex {
   readonly rangesByLayer: ReadonlyMap<number, Pick<PreviewLayerRange, 'firstSegment' | 'segmentCount'>>;
+}
+
+export interface PreviewSourceLineIndex {
+  /** Source line numbers are 1-based, matching GCodeProcessor's gcode_id. */
+  readonly moveByLine: ReadonlyMap<number, number>;
+  readonly mappedLines: readonly number[];
+}
+
+/** Build the result-local source map once; line clicks never rescan segments. */
+export function createPreviewSourceLineIndex(
+  data: Pick<ToolpathGeometry, 'segmentCount' | 'gcodeIds' | 'metadata'>,
+): PreviewSourceLineIndex {
+  const moveByLine = new Map<number, number>();
+  if (!data.metadata?.sourceLineMapping?.available || !data.gcodeIds) {
+    return { moveByLine, mappedLines: [] };
+  }
+  for (let move = 0; move < data.segmentCount; move++) {
+    const line = data.gcodeIds[move];
+    if (!Number.isSafeInteger(line) || line < 1) continue;
+    // The processor emits one gcode_id per mapped move. Keep the first move
+    // if a malformed source repeats an id, preserving deterministic behavior.
+    if (!moveByLine.has(line)) moveByLine.set(line, move);
+  }
+  return { moveByLine, mappedLines: [...moveByLine.keys()].sort((a, b) => a - b) };
+}
+
+/** Return the exact mapped move, or the nearest preceding mapped move. */
+export function findPreviewMoveForSourceLine(index: PreviewSourceLineIndex, lineNumber: number): number | null {
+  if (!Number.isSafeInteger(lineNumber) || lineNumber < 1 || index.mappedLines.length === 0) return null;
+  const exact = index.moveByLine.get(lineNumber);
+  if (exact !== undefined) return exact;
+  let low = 0;
+  let high = index.mappedLines.length - 1;
+  let best = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (index.mappedLines[middle] <= lineNumber) {
+      best = middle;
+      low = middle + 1;
+    } else high = middle - 1;
+  }
+  return best < 0 ? null : index.moveByLine.get(index.mappedLines[best]) ?? null;
+}
+
+export function sourceLineForPreviewMove(
+  data: Pick<ToolpathGeometry, 'gcodeIds'>,
+  index: PreviewSourceLineIndex,
+  move: number,
+): number | null {
+  const line = data.gcodeIds?.[move];
+  return line !== undefined && index.moveByLine.get(line) === move ? line : null;
 }
 
 export function createPreviewInspectionIndex(

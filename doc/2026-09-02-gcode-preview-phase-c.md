@@ -2,12 +2,13 @@
 
 **Date:** 2026-09-02
 
-**Status:** Implemented C1/C2/C3 foundation
+**Status:** Implemented C1/C2/C3/C4 read-only preview increment
 
 **Scope:** Read-only preview analysis data, source-neutral contract, core
 analysis schemes, native color ramps, scheme-scoped legend filtering,
-summary/per-feature statistics, and the current-move inspection card.
-External G-code loading and source-text retrieval remain future work.
+summary/per-feature statistics, and the current-move inspection card. C4 adds
+lazy source-text inspection and bidirectional source-line navigation. External
+G-code loading remains future work.
 
 ## Accepted behavior
 
@@ -47,8 +48,30 @@ reachable.
 
 `PreviewSource` is source-neutral: the current slice result is one source
 kind, while a future external-G-code source can provide the same preview
-result and an optional lazy text-chunk reader. No external source or text
-window is implemented in C1-C3.
+result and an optional lazy text-chunk reader. No external source is
+implemented; the current slice result's text window uses the typed Worker
+client.
+
+The current slice result publishes `sourceText.available` and byte length
+metadata without copying its full G-code into the initial preview payload.
+`readTextChunk({ resultId, offset, length })` reads from the result's MEMFS
+G-code only when requested. The bridge validates a matching completed result
+ID, non-negative integer offsets, and a maximum request length of 64 KiB;
+requests past EOF are clamped to EOF. Returned bytes are aligned to UTF-8
+code-point boundaries and are decoded by the typed client before crossing the
+Worker boundary. Invalid or stale requests fail without exposing a partial
+result.
+
+The text window is a separately toggled, larger overlay (`C` while the preview
+viewport owns focus, or its close button). It renders only a bounded visible
+row window of plain text and highlights the active mapped source line. Slider
+movement updates that highlight. Selecting an exact mapped line moves the
+preview to its layer and move; an unmappable line uses the nearest preceding
+mapped move, while a line before the first mapping leaves the inspection state
+unchanged. A result-local sorted source-line index makes repeated navigation
+independent of full path scans. Missing mapping or text metadata leaves the
+window unavailable rather than fabricating source content. The view remains
+read-only: no editing, pauses, filament changes, or external import actions.
 
 ## Source limitations
 

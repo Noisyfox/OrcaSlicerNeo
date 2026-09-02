@@ -21,6 +21,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -96,8 +98,24 @@ struct BridgeState {
     PresetBundle presets;
     Model       model;
     Print       print;
+    // The current completed preview owns the exported G-code in MEMFS. Keep
+    // only its identity and file metadata here: full source text must never
+    // be copied into the initial preview JSON or retained as a second string.
+    std::uint32_t preview_result_id = 0;
+    std::string preview_gcode_path;
+    std::size_t preview_gcode_size = 0;
+    bool preview_text_available = false;
 };
 BridgeState& state() { static BridgeState s; return s; }
+
+void invalidate_preview_source()
+{
+    auto& bridge_state = state();
+    bridge_state.preview_result_id = 0;
+    bridge_state.preview_gcode_path.clear();
+    bridge_state.preview_gcode_size = 0;
+    bridge_state.preview_text_available = false;
+}
 
 // Copy a string into a malloc'd C string the JS side can read then _free().
 const char* dup_json(const std::string& s) {
@@ -704,6 +722,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
             state().model.add_object(*o);
         // A model mutation makes any existing Print/G-code result stale.
         state().print.clear();
+        invalidate_preview_source();
         // Drift at the pinned SHA: Model has no instance accessor — instances
         // live per-object (ModelObject::instances, Model.hpp:385; Model itself
         // only has the objects list, Model.hpp:1553-1560). Sum per object.
@@ -781,6 +800,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
         new_object->ensure_on_bed();
         // A model mutation makes any existing Print/G-code result stale.
         state().print.clear();
+        invalidate_preview_source();
         size_t instance_count = 0;
         for (const ModelObject* o : state().model.objects)
             instance_count += o->instances.size();
@@ -802,6 +822,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
 EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     try {
         state().print.clear();
+        invalidate_preview_source();
         state().model = Model{};
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -827,6 +848,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json)
         for (const std::size_t id : *ids)
             state().model.delete_object(ObjectID(id));
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objects", state().model.objects.size()},
                              {"deleted", ids->size()}}.dump());
@@ -869,6 +891,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
                 obj->delete_volume(idx);
         }
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objects", state().model.objects.size()},
                              {"deleted", ids->size()}}.dump());
@@ -896,6 +919,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) 
             new_object_ids.push_back(clone->id().id);
         }
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
                              {"objects", state().model.objects.size()}}.dump());
@@ -930,6 +954,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double 
             objs.insert(objs.begin() + static_cast<std::ptrdiff_t>(target), from_obj);
         }
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -964,6 +989,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
         }
         obj->invalidate_bounding_box();
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1002,6 +1028,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
                 new_volume_ids.push_back(v->id().id);
 
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"parts", parts},
                              {"newVolumeIds", new_volume_ids},
@@ -1043,6 +1070,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
             state().model.adjust_min_z();
 
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
                              {"objects", state().model.objects.size()}}.dump());
@@ -1103,6 +1131,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
             model.delete_object(src);
 
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objectId", new_obj->id().id},
                              {"objects", model.objects.size()}}.dump());
@@ -1156,6 +1185,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
             obj->delete_instance(i);
 
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
                              {"objects", state().model.objects.size()}}.dump());
@@ -1186,6 +1216,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
         ModelInstance* inst = obj->add_instance();
         inst->set_offset(Slic3r::Vec3d(base.x() + step, base.y(), base.z()));
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objectId", obj->id().id},
                              {"instanceId", inst->id().id}}.dump());
@@ -1210,6 +1241,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double in
             if (obj->instances[i]->id().id == *iid) {
                 obj->delete_instance(i);
                 state().print.clear();
+                invalidate_preview_source();
                 return dup_json(json{{"ok", true}}.dump());
             }
         }
@@ -1318,6 +1350,9 @@ EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
 
 EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     try {
+        // A new slice invalidates both the old toolpath and its source text
+        // before any work begins. The client must fetch a fresh result id.
+        invalidate_preview_source();
         // libslic3r's internal phase reporting does not promise a final 100%
         // notification (the current FDM path often ends at 75%). Establish
         // stable operation boundaries for the UI around those detailed phases.
@@ -1607,6 +1642,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_object(double object_id, const char*
         // A rename does not change geometry, but it does change the object's
         // reported name; the existing Print/G-code is still considered stale.
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1624,6 +1660,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_volume(double volume_id, const char*
         if (vol == nullptr) return error_json("volume not found");
         vol->name = name_cstr;
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1650,6 +1687,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         // object bounds so a later getModelMesh / slice recomputes them.
         vol->get_object()->invalidate_bounding_box();
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1673,6 +1711,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, doub
         for (auto& inst : obj->instances)
             inst->printable = value;
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1689,6 +1728,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
         if (inst == nullptr) return error_json("instance not found");
         inst->printable = printable != 0.0;
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1755,6 +1795,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     try {
         auto& print = state().print;
         if (print.objects().empty()) {
+            invalidate_preview_source();
             json empty_toolpath{{"segment_count", 0},
                                 {"starts_ptr", 0}, {"ends_ptr", 0},
                                 {"layer_id_ptr", 0}, {"move_order_ptr", 0},
@@ -1770,7 +1811,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             return dup_json(json{{"ok", true}, {"preview_version", 2},
                                  {"objects", 0}, {"layers", 0},
                                  {"metadata", json{{"result_id", 0}, {"layer_ranges", json::array()},
-                                                    {"feature_palette", json::array()}}},
+                                                    {"feature_palette", json::array()},
+                                                    {"source_text", json{{"available", false}, {"byte_length", 0}}}}},
                                  {"toolpath", std::move(empty_toolpath)}}.dump());
         }
 
@@ -1786,6 +1828,16 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             Slic3r::GCodeProcessor processor;
             processor.process_file("/out.gcode");
             gcode_result = processor.get_result();
+        }
+        {
+            auto& bridge_state = state();
+            bridge_state.preview_result_id = gcode_result.id;
+            bridge_state.preview_gcode_path = "/out.gcode";
+            std::ifstream source(bridge_state.preview_gcode_path, std::ios::binary | std::ios::ate);
+            bridge_state.preview_text_available = source.good();
+            bridge_state.preview_gcode_size = source.good()
+                ? static_cast<std::size_t>(source.tellg())
+                : 0;
         }
         auto tp = bridge::build_toolpath(gcode_result);
         const auto analysis = bridge::build_preview_analysis(gcode_result, tp);
@@ -1869,6 +1921,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             // is available for a future chunked text API.
             {"source_line_mapping", json{{"available", !gcode_result.lines_ends.empty()},
                                            {"line_count", gcode_result.lines_ends.size()}}},
+            {"source_text", json{{"available", state().preview_text_available},
+                                  {"byte_length", state().preview_gcode_size}}},
         };
         if (!extruder_palette.empty()) out["metadata"]["extruder_palette"] = std::move(extruder_palette);
         json summary = json::object();
@@ -1926,6 +1980,93 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     }
 }
 
+// Read a bounded byte range from the current completed result's exported
+// G-code. The source is kept in MEMFS and opened only for this request; the
+// initial preview payload contains metadata and line identifiers, never the
+// complete text. `offset` and `length` are doubles at the Emscripten ABI so
+// wasm32/wasm64 callers share one signature; both are validated as exact,
+// non-negative integers before conversion.
+EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_id_number,
+                                                      double offset_number,
+                                                      double length_number) {
+    try {
+        constexpr std::size_t max_chunk_bytes = 64 * 1024;
+        auto& bridge_state = state();
+        const auto valid_integer = [](double value) {
+            return std::isfinite(value) && value >= 0.0 &&
+                   std::floor(value) == value &&
+                   value <= static_cast<double>(std::numeric_limits<std::size_t>::max());
+        };
+        if (!valid_integer(result_id_number) || !valid_integer(offset_number) ||
+            !valid_integer(length_number))
+            return dup_json(json{{"ok", false}, {"error", "invalid chunk range"}}.dump());
+
+        if (result_id_number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()))
+            return dup_json(json{{"ok", false}, {"error", "invalid result id"}}.dump());
+        const auto result_id = static_cast<std::uint32_t>(result_id_number);
+        const auto requested_offset = static_cast<std::size_t>(offset_number);
+        const auto requested_length = static_cast<std::size_t>(length_number);
+        if (result_id == 0 || result_id != bridge_state.preview_result_id ||
+            !bridge_state.preview_text_available)
+            return dup_json(json{{"ok", false}, {"error", "preview text is unavailable"}}.dump());
+        if (requested_length > max_chunk_bytes || requested_offset > bridge_state.preview_gcode_size)
+            return dup_json(json{{"ok", false}, {"error", "chunk range is outside the preview text"}}.dump());
+
+        // Align the returned bytes to UTF-8 code-point boundaries. A caller
+        // may request arbitrary byte offsets (for example after estimating a
+        // virtualized line viewport), so include up to three preceding bytes
+        // and up to three continuation bytes after the requested range.
+        std::size_t actual_offset = requested_offset;
+        std::size_t actual_end = std::min(bridge_state.preview_gcode_size,
+                                          requested_offset + requested_length);
+        std::ifstream source(bridge_state.preview_gcode_path, std::ios::binary);
+        if (!source.good())
+            return dup_json(json{{"ok", false}, {"error", "preview text could not be opened"}}.dump());
+        auto read_byte = [&](std::size_t position, unsigned char& value) {
+            source.clear();
+            source.seekg(static_cast<std::streamoff>(position), std::ios::beg);
+            char byte = 0;
+            if (!source.get(byte)) return false;
+            value = static_cast<unsigned char>(byte);
+            return true;
+        };
+        if (requested_length > 0 && actual_offset > 0) {
+            unsigned char byte = 0;
+            std::size_t continuation_bytes = 0;
+            while (actual_offset > 0 && continuation_bytes < 3 && read_byte(actual_offset, byte) &&
+                   (byte & 0xc0u) == 0x80u)
+                --actual_offset, ++continuation_bytes;
+        }
+        if (requested_length > 0 && actual_end < bridge_state.preview_gcode_size) {
+            unsigned char byte = 0;
+            while (actual_end < bridge_state.preview_gcode_size &&
+                   actual_end < requested_offset + requested_length + 3 &&
+                   read_byte(actual_end, byte) && (byte & 0xc0u) == 0x80u)
+                ++actual_end;
+        }
+        const auto byte_count = actual_end - actual_offset;
+        auto* bytes = static_cast<std::uint8_t*>(std::malloc(byte_count == 0 ? 1 : byte_count));
+        if (byte_count > 0) {
+            source.clear();
+            source.seekg(static_cast<std::streamoff>(actual_offset), std::ios::beg);
+            source.read(reinterpret_cast<char*>(bytes), static_cast<std::streamsize>(byte_count));
+            if (source.gcount() != static_cast<std::streamsize>(byte_count)) {
+                std::free(bytes);
+                return dup_json(json{{"ok", false}, {"error", "preview text read failed"}}.dump());
+            }
+        }
+        return dup_json(json{{"ok", true}, {"result_id", bridge_state.preview_result_id},
+                             {"offset", actual_offset}, {"length", byte_count},
+                             {"eof", actual_end >= bridge_state.preview_gcode_size},
+                             {"bytes_ptr", reinterpret_cast<std::uintptr_t>(bytes)},
+                             {"bytes_length", byte_count}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
     try {
         const std::string path = "/out.gcode";
@@ -1942,6 +2083,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
 
 EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
     try {
+        invalidate_preview_source();
         state().print.cancel();
         // Fix round 1: the bridge is strictly synchronous — JS cannot reenter
         // wasm while orc_slice is running, so a cancel can never interrupt an

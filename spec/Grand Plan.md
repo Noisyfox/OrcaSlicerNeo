@@ -421,7 +421,10 @@ loading remain future increments.
 - [x] Step C3 — summary/per-feature statistics and current-move inspection
       card; summary values remain bridge-precomputed and the indexed card
       preserves the right-slider gutter
-- [ ] Step C4 — lazy G-code text window with bidirectional line navigation
+- [x] Step C4 — lazy G-code text window with bidirectional line navigation;
+      64 KiB UTF-8-safe result-bound chunks, result-ID lifecycle binding,
+      virtualized read-only rows, and exact/nearest-preceding source-line
+      navigation through the typed Worker client
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)

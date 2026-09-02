@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { buildPreviewVisibility, createPreviewInspectionIndex, findPreviewMove, isPreviewInspectionKey, lastMovePosition, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus, TRAVEL_MOVE_TYPE } from './previewSemantics';
+import { buildPreviewVisibility, createPreviewInspectionIndex, createPreviewSourceLineIndex, findPreviewMove, findPreviewMoveForSourceLine, isPreviewInspectionKey, lastMovePosition, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus, sourceLineForPreviewMove, TRAVEL_MOVE_TYPE } from './previewSemantics';
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data = {
   segmentCount: 6,
   layerIds: Uint32Array.from([0, 0, 1, 1, 1, 2]),
   moveOrders: Uint32Array.from([0, 1, 0, 1, 2, 0]),
+  gcodeIds: Uint32Array.from([4, 7, 10, 11, 15, 20]),
   moveTypes: Uint8Array.from([10, TRAVEL_MOVE_TYPE, 10, 10, TRAVEL_MOVE_TYPE, 10]),
   features: Uint32Array.from([0, 1, 0, 1, 0, 1]),
   extruderIds: new Uint8Array(6),
@@ -20,8 +21,9 @@ const data = {
       { id: 2, z: 0.6, firstSegment: 5, segmentCount: 1 },
     ],
     featurePalette: [],
+    sourceLineMapping: { available: true, lineCount: 20 },
   },
-} satisfies Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'moveTypes' | 'features' | 'extruderIds' | 'ends' | 'metadata'>;
+} satisfies Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'gcodeIds' | 'moveTypes' | 'features' | 'extruderIds' | 'ends' | 'metadata'>;
 
 describe('preview inspection semantics', () => {
   it('shows the active layer from its start through the inclusive move end', () => {
@@ -79,6 +81,7 @@ describe('preview inspection semantics', () => {
     expect(previewKeyboardStep({ shiftKey: false, ctrlKey: true, metaKey: false })).toBe(5);
     expect(isPreviewInspectionKey('Tab')).toBe(false);
     expect(isPreviewInspectionKey('ArrowUp')).toBe(true);
+    expect(isPreviewInspectionKey('c')).toBe(true);
   });
 
   it('keeps the marker moving after a large-move layer changes to a smaller one', () => {
@@ -109,5 +112,20 @@ describe('preview inspection semantics', () => {
     };
     const indexed = createPreviewInspectionIndex(malformed);
     expect(findPreviewMove(malformed, indexed, 1, 0)).toBeNull();
+  });
+
+  it('indexes exact and preceding source lines without rescanning moves', () => {
+    const indexed = createPreviewSourceLineIndex(data);
+    expect(indexed.mappedLines).toEqual([4, 7, 10, 11, 15, 20]);
+    expect(sourceLineForPreviewMove(data, indexed, 3)).toBe(11);
+    expect(findPreviewMoveForSourceLine(indexed, 11)).toBe(3);
+    expect(findPreviewMoveForSourceLine(indexed, 12)).toBe(3);
+    expect(findPreviewMoveForSourceLine(indexed, 3)).toBeNull();
+  });
+
+  it('does not fabricate source navigation when mapping is unavailable', () => {
+    const indexed = createPreviewSourceLineIndex({ ...data, metadata: { ...data.metadata, sourceLineMapping: { available: false, lineCount: 0 } } });
+    expect(indexed.mappedLines).toEqual([]);
+    expect(findPreviewMoveForSourceLine(indexed, 10)).toBeNull();
   });
 });

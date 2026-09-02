@@ -17,7 +17,9 @@ import type {
   ClientToolpath, ToolpathFeature, ModelTransform,
   ProgressMailbox, ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
+  PreviewTextChunk, PreviewTextChunkRequest,
 } from './types';
+import { PREVIEW_TEXT_CHUNK_MAX_BYTES } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
 export function createClient(
@@ -304,6 +306,7 @@ export function createClient(
           feature_palette?: ToolpathFeature[];
           extruder_palette?: Array<ToolpathFeature & { tool?: number }>;
           source_line_mapping?: { available: boolean; line_count: number };
+          source_text?: { available: boolean; byte_length?: number };
           analysis?: {
             summary?: {
               estimated_time_seconds?: number;
@@ -410,6 +413,8 @@ export function createClient(
       } : (Object.keys(metricRanges).length > 0 ? {
         summary: {}, featureStatistics: [], metricRanges,
       } : undefined);
+      const sourceText = r.metadata?.source_text;
+      const sourceByteLength = sourceText?.byte_length;
       const metadata: PreviewMetadata = {
         resultId: Number(r.metadata?.result_id ?? 0),
         ...(r.metadata?.source_filename ? { sourceFilename: r.metadata.source_filename } : {}),
@@ -422,6 +427,13 @@ export function createClient(
           sourceLineMapping: {
             available: r.metadata.source_line_mapping.available,
             lineCount: r.metadata.source_line_mapping.line_count,
+          },
+        } : {}),
+        ...(sourceText ? {
+          sourceText: {
+            available: sourceText.available,
+            ...(typeof sourceByteLength === 'number' && Number.isSafeInteger(sourceByteLength) && sourceByteLength >= 0
+              ? { byteLength: sourceByteLength } : {}),
           },
         } : {}),
         ...(analysis ? { analysis } : {}),
@@ -456,6 +468,46 @@ export function createClient(
       if (!r.ok) return r as ExportGcodeResult;
       const bytes = m.FS.readFile('/out.gcode');
       return { ok: true, path: r.path ?? '/out.gcode', bytes };
+    },
+
+    async readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk> {
+      const offset = request?.offset;
+      const length = request?.length;
+      if (!Number.isSafeInteger(offset) || offset < 0 ||
+          !Number.isSafeInteger(length) || length < 0 ||
+          length > PREVIEW_TEXT_CHUNK_MAX_BYTES)
+        throw new RangeError(`preview text chunk must be a safe range of at most ${PREVIEW_TEXT_CHUNK_MAX_BYTES} bytes`);
+      const m = await module();
+      const r = callJson(m, 'orc_read_gcode_chunk', ['number', 'number', 'number'], [
+        // The result id is intentionally read from the caller's completed
+        // result metadata in the app. A zero id is rejected by the bridge.
+        request.resultId,
+        offset,
+        length,
+      ]) as {
+        ok: boolean;
+        error?: string;
+        offset?: number;
+        length?: number;
+        eof?: boolean;
+        bytes_ptr?: number;
+        bytes_length?: number;
+      };
+      if (!r.ok) throw new Error(r.error ?? 'preview text is unavailable');
+      const actualOffset = Number(r.offset);
+      const byteLength = Number(r.bytes_length ?? r.length ?? 0);
+      if (!Number.isSafeInteger(actualOffset) || actualOffset < 0 ||
+          !Number.isSafeInteger(byteLength) || byteLength < 0 ||
+          byteLength > PREVIEW_TEXT_CHUNK_MAX_BYTES + 3 || !r.bytes_ptr)
+        throw new Error('preview text bridge returned an invalid chunk');
+      const bytes = readBytes(m, Number(r.bytes_ptr), byteLength);
+      // The bridge aligns the range to UTF-8 boundaries. Decode as one
+      // complete chunk so no decoder state leaks across coalesced requests.
+      return {
+        offset: actualOffset,
+        text: new TextDecoder('utf-8', { fatal: false }).decode(bytes),
+        eof: r.eof === true,
+      };
     },
 
     async readLog(): Promise<ReadLogResult> {

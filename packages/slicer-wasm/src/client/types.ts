@@ -351,6 +351,8 @@ export interface PreviewAnalysis {
 export type PreviewSourceKind = 'slice-result' | 'external-gcode';
 
 export interface PreviewTextChunkRequest {
+  /** Completed preview result identity; stale results are rejected by bridge. */
+  resultId: number;
   offset: number;
   length: number;
 }
@@ -360,6 +362,9 @@ export interface PreviewTextChunk {
   text: string;
   eof: boolean;
 }
+
+/** Maximum source bytes returned by one lazy preview text request. */
+export const PREVIEW_TEXT_CHUNK_MAX_BYTES = 64 * 1024;
 
 /** Source-neutral read-only preview input; external G-code is future work. */
 export interface PreviewSource {
@@ -375,6 +380,7 @@ export interface PreviewMetadata {
   featurePalette: ToolpathFeature[];
   extruderPalette?: PreviewPaletteEntry[];
   sourceLineMapping?: { available: boolean; lineCount: number };
+  sourceText?: { available: boolean; byteLength?: number };
   analysis?: PreviewAnalysis;
 }
 
@@ -508,6 +514,8 @@ export interface SlicerClient {
   selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<PresetSnapshotResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   getSliceResult(): Promise<ClientSliceResult>;
+  /** Read a bounded UTF-8 chunk from the current completed slice result. */
+  readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk>;
   exportGcode(): Promise<ExportGcodeResult>;
   cancel(): Promise<CancelResult>;
   /** Read the C++ boost::log file sink output from MEMFS. */
