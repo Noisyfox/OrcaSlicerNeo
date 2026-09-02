@@ -22,8 +22,9 @@ Both hosts request a high-performance WebGL adapter as a preference. The
 shared R3F `Canvas` uses Three.js `powerPreference: 'high-performance'`, while
 Electron adds Chromium's `force_high_performance_gpu` startup switch before
 creating a window. Neither setting selects a named adapter or makes a discrete
-GPU mandatory; browser/Electron capability checks and the existing WebGL2,
-software-rendering, and B2 fallbacks remain authoritative.
+GPU mandatory; browser/Electron capability checks and WebGL2 plus
+software-rendering remain available, but the toolpath renderer has no B2
+fallback: a native renderer failure is surfaced as an unavailable preview.
 
 ## Goals and non-goals
 
@@ -38,13 +39,12 @@ Goals:
   index streams, while making camera gestures uniform-only updates.
 - Preserve Feature/Line Type, travel, dimming, single-layer, move-end, marker,
   palette and shell/depth semantics from Preview v2.
-- Provide an explicit capability/fallback and memory/lifetime contract that can
+- Provide an explicit capability/unavailable-state and memory/lifetime contract that can
   be measured in a real browser later.
 
 Non-goals for this increment:
 
-- Replacing the experimental entity-matrix GPU backend with the native
-  SegmentTemplate-compatible path.
+- Retaining an entity-matrix or CPU fallback renderer.
 - A new C++ bridge, `libslic3r` change, or native libvgcode dependency.
 - Browser FPS claims, a synthetic GPU, or a wall-clock benchmark in unit tests.
 - External `.gcode` import, result editing, pause insertion, or custom G-code.
@@ -187,23 +187,22 @@ The backend must satisfy the existing Preview v2 contract unchanged:
 - Model shells remain alpha 0.15 and toolpaths remain visible through shells;
   invalidating a slice removes stale preview data before a new result appears.
 
-The streaming backend must pass the existing renderer semantic tests before it
-is enabled by default. The current B2 backend remains behaviourally
-authoritative during migration.
+The native backend is the sole/default toolpath renderer. Its semantic tests
+and unavailable-state diagnostics are authoritative.
 
-## Capability, fallback, and context loss
+## Capability, unavailable state, and context loss
 
-The streaming backend may be selected only when the context reports WebGL2,
-GLSL ES 3.00, integer texture support, vertex texture fetch, and a usable
+The native backend is selected when the context reports WebGL2, GLSL ES 3.00,
+integer texture support, vertex texture fetch, and a usable
 `MAX_TEXTURE_SIZE`. WebGL1 is not a fallback. The backend records the selected
 mode and limits (`MAX_TEXTURE_SIZE`, texture units, estimated budget) for
 diagnostics.
 
 If shader compilation, atlas allocation, page planning, context loss, or a
-budget check fails, the result falls back to the current B2 renderer. The
-fallback is explicit and non-blocking; it cannot alter preview controls or
-drop the active inspection range. A later implementation may retry after
-context restoration, but must not retain stale GPU handles.
+budget check fails, the toolpath preview becomes unavailable and reports the
+failure explicitly. No alternate renderer is constructed, preview controls do
+not change, and stale GPU handles are never retained. A later implementation
+may retry after context restoration.
 
 Mobile is deferred with the shared application's desktop-only first-release
 policy. Small desktop windows do not change the page format; UI controls keep
@@ -216,7 +215,7 @@ their existing focus and keyboard semantics.
 2. Selection changes allocate a replacement dynamic index stream, publish it at
    a draw boundary, and release the previous stream. Camera gestures allocate
    nothing in the streaming path.
-3. Result invalidation, unmount, backend fallback, WebGL context loss, and
+3. Result invalidation, unmount, WebGL context loss, and
    failed partial construction dispose every page texture, index stream,
    template buffer, material, and CPU planner reference exactly once.
 4. Accounting uses an upper bound of 64 bytes per static segment plus 4 bytes
@@ -260,33 +259,26 @@ GPU, along with index rebuilds, GPU memory and active-range preservation.
 ## Migration steps and retention policy
 
 1. **Design + fixture (this step):** add this spec, the living task entry, and
-   the pure metadata fixture/tests. Existing renderer files and behaviour stay
-   unchanged.
+   the pure metadata fixture/tests.
 2. **Planner adapter:** map the source-neutral B1 result to static-page and
    index-stream plans; test packing, round trips, page limits and disposal
-   with a fake resource tracker. Keep the current backend as default.
-3. **WebGL2 backend behind a flag:** implement atlas upload, shared template,
-   shader, dynamic streams and explicit capability fallback. Add renderer
+   with a fake resource tracker.
+3. **WebGL2 native backend:** implement atlas upload, shared template, shader,
+   dynamic streams and explicit unavailable-state diagnostics. Add renderer
    tests and a real browser measurement harness.
 4. **Dual-host verification:** run Web threaded/serial and Electron semantic
    flows, same-renderer screenshots, context/budget tests, and manually review
-   the fixed native reference. Enable by default only after all gates pass.
-   (Functional, lifetime, and dual-host verification passed on 2026-09-02;
-   the representative integrated-GPU performance gate remains pending, so the
-   default stays off. Browser measurements are recorded in the living
-   implementation entry; this runner uses SwiftShader for Web and an RTX 3080
-   for Electron, so neither is a representative 2020 integrated-GPU claim.)
-5. **Removal:** retain the current B2 backend through the full functional,
-   lifetime, fallback, visual and representative-hardware performance gate.
-   Remove it only in a separately approved cleanup change after the streaming
-   backend has been the default for one release cycle without a fallback-rate
-   regression.
+   the fixed native reference. (Functional, lifetime, and dual-host
+   verification passed on 2026-09-02.)
+5. **Default/removal:** make the native renderer the default and remove the
+   entity-matrix backend. Unsupported capability/context states remain
+   explicit unavailable diagnostics rather than selecting another renderer.
 
 ## Risks and mitigations
 
 | Risk | Mitigation / acceptance evidence |
 | --- | --- |
-| WebGL2 texture dimensions or integer formats vary | Capability query, page limit formula, shader compile test, B2 fallback |
+| WebGL2 texture dimensions or integer formats vary | Capability query, page limit formula, shader compile test, unavailable diagnostic |
 | One layer exceeds page capacity | Explicit oversized-layer page split and active-range test |
 | Selection rebuild blocks interaction | Linear scan contract, worker/planner ownership in follow-up, measured browser rebuilds |
 | GPU memory pressure | 64-byte estimate, budget diagnostics, non-active eviction, active-range guarantee |
@@ -309,14 +301,13 @@ The step-1 design/fixture gate passes when:
 4. `packages/slicer-wasm/cpp` has no diff or pointer change attributable to
    this work.
 
-The streaming backend is accepted as an opt-in backend after the functional,
-lifetime, capability/fallback, and dual-host gates. Its real WebGL2 browser
+The native renderer is accepted as the default after the functional,
+lifetime, capability, and dual-host gates. Its real WebGL2 browser
 measurements are recorded in the living implementation entry. The Web
 measurement uses a SwiftShader software driver and Electron uses a discrete
 RTX 3080; no representative integrated-GPU or native Orca pixel-equivalence
-claim is made. The default preference remains blocked until the stated 2020
-integrated-GPU 250k/1m gate is measured. The current B2 backend remains the
-production path and automatic fallback and is not removed by this change.
+claim is made. This evidence limitation does not reintroduce a second renderer;
+unsupported native initialization is reported as unavailable.
 
 ## Accepted native SegmentTemplate architecture (2026-09-02)
 
@@ -338,10 +329,11 @@ uniforms only. The planner remains source/page/selection-only.
 
 The native correspondence is page-local selected instances, ordered layer
 ranges, vertical direction fallback, camera-relative corner choice, and the
-pointy-cap vertex IDs. B2 is retained only for unavailable GPU capability,
-allocation, shader, context, or selection initialization; it is not the active
-GPU implementation. Context loss and result invalidation dispose all owned
-textures, page materials, index streams, and the shared template exactly once.
+pointy-cap vertex IDs. If native capability, allocation, shader, context, or
+selection initialization fails, the preview reports an unavailable diagnostic;
+no alternate renderer is constructed. Context loss and result invalidation
+dispose all owned textures, page materials, index streams, and the shared
+template exactly once.
 
 Each page's selected IDs are local to that page. Because static attribute
 textures are global to the source result, the vertex shader adds the page's

@@ -4,9 +4,9 @@ const { test, expect } = playwright;
 interface BenchmarkReport {
   segmentCount: number;
   pageCount: number;
-  entityTemplateBytes: number;
-  entityUploadBytes: number;
-  entityUploadCount: number;
+  staticTextureBytes: number;
+  staticUploadCount: number;
+  indexUploadCount: number;
   staticUploadMs: number | null;
   selectionRebuildUploadMs: number | null;
   selectionVisitedSegments: number;
@@ -14,7 +14,6 @@ interface BenchmarkReport {
   cameraFrames: number;
   cameraAverageFrameMs: number | null;
   cameraFps: number | null;
-  cameraEntityUploadCountDelta: number;
   cameraIndexUploadCountDelta: number;
   fallbackReason: string | null;
   fallbackMessage: string | null;
@@ -44,9 +43,9 @@ test('real WebGL2 GPU streaming benchmark emits 250k/1m evidence', async ({ page
       expect(report.fallbackMessage).toBeTruthy();
       continue;
     }
-    expect(report.entityTemplateBytes).toBeGreaterThanOrEqual(count * 64);
-    expect(report.entityUploadBytes).toBeGreaterThan(0);
-    expect(report.entityUploadCount).toBeGreaterThanOrEqual(report.pageCount * 2);
+    expect(report.staticTextureBytes).toBeGreaterThanOrEqual(count * 2 * 4 * 4);
+    expect(report.staticUploadCount).toBe(3);
+    expect(report.indexUploadCount).toBeGreaterThan(0);
     expect(report.staticUploadMs).not.toBeNull();
     expect(report.selectionRebuildUploadMs).not.toBeNull();
     expect(report.selectionVisitedSegments).toBe(count);
@@ -54,7 +53,7 @@ test('real WebGL2 GPU streaming benchmark emits 250k/1m evidence', async ({ page
     expect(report.cameraFrames).toBe(30);
     expect(report.cameraAverageFrameMs).toBeGreaterThan(0);
     expect(report.cameraFps).toBeGreaterThan(0);
-    // Camera updates only render existing instances: no entity upload is allowed.
-    expect(report.cameraEntityUploadCountDelta).toBe(0);
+    // Camera updates only render existing native segments: no index upload is allowed.
+    expect(report.cameraIndexUploadCountDelta).toBe(0);
   }
 });

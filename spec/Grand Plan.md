@@ -372,9 +372,10 @@ and drives structural operations through the typed client.
 > textures. The material is opaque (`NoBlending`, depth test/write); DoubleSide
 > matches native `GL_CULL_FACE` disable, with depth buffering providing
 > occlusion. Entity matrices/caps are no longer the active GPU implementation.
-> Browser/dual-host verification remains opt-in and representative integrated-
-> GPU performance evidence is pending, so B2 remains the unavailable-GPU
-> fallback. Browser hardware limits are recorded in the living entry.
+> The native SegmentTemplate renderer is now the default and sole toolpath
+> backend. WebGL2/capability/context failures leave the preview unavailable and
+> expose a diagnostic; no B2/entity fallback remains. Browser hardware limits
+> are recorded in the living entry.
 > Travel segments are coloured by their move type rather than any preserved
 > extrusion role, using libvgcode's `Travels` colour `RGB(56, 72, 155)`;
 > extrusion feature filters do not hide travel, and the global travel toggle
@@ -395,19 +396,17 @@ and drives structural operations through the typed client.
 
 - [x] Step 1 — accept the source-neutral planner and deterministic 250k/1m
       metadata fixture contract (no bridge change)
-- [x] Step 2 — source adapter/page planner behind the current B2 backend
+- [x] Step 2 — source adapter/page planner
 - [x] Step 3 — WebGL2 native libvgcode SegmentTemplate backend and
       capability/lifetime fallback (8 logical vertices / 24 invocations,
       camera-aware POINTY_CAPS + FIX_TWISTING shader, RGBA32F static textures,
       page-local R32UI selected-index textures; no alpha blend)
 - [x] Cross-page source addressing fix — page-local selected IDs are translated
       with each page's `firstSegment` before global static-texture fetches
-- [x] Step 4 — real preview integration behind an explicit default-off gate,
-      fallback diagnostics, and opt-in dual-host smoke coverage
-- [ ] Step 5 — dual-host verification and browser performance evidence landed;
-      prefer-enabled default remains blocked pending representative 2020
-      integrated-GPU 250k/1m evidence (current evidence uses Web SwiftShader
-      and Electron RTX 3080; later B2 cleanup remains separate)
+- [x] Step 4 — real preview integration with native renderer diagnostics and
+      dual-host smoke coverage
+- [x] Step 5 — native renderer made default and obsolete B2/entity renderer
+      removed; unsupported native initialization is explicitly unavailable
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)

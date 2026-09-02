@@ -72,8 +72,8 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   if (await layerHeight.count()) await layerHeight.fill('0.21');
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
-  // The default gate keeps B2 until representative integrated-GPU evidence;
-  // an opt-in capable browser reports ready, and B2 reports a reason.
+  // The native SegmentTemplate renderer is the sole preview backend. A
+  // capability/context failure is surfaced as an explicit diagnostic.
   await expect.poll(() => page.evaluate(() => {
     const hooks = (window as unknown as {
       __orcaE2e?: {
@@ -82,7 +82,7 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
       };
     }).__orcaE2e;
     const status = hooks?.gpuStreamingStatus?.();
-    return status === 'ready' || (status === 'b2' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+    return status === 'ready' || (status === 'unavailable' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
   }), { timeout: 20_000 }).toBe(true);
   await page.setViewportSize({ width: 720, height: 520 });
   await page.getByTestId('menu-file-trigger').click();
@@ -197,13 +197,7 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   expect(await result.path()).toBeTruthy();
 });
 
-// Opt-in migration smoke; the ordinary Web flow intentionally exercises the
-// production B2 default. This only checks ownership/fallback, not performance.
-test('GPU streaming preview: explicit gate selects backend or fallback', async ({ page }) => {
-  test.skip(process.env.ORCA_E2E_GPU_STREAMING !== '1', 'opt-in GPU streaming migration smoke');
-  await page.addInitScript(() => {
-    (window as unknown as { __orcaE2e?: Record<string, unknown> }).__orcaE2e = { gpuStreamingEnabled: true };
-  });
+test('GPU streaming preview: native renderer is the default backend', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();
@@ -227,6 +221,6 @@ test('GPU streaming preview: explicit gate selects backend or fallback', async (
       };
     }).__orcaE2e;
     const status = hooks?.gpuStreamingStatus?.();
-    return status === 'ready' || (status === 'b2' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+    return status === 'ready' || (status === 'unavailable' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
   }), { timeout: 20_000 }).toBe(true);
 });

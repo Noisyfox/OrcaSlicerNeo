@@ -240,15 +240,14 @@ colours adapt to maintain legibility.
 The implementation architecture for the GPU streaming/indexed-segment path is
 recorded in [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md).
 That specification is an implementation refinement only: the behaviour and
-performance goals below remain authoritative, and the current backend remains
-the migration fallback until its gates pass. Its accepted renderer is now the
-opaque solid-entity instance design recorded in the dated living entry; the
-earlier atlas/texel-fetch shader variant is superseded.
+performance goals below remain authoritative. Its accepted renderer is the
+native Orca/libvgcode SegmentTemplate path; capability or context failures
+leave the toolpath preview unavailable rather than selecting a second backend.
 
 Toolpaths are GPU-rendered, camera-facing extrusion bands. Rotation, pan, and
 zoom only update camera/render state and must never reconstruct or upload
 toolpath entities. Layer ranges, the move end, legend filters, dimming, and
-colour-scheme changes rebuild only selected page-local instance matrices,
+colour-scheme changes rebuild only selected page-local index streams,
 colours, and counts; they do not re-parse the source or rebuild the complete
 scene. Toolpath materials remain opaque with `NoBlending`.
 

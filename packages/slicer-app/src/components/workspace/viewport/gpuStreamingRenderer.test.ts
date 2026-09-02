@@ -58,18 +58,6 @@ function templateFacade() {
   const resourceFacade: GpuStreamingResourceFacade = {
     createSegmentTemplate: (): GpuStreamingSegmentTemplateResource => ({
       geometry: new THREE.BufferGeometry(),
-      material: new THREE.MeshStandardMaterial({
-        vertexColors: false,
-        flatShading: true,
-        color: 0xffffff,
-        roughness: 0.82,
-        metalness: 0,
-        transparent: false,
-        opacity: 1,
-        blending: THREE.NoBlending,
-        depthTest: false,
-        depthWrite: false,
-      }),
       dispose,
     }),
   };

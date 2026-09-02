@@ -1,18 +1,11 @@
 // packages/slicer-app/src/components/viewport/useSliceResult.ts
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ClientSliceResult, PreviewMetadata } from '@slicer/client';
-import {
-  ToolpathBandCache,
-  type ToolpathBandChunk,
-} from './toolpathBandGeometry';
 
 export interface ToolpathGeometry {
-  /** Layer-aligned GPU chunks, stable across camera movement. */
-  chunks: ToolpathBandChunk[];
-  /** Per-layer [start, count] ranges into the source segment stream. */
-  layerRanges: Array<[number, number]>;
+  /** Immutable source arrays consumed by the native SegmentTemplate renderer. */
   segmentCount: number;
   palette: ClientSliceResult['toolpath']['palette'];
   layerIds: Uint32Array;
@@ -36,7 +29,6 @@ export function useSliceResult() {
   const setPreviewBounds = useSlicerStore((s) => s.setPreviewBounds);
   const resetPreviewState = useSlicerStore((s) => s.resetPreviewState);
   const [result, setResult] = useState<ClientSliceResult | null>(null);
-  const bandCache = useRef(new ToolpathBandCache());
 
   useEffect(() => {
     if (status !== 'done') {
@@ -84,12 +76,22 @@ export function useSliceResult() {
   }, [resetPreviewState, setLayers, setMaxLayer, setLayer, setPreviewBounds, status]);
 
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
-    if (!result) {
-      bandCache.current.clear();
-      return null;
-    }
-    const prepared = bandCache.current.prepare(result.toolpath);
-    return { ...prepared, source: result.toolpath, metadata: result.metadata };
+    if (!result) return null;
+    const source = result.toolpath;
+    return {
+      segmentCount: source.segmentCount,
+      palette: source.palette,
+      layerIds: source.layerIds,
+      moveOrders: source.moveOrders,
+      features: source.features,
+      moveTypes: source.moveTypes,
+      ends: source.ends,
+      source,
+      metadata: result.metadata,
+      // The source buffers are owned by the slice result and released by the
+      // runtime. The renderer owns and disposes only its GPU resources.
+      dispose: () => {},
+    };
   }, [result]);
 
   // A result replacement owns the old GPU buffers until React commits the new

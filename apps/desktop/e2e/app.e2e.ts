@@ -244,8 +244,8 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
         .toBeGreaterThan(0);
     }
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
-    // The default gate keeps B2 until representative integrated-GPU evidence;
-    // an opt-in capable browser reports ready, and B2 reports a reason.
+    // The native SegmentTemplate renderer is the sole preview backend. A
+    // capability/context failure is surfaced as an explicit diagnostic.
     await expect.poll(() => page.evaluate(() => {
       const hooks = (window as unknown as {
         __orcaE2e?: {
@@ -254,7 +254,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
         };
       }).__orcaE2e;
       const status = hooks?.gpuStreamingStatus?.();
-      return status === 'ready' || (status === 'b2' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+      return status === 'ready' || (status === 'unavailable' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
     }), { timeout: 20_000 }).toBe(true);
     await expect(page.getByTestId('viewport')).toBeVisible();
     await expect(page.getByTestId('layer-scrubber')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
@@ -452,21 +452,10 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
   }
 });
 
-// Opt-in migration smoke: the normal preview suite keeps the production
-// default (B2), while this targeted case proves the explicit e2e gate can
-// select streaming or report a non-blocking B2 fallback.
-test('GPU streaming preview: explicit gate selects backend or fallback', async () => {
-  test.skip(process.env.ORCA_E2E_GPU_STREAMING !== '1', 'opt-in GPU streaming migration smoke');
+test('GPU streaming preview: native renderer is the default backend', async () => {
   const { app } = await launchApp();
   try {
     const page = await app.firstWindow();
-    await page.evaluate(() => {
-      const current = (window as unknown as { __orcaE2e?: Record<string, unknown> }).__orcaE2e;
-      (window as unknown as { __orcaE2e?: Record<string, unknown> }).__orcaE2e = {
-        ...current,
-        gpuStreamingEnabled: true,
-      };
-    });
     await selectStableRealPrinter(page);
     await page.getByTestId('btn-add-model').click();
     await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
@@ -480,7 +469,7 @@ test('GPU streaming preview: explicit gate selects backend or fallback', async (
         };
       }).__orcaE2e;
       const status = hooks?.gpuStreamingStatus?.();
-      return status === 'ready' || (status === 'b2' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+      return status === 'ready' || (status === 'unavailable' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
     }), { timeout: 10_000 }).toBe(true);
   } finally {
     await app.close();

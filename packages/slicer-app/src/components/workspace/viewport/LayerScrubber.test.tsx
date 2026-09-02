@@ -7,7 +7,7 @@ import { LayerScrubber } from './LayerScrubber';
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data: ToolpathGeometry = {
-  chunks: [], layerRanges: [[0, 2], [2, 2]], segmentCount: 4,
+  segmentCount: 4,
   palette: [{ id: 0, name: 'Perimeter', color: [220, 50, 50] }, { id: 1, name: 'Infill', color: [50, 120, 220] }],
   layerIds: Uint32Array.from([0, 0, 1, 1]), moveOrders: Uint32Array.from([0, 1, 0, 1]),
   features: Uint32Array.from([0, 1, 0, 1]), moveTypes: Uint8Array.from([10, 8, 10, 10]),

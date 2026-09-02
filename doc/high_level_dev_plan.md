@@ -457,17 +457,15 @@
 ## G-code preview GPU streaming renderer (2026-09-02)
 
 The WebGL2 streaming/indexed-segment backend has passed functional, lifetime,
-and Web/Electron verification, but remains opt-in while representative
-integrated-GPU performance evidence is unavailable. B2 remains the production
-path and automatic non-blocking fallback for capability, budget, compile,
-source, context, and selection failures; `{ enabled: true }` is the
-host-neutral verification opt-in and `{ enabled: false }` is the explicit B2
-override. The opt-in real-browser harness covers deterministic 250k/1m typed
+and Web/Electron verification and is now the default and sole toolpath
+renderer. Capability, budget, compile, source, context, and selection failures
+produce an explicit unavailable diagnostic; there is no B2/entity fallback.
+The real-browser harness covers deterministic 250k/1m typed
 SoA streams and records static/index uploads, camera uniform-only frames,
 capabilities, and disposal. Current evidence is Windows Web Chrome 151 on
 SwiftShader and Electron 43.4 on an RTX 3080; it is not a representative
-2020 integrated-GPU or native pixel-equivalence claim, so the default switch
-is blocked.
+2020 integrated-GPU or native pixel-equivalence claim; this evidence
+limitation does not change the default renderer selection.
 See `doc/2026-09-02-gcode-preview-gpu-streaming-renderer.md`.
 
 ## Cross-Cutting Practices

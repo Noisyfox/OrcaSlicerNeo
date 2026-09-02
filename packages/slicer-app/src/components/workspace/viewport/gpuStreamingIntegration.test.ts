@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ClientToolpath } from '@slicer/client';
 import {
-  DEFAULT_GPU_STREAMING_FEATURE_GATE,
+  DEFAULT_GPU_STREAMING_OPTIONS,
   buildGpuStreamingPlan,
+  createGpuStreamingBackend,
   reportGpuStreamingDiagnostic,
-  resolveGpuStreamingFeatureGate,
 } from './gpuStreamingIntegration';
 import type { GpuStreamingSource } from './gpuStreamingPlanner';
 
@@ -29,24 +29,39 @@ function source(): GpuStreamingSource {
   };
 }
 
-describe('GPU streaming feature gate', () => {
-  it('keeps streaming opt-in while allowing explicit B2 override', () => {
-    expect(DEFAULT_GPU_STREAMING_FEATURE_GATE.enabled).toBe(false);
-    expect(resolveGpuStreamingFeatureGate().enabled).toBe(false);
-    expect(resolveGpuStreamingFeatureGate({ enabled: true }).enabled).toBe(true);
-    expect(resolveGpuStreamingFeatureGate({ enabled: false }).enabled).toBe(false);
+describe('native GPU streaming integration', () => {
+  it('uses the native renderer options as the production default', () => {
+    expect(DEFAULT_GPU_STREAMING_OPTIONS).toEqual({});
   });
 
-  it('keeps the source adapter host-neutral when explicitly enabled', () => {
-    const gate = { enabled: true } as const;
-    const plan = buildGpuStreamingPlan(source() as unknown as ClientToolpath, undefined, gate);
+  it('keeps the source adapter host-neutral', () => {
+    const plan = buildGpuStreamingPlan(source() as unknown as ClientToolpath, undefined);
     expect(plan.diagnostics.sourceSegmentCount).toBe(2);
     expect(plan.pages).toHaveLength(1);
   });
 
+  it('constructs the native backend when no renderer override is supplied', () => {
+    const plan = buildGpuStreamingPlan(source() as unknown as ClientToolpath, undefined);
+    const context = {
+      VERSION: 'VERSION',
+      MAX_TEXTURE_SIZE: 'MAX_TEXTURE_SIZE',
+      MAX_TEXTURE_IMAGE_UNITS: 'MAX_TEXTURE_IMAGE_UNITS',
+      MAX_VERTEX_TEXTURE_IMAGE_UNITS: 'MAX_VERTEX_TEXTURE_IMAGE_UNITS',
+      getParameter: (key: string) => ({
+        VERSION: 'WebGL 2.0 mock',
+        MAX_TEXTURE_SIZE: 4096,
+        MAX_TEXTURE_IMAGE_UNITS: 8,
+        MAX_VERTEX_TEXTURE_IMAGE_UNITS: 8,
+      }[key]),
+    } as unknown as WebGLRenderingContext;
+    const result = createGpuStreamingBackend(plan, { getContext: () => context });
+    expect(result.ok).toBe(true);
+    if (result.ok) result.backend.dispose();
+  });
+
   it('reports non-blocking fallback diagnostics through the injected seam', () => {
     const onDiagnostic = vi.fn();
-    reportGpuStreamingDiagnostic({ enabled: true, onDiagnostic }, {
+    reportGpuStreamingDiagnostic({ onDiagnostic }, {
       reason: 'no-context',
       message: 'WebGL2 unavailable',
     });

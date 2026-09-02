@@ -29,15 +29,10 @@ export interface GpuStreamingRendererHost {
 }
 export interface GpuStreamingSegmentTemplateResource {
   readonly geometry: THREE.BufferGeometry;
-  readonly material?: THREE.Material;
   readonly dispose: () => void;
 }
-/** Compatibility name retained for injected factories. */
-export type GpuStreamingEntityTemplateResource =
-  GpuStreamingSegmentTemplateResource;
 export interface GpuStreamingResourceFacade {
   createSegmentTemplate?: () => GpuStreamingSegmentTemplateResource;
-  /** @deprecated */ createEntityTemplate?: () => GpuStreamingSegmentTemplateResource;
 }
 export interface GpuStreamingRendererOptions {
   readonly renderer?: GpuStreamingRendererHost;
@@ -365,12 +360,6 @@ export class GpuStreamingRenderer {
   get indexUploadedBytes() {
     return this._indexUploadedBytes;
   }
-  get entityUploadCount() {
-    return this._indexUploadCount;
-  }
-  get entityUploadedBytes() {
-    return this._indexUploadedBytes;
-  }
   get staticUploadCount() {
     return 3;
   }
@@ -615,10 +604,7 @@ export function createGpuStreamingRenderer(
   const pages: PageState[] = [];
   try {
     const facade = options.resourceFacade;
-    const create =
-      facade?.createSegmentTemplate ??
-      facade?.createEntityTemplate ??
-      defaultTemplate;
+    const create = facade?.createSegmentTemplate ?? defaultTemplate;
     const created = create();
     template = { ...created, dispose: onceDispose(created.dispose) };
     if (template.geometry.getAttribute('vertex_id') === undefined)

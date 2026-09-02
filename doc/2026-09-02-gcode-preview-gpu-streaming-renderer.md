@@ -1,7 +1,7 @@
 # G-code Preview GPU streaming renderer
 
 **Date:** 2026-09-02
-**Status:** Living implementation entry; step 5 browser/dual-host work complete; default preference blocked pending representative integrated-GPU evidence; streaming has silent B2 fallback
+**Status:** Living implementation entry; native SegmentTemplate renderer is the sole/default toolpath renderer; unavailable GPU/context states are diagnosed explicitly
 **Scope:** GPU streaming/indexed-segment redesign for the shared G-code preview
 
 ## Purpose and boundary
@@ -9,10 +9,9 @@
 This document records the implementation steps for the large-slice renderer
 redesign. Step 1 established the implementation contract and deterministic
 metadata fixture; step 2 adds a source adapter and immutable page/index
-planner; step 3 adds the independent WebGL2 backend; and step 4 connects it to
-the real preview behind an explicit gate. The gate remains closed by default,
-so neither the normal renderer nor visible product behaviour changes. The
-normative architecture is
+planner; step 3 adds the WebGL2 backend; and the final integration makes the
+native SegmentTemplate path the sole/default renderer. The normative
+architecture is
 [`spec/G-code Preview GPU Streaming Renderer.md`](../spec/G-code%20Preview%20GPU%20Streaming%20Renderer.md).
 
 The renderer remains a shared `packages/slicer-app` feature for Web and
@@ -145,14 +144,15 @@ scope for this step and for the current product phase.
 
 - Require WebGL2, integer texture sampling, vertex texture fetch, and a valid
   `MAX_TEXTURE_SIZE`; WebGL1 is not a fallback. If the streaming backend
-  cannot initialize or a page allocation fails, retain the current B2 renderer
-  for that result and surface a non-blocking capability status. There is no
-  silent loss of the active inspection range.
+  cannot initialize or a page allocation fails, leave the toolpath preview
+  unavailable for that result and surface a non-blocking capability status.
+  There is no alternate toolpath renderer and no silent loss of the active
+  inspection range.
 - Static atlas resources live for one immutable slice result. Dynamic index
   streams are replaced only after a completed selection rebuild. The old
   stream is retired after the draw boundary; all pages, textures, buffers,
   template resources, and material references are disposed on result
-  invalidation, unmount, context loss, and backend fallback.
+   invalidation, unmount, and context loss.
 - The initial implementation target is a 64 Ki-segment soft page cap, reduced
   to the largest safe value derived from `MAX_TEXTURE_SIZE` and allocation
   budget. Pages remain layer-aligned unless one layer exceeds the hard
@@ -224,39 +224,35 @@ index streams. The caller's renderer, scene, and camera are never disposed.
 The backend intentionally does not claim browser FPS or GPU compatibility
 evidence. Browser measurements remain a separate acceptance gate.
 
-## Accepted step-4 gated preview integration
+## Accepted native preview integration
 
-`gpuStreamingIntegration.ts` defines a host-neutral, injected
-`GpuStreamingFeatureGate`. Its `enabled` value defaults to `false`; callers can
-provide the gate through context or the `ToolpathLines` prop, and tests can
-inject a renderer factory/fake backend. The Vite e2e-only
-`__orcaE2e.gpuStreamingEnabled` switch is documented test plumbing, not a
-production preference or an Electron/Node dependency.
+`gpuStreamingIntegration.ts` exposes only host-neutral options and diagnostics
+for the native renderer. `ToolpathLines` always builds the immutable page plan,
+creates `GpuStreamingRenderer` against the current Three renderer, uploads the
+initial selection, and attaches its page meshes directly to the shared scene.
+There is no feature gate, e2e enable switch, B2 construction, or alternate
+entity-matrix path.
 
-When enabled, `ToolpathLines` adapts the immutable source and preview layer
-metadata into one page plan, creates the backend against the current Three
-renderer, uploads the initial selection, and attaches its page meshes directly
-to the shared scene. B2 remains rendered until construction succeeds, then is
-removed so a successful path never double-draws. Layer range, active move end,
-travel visibility, and feature hide changes call only `updateSelection`; active
-layer dimming calls `updateDimming`; camera frames call `updateCamera`; and a
-distinct palette calls `updatePalette`. None of those paths rebuilds the static
-plan/atlas.
+Layer range, active move end, travel visibility, and feature hide changes call
+only `updateSelection`; active-layer dimming calls `updateDimming`; camera
+frames call `updateCamera`; and a distinct palette calls `updatePalette`. None
+of those paths rebuilds the static plan/atlas.
 
 Planner, capability, budget, shader/atlas construction, context-loss, and
-selection/palette update failures report non-blocking diagnostics and return to
-B2. Cleanup detaches streaming meshes and disposes all backend resources on
-fallback, source replacement/invalidation, context loss, and unmount. The
+selection/palette update failures report a non-blocking diagnostic and leave the
+toolpath preview unavailable. Cleanup detaches native meshes and disposes all
+backend resources on source replacement/invalidation, context loss, and
+unmount. The
 backend seam exposes `commitDrawBoundary()`, and each owned page mesh calls the
 backend's page-complete hook from `onAfterRender`; retired index/palette
 textures are released only after every page has completed that frame. This
 keeps replacement streams alive while a draw may still reference them and
 avoids an integration-side retirement leak.
 The
-e2e-only status hook reports `ready` or `b2` for the opt-in desktop/Web smoke;
-when it reports `b2`, the companion diagnostic hook includes the fallback
-reason. This is not a performance claim. The existing marker, shell/depth
-policy, and all preview controls remain outside this backend switch.
+e2e-only status hook reports `ready`, `context-lost`, `disposed`, or
+`unavailable`; an unavailable state always has a diagnostic reason. This is
+not a performance claim. The existing marker, shell/depth policy, and all
+preview controls remain outside the renderer diagnostics.
 
 ## Migration and verification state
 
@@ -264,34 +260,26 @@ policy, and all preview controls remain outside this backend switch.
    contract, and add concise links from the existing Preview v2 documents. No
    renderer, bridge, or behaviour change.
 2. **Step 2:** implement the source adapter and page/index planner
-   with unit tests, while keeping the current backend selected by default.
+   with unit tests.
 3. **Step 3:** implement WebGL2 static atlas + dynamic index pages and
    capability/lifetime diagnostics. (Complete.)
-4. **Step 4:** connect the backend to the real preview behind the default-off
-   feature gate, add fallback/lifetime tests, and add opt-in desktop/Web smoke
-   coverage. (Complete; browser measurements and evidence remain pending.)
-5. **Step 5:** compare same-renderer Web/Electron behaviour and approved native
-   references; switch the default only after all acceptance criteria pass.
+4. **Step 4:** connect the native backend to the real preview, add explicit
+   unavailable-state diagnostics, and add dual-host smoke coverage. (Complete.)
+5. **Step 5:** remove the obsolete entity-matrix backend and make the native
+   SegmentTemplate renderer the sole/default implementation. (Complete.)
 
-The current B2 backend remains the production path. The step-5 functional,
-memory/lifetime, capability/fallback, and dual-host gates passed, but the
-representative integrated-GPU performance gate is blocked: this Windows
-runner only provides Web SwiftShader and an RTX 3080. The default therefore
-remains disabled; the browser evidence and its hardware limitation are
-recorded below. B2 is not removed.
+The native renderer is now the production path. Functional, memory/lifetime,
+capability, and dual-host gates passed. Browser benchmark results remain
+diagnostic evidence only; a missing WebGL2 capability or failed allocation is
+reported as an unavailable preview rather than selecting a second renderer.
 
 ## Accepted step-5 browser and dual-host verification (2026-09-02)
 
-The shared feature gate remains `DEFAULT_GPU_STREAMING_FEATURE_GATE =
-{ enabled: false }` until representative integrated-GPU performance evidence
-is available. Passing `{ enabled: true }` is the host-neutral opt-in for
-verification; `{ enabled: false }` remains the explicit B2 override for
-regressions and diagnostics. When enabled, `ToolpathLines` still renders B2
-until a streaming plan, WebGL2 capability probe, budget check, shader/atlas
-construction, and selection update all succeed. Any failure reports a
-non-blocking diagnostic and returns to B2. No persistent UI setting was added,
-and a successful streaming construction removes B2 so the scene is never
-double-drawn.
+The shared integration always selects the native renderer. There is no feature
+gate, opt-in switch, B2 override, or entity-matrix fallback. When a streaming
+plan, WebGL2 capability probe, budget check, shader/atlas construction, or
+selection update fails, the integration reports a non-blocking diagnostic and
+leaves the toolpath preview unavailable. No persistent UI setting was added.
 
 The opt-in `ORCA_E2E_GPU_STREAMING_PERF=1` browser harness is exposed only by
 e2e builds. It creates the deterministic metadata fixture, adds bulk typed SoA
@@ -300,16 +288,16 @@ Three.js WebGL2 context, renders to force texture/index uploads, measures
 selection replacement and 30 requestAnimationFrame camera updates, then
 detaches and disposes all resources. It does not create a segment object or
 assert a wall-clock threshold. The regular Web and Electron default e2e flows
-assert `ready`, or `b2` with a non-empty fallback reason.
+assert `ready`, or `unavailable` with a non-empty diagnostic reason.
 
 Evidence from this Windows runner (2026-09-02; values vary by run):
 
-| Host/context | Case | Pages | Static bytes / ms | Selection ms / index bytes | Camera frames / FPS | B2 | Dispose |
+| Host/context | Case | Pages | Static bytes / ms | Selection ms / index bytes | Camera frames / FPS | Renderer | Dispose |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
-| Web Chrome 151, ANGLE SwiftShader Vulkan (software) | 250k | 4 | 16,027,360 / 30.82 | 10.53 / 753,664 | 30 / 65.20 | none | geometries 4→0 |
-| Web Chrome 151, ANGLE SwiftShader Vulkan (software) | 1m | 16 | 64,108,032 / 77.88 | 14.04 / 3,112,960 | 30 / 64.94 | none | geometries 16→0 |
-| Electron 43.4, ANGLE NVIDIA GeForce RTX 3080 D3D11 | 250k | 4 | 16,027,360 / 36.48 | 14.41 / 786,432 | 30 / 262.34 | none | geometries 4→0 |
-| Electron 43.4, ANGLE NVIDIA GeForce RTX 3080 D3D11 | 1m | 16 | 64,108,032 / 79.41 | 14.40 / 3,145,728 | 30 / 262.42 | none | geometries 16→0 |
+| Web Chrome 151, ANGLE SwiftShader Vulkan (software) | 250k | 4 | 16,027,360 / 30.82 | 10.53 / 753,664 | 30 / 65.20 | native | geometries 4→0 |
+| Web Chrome 151, ANGLE SwiftShader Vulkan (software) | 1m | 16 | 64,108,032 / 77.88 | 14.04 / 3,112,960 | 30 / 64.94 | native | geometries 16→0 |
+| Electron 43.4, ANGLE NVIDIA GeForce RTX 3080 D3D11 | 250k | 4 | 16,027,360 / 36.48 | 14.41 / 786,432 | 30 / 262.34 | native | geometries 4→0 |
+| Electron 43.4, ANGLE NVIDIA GeForce RTX 3080 D3D11 | 1m | 16 | 64,108,032 / 79.41 | 14.40 / 3,145,728 | 30 / 262.42 | native | geometries 16→0 |
 
 All four runs visited exactly the requested segment count during selection and
 reported `cameraIndexUploadCountDelta = 0`. Web used `MAX_TEXTURE_SIZE=8192`
@@ -326,9 +314,8 @@ The browser harness and default flow passed on both hosts, with the latest Web
 SwiftShader rerun completing 250k but timing out during the subsequent 1m
 case after 120 seconds; an earlier independent Web run supplied the 1m row
 shown above. That timeout reinforces that this runner cannot establish the
-representative integrated-GPU gate. B2 remains the automatic
-capability/budget/compile/source/context/selection fallback; its removal is
-still a separately approved cleanup after a release cycle.
+representative integrated-GPU gate. It does not affect renderer selection:
+unsupported or failed native initialization leaves the preview unavailable.
 
 ## Native SegmentTemplate GPU path (2026-09-02)
 
@@ -351,11 +338,11 @@ queue ordering, `blending: THREE.NoBlending`, `depthTest: true`, and
 `GL_CULL_FACE` disable; this does not enable blending, and the depth buffer
 remains responsible for occluding overlapping path faces.
 
-The B2 entity implementation remains only as the fallback when GPU capability,
-allocation, shader, context, or selection initialization is unavailable. On a
-successful native construction B2 is removed, so the scene is never double
-drawn. Context loss and result invalidation dispose the shared template,
-textures, page materials, and index streams exactly once.
+The old B2 entity implementation has been removed. On native capability,
+allocation, shader, context, or selection failure, the scene remains without a
+toolpath and the integration records the diagnostic. Context loss and result
+invalidation dispose the shared template, textures, page materials, and index
+streams exactly once.
 
 ### Cross-page source addressing fix (2026-09-02)
 
