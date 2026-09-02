@@ -158,6 +158,38 @@ describe('toolpath band geometry', () => {
     prepared.dispose();
   });
 
+  it('uses the native travel colour and keeps travel independent from feature filters', () => {
+    const source: ClientToolpath = {
+      vertexCount: 2,
+      positions: Float32Array.from([1, 0, 0, 2, 0, 0]),
+      layers: Uint32Array.from([0, 0]),
+      features: Uint32Array.from([0, 1]),
+      palette: [
+        { id: 0, name: 'perimeter', color: [255, 0, 0] },
+        { id: 1, name: 'stale travel role', color: [0, 255, 0] },
+      ],
+      segmentCount: 2,
+      starts: Float32Array.from([0, 0, 0, 1, 0, 0]),
+      ends: Float32Array.from([1, 0, 0, 2, 0, 0]),
+      layerIds: Uint32Array.from([0, 0]),
+      moveOrders: Uint32Array.from([0, 1]),
+      gcodeIds: Uint32Array.from([1, 2]),
+      moveTypes: Uint8Array.from([10, 8]),
+      extrusionRoles: Uint16Array.from([0, 1]),
+      extruderIds: Uint8Array.from([0, 0]),
+      colorPrintIds: Uint8Array.from([0, 0]),
+      widths: Float32Array.from([0.4, 0.05]),
+      heights: Float32Array.from([0.2, 0.05]),
+      metrics: {},
+    };
+    const prepared = new ToolpathBandCache().prepare(source);
+    const colors = prepared.chunks[0]!.mesh.instanceColor!;
+    expect(Array.from(colors.array.slice(3, 6))).toEqual([56 / 255, 72 / 255, 155 / 255].map((value) => expect.closeTo(value, 5)));
+    updateToolpathChunkVisibility([prepared.chunks[0]!], { visible: Uint8Array.from([1, 1]), dimmed: Uint8Array.from([0, 0]) });
+    expect(Array.from(colors.array.slice(3, 6))).toEqual([56 / 255, 72 / 255, 155 / 255].map((value) => expect.closeTo(value, 5)));
+    prepared.dispose();
+  });
+
   it('updates range buffers in place without reconstructing geometry', () => {
     const range = { firstSegment: 0, segmentCount: 2, firstLayer: 0, lastLayer: 0 };
     const chunk = createToolpathBandChunk(

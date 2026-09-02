@@ -110,8 +110,10 @@ or adding a native dependency:
 
 ## Behaviour and source-neutral compatibility
 
-The redesign preserves the accepted Preview v2 semantics: feature/line-type
-and travel filtering hide paths; dimming changes brightness but does not turn a
+The redesign preserves the accepted Preview v2 semantics: extrusion
+feature/line-type and travel filtering hide paths; travel is independently
+coloured and filtered as the native Travels option, regardless of any
+preserved extrusion role. Dimming changes brightness but does not turn a
 visible segment into a hidden one; single-layer mode keeps a paired layer range
 and shows that layer from its first move through the active move end; and the
 native-style solid hotend marker uses the last move at or before that end. Existing
@@ -343,10 +345,14 @@ its preview material does not write depth; path entities then establish the
 depth buffer for their own front-to-back occlusion.
 Feature colours are per-instance RGB values; unknown feature IDs use an opaque
 0.58 gray fallback. Both explicit feature IDs and legacy palette-position IDs
-are accepted. Filters and layer/move range changes rewrite only selected page
-matrices/colors and mesh counts. Camera movement performs no entity
-reconstruction or upload. The planner remains source-order/layer/page
-metadata only and does not allocate render resources.
+are accepted. Travel is resolved from `moveType === EMoveType::Travel` rather
+than its preserved extrusion-role ID and uses libvgcode's Travels colour
+`RGB(56, 72, 155)`. Travel therefore remains independent of extrusion feature
+filters and is controlled only by the global travel toggle. Filters and
+layer/move range changes rewrite only selected page matrices/colors and mesh
+counts. Camera movement performs no entity reconstruction or upload. The
+planner remains source-order/layer/page metadata only and does not allocate
+render resources.
 
 The Three materials intentionally leave `vertexColors` disabled: the shared
 prism has no per-vertex `color` attribute, while `InstancedMesh.instanceColor` is

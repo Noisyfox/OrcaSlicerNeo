@@ -32,6 +32,15 @@ describe('preview inspection semantics', () => {
     expect(Array.from(result.visible)).toEqual([1, 0, 1, 0, 0, 0]);
   });
 
+  it('keeps travel visible when its stale extrusion feature is hidden', () => {
+    const result = buildPreviewVisibility(data, {
+      visibleLayerStart: 0, visibleLayerEnd: 0,
+      activeMoveEnd: 10, showTravel: true, dimPreviousLayers: false,
+      featureVisibility: { 1: false },
+    });
+    expect(Array.from(result.visible)).toEqual([1, 1, 0, 0, 0, 0]);
+  });
+
   it('finds the last move at or before the active end', () => {
     expect(maxMoveOrderForLayer(data, 1)).toBe(2);
     expect(lastMovePosition(data, 1, 1)).toEqual([3, 0, 0]);

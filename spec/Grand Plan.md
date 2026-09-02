@@ -380,6 +380,10 @@ and drives structural operations through the typed client.
 > scene lights. A shared chamfered prism supplies scale-aware physical edge
 > relief between neighbouring same-colour paths; no gap, alpha outline, or
 > blend pass is introduced.
+> Travel segments are coloured by their move type rather than any preserved
+> extrusion role, using libvgcode's `Travels` colour `RGB(56, 72, 155)`;
+> extrusion feature filters do not hide travel, and the global travel toggle
+> remains authoritative.
 > The current-move marker is a native-style 32-sided cone-and-cylinder hotend,
 > anchored at the last mapped endpoint plus 0.5 mm Z, using white 0.5 alpha,
 > normal source-alpha blending, depth testing, disabled depth writes, and

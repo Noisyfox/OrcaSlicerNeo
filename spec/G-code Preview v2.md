@@ -176,9 +176,11 @@ restores the inclusive range from layer zero through the active layer.
 
 ### Filter and state semantics
 
-Legend filters have Orca's hide semantics: disabling a feature, material/tool,
-or travel category removes those paths from the rendered result rather than
-only reducing their opacity.
+Legend filters have Orca's hide semantics: disabling an extrusion feature or
+material/tool removes those paths from the rendered result rather than only
+reducing their opacity. Travel is an independent option category: its paths
+use the native Travels colour and are controlled by the global travel toggle,
+not by a preserved extrusion role or extrusion feature filter.
 
 Filtering and legend items are scoped to the active colour scheme. For example,
 Feature/Line Type filtering does not affect Filament/Tool filtering. Travel

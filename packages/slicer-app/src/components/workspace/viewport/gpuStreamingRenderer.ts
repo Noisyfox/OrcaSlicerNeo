@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { ToolpathFeature } from '@slicer/client';
 import type { GpuStreamingPage, GpuStreamingPagePlan, GpuStreamingSelection } from './gpuStreamingPlanner';
 import { createToolpathEntityGeometry, createToolpathEntityMaterial } from './toolpathEntityGeometry';
+import { resolveToolpathColor } from './toolpathColors';
 
 /**
  * The renderer follows libvgcode's SegmentTemplate ownership model: one
@@ -63,23 +64,8 @@ function onceDispose(dispose: () => void): () => void {
   let done = false;
   return () => { if (!done) { done = true; dispose(); } };
 }
-const FALLBACK_COLOR = new THREE.Color(0.58, 0.58, 0.58);
 const WORLD_UP = new THREE.Vector3(0, 0, 1);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
-function paletteColor(palette: readonly ToolpathFeature[], feature: number): THREE.Color {
-  // Bridges normally emit local ids, but older preview payloads used the
-  // feature's position as the id. Accept both wire forms so an otherwise
-  // valid segment never silently falls back to gray.
-  const entry = palette.find((candidate) => candidate.id === feature) ?? palette[feature];
-  if (!entry) return FALLBACK_COLOR.clone();
-  const scale = entry.color.some((value) => Number.isFinite(value) && Math.abs(value) > 1) ? 1 / 255 : 1;
-  return new THREE.Color(
-    (Number.isFinite(entry.color[0]) ? entry.color[0] : 0) * scale,
-    (Number.isFinite(entry.color[1]) ? entry.color[1] : 0) * scale,
-    (Number.isFinite(entry.color[2]) ? entry.color[2] : 0) * scale,
-  );
-}
-
 /** Build the real world-space transform for one libvgcode-compatible prism. */
 export function buildGpuStreamingInstanceMatrix(
   source: GpuStreamingPagePlan['source'],
@@ -211,7 +197,11 @@ export class GpuStreamingRenderer {
     const mesh = page.mesh;
     if (!mesh) return;
     mesh.setMatrixAt(slot, buildGpuStreamingInstanceMatrix(this.source, sourceIndex));
-    const color = paletteColor(this.palette, this.source.features[sourceIndex] ?? 0);
+    const color = new THREE.Color(...resolveToolpathColor(
+      this.palette,
+      this.source.features[sourceIndex] ?? 0,
+      this.source.moveTypes[sourceIndex] ?? 0,
+    ));
     if (this.dimmingLayer >= 0 && (this.source.layerIds[sourceIndex] ?? 0) < this.dimmingLayer) color.multiplyScalar(this.dimming);
     mesh.setColorAt(slot, color);
   }

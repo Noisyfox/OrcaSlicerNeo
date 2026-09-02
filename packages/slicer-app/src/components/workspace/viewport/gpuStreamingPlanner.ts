@@ -1,4 +1,5 @@
 import type { ClientToolpath, PreviewMetadata, PreviewToolpathMetrics, ToolpathFeature } from '@slicer/client';
+import { TRAVEL_MOVE_TYPE } from './toolpathColors';
 
 /** The soft page target agreed by the streaming renderer design. */
 export const GPU_STREAMING_SOFT_PAGE_TARGET = 65_536;
@@ -543,8 +544,8 @@ export function rebuildGpuStreamingSelection(
       const layer = source.layerIds[i] ?? 0;
       if (layer < layerStart || layer > layerEnd) continue;
       if (layer === layerEnd && (source.moveOrders[i] ?? 0) > moveEnd) continue;
-      if (!options.showTravel && (source.moveTypes[i] ?? 0) === 8) continue;
-      if (!visibleFeature(options.featureVisibility, source.features[i] ?? 0)) continue;
+      if (!options.showTravel && (source.moveTypes[i] ?? 0) === TRAVEL_MOVE_TYPE) continue;
+      if ((source.moveTypes[i] ?? 0) !== TRAVEL_MOVE_TYPE && !visibleFeature(options.featureVisibility, source.features[i] ?? 0)) continue;
       indices[emitted++] = i - page.firstSegment;
     }
     pages.push(Object.freeze({ firstSegment: page.firstSegment, indices: indices.subarray(0, emitted), emittedCount: emitted }));

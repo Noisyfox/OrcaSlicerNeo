@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { ClientToolpath } from '@slicer/client';
 import type { PreviewVisibility } from './previewSemantics';
 import { createToolpathEntityGeometry, createToolpathEntityMaterial } from './toolpathEntityGeometry';
+import { resolveToolpathColor, TOOLPATH_FALLBACK_COLOR } from './toolpathColors';
 
 export interface ToolpathChunkRange {
   firstSegment: number;
@@ -33,17 +34,8 @@ export interface PreparedToolpathBands {
 export const DEFAULT_TOOLPATH_CHUNK_TARGET = 16_384;
 const WORLD_UP = new THREE.Vector3(0, 0, 1);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
-const FALLBACK_COLOR = new THREE.Color(0.58, 0.58, 0.58);
 function finitePositive(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isFinite(value) && value > 0 ? value : fallback;
-}
-function colorComponents(color: readonly [number, number, number]): [number, number, number] {
-  const scale = color.some((value) => Number.isFinite(value) && Math.abs(value) > 1) ? 1 / 255 : 1;
-  return [
-    (Number.isFinite(color[0]) ? color[0] : 0) * scale,
-    (Number.isFinite(color[1]) ? color[1] : 0) * scale,
-    (Number.isFinite(color[2]) ? color[2] : 0) * scale,
-  ];
 }
 function buildMatrix(starts: Float32Array, ends: Float32Array, widths: Float32Array, heights: Float32Array, index: number): THREE.Matrix4 {
   const start = new THREE.Vector3(starts[index * 3] ?? 0, starts[index * 3 + 1] ?? 0, starts[index * 3 + 2] ?? 0);
@@ -109,7 +101,7 @@ export function createToolpathBandChunk(starts: Float32Array, ends: Float32Array
   for (let i = 0; i < range.segmentCount; i++) {
     const source = range.firstSegment + i;
     const matrix = buildMatrix(starts, ends, widths, heights, source);
-    const color = new THREE.Color(colors[source * 3] ?? FALLBACK_COLOR.r, colors[source * 3 + 1] ?? FALLBACK_COLOR.g, colors[source * 3 + 2] ?? FALLBACK_COLOR.b);
+    const color = new THREE.Color(colors[source * 3] ?? TOOLPATH_FALLBACK_COLOR[0], colors[source * 3 + 1] ?? TOOLPATH_FALLBACK_COLOR[1], colors[source * 3 + 2] ?? TOOLPATH_FALLBACK_COLOR[2]);
     instanceMatrices.push(matrix);
     instanceColors.push(color);
     mesh.setMatrixAt(i, matrix);
@@ -123,9 +115,7 @@ export function buildPreparedToolpathBands(t: ClientToolpath): PreparedToolpathB
   const segmentCount = Math.max(0, Math.min(t.segmentCount, Math.floor(t.starts.length / 3), Math.floor(t.ends.length / 3)));
   const colors = new Float32Array(segmentCount * 3);
   for (let i = 0; i < segmentCount; i++) {
-    const feature = t.features[i] ?? 0;
-    const c = (t.palette.find((entry) => entry.id === feature) ?? t.palette[feature])?.color ?? [255, 255, 255];
-    const normalized = colorComponents(c);
+    const normalized = resolveToolpathColor(t.palette, t.features[i] ?? 0, t.moveTypes[i] ?? 0);
     colors[i * 3] = normalized[0]; colors[i * 3 + 1] = normalized[1]; colors[i * 3 + 2] = normalized[2];
   }
   const chunks = buildLayerAlignedChunkRanges(t.layerIds, segmentCount).map((range) => createToolpathBandChunk(t.starts, t.ends, t.widths, t.heights, colors, range));

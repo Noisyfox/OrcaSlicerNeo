@@ -111,7 +111,10 @@ describe('opaque GPU entity renderer', () => {
     expect(firstMesh.count).toBe(2);
     expect(firstMesh.instanceMatrix.count).toBeGreaterThanOrEqual(2);
     expect(firstMesh.instanceColor).not.toBeNull();
-    expect(Array.from(firstMesh.instanceColor!.array.slice(0, 6))).toEqual([1, 2, 3, 4, 5, 6].map((value) => expect.closeTo(value / 255, 5)));
+    expect(Array.from(firstMesh.instanceColor!.array.slice(0, 6))).toEqual([
+      1 / 255, 2 / 255, 3 / 255,
+      56 / 255, 72 / 255, 155 / 255,
+    ].map((value) => expect.closeTo(value, 5)));
     const before = result.backend.entityUploadCount;
     const filtered = rebuildGpuStreamingSelection(plan, { visibleLayerStart: 1, visibleLayerEnd: 1, activeMoveEnd: Number.MAX_SAFE_INTEGER, showTravel: false, featureVisibility: { 4: false } });
     result.backend.updateSelection(filtered);
@@ -138,7 +141,28 @@ describe('opaque GPU entity renderer', () => {
     const selection = rebuildGpuStreamingSelection(plan, { visibleLayerStart: 0, visibleLayerEnd: 1, activeMoveEnd: Number.MAX_SAFE_INTEGER, showTravel: true });
     result.backend.updateSelection(selection);
     const colors = result.backend.sceneObjects[0]!.instanceColor!;
-    expect(Array.from(colors.array.slice(0, 6))).toEqual([1, 0, 0, 0, 1, 0]);
+    expect(Array.from(colors.array.slice(0, 6))).toEqual([
+      1, 0, 0, 56 / 255, 72 / 255, 155 / 255,
+    ].map((value) => expect.closeTo(value, 5)));
+    result.backend.dispose();
+  });
+
+  it('resolves travel by move type even when its stale role palette is hidden', () => {
+    const plan = planGpuStreamingPages(source(), { softPageTarget: 4 });
+    const result = createGpuStreamingRenderer(plan, { context: context(), compile: false });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const selection = rebuildGpuStreamingSelection(plan, {
+      visibleLayerStart: 0,
+      visibleLayerEnd: 1,
+      activeMoveEnd: Number.MAX_SAFE_INTEGER,
+      showTravel: true,
+      featureVisibility: { 5: false },
+    });
+    expect(selection.emittedSegments).toBe(4);
+    result.backend.updateSelection(selection);
+    expect(Array.from(result.backend.sceneObjects[0]!.instanceColor!.array.slice(3, 6)))
+      .toEqual([56 / 255, 72 / 255, 155 / 255].map((value) => expect.closeTo(value, 5)));
     result.backend.dispose();
   });
 

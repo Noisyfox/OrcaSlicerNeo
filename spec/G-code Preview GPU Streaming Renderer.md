@@ -333,7 +333,11 @@ compositing; the renderer's blend state is explicitly disabled. Depth is
 intentionally enabled for the solid entities themselves: the preview shell
 does not write depth, while the toolpaths establish depth and therefore
 self-occlude from the camera-facing side. Per-instance RGB colours implement
-the feature palette and an opaque gray unknown-feature fallback. There is no custom toolpath shader,
+the feature palette and an opaque gray unknown-feature fallback. Travel colour
+is selected from the move type (not the preserved extrusion role), using
+libvgcode's `Travels` colour `RGB(56, 72, 155)`; travel is consequently
+independent of extrusion feature visibility and follows the global travel
+toggle. There is no custom toolpath shader,
 `texelFetch`, atlas, integer texture, enabled-index texture, or
 shader-derived outline/width/height. The planner remains a pure
 source/page/selection planner and can retain its page metadata accounting for

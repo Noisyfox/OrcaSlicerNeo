@@ -1,7 +1,8 @@
 import type { ToolpathGeometry } from './useSliceResult';
+import { TRAVEL_MOVE_TYPE } from './toolpathColors';
 
 /** EMoveType::Travel in libslic3r/libvgcode (kept at the contract boundary). */
-export const TRAVEL_MOVE_TYPE = 8;
+export { TRAVEL_MOVE_TYPE };
 
 export function previewViewportOwnsKeyboardFocus(target: Element | null, viewport: Element | null, activeElement: Element | null): boolean {
   if (!viewport || !target || activeElement !== viewport || !viewport.contains(target)) return false;
@@ -78,8 +79,12 @@ export function buildPreviewVisibility(
     if (layer < layerStart || layer > layerEnd) continue;
     if (layer === layerEnd && (data.moveOrders[i] ?? 0) > moveEnd) continue;
     if (!options.showTravel && (data.moveTypes[i] ?? 0) === TRAVEL_MOVE_TYPE) continue;
-    const feature = data.features[i] ?? 0;
-    if (options.featureVisibility && options.featureVisibility[feature] === false) continue;
+    // libvgcode keeps travel under the independent Travels option; a stale
+    // extrusion role on a travel vertex must not make a feature filter hide it.
+    if ((data.moveTypes[i] ?? 0) !== TRAVEL_MOVE_TYPE) {
+      const feature = data.features[i] ?? 0;
+      if (options.featureVisibility && options.featureVisibility[feature] === false) continue;
+    }
     visible[i] = 1;
     dimmed[i] = options.dimPreviousLayers && layer < layerEnd ? 1 : 0;
   }

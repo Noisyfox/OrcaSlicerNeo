@@ -182,7 +182,7 @@ export function rebuildGpuStreamingSelection(
     if (layer < layerStart || layer > layerEnd) continue;
     if (layer === layerEnd && (metadata.moveOrders[i] ?? 0) > moveEnd) continue;
     if (!options.showTravel && metadata.moveTypes[i] === GPU_STREAM_TRAVEL_MOVE_TYPE) continue;
-    if (!featureIsVisible(options.featureVisibility, metadata.features[i] ?? 0)) continue;
+    if (metadata.moveTypes[i] !== GPU_STREAM_TRAVEL_MOVE_TYPE && !featureIsVisible(options.featureVisibility, metadata.features[i] ?? 0)) continue;
     indices[emittedSegments++] = i;
   }
 
