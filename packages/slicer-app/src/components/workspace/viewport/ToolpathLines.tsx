@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/viewport/ToolpathLines.tsx
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
@@ -248,10 +248,10 @@ export function ToolpathLines({
   return (
     <group renderOrder={1000}>
       {!useStreaming && data.chunks.map((chunk) => (
-        <primitive
-          key={`${chunk.firstSegment}:${chunk.segmentCount}`}
-          object={chunk.mesh}
-        />
+        <Fragment key={`${chunk.firstSegment}:${chunk.segmentCount}`}>
+          <primitive object={chunk.mesh} />
+          <primitive object={chunk.capMesh} />
+        </Fragment>
       ))}
     </group>
   );

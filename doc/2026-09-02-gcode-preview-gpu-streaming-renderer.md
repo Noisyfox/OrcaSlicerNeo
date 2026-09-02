@@ -29,12 +29,14 @@ ends of every independent prism. Those faces were lit as dark diamond blocks
 at every move junction. Native libvgcode's `SegmentTemplate` uses a pointy
 endpoint only when a path terminates; its continuing junction is covered by
 the next segment. The shared adaptation now uses the same observable rule:
-the diamond profile remains the side cross-section, endpoint faces are omitted,
-and same-layer, same-move-type contiguous segments overlap by half their
-width at each shared endpoint. This keeps straight and corner joins closed
-without an endpoint cap draw, while preserving opaque `NoBlending` materials,
-depth ordering, instance streaming, and B2/streaming matrix parity. Disjoint
-or move-type-changing segments are never extended into one another.
+the diamond profile remains the side cross-section, and pointy endpoint
+pyramids are emitted only for true visible starts/ends. Same-layer,
+same-move-type contiguous segments overlap by half their width at each shared
+endpoint, so straight and corner joins have no dark cap. Selection rebuilds
+recompute those boundaries after filters; disjoint, hidden-neighbour, or
+move-type-changing segments regain both pointy caps. Cap matrices and solid
+body matrices are produced by the same helper in streaming and B2, preserving
+opaque `NoBlending` materials, depth ordering, and instance streaming.
 
 ## Accepted step-2 implementation
 
@@ -337,8 +339,9 @@ still a separately approved cleanup after a release cycle.
 
 The atlas/texel-fetch backend described earlier in this living document is
 superseded by the user's explicit rendering requirement. The accepted path is
-now a shared faceted, diamond-profile solid-prism geometry template and one
-page-local `THREE.InstancedMesh` per planned page. At construction and every selection
+now a shared faceted, diamond-profile solid-prism body template and one
+page-local body `THREE.InstancedMesh` plus a shared pointy-cap
+`THREE.InstancedMesh` per planned page. At construction and every selection
 rebuild, each selected segment's endpoint midpoint, direction basis, width,
 height, and optional z bias are written into its instance matrix. Faceted prism
 end caps are therefore real geometry; the local side/up ring is the four-point

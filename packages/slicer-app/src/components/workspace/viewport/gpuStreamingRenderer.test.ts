@@ -119,6 +119,27 @@ describe('opaque GPU entity renderer', () => {
     result.backend.dispose();
   });
 
+  it('streams pointy caps at selected boundaries with the same continuity as B2', () => {
+    const p = planGpuStreamingPages({
+      ...source(),
+      segmentCount: 2,
+      starts: new Float32Array([0, 0, 0, 1, 0, 0]),
+      ends: new Float32Array([1, 0, 0, 1, 1, 0]),
+      layerIds: new Uint32Array([0, 0]),
+      moveTypes: new Uint8Array([1, 1]),
+      widths: new Float32Array([0.4, 0.4]),
+      heights: new Float32Array([0.2, 0.2]),
+    }, { softPageTarget: 4 });
+    const result = createGpuStreamingRenderer(p, { context: context(), compile: false });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    result.backend.updateSelection(rebuildGpuStreamingSelection(p, {
+      visibleLayerStart: 0, visibleLayerEnd: 0, activeMoveEnd: Number.MAX_SAFE_INTEGER, showTravel: true,
+    }));
+    expect(result.backend.endpointSceneObjects[0]!.count).toBe(2);
+    result.backend.dispose();
+  });
+
   it('uses the native four-point diamond profile in the GPU template', () => {
     expect(TOOLPATH_ENTITY_PROFILE).toBe('diamond');
     expect(TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT).toBeCloseTo(0.5);

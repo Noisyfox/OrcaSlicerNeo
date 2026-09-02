@@ -46,6 +46,14 @@ export interface ToolpathEntityMatrixOptions {
   readonly bias?: number;
 }
 
+function buildBasis(axis: THREE.Vector3): { axis: THREE.Vector3; side: THREE.Vector3; up: THREE.Vector3 } {
+  const normalized = axis.lengthSq() > 1e-12 ? axis.clone().normalize() : new THREE.Vector3(1, 0, 0);
+  const side = new THREE.Vector3().crossVectors(normalized, WORLD_UP);
+  if (side.lengthSq() < 1e-12) side.crossVectors(X_AXIS, normalized);
+  side.normalize();
+  return { axis: normalized, side, up: new THREE.Vector3().crossVectors(side, normalized).normalize() };
+}
+
 /**
  * Build a physical diamond-band transform.  The template intentionally has
  * no endpoint faces: native libvgcode's pointy cap is hidden at a continuing
@@ -62,24 +70,39 @@ export function buildToolpathEntityMatrix(
   options: ToolpathEntityMatrixOptions = {},
   target = new THREE.Matrix4(),
 ): THREE.Matrix4 {
-  const axis = end.clone().sub(start);
-  const length = axis.length();
-  if (length > 1e-6) axis.multiplyScalar(1 / length);
-  else axis.set(1, 0, 0);
+  const rawAxis = end.clone().sub(start);
+  const length = rawAxis.length();
+  const axis = length > 1e-6 ? rawAxis.multiplyScalar(1 / length) : new THREE.Vector3(1, 0, 0);
   const halfWidth = Math.max(0, width) * 0.5;
   const adjustedStart = start.clone().addScaledVector(axis, options.extendStart ? -halfWidth : 0);
   const adjustedEnd = end.clone().addScaledVector(axis, options.extendEnd ? halfWidth : 0);
   const adjustedAxis = adjustedEnd.clone().sub(adjustedStart);
   const adjustedLength = Math.max(adjustedAxis.length(), 1e-5);
   adjustedAxis.multiplyScalar(1 / adjustedLength);
-  const side = new THREE.Vector3().crossVectors(adjustedAxis, WORLD_UP);
-  if (side.lengthSq() < 1e-12) side.crossVectors(X_AXIS, adjustedAxis);
-  side.normalize();
-  const up = new THREE.Vector3().crossVectors(side, adjustedAxis).normalize();
+  const basis = buildBasis(adjustedAxis);
   const center = adjustedStart.add(adjustedEnd).multiplyScalar(0.5);
   if (Number.isFinite(options.bias)) center.z += options.bias!;
-  return target.makeBasis(adjustedAxis, side, up)
+  return target.makeBasis(basis.axis, basis.side, basis.up)
     .scale(new THREE.Vector3(adjustedLength, Math.max(0, width), Math.max(0, height)))
+    .setPosition(center);
+}
+
+/** Build one native-style pointy endpoint. The pyramid's base is at the
+ * segment endpoint and its apex projects by half the line width along the
+ * segment direction, matching SegmentTemplate's spike vertices (2/7). */
+export function buildToolpathEntityCapMatrix(
+  endpoint: THREE.Vector3,
+  direction: THREE.Vector3,
+  width: number,
+  height: number,
+  bias = 0,
+  target = new THREE.Matrix4(),
+): THREE.Matrix4 {
+  const basis = buildBasis(direction);
+  const center = endpoint.clone();
+  if (Number.isFinite(bias)) center.z += bias;
+  return target.makeBasis(basis.axis, basis.side, basis.up)
+    .scale(new THREE.Vector3(Math.max(0, width) * 0.5, Math.max(0, width), Math.max(0, height)))
     .setPosition(center);
 }
 
@@ -100,6 +123,25 @@ export function createToolpathEntityGeometry(): THREE.BufferGeometry {
   for (let i = 0; i < ring.length; i++) {
     const next = (i + 1) % ring.length;
     pushQuad([-half, ring[next]], [half, ring[next]], [half, ring[i]], [-half, ring[i]]);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** A four-sided pointy pyramid for one terminal endpoint. */
+export function createToolpathEntityCapGeometry(): THREE.BufferGeometry {
+  const half = 0.5;
+  const ring: ReadonlyArray<readonly [number, number]> = [
+    [0, -half], [half, 0], [0, half], [-half, 0],
+  ];
+  const positions: number[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    const next = (i + 1) % ring.length;
+    // The local apex is at x=-1; reversing the ring edge gives the outward
+    // normal for a cap whose base is the x=0 endpoint plane.
+    positions.push(-1, 0, 0, 0, ring[next][0], ring[next][1], 0, ring[i][0], ring[i][1]);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));

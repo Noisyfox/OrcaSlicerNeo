@@ -7,7 +7,7 @@ import {
   ToolpathBandCache,
   updateToolpathChunkVisibility,
 } from './toolpathBandGeometry';
-import { createToolpathEntityGeometry, TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT, TOOLPATH_ENTITY_PROFILE } from './toolpathEntityGeometry';
+import { createToolpathEntityCapGeometry, createToolpathEntityGeometry, TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT, TOOLPATH_ENTITY_PROFILE } from './toolpathEntityGeometry';
 import type { ClientToolpath } from '@slicer/client';
 
 describe('toolpath band geometry', () => {
@@ -34,6 +34,46 @@ describe('toolpath band geometry', () => {
     for (let i = 0; i < normals.count; i++) unique.add([normals.getX(i), normals.getY(i), normals.getZ(i)].map((value) => value.toFixed(3)).join(','));
     expect(unique.size).toBeGreaterThanOrEqual(4);
     geometry.dispose();
+  });
+
+  it('restores pointy caps only at true chain boundaries, including filtered boundaries', () => {
+    const range = { firstSegment: 0, segmentCount: 3, firstLayer: 0, lastLayer: 0 };
+    const starts = Float32Array.from([0, 0, 0, 1, 0, 0, 1, 1, 0]);
+    const ends = Float32Array.from([1, 0, 0, 1, 1, 0, 2, 1, 0]);
+    const chunk = createToolpathBandChunk(
+      starts, ends, Float32Array.from([0.4, 0.4, 0.4]), Float32Array.from([0.2, 0.2, 0.2]),
+      Float32Array.from([1, 0, 0, 1, 0, 0, 1, 0, 0]), range,
+      Uint32Array.from([0, 0, 0]), Uint8Array.from([0, 0, 0]),
+    );
+    // One cap at the beginning and one at the end; the straight and corner
+    // junctions remain open as in SegmentTemplate's hidden continuing spike.
+    expect(chunk.capMesh.count).toBe(2);
+    expect(chunk.capGeometry.getAttribute('position').count).toBe(12);
+    expect(Array.from(chunk.capGeometry.getAttribute('position').array.slice(0, 3))).toEqual([-1, 0, 0]);
+
+    updateToolpathChunkVisibility([chunk], {
+      // Removing the middle move creates four genuine visible boundaries.
+      visible: Uint8Array.from([1, 0, 1]),
+      dimmed: Uint8Array.from([0, 0, 0]),
+    });
+    expect(chunk.capMesh.count).toBe(4);
+
+    updateToolpathChunkVisibility([chunk], {
+      // A move-type boundary is discontinuous even when endpoints touch.
+      visible: Uint8Array.from([1, 1, 1]),
+      dimmed: Uint8Array.from([0, 0, 0]),
+    });
+    chunk.moveTypes![1] = 1;
+    updateToolpathChunkVisibility([chunk], {
+      visible: Uint8Array.from([1, 1, 1]),
+      dimmed: Uint8Array.from([0, 0, 0]),
+    });
+    expect(chunk.capMesh.count).toBe(6);
+
+    (chunk.mesh.material as THREE.Material).dispose();
+    (chunk.capMesh.material as THREE.Material).dispose();
+    chunk.geometry.dispose();
+    chunk.capGeometry.dispose();
   });
 
   it('keeps chunk boundaries aligned to complete layers', () => {

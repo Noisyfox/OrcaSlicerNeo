@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { ToolpathFeature } from '@slicer/client';
 import type { GpuStreamingPage, GpuStreamingPagePlan, GpuStreamingSelection } from './gpuStreamingPlanner';
-import { buildToolpathEntityMatrix, createToolpathEntityGeometry, createToolpathEntityMaterial, isToolpathSegmentContinuous } from './toolpathEntityGeometry';
+import { buildToolpathEntityCapMatrix, buildToolpathEntityMatrix, createToolpathEntityCapGeometry, createToolpathEntityGeometry, createToolpathEntityMaterial, isToolpathSegmentContinuous } from './toolpathEntityGeometry';
 import { resolveToolpathColor } from './toolpathColors';
 
 /**
@@ -29,6 +29,7 @@ export interface GpuStreamingRendererHost {
 }
 export interface GpuStreamingEntityTemplateResource {
   readonly geometry?: THREE.BufferGeometry;
+  readonly capGeometry?: THREE.BufferGeometry;
   readonly material?: THREE.Material;
   readonly dispose: () => void;
 }
@@ -91,8 +92,9 @@ export function buildGpuStreamingInstanceMatrix(
 
 function createEntityTemplate(): GpuStreamingEntityTemplateResource {
   const geometry = createToolpathEntityGeometry();
+  const capGeometry = createToolpathEntityCapGeometry();
   const material = createToolpathEntityMaterial();
-  return { geometry, material, dispose: onceDispose(() => { geometry.dispose(); material.dispose(); }) };
+  return { geometry, capGeometry, material, dispose: onceDispose(() => { geometry.dispose(); capGeometry.dispose(); material.dispose(); }) };
 }
 const threeResourceFacade: GpuStreamingResourceFacade = { createEntityTemplate };
 function isWebGL2Context(context: WebGLRenderingContext): boolean {
@@ -118,6 +120,7 @@ export function probeGpuStreamingCapabilities(context: WebGLRenderingContext): G
 interface PageState {
   readonly planPage: GpuStreamingPage;
   readonly mesh?: THREE.InstancedMesh;
+  readonly capMesh?: THREE.InstancedMesh;
   readonly selectedSourceIndices: number[];
   instanceCount: number;
 }
@@ -153,20 +156,25 @@ export class GpuStreamingRenderer {
   get indexUploadCount(): number { return this._entityUploadCount; }
   get staticUploadedBytes(): number {
     const templateBytes = this.template.geometry?.attributes.position?.array.byteLength ?? 0;
+    const capTemplateBytes = this.template.capGeometry?.attributes.position?.array.byteLength ?? 0;
     // InstancedMesh allocates one matrix (16 floats) and one RGB color (3
     // floats) per page capacity. These are the resident solid-entity buffers.
-    return templateBytes + this.pages.reduce((sum, page) => sum + page.planPage.segmentCount * (16 + 3) * 4, 0);
+    return templateBytes + capTemplateBytes + this.pages.reduce((sum, page) => sum + page.planPage.segmentCount * 3 * (16 + 3) * 4, 0);
   }
   get dynamicIndexBytes(): number { return this._entityUploadedBytes; }
   get paletteBytes(): number { return 0; }
   get allocatedBytes(): number | null { return null; }
   get knownResidentBytes(): number { return this.staticUploadedBytes + this._entityUploadedBytes; }
   get unknownFeatureIds(): readonly number[] { return this.collectUnknownFeatures(this.palette); }
+  /** Body meshes retain the historical page-count diagnostics; endpoint caps
+   * are attached alongside them through attachToScene(). */
   get sceneObjects(): readonly THREE.InstancedMesh[] { return this.pages.flatMap((page) => page.mesh ? [page.mesh] : []); }
+  get endpointSceneObjects(): readonly THREE.InstancedMesh[] { return this.pages.flatMap((page) => page.capMesh ? [page.capMesh] : []); }
+  private get allSceneObjects(): readonly THREE.InstancedMesh[] { return this.pages.flatMap((page) => [page.mesh, page.capMesh].filter((mesh): mesh is THREE.InstancedMesh => Boolean(mesh))); }
   get status(): 'ready' | 'context-lost' | 'disposed' { return this.disposed ? 'disposed' : this.contextLost ? 'context-lost' : 'ready'; }
   get drawInstanceCounts(): readonly number[] { return this.pages.map((page) => page.instanceCount); }
-  attachToScene(scene: THREE.Object3D): void { for (const mesh of this.sceneObjects) if (mesh.parent !== scene) scene.add(mesh); }
-  detachFromScene(scene: THREE.Object3D): void { for (const mesh of this.sceneObjects) if (mesh.parent === scene) scene.remove(mesh); }
+  attachToScene(scene: THREE.Object3D): void { for (const mesh of this.allSceneObjects) if (mesh.parent !== scene) scene.add(mesh); }
+  detachFromScene(scene: THREE.Object3D): void { for (const mesh of this.allSceneObjects) if (mesh.parent === scene) scene.remove(mesh); }
   notifyPageRendered(_pageIndex: number): void { /* retained as a draw-boundary seam */ }
   commitDrawBoundary(): void { /* no retired texture/index resources exist */ }
   private readonly handleContextLost = (event?: Event) => {
@@ -179,10 +187,16 @@ export class GpuStreamingRenderer {
     const known = new Set(palette.map((entry) => entry.id));
     return Object.freeze([...new Set(Array.from(this.source.features).filter((id) => !known.has(id)))].sort((a, b) => a - b));
   }
-  private writeInstance(page: PageState, slot: number, sourceIndex: number): void {
+  private writeInstance(page: PageState, slot: number, sourceIndex: number, extendStart: boolean, extendEnd: boolean): void {
     const mesh = page.mesh;
     if (!mesh) return;
-    mesh.setMatrixAt(slot, buildGpuStreamingInstanceMatrix(this.source, sourceIndex));
+    const start = new THREE.Vector3(this.source.starts[sourceIndex * 3] ?? 0, this.source.starts[sourceIndex * 3 + 1] ?? 0, this.source.starts[sourceIndex * 3 + 2] ?? 0);
+    const end = new THREE.Vector3(this.source.ends[sourceIndex * 3] ?? start.x, this.source.ends[sourceIndex * 3 + 1] ?? start.y, this.source.ends[sourceIndex * 3 + 2] ?? start.z);
+    mesh.setMatrixAt(slot, buildToolpathEntityMatrix(start, end, Math.max(0, this.source.widths[sourceIndex] ?? 0), Math.max(0, this.source.heights[sourceIndex] ?? 0), {
+      extendStart,
+      extendEnd,
+      bias: this.source.biases?.[sourceIndex] ?? 0,
+    }));
     const color = new THREE.Color(...resolveToolpathColor(
       this.palette,
       this.source.features[sourceIndex] ?? 0,
@@ -190,6 +204,38 @@ export class GpuStreamingRenderer {
     ));
     if (this.dimmingLayer >= 0 && (this.source.layerIds[sourceIndex] ?? 0) < this.dimmingLayer) color.multiplyScalar(this.dimming);
     mesh.setColorAt(slot, color);
+  }
+  private writeCapInstance(page: PageState, slot: number, sourceIndex: number, start: boolean, color: THREE.Color): void {
+    const mesh = page.capMesh;
+    if (!mesh) return;
+    const offset = sourceIndex * 3;
+    const endpoint = new THREE.Vector3(
+      (start ? this.source.starts : this.source.ends)[offset] ?? 0,
+      (start ? this.source.starts : this.source.ends)[offset + 1] ?? 0,
+      (start ? this.source.starts : this.source.ends)[offset + 2] ?? 0,
+    );
+    const startPoint = new THREE.Vector3(this.source.starts[offset] ?? 0, this.source.starts[offset + 1] ?? 0, this.source.starts[offset + 2] ?? 0);
+    const endPoint = new THREE.Vector3(this.source.ends[offset] ?? startPoint.x, this.source.ends[offset + 1] ?? startPoint.y, this.source.ends[offset + 2] ?? startPoint.z);
+    const direction = endPoint.sub(startPoint);
+    if (!start) direction.negate();
+    mesh.setMatrixAt(slot, buildToolpathEntityCapMatrix(endpoint, direction, Math.max(0, this.source.widths[sourceIndex] ?? 0), Math.max(0, this.source.heights[sourceIndex] ?? 0), this.source.biases?.[sourceIndex] ?? 0));
+    mesh.setColorAt(slot, color);
+  }
+  private refreshPageCaps(page: PageState): void {
+    if (!page.capMesh) return;
+    const selected = new Set(page.selectedSourceIndices);
+    let capCount = 0;
+    page.selectedSourceIndices.forEach((sourceIndex) => {
+      const hasPrevious = selected.has(sourceIndex - 1) && isToolpathSegmentContinuous(this.source.starts, this.source.ends, sourceIndex - 1, sourceIndex, this.source.layerIds, this.source.moveTypes);
+      const hasNext = selected.has(sourceIndex + 1) && isToolpathSegmentContinuous(this.source.starts, this.source.ends, sourceIndex, sourceIndex + 1, this.source.layerIds, this.source.moveTypes);
+      const color = new THREE.Color(...resolveToolpathColor(this.palette, this.source.features[sourceIndex] ?? 0, this.source.moveTypes[sourceIndex] ?? 0));
+      if (this.dimmingLayer >= 0 && (this.source.layerIds[sourceIndex] ?? 0) < this.dimmingLayer) color.multiplyScalar(this.dimming);
+      if (!hasPrevious) this.writeCapInstance(page, capCount++, sourceIndex, true, color);
+      if (!hasNext) this.writeCapInstance(page, capCount++, sourceIndex, false, color);
+    });
+    page.capMesh.count = capCount;
+    page.capMesh.instanceMatrix.needsUpdate = true;
+    if (page.capMesh.instanceColor) page.capMesh.instanceColor.needsUpdate = true;
   }
   /** Rebuild only selected page instances; source parsing and page planning stay untouched. */
   updateSelection(selection: GpuStreamingSelection): GpuStreamingSelectionUpdate {
@@ -202,11 +248,21 @@ export class GpuStreamingRenderer {
       if (selected.firstSegment !== page.planPage.firstSegment || selected.indices.length !== selected.emittedCount) throw new RangeError(`selection page ${pageIndex} does not match page plan`);
       if (selected.emittedCount > page.planPage.segmentCount) throw new RangeError(`selection page ${pageIndex} exceeds instance capacity`);
       page.selectedSourceIndices.length = 0;
-      selected.indices.forEach((local, slot) => {
-        if (local >= page.planPage.segmentCount) throw new RangeError(`selection page ${pageIndex} contains an out-of-range local index`);
-        const sourceIndex = page.planPage.firstSegment + local;
+      selected.indices.forEach((local) => {
+        if (local >= page.planPage.segmentCount || local < 0) throw new RangeError(`selection page ${pageIndex} contains an out-of-range local index`);
+      });
+      const selectedSources = selected.indices.map((local) => page.planPage.firstSegment + local);
+      const selectedSet = new Set(selectedSources);
+      let capCount = 0;
+      selectedSources.forEach((sourceIndex, slot) => {
+        const hasVisiblePrevious = selectedSet.has(sourceIndex - 1) && isToolpathSegmentContinuous(this.source.starts, this.source.ends, sourceIndex - 1, sourceIndex, this.source.layerIds, this.source.moveTypes);
+        const hasVisibleNext = selectedSet.has(sourceIndex + 1) && isToolpathSegmentContinuous(this.source.starts, this.source.ends, sourceIndex, sourceIndex + 1, this.source.layerIds, this.source.moveTypes);
         page.selectedSourceIndices.push(sourceIndex);
-        this.writeInstance(page, slot, sourceIndex);
+        this.writeInstance(page, slot, sourceIndex, hasVisiblePrevious, hasVisibleNext);
+        const color = new THREE.Color(...resolveToolpathColor(this.palette, this.source.features[sourceIndex] ?? 0, this.source.moveTypes[sourceIndex] ?? 0));
+        if (this.dimmingLayer >= 0 && (this.source.layerIds[sourceIndex] ?? 0) < this.dimmingLayer) color.multiplyScalar(this.dimming);
+        if (!hasVisiblePrevious) this.writeCapInstance(page, capCount++, sourceIndex, true, color);
+        if (!hasVisibleNext) this.writeCapInstance(page, capCount++, sourceIndex, false, color);
       });
       page.instanceCount = selected.emittedCount;
       if (page.mesh) {
@@ -214,7 +270,12 @@ export class GpuStreamingRenderer {
         page.mesh.instanceMatrix.needsUpdate = true;
         if (page.mesh.instanceColor) page.mesh.instanceColor.needsUpdate = true;
       }
-      uploadedBytes += selected.emittedCount * (16 * 4 + 3 * 4);
+      if (page.capMesh) {
+        page.capMesh.count = capCount;
+        page.capMesh.instanceMatrix.needsUpdate = true;
+        if (page.capMesh.instanceColor) page.capMesh.instanceColor.needsUpdate = true;
+      }
+      uploadedBytes += (selected.emittedCount + capCount) * (16 * 4 + 3 * 4);
     }
     this._entityUploadCount += this.pages.length;
     this._entityUploadedBytes = uploadedBytes;
@@ -226,7 +287,11 @@ export class GpuStreamingRenderer {
     this.dimmingLayer = activeLayer;
     this.dimming = earlierLayerDim;
     for (const page of this.pages) {
-      page.selectedSourceIndices.forEach((sourceIndex, slot) => this.writeInstance(page, slot, sourceIndex));
+      page.selectedSourceIndices.forEach((sourceIndex, slot) => {
+        const selected = new Set(page.selectedSourceIndices);
+        this.writeInstance(page, slot, sourceIndex, selected.has(sourceIndex - 1) && isToolpathSegmentContinuous(this.source.starts, this.source.ends, sourceIndex - 1, sourceIndex, this.source.layerIds, this.source.moveTypes), selected.has(sourceIndex + 1) && isToolpathSegmentContinuous(this.source.starts, this.source.ends, sourceIndex, sourceIndex + 1, this.source.layerIds, this.source.moveTypes));
+      });
+      this.refreshPageCaps(page);
       if (page.mesh?.instanceColor) page.mesh.instanceColor.needsUpdate = true;
     }
   }
@@ -234,7 +299,15 @@ export class GpuStreamingRenderer {
     if (this.disposed || this.contextLost) throw new Error('GPU entity renderer is unavailable');
     this.palette = palette;
     for (const page of this.pages) {
-      page.selectedSourceIndices.forEach((sourceIndex, slot) => this.writeInstance(page, slot, sourceIndex));
+      const selected = new Set(page.selectedSourceIndices);
+      page.selectedSourceIndices.forEach((sourceIndex, slot) => this.writeInstance(
+        page,
+        slot,
+        sourceIndex,
+        selected.has(sourceIndex - 1) && isToolpathSegmentContinuous(this.source.starts, this.source.ends, sourceIndex - 1, sourceIndex, this.source.layerIds, this.source.moveTypes),
+        selected.has(sourceIndex + 1) && isToolpathSegmentContinuous(this.source.starts, this.source.ends, sourceIndex, sourceIndex + 1, this.source.layerIds, this.source.moveTypes),
+      ));
+      this.refreshPageCaps(page);
       if (page.mesh?.instanceColor) page.mesh.instanceColor.needsUpdate = true;
     }
     return { uploaded: true, unknownFeatureIds: this.collectUnknownFeatures(palette) };
@@ -244,6 +317,7 @@ export class GpuStreamingRenderer {
       page.instanceCount = 0;
       page.selectedSourceIndices.length = 0;
       if (page.mesh) page.mesh.count = 0;
+      if (page.capMesh) page.capMesh.count = 0;
     }
     this.template.dispose();
   }
@@ -275,18 +349,28 @@ export function createGpuStreamingRenderer(plan: GpuStreamingPagePlan, options: 
     const created = factory.createEntityTemplate();
     template = { ...created, dispose: onceDispose(created.dispose) };
     if (!template.geometry || !template.material) throw new Error('entity template did not provide geometry and material');
+    if (!template.capGeometry) {
+      const capGeometry = createToolpathEntityCapGeometry();
+      const disposeTemplate = template.dispose;
+      template = { ...template, capGeometry, dispose: onceDispose(() => { capGeometry.dispose(); disposeTemplate(); }) };
+    }
     for (const page of plan.pages) {
       const mesh = new THREE.InstancedMesh(template.geometry, template.material, page.segmentCount);
+      const capMesh = new THREE.InstancedMesh(template.capGeometry, template.material, page.segmentCount * 2);
       mesh.count = 0;
+      capMesh.count = 0;
       mesh.frustumCulled = false;
+      capMesh.frustumCulled = false;
       mesh.renderOrder = 1000;
+      capMesh.renderOrder = 1000;
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      pages.push({ planPage: page, mesh, selectedSourceIndices: [], instanceCount: 0 });
+      capMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      pages.push({ planPage: page, mesh, capMesh, selectedSourceIndices: [], instanceCount: 0 });
     }
     const backend = new GpuStreamingRenderer(plan, capabilities, template, pages, options.renderer);
     if (options.compile !== false && options.renderer?.compile) {
       const scene = new THREE.Scene();
-      pages.forEach((page) => { if (page.mesh) scene.add(page.mesh); });
+      pages.forEach((page) => { if (page.mesh) scene.add(page.mesh); if (page.capMesh) scene.add(page.capMesh); });
       options.renderer.compile(scene, new THREE.Camera());
     }
     return { ok: true, backend };
