@@ -380,9 +380,6 @@ and drives structural operations through the typed client.
 > scene lights. A shared chamfered prism supplies scale-aware physical edge
 > relief between neighbouring same-colour paths; no gap, alpha outline, or
 > blend pass is introduced.
-> Toolpath materials use flat-shaded `MeshStandardMaterial` with the existing
-> scene lights so real box face normals expose boundaries between neighbouring
-> same-colour paths; no gap, alpha outline, or blend pass is introduced.
 >
 > Major renderer/performance specification:
 > [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)

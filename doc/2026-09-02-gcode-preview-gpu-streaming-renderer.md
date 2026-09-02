@@ -324,8 +324,8 @@ superseded by the user's explicit rendering requirement. The accepted path is
 now a shared faceted, chamfered solid-prism geometry template and one
 page-local `THREE.InstancedMesh` per planned page. At construction and every selection
 rebuild, each selected segment's endpoint midpoint, direction basis, width,
-height, and optional z bias are written into its instance matrix. Box end caps
-are therefore real geometry; no vertex shader derives a segment outline,
+height, and optional z bias are written into its instance matrix. Faceted prism
+end caps are therefore real geometry; no vertex shader derives a segment outline,
 thickness, height, direction, or cap from an atlas.
 
 The material is Three's direct `MeshStandardMaterial` with flat face shading,
