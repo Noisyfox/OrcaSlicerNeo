@@ -21,7 +21,6 @@ export function isPreviewInspectionKey(key: string): boolean {
 export interface PreviewVisibilityOptions {
   visibleLayerStart: number;
   visibleLayerEnd: number;
-  activeMoveStart: number;
   activeMoveEnd: number;
   showTravel: boolean;
   dimPreviousLayers: boolean;
@@ -73,12 +72,11 @@ export function buildPreviewVisibility(
   const visible = new Uint8Array(data.segmentCount);
   const dimmed = new Uint8Array(data.segmentCount);
   const [layerStart, layerEnd] = clampPreviewRange(options.visibleLayerStart, options.visibleLayerEnd, Number.MAX_SAFE_INTEGER);
-  const moveStart = Math.max(0, Math.floor(options.activeMoveStart));
-  const moveEnd = Math.max(moveStart, Math.floor(options.activeMoveEnd));
+  const moveEnd = Math.max(0, Math.floor(options.activeMoveEnd));
   for (let i = 0; i < data.segmentCount; i++) {
     const layer = data.layerIds[i] ?? 0;
     if (layer < layerStart || layer > layerEnd) continue;
-    if (layer === layerEnd && ((data.moveOrders[i] ?? 0) < moveStart || (data.moveOrders[i] ?? 0) > moveEnd)) continue;
+    if (layer === layerEnd && (data.moveOrders[i] ?? 0) > moveEnd) continue;
     if (!options.showTravel && (data.moveTypes[i] ?? 0) === TRAVEL_MOVE_TYPE) continue;
     const feature = data.features[i] ?? 0;
     if (options.featureVisibility && options.featureVisibility[feature] === false) continue;

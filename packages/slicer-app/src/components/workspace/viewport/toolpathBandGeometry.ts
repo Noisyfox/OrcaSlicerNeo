@@ -109,10 +109,9 @@ export function chunkIntersectsLayerRange(
 }
 
 /**
- * Select chunks for the current inspection range. The legacy single-layer
- * scrubber remains the active interval until B3 introduces its dual-thumb
- * range. Camera gestures never change this selection: nearby chunks may be
- * GPU-resident cache entries, but they are not made visible by this policy.
+ * Select chunks for the current inspection range. Camera gestures never
+ * change this selection: nearby chunks may be GPU-resident cache entries, but
+ * they are not made visible by this policy.
  */
 export function selectToolpathChunks(
   chunks: readonly ToolpathChunkRange[],

@@ -17,7 +17,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const maxLayer = maxLayerOf(data);
   const preview = useSlicerStore((s) => s.preview);
   const setLayerRange = useSlicerStore((s) => s.setPreviewLayerRange);
-  const setMoveRange = useSlicerStore((s) => s.setPreviewMoveRange);
+  const setMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
   const setShowTravel = useSlicerStore((s) => s.setPreviewShowTravel);
   const setDimPreviousLayers = useSlicerStore((s) => s.setPreviewDimPreviousLayers);
   const setSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
@@ -33,8 +33,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   }
   const layerStart = Math.max(0, Math.min(maxLayer, preview.visibleLayerStart));
   const layerEnd = Math.max(layerStart, Math.min(maxLayer, preview.visibleLayerEnd));
-  const moveStart = Math.max(0, Math.min(maxMove, preview.activeMoveStart));
-  const moveEnd = Math.max(moveStart, Math.min(maxMove, preview.activeMoveEnd));
+  const moveEnd = Math.max(0, Math.min(maxMove, preview.activeMoveEnd));
 
   return (
     <>
@@ -74,7 +73,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
       </div>
       <div data-testid="preview-move-range" className="pointer-events-auto absolute bottom-3 left-1/2 z-10 w-2/5 min-w-48 -translate-x-1/2 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <div className="mb-1 flex justify-between text-[0.65rem] text-muted-foreground"><span>Move</span><span>{moveEnd + 1} / {maxMove + 1}</span></div>
-        <Slider min={0} max={maxMove} step={1} value={[moveStart, moveEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setMoveRange([values[0] ?? 0, values.at(-1) ?? values[0] ?? 0]); }} aria-label="Active layer move range" />
+        <Slider min={0} max={maxMove} step={1} value={[moveEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setMoveEnd(values[0] ?? 0); }} aria-label="Active layer move end" />
       </div>
     </>
   );

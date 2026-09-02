@@ -6,7 +6,6 @@ export type PreviewColorScheme = 'feature';
 export interface PreviewState {
   visibleLayerStart: number;
   visibleLayerEnd: number;
-  activeMoveStart: number;
   activeMoveEnd: number;
   maxMove: number;
   showTravel: boolean;
@@ -20,7 +19,6 @@ export interface PreviewState {
 export const DEFAULT_PREVIEW_STATE: PreviewState = {
   visibleLayerStart: 0,
   visibleLayerEnd: 0,
-  activeMoveStart: 0,
   activeMoveEnd: 0,
   maxMove: 0,
   showTravel: true,
@@ -51,9 +49,8 @@ interface SlicerState {
   setPreviewBounds: (maxLayer: number, maxMove: number, resultId?: number | null) => void;
   /** Update the inclusive visible range and the active layer's local move bound atomically. */
   setPreviewLayerRange: (range: [number, number], activeLayerMaxMove?: number) => void;
-  /** Move the active inspection layer, resetting its local move range atomically. */
+  /** Move the active inspection layer, resetting its local move end atomically. */
   setPreviewLayerEnd: (layer: number, activeLayerMaxMove?: number) => void;
-  setPreviewMoveRange: (range: [number, number]) => void;
   setPreviewMoveEnd: (move: number) => void;
   setPreviewShowTravel: (show: boolean) => void;
   setPreviewDimPreviousLayers: (dim: boolean) => void;
@@ -106,11 +103,10 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     const maxMove = activeLayerMaxMove === undefined
       ? state.preview.maxMove
       : Math.max(0, Math.floor(activeLayerMaxMove));
-    const activeMoveStart = layerChanged ? 0 : Math.min(maxMove, state.preview.activeMoveStart);
-    const activeMoveEnd = layerChanged ? maxMove : Math.max(activeMoveStart, Math.min(maxMove, state.preview.activeMoveEnd));
+    const activeMoveEnd = layerChanged ? maxMove : Math.max(0, Math.min(maxMove, state.preview.activeMoveEnd));
     return {
       layer: b,
-      preview: { ...state.preview, visibleLayerStart: a, visibleLayerEnd: b, maxMove, activeMoveStart, activeMoveEnd },
+      preview: { ...state.preview, visibleLayerStart: a, visibleLayerEnd: b, maxMove, activeMoveEnd },
     };
   }),
   setPreviewLayerEnd: (layer, activeLayerMaxMove) => set((state) => {
@@ -127,21 +123,14 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         visibleLayerStart: start,
         visibleLayerEnd: end,
         maxMove,
-        activeMoveStart: 0,
         activeMoveEnd: maxMove,
       },
     };
   }),
-  setPreviewMoveRange: ([first, last]) => set((state) => {
-    const max = Math.max(0, state.preview.maxMove);
-    const a = Math.max(0, Math.min(max, Math.floor(first)));
-    const b = Math.max(a, Math.min(max, Math.floor(last)));
-    return { preview: { ...state.preview, activeMoveStart: a, activeMoveEnd: b } };
-  }),
   setPreviewMoveEnd: (move) => set((state) => {
     const max = Math.max(0, state.preview.maxMove);
     const end = Math.max(0, Math.min(max, Math.floor(move)));
-    return { preview: { ...state.preview, activeMoveEnd: Math.max(state.preview.activeMoveStart, end) } };
+    return { preview: { ...state.preview, activeMoveEnd: end } };
   }),
   setPreviewShowTravel: (showTravel) => set((state) => ({ preview: { ...state.preview, showTravel } })),
   setPreviewDimPreviousLayers: (dimPreviousLayers) => set((state) => ({ preview: { ...state.preview, dimPreviousLayers } })),

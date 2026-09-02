@@ -30,4 +30,45 @@ describe('LayerScrubber preview controls', () => {
     await act(async () => { container.querySelector('[data-testid="preview-single-layer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(useSlicerStore.getState().preview.singleLayer).toBe(true);
   });
+
+  it('renders one move-end thumb and changes the end with keyboard input', async () => {
+    useSlicerStore.getState().setPreviewBounds(1, 1, 1);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+
+    const moveSlider = container.querySelector('[data-testid="preview-move-range"]') as HTMLElement;
+    const moveInput = moveSlider.querySelector('input[type="range"]') as HTMLInputElement;
+    expect(moveSlider).toBeTruthy();
+    expect(moveSlider.querySelectorAll('input[type="range"]')).toHaveLength(1);
+    expect(moveSlider.querySelector('[role="group"]')?.getAttribute('aria-label')).toBe('Active layer move end');
+    expect(moveInput.value).toBe('1');
+
+    await act(async () => {
+      moveInput.focus();
+      moveInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    });
+    expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(0);
+    expect(moveInput.value).toBe('0');
+  });
+
+  it('resets the move end to the newly selected layer bound', async () => {
+    useSlicerStore.getState().setPreviewBounds(1, 1, 1);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    const moveInput = container.querySelector('[data-testid="preview-move-range"] input[type="range"]') as HTMLInputElement;
+    const layerEnd = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]')[1] as HTMLInputElement;
+    await act(async () => {
+      moveInput.focus();
+      moveInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    });
+    expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(0);
+
+    await act(async () => {
+      layerEnd.focus();
+      layerEnd.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));
+    });
+    expect(useSlicerStore.getState().preview.visibleLayerEnd).toBe(0);
+    expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(1);
+    expect(moveInput.value).toBe('1');
+  });
 });

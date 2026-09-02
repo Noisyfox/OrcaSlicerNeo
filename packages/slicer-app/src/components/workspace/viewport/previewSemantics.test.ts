@@ -14,18 +14,18 @@ const data = {
 } satisfies Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders' | 'moveTypes' | 'features' | 'ends'>;
 
 describe('preview inspection semantics', () => {
-  it('uses inclusive layer and active-layer move ranges', () => {
+  it('shows the active layer from its start through the inclusive move end', () => {
     expect(buildPreviewVisibility(data, {
       visibleLayerStart: 0, visibleLayerEnd: 1,
-      activeMoveStart: 1, activeMoveEnd: 1,
+      activeMoveEnd: 1,
       showTravel: true, dimPreviousLayers: true,
-    })).toMatchObject({ visible: Uint8Array.from([1, 1, 0, 1, 0, 0]), dimmed: Uint8Array.from([1, 1, 0, 0, 0, 0]) });
+    })).toMatchObject({ visible: Uint8Array.from([1, 1, 1, 1, 0, 0]), dimmed: Uint8Array.from([1, 1, 0, 0, 0, 0]) });
   });
 
   it('hides travel and disabled features instead of dimming them', () => {
     const result = buildPreviewVisibility(data, {
       visibleLayerStart: 0, visibleLayerEnd: 2,
-      activeMoveStart: 0, activeMoveEnd: 10,
+      activeMoveEnd: 10,
       showTravel: false, dimPreviousLayers: false,
       featureVisibility: { 1: false },
     });
@@ -64,11 +64,11 @@ describe('preview inspection semantics', () => {
 
   it('keeps the marker moving after a large-move layer changes to a smaller one', () => {
     useSlicerStore.getState().setPreviewBounds(2, 10, 44);
-    useSlicerStore.getState().setPreviewMoveRange([8, 10]);
+    useSlicerStore.getState().setPreviewMoveEnd(10);
     const before = lastMovePosition(data, 2, useSlicerStore.getState().preview.activeMoveEnd);
     useSlicerStore.getState().setPreviewLayerEnd(1, maxMoveOrderForLayer(data, 1));
     const afterLayerChange = lastMovePosition(data, 1, useSlicerStore.getState().preview.activeMoveEnd);
-    expect(useSlicerStore.getState().preview).toMatchObject({ maxMove: 2, activeMoveStart: 0, activeMoveEnd: 2 });
+    expect(useSlicerStore.getState().preview).toMatchObject({ maxMove: 2, activeMoveEnd: 2 });
     expect(afterLayerChange).not.toEqual(before);
     useSlicerStore.getState().setPreviewMoveEnd(1);
     expect(lastMovePosition(data, 1, useSlicerStore.getState().preview.activeMoveEnd)).toEqual([3, 0, 0]);

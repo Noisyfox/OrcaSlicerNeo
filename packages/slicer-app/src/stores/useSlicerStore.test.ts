@@ -32,19 +32,19 @@ describe('useSlicerStore', () => {
     });
   });
 
-  it('keeps preview ranges inclusive and resets ephemeral controls', () => {
+  it('keeps the visible layer range and move end inclusive, and resets ephemeral controls', () => {
     useSlicerStore.getState().setPreviewBounds(4, 8, 42);
     useSlicerStore.getState().setPreviewLayerRange([1, 3]);
-    useSlicerStore.getState().setPreviewMoveRange([2, 6]);
+    useSlicerStore.getState().setPreviewMoveEnd(6);
     useSlicerStore.getState().setPreviewShowTravel(false);
     useSlicerStore.getState().setPreviewFeatureVisibility(7, false);
     expect(useSlicerStore.getState().preview).toMatchObject({
-      visibleLayerStart: 1, visibleLayerEnd: 3, activeMoveStart: 2,
-      activeMoveEnd: 6, showTravel: false, resultId: 42,
+      visibleLayerStart: 1, visibleLayerEnd: 3, activeMoveEnd: 6,
+      showTravel: false, resultId: 42,
     });
     useSlicerStore.getState().resetPreviewState();
     expect(useSlicerStore.getState().preview).toMatchObject({
-      visibleLayerStart: 0, visibleLayerEnd: 0, activeMoveStart: 0,
+      visibleLayerStart: 0, visibleLayerEnd: 0,
       activeMoveEnd: 0, showTravel: true, dimPreviousLayers: true,
       featureVisibility: {}, resultId: null,
     });
@@ -52,12 +52,11 @@ describe('useSlicerStore', () => {
 
   it('normalizes move bounds to the newly active layer atomically', () => {
     useSlicerStore.getState().setPreviewBounds(2, 10, 43);
-    useSlicerStore.getState().setPreviewMoveRange([8, 10]);
+    useSlicerStore.getState().setPreviewMoveEnd(10);
     useSlicerStore.getState().setPreviewLayerEnd(1, 2);
     expect(useSlicerStore.getState().preview).toMatchObject({
       visibleLayerEnd: 1,
       maxMove: 2,
-      activeMoveStart: 0,
       activeMoveEnd: 2,
     });
     useSlicerStore.getState().setPreviewMoveEnd(1);

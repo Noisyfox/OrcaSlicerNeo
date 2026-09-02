@@ -24,7 +24,7 @@ accepted.
 ## Accepted product constraints
 
 - Phase B is the shipping foundation: explicit continuous segments, true
-  camera-facing extrusion bands, layer and move range controls, Orca-style
+  camera-facing extrusion bands, layer range and move-end controls, Orca-style
   feature/line-type colouring and hide filters, travel visibility, dimmed
   earlier layers, a generic camera-facing nozzle marker, and the existing
   shell alpha/depth semantics.
@@ -249,8 +249,9 @@ open B4 release gate, and no hardware compliance is claimed here.
 shared CSS. Host E2E specs live in `apps/desktop/e2e/` and `apps/web/e2e/`.
 
 **Implementation contract:** add the right-edge inclusive dual-thumb layer
-range, bottom inclusive active-layer move range, Feature/Line Type legend with
-Orca hide semantics, global travel visibility, dimming toggle, and a generic
+range, bottom single-thumb active-layer move-end control (the layer start is
+implicitly visible), Feature/Line Type legend with Orca hide semantics, global
+travel visibility, dimming toggle, and a generic
 camera-facing nozzle marker at the active end move. Reset all ephemeral state
 on a new slice. Preserve viewport focus/Tab behavior and Up/Down,
 Left/Right, Shift/Ctrl acceleration, `L`, and theme behavior.
@@ -276,7 +277,8 @@ be required for this gate.
 #### B3 implementation record
 
 The shared preview state now owns ephemeral inclusive visible-layer and
-active-layer move ranges, Feature/Line Type visibility, global travel
+active-layer move-end state; the active layer's path is implicitly visible from
+move zero through that end. Feature/Line Type visibility, global travel
 visibility, previous-layer dimming, single-layer mode, and the default
 Feature/Line Type scheme. A completed slice initializes the active end at the
 last layer/move; invalidation and a new result reset all preview choices and
@@ -291,7 +293,14 @@ inspection stepping, Shift/Ctrl acceleration, and `L`; text inputs, overlay
 controls, and normal Prepare bindings retain their existing focus behavior.
 Changing the active layer atomically replaces the move bound with that layer's
 local maximum and resets the inspection end to a valid position, so keyboard
-and dual-thumb changes cannot retain a move index from another layer.
+and layer changes cannot retain a move index from another layer.
+
+**B3 specification correction (2026-09-02):** the bottom Move control is a
+single-thumb move-end slider, not a dual-thumb range slider. The active layer's
+toolpath is visible implicitly from its first move; there is no separately
+operable move-start thumb. The correction applies to the approved product
+behavior and its shared Web/Electron tests; the vertical layer control remains
+dual-thumb.
 
 Filtering and dimming update prebuilt per-instance GPU attributes. Camera
 gesture state is not a geometry or visibility-cache input, so camera movement

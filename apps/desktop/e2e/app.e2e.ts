@@ -353,7 +353,7 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
   }
 });
 
-test('preview overlay: legend, local ranges, marker, and theme tokens', async () => {
+test('preview overlay: legend, layer range, move end, marker, and theme tokens', async () => {
   const { app } = await launchApp();
   try {
     const page = await app.firstWindow();
@@ -379,10 +379,20 @@ test('preview overlay: legend, local ranges, marker, and theme tokens', async ()
 
     const layerInputs = page.getByTestId('preview-layer-range').locator('input[type="range"]');
     await expect(layerInputs).toHaveCount(2);
+    const moveInputs = page.getByTestId('preview-move-range').locator('input[type="range"]');
+    await expect(moveInputs).toHaveCount(1);
+    await expect(page.getByTestId('preview-move-range').locator('[role="group"]')).toHaveAttribute('aria-label', 'Active layer move end');
+    const moveInput = moveInputs.first();
+    await moveInput.focus();
+    await page.keyboard.press('Home');
+    await expect(moveInput).toHaveValue('0');
     const layerBefore = await layerInputs.nth(1).inputValue();
     await layerInputs.nth(1).focus();
     await page.keyboard.press('Home');
     await expect.poll(() => layerInputs.nth(1).inputValue()).not.toBe(layerBefore);
+    // Layer changes reset the single move-end thumb to the new layer's local
+    // maximum; no move-start thumb remains to carry stale range state.
+    await expect.poll(() => moveInput.inputValue()).toBe(await moveInput.getAttribute('max'));
     await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e?: { previewMarkerPresent?: () => boolean } }).__orcaE2e?.previewMarkerPresent?.() ?? false)).toBe(true);
 
     const token = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--color-card').trim());

@@ -25,7 +25,7 @@ The work is delivered in two phases.
 Phase B is the first shipping target. It provides:
 
 - a right-side, dual-thumb vertical layer-range control;
-- a bottom, dual-thumb move-range control for the selected layer;
+- a bottom, single-thumb move-end control for the selected layer;
 - default Feature/Line Type colouring, a feature legend with visibility
   filtering, and a travel visibility control;
 - explicit, continuous toolpath segments rather than implicit pairs of move
@@ -147,7 +147,7 @@ Preview controls use Orca-style canvas overlays and do not change the existing
 left workspace sidebar or resize the 3D viewport.
 
 - The dual-thumb layer-range slider is fixed to the canvas's right edge.
-- The dual-thumb move-range slider is fixed to its bottom edge.
+- The single-thumb move-end slider is fixed to its bottom edge.
 - The colour-scheme selector, legend, and statistics occupy a collapsible,
   right-top canvas overlay.
 - In Phase C, the G-code text window is a separately toggled, larger overlay
@@ -155,8 +155,9 @@ left workspace sidebar or resize the 3D viewport.
 
 The layer slider controls the inclusive visible layer range. The upper active
 layer is visually prominent; earlier visible layers are dimmed by default. The
-move slider controls the inclusive movement range within that active layer. Its
-upper/end move is the current inspection position and drives the nozzle marker.
+move slider controls the inclusive movement range from the active layer's
+implicit start through its current move end. Its single thumb is the current
+inspection position and drives the nozzle marker.
 
 ### Filter and state semantics
 
@@ -184,7 +185,7 @@ Phase C's G-code window has two-way inspection navigation:
 
 - Moving either slider or advancing the active move highlights the matching
   source line in the text window.
-- Selecting a mappable source line updates the active layer and move range.
+- Selecting a mappable source line updates the active layer and move end.
 
 The 3D path itself is not pickable. Dense overlapping extrusion bands make
 pointer picking imprecise and costly; deterministic slider and text navigation
@@ -205,7 +206,7 @@ When the viewport, rather than a text input or other ordinary focusable control,
 owns keyboard focus, preview supports the Orca-style inspection shortcuts:
 
 - Up/Down adjust the active end of the layer range.
-- Left/Right adjust the active end of the move range.
+- Left/Right adjust the active move end.
 - Shift or Ctrl accelerates range stepping.
 - `L` toggles single-layer inspection.
 - In Phase C, `C` toggles the G-code text window.
@@ -221,9 +222,9 @@ colours adapt to maintain legibility.
 
 Toolpaths are GPU-rendered, camera-facing extrusion bands. Rotation, pan, and
 zoom only update camera uniforms and must never reconstruct toolpath geometry.
-Layer/move ranges, legend filters, dimming, and colour-scheme changes should
-normally update shader uniforms or prebuilt buffer visibility, not rebuild the
-complete scene.
+Layer ranges, the move end, legend filters, dimming, and colour-scheme changes
+should normally update shader uniforms or prebuilt buffer visibility, not
+rebuild the complete scene.
 
 For ordinary slices, all prepared segment data may remain GPU-resident. For
 large or multi-colour slices, segment data is partitioned into layer-aligned
