@@ -22,21 +22,17 @@ that receives WASM data, and `libslic3r` plus
 metadata only; it deliberately does not allocate positions, band geometry,
 Three.js objects, WebGL resources, or a mock GPU.
 
-## Endpoint continuity correction (2026-09-02)
+## Endpoint topology and slider performance (2026-09-02)
 
-The first solid-entity implementation emitted a flat diamond face at both
-ends of every independent prism. Those faces were lit as dark diamond blocks
-at every move junction. Native libvgcode's `SegmentTemplate` uses a pointy
-endpoint only when a path terminates; its continuing junction is covered by
-the next segment. The shared adaptation now uses the same observable rule:
-the diamond profile remains the side cross-section, and pointy endpoint
-pyramids are emitted only for true visible starts/ends. Same-layer,
-same-move-type contiguous segments overlap by half their width at each shared
-endpoint, so straight and corner joins have no dark cap. Selection rebuilds
-recompute those boundaries after filters; disjoint, hidden-neighbour, or
-move-type-changing segments regain both pointy caps. Cap matrices and solid
-body matrices are produced by the same helper in streaming and B2, preserving
-opaque `NoBlending` materials, depth ordering, and instance streaming.
+The solid entity now follows native `SegmentTemplate` ownership: its shared
+diamond template contains the two pointy endpoint spikes, while each segment's
+precomputed adjacency/continuity determines the overlapping body transform.
+There is no independent cap mesh, cap resource allocation, or cap rebuild on a
+range update, so endpoint spikes cannot become dark flat blocks at joins.
+B2 visibility updates retain their typed state and reuse matrices, vectors, and
+colors; a slider event only writes changed instance slots. The GPU path uses
+the same shared template and hoists selection sets/scratch objects outside
+per-segment loops.
 
 ## Accepted step-2 implementation
 

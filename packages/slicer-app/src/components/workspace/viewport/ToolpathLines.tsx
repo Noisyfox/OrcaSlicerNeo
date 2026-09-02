@@ -1,10 +1,10 @@
 // packages/slicer-app/src/components/viewport/ToolpathLines.tsx
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
-import { updateToolpathChunkVisibility } from './toolpathBandGeometry';
+import { updateToolpathChunkVisibility, type ToolpathVisibilityUpdateRange } from './toolpathBandGeometry';
 import { buildPreviewVisibility } from './previewSemantics';
 import {
   buildGpuStreamingPlan,
@@ -46,6 +46,7 @@ export function ToolpathLines({
   const [activeStreaming, setActiveStreaming] = useState<{ plan: ReturnType<typeof buildGpuStreamingPlan>; backend: GpuStreamingBackend } | null>(null);
   const activeStreamingRef = useRef<typeof activeStreaming>(null);
   const initialSelectionBackendRef = useRef<GpuStreamingBackend | null>(null);
+  const previousB2PreviewRef = useRef<typeof preview | null>(null);
   const fallbackDiagnosticRef = useRef<GpuStreamingDiagnostic | null>(
     gate.enabled ? null : {
       reason: 'feature-disabled',
@@ -70,6 +71,17 @@ export function ToolpathLines({
     visibleLayerStart: preview.visibleLayerStart,
     visibleLayerEnd: preview.visibleLayerEnd,
   }), [data, preview]);
+  const b2VisibilityRange = useMemo<ToolpathVisibilityUpdateRange | undefined>(() => {
+    const previous = previousB2PreviewRef.current;
+    if (!previous) return undefined;
+    // Layer/move scrubbing changes a contiguous, layer-aligned interval. Keep
+    // the B2 high-frequency path page-local; arbitrary feature changes still
+    // use the complete visibility buffer for correctness.
+    if (previous.showTravel !== preview.showTravel || previous.dimPreviousLayers !== preview.dimPreviousLayers || previous.featureVisibility !== preview.featureVisibility) return undefined;
+    const firstLayer = Math.min(previous.visibleLayerStart, preview.visibleLayerStart, previous.visibleLayerEnd, preview.visibleLayerEnd);
+    const lastLayer = Math.max(previous.visibleLayerStart, preview.visibleLayerStart, previous.visibleLayerEnd, preview.visibleLayerEnd);
+    return { firstLayer: preview.dimPreviousLayers ? 0 : firstLayer, lastLayer };
+  }, [preview]);
 
   const selection = useMemo(() => plan ? rebuildGpuStreamingSelection(plan, {
     visibleLayerStart: preview.visibleLayerStart,
@@ -240,18 +252,16 @@ export function ToolpathLines({
   useEffect(() => {
     // Keep every instance in the draw call. The visibility attribute is a
     // prebuilt GPU buffer, so range/filter changes do not rebuild geometry.
-    if (!activeStreaming || activeStreaming.plan !== plan) updateToolpathChunkVisibility(data.chunks, visibility);
+    if (!activeStreaming || activeStreaming.plan !== plan) updateToolpathChunkVisibility(data.chunks, visibility, b2VisibilityRange);
+    previousB2PreviewRef.current = preview;
     invalidate();
-  }, [activeStreaming, data.chunks, invalidate, plan, visibility]);
+  }, [activeStreaming, b2VisibilityRange, data.chunks, invalidate, plan, preview, visibility]);
 
   const useStreaming = activeStreaming?.plan === plan;
   return (
     <group renderOrder={1000}>
       {!useStreaming && data.chunks.map((chunk) => (
-        <Fragment key={`${chunk.firstSegment}:${chunk.segmentCount}`}>
-          <primitive object={chunk.mesh} />
-          <primitive object={chunk.capMesh} />
-        </Fragment>
+        <primitive key={`${chunk.firstSegment}:${chunk.segmentCount}`} object={chunk.mesh} />
       ))}
     </group>
   );

@@ -46,22 +46,45 @@ export interface ToolpathEntityMatrixOptions {
   readonly bias?: number;
 }
 
-function buildBasis(axis: THREE.Vector3): { axis: THREE.Vector3; side: THREE.Vector3; up: THREE.Vector3 } {
-  const normalized = axis.lengthSq() > 1e-12 ? axis.clone().normalize() : new THREE.Vector3(1, 0, 0);
-  const side = new THREE.Vector3().crossVectors(normalized, WORLD_UP);
-  if (side.lengthSq() < 1e-12) side.crossVectors(X_AXIS, normalized);
-  side.normalize();
-  return { axis: normalized, side, up: new THREE.Vector3().crossVectors(side, normalized).normalize() };
+export interface ToolpathEntityScratch {
+  readonly normalized: THREE.Vector3;
+  readonly side: THREE.Vector3;
+  readonly up: THREE.Vector3;
+  readonly axis: THREE.Vector3;
+  readonly start: THREE.Vector3;
+  readonly end: THREE.Vector3;
+  readonly adjustedStart: THREE.Vector3;
+  readonly adjustedEnd: THREE.Vector3;
+  readonly adjustedAxis: THREE.Vector3;
+  readonly center: THREE.Vector3;
+  readonly scale: THREE.Vector3;
+  readonly color: THREE.Color;
+  readonly matrix: THREE.Matrix4;
 }
 
-/**
- * Build a physical diamond-band transform.  The template intentionally has
- * no endpoint faces: native libvgcode's pointy cap is hidden at a continuing
- * junction, while a flat face on every independent prism produces the dark
- * diamonds seen in the old adaptation.  Continuing segments overlap by half
- * their width at each shared endpoint, so removing those faces cannot create
- * a seam at a straight run or corner.
- */
+export function createToolpathEntityScratch(): ToolpathEntityScratch {
+  return {
+    normalized: new THREE.Vector3(), side: new THREE.Vector3(), up: new THREE.Vector3(), axis: new THREE.Vector3(),
+    start: new THREE.Vector3(), end: new THREE.Vector3(), adjustedStart: new THREE.Vector3(), adjustedEnd: new THREE.Vector3(),
+    adjustedAxis: new THREE.Vector3(), center: new THREE.Vector3(), scale: new THREE.Vector3(), color: new THREE.Color(), matrix: new THREE.Matrix4(),
+  };
+}
+
+function buildBasis(axis: THREE.Vector3, scratch?: ToolpathEntityScratch): { axis: THREE.Vector3; side: THREE.Vector3; up: THREE.Vector3 } {
+  const normalized = scratch?.normalized ?? new THREE.Vector3();
+  if (axis.lengthSq() > 1e-12) normalized.copy(axis).normalize();
+  else normalized.set(1, 0, 0);
+  const side = scratch?.side ?? new THREE.Vector3();
+  side.crossVectors(normalized, WORLD_UP);
+  if (side.lengthSq() < 1e-12) side.crossVectors(X_AXIS, normalized);
+  side.normalize();
+  const up = scratch?.up ?? new THREE.Vector3();
+  up.crossVectors(side, normalized).normalize();
+  return { axis: normalized, side, up };
+}
+
+/** Build a physical diamond-band transform. The shared template carries the
+ * pointy spikes; adjacency flags only control the half-width body overlap. */
 export function buildToolpathEntityMatrix(
   start: THREE.Vector3,
   end: THREE.Vector3,
@@ -69,40 +92,29 @@ export function buildToolpathEntityMatrix(
   height: number,
   options: ToolpathEntityMatrixOptions = {},
   target = new THREE.Matrix4(),
+  scratch?: ToolpathEntityScratch,
 ): THREE.Matrix4 {
-  const rawAxis = end.clone().sub(start);
+  const rawAxis = scratch?.axis ?? new THREE.Vector3();
+  rawAxis.subVectors(end, start);
   const length = rawAxis.length();
-  const axis = length > 1e-6 ? rawAxis.multiplyScalar(1 / length) : new THREE.Vector3(1, 0, 0);
+  const axis = length > 1e-6 ? rawAxis.multiplyScalar(1 / length) : (scratch?.normalized ?? new THREE.Vector3()).set(1, 0, 0);
   const halfWidth = Math.max(0, width) * 0.5;
-  const adjustedStart = start.clone().addScaledVector(axis, options.extendStart ? -halfWidth : 0);
-  const adjustedEnd = end.clone().addScaledVector(axis, options.extendEnd ? halfWidth : 0);
-  const adjustedAxis = adjustedEnd.clone().sub(adjustedStart);
+  const adjustedStart = scratch?.adjustedStart ?? new THREE.Vector3();
+  adjustedStart.copy(start).addScaledVector(axis, options.extendStart ? -halfWidth : 0);
+  const adjustedEnd = scratch?.adjustedEnd ?? new THREE.Vector3();
+  adjustedEnd.copy(end).addScaledVector(axis, options.extendEnd ? halfWidth : 0);
+  const adjustedAxis = scratch?.adjustedAxis ?? new THREE.Vector3();
+  adjustedAxis.subVectors(adjustedEnd, adjustedStart);
   const adjustedLength = Math.max(adjustedAxis.length(), 1e-5);
   adjustedAxis.multiplyScalar(1 / adjustedLength);
-  const basis = buildBasis(adjustedAxis);
-  const center = adjustedStart.add(adjustedEnd).multiplyScalar(0.5);
+  const basis = buildBasis(adjustedAxis, scratch);
+  const center = scratch?.center ?? new THREE.Vector3();
+  center.addVectors(adjustedStart, adjustedEnd).multiplyScalar(0.5);
   if (Number.isFinite(options.bias)) center.z += options.bias!;
+  const scale = scratch?.scale ?? new THREE.Vector3();
+  scale.set(adjustedLength, Math.max(0, width), Math.max(0, height));
   return target.makeBasis(basis.axis, basis.side, basis.up)
-    .scale(new THREE.Vector3(adjustedLength, Math.max(0, width), Math.max(0, height)))
-    .setPosition(center);
-}
-
-/** Build one native-style pointy endpoint. The pyramid's base is at the
- * segment endpoint and its apex projects by half the line width along the
- * segment direction, matching SegmentTemplate's spike vertices (2/7). */
-export function buildToolpathEntityCapMatrix(
-  endpoint: THREE.Vector3,
-  direction: THREE.Vector3,
-  width: number,
-  height: number,
-  bias = 0,
-  target = new THREE.Matrix4(),
-): THREE.Matrix4 {
-  const basis = buildBasis(direction);
-  const center = endpoint.clone();
-  if (Number.isFinite(bias)) center.z += bias;
-  return target.makeBasis(basis.axis, basis.side, basis.up)
-    .scale(new THREE.Vector3(Math.max(0, width) * 0.5, Math.max(0, width), Math.max(0, height)))
+    .scale(scale)
     .setPosition(center);
 }
 
@@ -124,24 +136,22 @@ export function createToolpathEntityGeometry(): THREE.BufferGeometry {
     const next = (i + 1) % ring.length;
     pushQuad([-half, ring[next]], [half, ring[next]], [half, ring[i]], [-half, ring[i]]);
   }
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.computeVertexNormals();
-  return geometry;
-}
-
-/** A four-sided pointy pyramid for one terminal endpoint. */
-export function createToolpathEntityCapGeometry(): THREE.BufferGeometry {
-  const half = 0.5;
-  const ring: ReadonlyArray<readonly [number, number]> = [
-    [0, -half], [half, 0], [0, half], [-half, 0],
-  ];
-  const positions: number[] = [];
-  for (let i = 0; i < ring.length; i++) {
-    const next = (i + 1) % ring.length;
-    // The local apex is at x=-1; reversing the ring edge gives the outward
-    // normal for a cap whose base is the x=0 endpoint plane.
-    positions.push(-1, 0, 0, 0, ring[next][0], ring[next][1], 0, ring[i][0], ring[i][1]);
+  // SegmentTemplate carries both pointy endpoint spikes in the shared entity
+  // template. They are deliberately not separate cap meshes: selection only
+  // changes the enabled instance slot, so a layer drag never rebuilds cap
+  // resources. Continuing entities overlap at their junction and cover the
+  // inward spike, matching native SegmentTemplate behavior.
+  for (const direction of [-1, 1] as const) {
+    for (let i = 0; i < ring.length; i++) {
+      const next = (i + 1) % ring.length;
+      const base = direction * half;
+      const apex = direction;
+      if (direction < 0) {
+        push(apex, [0, 0]); push(base, ring[next]); push(base, ring[i]);
+      } else {
+        push(apex, [0, 0]); push(base, ring[i]); push(base, ring[next]);
+      }
+    }
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));

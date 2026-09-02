@@ -322,15 +322,13 @@ production path and automatic fallback and is not removed by this change.
 The prior static-atlas/texel-fetch shader architecture is superseded by the
 explicit product requirement that toolpath thickness and height be real
 geometry and that no toolpath use alpha blending. The active implementation
-uses one shared faceted, diamond-profile solid-prism body template and one
-page-local body `THREE.InstancedMesh` plus a shared pointy-cap
-`THREE.InstancedMesh` per planner page. Selection rebuilds materialize
-each segment's endpoint midpoint, direction basis, width, height, and optional
-bias in the instance matrix; the prism supplies the real side facets of the
-diamond band. A separate shared four-sided pointy-pyramid template is
-instanced only at true visible starts/ends; same-type contiguous segments
-overlap by half-width and have no cap at their junction. Selection rebuilds
-restore caps at filtered, disjoint, layer, and move-type boundaries.
+uses one shared faceted, diamond-profile solid-prism/pointy-spike template
+and one page-local `THREE.InstancedMesh` per planner page. Selection rebuilds
+materialize each segment's endpoint midpoint, direction basis, width, height,
+and optional bias in the instance matrix; precomputed adjacency continuity
+controls the half-width overlap at joins. Endpoint spikes are part of the
+shared template, so range changes only enable/disable instance slots and
+never allocate or rebuild cap resources.
 The profile is a four-point diamond in the local `line_right`/`line_up` plane,
 matching libvgcode's cardinal endpoint construction rather than a square or
 chamfered ring.

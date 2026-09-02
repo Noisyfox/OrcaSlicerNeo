@@ -94,7 +94,7 @@ describe('opaque GPU entity renderer', () => {
     for (const mesh of result.backend.sceneObjects) {
       expect(mesh).toBeInstanceOf(THREE.InstancedMesh);
       expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
-      expect(mesh.geometry.getAttribute('position').count).toBe(24);
+      expect(mesh.geometry.getAttribute('position').count).toBe(48);
       expect(mesh.geometry.index).toBeNull();
       expect(mesh.material).toBeInstanceOf(THREE.MeshStandardMaterial);
       const material = mesh.material as THREE.MeshStandardMaterial;
@@ -136,7 +136,6 @@ describe('opaque GPU entity renderer', () => {
     result.backend.updateSelection(rebuildGpuStreamingSelection(p, {
       visibleLayerStart: 0, visibleLayerEnd: 0, activeMoveEnd: Number.MAX_SAFE_INTEGER, showTravel: true,
     }));
-    expect(result.backend.endpointSceneObjects[0]!.count).toBe(2);
     result.backend.dispose();
   });
 

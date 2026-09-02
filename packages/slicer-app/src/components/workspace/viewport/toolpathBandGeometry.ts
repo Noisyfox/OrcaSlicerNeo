@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { ClientToolpath } from '@slicer/client';
 import type { PreviewVisibility } from './previewSemantics';
-import { buildToolpathEntityCapMatrix, buildToolpathEntityMatrix, createToolpathEntityCapGeometry, createToolpathEntityGeometry, createToolpathEntityMaterial, isToolpathSegmentContinuous } from './toolpathEntityGeometry';
+import { buildToolpathEntityMatrix, createToolpathEntityGeometry, createToolpathEntityMaterial, createToolpathEntityScratch, isToolpathSegmentContinuous, type ToolpathEntityScratch } from './toolpathEntityGeometry';
 import { resolveToolpathColor, TOOLPATH_FALLBACK_COLOR } from './toolpathColors';
 
 export interface ToolpathChunkRange {
@@ -10,14 +10,15 @@ export interface ToolpathChunkRange {
   firstLayer: number;
   lastLayer: number;
 }
+export interface ToolpathVisibilityUpdateRange {
+  readonly firstLayer: number;
+  readonly lastLayer: number;
+}
 
 /** A layer-aligned solid entity collection used by the B2 fallback. */
 export interface ToolpathBandChunk extends ToolpathChunkRange {
   geometry: THREE.BufferGeometry;
   mesh: THREE.InstancedMesh;
-  /** Pointy endpoint entities; count is rebuilt from filtered continuity. */
-  capGeometry: THREE.BufferGeometry;
-  capMesh: THREE.InstancedMesh;
   /** Original matrices/colors let visibility rebuild without parsing G-code. */
   instanceMatrices: THREE.Matrix4[];
   instanceColors: THREE.Color[];
@@ -27,6 +28,13 @@ export interface ToolpathBandChunk extends ToolpathChunkRange {
   heights: Float32Array;
   layerIds?: Uint32Array;
   moveTypes?: Uint8Array;
+  /** Last applied state; range updates only touch changed segments. */
+  visibility: Uint8Array;
+  dimmed: Uint8Array;
+  readonly scratch: ToolpathEntityScratch;
+  /** Diagnostics for regression/performance tests. */
+  lastUpdatedSegmentCount: number;
+  lastRebuiltCapSegmentCount: number;
 }
 export interface PreparedToolpathBands {
   chunks: ToolpathBandChunk[];
@@ -91,17 +99,11 @@ export function selectToolpathChunks(chunks: readonly ToolpathChunkRange[], firs
 /** Create physical diamond side bands, with width/height/direction in each matrix. */
 export function createToolpathBandChunk(starts: Float32Array, ends: Float32Array, widths: Float32Array, heights: Float32Array, colors: Float32Array, range: ToolpathChunkRange, layerIds?: Uint32Array, moveTypes?: Uint8Array): ToolpathBandChunk {
   const geometry = createToolpathEntityGeometry();
-  const capGeometry = createToolpathEntityCapGeometry();
   const mesh = new THREE.InstancedMesh(geometry, createMaterial(), range.segmentCount);
-  const capMesh = new THREE.InstancedMesh(capGeometry, createMaterial(), range.segmentCount * 2);
   mesh.count = range.segmentCount;
-  capMesh.count = 0;
   mesh.frustumCulled = false;
-  capMesh.frustumCulled = false;
   mesh.renderOrder = 1000;
-  capMesh.renderOrder = 1000;
   mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  capMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   const instanceMatrices: THREE.Matrix4[] = [];
   const instanceColors: THREE.Color[] = [];
   for (let i = 0; i < range.segmentCount; i++) {
@@ -113,8 +115,14 @@ export function createToolpathBandChunk(starts: Float32Array, ends: Float32Array
     mesh.setMatrixAt(i, matrix);
     mesh.setColorAt(i, color);
   }
-  const chunk: ToolpathBandChunk = { ...range, geometry, mesh, capGeometry, capMesh, instanceMatrices, instanceColors, starts, ends, widths, heights, layerIds, moveTypes };
-  updateToolpathBandChunkVisibility(chunk, Uint8Array.from({ length: range.segmentCount }, () => 1), new Uint8Array(range.segmentCount));
+  const chunk: ToolpathBandChunk = {
+    ...range, geometry, mesh, instanceMatrices, instanceColors, starts, ends, widths, heights, layerIds, moveTypes,
+    visibility: Uint8Array.from({ length: range.segmentCount }, () => 1), dimmed: new Uint8Array(range.segmentCount),
+    scratch: createToolpathEntityScratch(),
+    lastUpdatedSegmentCount: 0, lastRebuiltCapSegmentCount: 0,
+  };
+  chunk.mesh.instanceMatrix.needsUpdate = true;
+  if (chunk.mesh.instanceColor) chunk.mesh.instanceColor.needsUpdate = true;
   return chunk;
 }
 export function buildPreparedToolpathBands(t: ClientToolpath): PreparedToolpathBands {
@@ -129,58 +137,47 @@ export function buildPreparedToolpathBands(t: ClientToolpath): PreparedToolpathB
   for (const chunk of chunks) layerRanges[chunk.firstLayer] = [chunk.firstSegment, chunk.segmentCount];
   return { chunks, layerRanges, segmentCount, palette: t.palette, layerIds: t.layerIds, moveOrders: t.moveOrders, features: t.features, moveTypes: t.moveTypes, ends: t.ends, dispose: () => chunks.forEach((chunk) => {
     (chunk.mesh.material as THREE.Material).dispose();
-    (chunk.capMesh.material as THREE.Material).dispose();
     chunk.geometry.dispose();
-    chunk.capGeometry.dispose();
   }) };
 }
 /** Apply hide semantics with real matrices/colors; no shader visibility discard. */
-function updateToolpathBandChunkVisibility(chunk: ToolpathBandChunk, visible: Uint8Array, dimmed: Uint8Array): void {
-  let capCount = 0;
+function updateToolpathBandChunkVisibility(chunk: ToolpathBandChunk, visibility: PreviewVisibility): void {
+  const scratch = chunk.scratch;
+  let updated = 0;
   for (let i = 0; i < chunk.segmentCount; i++) {
     const source = chunk.firstSegment + i;
-    const isVisible = (visible[i] ?? 0) !== 0;
-    const hasVisiblePrevious = isVisible && i > 0 && (visible[i - 1] ?? 0) !== 0 && isToolpathSegmentContinuous(chunk.starts, chunk.ends, source - 1, source, chunk.layerIds, chunk.moveTypes);
-    const hasVisibleNext = isVisible && i + 1 < chunk.segmentCount && (visible[i + 1] ?? 0) !== 0 && isToolpathSegmentContinuous(chunk.starts, chunk.ends, source, source + 1, chunk.layerIds, chunk.moveTypes);
-    const matrix = isVisible
-      ? buildToolpathEntityMatrix(
-        new THREE.Vector3(chunk.starts[source * 3] ?? 0, chunk.starts[source * 3 + 1] ?? 0, chunk.starts[source * 3 + 2] ?? 0),
-        new THREE.Vector3(chunk.ends[source * 3] ?? 0, chunk.ends[source * 3 + 1] ?? 0, chunk.ends[source * 3 + 2] ?? 0),
-        finitePositive(chunk.widths[source], 0.08), finitePositive(chunk.heights[source], 0.03),
-        { extendStart: hasVisiblePrevious, extendEnd: hasVisibleNext },
-      )
-      : new THREE.Matrix4().makeScale(0, 0, 0);
-    chunk.instanceMatrices[i] = matrix;
-    chunk.mesh.setMatrixAt(i, matrix);
-    const color = chunk.instanceColors[i]!.clone().multiplyScalar((dimmed[i] ?? 0) !== 0 ? 0.34 : 1);
+    const nextVisible = (visibility.visible[source] ?? 0) !== 0 ? 1 : 0;
+    const nextDimmed = (visibility.dimmed[source] ?? 0) !== 0 ? 1 : 0;
+    const visibilityChanged = nextVisible !== chunk.visibility[i];
+    const dimmingChanged = nextDimmed !== chunk.dimmed[i];
+    if (!visibilityChanged && !dimmingChanged) continue;
+    chunk.visibility[i] = nextVisible;
+    chunk.dimmed[i] = nextDimmed;
+    updated++;
+    const matrix = chunk.instanceMatrices[i]!;
+    if (visibilityChanged) {
+      if (nextVisible) chunk.mesh.setMatrixAt(i, matrix);
+      else chunk.mesh.setMatrixAt(i, scratch.matrix.makeScale(0, 0, 0));
+    }
+    const color = scratch.color.copy(chunk.instanceColors[i]!);
+    if (nextDimmed) color.multiplyScalar(0.34);
     chunk.mesh.setColorAt(i, color);
-    if (!isVisible) continue;
-    const start = new THREE.Vector3(chunk.starts[source * 3] ?? 0, chunk.starts[source * 3 + 1] ?? 0, chunk.starts[source * 3 + 2] ?? 0);
-    const end = new THREE.Vector3(chunk.ends[source * 3] ?? 0, chunk.ends[source * 3 + 1] ?? 0, chunk.ends[source * 3 + 2] ?? 0);
-    const axis = end.clone().sub(start);
-    const width = finitePositive(chunk.widths[source], 0.08);
-    const height = finitePositive(chunk.heights[source], 0.03);
-    if (!hasVisiblePrevious) {
-      chunk.capMesh.setMatrixAt(capCount, buildToolpathEntityCapMatrix(start, axis, width, height));
-      chunk.capMesh.setColorAt(capCount++, color);
-    }
-    if (!hasVisibleNext) {
-      chunk.capMesh.setMatrixAt(capCount, buildToolpathEntityCapMatrix(end, axis.negate(), width, height));
-      chunk.capMesh.setColorAt(capCount++, color);
-    }
   }
+  chunk.lastRebuiltCapSegmentCount = 0;
+  chunk.lastUpdatedSegmentCount = updated;
   chunk.mesh.count = chunk.segmentCount;
-  chunk.capMesh.count = capCount;
   chunk.mesh.instanceMatrix.needsUpdate = true;
-  chunk.capMesh.instanceMatrix.needsUpdate = true;
   if (chunk.mesh.instanceColor) chunk.mesh.instanceColor.needsUpdate = true;
-  if (chunk.capMesh.instanceColor) chunk.capMesh.instanceColor.needsUpdate = true;
 }
-export function updateToolpathChunkVisibility(chunks: readonly ToolpathBandChunk[], visibility: PreviewVisibility): void {
+/*
+ * The old implementation rebuilt a compact cap InstancedMesh here. Endpoint
+ * spikes now live in the shared SegmentTemplate geometry, so this update is
+ * intentionally limited to enabled instance transforms and colors.
+ */
+export function updateToolpathChunkVisibility(chunks: readonly ToolpathBandChunk[], visibility: PreviewVisibility, range?: ToolpathVisibilityUpdateRange): void {
   chunks.forEach((chunk) => {
-    const visible = Uint8Array.from({ length: chunk.segmentCount }, (_, i) => visibility.visible[chunk.firstSegment + i] ?? 0);
-    const dimmed = Uint8Array.from({ length: chunk.segmentCount }, (_, i) => visibility.dimmed[chunk.firstSegment + i] ?? 0);
-    updateToolpathBandChunkVisibility(chunk, visible, dimmed);
+    if (range && !chunkIntersectsLayerRange(chunk, range.firstLayer, range.lastLayer)) return;
+    updateToolpathBandChunkVisibility(chunk, visibility);
   });
 }
 export class ToolpathBandCache {

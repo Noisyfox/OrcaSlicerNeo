@@ -7,7 +7,7 @@ import {
   ToolpathBandCache,
   updateToolpathChunkVisibility,
 } from './toolpathBandGeometry';
-import { createToolpathEntityCapGeometry, createToolpathEntityGeometry, TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT, TOOLPATH_ENTITY_PROFILE } from './toolpathEntityGeometry';
+import { createToolpathEntityGeometry, TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT, TOOLPATH_ENTITY_PROFILE } from './toolpathEntityGeometry';
 import type { ClientToolpath } from '@slicer/client';
 
 describe('toolpath band geometry', () => {
@@ -15,11 +15,11 @@ describe('toolpath band geometry', () => {
     const geometry = createToolpathEntityGeometry();
     const positions = geometry.getAttribute('position');
     const bounds = new THREE.Box3().setFromBufferAttribute(positions as THREE.BufferAttribute);
-    // Four diamond-ring side facets; endpoint faces are intentionally absent
-    // so every continuing move cannot expose a dark flat cap.
-    expect(positions.count).toBe(24);
-    expect(bounds.min.toArray()).toEqual([-0.5, -0.5, -0.5]);
-    expect(bounds.max.toArray()).toEqual([0.5, 0.5, 0.5]);
+    // Four diamond-ring side facets plus the shared SegmentTemplate endpoint
+    // spikes; caps are part of the entity geometry, never a second mesh.
+    expect(positions.count).toBe(48);
+    expect(bounds.min.toArray()).toEqual([-1, -0.5, -0.5]);
+    expect(bounds.max.toArray()).toEqual([1, 0.5, 0.5]);
     expect(TOOLPATH_ENTITY_PROFILE).toBe('diamond');
     expect(TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT).toBeCloseTo(0.5);
     const ring = new Set<string>();
@@ -45,18 +45,16 @@ describe('toolpath band geometry', () => {
       Float32Array.from([1, 0, 0, 1, 0, 0, 1, 0, 0]), range,
       Uint32Array.from([0, 0, 0]), Uint8Array.from([0, 0, 0]),
     );
-    // One cap at the beginning and one at the end; the straight and corner
-    // junctions remain open as in SegmentTemplate's hidden continuing spike.
-    expect(chunk.capMesh.count).toBe(2);
-    expect(chunk.capGeometry.getAttribute('position').count).toBe(12);
-    expect(Array.from(chunk.capGeometry.getAttribute('position').array.slice(0, 3))).toEqual([-1, 0, 0]);
+    // Endpoint spikes are carried by the shared entity template and are not
+    // rebuilt when visibility changes.
+    const geometry = chunk.geometry;
+    expect(geometry.getAttribute('position').count).toBe(48);
 
     updateToolpathChunkVisibility([chunk], {
       // Removing the middle move creates four genuine visible boundaries.
       visible: Uint8Array.from([1, 0, 1]),
       dimmed: Uint8Array.from([0, 0, 0]),
     });
-    expect(chunk.capMesh.count).toBe(4);
 
     updateToolpathChunkVisibility([chunk], {
       // A move-type boundary is discontinuous even when endpoints touch.
@@ -68,12 +66,9 @@ describe('toolpath band geometry', () => {
       visible: Uint8Array.from([1, 1, 1]),
       dimmed: Uint8Array.from([0, 0, 0]),
     });
-    expect(chunk.capMesh.count).toBe(6);
 
     (chunk.mesh.material as THREE.Material).dispose();
-    (chunk.capMesh.material as THREE.Material).dispose();
     chunk.geometry.dispose();
-    chunk.capGeometry.dispose();
   });
 
   it('keeps chunk boundaries aligned to complete layers', () => {
@@ -255,6 +250,27 @@ describe('toolpath band geometry', () => {
     const hidden = new THREE.Matrix4().fromArray(Array.from(mesh.instanceMatrix.array).slice(16, 32));
     expect(new THREE.Vector3().setFromMatrixScale(hidden).length()).toBe(0);
     (mesh.material as THREE.Material).dispose();
+    chunk.geometry.dispose();
+  });
+
+  it('keeps endpoint topology in the shared template during a range update', () => {
+    const count = 64;
+    const starts = new Float32Array(count * 3);
+    const ends = new Float32Array(count * 3);
+    const widths = new Float32Array(count).fill(0.4);
+    const heights = new Float32Array(count).fill(0.2);
+    const colors = new Float32Array(count * 3).fill(1);
+    for (let i = 0; i < count; i++) { starts[i * 3] = i; ends[i * 3] = i + 1; }
+    const chunk = createToolpathBandChunk(starts, ends, widths, heights, colors, { firstSegment: 0, segmentCount: count, firstLayer: 0, lastLayer: 0 });
+    const geometry = chunk.geometry;
+    const nextVisibility = new Uint8Array(count).fill(1);
+    for (let i = count - 4; i < count; i++) nextVisibility[i] = 0;
+    updateToolpathChunkVisibility([chunk], { visible: nextVisibility, dimmed: new Uint8Array(count) });
+    expect(chunk.geometry).toBe(geometry);
+    expect('capMesh' in chunk).toBe(false);
+    expect(chunk.lastUpdatedSegmentCount).toBe(4);
+    expect(chunk.lastRebuiltCapSegmentCount).toBe(0);
+    (chunk.mesh.material as THREE.Material).dispose();
     chunk.geometry.dispose();
   });
 
