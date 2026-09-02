@@ -1,7 +1,7 @@
 # G-code Preview GPU Streaming Renderer
 
 **Date:** 2026-09-02
-**Status:** Approved architecture; opaque solid-entity instance backend supersedes the atlas/shader implementation (2026-09-02)
+**Status:** Approved architecture; native libvgcode SegmentTemplate GPU backend (2026-09-02)
 **Scope:** Shared Web/Electron G-code preview renderer performance redesign
 
 ## Relationship to existing preview specifications
@@ -43,7 +43,8 @@ Goals:
 
 Non-goals for this increment:
 
-- Replacing the current `ToolpathLines` backend or changing its output.
+- Replacing the experimental entity-matrix GPU backend with the native
+  SegmentTemplate-compatible path.
 - A new C++ bridge, `libslic3r` change, or native libvgcode dependency.
 - Browser FPS claims, a synthetic GPU, or a wall-clock benchmark in unit tests.
 - External `.gcode` import, result editing, pause insertion, or custom G-code.
@@ -317,68 +318,27 @@ claim is made. The default preference remains blocked until the stated 2020
 integrated-GPU 250k/1m gate is measured. The current B2 backend remains the
 production path and automatic fallback and is not removed by this change.
 
-## Superseding architecture: opaque solid entities (2026-09-02)
+## Accepted native SegmentTemplate architecture (2026-09-02)
 
-The prior static-atlas/texel-fetch shader architecture is superseded by the
-explicit product requirement that toolpath thickness and height be real
-geometry and that no toolpath use alpha blending. The active implementation
-uses one shared faceted, diamond-profile solid-prism/pointy-spike template
-and one page-local `THREE.InstancedMesh` per planner page. Selection rebuilds
-materialize each segment's endpoint midpoint, direction basis, width, height,
-and optional bias in the instance matrix; precomputed adjacency continuity
-controls the half-width overlap at joins. Endpoint spikes are part of the
-shared template, so range changes only enable/disable instance slots and
-never allocate or rebuild cap resources.
-The profile is a four-point diamond in the local `line_right`/`line_up` plane,
-matching libvgcode's cardinal endpoint construction rather than a square or
-chamfered ring.
+The prior entity-matrix/solid-cap implementation is superseded and is not the
+active GPU path. The active implementation uses one shared libvgcode-equivalent
+SegmentTemplate with eight logical vertices and 24 vertex invocations, plus one
+page-local instanced draw per planner page. Static position, height/width/angle/
+bias and colour/layer values are RGBA32F textures; selected local IDs are R32UI
+textures. The GLSL ES 3.00 vertex shader performs native camera-facing corner
+and endpoint spike calculations with `POINTY_CAPS` and `FIX_TWISTING`.
 
-Toolpath materials are standard Three `MeshStandardMaterial` instances with
-flat face shading, `color: 0xffffff`, `roughness: 0.82`, and `metalness: 0`.
-The scene's ambient/directional lights produce stable top/side contrast from
-the real diamond-prism normals, making adjacent same-colour paths readable
-without an artificial gap, endpoint block, or alpha outline. They use `transparent: true` solely to
-place them after the transparent preview shell in Three's render queue,
-`opacity: 1`, `blending: THREE.NoBlending`, `depthTest: true`,
-`depthWrite: true`, and `FrontSide`. This queue flag does not enable alpha
-compositing; the renderer's blend state is explicitly disabled. Depth is
-intentionally enabled for the solid entities themselves: the preview shell
-does not write depth, while the toolpaths establish depth and therefore
-self-occlude from the camera-facing side. Per-instance RGB colours implement
-the feature palette and an opaque gray unknown-feature fallback. Travel colour
-is selected from the move type (not the preserved extrusion role), using
-libvgcode's `Travels` colour `RGB(56, 72, 155)`; travel is consequently
-independent of extrusion feature visibility and follows the global travel
-toggle. There is no custom toolpath shader,
-`texelFetch`, atlas, integer texture, enabled-index texture, or
-shader-derived outline/width/height. The planner remains a pure
-source/page/selection planner and can retain its page metadata accounting for
-deterministic partitioning.
+The material emits opaque alpha 1 and uses `transparent: true` only for Three
+queue ordering, `blending: THREE.NoBlending`, `depthTest: true`, and
+`depthWrite: true`. `side: THREE.DoubleSide` matches libvgcode's explicit
+`GL_CULL_FACE` disable; this does not enable blending, and depth buffering
+remains responsible for occluding overlapping path faces. Slider changes
+update only R32UI index textures and draw counts; camera changes update
+uniforms only. The planner remains source/page/selection-only.
 
-The baseline correspondence to native libvgcode is page-local selected
-instances, ordered layer ranges, vertical direction fallback, and shell-visible
-depth state. Native `ViewerImpl::render_segments` explicitly disables
-`GL_CULL_FACE`; the current Three adaptation intentionally uses
-`side: FrontSide` (back-face culling) because its physical diamond entities must
-self-occlude. This is a deliberate adaptation difference, not a claim that the
-native renderer culls back faces. Native libvgcode's eight-corner template has
-camera-dependent spike/silhouette vertices and cannot be represented exactly
-by one static affine mesh without reintroducing shader-derived shape logic.
-Three/WebGL2 therefore uses a physically solid diamond-profile template and
-materializes direction/width/height on the CPU, as required. Camera updates
-only update camera/render state. Layer, move, travel, and feature filters
-rebuild selected page matrices/colors and counts without re-parsing or slicing.
-
-The Three material leaves `vertexColors` disabled because the shared prism has no
-per-vertex `color` attribute. `InstancedMesh.instanceColor` is enabled by
-Three independently. Enabling both paths would multiply by the missing
-attribute before applying the instance color, making every toolpath black;
-this instance-color-only contract is shared by the streaming renderer and B2.
-
-Both the opt-in backend and B2 fallback use opaque solid entities. On result
-invalidation, unmount, context loss, or construction failure all owned
-templates, meshes, materials, and attributes are released and B2 is retained;
-successful construction removes B2 to prevent double drawing. The browser
-harness reports entity allocation and matrix/color uploads, not atlas/index
-uploads. Existing atlas-specific acceptance measurements are historical and
-must not be used as evidence for this architecture.
+The native correspondence is page-local selected instances, ordered layer
+ranges, vertical direction fallback, camera-relative corner choice, and the
+pointy-cap vertex IDs. B2 is retained only for unavailable GPU capability,
+allocation, shader, context, or selection initialization; it is not the active
+GPU implementation. Context loss and result invalidation dispose all owned
+textures, page materials, index streams, and the shared template exactly once.

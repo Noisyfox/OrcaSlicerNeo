@@ -22,17 +22,20 @@ that receives WASM data, and `libslic3r` plus
 metadata only; it deliberately does not allocate positions, band geometry,
 Three.js objects, WebGL resources, or a mock GPU.
 
-## Endpoint topology and slider performance (2026-09-02)
+## Native SegmentTemplate migration (2026-09-02)
 
-The solid entity now follows native `SegmentTemplate` ownership: its shared
-diamond template contains the two pointy endpoint spikes, while each segment's
-precomputed adjacency/continuity determines the overlapping body transform.
-There is no independent cap mesh, cap resource allocation, or cap rebuild on a
-range update, so endpoint spikes cannot become dark flat blocks at joins.
-B2 visibility updates retain their typed state and reuse matrices, vectors, and
-colors; a slider event only writes changed instance slots. The GPU path uses
-the same shared template and hoists selection sets/scratch objects outside
-per-segment loops.
+The active GPU backend now follows Orca/libvgcode `SegmentTemplate`: one
+shared template contains eight logical vertices and 24 vertex invocations per
+segment, with pointy endpoint spikes represented by the native vertex-ID
+pattern. The GLSL ES 3.00 vertex shader retains `POINTY_CAPS` and
+`FIX_TWISTING`, camera-relative corner selection, near-vertical basis fallback,
+width/height, cap-angle, and z-bias calculations.
+
+Static endpoint position, height/width/angle/bias, and colour/layer data are
+uploaded to RGBA32F textures. Each layer-aligned page owns an R32UI selected
+index texture. Layer/move/travel/feature slider changes update only those index
+textures and draw counts; camera changes update Three camera uniforms only.
+No per-segment entity matrix or cap mesh is rebuilt by the active GPU path.
 
 ## Accepted step-2 implementation
 
@@ -188,35 +191,31 @@ active-range preservation on the stated representative integrated-GPU target.
 ## Accepted step-3 backend implementation
 
 `gpuStreamingRenderer.ts` is an independent WebGL2/Three.js backend. It consumes an existing
-`GpuStreamingPagePlan`, packs each page's four-texel schema once into separate
-textures: three float texels per segment (start, end, shape) and one RGBA
-integer identity texel per segment (layer, move order, feature palette slot,
-and move type). Geometry and identity have independent dimensions and
-explicit padding counts; known upload byte lengths are reported, while
-driver-reported allocation remains `null`. No physical band geometry or
-per-segment JavaScript objects are created. The shared template is an
-eight-corner, 36-index prism with GLSL ES 3.00 shaders; its vertex shader uses
-`gl_InstanceID`, `usampler2D`, integer `texelFetch`, camera-facing side/up
-fallbacks, zero-length direction fallback, cap angle, and bias.
+`GpuStreamingPagePlan`, uploads immutable endpoint position,
+height/width/angle/bias, and colour/layer data to RGBA32F textures. Known upload
+byte lengths are reported, while driver-reported allocation remains `null`.
+The shared template is the native eight-logical-vertex/24-invocation
+vertex-ID pattern. Its GLSL ES 3.00 vertex shader uses `gl_InstanceID`,
+`usampler2D`, integer `texelFetch`, camera-facing side/up fallbacks,
+zero-length direction fallback, `POINTY_CAPS`, `FIX_TWISTING`, cap angle, and
+bias.
 
 Each selection update receives the planner's page-local inclusive index
-streams and uploads only replacement R32UI index textures. Streams are
-published transactionally and retired until `commitDrawBoundary()`; camera
+streams and updates only the page R32UI index texture and draw count. Camera
 and dimming methods only update material uniforms. Static upload and dynamic
 upload counts, draw instance counts, and page-local upload payloads are
 observable for tests and diagnostics.
 
-The source feature palette is uploaded as a small RGBA32F palette texture;
-feature IDs are mapped to stable palette slots without per-segment objects.
-`updatePalette()` replaces only that texture, with slot zero as the
-deterministic unknown-feature fallback, and never reuploads static atlases.
+The source feature palette is resolved into the static RGBA32F colour texture;
+`updatePalette()` updates that texture without rebuilding the template or
+selection streams. Unknown IDs retain the deterministic fallback.
 `probeGpuStreamingCapabilities` requires WebGL2, integer texture formats,
 four texture units, vertex texture fetch, and a valid `MAX_TEXTURE_SIZE`.
 Construction returns a diagnostic unavailable result on missing capabilities,
 unsupported schema, allocation failure, or compile failure. The injected
 resource facade is used by tests; the default facade creates nearest/no-mipmap
-Three `DataTexture`s, an indexed `InstancedBufferGeometry`, and a shared
-`ShaderMaterial`. Read-only `sceneObjects` plus `attachToScene()` and
+Three `DataTexture`s, one shared 24-invocation `BufferGeometry`, and page-local
+`InstancedMesh` draws with `ShaderMaterial`. Read-only `sceneObjects` plus `attachToScene()` and
 `detachFromScene()` let a later integration step add page meshes without
 transferring scene ownership. All owned resources are wrapped in idempotent disposal,
 including partial construction, context loss, explicit disposal, and retired
@@ -331,77 +330,39 @@ representative integrated-GPU gate. B2 remains the automatic
 capability/budget/compile/source/context/selection fallback; its removal is
 still a separately approved cleanup after a release cycle.
 
-## Superseding decision: opaque solid entity instances (2026-09-02)
+## Native SegmentTemplate GPU path (2026-09-02)
 
-The atlas/texel-fetch backend described earlier in this living document is
-superseded by the user's explicit rendering requirement. The accepted path is
-now a shared faceted, diamond-profile solid-prism body template and one
-page-local body `THREE.InstancedMesh` plus a shared pointy-cap
-`THREE.InstancedMesh` per planned page. At construction and every selection
-rebuild, each selected segment's endpoint midpoint, direction basis, width,
-height, and optional z bias are written into its instance matrix. Faceted prism
-end caps are therefore real geometry; the local side/up ring is the four-point
-diamond used by native libvgcode's cardinal endpoint construction. No vertex
-shader derives a segment outline,
-thickness, height, direction, or cap from an atlas.
+The entity-matrix/solid-cap implementation previously documented here is
+superseded and is not the active GPU path. The active implementation follows
+Orca/libvgcode `SegmentTemplate`: one shared template provides eight logical
+vertices and 24 vertex invocations per segment, and page-local instanced draws
+consume the selected IDs.
 
-The material is Three's direct `MeshStandardMaterial` with flat face shading,
-`color: 0xffffff`, `roughness: 0.82`, and `metalness: 0`. The existing scene
-ambient and directional lights produce distinct top, side, and cap brightness
-from the real diamond-prism normals, matching libvgcode's face-lighting intent and
-making neighbouring same-colour paths readable without a gap or outline pass.
-It uses `transparent: true` only for transparent-queue ordering, `opacity: 1`,
-and `blending: THREE.NoBlending`. The queue flag does not enable alpha
-compositing. `depthTest: true`, `depthWrite: true`, `side: FrontSide`,
-`forceSinglePass: true`, and render order 1000 make each path a solid,
-self-occluding entity while ensuring its draw occurs after the transparent
-preview shell. The preview shell remains visible behind/around paths because
-its preview material does not write depth; path entities then establish the
-depth buffer for their own front-to-back occlusion.
-Feature colours are per-instance RGB values; unknown feature IDs use an opaque
-0.58 gray fallback. Both explicit feature IDs and legacy palette-position IDs
-are accepted. Travel is resolved from `moveType === EMoveType::Travel` rather
-than its preserved extrusion-role ID and uses libvgcode's Travels colour
-`RGB(56, 72, 155)`. Travel therefore remains independent of extrusion feature
-filters and is controlled only by the global travel toggle. Filters and
-layer/move range changes rewrite only selected page matrices/colors and mesh
-counts. Camera movement performs no entity reconstruction or upload. The
-planner remains source-order/layer/page metadata only and does not allocate
-render resources.
+Static endpoint position, height/width/angle/bias, and colour/layer values are
+stored in RGBA32F textures. The selected local segment stream is an R32UI
+texture. The GLSL ES 3.00 vertex shader retains native `POINTY_CAPS`,
+`FIX_TWISTING`, camera-facing corner selection, near-vertical basis fallback,
+and endpoint spike calculations. Slider changes update only index textures and
+draw counts; camera changes update uniforms only.
 
-The Three materials intentionally leave `vertexColors` disabled: the shared
-prism has no per-vertex `color` attribute, while `InstancedMesh.instanceColor` is
-enabled independently by Three. Enabling both would make the generated
-`USE_COLOR` path multiply by the missing attribute before applying the
-instance color, rendering every toolpath black. This instance-color-only
-contract applies to both the streaming renderer and the B2 fallback.
+The material emits opaque alpha 1 with `transparent: true` solely for Three
+queue ordering, `blending: THREE.NoBlending`, `depthTest: true`, and
+`depthWrite: true`. `side: THREE.DoubleSide` matches libvgcode's explicit
+`GL_CULL_FACE` disable; this does not enable blending, and the depth buffer
+remains responsible for occluding overlapping path faces.
 
-This matches libvgcode's observable scheduling/render-state baseline where
-applicable: page-local selected instances, layer-ordered pages, vertical
-direction fallback, and shell-visible depth state. Native
-`ViewerImpl::render_segments` explicitly disables `GL_CULL_FACE`; the current
-Three adaptation intentionally uses `side: FrontSide` (back-face culling)
-because its physical diamond-profile entities must self-occlude. This is a deliberate
-adaptation difference, not a claim that the native renderer culls back faces.
-The native libvgcode eight-corner template has camera-dependent spike/silhouette vertices
-and therefore cannot be represented exactly by one static affine mesh without
-reintroducing shader-derived shape logic. The deliberate Three adaptation uses
-a physically solid diamond-profile template and materializes direction/width/height in
-CPU instance matrices because this product requirement prohibits a custom
-shader for thickness. The old atlas, integer texture, texelFetch,
-custom shader, retired index-stream, and palette-texture resources are removed
-from the active renderer. Context loss, source invalidation, unmount, and
-construction failure dispose the template and all page meshes; failure falls
-back to B2. Successful construction removes B2 so no double draw occurs.
+The B2 entity implementation remains only as the fallback when GPU capability,
+allocation, shader, context, or selection initialization is unavailable. On a
+successful native construction B2 is removed, so the scene is never double
+drawn. Context loss and result invalidation dispose the shared template,
+textures, page materials, and index streams exactly once.
 
-The browser harness now measures solid entity template/instance allocation and
-selection matrix/color uploads. Legacy report field names remain aliases for
-dashboard compatibility but no longer describe atlas or index textures.
-Unit coverage asserts real `InstancedMesh`/faceted-prism geometry, matrix scale for
-width/height, opaque NoBlending materials, unknown-feature fallback, complete
-multi-page upper-layer selection, filter rebuild, camera no-upload behavior,
-and idempotent disposal. `pnpm typecheck` and the focused slicer-app Vitest
-suite pass; native WASM C++ remains untouched.
+The browser harness reports static texture and selected-index uploads. Legacy
+entity report fields remain aliases for dashboard compatibility only. Unit
+coverage asserts native template cardinality, texture dimensions/formats/
+nearest filtering, pointy-cap shader invariants, opaque NoBlending materials,
+multi-page selection, index-only slider updates, camera no-upload behaviour,
+and idempotent disposal. Native WASM C++ remains untouched.
 
 ## Accepted native-style tool marker (2026-09-02)
 
@@ -450,10 +411,8 @@ page-boundary, atlas-addressing, palette, or frustum failure.
 
 The earlier atlas implementation exposed a shell-depth cutoff because its
 material used Three's default depth state. That implementation is no longer
-active. The solid entity material now explicitly uses transparent-queue
-ordering with `opacity: 1`, `blending: THREE.NoBlending`, `depthTest: true`,
-`depthWrite: true`, and `side: FrontSide`, preserving the Preview v2 rule that
-paths remain visible through model shells without alpha compositing while
-restoring solid self-occlusion. The regression tests
-also inspect actual per-instance RGB attributes and cover legacy indexed
-palettes.
+active. The native SegmentTemplate material explicitly emits opaque alpha 1
+with `blending: THREE.NoBlending`, `depthTest: true`, `depthWrite: true`, and
+`side: THREE.DoubleSide`; double-sided rasterization matches native cull state,
+while depth buffering preserves correct overlap. Regression tests inspect the
+static texture/index formats and native template invariants.

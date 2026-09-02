@@ -1,43 +1,94 @@
 import * as THREE from 'three';
 import type { ToolpathFeature } from '@slicer/client';
-import type { GpuStreamingPage, GpuStreamingPagePlan, GpuStreamingSelection } from './gpuStreamingPlanner';
+import type {
+  GpuStreamingPage,
+  GpuStreamingPagePlan,
+  GpuStreamingSelection,
+} from './gpuStreamingPlanner';
 import { resolveToolpathColor } from './toolpathColors';
-import { buildToolpathEntityMatrix, isToolpathSegmentContinuous } from './toolpathEntityGeometry';
 
 /** WebGL2 adapter for Orca/libvgcode's native SegmentTemplate renderer. */
-export interface GpuStreamingCapabilityLimits { readonly maxTextureSize: number | null; readonly maxTextureImageUnits: number | null; readonly maxVertexTextureImageUnits: number | null; readonly textureUnitsRequired: number; }
-export interface GpuStreamingCapabilityProbe { readonly supported: boolean; readonly reason: string | null; readonly limits: GpuStreamingCapabilityLimits; }
-export interface GpuStreamingRendererHost { getContext(): WebGLRenderingContext; readonly domElement?: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>; compile?: (scene: THREE.Scene, camera: THREE.Camera) => void; }
-export interface GpuStreamingSegmentTemplateResource { readonly geometry: THREE.BufferGeometry; readonly material?: THREE.Material; readonly dispose: () => void; }
+export interface GpuStreamingCapabilityLimits {
+  readonly maxTextureSize: number | null;
+  readonly maxTextureImageUnits: number | null;
+  readonly maxVertexTextureImageUnits: number | null;
+  readonly textureUnitsRequired: number;
+}
+export interface GpuStreamingCapabilityProbe {
+  readonly supported: boolean;
+  readonly reason: string | null;
+  readonly limits: GpuStreamingCapabilityLimits;
+}
+export interface GpuStreamingRendererHost {
+  getContext(): WebGLRenderingContext;
+  readonly domElement?: Pick<
+    EventTarget,
+    'addEventListener' | 'removeEventListener'
+  >;
+  compile?: (scene: THREE.Scene, camera: THREE.Camera) => void;
+}
+export interface GpuStreamingSegmentTemplateResource {
+  readonly geometry: THREE.BufferGeometry;
+  readonly material?: THREE.Material;
+  readonly dispose: () => void;
+}
 /** Compatibility name retained for injected factories. */
-export type GpuStreamingEntityTemplateResource = GpuStreamingSegmentTemplateResource;
-export interface GpuStreamingResourceFacade { createSegmentTemplate?: () => GpuStreamingSegmentTemplateResource; /** @deprecated */ createEntityTemplate?: () => GpuStreamingSegmentTemplateResource; }
-export interface GpuStreamingRendererOptions { readonly renderer?: GpuStreamingRendererHost; readonly context?: WebGLRenderingContext; readonly resourceFacade?: GpuStreamingResourceFacade; readonly compile?: boolean; }
-export interface GpuStreamingUnavailableDiagnostics { readonly reason: string; readonly message: string; readonly capabilities: GpuStreamingCapabilityProbe | null; readonly failedPage?: number; }
-export type GpuStreamingBuildResult = { readonly ok: true; readonly backend: GpuStreamingRenderer } | { readonly ok: false; readonly diagnostics: GpuStreamingUnavailableDiagnostics };
-export interface GpuStreamingSelectionUpdate { readonly uploadedPageCount: number; readonly drawInstanceCounts: readonly number[]; }
-export interface GpuStreamingPaletteUpdate { readonly uploaded: boolean; readonly unknownFeatureIds: readonly number[]; }
+export type GpuStreamingEntityTemplateResource =
+  GpuStreamingSegmentTemplateResource;
+export interface GpuStreamingResourceFacade {
+  createSegmentTemplate?: () => GpuStreamingSegmentTemplateResource;
+  /** @deprecated */ createEntityTemplate?: () => GpuStreamingSegmentTemplateResource;
+}
+export interface GpuStreamingRendererOptions {
+  readonly renderer?: GpuStreamingRendererHost;
+  readonly context?: WebGLRenderingContext;
+  readonly resourceFacade?: GpuStreamingResourceFacade;
+  readonly compile?: boolean;
+}
+export interface GpuStreamingUnavailableDiagnostics {
+  readonly reason: string;
+  readonly message: string;
+  readonly capabilities: GpuStreamingCapabilityProbe | null;
+  readonly failedPage?: number;
+}
+export type GpuStreamingBuildResult =
+  | { readonly ok: true; readonly backend: GpuStreamingRenderer }
+  | {
+      readonly ok: false;
+      readonly diagnostics: GpuStreamingUnavailableDiagnostics;
+    };
+export interface GpuStreamingSelectionUpdate {
+  readonly uploadedPageCount: number;
+  readonly drawInstanceCounts: readonly number[];
+}
+export interface GpuStreamingPaletteUpdate {
+  readonly uploaded: boolean;
+  readonly unknownFeatureIds: readonly number[];
+}
 
 const REQUIRED_TEXTURE_UNITS = 4;
-const SEGMENT_TEMPLATE_VERTEX_IDS = Object.freeze([0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 1, 5, 4, 7, 5, 7, 6]);
+const SEGMENT_TEMPLATE_VERTEX_IDS = Object.freeze([
+  0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 1, 5, 4, 7, 5, 7, 6,
+]);
 export const SEGMENT_TEMPLATE_LOGICAL_VERTEX_COUNT = 8;
-export const SEGMENT_TEMPLATE_INVOCATION_COUNT = SEGMENT_TEMPLATE_VERTEX_IDS.length;
+export const SEGMENT_TEMPLATE_INVOCATION_COUNT =
+  SEGMENT_TEMPLATE_VERTEX_IDS.length;
 
-function onceDispose(dispose: () => void): () => void { let done = false; return () => { if (!done) { done = true; dispose(); } }; }
-/** @deprecated Compatibility seam for the B2 entity fallback. The native
- * renderer never calls this CPU matrix builder. */
-export function buildGpuStreamingInstanceMatrix(source: GpuStreamingPagePlan['source'], sourceIndex: number, target = new THREE.Matrix4()): THREE.Matrix4 {
-  const start = new THREE.Vector3(source.starts[sourceIndex * 3] ?? 0, source.starts[sourceIndex * 3 + 1] ?? 0, source.starts[sourceIndex * 3 + 2] ?? 0);
-  const end = new THREE.Vector3(source.ends[sourceIndex * 3] ?? start.x, source.ends[sourceIndex * 3 + 1] ?? start.y, source.ends[sourceIndex * 3 + 2] ?? start.z);
-  return buildToolpathEntityMatrix(start, end, Math.max(0, source.widths[sourceIndex] ?? 0), Math.max(0, source.heights[sourceIndex] ?? 0), {
-    extendStart: isToolpathSegmentContinuous(source.starts, source.ends, sourceIndex - 1, sourceIndex, source.layerIds, source.moveTypes),
-    extendEnd: isToolpathSegmentContinuous(source.starts, source.ends, sourceIndex, sourceIndex + 1, source.layerIds, source.moveTypes),
-    bias: source.biases?.[sourceIndex] ?? 0,
-  }, target);
+function onceDispose(dispose: () => void): () => void {
+  let done = false;
+  return () => {
+    if (!done) {
+      done = true;
+      dispose();
+    }
+  };
 }
 function createSegmentTemplateGeometry(): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('vertex_id', new THREE.Uint8BufferAttribute(SEGMENT_TEMPLATE_VERTEX_IDS, 1));
+  geometry.setAttribute(
+    'vertex_id',
+    new THREE.Uint8BufferAttribute(SEGMENT_TEMPLATE_VERTEX_IDS, 1),
+  );
   geometry.setDrawRange(0, SEGMENT_TEMPLATE_INVOCATION_COUNT);
   return geometry;
 }
@@ -73,35 +124,561 @@ void main(){
 }`;
 const SEGMENTS_FRAGMENT_SHADER = `precision highp float; in vec3 v_color; out vec4 fragment_color; void main(){fragment_color=vec4(v_color,1.);}`;
 
-interface StaticTextures { readonly position: THREE.DataTexture; readonly shape: THREE.DataTexture; readonly color: THREE.DataTexture; readonly positionSize: readonly [number,number]; readonly shapeSize: readonly [number,number]; readonly colorSize: readonly [number,number]; readonly bytes: number; readonly dispose: () => void; }
-interface PageState { readonly planPage: GpuStreamingPage; readonly mesh: THREE.InstancedMesh; readonly indexData: Uint32Array; readonly indexTexture: THREE.DataTexture; readonly selectedSourceIndices: number[]; instanceCount: number; }
-function dimensions(count: number,max: number): [number,number] { const width=Math.max(1,Math.min(max,count||1)); return [width,Math.max(1,Math.ceil(count/width))]; }
-function textureParameters(texture: THREE.Texture): void { texture.minFilter=THREE.NearestFilter; texture.magFilter=THREE.NearestFilter; texture.wrapS=THREE.ClampToEdgeWrapping; texture.wrapT=THREE.ClampToEdgeWrapping; texture.generateMipmaps=false; texture.unpackAlignment=1; }
-function floatTexture(data: Float32Array,count: number,max: number): {texture: THREE.DataTexture;size:[number,number]} { const size=dimensions(count,max); const padded=new Float32Array(size[0]*size[1]*4); padded.set(data); const texture=new THREE.DataTexture(padded,size[0],size[1],THREE.RGBAFormat,THREE.FloatType); textureParameters(texture); texture.needsUpdate=true; return {texture,size}; }
-function indexTexture(data: Uint32Array,max: number): {texture: THREE.DataTexture;size:[number,number]} { const size=dimensions(data.length,max); const padded=new Uint32Array(size[0]*size[1]); padded.set(data); const texture=new THREE.DataTexture(padded,size[0],size[1],THREE.RedIntegerFormat,THREE.UnsignedIntType); texture.internalFormat='R32UI'; textureParameters(texture); texture.needsUpdate=true; return {texture,size}; }
-function buildStaticTextures(source: GpuStreamingPagePlan['source'],max: number): StaticTextures {
-  const n=source.segmentCount*2; const positions=new Float32Array(n*4); const shapes=new Float32Array(n*4); const colors=new Float32Array(n*4);
-  for(let i=0;i<source.segmentCount;i++){for(const [endpoint,xyz] of [[i*2,source.starts],[i*2+1,source.ends]] as const){const si=endpoint===i*2?i*3:i*3;const o=endpoint*4;positions[o]=xyz[si]??0;positions[o+1]=xyz[si+1]??0;positions[o+2]=xyz[si+2]??0;shapes[o]=Math.max(0,source.heights[i]??0);shapes[o+1]=Math.max(0,source.widths[i]??0);shapes[o+2]=source.capAngles?.[i]??source.angles?.[i]??0;shapes[o+3]=source.biases?.[i]??0;const c=resolveToolpathColor(source.palette,source.features[i]??0,source.moveTypes[i]??0);colors[o]=c[0];colors[o+1]=c[1];colors[o+2]=c[2];colors[o+3]=source.layerIds[i]??0;}}
-  const position=floatTexture(positions,n,max),shape=floatTexture(shapes,n,max),color=floatTexture(colors,n,max); const dispose=onceDispose(()=>{position.texture.dispose();shape.texture.dispose();color.texture.dispose();}); return {position:position.texture,shape:shape.texture,color:color.texture,positionSize:position.size,shapeSize:shape.size,colorSize:color.size,bytes:(position.texture.image.data as Float32Array).byteLength+(shape.texture.image.data as Float32Array).byteLength+(color.texture.image.data as Float32Array).byteLength,dispose};
+interface StaticTextures {
+  readonly position: THREE.DataTexture;
+  readonly shape: THREE.DataTexture;
+  readonly color: THREE.DataTexture;
+  readonly positionSize: readonly [number, number];
+  readonly shapeSize: readonly [number, number];
+  readonly colorSize: readonly [number, number];
+  readonly bytes: number;
+  readonly dispose: () => void;
 }
-function makeMaterial(staticTextures: StaticTextures,index: THREE.DataTexture,size: readonly [number,number]): THREE.ShaderMaterial { return new THREE.ShaderMaterial({glslVersion:THREE.GLSL3,vertexShader:SEGMENTS_VERTEX_SHADER,fragmentShader:SEGMENTS_FRAGMENT_SHADER,uniforms:{position_tex:{value:staticTextures.position},height_width_angle_tex:{value:staticTextures.shape},color_tex:{value:staticTextures.color},segment_index_tex:{value:index},position_tex_size:{value:staticTextures.positionSize},shape_tex_size:{value:staticTextures.shapeSize},color_tex_size:{value:staticTextures.colorSize},segment_index_tex_size:{value:size},active_layer:{value:-1},earlier_layer_dim:{value:1}},transparent:true,opacity:1,blending:THREE.NoBlending,depthTest:true,depthWrite:true,side:THREE.FrontSide}); }
-function isWebGL2Context(context: WebGLRenderingContext): boolean { const version=String(context.getParameter?.(context.VERSION)??''); return /WebGL\s*2/i.test(version)||(typeof WebGL2RenderingContext!=='undefined'&&context instanceof WebGL2RenderingContext); }
-function numberParameter(context: WebGLRenderingContext,p: number): number|null { const value=context.getParameter?.(p); return typeof value==='number'&&Number.isFinite(value)?value:null; }
-export function probeGpuStreamingCapabilities(context: WebGLRenderingContext): GpuStreamingCapabilityProbe { const limits={maxTextureSize:numberParameter(context,context.MAX_TEXTURE_SIZE),maxTextureImageUnits:numberParameter(context,context.MAX_TEXTURE_IMAGE_UNITS),maxVertexTextureImageUnits:numberParameter(context,context.MAX_VERTEX_TEXTURE_IMAGE_UNITS),textureUnitsRequired:REQUIRED_TEXTURE_UNITS}; if(!isWebGL2Context(context))return{supported:false,reason:'webgl2-required',limits}; if((limits.maxTextureSize??0)<1)return{supported:false,reason:'texture-size-unavailable',limits}; if((limits.maxTextureImageUnits??0)<REQUIRED_TEXTURE_UNITS)return{supported:false,reason:'texture-units-insufficient',limits}; if((limits.maxVertexTextureImageUnits??0)<1)return{supported:false,reason:'vertex-texture-fetch-unavailable',limits}; return{supported:true,reason:null,limits}; }
+interface PageState {
+  readonly planPage: GpuStreamingPage;
+  readonly mesh: THREE.InstancedMesh;
+  readonly indexData: Uint32Array;
+  readonly indexTexture: THREE.DataTexture;
+  readonly selectedSourceIndices: number[];
+  instanceCount: number;
+}
+function dimensions(count: number, max: number): [number, number] {
+  const width = Math.max(1, Math.min(max, count || 1));
+  return [width, Math.max(1, Math.ceil(count / width))];
+}
+function textureParameters(texture: THREE.Texture): void {
+  texture.minFilter = THREE.NearestFilter;
+  texture.magFilter = THREE.NearestFilter;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.generateMipmaps = false;
+  texture.unpackAlignment = 1;
+}
+function floatTexture(
+  data: Float32Array,
+  count: number,
+  max: number,
+): { texture: THREE.DataTexture; size: [number, number] } {
+  const size = dimensions(count, max);
+  const padded = new Float32Array(size[0] * size[1] * 4);
+  padded.set(data);
+  const texture = new THREE.DataTexture(
+    padded,
+    size[0],
+    size[1],
+    THREE.RGBAFormat,
+    THREE.FloatType,
+  );
+  textureParameters(texture);
+  texture.needsUpdate = true;
+  return { texture, size };
+}
+function indexTexture(
+  data: Uint32Array,
+  max: number,
+): { texture: THREE.DataTexture; size: [number, number] } {
+  const size = dimensions(data.length, max);
+  const padded = new Uint32Array(size[0] * size[1]);
+  padded.set(data);
+  const texture = new THREE.DataTexture(
+    padded,
+    size[0],
+    size[1],
+    THREE.RedIntegerFormat,
+    THREE.UnsignedIntType,
+  );
+  texture.internalFormat = 'R32UI';
+  textureParameters(texture);
+  texture.needsUpdate = true;
+  return { texture, size };
+}
+function buildStaticTextures(
+  source: GpuStreamingPagePlan['source'],
+  max: number,
+): StaticTextures {
+  const n = source.segmentCount * 2;
+  const positions = new Float32Array(n * 4);
+  const shapes = new Float32Array(n * 4);
+  const colors = new Float32Array(n * 4);
+  for (let i = 0; i < source.segmentCount; i++) {
+    for (const [endpoint, xyz] of [
+      [i * 2, source.starts],
+      [i * 2 + 1, source.ends],
+    ] as const) {
+      const si = endpoint === i * 2 ? i * 3 : i * 3;
+      const o = endpoint * 4;
+      positions[o] = xyz[si] ?? 0;
+      positions[o + 1] = xyz[si + 1] ?? 0;
+      positions[o + 2] = xyz[si + 2] ?? 0;
+      shapes[o] = Math.max(0, source.heights[i] ?? 0);
+      shapes[o + 1] = Math.max(0, source.widths[i] ?? 0);
+      shapes[o + 2] = source.capAngles?.[i] ?? source.angles?.[i] ?? 0;
+      shapes[o + 3] = source.biases?.[i] ?? 0;
+      const c = resolveToolpathColor(
+        source.palette,
+        source.features[i] ?? 0,
+        source.moveTypes[i] ?? 0,
+      );
+      colors[o] = c[0];
+      colors[o + 1] = c[1];
+      colors[o + 2] = c[2];
+      colors[o + 3] = source.layerIds[i] ?? 0;
+    }
+  }
+  const position = floatTexture(positions, n, max),
+    shape = floatTexture(shapes, n, max),
+    color = floatTexture(colors, n, max);
+  const dispose = onceDispose(() => {
+    position.texture.dispose();
+    shape.texture.dispose();
+    color.texture.dispose();
+  });
+  return {
+    position: position.texture,
+    shape: shape.texture,
+    color: color.texture,
+    positionSize: position.size,
+    shapeSize: shape.size,
+    colorSize: color.size,
+    bytes:
+      (position.texture.image.data as Float32Array).byteLength +
+      (shape.texture.image.data as Float32Array).byteLength +
+      (color.texture.image.data as Float32Array).byteLength,
+    dispose,
+  };
+}
+function makeMaterial(
+  staticTextures: StaticTextures,
+  index: THREE.DataTexture,
+  size: readonly [number, number],
+): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    vertexShader: SEGMENTS_VERTEX_SHADER,
+    fragmentShader: SEGMENTS_FRAGMENT_SHADER,
+    uniforms: {
+      position_tex: { value: staticTextures.position },
+      height_width_angle_tex: { value: staticTextures.shape },
+      color_tex: { value: staticTextures.color },
+      segment_index_tex: { value: index },
+      position_tex_size: { value: staticTextures.positionSize },
+      shape_tex_size: { value: staticTextures.shapeSize },
+      color_tex_size: { value: staticTextures.colorSize },
+      segment_index_tex_size: { value: size },
+      active_layer: { value: -1 },
+      earlier_layer_dim: { value: 1 },
+    },
+    transparent: true,
+    opacity: 1,
+    blending: THREE.NoBlending,
+    depthTest: true,
+    depthWrite: true,
+    // libvgcode disables GL_CULL_FACE for segments. Keep both faces visible;
+    // opaque output and depth testing still provide correct occlusion.
+    side: THREE.DoubleSide,
+  });
+}
+function isWebGL2Context(context: WebGLRenderingContext): boolean {
+  const version = String(context.getParameter?.(context.VERSION) ?? '');
+  return (
+    /WebGL\s*2/i.test(version) ||
+    (typeof WebGL2RenderingContext !== 'undefined' &&
+      context instanceof WebGL2RenderingContext)
+  );
+}
+function numberParameter(
+  context: WebGLRenderingContext,
+  p: number,
+): number | null {
+  const value = context.getParameter?.(p);
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+export function probeGpuStreamingCapabilities(
+  context: WebGLRenderingContext,
+): GpuStreamingCapabilityProbe {
+  const limits = {
+    maxTextureSize: numberParameter(context, context.MAX_TEXTURE_SIZE),
+    maxTextureImageUnits: numberParameter(
+      context,
+      context.MAX_TEXTURE_IMAGE_UNITS,
+    ),
+    maxVertexTextureImageUnits: numberParameter(
+      context,
+      context.MAX_VERTEX_TEXTURE_IMAGE_UNITS,
+    ),
+    textureUnitsRequired: REQUIRED_TEXTURE_UNITS,
+  };
+  if (!isWebGL2Context(context))
+    return { supported: false, reason: 'webgl2-required', limits };
+  if ((limits.maxTextureSize ?? 0) < 1)
+    return { supported: false, reason: 'texture-size-unavailable', limits };
+  if ((limits.maxTextureImageUnits ?? 0) < REQUIRED_TEXTURE_UNITS)
+    return { supported: false, reason: 'texture-units-insufficient', limits };
+  if ((limits.maxVertexTextureImageUnits ?? 0) < 1)
+    return {
+      supported: false,
+      reason: 'vertex-texture-fetch-unavailable',
+      limits,
+    };
+  return { supported: true, reason: null, limits };
+}
 
 export class GpuStreamingRenderer {
-  readonly capabilities: GpuStreamingCapabilityProbe; readonly template: GpuStreamingSegmentTemplateResource; readonly pages: readonly PageState[]; private readonly source: GpuStreamingPagePlan['source']; private readonly staticTextures: StaticTextures; private readonly contextElement?: GpuStreamingRendererHost; private palette: readonly ToolpathFeature[]; private disposed=false; private contextLost=false; private gpuDisposed=false; private _indexUploadCount=0; private _indexUploadedBytes=0;
-  constructor(plan: GpuStreamingPagePlan,capabilities: GpuStreamingCapabilityProbe,template: GpuStreamingSegmentTemplateResource,staticTextures: StaticTextures,pages: readonly PageState[],renderer?: GpuStreamingRendererHost){this.source=plan.source;this.palette=plan.source.palette;this.capabilities=capabilities;this.template=template;this.staticTextures=staticTextures;this.pages=pages;this.contextElement=renderer;renderer?.domElement?.addEventListener?.('webglcontextlost',this.handleContextLost);}
-  get indexUploadCount(){return this._indexUploadCount;} get indexUploadedBytes(){return this._indexUploadedBytes;} get entityUploadCount(){return this._indexUploadCount;} get entityUploadedBytes(){return this._indexUploadedBytes;} get staticUploadCount(){return 3;} get staticUploadedBytes(){return this.staticTextures.bytes;} get dynamicIndexBytes(){return this._indexUploadedBytes;} get paletteBytes(){return (this.staticTextures.color.image.data as Float32Array).byteLength;} get allocatedBytes(){return null;} get knownResidentBytes(){return this.staticUploadedBytes+this.pages.reduce((n,p)=>n+p.indexData.byteLength,0);} get unknownFeatureIds(){return this.collectUnknownFeatures(this.palette);} get sceneObjects(){return this.pages.map(p=>p.mesh);} get status(){return this.disposed?'disposed':this.contextLost?'context-lost':'ready';} get drawInstanceCounts(){return this.pages.map(p=>p.instanceCount);}
-  attachToScene(scene: THREE.Object3D){for(const p of this.pages)if(p.mesh.parent!==scene)scene.add(p.mesh);} detachFromScene(scene: THREE.Object3D){for(const p of this.pages)if(p.mesh.parent===scene)scene.remove(p.mesh);} notifyPageRendered(_page: number){} commitDrawBoundary(){}
-  private readonly handleContextLost=(event?:Event)=>{event?.preventDefault?.();if(!this.disposed){this.contextLost=true;this.disposeGpuResources();}};
-  private collectUnknownFeatures(palette: readonly ToolpathFeature[]): readonly number[]{const known=new Set(palette.map(x=>x.id));return Object.freeze([...new Set(Array.from(this.source.features).filter(x=>!known.has(x)))].sort((a,b)=>a-b));}
-  updateSelection(selection: GpuStreamingSelection): GpuStreamingSelectionUpdate {if(this.disposed||this.contextLost)throw new Error('GPU SegmentTemplate renderer is unavailable');if(selection.pages.length!==this.pages.length)throw new RangeError('selection page count does not match page plan');let bytes=0;for(let i=0;i<this.pages.length;i++){const page=this.pages[i]!,selected=selection.pages[i]!;if(selected.firstSegment!==page.planPage.firstSegment||selected.indices.length!==selected.emittedCount)throw new RangeError(`selection page ${i} does not match page plan`);if(selected.emittedCount>page.planPage.segmentCount)throw new RangeError(`selection page ${i} exceeds index capacity`);for(const local of selected.indices)if(local>=page.planPage.segmentCount)throw new RangeError(`selection page ${i} contains an out-of-range local index`);page.indexData.fill(0);page.indexData.set(selected.indices);page.indexTexture.needsUpdate=true;page.mesh.count=selected.emittedCount;page.instanceCount=selected.emittedCount;page.selectedSourceIndices.length=0;selected.indices.forEach(local=>page.selectedSourceIndices.push(page.planPage.firstSegment+local));bytes+=selected.emittedCount*4;}this._indexUploadCount+=this.pages.length;this._indexUploadedBytes=bytes;return{uploadedPageCount:this.pages.length,drawInstanceCounts:this.drawInstanceCounts};}
-  updateCamera(_camera:{readonly position?:THREE.Vector3;readonly viewProjection?:THREE.Matrix4}){}
-  updateDimming(activeLayer:number,earlierLayerDim=0.25){if(this.disposed||this.contextLost)return;for(const page of this.pages){const uniforms=(page.mesh.material as THREE.ShaderMaterial).uniforms;uniforms.active_layer.value=activeLayer;uniforms.earlier_layer_dim.value=earlierLayerDim;}}
-  updatePalette(palette: readonly ToolpathFeature[]): GpuStreamingPaletteUpdate{if(this.disposed||this.contextLost)throw new Error('GPU SegmentTemplate renderer is unavailable');this.palette=palette;const colors=this.staticTextures.color.image.data as Float32Array;for(let i=0;i<this.source.segmentCount;i++){const c=resolveToolpathColor(palette,this.source.features[i]??0,this.source.moveTypes[i]??0);for(const endpoint of [i*2,i*2+1]){const o=endpoint*4;colors[o]=c[0];colors[o+1]=c[1];colors[o+2]=c[2];}}this.staticTextures.color.needsUpdate=true;return{uploaded:true,unknownFeatureIds:this.collectUnknownFeatures(palette)};}
-  private disposeGpuResources(){if(this.gpuDisposed)return;this.gpuDisposed=true;for(const page of this.pages){page.mesh.count=0;page.instanceCount=0;page.selectedSourceIndices.length=0;page.indexTexture.dispose();(page.mesh.material as THREE.Material).dispose();}this.staticTextures.dispose();this.template.dispose();}
-  dispose(){if(this.disposed)return;this.disposed=true;this.contextElement?.domElement?.removeEventListener?.('webglcontextlost',this.handleContextLost);this.disposeGpuResources();}
+  readonly capabilities: GpuStreamingCapabilityProbe;
+  readonly template: GpuStreamingSegmentTemplateResource;
+  readonly pages: readonly PageState[];
+  private readonly source: GpuStreamingPagePlan['source'];
+  private readonly staticTextures: StaticTextures;
+  private readonly contextElement?: GpuStreamingRendererHost;
+  private palette: readonly ToolpathFeature[];
+  private disposed = false;
+  private contextLost = false;
+  private gpuDisposed = false;
+  private _indexUploadCount = 0;
+  private _indexUploadedBytes = 0;
+  constructor(
+    plan: GpuStreamingPagePlan,
+    capabilities: GpuStreamingCapabilityProbe,
+    template: GpuStreamingSegmentTemplateResource,
+    staticTextures: StaticTextures,
+    pages: readonly PageState[],
+    renderer?: GpuStreamingRendererHost,
+  ) {
+    this.source = plan.source;
+    this.palette = plan.source.palette;
+    this.capabilities = capabilities;
+    this.template = template;
+    this.staticTextures = staticTextures;
+    this.pages = pages;
+    this.contextElement = renderer;
+    renderer?.domElement?.addEventListener?.(
+      'webglcontextlost',
+      this.handleContextLost,
+    );
+  }
+  get indexUploadCount() {
+    return this._indexUploadCount;
+  }
+  get indexUploadedBytes() {
+    return this._indexUploadedBytes;
+  }
+  get entityUploadCount() {
+    return this._indexUploadCount;
+  }
+  get entityUploadedBytes() {
+    return this._indexUploadedBytes;
+  }
+  get staticUploadCount() {
+    return 3;
+  }
+  get staticUploadedBytes() {
+    return this.staticTextures.bytes;
+  }
+  get dynamicIndexBytes() {
+    return this._indexUploadedBytes;
+  }
+  get paletteBytes() {
+    return (this.staticTextures.color.image.data as Float32Array).byteLength;
+  }
+  get allocatedBytes() {
+    return null;
+  }
+  get knownResidentBytes() {
+    return (
+      this.staticUploadedBytes +
+      this.pages.reduce((n, p) => n + p.indexData.byteLength, 0)
+    );
+  }
+  get unknownFeatureIds() {
+    return this.collectUnknownFeatures(this.palette);
+  }
+  get sceneObjects() {
+    return this.pages.map((p) => p.mesh);
+  }
+  get status() {
+    return this.disposed
+      ? 'disposed'
+      : this.contextLost
+        ? 'context-lost'
+        : 'ready';
+  }
+  get drawInstanceCounts() {
+    return this.pages.map((p) => p.instanceCount);
+  }
+  attachToScene(scene: THREE.Object3D) {
+    for (const p of this.pages) if (p.mesh.parent !== scene) scene.add(p.mesh);
+  }
+  detachFromScene(scene: THREE.Object3D) {
+    for (const p of this.pages)
+      if (p.mesh.parent === scene) scene.remove(p.mesh);
+  }
+  notifyPageRendered(_page: number) {}
+  commitDrawBoundary() {}
+  private readonly handleContextLost = (event?: Event) => {
+    event?.preventDefault?.();
+    if (!this.disposed) {
+      this.contextLost = true;
+      this.disposeGpuResources();
+    }
+  };
+  private collectUnknownFeatures(
+    palette: readonly ToolpathFeature[],
+  ): readonly number[] {
+    const known = new Set(palette.map((x) => x.id));
+    return Object.freeze(
+      [
+        ...new Set(
+          Array.from(this.source.features).filter((x) => !known.has(x)),
+        ),
+      ].sort((a, b) => a - b),
+    );
+  }
+  updateSelection(
+    selection: GpuStreamingSelection,
+  ): GpuStreamingSelectionUpdate {
+    if (this.disposed || this.contextLost)
+      throw new Error('GPU SegmentTemplate renderer is unavailable');
+    if (selection.pages.length !== this.pages.length)
+      throw new RangeError('selection page count does not match page plan');
+    let bytes = 0;
+    for (let i = 0; i < this.pages.length; i++) {
+      const page = this.pages[i]!,
+        selected = selection.pages[i]!;
+      if (
+        selected.firstSegment !== page.planPage.firstSegment ||
+        selected.indices.length !== selected.emittedCount
+      )
+        throw new RangeError(`selection page ${i} does not match page plan`);
+      if (selected.emittedCount > page.planPage.segmentCount)
+        throw new RangeError(`selection page ${i} exceeds index capacity`);
+      for (const local of selected.indices)
+        if (local >= page.planPage.segmentCount)
+          throw new RangeError(
+            `selection page ${i} contains an out-of-range local index`,
+          );
+      page.indexData.fill(0);
+      page.indexData.set(selected.indices);
+      page.indexTexture.needsUpdate = true;
+      page.mesh.count = selected.emittedCount;
+      page.instanceCount = selected.emittedCount;
+      page.selectedSourceIndices.length = 0;
+      selected.indices.forEach((local) =>
+        page.selectedSourceIndices.push(page.planPage.firstSegment + local),
+      );
+      bytes += selected.emittedCount * 4;
+    }
+    this._indexUploadCount += this.pages.length;
+    this._indexUploadedBytes = bytes;
+    return {
+      uploadedPageCount: this.pages.length,
+      drawInstanceCounts: this.drawInstanceCounts,
+    };
+  }
+  updateCamera(_camera: {
+    readonly position?: THREE.Vector3;
+    readonly viewProjection?: THREE.Matrix4;
+  }) {}
+  updateDimming(activeLayer: number, earlierLayerDim = 0.25) {
+    if (this.disposed || this.contextLost) return;
+    for (const page of this.pages) {
+      const uniforms = (page.mesh.material as THREE.ShaderMaterial).uniforms;
+      uniforms.active_layer.value = activeLayer;
+      uniforms.earlier_layer_dim.value = earlierLayerDim;
+    }
+  }
+  updatePalette(
+    palette: readonly ToolpathFeature[],
+  ): GpuStreamingPaletteUpdate {
+    if (this.disposed || this.contextLost)
+      throw new Error('GPU SegmentTemplate renderer is unavailable');
+    this.palette = palette;
+    const colors = this.staticTextures.color.image.data as Float32Array;
+    for (let i = 0; i < this.source.segmentCount; i++) {
+      const c = resolveToolpathColor(
+        palette,
+        this.source.features[i] ?? 0,
+        this.source.moveTypes[i] ?? 0,
+      );
+      for (const endpoint of [i * 2, i * 2 + 1]) {
+        const o = endpoint * 4;
+        colors[o] = c[0];
+        colors[o + 1] = c[1];
+        colors[o + 2] = c[2];
+      }
+    }
+    this.staticTextures.color.needsUpdate = true;
+    return {
+      uploaded: true,
+      unknownFeatureIds: this.collectUnknownFeatures(palette),
+    };
+  }
+  private disposeGpuResources() {
+    if (this.gpuDisposed) return;
+    this.gpuDisposed = true;
+    for (const page of this.pages) {
+      page.mesh.count = 0;
+      page.instanceCount = 0;
+      page.selectedSourceIndices.length = 0;
+      page.indexTexture.dispose();
+      (page.mesh.material as THREE.Material).dispose();
+    }
+    this.staticTextures.dispose();
+    this.template.dispose();
+  }
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.contextElement?.domElement?.removeEventListener?.(
+      'webglcontextlost',
+      this.handleContextLost,
+    );
+    this.disposeGpuResources();
+  }
 }
-function defaultTemplate(): GpuStreamingSegmentTemplateResource{const geometry=createSegmentTemplateGeometry();return{geometry,dispose:onceDispose(()=>geometry.dispose())};}
-export function createGpuStreamingRenderer(plan: GpuStreamingPagePlan,options: GpuStreamingRendererOptions={}): GpuStreamingBuildResult {if(!plan||!plan.diagnostics||!Array.isArray(plan.pages))return{ok:false,diagnostics:{reason:'invalid-page-plan',message:'A valid GpuStreamingPagePlan is required',capabilities:null}};if(plan.diagnostics.budgetExceeded)return{ok:false,diagnostics:{reason:'gpu-budget-exceeded',message:`GPU SegmentTemplate plan exceeds configured budget of ${plan.diagnostics.budgetBytes} bytes`,capabilities:null}};let context:WebGLRenderingContext|undefined;try{context=options.context??options.renderer?.getContext();}catch(error){return{ok:false,diagnostics:{reason:'context-query-failed',message:error instanceof Error?error.message:String(error),capabilities:null}}}if(!context)return{ok:false,diagnostics:{reason:'no-context',message:'A WebGL2 context is required for native SegmentTemplate rendering',capabilities:null}};let capabilities:GpuStreamingCapabilityProbe;try{capabilities=probeGpuStreamingCapabilities(context);}catch(error){return{ok:false,diagnostics:{reason:'capability-query-failed',message:error instanceof Error?error.message:String(error),capabilities:null}}}if(!capabilities.supported)return{ok:false,diagnostics:{reason:capabilities.reason??'unsupported',message:'Native SegmentTemplate rendering requires WebGL2, integer textures, and vertex texture fetch',capabilities}};let template:GpuStreamingSegmentTemplateResource|undefined;let textures:StaticTextures|undefined;const pages:PageState[]=[];try{const facade=options.resourceFacade;const create=facade?.createSegmentTemplate??facade?.createEntityTemplate??defaultTemplate;const created=create();template={...created,dispose:onceDispose(created.dispose)};if(template.geometry.getAttribute('vertex_id')===undefined)template.geometry.setAttribute('vertex_id',new THREE.Uint8BufferAttribute(SEGMENT_TEMPLATE_VERTEX_IDS,1));textures=buildStaticTextures(plan.source,capabilities.limits.maxTextureSize!);for(const page of plan.pages){const index=indexTexture(new Uint32Array(page.segmentCount),capabilities.limits.maxTextureSize!);const material=makeMaterial(textures,index.texture,index.size);const mesh=new THREE.InstancedMesh(template.geometry,material,page.segmentCount);mesh.count=0;mesh.frustumCulled=false;mesh.renderOrder=1000;pages.push({planPage:page,mesh,indexData:index.texture.image.data as Uint32Array,indexTexture:index.texture,selectedSourceIndices:[],instanceCount:0});}const backend=new GpuStreamingRenderer(plan,capabilities,template,textures,pages,options.renderer);if(options.compile!==false&&options.renderer?.compile){const scene=new THREE.Scene();pages.forEach(p=>scene.add(p.mesh));options.renderer.compile(scene,new THREE.Camera());}return{ok:true,backend};}catch(error){for(const page of pages){page.indexTexture.dispose();(page.mesh.material as THREE.Material).dispose();}textures?.dispose();template?.dispose();return{ok:false,diagnostics:{reason:'construction-failed',message:error instanceof Error?error.message:String(error),capabilities}};}}
+function defaultTemplate(): GpuStreamingSegmentTemplateResource {
+  const geometry = createSegmentTemplateGeometry();
+  return { geometry, dispose: onceDispose(() => geometry.dispose()) };
+}
+export function createGpuStreamingRenderer(
+  plan: GpuStreamingPagePlan,
+  options: GpuStreamingRendererOptions = {},
+): GpuStreamingBuildResult {
+  if (!plan || !plan.diagnostics || !Array.isArray(plan.pages))
+    return {
+      ok: false,
+      diagnostics: {
+        reason: 'invalid-page-plan',
+        message: 'A valid GpuStreamingPagePlan is required',
+        capabilities: null,
+      },
+    };
+  if (plan.diagnostics.budgetExceeded)
+    return {
+      ok: false,
+      diagnostics: {
+        reason: 'gpu-budget-exceeded',
+        message: `GPU SegmentTemplate plan exceeds configured budget of ${plan.diagnostics.budgetBytes} bytes`,
+        capabilities: null,
+      },
+    };
+  let context: WebGLRenderingContext | undefined;
+  try {
+    context = options.context ?? options.renderer?.getContext();
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: {
+        reason: 'context-query-failed',
+        message: error instanceof Error ? error.message : String(error),
+        capabilities: null,
+      },
+    };
+  }
+  if (!context)
+    return {
+      ok: false,
+      diagnostics: {
+        reason: 'no-context',
+        message:
+          'A WebGL2 context is required for native SegmentTemplate rendering',
+        capabilities: null,
+      },
+    };
+  let capabilities: GpuStreamingCapabilityProbe;
+  try {
+    capabilities = probeGpuStreamingCapabilities(context);
+  } catch (error) {
+    return {
+      ok: false,
+      diagnostics: {
+        reason: 'capability-query-failed',
+        message: error instanceof Error ? error.message : String(error),
+        capabilities: null,
+      },
+    };
+  }
+  if (!capabilities.supported)
+    return {
+      ok: false,
+      diagnostics: {
+        reason: capabilities.reason ?? 'unsupported',
+        message:
+          'Native SegmentTemplate rendering requires WebGL2, integer textures, and vertex texture fetch',
+        capabilities,
+      },
+    };
+  let template: GpuStreamingSegmentTemplateResource | undefined;
+  let textures: StaticTextures | undefined;
+  const pages: PageState[] = [];
+  try {
+    const facade = options.resourceFacade;
+    const create =
+      facade?.createSegmentTemplate ??
+      facade?.createEntityTemplate ??
+      defaultTemplate;
+    const created = create();
+    template = { ...created, dispose: onceDispose(created.dispose) };
+    if (template.geometry.getAttribute('vertex_id') === undefined)
+      template.geometry.setAttribute(
+        'vertex_id',
+        new THREE.Uint8BufferAttribute(SEGMENT_TEMPLATE_VERTEX_IDS, 1),
+      );
+    template.geometry.setDrawRange(0, SEGMENT_TEMPLATE_INVOCATION_COUNT);
+    textures = buildStaticTextures(
+      plan.source,
+      capabilities.limits.maxTextureSize!,
+    );
+    for (const page of plan.pages) {
+      const index = indexTexture(
+        new Uint32Array(page.segmentCount),
+        capabilities.limits.maxTextureSize!,
+      );
+      const material = makeMaterial(textures, index.texture, index.size);
+      const mesh = new THREE.InstancedMesh(
+        template.geometry,
+        material,
+        page.segmentCount,
+      );
+      mesh.count = 0;
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 1000;
+      pages.push({
+        planPage: page,
+        mesh,
+        indexData: index.texture.image.data as Uint32Array,
+        indexTexture: index.texture,
+        selectedSourceIndices: [],
+        instanceCount: 0,
+      });
+    }
+    const backend = new GpuStreamingRenderer(
+      plan,
+      capabilities,
+      template,
+      textures,
+      pages,
+      options.renderer,
+    );
+    if (options.compile !== false && options.renderer?.compile) {
+      const scene = new THREE.Scene();
+      pages.forEach((p) => scene.add(p.mesh));
+      options.renderer.compile(scene, new THREE.Camera());
+    }
+    return { ok: true, backend };
+  } catch (error) {
+    for (const page of pages) {
+      page.indexTexture.dispose();
+      (page.mesh.material as THREE.Material).dispose();
+    }
+    textures?.dispose();
+    template?.dispose();
+    return {
+      ok: false,
+      diagnostics: {
+        reason: 'construction-failed',
+        message: error instanceof Error ? error.message : String(error),
+        capabilities,
+      },
+    };
+  }
+}

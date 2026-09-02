@@ -365,24 +365,16 @@ and drives structural operations through the typed client.
 
 ### G-code preview GPU streaming renderer
 
-> [!info] Opaque solid-entity design accepted 2026-09-02. The earlier
-> atlas/texel-fetch shader design is superseded; browser/dual-host verification
-> remains opt-in and representative integrated-GPU performance evidence is
-> pending, so the default stays off with automatic B2 fallback. Browser
-> hardware limits and measurements are recorded in the living implementation
-> entry. The accepted depth policy is transparent-queue ordering only
-> (`transparent: true`, `NoBlending`) with `depthTest: true`, `depthWrite: true`,
-> and `FrontSide` in the Three adaptation: preview shells do not write depth,
-> while solid toolpaths self-occlude and cull their back faces. Native
-> libvgcode disables `GL_CULL_FACE`; this culling flag is an intentional
-> difference required by the physical diamond-profile adaptation.
-> Toolpath materials use flat-shaded `MeshStandardMaterial` with the existing
-> scene lights. A shared four-point diamond-profile prism follows native
-> libvgcode's cardinal `line_right`/`line_up` cross-section. Shared pointy
-> endpoint pyramids appear only at true visible starts/ends; selection-aware
-> continuity suppresses caps at same-type joins and restores them at filtered
-> or discontinuous boundaries. B2 and streaming use the same matrices, with
-> no dark endpoint block, square/chamfer, gap, alpha outline, or blend pass.
+> [!info] Native libvgcode SegmentTemplate GPU path accepted 2026-09-02. The
+> shared template has 8 logical vertices and 24 invocations per segment; the
+> camera-aware vertex shader retains `POINTY_CAPS` and `FIX_TWISTING`. Static
+> position/shape/colour data use RGBA32F textures and selected IDs use R32UI
+> textures. The material is opaque (`NoBlending`, depth test/write); DoubleSide
+> matches native `GL_CULL_FACE` disable, with depth buffering providing
+> occlusion. Entity matrices/caps are no longer the active GPU implementation.
+> Browser/dual-host verification remains opt-in and representative integrated-
+> GPU performance evidence is pending, so B2 remains the unavailable-GPU
+> fallback. Browser hardware limits are recorded in the living entry.
 > Travel segments are coloured by their move type rather than any preserved
 > extrusion role, using libvgcode's `Travels` colour `RGB(56, 72, 155)`;
 > extrusion feature filters do not hide travel, and the global travel toggle
@@ -404,9 +396,10 @@ and drives structural operations through the typed client.
 - [x] Step 1 — accept the source-neutral planner and deterministic 250k/1m
       metadata fixture contract (no bridge change)
 - [x] Step 2 — source adapter/page planner behind the current B2 backend
-- [x] Step 3 — WebGL2 opaque solid-entity backend and capability/lifetime
-      fallback (shared diamond-profile prism + page-local InstancedMesh; no custom
-      thickness shader or alpha blend)
+- [x] Step 3 — WebGL2 native libvgcode SegmentTemplate backend and
+      capability/lifetime fallback (8 logical vertices / 24 invocations,
+      camera-aware POINTY_CAPS + FIX_TWISTING shader, RGBA32F static textures,
+      page-local R32UI selected-index textures; no alpha blend)
 - [x] Step 4 — real preview integration behind an explicit default-off gate,
       fallback diagnostics, and opt-in dual-host smoke coverage
 - [ ] Step 5 — dual-host verification and browser performance evidence landed;
