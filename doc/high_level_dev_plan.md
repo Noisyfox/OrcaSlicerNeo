@@ -459,13 +459,9 @@
 The WebGL2 streaming/indexed-segment backend has passed functional, lifetime,
 and Web/Electron verification and is now the default and sole toolpath
 renderer. Capability, budget, compile, source, context, and selection failures
-produce an explicit unavailable diagnostic; there is no B2/entity fallback.
-The real-browser harness covers deterministic 250k/1m typed
-SoA streams and records static/index uploads, camera uniform-only frames,
-capabilities, and disposal. Current evidence is Windows Web Chrome 151 on
-SwiftShader and Electron 43.4 on an RTX 3080; it is not a representative
-2020 integrated-GPU or native pixel-equivalence claim; this evidence
-limitation does not change the default renderer selection.
+produce an explicit unavailable diagnostic. Browser smoke covers native default
+selection, static/index uploads, camera uniform-only frames, capabilities, and
+disposal; large-slice measurements remain manual diagnostics.
 See `doc/2026-09-02-gcode-preview-gpu-streaming-renderer.md`.
 
 ## Cross-Cutting Practices

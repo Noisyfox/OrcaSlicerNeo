@@ -28,10 +28,8 @@ function reportGpuStreamingDiagnostic(diagnostic: GpuStreamingDiagnostic): void 
  * Native Orca/libvgcode-style SegmentTemplate renderer.
  *
  * A capability, allocation, shader, or context failure leaves the preview
- * unavailable and reports a diagnostic. There is deliberately no CPU/entity
- * renderer here: having two path implementations made large previews select
- * different geometry and hid renderer failures behind a visually incomplete
- * result.
+ * unavailable and reports a diagnostic. A renderer failure remains visible to
+ * the user instead of silently changing the rendering contract.
  */
 export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
   const preview = useSlicerStore((s) => s.preview);

@@ -351,10 +351,8 @@ before changing the bridge contract:
   fixture with two configured distinct filament colours. It validates the
   Phase-C Filament/Tool palette and legend without requiring external G-code
   import.
-- **Performance streams:** deterministic synthetic segment streams containing
-  exactly 250,000 and 1,000,000 segments, partitioned like real layer chunks.
-  They isolate renderer throughput and adaptive-detail measurements from the
-  slicing duration and from future profile changes.
+- **Performance measurements:** representative 250,000- and 1,000,000-segment
+  browser diagnostics, kept outside the normal unit-test and product bundles.
 
 The fixture manifest records the native reference SHA, profile names/config,
 camera pose, selected ranges, theme, browser viewport, expected command/segment

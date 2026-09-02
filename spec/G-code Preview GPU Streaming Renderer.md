@@ -23,8 +23,8 @@ shared R3F `Canvas` uses Three.js `powerPreference: 'high-performance'`, while
 Electron adds Chromium's `force_high_performance_gpu` startup switch before
 creating a window. Neither setting selects a named adapter or makes a discrete
 GPU mandatory; browser/Electron capability checks and WebGL2 plus
-software-rendering remain available, but the toolpath renderer has no B2
-fallback: a native renderer failure is surfaced as an unavailable preview.
+software-rendering remain available, but a native renderer failure is surfaced
+as an unavailable preview.
 
 ## Goals and non-goals
 
@@ -44,7 +44,7 @@ Goals:
 
 Non-goals for this increment:
 
-- Retaining an entity-matrix or CPU fallback renderer.
+- Retaining an alternate CPU renderer.
 - A new C++ bridge, `libslic3r` change, or native libvgcode dependency.
 - Browser FPS claims, a synthetic GPU, or a wall-clock benchmark in unit tests.
 - External `.gcode` import, result editing, pause insertion, or custom G-code.
@@ -232,46 +232,15 @@ overhead. Enabled streams add at most 1 MiB and 4 MiB respectively when every
 segment is enabled. These are estimates, not hardware measurements or release
 claims.
 
-## Deterministic fixture and benchmark contract
+## Focused verification contract
 
-The repository fixture is metadata-only and lives in
-`packages/slicer-app/src/components/workspace/viewport/gpuStreamingFixture.ts`.
-It generates exactly 250,000 and 1,000,000 ordered synthetic segments using a
-fixed seed/formula, with compact `Uint32Array` layer/order data and
-`Uint8Array` category data. It never allocates endpoints, widths, Three.js
-objects, WebGL textures, or mock geometry.
-
-The pure tests must assert:
-
-- exact segment counts and byte-identical repeated generation;
-- contiguous, complete layer/page coverage and no split of normal synthetic
-  layers;
-- inclusive layer/move selection, travel filtering, feature hide semantics,
-  source-order stability and no duplicate IDs; and
-- a linear metadata scan (`visitedSegments === segmentCount`) with no geometry
-  construction or wall-clock threshold.
-
-This fixture is a deterministic contract/complexity harness, not an FPS
-benchmark. Large GPU timing measurements are manual diagnostics and are not
-part of the production bundle or normal e2e flow.
-
-## Migration steps and retention policy
-
-1. **Design + fixture (this step):** add this spec, the living task entry, and
-   the pure metadata fixture/tests.
-2. **Planner adapter:** map the source-neutral B1 result to static-page and
-   index-stream plans; test packing, round trips, page limits and disposal
-   with a fake resource tracker.
-3. **WebGL2 native backend:** implement atlas upload, shared template, shader,
-   dynamic streams and explicit unavailable-state diagnostics. Add renderer
-   tests; keep large timing measurements outside normal startup.
-4. **Dual-host verification:** run Web threaded/serial and Electron semantic
-   flows, same-renderer screenshots, context/budget tests, and manually review
-   the fixed native reference. (Functional, lifetime, and dual-host
-   verification passed on 2026-09-02.)
-5. **Default/removal:** make the native renderer the default and remove the
-   entity-matrix backend. Unsupported capability/context states remain
-   explicit unavailable diagnostics rather than selecting another renderer.
+The planner and renderer tests use small deterministic sources so unit tests
+remain fast and explain the behavior they protect. They cover complete
+layer-aligned page coverage, hard-capacity splitting, page-local selection,
+cross-page source addressing, travel/feature filters, native template shape,
+opaque depth state, capability failures, and resource release. Large
+250,000- and 1,000,000-segment measurements are browser diagnostics, not
+generated fixtures in the product or unit-test bundle.
 
 ## Risks and mitigations
 
@@ -310,8 +279,7 @@ unsupported native initialization is reported as unavailable.
 
 ## Accepted native SegmentTemplate architecture (2026-09-02)
 
-The prior entity-matrix/solid-cap implementation is superseded and is not the
-active GPU path. The active implementation uses one shared libvgcode-equivalent
+The active implementation uses one shared libvgcode-equivalent
 SegmentTemplate with eight logical vertices and 24 vertex invocations, plus one
 page-local instanced draw per planner page. Static position, height/width/angle/
 bias and colour/layer values are RGBA32F textures; selected local IDs are R32UI

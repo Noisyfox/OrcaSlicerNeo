@@ -371,10 +371,10 @@ and drives structural operations through the typed client.
 > position/shape/colour data use RGBA32F textures and selected IDs use R32UI
 > textures. The material is opaque (`NoBlending`, depth test/write); DoubleSide
 > matches native `GL_CULL_FACE` disable, with depth buffering providing
-> occlusion. Entity matrices/caps are no longer the active GPU implementation.
+> occlusion.
 > The native SegmentTemplate renderer is now the default and sole toolpath
 > backend. WebGL2/capability/context failures leave the preview unavailable and
-> expose a diagnostic; no B2/entity fallback remains. Large GPU timing
+> expose a diagnostic. Large GPU timing
 > measurements are manual diagnostics and are not part of normal startup/e2e.
 > Travel segments are coloured by their move type rather than any preserved
 > extrusion role, using libvgcode's `Travels` colour `RGB(56, 72, 155)`;
@@ -394,8 +394,7 @@ and drives structural operations through the typed client.
 > named/discrete GPU is required, and browser/Electron software/integrated-GPU
 > fallbacks remain available.
 
-- [x] Step 1 — accept the source-neutral planner and deterministic 250k/1m
-      metadata fixture contract (no bridge change)
+- [x] Step 1 — accept the source-neutral planner contract (no bridge change)
 - [x] Step 2 — source adapter/page planner
 - [x] Step 3 — WebGL2 native libvgcode SegmentTemplate backend and
       capability/lifetime fallback (8 logical vertices / 24 invocations,
@@ -405,8 +404,8 @@ and drives structural operations through the typed client.
       with each page's `firstSegment` before global static-texture fetches
 - [x] Step 4 — real preview integration with native renderer diagnostics and
       dual-host smoke coverage
-- [x] Step 5 — native renderer made default and obsolete B2/entity renderer
-      removed; unsupported native initialization is explicitly unavailable
+- [x] Step 5 — native renderer made default and sole toolpath backend;
+      unsupported native initialization is explicitly unavailable
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)

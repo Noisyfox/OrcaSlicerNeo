@@ -169,7 +169,7 @@ describe('native SegmentTemplate GPU renderer', () => {
     result.backend.dispose();
   });
 
-  it('streams pointy caps at selected boundaries with the same continuity as B2', () => {
+  it('streams pointy caps at selected boundaries with native continuity', () => {
     const p = planGpuStreamingPages(
       {
         ...source(),

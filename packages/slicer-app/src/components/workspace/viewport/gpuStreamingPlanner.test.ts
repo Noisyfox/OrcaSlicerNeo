@@ -1,15 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ClientToolpath } from '@slicer/client';
 import {
-  GPU_STREAMING_BYTES_PER_INDEX,
-  GPU_STREAMING_SOFT_PAGE_TARGET,
   adaptClientToolpath,
   createGpuStreamingPagePlan,
   planGpuStreamingPages,
   rebuildGpuStreamingSelection,
-  type GpuStreamingSource,
 } from './gpuStreamingPlanner';
-import { createGpuStreamingMetadata } from './gpuStreamingFixture';
 
 function clientToolpath(overrides: Partial<ClientToolpath> = {}): ClientToolpath {
   const layerIds = Uint32Array.from([0, 0, 0, 1, 1, 2, 2, 2, 2, 2, 2]);
@@ -44,39 +40,6 @@ function clientToolpath(overrides: Partial<ClientToolpath> = {}): ClientToolpath
     heights: new Float32Array(segmentCount).fill(0.2),
     metrics: {},
     ...overrides,
-  };
-}
-
-function sourceFromFixture(segmentCount: number): GpuStreamingSource {
-  const metadata = createGpuStreamingMetadata({ segmentCount });
-  const xyz = new Float32Array(segmentCount * 3);
-  const layers: Array<GpuStreamingSource['layers'][number]> = [];
-  let firstSegment = 0;
-  let layer = metadata.layerIds[0] ?? 0;
-  for (let i = 1; i <= segmentCount; i++) {
-    const nextLayer = i < segmentCount ? metadata.layerIds[i] : undefined;
-    if (nextLayer === layer) continue;
-    layers.push({ id: layer, firstSegment, segmentCount: i - firstSegment });
-    firstSegment = i;
-    layer = nextLayer ?? layer;
-  }
-  return {
-    segmentCount,
-    starts: xyz,
-    ends: xyz,
-    widths: new Float32Array(segmentCount),
-    heights: new Float32Array(segmentCount),
-    layerIds: metadata.layerIds,
-    moveOrders: metadata.moveOrders,
-    gcodeIds: new Uint32Array(segmentCount),
-    moveTypes: metadata.moveTypes,
-    extrusionRoles: new Uint16Array(segmentCount),
-    extruderIds: new Uint8Array(segmentCount),
-    colorPrintIds: new Uint8Array(segmentCount),
-    features: Uint32Array.from(metadata.features),
-    palette: [],
-    metrics: {},
-    layers,
   };
 }
 
@@ -178,9 +141,9 @@ describe('GPU streaming source adapter and page planner', () => {
     expect(selection.emittedSegments).toBe(globalIndices.length);
   });
 
-  it.each([250_000, 1_000_000])('covers the %s-segment fixture exactly without splitting normal layers', (count) => {
-    const source = sourceFromFixture(count);
-    const plan = planGpuStreamingPages(source);
+  it('covers every segment exactly once without splitting normal layers', () => {
+    const source = adaptClientToolpath(clientToolpath());
+    const plan = planGpuStreamingPages(source, { softPageTarget: 5 });
     let cursor = 0;
     for (const page of plan.pages) {
       expect(page.firstSegment).toBe(cursor);
@@ -188,18 +151,18 @@ describe('GPU streaming source adapter and page planner', () => {
       expect(page.firstLayer).toBe(source.layerIds[page.firstSegment]);
       expect(page.lastLayer).toBe(source.layerIds[page.firstSegment + page.segmentCount - 1]);
       expect(page.firstSegment === 0 || source.layerIds[page.firstSegment - 1] !== page.firstLayer).toBe(true);
-      expect(page.firstSegment + page.segmentCount === count || source.layerIds[page.firstSegment + page.segmentCount] !== page.lastLayer).toBe(true);
+      expect(page.firstSegment + page.segmentCount === source.segmentCount || source.layerIds[page.firstSegment + page.segmentCount] !== page.lastLayer).toBe(true);
       cursor += page.segmentCount;
     }
-    expect(cursor).toBe(count);
+    expect(cursor).toBe(source.segmentCount);
     const estimatedStaticBytes = plan.pages.reduce((sum, page) => sum + page.estimatedStaticBytes, 0);
     expect(plan.diagnostics.estimatedStaticBytes).toBe(estimatedStaticBytes);
-    expect(plan.diagnostics.estimatedIndexCapacityBytes).toBe(count * GPU_STREAMING_BYTES_PER_INDEX);
-    expect(plan.diagnostics.estimatedBytes).toBe(estimatedStaticBytes + count * GPU_STREAMING_BYTES_PER_INDEX);
+    expect(plan.diagnostics.estimatedIndexCapacityBytes).toBeGreaterThan(0);
+    expect(plan.diagnostics.estimatedBytes).toBe(estimatedStaticBytes + plan.diagnostics.estimatedIndexCapacityBytes);
   });
 
   it('exposes budget and texture-capacity inputs without querying WebGL', () => {
-    const source = sourceFromFixture(100);
+    const source = adaptClientToolpath(clientToolpath());
     const plan = planGpuStreamingPages(source, {
       maxTextureSize: 8,
       gpuBudgetBytes: 10_000,

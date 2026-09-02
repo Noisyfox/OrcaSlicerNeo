@@ -25,5 +25,5 @@ All paths are repository-relative. Native references must use the clean Orca
 baseline recorded in the manifest. Native OpenGL captures are manually
 reviewed against the fixed SHA; they are not cross-renderer pixel-diff goldens.
 
-The generation and verification sequence is maintained in
-`doc/2026-09-01-gcode-preview-v2-implementation.md`.
+The product and fixture scope is maintained in
+`spec/G-code Preview v2.md`.
