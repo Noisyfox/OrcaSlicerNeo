@@ -44,7 +44,7 @@ export type GpuStreamingRendererFactory = (
 ) => GpuStreamingBuildResult;
 
 export interface GpuStreamingFeatureGate {
-  /** Streaming is preferred by the production default but remains optional. */
+  /** Streaming can be enabled as an optional preference after acceptance. */
   readonly enabled: boolean;
   readonly plannerOptions?: GpuStreamingPlannerOptions;
   readonly rendererOptions?: Omit<GpuStreamingRendererOptions, 'renderer' | 'context'>;
@@ -53,13 +53,15 @@ export interface GpuStreamingFeatureGate {
 }
 
 /**
- * Production prefers the streaming backend.  This is deliberately a
- * preference, not a requirement: ToolpathLines keeps B2 authoritative until
- * capability, budget, construction, context, or selection checks succeed.
- * Callers can still pass `{ enabled: false }` for a host-neutral diagnostic
- * or regression run.
+ * The production default remains conservative until representative integrated
+ * GPU evidence meets the Preview v2 250k/1m FPS gate. This is deliberately a
+ * preference, not a requirement: when enabled, ToolpathLines keeps B2
+ * authoritative until capability, budget, construction, context, or
+ * selection checks succeed. Callers can pass `{ enabled: true }` for opt-in
+ * verification and `{ enabled: false }` for a host-neutral diagnostic or
+ * regression run.
  */
-export const DEFAULT_GPU_STREAMING_FEATURE_GATE: GpuStreamingFeatureGate = Object.freeze({ enabled: true });
+export const DEFAULT_GPU_STREAMING_FEATURE_GATE: GpuStreamingFeatureGate = Object.freeze({ enabled: false });
 
 export const GpuStreamingFeatureGateContext = createContext<GpuStreamingFeatureGate>(DEFAULT_GPU_STREAMING_FEATURE_GATE);
 

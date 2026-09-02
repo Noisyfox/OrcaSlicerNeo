@@ -1,7 +1,7 @@
 # G-code Preview GPU streaming renderer
 
 **Date:** 2026-09-02
-**Status:** Living implementation entry; step 5 browser/dual-host gate complete; streaming is the production preferred backend with silent B2 fallback
+**Status:** Living implementation entry; step 5 browser/dual-host work complete; default preference blocked pending representative integrated-GPU evidence; streaming has silent B2 fallback
 **Scope:** GPU streaming/indexed-segment redesign for the shared G-code preview
 
 ## Purpose and boundary
@@ -260,21 +260,25 @@ policy, and all preview controls remain outside this backend switch.
 5. **Step 5:** compare same-renderer Web/Electron behaviour and approved native
    references; switch the default only after all acceptance criteria pass.
 
-The current B2 backend remains the production fallback. After the step-5
-functional, memory/lifetime, capability/fallback, and dual-host gates passed,
-the streaming backend is now preferred by default; the browser evidence is
-recorded below with its hardware limitations. B2 is not removed.
+The current B2 backend remains the production path. The step-5 functional,
+memory/lifetime, capability/fallback, and dual-host gates passed, but the
+representative integrated-GPU performance gate is blocked: this Windows
+runner only provides Web SwiftShader and an RTX 3080. The default therefore
+remains disabled; the browser evidence and its hardware limitation are
+recorded below. B2 is not removed.
 
 ## Accepted step-5 browser and dual-host verification (2026-09-02)
 
-The shared feature gate now uses `DEFAULT_GPU_STREAMING_FEATURE_GATE =
-{ enabled: true }` as a preference. `ToolpathLines` still renders B2 until a
-streaming plan, WebGL2 capability probe, budget check, shader/atlas
+The shared feature gate remains `DEFAULT_GPU_STREAMING_FEATURE_GATE =
+{ enabled: false }` until representative integrated-GPU performance evidence
+is available. Passing `{ enabled: true }` is the host-neutral opt-in for
+verification; `{ enabled: false }` remains the explicit B2 override for
+regressions and diagnostics. When enabled, `ToolpathLines` still renders B2
+until a streaming plan, WebGL2 capability probe, budget check, shader/atlas
 construction, and selection update all succeed. Any failure reports a
-non-blocking diagnostic and returns to B2; passing `{ enabled: false }` remains
-the host-neutral explicit override for regressions and diagnostics. No
-persistent UI setting was added, and a successful streaming construction
-removes B2 so the scene is never double-drawn.
+non-blocking diagnostic and returns to B2. No persistent UI setting was added,
+and a successful streaming construction removes B2 so the scene is never
+double-drawn.
 
 The opt-in `ORCA_E2E_GPU_STREAMING_PERF=1` browser harness is exposed only by
 e2e builds. It creates the deterministic metadata fixture, adds bulk typed SoA
@@ -305,6 +309,10 @@ native Orca bit-for-bit screenshots is made. Driver-reported texture
 allocation remains unavailable (`null` in the backend contract); the harness
 records observable geometry lifetime and all owned resources are disposed.
 
-The browser harness and default flow passed on both hosts. B2 remains retained
-as the automatic capability/budget/compile/source/context/selection fallback;
-its removal is still a separately approved cleanup after a release cycle.
+The browser harness and default flow passed on both hosts, with the latest Web
+SwiftShader rerun completing 250k but timing out during the subsequent 1m
+case after 120 seconds; an earlier independent Web run supplied the 1m row
+shown above. That timeout reinforces that this runner cannot establish the
+representative integrated-GPU gate. B2 remains the automatic
+capability/budget/compile/source/context/selection fallback; its removal is
+still a separately approved cleanup after a release cycle.

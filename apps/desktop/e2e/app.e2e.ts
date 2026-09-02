@@ -244,8 +244,8 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
         .toBeGreaterThan(0);
     }
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
-    // The default gate prefers streaming. A capable browser reports ready;
-    // optional backend failures are accepted only with an explicit B2 reason.
+    // The default gate keeps B2 until representative integrated-GPU evidence;
+    // an opt-in capable browser reports ready, and B2 reports a reason.
     await expect.poll(() => page.evaluate(() => {
       const hooks = (window as unknown as {
         __orcaE2e?: {

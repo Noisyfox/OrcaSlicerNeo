@@ -51,7 +51,12 @@ export function ToolpathLines({
   const [activeStreaming, setActiveStreaming] = useState<{ plan: ReturnType<typeof buildGpuStreamingPlan>; backend: GpuStreamingBackend } | null>(null);
   const activeStreamingRef = useRef<typeof activeStreaming>(null);
   const initialSelectionBackendRef = useRef<GpuStreamingBackend | null>(null);
-  const fallbackDiagnosticRef = useRef<GpuStreamingDiagnostic | null>(null);
+  const fallbackDiagnosticRef = useRef<GpuStreamingDiagnostic | null>(
+    gate.enabled ? null : {
+      reason: 'feature-disabled',
+      message: 'GPU streaming is disabled by the shared feature gate; using the B2 preview backend',
+    },
+  );
   activeStreamingRef.current = activeStreaming;
   const source = data.source;
   const planState = useMemo(() => {

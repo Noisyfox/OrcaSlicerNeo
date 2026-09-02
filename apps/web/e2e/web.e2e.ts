@@ -72,8 +72,8 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   if (await layerHeight.count()) await layerHeight.fill('0.21');
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
-  // The default gate prefers streaming. A capable browser reports ready;
-  // optional backend failures are accepted only with an explicit B2 reason.
+  // The default gate keeps B2 until representative integrated-GPU evidence;
+  // an opt-in capable browser reports ready, and B2 reports a reason.
   await expect.poll(() => page.evaluate(() => {
     const hooks = (window as unknown as {
       __orcaE2e?: {

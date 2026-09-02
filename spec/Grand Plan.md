@@ -366,7 +366,8 @@ and drives structural operations through the typed client.
 ### G-code preview GPU streaming renderer
 
 > [!info] Design accepted 2026-09-02; browser/dual-host verification landed
-> 2026-09-02; streaming is now preferred with automatic B2 fallback. Browser
+> 2026-09-02; representative integrated-GPU performance evidence remains
+> pending, so the default stays off with automatic B2 fallback. Browser
 > hardware limits and measurements are recorded in the living implementation
 > entry.
 >
@@ -381,10 +382,10 @@ and drives structural operations through the typed client.
       (browser performance evidence remains pending)
 - [x] Step 4 — real preview integration behind an explicit default-off gate,
       fallback diagnostics, and opt-in dual-host smoke coverage
-- [x] Step 5 — dual-host verification, browser performance evidence, and
-      prefer-enabled default with automatic B2 fallback (later B2 cleanup
-      remains separate; current evidence uses Web SwiftShader and Electron
-      RTX 3080, not a representative 2020 integrated GPU)
+- [ ] Step 5 — dual-host verification and browser performance evidence landed;
+      prefer-enabled default remains blocked pending representative 2020
+      integrated-GPU 250k/1m evidence (current evidence uses Web SwiftShader
+      and Electron RTX 3080; later B2 cleanup remains separate)
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)

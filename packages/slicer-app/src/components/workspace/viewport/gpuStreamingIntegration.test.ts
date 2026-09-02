@@ -30,9 +30,10 @@ function source(): GpuStreamingSource {
 }
 
 describe('GPU streaming feature gate', () => {
-  it('prefers streaming by default while allowing an explicit B2 override', () => {
-    expect(DEFAULT_GPU_STREAMING_FEATURE_GATE.enabled).toBe(true);
-    expect(resolveGpuStreamingFeatureGate().enabled).toBe(true);
+  it('keeps streaming opt-in while allowing explicit B2 override', () => {
+    expect(DEFAULT_GPU_STREAMING_FEATURE_GATE.enabled).toBe(false);
+    expect(resolveGpuStreamingFeatureGate().enabled).toBe(false);
+    expect(resolveGpuStreamingFeatureGate({ enabled: true }).enabled).toBe(true);
     expect(resolveGpuStreamingFeatureGate({ enabled: false }).enabled).toBe(false);
   });
 
