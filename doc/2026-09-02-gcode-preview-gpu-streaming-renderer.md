@@ -114,7 +114,7 @@ The redesign preserves the accepted Preview v2 semantics: feature/line-type
 and travel filtering hide paths; dimming changes brightness but does not turn a
 visible segment into a hidden one; single-layer mode keeps a paired layer range
 and shows that layer from its first move through the active move end; and the
-generic camera-facing marker uses the last move at or before that end. Existing
+native-style solid hotend marker uses the last move at or before that end. Existing
 shell alpha/depth semantics and read-only result invalidation remain unchanged.
 
 The renderer consumes a source-neutral `PreviewSource`/`ClientToolpath` shape:
@@ -381,6 +381,25 @@ width/height, opaque NoBlending materials, unknown-feature fallback, complete
 multi-page upper-layer selection, filter rebuild, camera no-upload behavior,
 and idempotent disposal. `pnpm typecheck` and the focused slicer-app Vitest
 suite pass; native WASM C++ remains untouched.
+
+## Accepted native-style tool marker (2026-09-02)
+
+The previous square camera-facing sprite is replaced by a real Three.js hotend
+marker matching libvgcode's `ToolMarker::init(32, 2, 4, 1, 8)`: a 32-sided
+downward cone whose tip is local z=0, followed by a cylindrical stem. The
+marker group is anchored at the last mappable move endpoint plus z=0.5, with
+no screen-facing billboard or scale distortion. Its white material uses
+opacity 0.5, normal source-alpha blending, `depthTest: true`,
+`depthWrite: false`, and `DoubleSide`, matching libvgcode's disabled culling,
+depth-write suppression, and default alpha. Shared scene lights provide the
+native marker's ambient/diffuse/specular appearance; the marker is rendered at
+order 1100 after toolpaths.
+
+The marker follows native hide semantics: it is omitted when the visible layer
+and active move have reached the final enabled layer/move endpoint. Otherwise
+it remains at the last move at or before the active move, including the nearest
+preceding mapped move behaviour already defined by Preview v2. This change is
+marker-only: toolpath entities retain their opaque `NoBlending` contract.
 
 ## Historical shell depth regression (superseded)
 

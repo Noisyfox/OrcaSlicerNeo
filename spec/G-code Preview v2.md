@@ -34,8 +34,8 @@ Phase B is the first shipping target. It provides:
   rather than fixed-width screen-space lines;
 - Orca-style inspection emphasis: the current upper layer is prominent and
   earlier visible layers are dimmed by default;
-- a lightweight camera-facing nozzle marker at the final move in the active
-  range;
+- a native-style solid hotend marker at the last mappable move in the active
+  range, hidden at the final enabled endpoint;
 - the existing Preview shell behaviour: model shells remain at alpha 0.15 and
   paths are not depth-occluded by them.
 
@@ -95,8 +95,14 @@ Phase C displays no read-only layer-slider ticks for existing pauses, colour
 changes, tool changes, or custom G-code. They will be designed with a future
 result-editing feature instead of being partially exposed here.
 
-The Phase-C current-move marker is a generic 3D nozzle/tool visual, not a
-printer-model-specific asset.
+The current-move marker is a native-style 32-sided downward hotend arrow: a
+cone with 2 mm radius and 4 mm height followed by a 1 mm radius, 8 mm tall
+stem. Its tip is anchored at the selected move endpoint plus 0.5 mm in Z. It
+uses the Orca/libvgcode default white, 0.5 alpha, normal source-alpha blend,
+double-sided rendering, depth testing, and disabled depth writes. It is hidden
+when the visible range reaches the final enabled layer and move. A future
+printer-specific hotend asset may replace this shared geometric marker only
+through a separate approved design.
 
 ## Data-source boundary
 
@@ -202,7 +208,7 @@ are the supported ways to select a move.
 
 ### Current-move information
 
-Phase B renders a lightweight camera-facing marker at the current move. Phase
+Phase B renders a native-style solid hotend marker at the current move. Phase
 C adds a native-style inspection card next to the marker or in the right-top
 overlay. It displays, when available: layer number and Z, X/Y/Z position, move
 type, feature, source G-code line, and the values relevant to the selected

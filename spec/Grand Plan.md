@@ -380,6 +380,10 @@ and drives structural operations through the typed client.
 > scene lights. A shared chamfered prism supplies scale-aware physical edge
 > relief between neighbouring same-colour paths; no gap, alpha outline, or
 > blend pass is introduced.
+> The current-move marker is a native-style 32-sided cone-and-cylinder hotend,
+> anchored at the last mapped endpoint plus 0.5 mm Z, using white 0.5 alpha,
+> normal source-alpha blending, depth testing, disabled depth writes, and
+> double-sided rendering. It hides at the final enabled endpoint.
 >
 > Major renderer/performance specification:
 > [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)
