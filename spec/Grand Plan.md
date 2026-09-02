@@ -365,8 +365,8 @@ and drives structural operations through the typed client.
 
 ### G-code preview GPU streaming renderer
 
-> [!info] Design accepted 2026-09-02; backend implementation landed 2026-09-02;
-> browser evidence and default integration remain open
+> [!info] Design accepted 2026-09-02; backend and default-off preview
+> integration landed 2026-09-02; browser evidence and default switch remain open
 >
 > Major renderer/performance specification:
 > [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)
@@ -375,9 +375,12 @@ and drives structural operations through the typed client.
       deterministic 250k/1m metadata fixture contract (no renderer or bridge
       change)
 - [x] Step 2 — source adapter/page planner behind the current B2 backend
-- [ ] Step 3 — WebGL2 streaming backend, capability fallback, and browser
-      performance evidence (backend portion landed; browser evidence pending)
-- [ ] Step 4 — dual-host verification, default switch, and later B2 cleanup
+- [x] Step 3 — WebGL2 streaming backend and capability/lifetime fallback
+      (browser performance evidence remains pending)
+- [x] Step 4 — real preview integration behind an explicit default-off gate,
+      fallback diagnostics, and opt-in dual-host smoke coverage
+- [ ] Step 5 — dual-host verification, browser performance evidence, default
+      switch, and later B2 cleanup
 
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)

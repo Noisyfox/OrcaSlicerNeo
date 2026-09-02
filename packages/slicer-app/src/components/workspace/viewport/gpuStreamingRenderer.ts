@@ -479,9 +479,8 @@ interface PageState {
 }
 
 /**
- * A ready static-atlas renderer. It is deliberately not imported by
- * ToolpathLines yet: the next integration step owns feature-gating and B2
- * fallback selection.
+ * A ready static-atlas renderer. ToolpathLines owns feature-gating and B2
+ * fallback selection; this class owns only its page resources and draw state.
  */
 export class GpuStreamingRenderer {
   readonly capabilities: GpuStreamingCapabilityProbe;
@@ -541,7 +540,7 @@ export class GpuStreamingRenderer {
   get paletteBytes(): number { return this._paletteBytes; }
   get knownResidentBytes(): number { return this.staticUploadedBytes + this.dynamicIndexBytes + this.paletteBytes; }
   get unknownFeatureIds(): readonly number[] { return this._unknownFeatureIds; }
-  /** Read-only page mesh handles for the future scene integration step. */
+  /** Read-only page mesh handles for the optional streaming scene. */
   get sceneObjects(): readonly THREE.Mesh[] {
     return this.pages.flatMap((page) => page.mesh ? [page.mesh] : []);
   }

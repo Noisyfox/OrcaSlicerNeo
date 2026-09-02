@@ -184,3 +184,31 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   expect(result.suggestedFilename()).toMatch(/\.gcode$/);
   expect(await result.path()).toBeTruthy();
 });
+
+// Opt-in migration smoke; the ordinary Web flow intentionally exercises the
+// production B2 default. This only checks ownership/fallback, not performance.
+test('GPU streaming preview: explicit gate selects backend or fallback', async ({ page }) => {
+  test.skip(process.env.ORCA_E2E_GPU_STREAMING !== '1', 'opt-in GPU streaming migration smoke');
+  await page.addInitScript(() => {
+    (window as unknown as { __orcaE2e?: Record<string, unknown> }).__orcaE2e = { gpuStreamingEnabled: true };
+  });
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
+  const picker = page.getByTestId('preset-select');
+  await picker.click();
+  await page.locator('[data-slot="combobox-content"] input').fill('Creality Ender-3 0.4 nozzle');
+  await page.locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')
+    .filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
+  await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  await expect.poll(() => page.evaluate(() => {
+    const status = (window as unknown as { __orcaE2e?: { gpuStreamingStatus?: () => string } }).__orcaE2e?.gpuStreamingStatus?.();
+    return status === 'ready' || status === 'b2';
+  }), { timeout: 20_000 }).toBe(true);
+});

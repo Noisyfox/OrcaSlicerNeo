@@ -1,16 +1,18 @@
 # G-code Preview GPU streaming renderer
 
 **Date:** 2026-09-02
-**Status:** Living implementation entry; step 3 backend implementation complete; browser evidence and default integration remain open
+**Status:** Living implementation entry; step 3 backend and step 4 gated integration complete; browser evidence and default switch remain open
 **Scope:** GPU streaming/indexed-segment redesign for the shared G-code preview
 
 ## Purpose and boundary
 
-This document records the first two implementation steps for the large-slice
-renderer redesign. Step 1 established the implementation contract and
-deterministic metadata fixture; step 2 adds a source adapter and immutable
-page/index planner. Neither step replaces the current renderer, changes visible
-behaviour, or changes the WASM bridge. The normative architecture is
+This document records the implementation steps for the large-slice renderer
+redesign. Step 1 established the implementation contract and deterministic
+metadata fixture; step 2 adds a source adapter and immutable page/index
+planner; step 3 adds the independent WebGL2 backend; and step 4 connects it to
+the real preview behind an explicit gate. The gate remains closed by default,
+so neither the normal renderer nor visible product behaviour changes. The
+normative architecture is
 [`spec/G-code Preview GPU Streaming Renderer.md`](../spec/G-code%20Preview%20GPU%20Streaming%20Renderer.md).
 
 The renderer remains a shared `packages/slicer-app` feature for Web and
@@ -171,8 +173,7 @@ active-range preservation on the stated representative integrated-GPU target.
 
 ## Accepted step-3 backend implementation
 
-`gpuStreamingRenderer.ts` is an independent WebGL2/Three.js backend and is not
-imported by `ToolpathLines` or the preview scene. It consumes an existing
+`gpuStreamingRenderer.ts` is an independent WebGL2/Three.js backend. It consumes an existing
 `GpuStreamingPagePlan`, packs each page's four-texel schema once into separate
 textures: three float texels per segment (start, end, shape) and one RGBA
 integer identity texel per segment (layer, move order, feature palette slot,
@@ -208,8 +209,34 @@ including partial construction, context loss, explicit disposal, and retired
 index streams. The caller's renderer, scene, and camera are never disposed.
 
 The backend intentionally does not claim browser FPS or GPU compatibility
-evidence. A later integration step must gate selection behind B2 fallback and
-run real Web/Electron WebGL2 measurements before changing the default path.
+evidence. Browser measurements remain a separate acceptance gate.
+
+## Accepted step-4 gated preview integration
+
+`gpuStreamingIntegration.ts` defines a host-neutral, injected
+`GpuStreamingFeatureGate`. Its `enabled` value defaults to `false`; callers can
+provide the gate through context or the `ToolpathLines` prop, and tests can
+inject a renderer factory/fake backend. The Vite e2e-only
+`__orcaE2e.gpuStreamingEnabled` switch is documented test plumbing, not a
+production preference or an Electron/Node dependency.
+
+When enabled, `ToolpathLines` adapts the immutable source and preview layer
+metadata into one page plan, creates the backend against the current Three
+renderer, uploads the initial selection, and attaches its page meshes directly
+to the shared scene. B2 remains rendered until construction succeeds, then is
+removed so a successful path never double-draws. Layer range, active move end,
+travel visibility, and feature hide changes call only `updateSelection`; active
+layer dimming calls `updateDimming`; camera frames call `updateCamera`; and a
+distinct palette calls `updatePalette`. None of those paths rebuilds the static
+plan/atlas.
+
+Planner, capability, budget, shader/atlas construction, context-loss, and
+selection/palette update failures report non-blocking diagnostics and return to
+B2. Cleanup detaches streaming meshes and disposes all backend resources on
+fallback, source replacement/invalidation, context loss, and unmount. The
+e2e-only status hook reports `ready` or `b2` for the opt-in desktop/Web smoke;
+it is not a performance claim. The existing marker, shell/depth policy, and
+all preview controls remain outside this backend switch.
 
 ## Migration and verification state
 
@@ -218,12 +245,15 @@ run real Web/Electron WebGL2 measurements before changing the default path.
    renderer, bridge, or behaviour change.
 2. **Step 2:** implement the source adapter and page/index planner
    with unit tests, while keeping the current backend selected by default.
-3. **Step 3 (backend portion):** implement WebGL2 static atlas + dynamic index
-   pages and capability/lifetime diagnostics. Browser measurements and the
-   feature-gate integration remain pending.
-4. **Step 4:** compare same-renderer Web/Electron behaviour and approved native
+3. **Step 3:** implement WebGL2 static atlas + dynamic index pages and
+   capability/lifetime diagnostics. (Complete.)
+4. **Step 4:** connect the backend to the real preview behind the default-off
+   feature gate, add fallback/lifetime tests, and add opt-in desktop/Web smoke
+   coverage. (Complete; browser measurements and evidence remain pending.)
+5. **Step 5:** compare same-renderer Web/Electron behaviour and approved native
    references; switch the default only after all acceptance criteria pass.
 
-The current B2 backend remains the fallback until the streaming backend passes
-functional, memory/lifetime, capability/fallback, and representative-browser
-performance gates. It is not removed or changed by this backend-only step.
+The current B2 backend remains the production default and fallback until the
+streaming backend passes functional, memory/lifetime, capability/fallback,
+visual, and representative-browser performance gates. It is not removed or
+silently enabled by this integration step.

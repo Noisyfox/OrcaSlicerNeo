@@ -440,6 +440,35 @@ test('preview overlay: legend, layer range, move end, marker, and theme tokens',
   }
 });
 
+// Opt-in migration smoke: the normal preview suite keeps the production
+// default (B2), while this targeted case proves the explicit e2e gate can
+// select streaming or report a non-blocking B2 fallback.
+test('GPU streaming preview: explicit gate selects backend or fallback', async () => {
+  test.skip(process.env.ORCA_E2E_GPU_STREAMING !== '1', 'opt-in GPU streaming migration smoke');
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.evaluate(() => {
+      const current = (window as unknown as { __orcaE2e?: Record<string, unknown> }).__orcaE2e;
+      (window as unknown as { __orcaE2e?: Record<string, unknown> }).__orcaE2e = {
+        ...current,
+        gpuStreamingEnabled: true,
+      };
+    });
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await expect.poll(() => page.evaluate(() => {
+      const status = (window as unknown as { __orcaE2e?: { gpuStreamingStatus?: () => string } }).__orcaE2e?.gpuStreamingStatus?.();
+      return status === 'ready' || status === 'b2';
+    }), { timeout: 10_000 }).toBe(true);
+  } finally {
+    await app.close();
+  }
+});
+
 // Keep the DRC regression independently scoped: this verifies the complete
 // real Electron path without changing the 20 mm STL geometry assumptions in
 // the broader desktop regression suite.

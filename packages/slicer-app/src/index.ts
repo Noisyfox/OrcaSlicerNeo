@@ -5,5 +5,6 @@ import './threeZUp';
 export { default as App } from './App';
 export * from '@orca/platform-contract';
 export * from './components/workspace/viewport/SceneInteractionController';
+export * from './components/workspace/viewport/gpuStreamingIntegration';
 export * from './components/device/DevicePanel';
 export * from './components/send/SendGcodeDialog';

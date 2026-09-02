@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
-import type { ClientSliceResult } from '@slicer/client';
+import type { ClientSliceResult, PreviewMetadata } from '@slicer/client';
 import {
   ToolpathBandCache,
   type ToolpathBandChunk,
@@ -20,6 +20,9 @@ export interface ToolpathGeometry {
   features: Uint32Array;
   moveTypes: Uint8Array;
   ends: Float32Array;
+  /** Immutable source retained for the optional indexed streaming backend. */
+  source?: ClientSliceResult['toolpath'];
+  metadata?: PreviewMetadata;
   dispose: () => void;
 }
 
@@ -86,7 +89,7 @@ export function useSliceResult() {
       return null;
     }
     const prepared = bandCache.current.prepare(result.toolpath);
-    return prepared;
+    return { ...prepared, source: result.toolpath, metadata: result.metadata };
   }, [result]);
 
   // A result replacement owns the old GPU buffers until React commits the new
