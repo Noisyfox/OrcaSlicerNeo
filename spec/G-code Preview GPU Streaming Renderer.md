@@ -1,7 +1,7 @@
 # G-code Preview GPU Streaming Renderer
 
 **Date:** 2026-09-02
-**Status:** Approved architecture; implementation starts after the step-1 gate
+**Status:** Approved architecture; streaming backend verified on Web/Electron and preferred by default with automatic B2 fallback
 **Scope:** Shared Web/Electron G-code preview renderer performance redesign
 
 ## Relationship to existing preview specifications
@@ -263,6 +263,11 @@ GPU, along with index rebuilds, GPU memory and active-range preservation.
 4. **Dual-host verification:** run Web threaded/serial and Electron semantic
    flows, same-renderer screenshots, context/budget tests, and manually review
    the fixed native reference. Enable by default only after all gates pass.
+   (Functional, lifetime, and dual-host verification passed on 2026-09-02;
+   the preference is enabled and B2 remains the automatic fallback. Browser
+   measurements are recorded in the living implementation entry; this runner
+   uses SwiftShader for Web and an RTX 3080 for Electron, so neither is a
+   representative 2020 integrated-GPU claim.)
 5. **Removal:** retain the current B2 backend through the full functional,
    lifetime, fallback, visual and representative-hardware performance gate.
    Remove it only in a separately approved cleanup change after the streaming
@@ -296,5 +301,10 @@ The step-1 design/fixture gate passes when:
 4. `packages/slicer-wasm/cpp` has no diff or pointer change attributable to
    this work.
 
-The streaming backend is not accepted by this document. Its later gate must
-add real WebGL2 browser measurements, not infer FPS from these unit tests.
+The streaming backend is accepted as the preferred backend after the functional,
+lifetime, capability/fallback, and dual-host gates. Its real WebGL2 browser
+measurements are recorded in the living implementation entry. The Web
+measurement uses a SwiftShader software driver and Electron uses a discrete
+RTX 3080; no representative integrated-GPU or native Orca pixel-equivalence
+claim is made. The current B2 backend remains the automatic fallback and is
+not removed by this change.

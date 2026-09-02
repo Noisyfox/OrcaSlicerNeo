@@ -454,6 +454,19 @@
 - [x] Generic OrcaFilamentLibrary profiles remain suppressed only when native
       alias-based matching selects a printer-specific profile.
 
+## G-code preview GPU streaming renderer (2026-09-02)
+
+The WebGL2 streaming/indexed-segment backend is now preferred by the shared
+preview gate after functional, lifetime, and Web/Electron verification. B2
+remains an automatic non-blocking fallback for capability, budget, compile,
+source, context, and selection failures; `{ enabled: false }` is retained as a
+host-neutral diagnostic override. The opt-in real-browser harness covers
+deterministic 250k/1m typed SoA streams and records static/index uploads,
+camera uniform-only frames, capabilities, and disposal. Current evidence is
+Windows Web Chrome 151 on SwiftShader and Electron 43.4 on an RTX 3080; it is
+not a representative 2020 integrated-GPU or native pixel-equivalence claim.
+See `doc/2026-09-02-gcode-preview-gpu-streaming-renderer.md`.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

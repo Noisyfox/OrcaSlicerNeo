@@ -1,7 +1,7 @@
 # G-code Preview GPU streaming renderer
 
 **Date:** 2026-09-02
-**Status:** Living implementation entry; step 3 backend and step 4 gated integration complete; browser evidence and default switch remain open
+**Status:** Living implementation entry; step 5 browser/dual-host gate complete; streaming is the production preferred backend with silent B2 fallback
 **Scope:** GPU streaming/indexed-segment redesign for the shared G-code preview
 
 ## Purpose and boundary
@@ -260,7 +260,51 @@ policy, and all preview controls remain outside this backend switch.
 5. **Step 5:** compare same-renderer Web/Electron behaviour and approved native
    references; switch the default only after all acceptance criteria pass.
 
-The current B2 backend remains the production default and fallback until the
-streaming backend passes functional, memory/lifetime, capability/fallback,
-visual, and representative-browser performance gates. It is not removed or
-silently enabled by this integration step.
+The current B2 backend remains the production fallback. After the step-5
+functional, memory/lifetime, capability/fallback, and dual-host gates passed,
+the streaming backend is now preferred by default; the browser evidence is
+recorded below with its hardware limitations. B2 is not removed.
+
+## Accepted step-5 browser and dual-host verification (2026-09-02)
+
+The shared feature gate now uses `DEFAULT_GPU_STREAMING_FEATURE_GATE =
+{ enabled: true }` as a preference. `ToolpathLines` still renders B2 until a
+streaming plan, WebGL2 capability probe, budget check, shader/atlas
+construction, and selection update all succeed. Any failure reports a
+non-blocking diagnostic and returns to B2; passing `{ enabled: false }` remains
+the host-neutral explicit override for regressions and diagnostics. No
+persistent UI setting was added, and a successful streaming construction
+removes B2 so the scene is never double-drawn.
+
+The opt-in `ORCA_E2E_GPU_STREAMING_PERF=1` browser harness is exposed only by
+e2e builds. It creates the deterministic metadata fixture, adds bulk typed SoA
+geometry, plans pages, constructs `GpuStreamingRenderer` against a real
+Three.js WebGL2 context, renders to force texture/index uploads, measures
+selection replacement and 30 requestAnimationFrame camera updates, then
+detaches and disposes all resources. It does not create a segment object or
+assert a wall-clock threshold. The regular Web and Electron default e2e flows
+assert `ready`, or `b2` with a non-empty fallback reason.
+
+Evidence from this Windows runner (2026-09-02; values vary by run):
+
+| Host/context | Case | Pages | Static bytes / ms | Selection ms / index bytes | Camera frames / FPS | B2 | Dispose |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| Web Chrome 151, ANGLE SwiftShader Vulkan (software) | 250k | 4 | 16,027,360 / 30.82 | 10.53 / 753,664 | 30 / 65.20 | none | geometries 4→0 |
+| Web Chrome 151, ANGLE SwiftShader Vulkan (software) | 1m | 16 | 64,108,032 / 77.88 | 14.04 / 3,112,960 | 30 / 64.94 | none | geometries 16→0 |
+| Electron 43.4, ANGLE NVIDIA GeForce RTX 3080 D3D11 | 250k | 4 | 16,027,360 / 36.48 | 14.41 / 786,432 | 30 / 262.34 | none | geometries 4→0 |
+| Electron 43.4, ANGLE NVIDIA GeForce RTX 3080 D3D11 | 1m | 16 | 64,108,032 / 79.41 | 14.40 / 3,145,728 | 30 / 262.42 | none | geometries 16→0 |
+
+All four runs visited exactly the requested segment count during selection and
+reported `cameraIndexUploadCountDelta = 0`. Web used `MAX_TEXTURE_SIZE=8192`
+and 32/32 texture units; Electron used 16384 and 16/16. The Web runner is
+explicitly configured with `--use-angle=swiftshader-webgl`, so its FPS is
+software-driver evidence rather than proof of the Preview v2 2020 integrated
+GPU baseline. Electron evidence is a discrete RTX 3080, not that baseline;
+therefore no claim of representative integrated-GPU 60/30 FPS equivalence or
+native Orca bit-for-bit screenshots is made. Driver-reported texture
+allocation remains unavailable (`null` in the backend contract); the harness
+records observable geometry lifetime and all owned resources are disposed.
+
+The browser harness and default flow passed on both hosts. B2 remains retained
+as the automatic capability/budget/compile/source/context/selection fallback;
+its removal is still a separately approved cleanup after a release cycle.

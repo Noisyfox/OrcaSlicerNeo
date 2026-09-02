@@ -72,6 +72,18 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   if (await layerHeight.count()) await layerHeight.fill('0.21');
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  // The default gate prefers streaming. A capable browser reports ready;
+  // optional backend failures are accepted only with an explicit B2 reason.
+  await expect.poll(() => page.evaluate(() => {
+    const hooks = (window as unknown as {
+      __orcaE2e?: {
+        gpuStreamingStatus?: () => string;
+        gpuStreamingDiagnostic?: () => { reason?: string } | null;
+      };
+    }).__orcaE2e;
+    const status = hooks?.gpuStreamingStatus?.();
+    return status === 'ready' || (status === 'b2' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+  }), { timeout: 20_000 }).toBe(true);
   await page.setViewportSize({ width: 720, height: 520 });
   await page.getByTestId('menu-file-trigger').click();
   await expect(page.getByTestId('file-export-gcode')).toBeEnabled();

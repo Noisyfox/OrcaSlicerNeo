@@ -12,7 +12,6 @@ export const GPU_STREAMING_VERTEX_SHADER = `#version 300 es
 precision highp float;
 precision highp int;
 
-in vec3 position;
 uniform sampler2D uStaticAtlas;
 uniform usampler2D uStaticIdentity;
 uniform usampler2D uEnabledIndices;

@@ -244,6 +244,18 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
         .toBeGreaterThan(0);
     }
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    // The default gate prefers streaming. A capable browser reports ready;
+    // optional backend failures are accepted only with an explicit B2 reason.
+    await expect.poll(() => page.evaluate(() => {
+      const hooks = (window as unknown as {
+        __orcaE2e?: {
+          gpuStreamingStatus?: () => string;
+          gpuStreamingDiagnostic?: () => { reason?: string } | null;
+        };
+      }).__orcaE2e;
+      const status = hooks?.gpuStreamingStatus?.();
+      return status === 'ready' || (status === 'b2' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+    }), { timeout: 20_000 }).toBe(true);
     await expect(page.getByTestId('viewport')).toBeVisible();
     await expect(page.getByTestId('layer-scrubber')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
     await expect(page.getByTestId('btn-export')).toBeEnabled();
