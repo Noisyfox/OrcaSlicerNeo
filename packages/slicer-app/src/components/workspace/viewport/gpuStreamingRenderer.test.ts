@@ -25,7 +25,7 @@ function source(): GpuStreamingSource {
   };
 }
 function context(overrides: Record<string, unknown> = {}): WebGLRenderingContext {
-  const values: Record<string, unknown> = { VERSION: 'WebGL 2.0 mock', MAX_TEXTURE_SIZE: 4096, MAX_TEXTURE_IMAGE_UNITS: 1, MAX_VERTEX_TEXTURE_IMAGE_UNITS: 0, ...overrides };
+  const values: Record<string, unknown> = { VERSION: 'WebGL 2.0 mock', MAX_TEXTURE_SIZE: 4096, MAX_TEXTURE_IMAGE_UNITS: 8, MAX_VERTEX_TEXTURE_IMAGE_UNITS: 8, ...overrides };
   return {
     VERSION: 'VERSION', MAX_TEXTURE_SIZE: 'MAX_TEXTURE_SIZE', MAX_TEXTURE_IMAGE_UNITS: 'MAX_TEXTURE_IMAGE_UNITS',
     MAX_VERTEX_TEXTURE_IMAGE_UNITS: 'MAX_VERTEX_TEXTURE_IMAGE_UNITS', getParameter: (key: unknown) => values[key as string],
@@ -43,11 +43,12 @@ function entityFacade() {
   return { resourceFacade, dispose };
 }
 
-describe('opaque GPU entity renderer', () => {
-  it('requires WebGL2 only; no texture fetch or shader capability is needed', () => {
+describe('native SegmentTemplate GPU renderer', () => {
+  it('requires WebGL2, integer-texture units, and vertex texture fetch', () => {
     expect(probeGpuStreamingCapabilities(context()).supported).toBe(true);
     expect(probeGpuStreamingCapabilities(context({ VERSION: 'WebGL 1.0' })).reason).toBe('webgl2-required');
-    expect(probeGpuStreamingCapabilities(context({ MAX_VERTEX_TEXTURE_IMAGE_UNITS: 0 })).supported).toBe(true);
+    expect(probeGpuStreamingCapabilities(context({ MAX_TEXTURE_IMAGE_UNITS: 1 })).reason).toBe('texture-units-insufficient');
+    expect(probeGpuStreamingCapabilities(context({ MAX_VERTEX_TEXTURE_IMAGE_UNITS: 0 })).reason).toBe('vertex-texture-fetch-unavailable');
   });
 
   it('bakes segment direction, width and height into a real transform', () => {
@@ -85,7 +86,7 @@ describe('opaque GPU entity renderer', () => {
     expect(new THREE.Vector3().setFromMatrixScale(vertical).x).toBeCloseTo(1.2);
   });
 
-  it('constructs page-local InstancedMesh objects with opaque direct materials', () => {
+  it('constructs page-local draws over one shared 8-vertex/24-invocation template', () => {
     const plan = planGpuStreamingPages(source(), { softPageTarget: 2 });
     const result = createGpuStreamingRenderer(plan, { context: context(), compile: false });
     expect(result.ok).toBe(true);
@@ -94,10 +95,11 @@ describe('opaque GPU entity renderer', () => {
     for (const mesh of result.backend.sceneObjects) {
       expect(mesh).toBeInstanceOf(THREE.InstancedMesh);
       expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
-      expect(mesh.geometry.getAttribute('position').count).toBe(48);
+      expect(mesh.geometry.getAttribute('vertex_id').count).toBe(24);
+      expect(mesh.geometry.getAttribute('position')).toBeUndefined();
       expect(mesh.geometry.index).toBeNull();
-      expect(mesh.material).toBeInstanceOf(THREE.MeshStandardMaterial);
-      const material = mesh.material as THREE.MeshStandardMaterial;
+      expect(mesh.material).toBeInstanceOf(THREE.ShaderMaterial);
+      const material = mesh.material as THREE.ShaderMaterial;
       // Transparent queue membership is used only to draw after the
       // transparent model shell; the actual blend state remains disabled.
       expect(material.transparent).toBe(true);
@@ -110,11 +112,13 @@ describe('opaque GPU entity renderer', () => {
       // vertexColors off so Three does not multiply the instance color by a
       // missing (zero-valued) `color` attribute.
       expect(material.vertexColors).toBe(false);
-      expect(material.flatShading).toBe(true);
-      expect(material.color.getHex()).toBe(0xffffff);
-      expect(material.roughness).toBeCloseTo(0.82);
-      expect(material.metalness).toBe(0);
-      expect(material.forceSinglePass).toBe(true);
+      expect(material.glslVersion).toBe(THREE.GLSL3);
+      expect(material.vertexShader).toContain('#define POINTY_CAPS');
+      expect(material.vertexShader).toContain('#define FIX_TWISTING');
+      expect(material.vertexShader).toContain('cameraPosition');
+      expect(material.vertexShader).toContain('hwa.z');
+      expect(material.vertexShader).toContain('gl_InstanceID');
+      expect(material.uniforms.segment_index_tex).toBeDefined();
     }
     result.backend.dispose();
   });
@@ -146,18 +150,13 @@ describe('opaque GPU entity renderer', () => {
     const result = createGpuStreamingRenderer(plan, { context: context(), compile: false });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const positions = result.backend.sceneObjects[0]!.geometry.getAttribute('position');
-    const crossSection = new Set<string>();
-    for (let i = 0; i < positions.count; i++) {
-      const y = positions.getY(i);
-      const z = positions.getZ(i);
-      if (Math.abs(Math.abs(y) + Math.abs(z) - 0.5) < 1e-6) crossSection.add(`${y},${z}`);
-    }
-    expect(crossSection).toEqual(new Set(['0,-0.5', '0.5,0', '0,0.5', '-0.5,0']));
+    const vertexIds = result.backend.sceneObjects[0]!.geometry.getAttribute('vertex_id');
+    expect(vertexIds.count).toBe(24);
+    expect(new Set(Array.from(vertexIds.array as Uint8Array))).toEqual(new Set([0, 1, 2, 3, 4, 5, 6, 7]));
     result.backend.dispose();
   });
 
-  it('writes selected transforms/colors, preserves all high pages, and rebuilds filters without parsing', () => {
+  it('uploads only selected index streams, preserves pages, and leaves camera static data untouched', () => {
     const plan = planGpuStreamingPages(source(), { softPageTarget: 2 });
     const result = createGpuStreamingRenderer(plan, { context: context(), compile: false });
     expect(result.ok).toBe(true);
@@ -167,19 +166,19 @@ describe('opaque GPU entity renderer', () => {
     expect(result.backend.updateSelection(selection).drawInstanceCounts).toEqual([2, 2]);
     const firstMesh = result.backend.sceneObjects[0]!;
     expect(firstMesh.count).toBe(2);
-    expect(firstMesh.instanceMatrix.count).toBeGreaterThanOrEqual(2);
-    expect(firstMesh.instanceColor).not.toBeNull();
-    expect(Array.from(firstMesh.instanceColor!.array.slice(0, 6))).toEqual([
-      1 / 255, 2 / 255, 3 / 255,
-      56 / 255, 72 / 255, 155 / 255,
-    ].map((value) => expect.closeTo(value, 5)));
-    const before = result.backend.entityUploadCount;
+    expect(firstMesh.material).toBeInstanceOf(THREE.ShaderMaterial);
+    const staticBytes = result.backend.staticUploadedBytes;
+    const firstIndex = result.backend.pages[0]!.indexData;
+    expect(Array.from(firstIndex.slice(0, 2))).toEqual([0, 1]);
+    const before = result.backend.indexUploadCount;
     const filtered = rebuildGpuStreamingSelection(plan, { visibleLayerStart: 1, visibleLayerEnd: 1, activeMoveEnd: Number.MAX_SAFE_INTEGER, showTravel: false, featureVisibility: { 4: false } });
     result.backend.updateSelection(filtered);
-    expect(result.backend.entityUploadCount).toBe(before + 2);
+    expect(result.backend.indexUploadCount).toBe(before + 2);
     expect(result.backend.drawInstanceCounts).toEqual([0, 2]);
+    expect(result.backend.staticUploadedBytes).toBe(staticBytes);
+    expect(Array.from(firstIndex.slice(0, 2))).toEqual([0, 0]);
     result.backend.updateCamera({ position: new THREE.Vector3(1, 2, 3) });
-    expect(result.backend.entityUploadCount).toBe(before + 2);
+    expect(result.backend.indexUploadCount).toBe(before + 2);
     result.backend.dispose();
   });
 
@@ -198,10 +197,7 @@ describe('opaque GPU entity renderer', () => {
     if (!result.ok) return;
     const selection = rebuildGpuStreamingSelection(plan, { visibleLayerStart: 0, visibleLayerEnd: 1, activeMoveEnd: Number.MAX_SAFE_INTEGER, showTravel: true });
     result.backend.updateSelection(selection);
-    const colors = result.backend.sceneObjects[0]!.instanceColor!;
-    expect(Array.from(colors.array.slice(0, 6))).toEqual([
-      1, 0, 0, 56 / 255, 72 / 255, 155 / 255,
-    ].map((value) => expect.closeTo(value, 5)));
+    expect((result.backend.sceneObjects[0]!.material as THREE.ShaderMaterial).uniforms.color_tex.value).toBeDefined();
     result.backend.dispose();
   });
 
@@ -219,8 +215,8 @@ describe('opaque GPU entity renderer', () => {
     });
     expect(selection.emittedSegments).toBe(4);
     result.backend.updateSelection(selection);
-    expect(Array.from(result.backend.sceneObjects[0]!.instanceColor!.array.slice(3, 6)))
-      .toEqual([56 / 255, 72 / 255, 155 / 255].map((value) => expect.closeTo(value, 5)));
+    expect((result.backend.sceneObjects[0]!.material as THREE.ShaderMaterial).uniforms.segment_index_tex.value)
+      .toBeDefined();
     result.backend.dispose();
   });
 
