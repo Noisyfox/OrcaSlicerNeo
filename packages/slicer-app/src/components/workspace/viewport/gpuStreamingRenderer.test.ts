@@ -157,6 +157,10 @@ describe('GPU streaming WebGL2 renderer backend', () => {
     expect(f.indexUploads).toHaveLength(2);
     expect(backend.updatePalette([{ id: 4, name: 'feature', color: [9, 8, 7] }])).toEqual({ uploaded: true, unknownFeatureIds: [5, 6, 7] });
     expect(f.paletteUploads).toHaveLength(2);
+    // Stable slot 2 belongs to source feature 5 even though the replacement
+    // palette omitted it; it must remain an opaque deterministic fallback.
+    expect(Array.from(f.paletteUploads[1]!.colors.slice(8, 12)).map((value) => Number(value.toFixed(2))))
+      .toEqual([0.58, 0.58, 0.58, 1]);
     backend.updateCamera({ position: { x: 1, y: 2, z: 3 } as never });
     expect(f.staticUploads).toHaveLength(2);
     expect(f.indexUploads).toHaveLength(2);
@@ -221,6 +225,25 @@ describe('GPU streaming WebGL2 renderer backend', () => {
     expect(result.ok).toBe(false);
     expect(f.staticUploads).toHaveLength(0);
     expect(f.templateDispose).not.toHaveBeenCalled();
+  });
+
+  it('rejects an over-budget plan before allocating template, palette, or atlases', () => {
+    const overBudgetPlan = planGpuStreamingPages(source(), {
+      softPageTarget: 2,
+      gpuBudgetBytes: 1,
+      pageOverheadBytes: 0,
+      sharedTemplateBytes: 0,
+    });
+    expect(overBudgetPlan.diagnostics.hardCapacity).toBe(1);
+    expect(overBudgetPlan.diagnostics.budgetExceeded).toBe(true);
+    const f = facade();
+    const result = createGpuStreamingRenderer(overBudgetPlan, { context: context(), resourceFacade: f.resourceFacade });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.diagnostics.reason).toBe('gpu-budget-exceeded');
+    expect(f.templateDispose).not.toHaveBeenCalled();
+    expect(f.staticUploads).toHaveLength(0);
+    expect(f.paletteUploads).toHaveLength(0);
   });
 
   it('releases resources on context loss without owning the external renderer', () => {

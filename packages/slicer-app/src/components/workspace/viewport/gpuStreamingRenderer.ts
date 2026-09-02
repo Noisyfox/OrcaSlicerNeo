@@ -372,8 +372,12 @@ function paletteUpload(palette: readonly ToolpathFeature[], stableSlots?: Readon
   const slots = stableSlots ?? paletteSlots(palette);
   const width = Math.max(1, ...slots.values(), palette.length) + 1;
   const colors = new Float32Array(width * 4);
-  // Slot zero is deterministic for missing/unknown feature IDs.
-  colors.set([0.58, 0.58, 0.58, 1], 0);
+  // Fill every stable slot first.  A later palette may omit an ID that was
+  // present in the initial palette; leaving that texel zero would make the
+  // source identity resolve to transparent black instead of the deterministic
+  // fallback color.
+  const fallbackColor = [0.58, 0.58, 0.58, 1];
+  for (let slot = 0; slot < width; slot++) colors.set(fallbackColor, slot * 4);
   const seen = new Set<number>();
   const unknownFeatureIds: number[] = [];
   palette.forEach((entry, index) => {
@@ -680,6 +684,20 @@ export function createGpuStreamingRenderer(
   if (!plan || !plan.diagnostics || !Array.isArray(plan.pages)) {
     return { ok: false, diagnostics: { reason: 'invalid-page-plan', message: 'A valid GpuStreamingPagePlan is required', capabilities: null } };
   }
+  // Budget rejection is deliberately before context probing and, critically,
+  // before the shared template/palette/atlas factory can allocate anything.
+  // The caller can retain its B2 path when the planner has already determined
+  // that this plan cannot fit the declared GPU budget.
+  if (plan.diagnostics.budgetExceeded) {
+    return {
+      ok: false,
+      diagnostics: {
+        reason: 'gpu-budget-exceeded',
+        message: `GPU streaming plan requires ${plan.diagnostics.estimatedBytes} bytes but the budget is ${plan.diagnostics.budgetBytes} bytes`,
+        capabilities: null,
+      },
+    };
+  }
   let context: WebGLRenderingContext | undefined;
   try { context = options.context ?? options.renderer?.getContext(); } catch (error) {
     return { ok: false, diagnostics: { reason: 'context-query-failed', message: error instanceof Error ? error.message : String(error), capabilities: null } };
@@ -713,8 +731,11 @@ export function createGpuStreamingRenderer(
     }
     for (let i = 0; i < plan.pages.length; i++) {
       const page = plan.pages[i]!;
-      if (page.atlasWidth > capabilities.limits.maxTextureSize! || page.atlasHeight > capabilities.limits.maxTextureSize!) {
-        throw new Error(`page ${i} atlas dimensions exceed MAX_TEXTURE_SIZE`);
+      if (page.geometryAtlasWidth > capabilities.limits.maxTextureSize!
+        || page.geometryAtlasHeight > capabilities.limits.maxTextureSize!
+        || page.identityAtlasWidth > capabilities.limits.maxTextureSize!
+        || page.identityAtlasHeight > capabilities.limits.maxTextureSize!) {
+        throw new Error(`page ${i} atlas dimensions exceed MAX_TEXTURE_SIZE (geometry ${page.geometryAtlasWidth}x${page.geometryAtlasHeight}, identity ${page.identityAtlasWidth}x${page.identityAtlasHeight})`);
       }
       const upload = atlasUpload(plan, page, featureSlots);
       upload.unknownFeatureIds.forEach((id) => unknownFeatureIds.add(id));
