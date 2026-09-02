@@ -119,7 +119,12 @@ export function buildGpuStreamingInstanceMatrix(
 function createEntityTemplate(): GpuStreamingEntityTemplateResource {
   const geometry = new THREE.BoxGeometry(1, 1, 1);
   const material = new THREE.MeshBasicMaterial({
-    vertexColors: true,
+    // InstancedMesh supplies `instanceColor`, not a per-vertex `color`
+    // attribute. Setting vertexColors here would enable Three's USE_COLOR
+    // path as well; BoxGeometry has no color attribute, so that path reads
+    // the default zero attribute and multiplies every instance to black.
+    // Three enables USE_INSTANCING_COLOR from mesh.instanceColor directly.
+    vertexColors: false,
     // The preview model is a transparent Three queue item. Keep toolpaths
     // after it in the transparent queue while explicitly disabling blending;
     // this is ordering only, never alpha compositing.

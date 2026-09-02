@@ -61,7 +61,11 @@ function buildMatrix(starts: Float32Array, ends: Float32Array, widths: Float32Ar
 }
 function createMaterial(): THREE.MeshBasicMaterial {
   const material = new THREE.MeshBasicMaterial({
-    vertexColors: true,
+    // These meshes carry per-instance colors, not a per-vertex `color`
+    // attribute. Enabling vertexColors would make Three multiply by the
+    // missing BoxGeometry color attribute (zero), producing black paths;
+    // InstancedMesh enables USE_INSTANCING_COLOR from instanceColor itself.
+    vertexColors: false,
     // Match the GPU backend: transparent queue ordering is required because
     // preview model shells are transparent, but blending itself is disabled.
     transparent: true,

@@ -342,6 +342,12 @@ materializes direction/width/height on the CPU, as required. Camera updates
 only update camera/render state. Layer, move, travel, and feature filters
 rebuild selected page matrices/colors and counts without re-parsing or slicing.
 
+The Three material leaves `vertexColors` disabled because `BoxGeometry` has no
+per-vertex `color` attribute. `InstancedMesh.instanceColor` is enabled by
+Three independently. Enabling both paths would multiply by the missing
+attribute before applying the instance color, making every toolpath black;
+this instance-color-only contract is shared by the streaming renderer and B2.
+
 Both the opt-in backend and B2 fallback use opaque solid entities. On result
 invalidation, unmount, context loss, or construction failure all owned
 templates, meshes, materials, and attributes are released and B2 is retained;

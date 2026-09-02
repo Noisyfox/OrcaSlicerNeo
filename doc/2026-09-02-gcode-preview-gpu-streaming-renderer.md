@@ -341,6 +341,13 @@ matrices/colors and mesh counts. Camera movement performs no entity
 reconstruction or upload. The planner remains source-order/layer/page
 metadata only and does not allocate render resources.
 
+The Three material intentionally leaves `vertexColors` disabled: `BoxGeometry`
+has no per-vertex `color` attribute, while `InstancedMesh.instanceColor` is
+enabled independently by Three. Enabling both would make the generated
+`USE_COLOR` path multiply by the missing attribute before applying the
+instance color, rendering every toolpath black. This instance-color-only
+contract applies to both the streaming renderer and the B2 fallback.
+
 This matches libvgcode's observable scheduling/render-state baseline where
 applicable: page-local selected instances, layer-ordered pages, vertical
 direction fallback, disabled culling, and shell-visible depth state. The native

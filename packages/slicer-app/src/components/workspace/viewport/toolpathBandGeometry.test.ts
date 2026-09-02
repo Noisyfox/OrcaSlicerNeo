@@ -37,7 +37,7 @@ describe('toolpath band geometry', () => {
     expect(chunk.mesh).toBeInstanceOf(THREE.InstancedMesh);
     expect(chunk.mesh.count).toBe(2);
     const material = chunk.mesh.material as THREE.MeshBasicMaterial;
-    expect(material.vertexColors).toBe(true);
+    expect(material.vertexColors).toBe(false);
     expect(material.transparent).toBe(true);
     expect(material.opacity).toBe(1);
     expect(material.blending).toBe(THREE.NoBlending);
