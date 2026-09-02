@@ -315,17 +315,19 @@ production path and automatic fallback and is not removed by this change.
 The prior static-atlas/texel-fetch shader architecture is superseded by the
 explicit product requirement that toolpath thickness and height be real
 geometry and that no toolpath use alpha blending. The active implementation
-uses one shared faceted, chamfered solid-prism geometry template and one
+uses one shared faceted, diamond-profile solid-prism geometry template and one
 page-local `THREE.InstancedMesh` per planner page. Selection rebuilds materialize
 each segment's endpoint midpoint, direction basis, width, height, and optional
 bias in the instance matrix; the prism supplies real side facets and end caps.
+The profile is a four-point diamond in the local `line_right`/`line_up` plane,
+matching libvgcode's cardinal endpoint construction rather than a square or
+chamfered ring.
 
 Toolpath materials are standard Three `MeshStandardMaterial` instances with
 flat face shading, `color: 0xffffff`, `roughness: 0.82`, and `metalness: 0`.
 The scene's ambient/directional lights produce stable top/side/cap contrast
-from the real chamfered-prism normals, making adjacent same-colour paths readable
-without an artificial gap or alpha outline. The chamfer is 16% of each
-cross-section dimension, so edge relief remains scale-aware. They use `transparent: true` solely to
+from the real diamond-prism normals, making adjacent same-colour paths readable
+without an artificial gap or alpha outline. They use `transparent: true` solely to
 place them after the transparent preview shell in Three's render queue,
 `opacity: 1`, `blending: THREE.NoBlending`, `depthTest: true`,
 `depthWrite: true`, and `FrontSide`. This queue flag does not enable alpha
@@ -347,12 +349,12 @@ The baseline correspondence to native libvgcode is page-local selected
 instances, ordered layer ranges, vertical direction fallback, and shell-visible
 depth state. Native `ViewerImpl::render_segments` explicitly disables
 `GL_CULL_FACE`; the current Three adaptation intentionally uses
-`side: FrontSide` (back-face culling) because its physical cuboid entities must
+`side: FrontSide` (back-face culling) because its physical diamond entities must
 self-occlude. This is a deliberate adaptation difference, not a claim that the
 native renderer culls back faces. Native libvgcode's eight-corner template has
 camera-dependent spike/silhouette vertices and cannot be represented exactly
 by one static affine mesh without reintroducing shader-derived shape logic.
-Three/WebGL2 therefore uses a physically solid cuboid template and
+Three/WebGL2 therefore uses a physically solid diamond-profile template and
 materializes direction/width/height on the CPU, as required. Camera updates
 only update camera/render state. Layer, move, travel, and feature filters
 rebuild selected page matrices/colors and counts without re-parsing or slicing.

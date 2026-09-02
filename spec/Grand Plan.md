@@ -375,11 +375,11 @@ and drives structural operations through the typed client.
 > and `FrontSide` in the Three adaptation: preview shells do not write depth,
 > while solid toolpaths self-occlude and cull their back faces. Native
 > libvgcode disables `GL_CULL_FACE`; this culling flag is an intentional
-> difference required by the physical cuboid adaptation.
+> difference required by the physical diamond-profile adaptation.
 > Toolpath materials use flat-shaded `MeshStandardMaterial` with the existing
-> scene lights. A shared chamfered prism supplies scale-aware physical edge
-> relief between neighbouring same-colour paths; no gap, alpha outline, or
-> blend pass is introduced.
+> scene lights. A shared four-point diamond-profile prism follows native
+> libvgcode's cardinal `line_right`/`line_up` cross-section; no square/chamfer,
+> gap, alpha outline, or blend pass is introduced.
 > Travel segments are coloured by their move type rather than any preserved
 > extrusion role, using libvgcode's `Travels` colour `RGB(56, 72, 155)`;
 > extrusion feature filters do not hide travel, and the global travel toggle
@@ -396,7 +396,7 @@ and drives structural operations through the typed client.
       metadata fixture contract (no bridge change)
 - [x] Step 2 — source adapter/page planner behind the current B2 backend
 - [x] Step 3 — WebGL2 opaque solid-entity backend and capability/lifetime
-      fallback (shared chamfered prism + page-local InstancedMesh; no custom
+      fallback (shared diamond-profile prism + page-local InstancedMesh; no custom
       thickness shader or alpha blend)
 - [x] Step 4 — real preview integration behind an explicit default-off gate,
       fallback diagnostics, and opt-in dual-host smoke coverage

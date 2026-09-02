@@ -8,7 +8,7 @@ import {
   type GpuStreamingEntityTemplateResource,
   type GpuStreamingResourceFacade,
 } from './gpuStreamingRenderer';
-import { TOOLPATH_ENTITY_CHAMFER_RATIO } from './toolpathEntityGeometry';
+import { TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT, TOOLPATH_ENTITY_PROFILE } from './toolpathEntityGeometry';
 
 function source(): GpuStreamingSource {
   return {
@@ -69,7 +69,7 @@ describe('opaque GPU entity renderer', () => {
     for (const mesh of result.backend.sceneObjects) {
       expect(mesh).toBeInstanceOf(THREE.InstancedMesh);
       expect(mesh.geometry).toBeInstanceOf(THREE.BufferGeometry);
-      expect(mesh.geometry.getAttribute('position').count).toBe(96);
+      expect(mesh.geometry.getAttribute('position').count).toBe(48);
       expect(mesh.geometry.index).toBeNull();
       expect(mesh.material).toBeInstanceOf(THREE.MeshStandardMaterial);
       const material = mesh.material as THREE.MeshStandardMaterial;
@@ -94,9 +94,22 @@ describe('opaque GPU entity renderer', () => {
     result.backend.dispose();
   });
 
-  it('uses a scale-aware physical chamfer for edge relief', () => {
-    expect(TOOLPATH_ENTITY_CHAMFER_RATIO).toBeGreaterThan(0);
-    expect(TOOLPATH_ENTITY_CHAMFER_RATIO).toBeLessThan(0.5);
+  it('uses the native four-point diamond profile in the GPU template', () => {
+    expect(TOOLPATH_ENTITY_PROFILE).toBe('diamond');
+    expect(TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT).toBeCloseTo(0.5);
+    const plan = planGpuStreamingPages(source(), { softPageTarget: 4 });
+    const result = createGpuStreamingRenderer(plan, { context: context(), compile: false });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const positions = result.backend.sceneObjects[0]!.geometry.getAttribute('position');
+    const crossSection = new Set<string>();
+    for (let i = 0; i < positions.count; i++) {
+      const y = positions.getY(i);
+      const z = positions.getZ(i);
+      if (Math.abs(Math.abs(y) + Math.abs(z) - 0.5) < 1e-6) crossSection.add(`${y},${z}`);
+    }
+    expect(crossSection).toEqual(new Set(['0,-0.5', '0.5,0', '0,0.5', '-0.5,0']));
+    result.backend.dispose();
   });
 
   it('writes selected transforms/colors, preserves all high pages, and rebuilds filters without parsing', () => {

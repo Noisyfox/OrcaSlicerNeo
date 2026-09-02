@@ -323,17 +323,19 @@ still a separately approved cleanup after a release cycle.
 
 The atlas/texel-fetch backend described earlier in this living document is
 superseded by the user's explicit rendering requirement. The accepted path is
-now a shared faceted, chamfered solid-prism geometry template and one
+now a shared faceted, diamond-profile solid-prism geometry template and one
 page-local `THREE.InstancedMesh` per planned page. At construction and every selection
 rebuild, each selected segment's endpoint midpoint, direction basis, width,
 height, and optional z bias are written into its instance matrix. Faceted prism
-end caps are therefore real geometry; no vertex shader derives a segment outline,
+end caps are therefore real geometry; the local side/up ring is the four-point
+diamond used by native libvgcode's cardinal endpoint construction. No vertex
+shader derives a segment outline,
 thickness, height, direction, or cap from an atlas.
 
 The material is Three's direct `MeshStandardMaterial` with flat face shading,
 `color: 0xffffff`, `roughness: 0.82`, and `metalness: 0`. The existing scene
 ambient and directional lights produce distinct top, side, and cap brightness
-from the real chamfered-prism normals, matching libvgcode's face-lighting intent and
+from the real diamond-prism normals, matching libvgcode's face-lighting intent and
 making neighbouring same-colour paths readable without a gap or outline pass.
 It uses `transparent: true` only for transparent-queue ordering, `opacity: 1`,
 and `blending: THREE.NoBlending`. The queue flag does not enable alpha
@@ -366,12 +368,12 @@ applicable: page-local selected instances, layer-ordered pages, vertical
 direction fallback, and shell-visible depth state. Native
 `ViewerImpl::render_segments` explicitly disables `GL_CULL_FACE`; the current
 Three adaptation intentionally uses `side: FrontSide` (back-face culling)
-because its physical cuboid entities must self-occlude. This is a deliberate
+because its physical diamond-profile entities must self-occlude. This is a deliberate
 adaptation difference, not a claim that the native renderer culls back faces.
 The native libvgcode eight-corner template has camera-dependent spike/silhouette vertices
 and therefore cannot be represented exactly by one static affine mesh without
 reintroducing shader-derived shape logic. The deliberate Three adaptation uses
-a physically solid cuboid template and materializes direction/width/height in
+a physically solid diamond-profile template and materializes direction/width/height in
 CPU instance matrices because this product requirement prohibits a custom
 shader for thickness. The old atlas, integer texture, texelFetch,
 custom shader, retired index-stream, and palette-texture resources are removed

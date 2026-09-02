@@ -1,26 +1,25 @@
 import * as THREE from 'three';
 
 /**
- * A unit-length, chamfered rectangular prism used for every toolpath entity.
+ * The shared toolpath profile used by both the streaming and B2 renderers.
  *
- * The chamfer is part of the physical mesh (not a screen-space outline): it
- * is 16% of each cross-section dimension and therefore scales with the
- * segment's width/height matrix.  The eight longitudinal facets provide a
- * stable edge highlight between adjacent same-colour paths while preserving
- * the requested continuous solid volume.
+ * Native libvgcode's SegmentTemplate has cardinal endpoint vertices on
+ * `line_right`/`line_up` (see the sign table in Shaders.hpp), which gives a
+ * diamond rather than a square or chamfered cross-section.  Keep that profile
+ * in real geometry so width/height remain instance-matrix dimensions and no
+ * renderer-specific shader can change the visible shape.
  */
-export const TOOLPATH_ENTITY_CHAMFER_RATIO = 0.16;
+export const TOOLPATH_ENTITY_PROFILE = 'diamond' as const;
+
+/** Unit cross-section half extents in the local side/up plane. */
+export const TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT = 0.5;
 
 export function createToolpathEntityGeometry(): THREE.BufferGeometry {
-  const ratio = TOOLPATH_ENTITY_CHAMFER_RATIO;
   const half = 0.5;
-  const inset = half * ratio;
-  // Counter-clockwise in the local Y/Z plane when viewed from +X.
+  // Counter-clockwise cardinal points in the local Y/Z plane when viewed from
+  // +X.  This is the native line_right/line_up profile, not an outline pass.
   const ring: ReadonlyArray<readonly [number, number]> = [
-    [-half + inset, -half], [half - inset, -half],
-    [half, -half + inset], [half, half - inset],
-    [half - inset, half], [-half + inset, half],
-    [-half, half - inset], [-half, -half + inset],
+    [0, -half], [half, 0], [0, half], [-half, 0],
   ];
   const positions: number[] = [];
   const push = (x: number, yz: readonly [number, number]) => positions.push(x, yz[0], yz[1]);

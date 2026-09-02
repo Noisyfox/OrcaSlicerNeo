@@ -7,22 +7,30 @@ import {
   ToolpathBandCache,
   updateToolpathChunkVisibility,
 } from './toolpathBandGeometry';
-import { createToolpathEntityGeometry, TOOLPATH_ENTITY_CHAMFER_RATIO } from './toolpathEntityGeometry';
+import { createToolpathEntityGeometry, TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT, TOOLPATH_ENTITY_PROFILE } from './toolpathEntityGeometry';
 import type { ClientToolpath } from '@slicer/client';
 
 describe('toolpath band geometry', () => {
-  it('uses a unit physical chamfer with distinct edge facets, not an outline gap', () => {
+  it('uses a native-style four-point diamond cross-section, not a square/chamfer', () => {
     const geometry = createToolpathEntityGeometry();
     const positions = geometry.getAttribute('position');
     const bounds = new THREE.Box3().setFromBufferAttribute(positions as THREE.BufferAttribute);
-    expect(positions.count).toBe(96);
+    expect(positions.count).toBe(48);
     expect(bounds.min.toArray()).toEqual([-0.5, -0.5, -0.5]);
     expect(bounds.max.toArray()).toEqual([0.5, 0.5, 0.5]);
-    expect(TOOLPATH_ENTITY_CHAMFER_RATIO).toBeCloseTo(0.16);
+    expect(TOOLPATH_ENTITY_PROFILE).toBe('diamond');
+    expect(TOOLPATH_ENTITY_DIAMOND_HALF_EXTENT).toBeCloseTo(0.5);
+    const ring = new Set<string>();
+    for (let i = 0; i < positions.count; i++) {
+      const y = positions.getY(i);
+      const z = positions.getZ(i);
+      if (Math.abs(Math.abs(y) + Math.abs(z) - 0.5) < 1e-6) ring.add(`${y},${z}`);
+    }
+    expect(ring).toEqual(new Set(['0,-0.5', '0.5,0', '0,0.5', '-0.5,0']));
     const normals = geometry.getAttribute('normal');
     const unique = new Set<string>();
     for (let i = 0; i < normals.count; i++) unique.add([normals.getX(i), normals.getY(i), normals.getZ(i)].map((value) => value.toFixed(3)).join(','));
-    expect(unique.size).toBeGreaterThanOrEqual(10);
+    expect(unique.size).toBeGreaterThanOrEqual(6);
     geometry.dispose();
   });
 

@@ -96,8 +96,8 @@ export function buildGpuStreamingInstanceMatrix(
   const height = Math.max(0, source.heights[sourceIndex] ?? 0);
   const center = start.clone().add(end).multiplyScalar(0.5);
   center.z += source.biases?.[sourceIndex] ?? 0;
-  // The unit centered cuboid spans +/-0.5 on each axis, so these scales
-  // produce the requested full dimensions.
+  // The unit centered diamond profile spans +/-0.5 on its local axis and
+  // diagonals, so these scales produce the requested full dimensions.
   target.makeBasis(axis, side, up).scale(new THREE.Vector3(Math.max(length, 1e-5), width, height));
   target.setPosition(center);
   return target;
