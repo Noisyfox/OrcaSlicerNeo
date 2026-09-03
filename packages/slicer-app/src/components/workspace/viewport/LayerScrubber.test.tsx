@@ -216,18 +216,26 @@ describe('LayerScrubber preview controls', () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<LayerScrubber data={data} />); });
-    const scheme = container.querySelector('[data-testid="preview-color-scheme"]') as HTMLSelectElement;
+    const scheme = container.querySelector('[data-testid="preview-color-scheme"]') as HTMLButtonElement;
     await act(async () => {
-      scheme.value = 'filament';
-      scheme.dispatchEvent(new Event('change', { bubbles: true }));
+      scheme.click();
+    });
+    await act(async () => {
+      const option = document.body.querySelector('[data-testid="preview-color-scheme-filament"]') as HTMLElement;
+      option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      option.click();
     });
     const filamentEntry = container.querySelector('[data-testid="preview-scheme-visibility-filament-1"]') as HTMLButtonElement;
     await act(async () => { filamentEntry.click(); });
     expect(useSlicerStore.getState().preview.schemeVisibility.filament?.[1]).toBe(false);
     expect(useSlicerStore.getState().preview.schemeVisibility.feature).toBeUndefined();
     await act(async () => {
-      scheme.value = 'feature';
-      scheme.dispatchEvent(new Event('change', { bubbles: true }));
+      scheme.click();
+    });
+    await act(async () => {
+      const option = document.body.querySelector('[data-testid="preview-color-scheme-feature"]') as HTMLElement;
+      option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+      option.click();
     });
     expect(container.querySelector('[data-testid="preview-feature-visibility-1"]')).toBeTruthy();
   });

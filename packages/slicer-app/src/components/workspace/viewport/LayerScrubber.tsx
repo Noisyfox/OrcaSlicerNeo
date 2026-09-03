@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, type WheelEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import { maxMoveOrderForLayer, nextRenderablePreviewLayer, renderablePreviewLayers } from './previewSemantics';
@@ -90,12 +91,17 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
             {preview.singleLayer ? 'All layers' : 'Single layer'}
           </Button>
         </div>
-        <label className="space-y-1 text-xs">
+        <div className="space-y-1 text-xs">
           <span className="sr-only">Color scheme</span>
-          <select aria-label="Preview color scheme" data-testid="preview-color-scheme" value={activeScheme} onChange={(event) => setColorScheme(event.target.value as PreviewColorScheme)} className="w-full rounded border bg-background px-2 py-1 text-xs">
-            {schemes.map((scheme) => <option key={scheme} value={scheme}>{PREVIEW_SCHEME_LABELS[scheme]}</option>)}
-          </select>
-        </label>
+          <Select value={activeScheme} onValueChange={(value) => setColorScheme(value as PreviewColorScheme)}>
+            <SelectTrigger id="preview-color-scheme" aria-label="Preview color scheme" data-testid="preview-color-scheme" className="h-7 w-full bg-background px-2 py-1 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {schemes.map((scheme) => <SelectItem key={scheme} value={scheme} data-testid={`preview-color-scheme-${scheme}`}>{PREVIEW_SCHEME_LABELS[scheme]}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
         <div data-testid="preview-legend" className="space-y-1">
           <div className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">{descriptor?.label ?? PREVIEW_SCHEME_LABELS[activeScheme]}</div>
           {descriptor?.kind === 'categorical' && descriptor.items.map((item) => {
