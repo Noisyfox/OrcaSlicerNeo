@@ -3,7 +3,7 @@
 // bridge-shaped mock module (Task 1). These pin the M2 bridge
 // contract that Task 7 implements in C++.
 import { describe, it, expect } from 'vitest';
-import { createMockModule } from './testing/mock-module';
+import { createMockModule, type MockFeature } from './testing/mock-module';
 import { createClient } from './client';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 import type { ModelTransform, VolumeType } from './types';
@@ -844,6 +844,39 @@ describe('SlicerClient bridge contract', () => {
     expect(r.metadata.analysis?.metricRanges).toEqual({
       feedrate: { min: 10, max: 40 }, volumetricFlow: { min: 1, max: 4 },
     });
+  });
+
+  it('preserves every Orca extrusion-role label and color in the client palette', async () => {
+    const orcaPalette: MockFeature[] = [
+      { id: 0, name: 'Undefined', color: [230, 179, 179] },
+      { id: 1, name: 'Inner wall', color: [255, 230, 77] },
+      { id: 2, name: 'Outer wall', color: [255, 125, 56] },
+      { id: 3, name: 'Overhang wall', color: [31, 31, 255] },
+      { id: 4, name: 'Sparse infill', color: [176, 48, 41] },
+      { id: 5, name: 'Internal solid infill', color: [150, 84, 204] },
+      { id: 6, name: 'Top surface', color: [240, 64, 64] },
+      { id: 7, name: 'Bottom surface', color: [102, 92, 199] },
+      { id: 8, name: 'Ironing', color: [255, 140, 105] },
+      { id: 9, name: 'Bridge', color: [77, 128, 186] },
+      { id: 10, name: 'Internal Bridge', color: [77, 128, 186] },
+      { id: 11, name: 'Gap infill', color: [255, 255, 255] },
+      { id: 12, name: 'Skirt', color: [0, 135, 110] },
+      { id: 13, name: 'Brim', color: [0, 59, 110] },
+      { id: 14, name: 'Support', color: [0, 255, 0] },
+      { id: 15, name: 'Support interface', color: [0, 128, 0] },
+      { id: 16, name: 'Support transition', color: [0, 64, 0] },
+      { id: 17, name: 'Prime tower', color: [179, 227, 171] },
+      { id: 18, name: 'Custom', color: [94, 209, 148] },
+      { id: 19, name: 'Multiple', color: [128, 128, 128] },
+    ];
+    const c = createClient(async () => createMockModule({
+      sliceFixture: { layers: 1, toolpathVertices: 2, features: orcaPalette },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const r = await c.getSliceResult();
+    expect(r.metadata.featurePalette).toEqual(orcaPalette);
+    expect(r.toolpath.palette).toEqual(orcaPalette);
   });
 
   it('omits unavailable optional metrics while preserving required arrays', async () => {
