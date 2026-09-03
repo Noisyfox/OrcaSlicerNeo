@@ -247,6 +247,31 @@ describe('GcodeTextWindow', () => {
     expect(readTextLines).toHaveBeenCalledWith({ resultId: 42, startLine: targetStartLine, lineCount: PAGE_LINES });
   });
 
+  it('keeps the manual scroll position when the uncached page resolves', async () => {
+    vi.useFakeTimers();
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: false,
+      text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
+    }));
+    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const scrollData = { ...lateData, metadata: { ...lateData.metadata!, sourceLineMapping: { available: true, lineCount: 12000 } } };
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={scrollData} onClose={() => undefined} /></PlatformProvider>); });
+    const scroll = container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement;
+    const manualScrollTop = PAGE_LINES * 2 * ROW_HEIGHT;
+
+    await act(async () => {
+      scroll.scrollTop = manualScrollTop;
+      scroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+      vi.advanceTimersByTime(SCROLL_IDLE_DELAY_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(readTextLines).toHaveBeenCalledWith({ resultId: 42, startLine: PAGE_LINES * 2 + 1, lineCount: PAGE_LINES });
+    expect(scroll.scrollTop).toBe(manualScrollTop);
+  });
+
   it('resets the scroll idle debounce when scrolling continues', async () => {
     vi.useFakeTimers();
     const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({

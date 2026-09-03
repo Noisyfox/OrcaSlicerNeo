@@ -111,6 +111,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const cacheRef = useRef(new Map<number, TextPage>());
   const loadingRef = useRef(new Set<number>());
   const cacheGenerationRef = useRef(0);
+  const pendingCenterPageRef = useRef<number | null>(null);
   const scrollTopRef = useRef(0);
   const scrollIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -238,6 +239,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     }
     cacheRef.current.clear();
     loadingRef.current.clear();
+    pendingCenterPageRef.current = null;
     scrollTopRef.current = 0;
     setLoading(false);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
@@ -298,9 +300,12 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
       clearTimeout(scrollIdleTimerRef.current);
       scrollIdleTimerRef.current = null;
     }
+    pendingCenterPageRef.current = null;
     if (!sourceTextAvailable(data)) return;
     const anchorRow = activeLine === null ? 0 : activeLine - 1;
-    const pages = new Set<number>([Math.floor(anchorRow / PAGE_LINES)]);
+    const pageNumber = Math.floor(anchorRow / PAGE_LINES);
+    pendingCenterPageRef.current = activeLine === null ? null : pageNumber;
+    const pages = new Set<number>([pageNumber]);
     void Promise.all([...pages].map((page) => loadPage(page)));
   }, [activeLine, data, loadPage]);
 
@@ -320,6 +325,9 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
 
   const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const nextScrollTop = event.currentTarget.scrollTop;
+    // A user scroll supersedes an outstanding active-line centering request.
+    // Page cache updates must not move the viewport back to the active line.
+    pendingCenterPageRef.current = null;
     scrollTopRef.current = nextScrollTop;
     setScrollTop(nextScrollTop);
     if (scrollIdleTimerRef.current !== null) clearTimeout(scrollIdleTimerRef.current);
@@ -335,11 +343,13 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   useEffect(() => {
     if (activeLine === null) return;
     const pageNumber = Math.floor((activeLine - 1) / PAGE_LINES);
+    if (pendingCenterPageRef.current !== pageNumber) return;
     if (!cacheRef.current.has(pageNumber)) return;
     const targetTop = (activeLine - 1) * ROW_HEIGHT;
     const element = scrollRef.current;
     if (!element) return;
     const centeredTop = Math.max(0, targetTop - (textViewportHeight - ROW_HEIGHT) / 2);
+    pendingCenterPageRef.current = null;
     if (Math.abs(element.scrollTop - centeredTop) > ROW_HEIGHT) {
       scrollTopRef.current = centeredTop;
       element.scrollTop = centeredTop;
