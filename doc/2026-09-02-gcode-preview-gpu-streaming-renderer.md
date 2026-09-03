@@ -25,6 +25,13 @@ client and derives immutable layer ranges. Normal layers are kept intact when
 building pages. A layer may be split only when a declared hard capacity makes
 that necessary, and every piece remains visible and carries the same layer ID.
 
+Travel segments retain the native SegmentTemplate geometry path but use
+libvgcode's default travel radius (`0.1 mm`) for both rendered height and
+width. Their slicer-provided extrusion dimensions are not used, so travel is
+visibly a thin line while extrusion segments retain their physical solid
+geometry. Travel color, visibility, dimming, and opaque depth testing remain
+independent and unchanged.
+
 If WebGL2 capabilities, shader compilation, allocation, source validation,
 budget, selection initialization, or context lifetime cannot satisfy the
 contract, the preview reports an unavailable diagnostic. It does not construct

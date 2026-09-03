@@ -5,7 +5,7 @@ import type {
   GpuStreamingPagePlan,
   GpuStreamingSelection,
 } from './gpuStreamingPlanner';
-import { resolvePreviewColor } from './toolpathColors';
+import { resolvePreviewColor, TRAVEL_MOVE_TYPE } from './toolpathColors';
 
 /** WebGL2 adapter for Orca/libvgcode's native SegmentTemplate renderer. */
 export interface GpuStreamingCapabilityLimits {
@@ -53,6 +53,13 @@ export type GpuStreamingBuildResult =
       readonly diagnostics: GpuStreamingUnavailableDiagnostics;
     };
 const REQUIRED_TEXTURE_UNITS = 4;
+/**
+ * libvgcode's default travels radius (ViewerImpl::m_travels_radius).
+ * Travel moves use this thin preview width instead of the physical extrusion
+ * width supplied by the slicer. The native shader receives the radius as both
+ * height and width, so the rendered band is 0.1 mm across.
+ */
+export const LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM = 0.1;
 const SEGMENT_TEMPLATE_VERTEX_IDS = Object.freeze([
   0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 5, 0, 5, 6, 0, 6, 1, 5, 4, 7, 5, 7, 6,
 ]);
@@ -195,8 +202,13 @@ function buildStaticTextures(
       positions[o] = xyz[si] ?? 0;
       positions[o + 1] = xyz[si + 1] ?? 0;
       positions[o + 2] = xyz[si + 2] ?? 0;
-      shapes[o] = Math.max(0, source.heights[i] ?? 0);
-      shapes[o + 1] = Math.max(0, source.widths[i] ?? 0);
+      const isTravel = source.moveTypes[i] === TRAVEL_MOVE_TYPE;
+      shapes[o] = isTravel
+        ? LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM
+        : Math.max(0, source.heights[i] ?? 0);
+      shapes[o + 1] = isTravel
+        ? LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM
+        : Math.max(0, source.widths[i] ?? 0);
       shapes[o + 2] = source.capAngles?.[i] ?? source.angles?.[i] ?? 0;
       shapes[o + 3] = source.biases?.[i] ?? 0;
       const c = resolvePreviewColor(source, i, scheme);

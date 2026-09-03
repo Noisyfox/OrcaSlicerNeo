@@ -98,6 +98,14 @@ color channels in place.
 The textures are global to the source result, not duplicated per page. Pages
 therefore carry only their source offset and segment count for addressing.
 
+For travel moves, the shape texture stores libvgcode's default travel radius
+(`0.1 mm`) as both height and width, matching
+`ViewerImpl::extract_pos_and_or_hwa` and `DEFAULT_TRAVELS_RADIUS_MM`. The
+slicer-provided physical extrusion dimensions are used only for extrusion
+moves; this keeps travel visibly thin without changing the shared
+SegmentTemplate geometry, opaque depth semantics, or independent travel color
+and visibility controls.
+
 ### Shared SegmentTemplate
 
 The template is created once per renderer context and shared by all pages. Its

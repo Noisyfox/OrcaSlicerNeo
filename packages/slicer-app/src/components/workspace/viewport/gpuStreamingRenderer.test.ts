@@ -7,6 +7,7 @@ import {
 } from './gpuStreamingPlanner';
 import {
   createGpuStreamingRenderer,
+  LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM,
   probeGpuStreamingCapabilities,
   type GpuStreamingSegmentTemplateResource,
   type GpuStreamingResourceFacade,
@@ -146,6 +147,31 @@ describe('native SegmentTemplate GPU renderer', () => {
       expect(index.image.width).toBe(2);
       expect(index.image.height).toBe(1);
     }
+    result.backend.dispose();
+  });
+
+  it('uses libvgcode travel radius instead of the physical extrusion width', () => {
+    const plan = planGpuStreamingPages(source(), { softPageTarget: 4 });
+    const result = createGpuStreamingRenderer(plan, {
+      context: context(),
+      compile: false,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const shape = (
+      (result.backend.pages[0]!.mesh.material as THREE.ShaderMaterial)
+        .uniforms.height_width_angle_tex.value as THREE.DataTexture
+    ).image.data as Float32Array;
+    // Segment 0 is extrusion: preserve its source geometry.
+    expect(shape[0]).toBeCloseTo(0.2);
+    expect(shape[1]).toBeCloseTo(0.4);
+    // Segment 1 is travel: both endpoint texels use native 0.1 mm radius,
+    // regardless of the source's 0.2 mm height / 0.5 mm width.
+    expect(shape[8]).toBeCloseTo(LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM);
+    expect(shape[9]).toBeCloseTo(LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM);
+    expect(shape[12]).toBeCloseTo(LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM);
+    expect(shape[13]).toBeCloseTo(LIBVGCODE_DEFAULT_TRAVEL_RADIUS_MM);
     result.backend.dispose();
   });
 
