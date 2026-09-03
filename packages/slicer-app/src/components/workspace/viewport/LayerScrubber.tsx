@@ -93,7 +93,8 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
         </div>
         <div className="space-y-1 text-xs">
           <span className="sr-only">Color scheme</span>
-          <Select value={activeScheme} onValueChange={(value) => setColorScheme(value as PreviewColorScheme)}>
+          {/* base-ui Select.Value renders the selected value, not the item text; the Root's items prop supplies the value→label mapping for the trigger display */}
+          <Select value={activeScheme} items={schemes.map((scheme) => ({ value: scheme, label: PREVIEW_SCHEME_LABELS[scheme] }))} onValueChange={(value) => setColorScheme(value as PreviewColorScheme)}>
             <SelectTrigger id="preview-color-scheme" aria-label="Preview color scheme" data-testid="preview-color-scheme" className="h-7 w-full bg-background px-2 py-1 text-xs">
               <SelectValue />
             </SelectTrigger>

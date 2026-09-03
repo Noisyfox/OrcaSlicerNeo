@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { LayerScrubber } from './LayerScrubber';
+import { PREVIEW_SCHEME_LABELS } from './toolpathColors';
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data: ToolpathGeometry = {
@@ -225,6 +226,8 @@ describe('LayerScrubber preview controls', () => {
       option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
       option.click();
     });
+    // The trigger shows the scheme label, not the raw value
+    expect(container.querySelector('[data-testid="preview-color-scheme"] [data-slot="select-value"]')?.textContent).toBe(PREVIEW_SCHEME_LABELS.filament);
     const filamentEntry = container.querySelector('[data-testid="preview-scheme-visibility-filament-1"]') as HTMLButtonElement;
     await act(async () => { filamentEntry.click(); });
     expect(useSlicerStore.getState().preview.schemeVisibility.filament?.[1]).toBe(false);
