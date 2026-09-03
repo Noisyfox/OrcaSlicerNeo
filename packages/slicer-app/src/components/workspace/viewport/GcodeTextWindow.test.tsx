@@ -12,6 +12,33 @@ const PAGE_LINES = 128;
 const SCROLL_IDLE_DELAY_MS = 160;
 const gcodeIds = Uint32Array.from([4, 7, 11]);
 
+function setViewportSize(container: HTMLElement, width = 800, height = 600) {
+  Object.defineProperty(container, 'clientWidth', { configurable: true, value: width });
+  Object.defineProperty(container, 'clientHeight', { configurable: true, value: height });
+  vi.spyOn(container, 'getBoundingClientRect').mockReturnValue({
+    x: 0, y: 0, top: 0, left: 0, right: width, bottom: height,
+    width, height, toJSON: () => undefined,
+  });
+}
+
+function addPointerCaptureMock(element: HTMLElement) {
+  let captured = false;
+  const setPointerCapture = vi.fn(() => { captured = true; });
+  const releasePointerCapture = vi.fn(() => { captured = false; });
+  Object.defineProperty(element, 'setPointerCapture', { configurable: true, value: setPointerCapture });
+  Object.defineProperty(element, 'hasPointerCapture', { configurable: true, value: () => captured });
+  Object.defineProperty(element, 'releasePointerCapture', { configurable: true, value: releasePointerCapture });
+  return { setPointerCapture, releasePointerCapture };
+}
+
+function dispatchPointer(target: HTMLElement, type: string, pointerId: number, clientX: number, clientY: number) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  for (const [key, value] of Object.entries({ pointerId, clientX, clientY, button: 0 })) {
+    Object.defineProperty(event, key, { configurable: true, value });
+  }
+  target.dispatchEvent(event);
+}
+
 const data: ToolpathGeometry = {
   segmentCount: 3,
   palette: [],
@@ -68,6 +95,98 @@ describe('GcodeTextWindow', () => {
     expect(container.querySelector('[data-testid="gcode-text-window"]')).toBeTruthy();
     expect(container.querySelectorAll('[data-testid^="gcode-line-"]').length).toBeLessThan(100);
     expect(container.querySelector('[data-testid="gcode-line-1"]')?.textContent).toContain('G1 X1');
+  });
+
+  it('moves with the title bar, clamps to the viewport, and does not drag from Close', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
+    }));
+    const onClose = vi.fn();
+    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={onClose} /></PlatformProvider>); });
+    const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
+    const header = container.querySelector('[data-testid="gcode-text-header"]') as HTMLElement;
+    const close = container.querySelector('[data-testid="gcode-text-close"]') as HTMLElement;
+    const capture = addPointerCaptureMock(header);
+    const initialLeft = parseFloat(windowElement.style.left);
+    const initialTop = parseFloat(windowElement.style.top);
+
+    await act(async () => {
+      dispatchPointer(header, 'pointerdown', 1, 100, 100);
+      dispatchPointer(header, 'pointermove', 1, 250, 180);
+      dispatchPointer(header, 'pointerup', 1, 250, 180);
+    });
+    expect(parseFloat(windowElement.style.left)).toBe(initialLeft + 150);
+    expect(parseFloat(windowElement.style.top)).toBe(initialTop + 80);
+    expect(capture.setPointerCapture).toHaveBeenCalledWith(1);
+    expect(capture.releasePointerCapture).toHaveBeenCalledWith(1);
+
+    await act(async () => {
+      dispatchPointer(header, 'pointerdown', 2, 0, 0);
+      dispatchPointer(header, 'pointermove', 2, -1000, -1000);
+      dispatchPointer(header, 'pointerup', 2, -1000, -1000);
+    });
+    expect(windowElement.style.left).toBe('0px');
+    expect(windowElement.style.top).toBe('0px');
+
+    await act(async () => {
+      dispatchPointer(close, 'pointerdown', 3, 20, 20);
+      dispatchPointer(header, 'pointermove', 3, 300, 300);
+    });
+    expect(windowElement.style.left).toBe('0px');
+    expect(windowElement.style.top).toBe('0px');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('resizes from the visible corner handle, clamps dimensions, and supports keyboard resizing', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
+    }));
+    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
+    const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
+    const handle = container.querySelector('[data-testid="gcode-text-resize"]') as HTMLElement;
+    const capture = addPointerCaptureMock(handle);
+    expect(handle.getAttribute('aria-label')).toBe('Resize G-code text window');
+
+    await act(async () => {
+      dispatchPointer(handle, 'pointerdown', 4, 0, 0);
+      dispatchPointer(handle, 'pointermove', 4, 100, 100);
+      dispatchPointer(handle, 'pointerup', 4, 100, 100);
+    });
+    expect(parseFloat(windowElement.style.width)).toBe(564);
+    expect(parseFloat(windowElement.style.height)).toBe(524);
+    expect(capture.setPointerCapture).toHaveBeenCalledWith(4);
+    expect(capture.releasePointerCapture).toHaveBeenCalledWith(4);
+
+    await act(async () => {
+      dispatchPointer(handle, 'pointerdown', 5, 0, 0);
+      dispatchPointer(handle, 'pointermove', 5, -1000, -1000);
+      dispatchPointer(handle, 'pointercancel', 5, -1000, -1000);
+    });
+    expect(parseFloat(windowElement.style.width)).toBe(320);
+    expect(parseFloat(windowElement.style.height)).toBe(220);
+    expect(handle.getAttribute('aria-label')).toBe('Resize G-code text window');
+
+    await act(async () => {
+      handle.focus();
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', shiftKey: true, bubbles: true }));
+    });
+    expect(parseFloat(windowElement.style.width)).toBe(330);
+    expect(parseFloat(windowElement.style.height)).toBe(270);
+
+    await act(async () => {
+      dispatchPointer(handle, 'pointerdown', 6, 0, 0);
+      dispatchPointer(handle, 'pointermove', 6, 1000, 1000);
+      dispatchPointer(handle, 'pointerup', 6, 1000, 1000);
+    });
+    expect(parseFloat(windowElement.style.width)).toBe(768);
+    expect(parseFloat(windowElement.style.height)).toBe(588);
+    expect(parseFloat(windowElement.style.left) + parseFloat(windowElement.style.width)).toBeLessThanOrEqual(800);
+    expect(parseFloat(windowElement.style.top) + parseFloat(windowElement.style.height)).toBeLessThanOrEqual(600);
   });
 
   it('maps exact and unmappable line clicks using the preceding move rule', async () => {
