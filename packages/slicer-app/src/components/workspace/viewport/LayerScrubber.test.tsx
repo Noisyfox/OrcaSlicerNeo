@@ -120,6 +120,25 @@ describe('LayerScrubber preview controls', () => {
     expect(atMax.defaultPrevented).toBe(true);
   });
 
+  it('moves sliders when the wheel is over the surrounding black frames', async () => {
+    useSlicerStore.getState().setPreviewBounds(1, 1, 1);
+    useSlicerStore.getState().setPreviewLayerRange([0, 1], 1);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+
+    const moveFrame = container.querySelector('[data-testid="preview-move-range"]') as HTMLElement;
+    const moveWheel = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
+    await act(async () => { moveFrame.dispatchEvent(moveWheel); });
+    expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(0);
+    expect(moveWheel.defaultPrevented).toBe(true);
+
+    const layerFrame = container.querySelector('[data-testid="preview-layer-range"]') as HTMLElement;
+    const layerWheel = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+    await act(async () => { layerFrame.dispatchEvent(layerWheel); });
+    expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerStart: 1, visibleLayerEnd: 1 });
+    expect(layerWheel.defaultPrevented).toBe(true);
+  });
+
   it('moves the vertical start and end thumbs independently with the wheel', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     useSlicerStore.getState().setPreviewLayerRange([0, 1], 1);

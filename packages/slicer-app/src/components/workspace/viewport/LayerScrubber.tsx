@@ -37,10 +37,18 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const setSchemeVisibility = useSlicerStore((s) => s.setPreviewSchemeVisibility);
   const layerStartSurfaceRef = useRef<HTMLDivElement>(null);
   const layerEndSurfaceRef = useRef<HTMLDivElement>(null);
+  const layerRangeFrameRef = useRef<HTMLDivElement>(null);
   const moveSurfaceRef = useRef<HTMLDivElement>(null);
+  const moveRangeFrameRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const surfaces = [layerStartSurfaceRef.current, layerEndSurfaceRef.current, moveSurfaceRef.current]
+    const surfaces = [
+      layerStartSurfaceRef.current,
+      layerEndSurfaceRef.current,
+      layerRangeFrameRef.current,
+      moveSurfaceRef.current,
+      moveRangeFrameRef.current,
+    ]
       .filter((surface): surface is HTMLDivElement => surface !== null);
     const preventNativeWheel = (event: globalThis.WheelEvent) => {
       if (event.deltaY !== 0) event.preventDefault();
@@ -106,7 +114,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
         <Button variant={preview.showTravel ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.showTravel} data-testid="preview-travel-toggle" onClick={() => setShowTravel(!preview.showTravel)}>{preview.showTravel ? 'Hide travel' : 'Show travel'}</Button>
         <Button variant={preview.dimPreviousLayers ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.dimPreviousLayers} data-testid="preview-dimming-toggle" onClick={() => setDimPreviousLayers(!preview.dimPreviousLayers)}>{preview.dimPreviousLayers ? 'Dim previous layers' : 'Show layers equally'}</Button>
       </aside>
-      <div data-testid="preview-layer-range" className="pointer-events-auto absolute right-2 top-1/2 z-30 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
+      <div ref={layerRangeFrameRef} data-testid="preview-layer-range" onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; const nextStart = layerStart + step; if (preview.singleLayer) setLayerEnd(nextStart, maxMoveOrderForLayer(data, nextStart)); else setLayerRange([nextStart, layerEnd], maxMove); }} className="pointer-events-auto absolute right-2 top-1/2 z-30 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <Label className="sr-only">Visible layer range</Label>
         <div ref={layerStartSurfaceRef} data-testid="layer-scrubber" className="relative h-full w-6">
           <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextStart = values[0] ?? layerStart; if (preview.singleLayer) setLayerEnd(nextStart, maxMoveOrderForLayer(data, nextStart)); else setLayerRange([nextStart, layerEnd], maxMove); }} onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; const nextStart = layerStart + step; if (preview.singleLayer) setLayerEnd(nextStart, maxMoveOrderForLayer(data, nextStart)); else setLayerRange([nextStart, layerEnd], maxMove); }} aria-label="Visible layer range start" />
@@ -116,7 +124,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
         </div>
         <span className="sr-only">Layers {layerStart + 1} through {layerEnd + 1}</span>
       </div>
-      <div data-testid="preview-move-range" className="pointer-events-auto absolute bottom-3 left-1/2 z-10 w-2/5 min-w-48 -translate-x-1/2 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
+      <div ref={moveRangeFrameRef} data-testid="preview-move-range" onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; setMoveEnd(moveEnd + step); }} className="pointer-events-auto absolute bottom-3 left-1/2 z-10 w-2/5 min-w-48 -translate-x-1/2 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <div className="mb-1 flex justify-between text-[0.65rem] text-muted-foreground"><span>Move</span><span>{moveEnd + 1} / {maxMove + 1}</span></div>
         <div ref={moveSurfaceRef}>
           <Slider min={0} max={maxMove} step={1} value={[moveEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setMoveEnd(values[0] ?? 0); }} onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; setMoveEnd(moveEnd + step); }} aria-label="Active layer move end" />

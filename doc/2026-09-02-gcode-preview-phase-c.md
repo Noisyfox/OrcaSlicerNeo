@@ -108,7 +108,9 @@ movement updates that highlight. The bottom move slider and the right layer
 slider also consume vertical wheel steps while hovered: wheel-up advances and
 wheel-down reverses the relevant move/end or layer thumb, with values clamped
 to their bounds; in two-thumb mode the start and end thumbs remain independent
-and in single-layer mode they remain coupled. Selecting an exact mapped line moves the
+and in single-layer mode they remain coupled. The wheel hit area includes the entire
+surrounding dark frame, including its padding and labels, while remaining isolated
+from the preview canvas. Selecting an exact mapped line moves the
   preview to its layer and move; an unmappable line uses the nearest preceding
   mapped move, while a line before the first mapping leaves the inspection state
 unchanged. A result-local source index is built once during slice-result
