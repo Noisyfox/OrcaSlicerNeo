@@ -2,14 +2,10 @@ import {
   normalizeUserPreferences,
   type PlatformCapabilities,
   type PlatformMenu,
+  type ProfileSource,
   type PrinterConfigurationRepository,
   type SlicerRuntime,
 } from '@orca/platform-contract';
-import {
-  createFetchProfileSource,
-  resolveProfileBaseUrl,
-  type ProfileSource,
-} from '@orca/slicer-runtime';
 import {
   normalizePrinterConfigurationDocument,
   type PrinterConfigurationDocument,
@@ -115,7 +111,14 @@ export function createBrowserProfileSource(
   baseUrl = import.meta.env.BASE_URL,
   moduleUrl: string | URL = String(import.meta.url),
 ): ProfileSource {
-  return createFetchProfileSource(resolveProfileBaseUrl(baseUrl, moduleUrl));
+  let source: Promise<ProfileSource> | undefined;
+  return {
+    fetch: (relativePath) => {
+      source ??= import('@orca/slicer-runtime').then(({ createFetchProfileSource, resolveProfileBaseUrl }) =>
+        createFetchProfileSource(resolveProfileBaseUrl(baseUrl, moduleUrl)));
+      return source.then((profileSource) => profileSource.fetch(relativePath));
+    },
+  };
 }
 
 export function pickModel(): Promise<{ displayName: string; bytes: Uint8Array } | null> {
