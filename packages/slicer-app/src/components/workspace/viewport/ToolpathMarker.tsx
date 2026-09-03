@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { ToolpathGeometry } from './useSliceResult';
+import type { PresetInfo } from '@slicer/client';
 import { lastMovePosition, maxMoveOrderForLayer } from './previewSemantics';
 
 /** OrcaSlicer's native Marker::render state for the hotend STL. */
@@ -43,29 +45,69 @@ export function toolMarkerModelTransform(
   };
 }
 
-export function toolMarkerAnchor(position: readonly [number, number, number]): [number, number, number] {
-  return [position[0], position[1], position[2] + TOOL_MARKER_Z_OFFSET];
+export interface PreviewHotendManifest {
+  version: 1;
+  fallback: string;
+  models: Record<string, Record<string, string>>;
 }
 
-const FALLBACK_HOTEND_URL = 'preview/hotend.stl';
-let fallbackHotendBytes: Promise<ArrayBuffer> | null = null;
+const DEFAULT_HOTEND_MANIFEST = Object.freeze({ version: 1 as const, fallback: 'hotend.stl', models: {} }) as PreviewHotendManifest;
+const HOTEND_MANIFEST_URL = 'preview/hotends.json';
+const hotendManifestPromise = { value: null as Promise<PreviewHotendManifest> | null };
+const hotendBytes = new Map<string, Promise<ArrayBuffer>>();
 
-function loadFallbackHotendBytes(): Promise<ArrayBuffer> {
-  if (!fallbackHotendBytes) {
-    const url = new URL(FALLBACK_HOTEND_URL, document.baseURI).href;
-    fallbackHotendBytes = fetch(url).then((response) => {
+function safeHotendPath(path: unknown): path is string {
+  if (typeof path !== 'string' || !path || path.startsWith('/') || /^[A-Za-z]:/.test(path)) return false;
+  return path.split('/').every((part) => Boolean(part) && part !== '.' && part !== '..');
+}
+
+export function resolveHotendAssetPath(
+  printer: Pick<PresetInfo, 'vendor_id' | 'model'> | null,
+  manifest: PreviewHotendManifest,
+): string {
+  const selected = printer && manifest.models[printer.vendor_id]?.[printer.model];
+  return safeHotendPath(selected) ? selected : (safeHotendPath(manifest.fallback) ? manifest.fallback : 'hotend.stl');
+}
+
+function loadHotendManifest(): Promise<PreviewHotendManifest> {
+  if (!hotendManifestPromise.value) {
+    hotendManifestPromise.value = fetch(new URL(HOTEND_MANIFEST_URL, document.baseURI).href)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`hotend marker manifest fetch failed: ${response.status}`);
+        const value = await response.json() as Partial<PreviewHotendManifest>;
+        if (value.version !== 1 || !value.models || typeof value.models !== 'object') throw new Error('invalid hotend marker manifest');
+        return { version: 1 as const, fallback: safeHotendPath(value.fallback) ? value.fallback : 'hotend.stl', models: value.models };
+      })
+      .catch((error) => {
+        console.warn('[preview] hotend marker manifest unavailable:', error);
+        return DEFAULT_HOTEND_MANIFEST;
+      });
+  }
+  return hotendManifestPromise.value!;
+}
+
+function loadHotendBytes(path: string): Promise<ArrayBuffer> {
+  let cached = hotendBytes.get(path);
+  if (!cached) {
+    cached = fetch(new URL(`preview/${path}`, document.baseURI).href).then((response) => {
       if (!response.ok) throw new Error(`hotend marker fetch failed: ${response.status}`);
       return response.arrayBuffer();
     });
+    hotendBytes.set(path, cached);
   }
-  return fallbackHotendBytes;
+  return cached;
 }
 
-function useHotendGeometry(): THREE.BufferGeometry | null {
+function useHotendGeometry(assetPath: string): THREE.BufferGeometry | null {
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   useEffect(() => {
     let cancelled = false;
-    void loadFallbackHotendBytes().then((bytes) => {
+    const load = loadHotendBytes(assetPath).catch((error) => {
+      if (assetPath === DEFAULT_HOTEND_MANIFEST.fallback) throw error;
+      console.warn('[preview] selected hotend marker unavailable; using fallback:', error);
+      return loadHotendBytes(DEFAULT_HOTEND_MANIFEST.fallback);
+    });
+    void load.then((bytes) => {
       if (cancelled) return;
       const parsed = new STLLoader().parse(bytes.slice(0));
       parsed.computeVertexNormals();
@@ -77,14 +119,14 @@ function useHotendGeometry(): THREE.BufferGeometry | null {
       console.warn('[preview] hotend marker unavailable:', error);
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [assetPath]);
   return geometry;
 }
 
 /**
- * libvgcode omits the marker once the visible range reaches its enabled end.
- * The shared preview state has the same endpoint represented by the final
- * layer and that layer's final move.
+ * Orca omits the marker once the visible range reaches its enabled end. The
+ * shared preview state has the same endpoint represented by the final layer
+ * and that layer's final move.
  */
 export function isFinalToolpathEndpoint(
   data: Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders'>,
@@ -106,7 +148,15 @@ export function isFinalToolpathEndpoint(
  */
 export function ToolpathMarker({ data }: { data: ToolpathGeometry }) {
   const { visibleLayerEnd, activeMoveEnd } = useSlicerStore((s) => s.preview);
-  const geometry = useHotendGeometry();
+  const selectedPrinter = useSettingsStore((s) => s.printers.find((printer) => printer.name === s.selectedPrinter) ?? null);
+  const [manifest, setManifest] = useState<PreviewHotendManifest>(DEFAULT_HOTEND_MANIFEST);
+  useEffect(() => {
+    let cancelled = false;
+    void loadHotendManifest().then((value) => { if (!cancelled) setManifest(value); });
+    return () => { cancelled = true; };
+  }, []);
+  const assetPath = resolveHotendAssetPath(selectedPrinter, manifest);
+  const geometry = useHotendGeometry(assetPath);
   const currentPosition = useMemo(
     () => lastMovePosition(data, visibleLayerEnd, activeMoveEnd),
     [activeMoveEnd, data, visibleLayerEnd],

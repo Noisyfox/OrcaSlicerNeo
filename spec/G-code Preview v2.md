@@ -95,14 +95,15 @@ Phase C displays no read-only layer-slider ticks for existing pauses, colour
 changes, tool changes, or custom G-code. They will be designed with a future
 result-editing feature instead of being partially exposed here.
 
-The current-move marker is a native-style 32-sided downward hotend arrow: a
-cone with 2 mm radius and 4 mm height followed by a 1 mm radius, 8 mm tall
-stem. Its tip is anchored at the selected move endpoint plus 0.5 mm in Z. It
-uses the Orca/libvgcode default white, 0.5 alpha, normal source-alpha blend,
-double-sided rendering, depth testing, and disabled depth writes. It is hidden
-when the visible range reaches the final enabled layer and move. A future
-printer-specific hotend asset may replace this shared geometric marker only
-through a separate approved design.
+The current-move marker uses OrcaSlicer's `SequentialView::Marker` hotend
+model: the selected printer's shipped vendor `hotend_model` is preferred,
+with the exact `resources/profiles/hotend.stl` model as deterministic
+fallback. The asset is loaded on demand and rendered with Orca's 0.5 mm Z
+offset, bounding-box-height translation, 180-degree X rotation, translucent
+white material, and depth-tested model rendering. It is anchored at the
+selected move endpoint and hidden when the visible range reaches the final
+enabled layer and move. User-provided external hotend assets remain future
+work.
 
 ## Data-source boundary
 

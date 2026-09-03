@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-02
 
-**Status:** Implemented C1/C2/C3/C4 read-only preview increment
+**Status:** Implemented C1/C2/C3/C4 read-only preview increment; Orca hotend marker override delivered
 
 **Scope:** Read-only preview analysis data, source-neutral contract, core
 analysis schemes, native color ramps, scheme-scoped legend filtering,
@@ -88,6 +88,17 @@ processor tessellates them into several consecutive render segments sharing
 one positive `gcode_id`. All segment geometry and per-segment metrics remain
 available for rendering. Unmapped zero ids and distinct/non-consecutive source
 ids remain separate moves, and layer boundaries always reset the move order.
+
+The current-move marker follows OrcaSlicer's `SequentialView::Marker`: it
+loads the selected printer's vendor `hotend_model` when that model is present
+in the shipped profile assets, and otherwise uses the exact shared
+`resources/profiles/hotend.stl` fallback. `scripts/stage.mjs` emits one small
+`preview/hotends.json` mapping and copies the referenced STL files for both
+hosts. The renderer requests only the selected model (with fallback on a
+missing asset); it does not preload the model set. Rendering uses Orca's
+0.5mm Z offset, bounding-box-height translation, 180-degree X rotation,
+translucent white material, and depth-tested model rendering. External/user
+hotend files remain outside the current source scope.
 
 ## Source limitations
 

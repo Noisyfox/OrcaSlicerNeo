@@ -380,10 +380,11 @@ and drives structural operations through the typed client.
 > extrusion role, using libvgcode's `Travels` colour `RGB(56, 72, 155)`;
 > extrusion feature filters do not hide travel, and the global travel toggle
 > remains authoritative.
-> The current-move marker is a native-style 32-sided cone-and-cylinder hotend,
-> anchored at the last mapped endpoint plus 0.5 mm Z, using white 0.5 alpha,
-> normal source-alpha blending, depth testing, disabled depth writes, and
-> double-sided rendering. It hides at the final enabled endpoint.
+> The current-move marker is OrcaSlicer's translucent hotend STL model,
+> preferring the selected printer's vendor model and falling back to the
+> shared `hotend.stl`; it uses Orca's endpoint anchor, 0.5 mm Z offset,
+> 180-degree X rotation, and depth-tested rendering. It hides at the final
+> enabled endpoint.
 >
 > Major renderer/performance specification:
 > [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)

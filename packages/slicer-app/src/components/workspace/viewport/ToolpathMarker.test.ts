@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   isFinalToolpathEndpoint,
   TOOL_MARKER_MATERIAL,
-  toolMarkerAnchor,
   toolMarkerModelTransform,
+  resolveHotendAssetPath,
+  type PreviewHotendManifest,
 } from './ToolpathMarker';
 
 const pathData = {
@@ -21,7 +22,22 @@ describe('Orca-style toolpath marker', () => {
       rotation: [Math.PI, 0, 0],
       scale: [1, 1, 1],
     });
-    expect(toolMarkerAnchor([10, 20, 30])).toEqual([10, 20, 30.5]);
+  });
+
+  it('selects the current printer hotend and falls back to Orca hotend.stl', () => {
+    const manifest: PreviewHotendManifest = {
+      version: 1,
+      fallback: 'hotend.stl',
+      models: { Anycubic: { 'Anycubic Kobra X': 'hotends/Anycubic/Anycubic-hotend.stl' } },
+    };
+    expect(resolveHotendAssetPath({ vendor_id: 'Anycubic', model: 'Anycubic Kobra X' }, manifest))
+      .toBe('hotends/Anycubic/Anycubic-hotend.stl');
+    expect(resolveHotendAssetPath({ vendor_id: 'BBL', model: 'Bambu Lab X1 Carbon' }, manifest)).toBe('hotend.stl');
+    expect(resolveHotendAssetPath(null, manifest)).toBe('hotend.stl');
+    expect(resolveHotendAssetPath({ vendor_id: '../escape', model: 'bad' }, {
+      ...manifest,
+      models: { '../escape': { bad: '../escape.stl' } },
+    })).toBe('hotend.stl');
   });
 
   it('matches native transparent marker render state and lighting intent', () => {
