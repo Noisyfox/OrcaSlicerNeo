@@ -36,16 +36,12 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const setSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
   const setColorScheme = useSlicerStore((s) => s.setPreviewColorScheme);
   const setSchemeVisibility = useSlicerStore((s) => s.setPreviewSchemeVisibility);
-  const layerStartSurfaceRef = useRef<HTMLDivElement>(null);
-  const layerEndSurfaceRef = useRef<HTMLDivElement>(null);
   const layerRangeFrameRef = useRef<HTMLDivElement>(null);
   const moveSurfaceRef = useRef<HTMLDivElement>(null);
   const moveRangeFrameRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const surfaces = [
-      layerStartSurfaceRef.current,
-      layerEndSurfaceRef.current,
       layerRangeFrameRef.current,
       moveSurfaceRef.current,
       moveRangeFrameRef.current,
@@ -123,11 +119,13 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
       </aside>
       <div ref={layerRangeFrameRef} data-testid="preview-layer-range" onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; adjustLayerEndWithWheel(step); }} className="pointer-events-auto absolute right-2 top-1/2 z-30 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <Label className="sr-only">Visible layer range</Label>
-        <div ref={layerStartSurfaceRef} data-testid="layer-scrubber" className="relative h-full w-6">
-          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextStart = values[0] ?? layerStart; if (preview.singleLayer) setLayerEnd(nextStart, maxMoveOrderForLayer(data, nextStart)); else setLayerRange([nextStart, layerEnd], maxMove); }} onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; adjustLayerEndWithWheel(step); }} aria-label="Visible layer range start" />
-        </div>
-        <div ref={layerEndSurfaceRef} className="pointer-events-none absolute inset-2 [&_[data-slot=slider-thumb]]:pointer-events-auto">
-          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextEnd = values[0] ?? layerEnd; const nextMaxMove = maxMoveOrderForLayer(data, nextEnd); if (preview.singleLayer) setLayerEnd(nextEnd, nextMaxMove); else setLayerRange([layerStart, nextEnd], nextMaxMove); }} onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; adjustLayerEndWithWheel(step); }} aria-label="Visible layer range end" />
+        <div data-testid="layer-scrubber" className="relative h-full w-6">
+          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart, layerEnd]} onValueChange={(value) => {
+            const values = Array.isArray(value) ? value : [value];
+            const nextStart = values[0] ?? layerStart;
+            const nextEnd = values[1] ?? layerEnd;
+            setLayerRange([nextStart, nextEnd], maxMoveOrderForLayer(data, nextEnd));
+          }} onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; adjustLayerEndWithWheel(step); }} aria-label="Visible layer range" />
         </div>
         <span className="sr-only">Layers {layerStart + 1} through {layerEnd + 1}</span>
       </div>

@@ -84,6 +84,11 @@ describe('LayerScrubber preview controls', () => {
     const layerInputs = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]');
     expect(layerInputs).toHaveLength(2);
     expect(Array.from(layerInputs).map((input) => (input as HTMLInputElement).value)).toEqual(['1', '1']);
+    expect(container.querySelectorAll('[data-testid="preview-layer-range"] [data-slot="slider-range"]')).toHaveLength(1);
+    expect(Array.from(container.querySelectorAll('[data-testid="preview-layer-range"] [data-slot="slider-thumb"]')))
+      .toHaveLength(2);
+    expect(Array.from(container.querySelectorAll('[data-testid="preview-layer-range"] [data-slot="slider-thumb"]'))
+      .every((thumb) => thumb.className.includes('z-10'))).toBe(true);
 
     // Either thumb changes the active layer in single-layer mode. The pair
     // stays equal, so the range never reverses or expands unexpectedly.
