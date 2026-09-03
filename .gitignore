@@ -12,6 +12,7 @@ packages/slicer-wasm/out/
 apps/desktop/src/renderer/public/wasm/
 apps/desktop/src/renderer/public/profiles/
 apps/desktop/src/renderer/public/handy-models/
+apps/desktop/src/renderer/public/preview/
 apps/desktop/public/profiles/
 apps/desktop/release/
 .claude/

@@ -19,8 +19,20 @@ const outRoot = join(root, 'packages/slicer-wasm/out');
 const dstRoot = join(root, 'apps/desktop/src/renderer/public/wasm');
 const profileSrc = join(root, 'packages/profile-resources/dist');
 const profileDst = join(root, 'apps/desktop/src/renderer/public/profiles');
+const previewSrc = join(root, 'packages/slicer-wasm/cpp/resources/profiles/hotend.stl');
+const previewDst = join(root, 'apps/desktop/src/renderer/public/preview/hotend.stl');
 
 await stageHandyModels();
+
+// Orca's G-code marker is the translucent hotend STL loaded by
+// GCodeViewer::SequentialView::Marker. Keep the exact upstream fallback
+// model available to both hosts as one lazy static asset; vendor-specific
+// models can be added later without changing the renderer contract.
+if (existsSync(previewSrc)) {
+  await mkdir(dirname(previewDst), { recursive: true });
+  await copyFile(previewSrc, previewDst);
+  console.log('staged preview/hotend.stl');
+}
 
 if (!existsSync(outRoot)) {
   if (soft) {
