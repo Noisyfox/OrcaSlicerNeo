@@ -309,7 +309,10 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     const layer0Shot = await shot();
     // Base UI thumb = div wrapper + native input[type=range] (visually hidden,
     // full thumb size); the input owns keydown handling incl. Home/End.
-    await page.getByTestId('layer-scrubber').locator('input[type="range"]').focus();
+    // The layer scrubber is a dual-value slider.  This assertion intentionally
+    // moves the lower/start thumb to the last layer, matching the original
+    // single-thumb scrubber behavior.
+    await page.getByTestId('layer-scrubber').locator('input[type="range"]').nth(0).focus();
     await page.keyboard.press('End');
     await expect
       .poll(async () => (await shot()).equals(layer0Shot), { timeout: 10_000 })
