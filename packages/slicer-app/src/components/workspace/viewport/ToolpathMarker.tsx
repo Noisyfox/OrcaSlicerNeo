@@ -81,8 +81,8 @@ function useHotendGeometry(
       parsed.computeBoundingBox();
       setGeometry(parsed);
     }).catch((error) => {
-      // The staged asset is required for production, but the marker should
-      // not break the preview if a host is running without generated assets.
+      // Profile archives are required for the production marker, but a
+      // missing or incomplete archive must not break the preview.
       console.warn('[preview] hotend marker unavailable:', error);
     });
     return () => { cancelled = true; };

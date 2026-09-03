@@ -98,12 +98,17 @@ result-editing feature instead of being partially exposed here.
 The current-move marker uses OrcaSlicer's `SequentialView::Marker` hotend
 model: the selected printer's shipped vendor `hotend_model` is preferred,
 with the exact `resources/profiles/hotend.stl` model as deterministic
-fallback. The asset is loaded on demand and rendered with Orca's 0.5 mm Z
-offset, bounding-box-height translation, 180-degree X rotation, translucent
-white material, and depth-tested model rendering. It is anchored at the
-selected move endpoint and hidden when the visible range reaches the final
-enabled layer and move. User-provided external hotend assets remain future
-work.
+fallback. Both are read directly from the existing profile-resource archives:
+the vendor machine JSON is the authoritative `vendor_id`/`model` to
+`hotend_model` mapping, and no preview asset or duplicate hotend manifest is
+staged. The renderer fetches only the selected vendor archive, or the core
+archive when falling back, and extracts only the machine metadata and selected
+STL in memory. The asset is loaded on demand and rendered with Orca's 0.5 mm
+Z offset, bounding-box-height translation, 180-degree X rotation,
+translucent white material, and depth-tested model rendering. It is anchored
+at the selected move endpoint and hidden when the visible range reaches the
+final enabled layer and move. User-provided external hotend assets remain
+future work.
 
 ## Data-source boundary
 
