@@ -1,9 +1,10 @@
 // packages/slicer-app/src/components/viewport/LayerScrubber.tsx
-import { useEffect, useMemo, useRef, type WheelEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type WheelEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ChevronDownIcon } from 'lucide-react';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import { maxMoveOrderForLayer, nextRenderablePreviewLayer, renderablePreviewLayers } from './previewSemantics';
@@ -26,6 +27,7 @@ function previewWheelStep(event: WheelEvent): number {
 
 /** Orca-style canvas overlay for the Phase-B preview controls. */
 export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
+  const [legendExpanded, setLegendExpanded] = useState(true);
   const renderableLayers = useMemo(() => renderablePreviewLayers(data), [data]);
   const maxLayer = renderableLayers[renderableLayers.length - 1] ?? 0;
   const preview = useSlicerStore((s) => s.preview);
@@ -104,21 +106,33 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
           </Select>
         </div>
         <div data-testid="preview-legend" className="space-y-1">
-          <div className="text-[0.65rem] uppercase tracking-wide text-muted-foreground">{descriptor?.label ?? PREVIEW_SCHEME_LABELS[activeScheme]}</div>
-          {descriptor?.kind === 'categorical' && descriptor.items.map((item) => {
-            const enabled = visibility[item.id] !== false;
-            return (
-              <button key={item.id} type="button" aria-pressed={enabled} data-testid={activeScheme === 'feature' ? `preview-feature-visibility-${item.id}` : `preview-scheme-visibility-${activeScheme}-${item.id}`} onClick={() => setSchemeVisibility(activeScheme, item.id, !enabled)} className={`flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs ${enabled ? '' : 'opacity-40 line-through'}`}>
-                <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: `rgb(${item.color.map((value) => Math.round(value * 255)).join(',')})` }} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-          {descriptor?.kind === 'numeric' && <>
-            <div className="h-2 rounded-sm" style={{ background: `linear-gradient(to right, ${descriptor.items.map((item) => `rgb(${item.color.map((value) => Math.round(value * 255)).join(',')})`).join(', ')})` }} />
-            <div className="flex justify-between text-[0.65rem] text-muted-foreground"><span>{formatPreviewValue(descriptor.min ?? 0, descriptor.unit)}</span><span>{formatPreviewValue(descriptor.max ?? 0, descriptor.unit)}</span></div>
-          </>}
-          {!descriptor && <div className="text-xs text-muted-foreground">No data for this scheme</div>}
+          <button
+            type="button"
+            aria-expanded={legendExpanded}
+            aria-controls="preview-legend-content"
+            data-testid="preview-legend-header"
+            onClick={() => setLegendExpanded((expanded) => !expanded)}
+            className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-[0.65rem] uppercase tracking-wide text-muted-foreground hover:bg-muted/50"
+          >
+            <span>{descriptor?.label ?? PREVIEW_SCHEME_LABELS[activeScheme]}</span>
+            <ChevronDownIcon className={`size-3 transition-transform ${legendExpanded ? '' : '-rotate-90'}`} aria-hidden="true" />
+          </button>
+          {legendExpanded && <div id="preview-legend-content">
+            {descriptor?.kind === 'categorical' && descriptor.items.map((item) => {
+              const enabled = visibility[item.id] !== false;
+              return (
+                <button key={item.id} type="button" aria-pressed={enabled} data-testid={activeScheme === 'feature' ? `preview-feature-visibility-${item.id}` : `preview-scheme-visibility-${activeScheme}-${item.id}`} onClick={() => setSchemeVisibility(activeScheme, item.id, !enabled)} className={`flex w-full items-center gap-2 rounded px-1 py-1 text-left text-xs ${enabled ? '' : 'opacity-40 line-through'}`}>
+                  <span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: `rgb(${item.color.map((value) => Math.round(value * 255)).join(',')})` }} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+            {descriptor?.kind === 'numeric' && <>
+              <div className="h-2 rounded-sm" style={{ background: `linear-gradient(to right, ${descriptor.items.map((item) => `rgb(${item.color.map((value) => Math.round(value * 255)).join(',')})`).join(', ')})` }} />
+              <div className="flex justify-between text-[0.65rem] text-muted-foreground"><span>{formatPreviewValue(descriptor.min ?? 0, descriptor.unit)}</span><span>{formatPreviewValue(descriptor.max ?? 0, descriptor.unit)}</span></div>
+            </>}
+            {!descriptor && <div className="text-xs text-muted-foreground">No data for this scheme</div>}
+          </div>}
         </div>
         <PreviewInspectionPanel data={data} />
         <Button variant={preview.showTravel ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.showTravel} data-testid="preview-travel-toggle" onClick={() => setShowTravel(!preview.showTravel)}>{preview.showTravel ? 'Hide travel' : 'Show travel'}</Button>

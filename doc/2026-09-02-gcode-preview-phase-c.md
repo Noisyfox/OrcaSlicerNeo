@@ -39,6 +39,9 @@ numeric role uses the explicit `Role N` fallback. Travel still resolves by
 move type and is not affected by extrusion-role legend filters. The layer
 slider owns a higher overlay stacking level than the
 analysis card so its thumbs remain reachable when overlays are crowded.
+The selected-scheme legend header is clickable and collapses or expands its
+categorical entries or numeric gradient, while the separate colour-scheme
+selector remains usable.
 
 The right-top overlay presents bridge-precomputed summary values and
 per-feature standard time/filament rows. It does not scan toolpath segments

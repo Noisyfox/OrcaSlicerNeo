@@ -242,4 +242,23 @@ describe('LayerScrubber preview controls', () => {
     });
     expect(container.querySelector('[data-testid="preview-feature-visibility-1"]')).toBeTruthy();
   });
+
+  it('collapses and re-expands legend entries from the scheme header', async () => {
+    useSlicerStore.getState().setPreviewBounds(1, 1, 1);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+
+    const header = container.querySelector('[data-testid="preview-legend-header"]') as HTMLButtonElement;
+    const entry = () => container.querySelector('[data-testid="preview-feature-visibility-1"]');
+    expect(header.getAttribute('aria-expanded')).toBe('true');
+    expect(entry()).toBeTruthy();
+
+    await act(async () => { header.click(); });
+    expect(header.getAttribute('aria-expanded')).toBe('false');
+    expect(entry()).toBeNull();
+
+    await act(async () => { header.click(); });
+    expect(header.getAttribute('aria-expanded')).toBe('true');
+    expect(entry()).toBeTruthy();
+  });
 });
