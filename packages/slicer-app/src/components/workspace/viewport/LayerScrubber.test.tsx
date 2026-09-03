@@ -159,6 +159,41 @@ describe('LayerScrubber preview controls', () => {
     expect(endDown.defaultPrevented).toBe(true);
   });
 
+  it('skips layer IDs that have no renderable segments when wheeling', async () => {
+    const sparseData: ToolpathGeometry = {
+      ...data,
+      segmentCount: 3,
+      layerIds: Uint32Array.from([0, 0, 2]),
+      moveOrders: Uint32Array.from([0, 1, 0]),
+      features: Uint32Array.from([0, 1, 0]),
+      moveTypes: Uint8Array.from([10, 8, 10]),
+      extruderIds: Uint8Array.from([0, 0, 1]),
+      metrics: { feedrate: Float32Array.from([10, 20, 30]) },
+      ends: Float32Array.from([0, 0, 0, 1, 0, 0, 2, 0, 0]),
+    };
+    useSlicerStore.getState().setPreviewBounds(2, 1, 1);
+    useSlicerStore.getState().setPreviewLayerRange([0, 0], 1);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={sparseData} />); });
+    const layerFrame = container.querySelector('[data-testid="preview-layer-range"]') as HTMLElement;
+
+    const up = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+    await act(async () => { layerFrame.dispatchEvent(up); });
+    expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerStart: 0, visibleLayerEnd: 2 });
+    expect(up.defaultPrevented).toBe(true);
+
+    const atMax = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+    await act(async () => { layerFrame.dispatchEvent(atMax); });
+    expect(useSlicerStore.getState().preview.visibleLayerEnd).toBe(2);
+
+    const down = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
+    await act(async () => { layerFrame.dispatchEvent(down); });
+    expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerStart: 0, visibleLayerEnd: 0 });
+    const atMin = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
+    await act(async () => { layerFrame.dispatchEvent(atMin); });
+    expect(useSlicerStore.getState().preview.visibleLayerEnd).toBe(0);
+  });
+
   it('keeps the two vertical thumbs coupled when the wheel moves the end in single-layer mode', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     useSlicerStore.getState().setPreviewLayerEnd(0, 1);

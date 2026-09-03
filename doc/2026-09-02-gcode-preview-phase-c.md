@@ -112,8 +112,10 @@ the surrounding dark frame, adjusts the visible layer end; the start thumb
 remains independently draggable and keyboard-controlled. In single-layer mode
 wheel changes keep both layer bounds coupled. The wheel hit area includes the
 entire surrounding dark frame, including its padding and labels, while remaining
-isolated from the preview canvas. Selecting an exact mapped line moves the
-  preview to its layer and move; an unmappable line uses the nearest preceding
+isolated from the preview canvas. Wheel changes select the next existing
+renderable layer ID, so sparse or stale layer data cannot land on an empty
+layer. Selecting an exact mapped line moves the
+preview to its layer and move; an unmappable line uses the nearest preceding
   mapped move, while a line before the first mapping leaves the inspection state
 unchanged. A result-local source index is built once during slice-result
 construction; ordered processor IDs are binary-searched without a duplicate

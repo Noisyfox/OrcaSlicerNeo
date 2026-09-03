@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
-import { maxMoveOrderForLayer, maxPreviewLayer } from './previewSemantics';
+import { maxMoveOrderForLayer, nextRenderablePreviewLayer, renderablePreviewLayers } from './previewSemantics';
 import {
   describePreviewScheme,
   PREVIEW_SCHEME_LABELS,
@@ -25,7 +25,8 @@ function previewWheelStep(event: WheelEvent): number {
 
 /** Orca-style canvas overlay for the Phase-B preview controls. */
 export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
-  const maxLayer = maxPreviewLayer(data);
+  const renderableLayers = useMemo(() => renderablePreviewLayers(data), [data]);
+  const maxLayer = renderableLayers[renderableLayers.length - 1] ?? 0;
   const preview = useSlicerStore((s) => s.preview);
   const setLayerRange = useSlicerStore((s) => s.setPreviewLayerRange);
   const setLayerEnd = useSlicerStore((s) => s.setPreviewLayerEnd);
@@ -78,7 +79,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const layerEnd = Math.max(layerStart, Math.min(maxLayer, preview.visibleLayerEnd));
   const moveEnd = Math.max(0, Math.min(maxMove, preview.activeMoveEnd));
   const adjustLayerEndWithWheel = (step: number) => {
-    const nextEnd = layerEnd + step;
+    const nextEnd = nextRenderablePreviewLayer(renderableLayers, layerEnd, step);
     const nextMaxMove = maxMoveOrderForLayer(data, nextEnd);
     if (preview.singleLayer) setLayerEnd(nextEnd, nextMaxMove);
     else setLayerRange([layerStart, nextEnd], nextMaxMove);

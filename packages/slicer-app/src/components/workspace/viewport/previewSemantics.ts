@@ -69,6 +69,33 @@ export function maxPreviewLayer(data: LayerIndexedPreviewData): number {
   return max;
 }
 
+/** Return the distinct layer IDs that have at least one renderable segment. */
+export function renderablePreviewLayers(data: LayerIndexedPreviewData): number[] {
+  const layers = new Set<number>();
+  for (let i = 0; i < data.segmentCount; i++) {
+    const layer = data.layerIds[i];
+    if (layer !== undefined && Number.isSafeInteger(layer) && layer >= 0) layers.add(layer);
+  }
+  return [...layers].sort((a, b) => a - b);
+}
+
+/** Move to the next existing layer, skipping gaps in sparse layer IDs. */
+export function nextRenderablePreviewLayer(
+  layers: readonly number[],
+  current: number,
+  step: number,
+): number {
+  if (layers.length === 0 || step === 0) return layers[0] ?? 0;
+  const normalizedCurrent = Number.isFinite(current) ? Math.floor(current) : layers[0]!;
+  if (step > 0) {
+    return layers.find((layer) => layer > normalizedCurrent) ?? layers[layers.length - 1]!;
+  }
+  for (let index = layers.length - 1; index >= 0; index--) {
+    if (layers[index]! < normalizedCurrent) return layers[index]!;
+  }
+  return layers[0]!;
+}
+
 export function maxMoveOrderForLayer(data: LayerIndexedPreviewData, layer: number): number {
   const range = metadataLayerRange(data, layer);
   if (range) return data.moveOrders[range.end - 1] ?? 0;
