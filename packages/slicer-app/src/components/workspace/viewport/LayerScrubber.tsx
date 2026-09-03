@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/viewport/LayerScrubber.tsx
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, type WheelEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
@@ -16,6 +16,13 @@ import {
 import type { PreviewColorScheme } from '../../../stores/useSlicerStore';
 import { PreviewInspectionPanel } from './PreviewInspectionPanel';
 
+function previewWheelStep(event: WheelEvent): number {
+  if (event.deltaY === 0) return 0;
+  event.preventDefault();
+  event.stopPropagation();
+  return event.deltaY < 0 ? 1 : -1;
+}
+
 /** Orca-style canvas overlay for the Phase-B preview controls. */
 export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const maxLayer = maxPreviewLayer(data);
@@ -28,6 +35,19 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const setSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
   const setColorScheme = useSlicerStore((s) => s.setPreviewColorScheme);
   const setSchemeVisibility = useSlicerStore((s) => s.setPreviewSchemeVisibility);
+  const layerStartSurfaceRef = useRef<HTMLDivElement>(null);
+  const layerEndSurfaceRef = useRef<HTMLDivElement>(null);
+  const moveSurfaceRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const surfaces = [layerStartSurfaceRef.current, layerEndSurfaceRef.current, moveSurfaceRef.current]
+      .filter((surface): surface is HTMLDivElement => surface !== null);
+    const preventNativeWheel = (event: globalThis.WheelEvent) => {
+      if (event.deltaY !== 0) event.preventDefault();
+    };
+    surfaces.forEach((surface) => surface.addEventListener('wheel', preventNativeWheel, { passive: false }));
+    return () => surfaces.forEach((surface) => surface.removeEventListener('wheel', preventNativeWheel));
+  }, []);
 
   const colorSource = useMemo<PreviewColorSource>(() => ({
     palette: data.palette,
@@ -88,17 +108,19 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
       </aside>
       <div data-testid="preview-layer-range" className="pointer-events-auto absolute right-2 top-1/2 z-30 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <Label className="sr-only">Visible layer range</Label>
-        <div data-testid="layer-scrubber" className="relative h-full w-6">
-          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextStart = values[0] ?? layerStart; if (preview.singleLayer) setLayerEnd(nextStart, maxMoveOrderForLayer(data, nextStart)); else setLayerRange([nextStart, layerEnd], maxMove); }} aria-label="Visible layer range start" />
+        <div ref={layerStartSurfaceRef} data-testid="layer-scrubber" className="relative h-full w-6">
+          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextStart = values[0] ?? layerStart; if (preview.singleLayer) setLayerEnd(nextStart, maxMoveOrderForLayer(data, nextStart)); else setLayerRange([nextStart, layerEnd], maxMove); }} onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; const nextStart = layerStart + step; if (preview.singleLayer) setLayerEnd(nextStart, maxMoveOrderForLayer(data, nextStart)); else setLayerRange([nextStart, layerEnd], maxMove); }} aria-label="Visible layer range start" />
         </div>
-        <div className="pointer-events-none absolute inset-2 [&_[data-slot=slider-thumb]]:pointer-events-auto">
-          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextEnd = values[0] ?? layerEnd; const nextMaxMove = maxMoveOrderForLayer(data, nextEnd); if (preview.singleLayer) setLayerEnd(nextEnd, nextMaxMove); else setLayerRange([layerStart, nextEnd], nextMaxMove); }} aria-label="Visible layer range end" />
+        <div ref={layerEndSurfaceRef} className="pointer-events-none absolute inset-2 [&_[data-slot=slider-thumb]]:pointer-events-auto">
+          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; const nextEnd = values[0] ?? layerEnd; const nextMaxMove = maxMoveOrderForLayer(data, nextEnd); if (preview.singleLayer) setLayerEnd(nextEnd, nextMaxMove); else setLayerRange([layerStart, nextEnd], nextMaxMove); }} onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; const nextEnd = layerEnd + step; const nextMaxMove = maxMoveOrderForLayer(data, nextEnd); if (preview.singleLayer) setLayerEnd(nextEnd, nextMaxMove); else setLayerRange([layerStart, nextEnd], nextMaxMove); }} aria-label="Visible layer range end" />
         </div>
         <span className="sr-only">Layers {layerStart + 1} through {layerEnd + 1}</span>
       </div>
       <div data-testid="preview-move-range" className="pointer-events-auto absolute bottom-3 left-1/2 z-10 w-2/5 min-w-48 -translate-x-1/2 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <div className="mb-1 flex justify-between text-[0.65rem] text-muted-foreground"><span>Move</span><span>{moveEnd + 1} / {maxMove + 1}</span></div>
-        <Slider min={0} max={maxMove} step={1} value={[moveEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setMoveEnd(values[0] ?? 0); }} aria-label="Active layer move end" />
+        <div ref={moveSurfaceRef}>
+          <Slider min={0} max={maxMove} step={1} value={[moveEnd]} onValueChange={(value) => { const values = Array.isArray(value) ? value : [value]; setMoveEnd(values[0] ?? 0); }} onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; setMoveEnd(moveEnd + step); }} aria-label="Active layer move end" />
+        </div>
       </div>
     </>
   );

@@ -100,6 +100,59 @@ describe('LayerScrubber preview controls', () => {
     expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerStart: 1, visibleLayerEnd: 1, maxMove: 1, activeMoveEnd: 1 });
   });
 
+  it('moves the horizontal slider one move per wheel step and clamps at its bounds', async () => {
+    useSlicerStore.getState().setPreviewBounds(1, 1, 1);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    const moveInput = container.querySelector('[data-testid="preview-move-range"] input[type="range"]') as HTMLInputElement;
+
+    const down = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
+    await act(async () => { moveInput.dispatchEvent(down); });
+    expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(0);
+    expect(down.defaultPrevented).toBe(true);
+
+    const up = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+    await act(async () => { moveInput.dispatchEvent(up); });
+    expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(1);
+    const atMax = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+    await act(async () => { moveInput.dispatchEvent(atMax); });
+    expect(useSlicerStore.getState().preview.activeMoveEnd).toBe(1);
+    expect(atMax.defaultPrevented).toBe(true);
+  });
+
+  it('moves the vertical start and end thumbs independently with the wheel', async () => {
+    useSlicerStore.getState().setPreviewBounds(1, 1, 1);
+    useSlicerStore.getState().setPreviewLayerRange([0, 1], 1);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    const layerInputs = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]');
+    const startInput = layerInputs[0] as HTMLInputElement;
+    const endInput = layerInputs[1] as HTMLInputElement;
+
+    const startUp = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+    await act(async () => { startInput.dispatchEvent(startUp); });
+    expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerStart: 1, visibleLayerEnd: 1 });
+    expect(startUp.defaultPrevented).toBe(true);
+
+    const endDown = new WheelEvent('wheel', { deltaY: 100, bubbles: true, cancelable: true });
+    await act(async () => { endInput.dispatchEvent(endDown); });
+    expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerStart: 1, visibleLayerEnd: 1 });
+    expect(endDown.defaultPrevented).toBe(true);
+  });
+
+  it('keeps the two vertical thumbs coupled in single-layer mode', async () => {
+    useSlicerStore.getState().setPreviewBounds(1, 1, 1);
+    useSlicerStore.getState().setPreviewLayerEnd(0, 1);
+    useSlicerStore.getState().setPreviewSingleLayer(true);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+    const endInput = container.querySelectorAll('[data-testid="preview-layer-range"] input[type="range"]')[1] as HTMLInputElement;
+    const wheelUp = new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true });
+    await act(async () => { endInput.dispatchEvent(wheelUp); });
+    expect(useSlicerStore.getState().preview).toMatchObject({ visibleLayerStart: 1, visibleLayerEnd: 1 });
+    expect(wheelUp.defaultPrevented).toBe(true);
+  });
+
   it('keeps legend filters scoped to the selected scheme', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);

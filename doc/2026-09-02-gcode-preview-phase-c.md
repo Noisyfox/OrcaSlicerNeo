@@ -104,9 +104,13 @@ keep the default geometry.
 The text window is a separately toggled, larger overlay (`C` while the preview
 viewport owns focus, or its close button). It renders only a bounded visible
 row window of plain text and highlights the active mapped source line. Slider
-movement updates that highlight. Selecting an exact mapped line moves the
-preview to its layer and move; an unmappable line uses the nearest preceding
-mapped move, while a line before the first mapping leaves the inspection state
+movement updates that highlight. The bottom move slider and the right layer
+slider also consume vertical wheel steps while hovered: wheel-up advances and
+wheel-down reverses the relevant move/end or layer thumb, with values clamped
+to their bounds; in two-thumb mode the start and end thumbs remain independent
+and in single-layer mode they remain coupled. Selecting an exact mapped line moves the
+  preview to its layer and move; an unmappable line uses the nearest preceding
+  mapped move, while a line before the first mapping leaves the inspection state
 unchanged. A result-local source index is built once during slice-result
 construction; ordered processor IDs are binary-searched without a duplicate
 React-side map, so repeated opening and navigation are independent of full
