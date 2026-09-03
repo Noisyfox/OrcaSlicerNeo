@@ -566,6 +566,25 @@ if (res2.toolpath && res2.toolpath.segment_count > 0) {
   check('toolpath move indexes and source ids present', orders.length === n && ids.length === n);
   check('toolpath roles are uint16 values', roles.every((v) => Number.isInteger(v) && v >= 0));
   check('feature palette metadata present', res2.metadata?.feature_palette?.length > 0);
+  // The bridge's role palette is keyed by libslic3r's stable ExtrusionRole
+  // values. Keep this regression next to the real bridge smoke so omitted
+  // standard roles cannot regress to the generic "Role N" label in React.
+  const orcaRoleNames = new Map([
+    [0, 'Undefined'], [1, 'Inner wall'], [2, 'Outer wall'], [3, 'Overhang wall'],
+    [4, 'Sparse infill'], [5, 'Internal solid infill'], [6, 'Top surface'],
+    [7, 'Bottom surface'], [8, 'Ironing'], [9, 'Bridge'], [10, 'Internal Bridge'],
+    [11, 'Gap infill'], [12, 'Skirt'], [13, 'Brim'], [14, 'Support'],
+    [15, 'Support interface'], [16, 'Support transition'], [17, 'Prime tower'],
+    [18, 'Custom'], [19, 'Multiple'],
+  ]);
+  for (const entry of res2.metadata?.feature_palette ?? []) {
+    const role = Number(entry.role);
+    const expected = orcaRoleNames.get(role);
+    check(`feature role ${role} uses Orca display name`, expected === undefined
+      ? entry.name === `Role ${role}`
+      : entry.name === expected,
+    `${entry.name}`);
+  }
   for (const [name, descriptor] of Object.entries(res2.toolpath.metrics ?? {})) {
     const values = new Float32Array(readBytes(Module, Number(descriptor.ptr), n * 4).buffer);
     check(`optional metric ${name} length`, values.length === n);

@@ -22,19 +22,29 @@ using Slic3r::GCodeProcessorResult;
 
 const std::map<ExtrusionRole, FeatureInfo>& feature_palette() {
     static const std::map<ExtrusionRole, FeatureInfo> palette = {
-        {ExtrusionRole::erPerimeter,             {"ExternalPerimeter", {255, 140, 0}}},
-        {ExtrusionRole::erExternalPerimeter,     {"ExternalPerimeter", {255, 140, 0}}},
-        {ExtrusionRole::erOverhangPerimeter,     {"OverhangPerimeter", {255, 0, 0}}},
-        {ExtrusionRole::erInternalInfill,        {"InternalInfill",    {0, 160, 255}}},
-        {ExtrusionRole::erSolidInfill,           {"SolidInfill",       {255, 255, 0}}},
-        {ExtrusionRole::erTopSolidInfill,        {"TopSolidInfill",    {255, 0, 255}}},
-        {ExtrusionRole::erIroning,               {"Ironing",           {128, 128, 128}}},
-        // Drift at the pinned SHA: no erBridges enumerator — the Orca
-        // bridge-role is erBridgeInfill (Bridge color entry as briefed).
-        {ExtrusionRole::erBridgeInfill,          {"Bridge",            {0, 255, 255}}},
-        {ExtrusionRole::erSkirt,                 {"Skirt",             {0, 255, 128}}},
-        {ExtrusionRole::erSupportMaterial,       {"Support",           {255, 128, 0}}},
-        {ExtrusionRole::erSupportMaterialInterface, {"SupportInterface", {200, 100, 50}}},
+        // Use the same user-facing labels as Orca's role_to_string. The
+        // colors match libvgcode's DEFAULT_EXTRUSION_ROLES_COLORS, with the
+        // Orca additions kept in the libslic3r enum order.
+        {ExtrusionRole::erNone,                    {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erNone),                    {230, 179, 179}}},
+        {ExtrusionRole::erPerimeter,               {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erPerimeter),               {255, 230,  77}}},
+        {ExtrusionRole::erExternalPerimeter,       {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erExternalPerimeter),       {255, 125,  56}}},
+        {ExtrusionRole::erOverhangPerimeter,       {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erOverhangPerimeter),       { 31,  31, 255}}},
+        {ExtrusionRole::erInternalInfill,          {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erInternalInfill),          {176,  48,  41}}},
+        {ExtrusionRole::erSolidInfill,             {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erSolidInfill),             {150,  84, 204}}},
+        {ExtrusionRole::erTopSolidInfill,          {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erTopSolidInfill),          {240,  64,  64}}},
+        {ExtrusionRole::erBottomSurface,           {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erBottomSurface),           {102,  92, 199}}},
+        {ExtrusionRole::erIroning,                 {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erIroning),                 {255, 140, 105}}},
+        {ExtrusionRole::erBridgeInfill,            {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erBridgeInfill),            { 77, 128, 186}}},
+        {ExtrusionRole::erInternalBridgeInfill,    {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erInternalBridgeInfill),    { 77, 128, 186}}},
+        {ExtrusionRole::erGapFill,                 {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erGapFill),                 {255, 255, 255}}},
+        {ExtrusionRole::erSkirt,                   {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erSkirt),                   {  0, 135, 110}}},
+        {ExtrusionRole::erBrim,                    {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erBrim),                    {  0,  59, 110}}},
+        {ExtrusionRole::erSupportMaterial,         {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erSupportMaterial),         {  0, 255,   0}}},
+        {ExtrusionRole::erSupportMaterialInterface,{Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erSupportMaterialInterface),{  0, 128,   0}}},
+        {ExtrusionRole::erSupportTransition,       {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erSupportTransition),       {  0,  64,   0}}},
+        {ExtrusionRole::erWipeTower,               {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erWipeTower),               {179, 227, 171}}},
+        {ExtrusionRole::erCustom,                  {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erCustom),                  { 94, 209, 148}}},
+        {ExtrusionRole::erMixed,                   {Slic3r::ExtrusionEntity::role_to_string(ExtrusionRole::erMixed),                   {128, 128, 128}}},
     };
     return palette;
 }

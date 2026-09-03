@@ -32,7 +32,12 @@ schemes with unavailable data are not offered. Legend visibility is stored per
 scheme and rebuilt as page-local selection indices, so changing a scheme or
 filter does not rebuild the native static geometry/textures. Travel remains
 the independent native Travels color and global visibility option in every
-scheme. The layer slider owns a higher overlay stacking level than the
+scheme. The bridge feature palette uses Orca's user-facing `ExtrusionRole`
+display names for every standard role (including bottom surface, gap fill,
+brim, support transition, prime tower, custom, and mixed); only an unknown
+numeric role uses the explicit `Role N` fallback. Travel still resolves by
+move type and is not affected by extrusion-role legend filters. The layer
+slider owns a higher overlay stacking level than the
 analysis card so its thumbs remain reachable when overlays are crowded.
 
 The right-top overlay presents bridge-precomputed summary values and
