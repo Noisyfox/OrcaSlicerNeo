@@ -122,6 +122,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const pendingGeometrySaveRef = useRef<WindowGeometry | null>(null);
   const geometrySaveActiveRef = useRef(false);
   const [geometry, setGeometry] = useState<WindowGeometry>(INITIAL_WINDOW_GEOMETRY);
+  const [geometryReady, setGeometryReady] = useState(false);
   const lineCount = data.metadata?.sourceLineMapping?.lineCount ?? 0;
   const inspectionIndex = useMemo(() => createPreviewInspectionIndex(data), [data]);
   const sourceIndex = data.sourceLineIndex;
@@ -192,7 +193,12 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
       if (!active || userGeometryRevisionRef.current !== revisionAtLoad) return;
       const saved = normalizeGcodeTextWindowGeometry(prefs.ui.gcodeTextWindow);
       if (saved) applyGeometry(saved);
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => {
+      // Keep the mounted window hidden until the first geometry decision has
+      // completed. A rejected or malformed preference load still reveals the
+      // already prepared viewport-sized fallback instead of trapping it.
+      if (active) setGeometryReady(true);
+    });
     return () => { active = false; };
   }, [applyGeometry, platform.preferences]);
 
@@ -424,7 +430,15 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
       data-testid="gcode-text-window"
       aria-labelledby={titleId}
       className="pointer-events-auto absolute z-40 flex min-w-0 flex-col overflow-hidden rounded-md border bg-card/95 text-card-foreground shadow-xl backdrop-blur"
-      style={{ left: geometry.left, top: geometry.top, width: geometry.width, height: geometry.height }}
+      aria-hidden={!geometryReady}
+      style={{
+        left: geometry.left,
+        top: geometry.top,
+        width: geometry.width,
+        height: geometry.height,
+        visibility: geometryReady ? 'visible' : 'hidden',
+        pointerEvents: geometryReady ? 'auto' : 'none',
+      }}
     >
       <header
         data-testid="gcode-text-header"

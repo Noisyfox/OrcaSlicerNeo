@@ -219,6 +219,80 @@ describe('GcodeTextWindow', () => {
     expect(platform.preferences.load).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the window hidden until deferred geometry preferences resolve', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: 'G1 X1',
+    }));
+    type StoredPreferences = {
+      version: 1;
+      selectedProfiles: {};
+      ui: { gcodeTextWindow: { left: number; top: number; width: number; height: number } };
+    };
+    const loads: Array<(value: StoredPreferences) => void> = [];
+    const platform = {
+      runtime: { readTextLines },
+      preferences: {
+        load: vi.fn(() => new Promise<StoredPreferences>((resolve) => loads.push(resolve))),
+        save: vi.fn(async () => undefined),
+      },
+    } as unknown as PlatformCapabilities;
+    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>);
+    });
+    const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
+    expect(loads).toHaveLength(1);
+    expect(windowElement.style.visibility).toBe('hidden');
+    expect(windowElement.style.pointerEvents).toBe('none');
+    expect(windowElement.style.width).toBe('463.99999999999994px');
+
+    await act(async () => {
+      loads[0]({ version: 1, selectedProfiles: {}, ui: { gcodeTextWindow: { left: 80, top: 40, width: 420, height: 300 } } });
+      await Promise.resolve();
+    });
+    expect(windowElement.style.visibility).toBe('visible');
+    expect(windowElement.style.pointerEvents).toBe('auto');
+    expect(windowElement.style.left).toBe('80px');
+    expect(windowElement.style.top).toBe('40px');
+    expect(windowElement.style.width).toBe('420px');
+    expect(windowElement.style.height).toBe('300px');
+  });
+
+  it('reveals the fallback geometry when preferences are rejected or malformed', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: 'G1 X1',
+    }));
+    const platform = testPlatform(readTextLines, {
+      version: 1,
+      selectedProfiles: {},
+      ui: { gcodeTextWindow: { left: 'bad', top: 0, width: 500, height: 400 } },
+    } as never);
+    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>);
+    });
+    const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
+    expect(windowElement.style.visibility).toBe('visible');
+    expect(windowElement.style.pointerEvents).toBe('auto');
+    expect(windowElement.style.left).toBe('12px');
+    expect(windowElement.style.top).toBe('12px');
+
+    root?.unmount(); root = undefined;
+    const rejectedPlatform = {
+      ...testPlatform(readTextLines),
+      preferences: {
+        load: vi.fn(async () => { throw new Error('unavailable'); }),
+        save: vi.fn(async () => undefined),
+      },
+    } as unknown as PlatformCapabilities;
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={rejectedPlatform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>);
+    });
+    expect((container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement).style.visibility).toBe('visible');
+  });
+
   it('still restores saved geometry when a viewport resize happens before loading finishes', async () => {
     const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
       resultId, startLine, lineCount, eof: true, text: 'G1 X1',
