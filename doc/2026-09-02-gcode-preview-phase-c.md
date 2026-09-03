@@ -106,11 +106,13 @@ viewport owns focus, or its close button). It renders only a bounded visible
 row window of plain text and highlights the active mapped source line. Slider
 movement updates that highlight. The bottom move slider and the right layer
 slider also consume vertical wheel steps while hovered: wheel-up advances and
-wheel-down reverses the relevant move/end or layer thumb, with values clamped
-to their bounds; in two-thumb mode the start and end thumbs remain independent
-and in single-layer mode they remain coupled. The wheel hit area includes the entire
-surrounding dark frame, including its padding and labels, while remaining isolated
-from the preview canvas. Selecting an exact mapped line moves the
+wheel-down reverses the relevant move/end value, with values clamped to their
+bounds. Every wheel event over the right slider, including its start thumb and
+the surrounding dark frame, adjusts the visible layer end; the start thumb
+remains independently draggable and keyboard-controlled. In single-layer mode
+wheel changes keep both layer bounds coupled. The wheel hit area includes the
+entire surrounding dark frame, including its padding and labels, while remaining
+isolated from the preview canvas. Selecting an exact mapped line moves the
   preview to its layer and move; an unmappable line uses the nearest preceding
   mapped move, while a line before the first mapping leaves the inspection state
 unchanged. A result-local source index is built once during slice-result
