@@ -5,6 +5,7 @@ import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import type { PresetInfo } from '@slicer/client';
+import { usePlatform, type ProfileSource } from '@orca/platform-contract';
 import { lastMovePosition, maxMoveOrderForLayer } from './previewSemantics';
 
 /** OrcaSlicer's native Marker::render state for the hotend STL. */
@@ -45,70 +46,36 @@ export function toolMarkerModelTransform(
   };
 }
 
-export interface PreviewHotendManifest {
-  version: 1;
-  fallback: string;
-  models: Record<string, Record<string, string>>;
-}
+const hotendBytes = new WeakMap<object, Map<string, Promise<ArrayBuffer | null>>>();
+const readHotendProfileAsset = import('@orca/slicer-runtime').then((runtime) => runtime.readHotendProfileAsset);
 
-const DEFAULT_HOTEND_MANIFEST = Object.freeze({ version: 1 as const, fallback: 'hotend.stl', models: {} }) as PreviewHotendManifest;
-const HOTEND_MANIFEST_URL = 'preview/hotends.json';
-const hotendManifestPromise = { value: null as Promise<PreviewHotendManifest> | null };
-const hotendBytes = new Map<string, Promise<ArrayBuffer>>();
-
-function safeHotendPath(path: unknown): path is string {
-  if (typeof path !== 'string' || !path || path.startsWith('/') || /^[A-Za-z]:/.test(path)) return false;
-  return path.split('/').every((part) => Boolean(part) && part !== '.' && part !== '..');
-}
-
-export function resolveHotendAssetPath(
+function loadHotendBytes(
+  profiles: ProfileSource,
   printer: Pick<PresetInfo, 'vendor_id' | 'model'> | null,
-  manifest: PreviewHotendManifest,
-): string {
-  const selected = printer && manifest.models[printer.vendor_id]?.[printer.model];
-  return safeHotendPath(selected) ? selected : (safeHotendPath(manifest.fallback) ? manifest.fallback : 'hotend.stl');
-}
-
-function loadHotendManifest(): Promise<PreviewHotendManifest> {
-  if (!hotendManifestPromise.value) {
-    hotendManifestPromise.value = fetch(new URL(HOTEND_MANIFEST_URL, document.baseURI).href)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`hotend marker manifest fetch failed: ${response.status}`);
-        const value = await response.json() as Partial<PreviewHotendManifest>;
-        if (value.version !== 1 || !value.models || typeof value.models !== 'object') throw new Error('invalid hotend marker manifest');
-        return { version: 1 as const, fallback: safeHotendPath(value.fallback) ? value.fallback : 'hotend.stl', models: value.models };
-      })
-      .catch((error) => {
-        console.warn('[preview] hotend marker manifest unavailable:', error);
-        return DEFAULT_HOTEND_MANIFEST;
-      });
-  }
-  return hotendManifestPromise.value!;
-}
-
-function loadHotendBytes(path: string): Promise<ArrayBuffer> {
-  let cached = hotendBytes.get(path);
+): Promise<ArrayBuffer | null> {
+  const cacheKey = printer ? `${printer.vendor_id}\u0000${printer.model}` : '';
+  let cache = hotendBytes.get(profiles as object);
+  if (!cache) { cache = new Map(); hotendBytes.set(profiles as object, cache); }
+  let cached = cache.get(cacheKey);
   if (!cached) {
-    cached = fetch(new URL(`preview/${path}`, document.baseURI).href).then((response) => {
-      if (!response.ok) throw new Error(`hotend marker fetch failed: ${response.status}`);
-      return response.arrayBuffer();
-    });
-    hotendBytes.set(path, cached);
+    cached = readHotendProfileAsset.then((read) => read(profiles, printer)).then((bytes) => bytes
+      ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+      : null);
+    cache.set(cacheKey, cached);
   }
   return cached;
 }
 
-function useHotendGeometry(assetPath: string): THREE.BufferGeometry | null {
+function useHotendGeometry(
+  profiles: ProfileSource,
+  printer: Pick<PresetInfo, 'vendor_id' | 'model'> | null,
+): THREE.BufferGeometry | null {
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const load = loadHotendBytes(assetPath).catch((error) => {
-      if (assetPath === DEFAULT_HOTEND_MANIFEST.fallback) throw error;
-      console.warn('[preview] selected hotend marker unavailable; using fallback:', error);
-      return loadHotendBytes(DEFAULT_HOTEND_MANIFEST.fallback);
-    });
+    const load = loadHotendBytes(profiles, printer);
     void load.then((bytes) => {
-      if (cancelled) return;
+      if (cancelled || !bytes) return;
       const parsed = new STLLoader().parse(bytes.slice(0));
       parsed.computeVertexNormals();
       parsed.computeBoundingBox();
@@ -119,7 +86,7 @@ function useHotendGeometry(assetPath: string): THREE.BufferGeometry | null {
       console.warn('[preview] hotend marker unavailable:', error);
     });
     return () => { cancelled = true; };
-  }, [assetPath]);
+  }, [profiles, printer]);
   return geometry;
 }
 
@@ -142,21 +109,14 @@ export function isFinalToolpathEndpoint(
 }
 
 /**
- * Native ToolMarker geometry is a downward arrow: its tip is at local z=0,
- * the cone base is z=4, and the cylindrical stem ends at z=12. Three's
- * primitives are Y-axis aligned, so both are rotated -90 degrees around X.
+ * The marker is Orca's translucent hotend STL loaded from the selected
+ * profile archive. It is intentionally not a separately staged preview asset.
  */
 export function ToolpathMarker({ data }: { data: ToolpathGeometry }) {
   const { visibleLayerEnd, activeMoveEnd } = useSlicerStore((s) => s.preview);
+  const platform = usePlatform();
   const selectedPrinter = useSettingsStore((s) => s.printers.find((printer) => printer.name === s.selectedPrinter) ?? null);
-  const [manifest, setManifest] = useState<PreviewHotendManifest>(DEFAULT_HOTEND_MANIFEST);
-  useEffect(() => {
-    let cancelled = false;
-    void loadHotendManifest().then((value) => { if (!cancelled) setManifest(value); });
-    return () => { cancelled = true; };
-  }, []);
-  const assetPath = resolveHotendAssetPath(selectedPrinter, manifest);
-  const geometry = useHotendGeometry(assetPath);
+  const geometry = useHotendGeometry(platform.profiles, selectedPrinter);
   const currentPosition = useMemo(
     () => lastMovePosition(data, visibleLayerEnd, activeMoveEnd),
     [activeMoveEnd, data, visibleLayerEnd],

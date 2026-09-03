@@ -89,16 +89,16 @@ one positive `gcode_id`. All segment geometry and per-segment metrics remain
 available for rendering. Unmapped zero ids and distinct/non-consecutive source
 ids remain separate moves, and layer boundaries always reset the move order.
 
-The current-move marker follows OrcaSlicer's `SequentialView::Marker`: it
-loads the selected printer's vendor `hotend_model` when that model is present
-in the shipped profile assets, and otherwise uses the exact shared
-`resources/profiles/hotend.stl` fallback. `scripts/stage.mjs` emits one small
-`preview/hotends.json` mapping and copies the referenced STL files for both
-hosts. The renderer requests only the selected model (with fallback on a
-missing asset); it does not preload the model set. Rendering uses Orca's
-0.5mm Z offset, bounding-box-height translation, 180-degree X rotation,
-translucent white material, and depth-tested model rendering. External/user
-hotend files remain outside the current source scope.
+The current-move marker follows OrcaSlicer's `SequentialView::Marker`: the
+renderer resolves the selected printer's vendor `hotend_model` from the
+machine JSON already contained in the existing vendor profile archive, and
+otherwise reads the exact `resources/profiles/hotend.stl` entry from the core
+archive. It requests only the needed profile archive and extracts only machine
+metadata plus the selected STL in memory; no preview asset, hotend mapping
+manifest, or duplicated model binary is staged. Rendering uses Orca's 0.5mm Z
+offset, bounding-box-height translation, 180-degree X rotation, translucent
+white material, and depth-tested model rendering. External/user hotend files
+remain outside the current source scope.
 
 ## Source limitations
 

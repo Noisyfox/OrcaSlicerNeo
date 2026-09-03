@@ -6,7 +6,7 @@
 // --soft: warn and exit 0 when the build is missing — used by the desktop `predev`
 // hook so mock-mode UI dev (VITE_USE_MOCK=1) still boots on a fresh checkout
 // with no wasm build.
-import { copyFile, cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,53 +19,8 @@ const outRoot = join(root, 'packages/slicer-wasm/out');
 const dstRoot = join(root, 'apps/desktop/src/renderer/public/wasm');
 const profileSrc = join(root, 'packages/profile-resources/dist');
 const profileDst = join(root, 'apps/desktop/src/renderer/public/profiles');
-const previewSrc = join(root, 'packages/slicer-wasm/cpp/resources/profiles/hotend.stl');
-const previewDstRoot = join(root, 'apps/desktop/src/renderer/public/preview');
-const previewDst = join(previewDstRoot, 'hotend.stl');
 
 await stageHandyModels();
-
-// Orca's G-code marker is the translucent hotend STL loaded by
-// GCodeViewer::SequentialView::Marker. Keep the exact upstream fallback
-// model available to both hosts as one lazy static asset; vendor-specific
-// models are emitted below without changing the renderer contract.
-if (existsSync(previewSrc)) {
-  await mkdir(previewDstRoot, { recursive: true });
-  await copyFile(previewSrc, previewDst);
-  console.log('staged preview/hotend.stl');
-}
-
-// PresetBundle resolves a printer's hotend_model from its vendor machine
-// profile, then falls back to profiles/hotend.stl. Publish that same small
-// lookup as static data. The renderer fetches only the selected STL; this
-// staging step does not preload all models into the page.
-const hotendModels = {};
-if (existsSync(join(root, 'packages/slicer-wasm/cpp/resources/profiles'))) {
-  const profilesRoot = join(root, 'packages/slicer-wasm/cpp/resources/profiles');
-  for (const vendorEntry of (await readdir(profilesRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory())) {
-    const machineRoot = join(profilesRoot, vendorEntry.name, 'machine');
-    if (!existsSync(machineRoot)) continue;
-    for (const machineEntry of (await readdir(machineRoot, { withFileTypes: true })).filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.json'))) {
-      try {
-        const machine = JSON.parse(await readFile(join(machineRoot, machineEntry.name), 'utf8'));
-        if (typeof machine.name !== 'string' || typeof machine.hotend_model !== 'string' || !machine.hotend_model) continue;
-        const sourceAsset = join(profilesRoot, vendorEntry.name, machine.hotend_model);
-        if (!existsSync(sourceAsset)) continue;
-        const relativeAsset = `hotends/${vendorEntry.name}/${machine.hotend_model}`;
-        const targetAsset = join(previewDstRoot, relativeAsset);
-        await mkdir(dirname(targetAsset), { recursive: true });
-        await copyFile(sourceAsset, targetAsset);
-        hotendModels[vendorEntry.name] ??= {};
-        hotendModels[vendorEntry.name][machine.name] = relativeAsset;
-      } catch {
-        // Ignore malformed optional vendor entries; the native fallback still
-        // applies and profile installation reports its own package errors.
-      }
-    }
-  }
-}
-await writeFile(join(previewDstRoot, 'hotends.json'), JSON.stringify({ version: 1, fallback: 'hotend.stl', models: hotendModels }, null, 2) + '\n');
-console.log(`staged preview/hotends.json (${Object.values(hotendModels).reduce((count, models) => count + Object.keys(models).length, 0)} model mappings)`);
 
 if (!existsSync(outRoot)) {
   if (soft) {

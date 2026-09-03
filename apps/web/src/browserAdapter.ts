@@ -92,7 +92,7 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
     runtime,
     profiles: { fetch: async (relativePath) => {
       const Url = globalThis.URL;
-      const href = new Url(relativePath, new Url(import.meta.env.BASE_URL, String(import.meta.url))).href;
+      const href = new Url(`profiles/${relativePath}`, new Url(import.meta.env.BASE_URL, String(import.meta.url))).href;
       const response = await fetch(href);
       if (!response.ok) throw new Error(`profile asset request failed (${response.status}): ${relativePath}`);
       return new Uint8Array(await response.arrayBuffer());

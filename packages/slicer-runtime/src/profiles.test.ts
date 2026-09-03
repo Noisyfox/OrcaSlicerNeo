@@ -1,6 +1,6 @@
 import { zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { installProfiles, resolveDeploymentBase, resolveProfileBaseUrl, type ProfileSource } from './profiles';
+import { installProfiles, readHotendProfileAsset, resolveDeploymentBase, resolveProfileBaseUrl, type ProfileSource } from './profiles';
 
 function zip(entries: Array<[string, string]>): Uint8Array {
   return zipSync(Object.fromEntries(entries.map(([name, value]) => [name, new TextEncoder().encode(value)])));
@@ -14,6 +14,42 @@ function manifest(packages: Array<{ id: string; kind: 'core' | 'vendor'; path: s
 }
 
 describe('profile installer', () => {
+  it('selects the printer hotend from the vendor archive and only falls back to core', async () => {
+    const files = {
+      'manifest.json': manifest([
+        { id: 'core', kind: 'core', path: 'core.zip' },
+        { id: 'Vendor', kind: 'vendor', path: 'vendors/Vendor.zip' },
+      ]),
+      'core.zip': zip([['hotend.stl', 'core-hotend'], ['unused.stl', 'not-loaded']]),
+      'vendors/Vendor.zip': zip([
+        ['machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: 'vendor-hotend.stl' })],
+        ['vendor-hotend.stl', 'vendor-hotend'],
+        ['unused.stl', 'not-loaded'],
+      ]),
+    };
+    const requested: string[] = [];
+    const tracked: ProfileSource = { fetch: async (path) => { requested.push(path); return files[path as keyof typeof files]; } };
+    await expect(readHotendProfileAsset(tracked, { vendor_id: 'Vendor', model: 'Printer' }))
+      .resolves.toEqual(new TextEncoder().encode('vendor-hotend'));
+    expect(requested).toEqual(['manifest.json', 'vendors/Vendor.zip']);
+    await expect(readHotendProfileAsset(tracked, { vendor_id: 'Other', model: 'Printer' }))
+      .resolves.toEqual(new TextEncoder().encode('core-hotend'));
+    expect(requested).toEqual(['manifest.json', 'vendors/Vendor.zip', 'manifest.json', 'core.zip']);
+  });
+
+  it('uses core hotend when a selected machine has no usable vendor model', async () => {
+    const files = {
+      'manifest.json': manifest([
+        { id: 'core', kind: 'core', path: 'core.zip' },
+        { id: 'Vendor', kind: 'vendor', path: 'vendors/Vendor.zip' },
+      ]),
+      'core.zip': zip([['hotend.stl', 'core-hotend']]),
+      'vendors/Vendor.zip': zip([['machine/Printer.json', JSON.stringify({ name: 'Printer', hotend_model: '' })]]),
+    };
+    await expect(readHotendProfileAsset(source(files), { vendor_id: 'Vendor', model: 'Printer' }))
+      .resolves.toEqual(new TextEncoder().encode('core-hotend'));
+  });
+
   it('resolves profiles from the configured deployment base', () => {
     expect(resolveProfileBaseUrl('/', 'https://host.test/assets/worker.js').href).toBe('https://host.test/profiles/');
     expect(resolveProfileBaseUrl('/orca/', 'https://host.test/orca/assets/worker.js').href).toBe('https://host.test/orca/profiles/');
