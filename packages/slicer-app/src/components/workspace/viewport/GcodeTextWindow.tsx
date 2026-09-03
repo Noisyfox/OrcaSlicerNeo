@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { XIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { normalizeGcodeTextWindowGeometry, usePlatform, type GcodeTextWindowGeometry } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
@@ -451,7 +452,9 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         onLostPointerCapture={endPointerGesture}
       >
         <span id={titleId}>G-code</span>
-        <Button variant="ghost" size="xs" aria-label="Close G-code text" data-testid="gcode-text-close" onClick={onClose}>Close</Button>
+        <Button variant="ghost" size="xs" aria-label="Close G-code text" title="Close G-code text" data-testid="gcode-text-close" onClick={onClose}>
+          <XIcon aria-hidden="true" className="pointer-events-none" />
+        </Button>
       </header>
       <div
         ref={scrollRef}

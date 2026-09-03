@@ -118,6 +118,10 @@ describe('GcodeTextWindow', () => {
     const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
     const header = container.querySelector('[data-testid="gcode-text-header"]') as HTMLElement;
     const close = container.querySelector('[data-testid="gcode-text-close"]') as HTMLElement;
+    expect(close.querySelector('svg')).toBeTruthy();
+    expect(close.textContent).toBe('');
+    expect(close.getAttribute('aria-label')).toBe('Close G-code text');
+    expect(close.getAttribute('title')).toBe('Close G-code text');
     const capture = addPointerCaptureMock(header);
     const initialLeft = parseFloat(windowElement.style.left);
     const initialTop = parseFloat(windowElement.style.top);
