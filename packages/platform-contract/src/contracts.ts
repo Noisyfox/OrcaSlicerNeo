@@ -25,7 +25,13 @@ export interface GcodeExporter {
   save(defaultName: string, bytes: Uint8Array): Promise<void>;
 }
 
-/** Persistence is deliberately opaque until the shared preference migration. */
+export interface GcodeTextWindowGeometry {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export interface UserPreferences {
   version: 1;
   selectedProfiles: {
@@ -38,6 +44,8 @@ export interface UserPreferences {
     deviceSidebarWidth?: number;
     /** Whether successful G-code sends should navigate to Device by default. */
     switchToDeviceAfterSend?: boolean;
+    /** Last usable G-code text overlay geometry. */
+    gcodeTextWindow?: GcodeTextWindowGeometry;
   };
 }
 
@@ -132,6 +140,21 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   ui: { switchToDeviceAfterSend: true },
 };
 
+export function normalizeGcodeTextWindowGeometry(value: unknown): GcodeTextWindowGeometry | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const geometry = value as Record<string, unknown>;
+  const keys = ['left', 'top', 'width', 'height'] as const;
+  if (!keys.every((key) => typeof geometry[key] === 'number' && Number.isFinite(geometry[key]))) {
+    return undefined;
+  }
+  return {
+    left: geometry.left as number,
+    top: geometry.top as number,
+    width: geometry.width as number,
+    height: geometry.height as number,
+  };
+}
+
 export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
@@ -139,6 +162,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   const v = value as { selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown> };
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
+  const gcodeTextWindow = normalizeGcodeTextWindowGeometry(ui.gcodeTextWindow);
   return {
     version: 1,
     selectedProfiles: {
@@ -153,6 +177,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
         ? { deviceSidebarWidth: ui.deviceSidebarWidth } : {}),
       switchToDeviceAfterSend: typeof ui.switchToDeviceAfterSend === 'boolean'
         ? ui.switchToDeviceAfterSend : true,
+      ...(gcodeTextWindow ? { gcodeTextWindow } : {}),
     },
   };
 }

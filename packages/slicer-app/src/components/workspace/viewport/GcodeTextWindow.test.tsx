@@ -39,6 +39,16 @@ function dispatchPointer(target: HTMLElement, type: string, pointerId: number, c
   target.dispatchEvent(event);
 }
 
+function testPlatform(readTextLines: ReturnType<typeof vi.fn>, preferences = { version: 1 as const, selectedProfiles: {}, ui: {} }) {
+  return {
+    runtime: { readTextLines },
+    preferences: {
+      load: vi.fn(async () => preferences),
+      save: vi.fn(async () => undefined),
+    },
+  } as unknown as PlatformCapabilities;
+}
+
 const data: ToolpathGeometry = {
   segmentCount: 3,
   palette: [],
@@ -87,7 +97,7 @@ describe('GcodeTextWindow', () => {
     const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
       resultId, startLine, lineCount, eof: true, text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const platform = testPlatform(readTextLines);
     useSlicerStore.getState().setPreviewBounds(1, 1, 42);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
@@ -102,7 +112,7 @@ describe('GcodeTextWindow', () => {
       resultId, startLine, lineCount, eof: true, text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
     const onClose = vi.fn();
-    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const platform = testPlatform(readTextLines);
     const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={onClose} /></PlatformProvider>); });
     const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
@@ -143,7 +153,7 @@ describe('GcodeTextWindow', () => {
     const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
       resultId, startLine, lineCount, eof: true, text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const platform = testPlatform(readTextLines);
     const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
     const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
@@ -189,11 +199,152 @@ describe('GcodeTextWindow', () => {
     expect(parseFloat(windowElement.style.top) + parseFloat(windowElement.style.height)).toBeLessThanOrEqual(600);
   });
 
+  it('restores saved geometry once and clamps it to a small viewport', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: 'G1 X1',
+    }));
+    const preferences = {
+      version: 1 as const,
+      selectedProfiles: { printer: 'saved-printer' },
+      ui: { sidebarWidth: 280, gcodeTextWindow: { left: 700, top: 500, width: 600, height: 700 } },
+    };
+    const platform = testPlatform(readTextLines, preferences);
+    const container = document.createElement('div'); document.body.append(container); setViewportSize(container, 400, 260); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
+    const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
+    expect(windowElement.style.width).toBe('400px');
+    expect(windowElement.style.height).toBe('260px');
+    expect(windowElement.style.left).toBe('0px');
+    expect(windowElement.style.top).toBe('0px');
+    expect(platform.preferences.load).toHaveBeenCalledTimes(1);
+  });
+
+  it('still restores saved geometry when a viewport resize happens before loading finishes', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: 'G1 X1',
+    }));
+    type StoredPreferences = {
+      version: 1;
+      selectedProfiles: {};
+      ui: { gcodeTextWindow: { left: number; top: number; width: number; height: number } };
+    };
+    const savedGeometry = { left: 50, top: 20, width: 320, height: 220 };
+    const loads: Array<(value: StoredPreferences) => void> = [];
+    const platform = {
+      runtime: { readTextLines },
+      preferences: {
+        load: vi.fn(() => new Promise<StoredPreferences>((resolve) => loads.push(resolve))),
+        save: vi.fn(async () => undefined),
+      },
+    } as unknown as PlatformCapabilities;
+    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
+    setViewportSize(container, 400, 260);
+    await act(async () => { window.dispatchEvent(new Event('resize')); });
+    await act(async () => {
+      loads[0]({ version: 1, selectedProfiles: {}, ui: { gcodeTextWindow: savedGeometry } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
+    expect(windowElement.style.left).toBe('50px');
+    expect(windowElement.style.top).toBe('20px');
+    expect(windowElement.style.width).toBe('320px');
+    expect(windowElement.style.height).toBe('220px');
+  });
+
+  it('persists only the final pointer geometry and preserves unrelated preferences', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: 'G1 X1',
+    }));
+    const preferences = {
+      version: 1 as const,
+      selectedProfiles: { printer: 'saved-printer' },
+      ui: { sidebarWidth: 280, switchToDeviceAfterSend: false },
+    };
+    const platform = testPlatform(readTextLines, preferences);
+    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
+    const header = container.querySelector('[data-testid="gcode-text-header"]') as HTMLElement;
+    addPointerCaptureMock(header);
+    await act(async () => {
+      dispatchPointer(header, 'pointerdown', 9, 100, 100);
+      dispatchPointer(header, 'pointermove', 9, 140, 150);
+    });
+    expect(platform.preferences.save).not.toHaveBeenCalled();
+    await act(async () => {
+      dispatchPointer(header, 'pointerup', 9, 140, 150);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(platform.preferences.save).toHaveBeenCalledTimes(1);
+    expect(platform.preferences.save).toHaveBeenCalledWith({
+      ...preferences,
+      ui: { ...preferences.ui, gcodeTextWindow: { left: 52, top: 62, width: 463.99999999999994, height: 424 } },
+    });
+  });
+
+  it('persists keyboard resize immediately after the key gesture', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: 'G1 X1',
+    }));
+    const platform = testPlatform(readTextLines);
+    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
+    const handle = container.querySelector('[data-testid="gcode-text-resize"]') as HTMLElement;
+    await act(async () => {
+      handle.focus();
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(platform.preferences.save).toHaveBeenCalledWith(expect.objectContaining({
+      ui: expect.objectContaining({ gcodeTextWindow: expect.objectContaining({ width: 473.99999999999994 }) }),
+    }));
+  });
+
+  it('does not let a late initial preference load overwrite a newer drag', async () => {
+    const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
+      resultId, startLine, lineCount, eof: true, text: 'G1 X1',
+    }));
+    const loads: Array<(value: { version: 1; selectedProfiles: {}; ui: { gcodeTextWindow: { left: number; top: number; width: number; height: number } } }) => void> = [];
+    const savedGeometry = { left: 300, top: 200, width: 500, height: 400 };
+    const platform = {
+      runtime: { readTextLines },
+      preferences: {
+        load: vi.fn(() => new Promise((resolve) => loads.push(resolve))),
+        save: vi.fn(async () => undefined),
+      },
+    } as unknown as PlatformCapabilities;
+    const container = document.createElement('div'); document.body.append(container); setViewportSize(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
+    const windowElement = container.querySelector('[data-testid="gcode-text-window"]') as HTMLElement;
+    const header = container.querySelector('[data-testid="gcode-text-header"]') as HTMLElement;
+    addPointerCaptureMock(header);
+    await act(async () => {
+      dispatchPointer(header, 'pointerdown', 10, 100, 100);
+      dispatchPointer(header, 'pointermove', 10, 140, 150);
+      dispatchPointer(header, 'pointerup', 10, 140, 150);
+    });
+    expect(loads).toHaveLength(2);
+    expect(windowElement.style.left).toBe('52px');
+    expect(windowElement.style.top).toBe('62px');
+
+    await act(async () => {
+      loads[0]({ version: 1, selectedProfiles: {}, ui: { gcodeTextWindow: savedGeometry } });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(windowElement.style.left).toBe('52px');
+    expect(windowElement.style.top).toBe('62px');
+    loads[1]({ version: 1, selectedProfiles: {}, ui: { gcodeTextWindow: savedGeometry } });
+  });
+
   it('maps exact and unmappable line clicks using the preceding move rule', async () => {
     const readTextLines = vi.fn(async ({ resultId, startLine, lineCount }: { resultId: number; startLine: number; lineCount: number }) => ({
       resultId, startLine, lineCount, eof: true, text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const platform = testPlatform(readTextLines);
     useSlicerStore.getState().setPreviewBounds(1, 1, 42);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={data} onClose={() => undefined} /></PlatformProvider>); });
@@ -208,7 +359,7 @@ describe('GcodeTextWindow', () => {
       resultId, startLine, lineCount, eof: false,
       text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const platform = testPlatform(readTextLines);
     useSlicerStore.getState().setPreviewBounds(1, 0, 42);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={lateData} onClose={() => undefined} /></PlatformProvider>); });
@@ -224,7 +375,7 @@ describe('GcodeTextWindow', () => {
       resultId, startLine, lineCount, eof: false,
       text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const platform = testPlatform(readTextLines);
     const scrollData = { ...lateData, metadata: { ...lateData.metadata!, sourceLineMapping: { available: true, lineCount: 12000 } } };
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={scrollData} onClose={() => undefined} /></PlatformProvider>); });
@@ -253,7 +404,7 @@ describe('GcodeTextWindow', () => {
       resultId, startLine, lineCount, eof: false,
       text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const platform = testPlatform(readTextLines);
     const scrollData = { ...lateData, metadata: { ...lateData.metadata!, sourceLineMapping: { available: true, lineCount: 12000 } } };
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={scrollData} onClose={() => undefined} /></PlatformProvider>); });
@@ -278,7 +429,7 @@ describe('GcodeTextWindow', () => {
       resultId, startLine, lineCount, eof: false,
       text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const platform = testPlatform(readTextLines);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={lateData} onClose={() => undefined} /></PlatformProvider>); });
     const scroll = container.querySelector('[data-testid="gcode-text-scroll"]') as HTMLElement;
@@ -305,7 +456,7 @@ describe('GcodeTextWindow', () => {
       resultId, startLine, lineCount, eof: false,
       text: Array.from({ length: lineCount }, (_, i) => `G1 X${startLine + i}`).join('\n'),
     }));
-    const platform = { runtime: { readTextLines } } as unknown as PlatformCapabilities;
+    const platform = testPlatform(readTextLines);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     useSlicerStore.getState().setPreviewBounds(1, 0, 42);
     await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={lateData} onClose={() => undefined} /></PlatformProvider>); });

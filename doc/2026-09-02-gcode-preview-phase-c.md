@@ -87,7 +87,7 @@ uncached page(s) requested, so continuous scrolling does not issue intermediate
 page requests. Pending scroll loads are cancelled when the result changes or
 the window unmounts, and stale page responses cannot populate a newer result.
 
-The G-code text window is a session-only overlay. Its title bar can be dragged
+The G-code text window is a separately persisted overlay. Its title bar can be dragged
 to reposition it, and a visible bottom-right handle can resize it. Both
 gestures use pointer capture and terminate safely on pointer up, cancel, lost
 capture, or unmount. Position and size are clamped to the viewport; the
@@ -95,7 +95,11 @@ window keeps a usable header, text area, and footer through a 320x220 px
 minimum and a 768x720 px maximum (also constrained by the viewport). The
 Close button and text scrolling remain
 independent of dragging, and the resize handle supports keyboard arrow
-adjustment with an accessible label. Geometry is not persisted.
+adjustment with an accessible label. The last geometry is restored once when
+the window opens, clamped to the current viewport, and saved only after a
+pointer gesture or keyboard resize finishes. It uses the shared
+`UserPreferences.ui.gcodeTextWindow` namespace; malformed or missing values
+keep the default geometry.
 
 The text window is a separately toggled, larger overlay (`C` while the preview
 viewport owns focus, or its close button). It renders only a bounded visible

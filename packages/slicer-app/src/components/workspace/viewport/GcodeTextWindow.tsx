@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { usePlatform } from '@orca/platform-contract';
+import { normalizeGcodeTextWindowGeometry, usePlatform, type GcodeTextWindowGeometry } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { PreviewTextLines, PreviewTextLinesRequest } from '@slicer/client';
 import type { ToolpathGeometry } from './useSliceResult';
@@ -25,7 +25,7 @@ const MIN_WINDOW_HEIGHT = 220;
 const MAX_WINDOW_WIDTH = 768;
 const MAX_WINDOW_HEIGHT = 720;
 
-type WindowGeometry = { left: number; top: number; width: number; height: number };
+type WindowGeometry = GcodeTextWindowGeometry;
 type GestureKind = 'drag' | 'resize';
 type PointerGesture = WindowGeometry & {
   kind: GestureKind;
@@ -118,6 +118,9 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const windowRef = useRef<HTMLElement>(null);
   const gestureRef = useRef<PointerGesture | null>(null);
   const geometryRef = useRef<WindowGeometry>(INITIAL_WINDOW_GEOMETRY);
+  const userGeometryRevisionRef = useRef(0);
+  const pendingGeometrySaveRef = useRef<WindowGeometry | null>(null);
+  const geometrySaveActiveRef = useRef(false);
   const [geometry, setGeometry] = useState<WindowGeometry>(INITIAL_WINDOW_GEOMETRY);
   const lineCount = data.metadata?.sourceLineMapping?.lineCount ?? 0;
   const inspectionIndex = useMemo(() => createPreviewInspectionIndex(data), [data]);
@@ -130,11 +133,44 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const visibleRows = Math.ceil(textViewportHeight / ROW_HEIGHT) + OVERSCAN_ROWS * 2;
   const lastRow = Math.min(totalRows, firstRow + visibleRows);
 
-  const applyGeometry = useCallback((next: WindowGeometry) => {
+  const applyGeometry = useCallback((next: WindowGeometry, userInitiated = false) => {
     const bounded = clampGeometry(next, viewportSize(windowRef.current));
+    if (userInitiated) userGeometryRevisionRef.current += 1;
     geometryRef.current = bounded;
     setGeometry(bounded);
+    return bounded;
   }, []);
+
+  const persistGeometry = useCallback((next: WindowGeometry) => {
+    pendingGeometrySaveRef.current = { ...next };
+    if (geometrySaveActiveRef.current) return;
+    geometrySaveActiveRef.current = true;
+
+    const drain = async () => {
+      while (pendingGeometrySaveRef.current) {
+        const geometryToSave = pendingGeometrySaveRef.current;
+        pendingGeometrySaveRef.current = null;
+        try {
+          const prefs = await platform.preferences.load();
+          // A newer pointer/keyboard gesture arrived while loading. Let the
+          // next pass load the latest document and save only that geometry.
+          if (pendingGeometrySaveRef.current) continue;
+          await platform.preferences.save({
+            ...prefs,
+            ui: { ...prefs.ui, gcodeTextWindow: geometryToSave },
+          });
+        } catch {
+          // Persistence is best-effort; the overlay remains usable if storage
+          // is unavailable or the host rejects a write.
+        }
+      }
+      geometrySaveActiveRef.current = false;
+      if (pendingGeometrySaveRef.current) {
+        persistGeometry(pendingGeometrySaveRef.current);
+      }
+    };
+    void drain();
+  }, [platform.preferences]);
 
   // Size the initial window from the viewport without persisting it. The
   // fixed fallback keeps the component usable in a not-yet-laid-out host.
@@ -148,6 +184,17 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
       : Math.max(MIN_WINDOW_HEIGHT, viewport.height - 24);
     applyGeometry(clampGeometry({ ...INITIAL_WINDOW_GEOMETRY, width, height }, viewport));
   }, [applyGeometry]);
+
+  useEffect(() => {
+    let active = true;
+    const revisionAtLoad = userGeometryRevisionRef.current;
+    void platform.preferences.load().then((prefs) => {
+      if (!active || userGeometryRevisionRef.current !== revisionAtLoad) return;
+      const saved = normalizeGcodeTextWindowGeometry(prefs.ui.gcodeTextWindow);
+      if (saved) applyGeometry(saved);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [applyGeometry, platform.preferences]);
 
   useEffect(() => {
     const handleViewportResize = () => applyGeometry(geometryRef.current);
@@ -204,9 +251,9 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     const dx = event.clientX - gesture.startX;
     const dy = event.clientY - gesture.startY;
     if (gesture.kind === 'drag') {
-      applyGeometry({ ...gesture, left: gesture.left + dx, top: gesture.top + dy });
+      applyGeometry({ ...gesture, left: gesture.left + dx, top: gesture.top + dy }, true);
     } else {
-      applyGeometry(resizeGeometry(gesture, dx, dy, viewportSize(windowRef.current)));
+      applyGeometry(resizeGeometry(gesture, dx, dy, viewportSize(windowRef.current)), true);
     }
     event.preventDefault();
   }, [applyGeometry]);
@@ -215,7 +262,8 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     const gesture = gestureRef.current;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     clearPointerGesture();
-  }, [clearPointerGesture]);
+    persistGeometry(geometryRef.current);
+  }, [clearPointerGesture, persistGeometry]);
 
   const resizeWithKeyboard = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
     const amount = event.shiftKey ? 50 : 10;
@@ -226,10 +274,11 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     else if (event.key === 'ArrowUp') heightDelta = -amount;
     else if (event.key === 'ArrowDown') heightDelta = amount;
     else return;
-    applyGeometry(resizeGeometry(geometryRef.current, widthDelta, heightDelta, viewportSize(windowRef.current)));
+    const next = applyGeometry(resizeGeometry(geometryRef.current, widthDelta, heightDelta, viewportSize(windowRef.current)), true);
+    persistGeometry(next);
     event.preventDefault();
     event.stopPropagation();
-  }, [applyGeometry]);
+  }, [applyGeometry, persistGeometry]);
 
   useEffect(() => {
     cacheGenerationRef.current += 1;
