@@ -51,6 +51,14 @@ does not claim a stale extrusion feature. The card remains in the existing
 right-top panel gutter, leaving the right layer slider and both thumbs
 reachable.
 
+The preview UI performs one canonical logical `moveOrders` derivation from the
+bridge's raw per-segment order/source-id arrays (including coalesced arc
+segments), then retains that array through the streaming planner and UI.
+Validated contiguous `layerRanges` are reused by reference. Layer bounds use
+those compact result-local ranges; the scrubber and marker therefore avoid
+redundant full-path scans while preserving the metadata-free fallback used by
+direct source fixtures.
+
 `PreviewSource` is source-neutral: the current slice result is one source
 kind, while a future external-G-code source can provide the same preview
 result and an optional lazy text-chunk reader. No external source is

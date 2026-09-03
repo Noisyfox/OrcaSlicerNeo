@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
-import { maxMoveOrderForLayer } from './previewSemantics';
+import { maxMoveOrderForLayer, maxPreviewLayer } from './previewSemantics';
 import {
   describePreviewScheme,
   PREVIEW_SCHEME_LABELS,
@@ -16,15 +16,9 @@ import {
 import type { PreviewColorScheme } from '../../../stores/useSlicerStore';
 import { PreviewInspectionPanel } from './PreviewInspectionPanel';
 
-function maxLayerOf(data: ToolpathGeometry): number {
-  let max = 0;
-  for (let i = 0; i < data.segmentCount; i++) max = Math.max(max, data.layerIds[i] ?? 0);
-  return max;
-}
-
 /** Orca-style canvas overlay for the Phase-B preview controls. */
 export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
-  const maxLayer = maxLayerOf(data);
+  const maxLayer = maxPreviewLayer(data);
   const preview = useSlicerStore((s) => s.preview);
   const setLayerRange = useSlicerStore((s) => s.setPreviewLayerRange);
   const setLayerEnd = useSlicerStore((s) => s.setPreviewLayerEnd);
@@ -51,10 +45,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const descriptor = describePreviewScheme(colorSource, activeScheme);
   const visibility = preview.schemeVisibility[activeScheme] ?? {};
   const activeLayer = Math.max(0, Math.min(maxLayer, preview.visibleLayerEnd));
-  let maxMove = 0;
-  for (let i = 0; i < data.segmentCount; i++) {
-    if (data.layerIds[i] === activeLayer) maxMove = Math.max(maxMove, data.moveOrders[i] ?? 0);
-  }
+  const maxMove = maxMoveOrderForLayer(data, activeLayer);
   const layerStart = Math.max(0, Math.min(maxLayer, preview.visibleLayerStart));
   const layerEnd = Math.max(layerStart, Math.min(maxLayer, preview.visibleLayerEnd));
   const moveEnd = Math.max(0, Math.min(maxMove, preview.activeMoveEnd));

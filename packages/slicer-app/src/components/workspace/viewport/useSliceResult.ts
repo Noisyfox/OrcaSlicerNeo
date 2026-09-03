@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis } from '@slicer/client';
-import { createPreviewSourceLineIndex, type PreviewSourceLineIndex } from './previewSemantics';
+import { createPreviewSourceLineIndex, maxMoveOrderForLayer, type PreviewSourceLineIndex } from './previewSemantics';
 import { deriveLogicalMoveOrders } from './gpuStreamingPlanner';
 
 export interface ToolpathGeometry {
@@ -59,17 +59,19 @@ export function useSliceResult() {
     let cancelled = false;
     (async () => {
       try {
-      const r = await platform.runtime.getSliceResult();
+        const r = await platform.runtime.getSliceResult();
         if (!r.ok) throw new Error(r.error ?? 'getSliceResult failed');
         if (cancelled) return;
-        setResult(r);
+        // bridge_buffers supplies a raw per-segment stream. Canonicalize it
+        // once here so arc tessellation is one logical move for all consumers;
+        // the enriched result/source then retains this array by reference.
+        const moveOrders = deriveLogicalMoveOrders(r.toolpath.layerIds, r.toolpath.gcodeIds, r.toolpath.segmentCount);
+        const result = { ...r, toolpath: { ...r.toolpath, moveOrders } };
+        setResult(result);
         setLayers(r.layers);
         setMaxLayer(Math.max(0, r.layers - 1));
         const activeLayer = Math.max(0, r.layers - 1);
-        let maxMove = 0;
-        for (let i = 0; i < r.toolpath.segmentCount; i++) {
-          if (r.toolpath.layerIds[i] === activeLayer) maxMove = Math.max(maxMove, r.toolpath.moveOrders[i] ?? 0);
-        }
+        const maxMove = maxMoveOrderForLayer({ ...result.toolpath, metadata: r.metadata }, activeLayer);
         setPreviewBounds(Math.max(0, r.layers - 1), maxMove, r.metadata.resultId);
       } catch (err) {
         if (cancelled) return;
@@ -90,17 +92,13 @@ export function useSliceResult() {
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
     if (!result) return null;
     const source = result.toolpath;
-    // The client arrays describe rendered segments.  Arc commands may be
-    // tessellated into several segments, but the preview slider and nozzle
-    // marker operate on logical source moves. Keep the same coalesced order
-    // here as the GPU renderer so the marker's endpoint is the final segment
-    // of the selected arc rather than a segment in the middle of it.
-    const moveOrders = deriveLogicalMoveOrders(source.layerIds, source.gcodeIds, source.segmentCount);
     return {
       segmentCount: source.segmentCount,
       palette: source.palette,
       layerIds: source.layerIds,
-      moveOrders,
+      // The effect canonicalizes bridge orders once; keep the result-owned
+      // logical array by reference through the UI and streaming planner.
+      moveOrders: source.moveOrders,
       features: source.features,
       moveTypes: source.moveTypes,
       ends: source.ends,

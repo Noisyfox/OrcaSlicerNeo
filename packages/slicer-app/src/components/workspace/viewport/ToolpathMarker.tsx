@@ -6,7 +6,7 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { ToolpathGeometry } from './useSliceResult';
 import type { PresetInfo } from '@slicer/client';
 import { usePlatform, type ProfileSource } from '@orca/platform-contract';
-import { lastMovePosition, maxMoveOrderForLayer } from './previewSemantics';
+import { lastMovePosition, maxMoveOrderForLayer, maxPreviewLayer } from './previewSemantics';
 
 /** OrcaSlicer's native Marker::render state for the hotend STL. */
 export const TOOL_MARKER_MATERIAL = Object.freeze({
@@ -96,14 +96,12 @@ function useHotendGeometry(
  * and that layer's final move.
  */
 export function isFinalToolpathEndpoint(
-  data: Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders'>,
+  data: Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders'> & Partial<Pick<ToolpathGeometry, 'metadata'>>,
   layer: number,
   move: number,
 ): boolean {
-  let maxLayer = -1;
-  for (let i = 0; i < data.segmentCount; i++) {
-    maxLayer = Math.max(maxLayer, data.layerIds[i] ?? -1);
-  }
+  if (data.segmentCount === 0) return false;
+  const maxLayer = maxPreviewLayer(data);
   if (maxLayer < 0 || layer !== maxLayer) return false;
   return move >= maxMoveOrderForLayer(data, maxLayer);
 }

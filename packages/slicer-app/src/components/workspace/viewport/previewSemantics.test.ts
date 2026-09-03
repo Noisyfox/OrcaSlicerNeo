@@ -72,6 +72,11 @@ describe('preview inspection semantics', () => {
         3, 0, 0,
         4, 0, 0,
       ]),
+      metadata: {
+        resultId: 2,
+        layerRanges: [{ id: 0, z: 0.2, firstSegment: 0, segmentCount: 4 }],
+        featurePalette: [],
+      },
     };
     expect(lastMovePosition(arc, 0, 0)).toEqual([3, 0, 0]);
     expect(lastMovePosition(arc, 0, 1)).toEqual([4, 0, 0]);

@@ -43,7 +43,35 @@ export function clampPreviewRange(first: number, last: number, max: number): [nu
   return [a, b];
 }
 
-export function maxMoveOrderForLayer(data: Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders'>, layer: number): number {
+type LayerIndexedPreviewData = Pick<ToolpathGeometry, 'segmentCount' | 'layerIds' | 'moveOrders'>
+  & Partial<Pick<ToolpathGeometry, 'metadata'>>;
+
+function metadataLayerRange(data: LayerIndexedPreviewData, layer: number): { first: number; end: number } | null {
+  const range = data.metadata?.layerRanges.find((candidate) => candidate.id === layer);
+  if (!range) return null;
+  const first = Math.floor(range.firstSegment);
+  const count = Math.floor(range.segmentCount);
+  const end = first + count;
+  if (first < 0 || count <= 0 || end > data.segmentCount
+    || data.layerIds[first] !== layer || data.layerIds[end - 1] !== layer
+    || (first > 0 && data.layerIds[first - 1] === layer)
+    || (end < data.segmentCount && data.layerIds[end] === layer)) return null;
+  return { first, end };
+}
+
+/** Read the bridge's final layer id without scanning accepted result segments. */
+export function maxPreviewLayer(data: LayerIndexedPreviewData): number {
+  const ranges = data.metadata?.layerRanges;
+  const last = ranges?.[ranges.length - 1];
+  if (last && metadataLayerRange(data, last.id)) return last.id;
+  let max = 0;
+  for (let i = 0; i < data.segmentCount; i++) max = Math.max(max, data.layerIds[i] ?? 0);
+  return max;
+}
+
+export function maxMoveOrderForLayer(data: LayerIndexedPreviewData, layer: number): number {
+  const range = metadataLayerRange(data, layer);
+  if (range) return data.moveOrders[range.end - 1] ?? 0;
   let max = 0;
   for (let i = 0; i < data.segmentCount; i++) {
     if (data.layerIds[i] === layer) max = Math.max(max, data.moveOrders[i] ?? 0);
@@ -51,7 +79,25 @@ export function maxMoveOrderForLayer(data: Pick<ToolpathGeometry, 'segmentCount'
   return max;
 }
 
-export function lastMovePosition(data: Pick<ToolpathGeometry, 'segmentCount' | 'ends' | 'layerIds' | 'moveOrders'>, layer: number, move: number): [number, number, number] | null {
+export function lastMovePosition(data: Pick<ToolpathGeometry, 'segmentCount' | 'ends' | 'layerIds' | 'moveOrders'> & Partial<Pick<ToolpathGeometry, 'metadata'>>, layer: number, move: number): [number, number, number] | null {
+  const range = metadataLayerRange(data, layer);
+  if (range) {
+    let low = range.first;
+    let high = range.end - 1;
+    let exact = range.first - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if ((data.moveOrders[middle] ?? 0) <= move) {
+        exact = middle;
+        low = middle + 1;
+      } else high = middle - 1;
+    }
+    // Keep the historical fallback for a move before the first order: the
+    // scan-based implementation selected the layer's final segment when no
+    // segment satisfied the <= move predicate.
+    const index = exact >= range.first ? exact : range.end - 1;
+    return [data.ends[index * 3] ?? 0, data.ends[index * 3 + 1] ?? 0, data.ends[index * 3 + 2] ?? 0];
+  }
   let fallback = -1;
   let exact = -1;
   for (let i = 0; i < data.segmentCount; i++) {

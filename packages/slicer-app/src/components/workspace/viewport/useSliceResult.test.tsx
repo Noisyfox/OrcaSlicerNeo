@@ -7,6 +7,7 @@ import type { ClientSliceResult } from '@slicer/client';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { StatusBar } from '../../layout/StatusBar';
 import { useSliceResult, type ToolpathGeometry } from './useSliceResult';
+import { lastMovePosition } from './previewSemantics';
 
 function PreviewProbe({ onToolpath }: { onToolpath?: (toolpath: ToolpathGeometry) => void }) {
   const { toolpath } = useSliceResult();
@@ -41,9 +42,9 @@ function arcSliceResult(): ClientSliceResult {
         4, 0, 0,
       ]),
       layerIds: new Uint32Array([0, 0, 0, 0]),
-      // The raw client move orders remain distinct; useSliceResult derives
-      // the logical orders used by the preview controls from source ids.
-      moveOrders: new Uint32Array([0, 1, 2, 3]),
+      // Raw bridge order increments at each new gcode id, including arc
+      // tessellation; the hook canonicalizes this to [0, 0, 0, 1].
+      moveOrders: new Uint32Array([0, 1, 1, 1]),
       gcodeIds: new Uint32Array([41, 41, 41, 42]),
       sourceLineOrderValid: true,
       moveTypes: new Uint8Array([1, 1, 1, 1]),
@@ -135,6 +136,7 @@ describe('useSliceResult', () => {
     const output = onToolpath.mock.lastCall?.[0];
     expect(output).toBeDefined();
     expect(output?.moveOrders).toEqual(new Uint32Array([0, 0, 0, 1]));
+    expect(lastMovePosition(output!, 0, 0)).toEqual([3, 0, 0]);
     expect(output?.segmentCount).toBe(4);
     expect(output?.ends).toEqual(new Float32Array([
       1, 0, 0,
@@ -142,7 +144,7 @@ describe('useSliceResult', () => {
       3, 0, 0,
       4, 0, 0,
     ]));
-    expect(output?.source?.moveOrders).toEqual(new Uint32Array([0, 1, 2, 3]));
+    expect(output?.source?.moveOrders).toBe(output?.moveOrders);
     expect(output?.source?.ends).toBe(output?.ends);
   });
 });

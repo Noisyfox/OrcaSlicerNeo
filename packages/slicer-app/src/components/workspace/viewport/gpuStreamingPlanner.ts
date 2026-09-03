@@ -220,6 +220,44 @@ function deriveLayerRanges(
   return result;
 }
 
+/**
+ * Reuse the bridge's compact layer table when it is structurally valid. The
+ * fallback keeps the direct source API defensive for callers without trusted
+ * metadata, but accepted slice results take the O(layer-count) path.
+ */
+function normalizeLayerRanges(
+  layerIds: Uint32Array,
+  count: number,
+  ranges: readonly GpuStreamingLayerRange[] | undefined,
+): GpuStreamingLayerRange[] {
+  if (ranges && ranges.length > 0) {
+    let cursor = 0;
+    let valid = true;
+    const normalized: GpuStreamingLayerRange[] = [];
+    for (const range of ranges) {
+      const firstSegment = Math.floor(range.firstSegment);
+      const segmentCount = Math.floor(range.segmentCount);
+      const end = firstSegment + segmentCount;
+      if (segmentCount <= 0 || firstSegment !== cursor || end > count
+        || layerIds[firstSegment] !== range.id || layerIds[end - 1] !== range.id
+        || (firstSegment > 0 && layerIds[firstSegment - 1] === range.id)
+        || (end < count && layerIds[end] === range.id)) {
+        valid = false;
+        break;
+      }
+      normalized.push(freezeRange({
+        id: range.id,
+        firstSegment,
+        segmentCount,
+        ...(finiteNumber(range.z) !== undefined ? { z: finiteNumber(range.z) } : {}),
+      }));
+      cursor = end;
+    }
+    if (valid && cursor === count) return normalized;
+  }
+  return deriveLayerRanges(layerIds, count, ranges);
+}
+
 function ensureArrayLength(name: string, actual: number, expected: number): void {
   if (actual < expected) throw new RangeError(`ClientToolpath ${name} is shorter than segmentCount`);
 }
@@ -260,11 +298,7 @@ export function deriveLogicalMoveOrders(
   return orders;
 }
 
-/**
- * Adapt the existing WASM client result without copying shape or metadata
- * arrays. Layer ranges are small planner-owned metadata records; palette and
- * metric ownership remains with the source result.
- */
+/** Adapt the existing WASM client result without copying source arrays. */
 export function adaptClientToolpath(
   toolpath: ClientToolpath,
   metadata?: Pick<PreviewMetadata, 'layerRanges' | 'extruderPalette' | 'analysis'>,
@@ -286,7 +320,6 @@ export function adaptClientToolpath(
   if (extended.capAngles) ensureArrayLength('capAngles', extended.capAngles.length, count);
   if (extended.angles) ensureArrayLength('angles', extended.angles.length, count);
   ensureMetricLengths(toolpath.metrics, count);
-  const moveOrders = deriveLogicalMoveOrders(toolpath.layerIds, toolpath.gcodeIds, count);
   if (extended.biases) ensureArrayLength('biases', extended.biases.length, count);
 
   return Object.freeze({
@@ -296,7 +329,9 @@ export function adaptClientToolpath(
     widths: toolpath.widths,
     heights: toolpath.heights,
     layerIds: toolpath.layerIds,
-    moveOrders,
+    // The caller canonicalizes bridge order values once; retaining this array
+    // avoids another full-path derivation during planner construction.
+    moveOrders: toolpath.moveOrders,
     gcodeIds: toolpath.gcodeIds,
     moveTypes: toolpath.moveTypes,
     extrusionRoles: toolpath.extrusionRoles,
@@ -307,7 +342,7 @@ export function adaptClientToolpath(
     metrics: toolpath.metrics,
     ...(metadata?.extruderPalette ? { extruderPalette: metadata.extruderPalette } : {}),
     ...(metadata?.analysis ? { analysis: metadata.analysis } : {}),
-    layers: Object.freeze(deriveLayerRanges(toolpath.layerIds, count, metadata?.layerRanges)),
+    layers: Object.freeze(normalizeLayerRanges(toolpath.layerIds, count, metadata?.layerRanges)),
     ...(extended.angles ? { angles: extended.angles } : {}),
     ...(extended.capAngles ? { capAngles: extended.capAngles } : {}),
     ...(extended.biases ? { biases: extended.biases } : {}),
@@ -316,10 +351,9 @@ export function adaptClientToolpath(
 
 /**
  * Validate and normalize the direct source API. The caller's layer table is
- * advisory metadata only: ranges are always regenerated from layerIds, so an
- * empty, gapped, overlapping, or mismatched table cannot drop or duplicate a
- * segment. The returned source owns a frozen layer table while retaining all
- * typed SoA buffers by reference.
+ * advisory metadata only: malformed ranges are regenerated from layerIds, so
+ * an empty, gapped, overlapping, or mismatched table cannot drop or duplicate
+ * a segment. The returned source retains all typed SoA buffers by reference.
  */
 export function normalizeGpuStreamingSource(source: GpuStreamingSource): GpuStreamingSource {
   const count = validatedSegmentCount(source.segmentCount);
@@ -339,14 +373,13 @@ export function normalizeGpuStreamingSource(source: GpuStreamingSource): GpuStre
   if (source.capAngles) ensureArrayLength('capAngles', source.capAngles.length, count);
   if (source.biases) ensureArrayLength('biases', source.biases.length, count);
   ensureMetricLengths(source.metrics, count);
-  const moveOrders = deriveLogicalMoveOrders(source.layerIds, source.gcodeIds, count);
   for (let i = 1; i < count; i++) {
     if ((source.layerIds[i] ?? 0) < (source.layerIds[i - 1] ?? 0)) {
       throw new RangeError('GPU streaming source layerIds must be non-decreasing');
     }
   }
-  const layers = Object.freeze(deriveLayerRanges(source.layerIds, count, source.layers));
-  return Object.freeze({ ...source, segmentCount: count, moveOrders, layers });
+  const layers = Object.freeze(normalizeLayerRanges(source.layerIds, count, source.layers));
+  return Object.freeze({ ...source, segmentCount: count, moveOrders: source.moveOrders, layers });
 }
 
 function mergeSchema(options: GpuStreamingPlannerOptions): Readonly<GpuStreamingTexelSchema> {
