@@ -81,7 +81,11 @@ lineCount })` path. The bridge retains only the current result's cumulative
 line-end byte offsets and returns at most 128 complete lines and 64 KiB per
 page; the line-end table never crosses into the renderer. The UI keeps at most
 six fixed line pages, requests the active page directly for late slider moves,
-and centers the active row after that page resolves.
+and centers the active row after that page resolves. Manual scrolling is
+debounced by 160 ms after the last scroll event; only then are the visible
+uncached page(s) requested, so continuous scrolling does not issue intermediate
+page requests. Pending scroll loads are cancelled when the result changes or
+the window unmounts, and stale page responses cannot populate a newer result.
 
 The text window is a separately toggled, larger overlay (`C` while the preview
 viewport owns focus, or its close button). It renders only a bounded visible

@@ -17,6 +17,7 @@ const VIEWPORT_HEIGHT = 360;
 const OVERSCAN_ROWS = 8;
 const PAGE_LINES = 128;
 const MAX_CACHED_PAGES = 6;
+const SCROLL_IDLE_DELAY_MS = 160;
 
 interface TextPage { startLine: number; lines: string[]; eof: boolean; }
 
@@ -45,6 +46,9 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const [error, setError] = useState<string | null>(null);
   const cacheRef = useRef(new Map<number, TextPage>());
   const loadingRef = useRef(new Set<number>());
+  const cacheGenerationRef = useRef(0);
+  const scrollTopRef = useRef(0);
+  const scrollIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lineCount = data.metadata?.sourceLineMapping?.lineCount ?? 0;
   const inspectionIndex = useMemo(() => createPreviewInspectionIndex(data), [data]);
@@ -57,17 +61,34 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
   const lastRow = Math.min(totalRows, firstRow + visibleRows);
 
   useEffect(() => {
+    cacheGenerationRef.current += 1;
+    if (scrollIdleTimerRef.current !== null) {
+      clearTimeout(scrollIdleTimerRef.current);
+      scrollIdleTimerRef.current = null;
+    }
     cacheRef.current.clear();
     loadingRef.current.clear();
+    scrollTopRef.current = 0;
+    setLoading(false);
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setScrollTop(0);
     setCacheVersion((version) => version + 1);
     setError(null);
+
+    return () => {
+      cacheGenerationRef.current += 1;
+      if (scrollIdleTimerRef.current !== null) {
+        clearTimeout(scrollIdleTimerRef.current);
+        scrollIdleTimerRef.current = null;
+      }
+    };
   }, [data, data.metadata?.resultId]);
 
   const loadPage = useCallback(async (pageNumber: number): Promise<void> => {
     if (cacheRef.current.has(pageNumber) || loadingRef.current.has(pageNumber)) return;
     const startLine = pageNumber * PAGE_LINES + 1;
     if (startLine > lineCount) return;
+    const generation = cacheGenerationRef.current;
     loadingRef.current.add(pageNumber);
     setLoading(true);
     try {
@@ -77,35 +98,67 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         lineCount: Math.min(PAGE_LINES, lineCount - startLine + 1),
       };
       const page = await platform.runtime.readTextLines(request);
-      cacheRef.current.set(pageNumber, { startLine: page.startLine, lines: pageLines(page), eof: page.eof });
-      while (cacheRef.current.size > MAX_CACHED_PAGES) {
-        const oldest = cacheRef.current.keys().next().value;
-        if (oldest === undefined) break;
-        cacheRef.current.delete(oldest);
+      if (cacheGenerationRef.current === generation) {
+        cacheRef.current.set(pageNumber, { startLine: page.startLine, lines: pageLines(page), eof: page.eof });
+        while (cacheRef.current.size > MAX_CACHED_PAGES) {
+          const oldest = cacheRef.current.keys().next().value;
+          if (oldest === undefined) break;
+          cacheRef.current.delete(oldest);
+        }
+        setError(null);
+        setCacheVersion((version) => version + 1);
       }
-      setError(null);
-      setCacheVersion((version) => version + 1);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      if (cacheGenerationRef.current === generation) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
     } finally {
-      loadingRef.current.delete(pageNumber);
-      setLoading(loadingRef.current.size > 0);
+      if (cacheGenerationRef.current === generation) {
+        loadingRef.current.delete(pageNumber);
+        setLoading(loadingRef.current.size > 0);
+      }
     }
   }, [data.metadata?.resultId, lineCount, platform.runtime]);
 
-  // Load only the visible page(s), or the active page when the slider jumps
-  // to a late line. The active page is preferred on first open so no prefix
-  // pages are fetched merely to reach a high source line.
+  // Direct slider/navigation changes load the active page immediately. This
+  // keeps the selected line responsive without making manual scroll events
+  // compete with it.
   useEffect(() => {
-    if (!sourceTextAvailable(data)) return;
-    const anchorRow = activeLine === null ? firstRow : activeLine - 1;
-    const pages = new Set<number>([Math.floor(anchorRow / PAGE_LINES)]);
-    if (activeLine === null) {
-      pages.add(Math.floor(firstRow / PAGE_LINES));
-      pages.add(Math.floor(Math.max(firstRow, lastRow - 1) / PAGE_LINES));
+    if (scrollIdleTimerRef.current !== null) {
+      clearTimeout(scrollIdleTimerRef.current);
+      scrollIdleTimerRef.current = null;
     }
+    if (!sourceTextAvailable(data)) return;
+    const anchorRow = activeLine === null ? 0 : activeLine - 1;
+    const pages = new Set<number>([Math.floor(anchorRow / PAGE_LINES)]);
     void Promise.all([...pages].map((page) => loadPage(page)));
-  }, [activeLine, data, firstRow, lastRow, loadPage]);
+  }, [activeLine, data, loadPage]);
+
+  const scheduleVisiblePages = useCallback((nextScrollTop: number) => {
+    if (!sourceTextAvailable(data)) return;
+    const nextFirstRow = Math.max(0, Math.floor(nextScrollTop / ROW_HEIGHT) - OVERSCAN_ROWS);
+    const nextLastRow = Math.min(
+      totalRows,
+      nextFirstRow + Math.ceil(VIEWPORT_HEIGHT / ROW_HEIGHT) + OVERSCAN_ROWS * 2,
+    );
+    const firstPage = Math.floor(nextFirstRow / PAGE_LINES);
+    const lastPage = Math.floor(Math.max(nextFirstRow, nextLastRow - 1) / PAGE_LINES);
+    const pages = new Set<number>();
+    for (let page = firstPage; page <= lastPage; page += 1) pages.add(page);
+    void Promise.all([...pages].map((page) => loadPage(page)));
+  }, [data, loadPage, totalRows]);
+
+  const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const nextScrollTop = event.currentTarget.scrollTop;
+    scrollTopRef.current = nextScrollTop;
+    setScrollTop(nextScrollTop);
+    if (scrollIdleTimerRef.current !== null) clearTimeout(scrollIdleTimerRef.current);
+    const generation = cacheGenerationRef.current;
+    scrollIdleTimerRef.current = setTimeout(() => {
+      scrollIdleTimerRef.current = null;
+      if (cacheGenerationRef.current === generation) scheduleVisiblePages(scrollTopRef.current);
+    }, SCROLL_IDLE_DELAY_MS);
+  }, [scheduleVisiblePages]);
 
   // Once the active page has resolved, center its row in the viewport so the
   // active-line highlight is always visible after slider navigation.
@@ -118,6 +171,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     if (!element) return;
     const centeredTop = Math.max(0, targetTop - (VIEWPORT_HEIGHT - ROW_HEIGHT) / 2);
     if (Math.abs(element.scrollTop - centeredTop) > ROW_HEIGHT) {
+      scrollTopRef.current = centeredTop;
       element.scrollTop = centeredTop;
       setScrollTop(centeredTop);
     }
@@ -146,7 +200,7 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         data-testid="gcode-text-scroll"
         className="overflow-auto font-mono text-[11px] leading-5"
         style={{ height: VIEWPORT_HEIGHT }}
-        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        onScroll={handleScroll}
       >
         <div style={{ height: totalRows * ROW_HEIGHT, position: 'relative' }}>
           <div style={{ position: 'absolute', top: firstRow * ROW_HEIGHT, left: 0, right: 0 }}>
