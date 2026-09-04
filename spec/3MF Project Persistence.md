@@ -174,6 +174,15 @@
   Open Project command.
 - Operating-system `.3mf` file association and double-click-to-launch or
   wake the desktop application are outside the first-release scope.
+- For a multi-file Open Project selection or drop containing `.3mf` files,
+  files are processed in deterministic filename order. The first `.3mf` uses
+  the project-load behaviour; later `.3mf` files and any other model files
+  are imported as geometry-only additions. Thus opening the first file as a
+  project replaces the session before the remaining geometry is added, while
+  choosing geometry-only appends every file.
+- Unlike the upstream's partial-batch edge case, cancelling the first file's
+  project-load choice cancels the complete multi-file operation without
+  importing any later file.
 
 ## Compatibility verification
 
