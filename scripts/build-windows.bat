@@ -334,16 +334,16 @@ REM Backup Manager code.
 :apply_wasm_patches
 for %%p in ("%PKG%\patches\*.patch") do (
   if exist "%%p" (
-    git -C "%PKG%\cpp" apply --check "%%p" >nul 2>nul
+    git -C "%PKG%\cpp" apply --ignore-space-change --check "%%p" >nul 2>nul
     if not errorlevel 1 (
-      git -C "%PKG%\cpp" apply "%%p"
+      git -C "%PKG%\cpp" apply --ignore-space-change "%%p"
       if errorlevel 1 (
         echo [winbuild] ERROR: git apply failed for %%~nxp.
         exit /b 1
       )
       echo [winbuild] Applied %%~nxp
     ) else (
-      git -C "%PKG%\cpp" apply --reverse --check "%%p" >nul 2>nul
+      git -C "%PKG%\cpp" apply --ignore-space-change --reverse --check "%%p" >nul 2>nul
       if not errorlevel 1 (
         echo [winbuild] Already applied: %%~nxp
       ) else (

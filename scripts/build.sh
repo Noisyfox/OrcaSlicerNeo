@@ -155,10 +155,10 @@ apply_wasm_patches() {
   local p
   for p in "$PKG"/patches/*.patch; do
     [[ -e "$p" ]] || continue
-    if git -C "$PKG/cpp" apply --check "$p" 2>/dev/null; then
-      git -C "$PKG/cpp" apply "$p"
+    if git -C "$PKG/cpp" apply --ignore-space-change --check "$p" 2>/dev/null; then
+      git -C "$PKG/cpp" apply --ignore-space-change "$p"
       log "Applied $(basename "$p")"
-    elif git -C "$PKG/cpp" apply --reverse --check "$p" 2>/dev/null; then
+    elif git -C "$PKG/cpp" apply --ignore-space-change --reverse --check "$p" 2>/dev/null; then
       log "Already applied: $(basename "$p")"
     else
       die "Patch $(basename "$p") neither applies cleanly nor is already applied — submodule at $PKG/cpp needs review."
