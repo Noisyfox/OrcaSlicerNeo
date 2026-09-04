@@ -150,6 +150,9 @@
 - The File menu provides **New Project**, **Open Project…**, **Save Project**,
   and **Save Project As…**. **Add Model** remains an append-only geometry
   import operation and is not an alias for opening a project.
+- The Open Project picker accepts only `.3mf` files. STL, OBJ, and other mesh
+  formats continue to enter through Add Model, so selecting them cannot
+  accidentally replace the current project.
 - The application supports `Ctrl/Cmd+N`, `Ctrl/Cmd+O`, `Ctrl/Cmd+S`, and
   `Ctrl/Cmd+Shift+S` for New, Open, Save, and Save As respectively. The Web
   host prevents the browser's default page-open and page-save actions for
