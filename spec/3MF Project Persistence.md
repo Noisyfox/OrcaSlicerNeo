@@ -111,3 +111,20 @@
   these commands.
 - A successful New Project or Open Project operation selects the Prepare
   workspace. Save and Save As do not change the active workspace.
+- Selecting a `.3mf` through **Add Model** always performs geometry-only,
+  append-only import. It does not show the project-load choice or restore
+  project settings.
+
+## Compatibility verification
+
+The first release's automated compatibility baseline covers:
+
+- a BBS 3MF saved by this application and reopened using both serial and
+  threaded WASM variants;
+- project 3MF files produced by the fixed upstream OrcaSlicer version;
+- BambuStudio project 3MF files; and
+- PrusaSlicer or generic 3MF geometry imported through the geometry-only
+  compatibility fallback.
+
+Cross-host end-to-end coverage verifies project open, save, dirty-state
+protection, and Web download behaviour.
