@@ -48,6 +48,14 @@ describe('browser adapter', () => {
     expect(input.accept).toBe('.3mf');
   });
 
+  it('propagates project file read failures so the adapter can report failed', async () => {
+    const input = document.createElement('input');
+    Object.defineProperty(input, 'files', { value: [{ name: 'broken.3mf', arrayBuffer: async () => { throw new Error('read failed'); } }] });
+    vi.spyOn(input, 'click').mockImplementation(() => input.dispatchEvent(new Event('change')));
+    vi.spyOn(document, 'createElement').mockReturnValue(input);
+    await expect(createBrowserAdapter({} as never).projects.open()).resolves.toMatchObject({ status: 'failed' });
+  });
+
   it('downloads a new .3mf project on every save and retains no location', async () => {
     const anchor = document.createElement('a');
     const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);

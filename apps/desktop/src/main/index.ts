@@ -17,6 +17,7 @@ import {
   type NativeMenuController,
 } from './nativeMenu';
 import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
+import { writeFileAtomically } from './atomicFile';
 
 // Chromium documents this as a preference for a discrete GPU when multiple
 // adapters are available. It does not name or require a particular GPU; the
@@ -259,7 +260,7 @@ function registerIpc(): void {
     if (typeof locationToken !== 'string' || !projectLocations.has(locationToken)) {
       throw new Error('Unknown project location token');
     }
-    await writeFile(projectLocations.get(locationToken)!, Buffer.from(bytes));
+    await writeFileAtomically(projectLocations.get(locationToken)!, Buffer.from(bytes));
     return { canceled: false, locationToken };
   });
 
@@ -267,7 +268,7 @@ function registerIpc(): void {
     const win = BrowserWindow.fromWebContents(event.sender);
     const result = await dialog.showSaveDialog(win!, { defaultPath: defaultName, filters: projectFilters });
     if (result.canceled || !result.filePath) return { canceled: true, locationToken: null };
-    await writeFile(result.filePath, Buffer.from(bytes));
+    await writeFileAtomically(result.filePath, Buffer.from(bytes));
     const locationToken = randomUUID();
     projectLocations.set(locationToken, result.filePath);
     return { canceled: false, locationToken };

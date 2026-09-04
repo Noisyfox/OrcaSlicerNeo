@@ -123,6 +123,15 @@ describe('Electron adapter', () => {
     await expect(adapter.projects.save({ displayName: 'scene', bytes: new Uint8Array() })).resolves.toMatchObject({ status: 'failed' });
   });
 
+  it('preserves native save cancellation as cancellation', async () => {
+    const { adapter } = setup({ projects: {
+      open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
+      save: vi.fn(async () => ({ canceled: true, locationToken: null })),
+      saveAs: vi.fn(async () => ({ canceled: true, locationToken: null })),
+    } });
+    await expect(adapter.projects.save({ displayName: 'scene', bytes: new Uint8Array([1]) })).resolves.toEqual({ status: 'cancelled' });
+  });
+
   it('resolves packaged profile assets from the renderer root', async () => {
     const previousDocument = globalThis.document;
     Object.defineProperty(globalThis, 'document', {

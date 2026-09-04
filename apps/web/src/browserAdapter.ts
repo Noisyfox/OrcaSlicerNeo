@@ -163,7 +163,7 @@ export function pickModel(): Promise<{ displayName: string; bytes: Uint8Array } 
 
 /** Browser project input is intentionally separate from the model picker. */
 export function pickProject(): Promise<ProjectInput | null> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const input = document.createElement('input');
     input.type = 'file'; input.accept = '.3mf'; input.hidden = true;
     const cleanup = () => input.remove();
@@ -172,6 +172,8 @@ export function pickProject(): Promise<ProjectInput | null> {
       if (!file) { cleanup(); resolve(null); return; }
       try {
         resolve({ displayName: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+      } catch (error) {
+        reject(error);
       } finally {
         cleanup();
       }
