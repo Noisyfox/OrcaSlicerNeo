@@ -16,7 +16,30 @@ export function isThreeMfDropFile(file: Pick<File, 'name' | 'type'>): boolean {
 }
 
 export function externalDropFiles(dataTransfer: DataTransfer | null | undefined): File[] {
-  return Array.from(dataTransfer?.files ?? []);
+  if (!dataTransfer) return [];
+
+  // Chromium/Electron can expose native OS drops through `items` before the
+  // protected file list is populated. Prefer the FileList when it is
+  // available, then use getAsFile() as the drop-time fallback. In particular,
+  // Windows Explorer may report an item during dragover while `files` is
+  // empty; callers use hasExternalFileDrag() below to accept that drop.
+  const files = Array.from(dataTransfer.files ?? []);
+  if (files.length > 0) return files;
+  return Array.from(dataTransfer.items ?? [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+}
+
+/**
+ * Detect an OS file drag during dragover, when DataTransfer.files is allowed
+ * to remain protected/empty by Chromium. The drop handler can then call
+ * getAsFile() after the data store becomes readable.
+ */
+export function hasExternalFileDrag(dataTransfer: DataTransfer | null | undefined): boolean {
+  if (!dataTransfer) return false;
+  if (dataTransfer.files.length > 0) return true;
+  return Array.from(dataTransfer.items ?? []).some((item) => item.kind === 'file');
 }
 
 /** Install shared external-file listeners at capture phase. */
@@ -25,7 +48,7 @@ export function registerProjectDropHandlers(
   onProjectDrop: (files: File[]) => void | Promise<void>,
 ): () => void {
   const onDragOver = (event: DragEvent) => {
-    if (externalDropFiles(event.dataTransfer).length) event.preventDefault();
+    if (hasExternalFileDrag(event.dataTransfer)) event.preventDefault();
   };
   const onDrop = (event: DragEvent) => {
     const files = externalDropFiles(event.dataTransfer);

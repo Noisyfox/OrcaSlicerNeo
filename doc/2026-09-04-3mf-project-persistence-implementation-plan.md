@@ -382,3 +382,15 @@ Verification completed on Windows:
   without changing the URL.
 - `pnpm --filter @orca/web test:e2e:serial` — pass (2 passed), including the
   same observable drop assertion.
+
+### Step 12 — Electron native file-list fallback (2026-09-04)
+
+The desktop drag path also accepts Chromium/Electron native drops whose
+`DataTransfer.files` list is empty while `DataTransfer.items` already reports
+file items. This is required during `dragover` to call `preventDefault()` and
+make the window a valid drop target; on `drop`, `DataTransferItem.getAsFile()`
+recovers the file object for the existing Electron path bridge. Text-only
+internal drags remain untouched.
+
+Verification: shared drop-handling tests cover the items-only dragover and
+drop fallback; slicer-app typecheck and diff checks pass.
