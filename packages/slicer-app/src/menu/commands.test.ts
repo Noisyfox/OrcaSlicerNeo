@@ -16,7 +16,6 @@ function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], bool
     'open-source': state('open-source'),
     'new-project': state('new-project'),
     'open-project': state('open-project'),
-    'import-geometry': state('import-geometry'),
     'save-project': state('save-project'),
     'save-project-as': state('save-project-as'),
     preferences: state('preferences'),
@@ -151,24 +150,22 @@ describe('shared menu command dispatcher', () => {
       ...actions(),
       newProject: vi.fn(async () => {}),
       openProject: vi.fn(async () => {}),
-      importGeometry: vi.fn(async () => {}),
       saveProject: vi.fn(async () => {}),
       saveProjectAs: vi.fn(async () => {}),
       preferences: vi.fn(async () => {}),
     };
     const dispatcher = createCommandDispatcher({
       getSnapshot: () => snapshot({
-        'new-project': true, 'open-project': true, 'import-geometry': true,
+        'new-project': true, 'open-project': true,
         'save-project': true, 'save-project-as': true, preferences: true,
       }),
       actions: calls,
     });
-    for (const command of ['new-project', 'open-project', 'import-geometry', 'save-project', 'save-project-as', 'preferences'] as const) {
+    for (const command of ['new-project', 'open-project', 'save-project', 'save-project-as', 'preferences'] as const) {
       await expect(dispatcher.dispatch(command)).resolves.toBe(true);
     }
     expect(calls.newProject).toHaveBeenCalledOnce();
     expect(calls.openProject).toHaveBeenCalledOnce();
-    expect(calls.importGeometry).toHaveBeenCalledOnce();
     expect(calls.saveProject).toHaveBeenCalledOnce();
     expect(calls.saveProjectAs).toHaveBeenCalledOnce();
     expect(calls.preferences).toHaveBeenCalledOnce();

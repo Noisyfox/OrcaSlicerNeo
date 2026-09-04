@@ -47,7 +47,6 @@ export function buildMenuModel(
       separator('file-separator-before-project'),
       item('file-new-project', 'New Project', 'new-project'),
       item('file-open-project', 'Open Project…', 'open-project'),
-      item('file-import-geometry', 'Import Geometry', 'import-geometry'),
       item('file-save-project', 'Save Project', 'save-project'),
       item('file-save-project-as', 'Save Project As…', 'save-project-as'),
       item('file-preferences', 'Preferences…', 'preferences'),
@@ -105,7 +104,6 @@ export function deriveMenuItemStates(
   const states = {
     'new-project': state(projectActionsEnabled),
     'open-project': state(projectActionsEnabled),
-    'import-geometry': state(projectActionsEnabled && prepareTab),
     'save-project': state(projectActionsEnabled && project.hasContent && project.dirty),
     'save-project-as': state(projectActionsEnabled && project.hasContent),
     preferences: state(projectActionsEnabled),

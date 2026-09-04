@@ -159,7 +159,7 @@ describe('buildMenuModel', () => {
     const raw = input({ scene: { hasModel: true } });
     const states = deriveMenuItemStates(raw, web);
     expect(Object.keys(states).sort()).toEqual([
-      'add-model', 'clear-scene', 'export-gcode', 'import-geometry', 'new-project', 'open-project', 'open-source', 'preferences', 'quit', 'save-project', 'save-project-as', 'slice',
+      'add-model', 'clear-scene', 'export-gcode', 'new-project', 'open-project', 'open-source', 'preferences', 'quit', 'save-project', 'save-project-as', 'slice',
     ]);
     expect(states['open-source'].checked).toBe(false);
     expect(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus).toEqual(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus);
@@ -178,7 +178,7 @@ describe('buildMenuModel', () => {
     const model = buildMenuModel(state, web);
     expect(model.menus[0].items.map((entry) => entry.command).filter(Boolean)).toEqual([
       'add-model', 'clear-scene', 'slice', 'export-gcode',
-      'new-project', 'open-project', 'import-geometry', 'save-project', 'save-project-as', 'preferences',
+      'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences',
     ]);
     expect(state.items['new-project'].enabled).toBe(true);
     expect(state.items['save-project'].enabled).toBe(false);
@@ -195,7 +195,7 @@ describe('buildMenuModel', () => {
       },
       scene: { hasModel: true },
     }), web);
-    for (const command of ['new-project', 'open-project', 'import-geometry', 'save-project', 'save-project-as', 'preferences', 'add-model', 'clear-scene', 'slice'] as const) {
+    for (const command of ['new-project', 'open-project', 'save-project', 'save-project-as', 'preferences', 'add-model', 'clear-scene', 'slice'] as const) {
       expect(state.items[command].enabled).toBe(false);
     }
   });

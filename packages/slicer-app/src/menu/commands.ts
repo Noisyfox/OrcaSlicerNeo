@@ -7,7 +7,6 @@ import type {
 export interface CommandActions {
   newProject?: () => Promise<void>;
   openProject?: () => Promise<void>;
-  importGeometry?: () => Promise<void>;
   saveProject?: () => Promise<void>;
   saveProjectAs?: () => Promise<void>;
   preferences?: () => Promise<void>;
@@ -84,7 +83,6 @@ function commandToAction(command: MenuCommandId): keyof CommandActions {
   switch (command) {
     case 'new-project': return 'newProject';
     case 'open-project': return 'openProject';
-    case 'import-geometry': return 'importGeometry';
     case 'save-project': return 'saveProject';
     case 'save-project-as': return 'saveProjectAs';
     case 'preferences': return 'preferences';

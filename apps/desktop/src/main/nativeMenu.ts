@@ -14,7 +14,7 @@ const SLICER_STATUSES = ['idle', 'slicing', 'done', 'error'] as const;
 const MAX_MENU_DEPTH = 8;
 const MAX_MENU_ITEMS = 128;
 const MENU_STATE_COMMANDS = [
-  'new-project', 'open-project', 'import-geometry', 'save-project', 'save-project-as', 'preferences',
+  'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences',
   'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source',
 ] as const;
 const LEGACY_MENU_STATE_COMMANDS = ['add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source'] as const;
@@ -90,7 +90,6 @@ export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
   items: {
     'new-project': { enabled: false, checked: false },
     'open-project': { enabled: false, checked: false },
-    'import-geometry': { enabled: false, checked: false },
     'save-project': { enabled: false, checked: false },
     'save-project-as': { enabled: false, checked: false },
     preferences: { enabled: false, checked: false },

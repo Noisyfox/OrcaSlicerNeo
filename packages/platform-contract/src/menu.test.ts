@@ -19,7 +19,6 @@ const snapshot: MenuStateSnapshot = {
   items: {
     'new-project': { enabled: false },
     'open-project': { enabled: false },
-    'import-geometry': { enabled: false },
     'save-project': { enabled: false },
     'save-project-as': { enabled: false },
     preferences: { enabled: false },

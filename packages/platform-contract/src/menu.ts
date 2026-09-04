@@ -10,7 +10,6 @@ export type AppTab = (typeof APP_TABS)[number];
 export type MenuCommandId =
   | 'new-project'
   | 'open-project'
-  | 'import-geometry'
   | 'save-project'
   | 'save-project-as'
   | 'preferences'

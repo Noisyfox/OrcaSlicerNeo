@@ -30,6 +30,22 @@ import { cancelProjectOperation, newProject, openProject, saveProject, saveProje
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 
+export function handleMenuKeyDown(
+  event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'key' | 'shiftKey' | 'preventDefault'>,
+  dispatcher: Pick<ReturnType<typeof createCommandDispatcher>, 'dispatch'>,
+): boolean {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+  const key = event.key.toLowerCase();
+  const command = key === 'n' ? 'new-project'
+    : key === 'o' ? 'open-project'
+      : key === 's' && event.shiftKey ? 'save-project-as'
+        : key === 's' ? 'save-project' : null;
+  if (!command) return false;
+  event.preventDefault();
+  void dispatcher.dispatch(command);
+  return true;
+}
+
 export default function App() {
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
@@ -127,9 +143,6 @@ export default function App() {
     reportProjectFailure(result);
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
   }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
-  const runImportGeometry = useCallback(async () => {
-    await addModel(platform, sceneInteractionRef.current);
-  }, [platform]);
   const runSaveProject = useCallback(async (asCopy = false) => {
     if (projectState.flattenedMultiPlate) {
       setDialog(null);
@@ -195,7 +208,6 @@ export default function App() {
     actions: {
       newProject: runNewProject,
       openProject: runOpenProject,
-      importGeometry: runImportGeometry,
       saveProject: () => runSaveProject(false),
       saveProjectAs: () => runSaveProject(true),
       preferences: openPreferences,
@@ -206,7 +218,7 @@ export default function App() {
       openSource: async () => { await platform.externalLinks.openSource(); },
       quit: async () => { await platform.menu.execute('quit'); },
     },
-  }), [openPreferences, platform, requestPreviewSlice, runImportGeometry, runNewProject, runOpenProject, runSaveProject]);
+  }), [openPreferences, platform, requestPreviewSlice, runNewProject, runOpenProject, runSaveProject]);
 
   // Strict Mode replays layout effects during development. Keep activation
   // and disposal next to the native subscription so replay cannot leave the
@@ -233,15 +245,7 @@ export default function App() {
   // native tab/page actions even when the command is currently disabled.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-      const key = event.key.toLowerCase();
-      const command = key === 'n' ? 'new-project'
-        : key === 'o' ? 'open-project'
-          : key === 's' && event.shiftKey ? 'save-project-as'
-            : key === 's' ? 'save-project' : null;
-      if (!command) return;
-      event.preventDefault();
-      void dispatcher.dispatch(command);
+      handleMenuKeyDown(event, dispatcher);
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);

@@ -107,7 +107,6 @@ describe('Electron native menu boundary', () => {
       items: {
         'new-project': { enabled: true, checked: false },
         'open-project': { enabled: true, checked: false },
-        'import-geometry': { enabled: true, checked: false },
         'save-project': { enabled: true, checked: false },
         'save-project-as': { enabled: true, checked: false },
         preferences: { enabled: true, checked: false },
