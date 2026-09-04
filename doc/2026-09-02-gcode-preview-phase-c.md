@@ -121,7 +121,10 @@ layer. The preview controls panel uses a shadcn Collapsible: the Preview header
 is the single trigger, and collapsing it hides the color scheme, complete legend,
 inspection details, single-layer, travel, and dimming controls while leaving the
 compact header visible. The legend itself is always expanded whenever the panel
-is open. Selecting an exact mapped line moves the preview to its layer and move;
+is open. The preview controls panel clips overflow at its outer frame so the
+Preview header and collapse trigger remain fixed while only the expanded
+controls content scrolls. Selecting an exact mapped line moves the preview to
+its layer and move;
 an unmappable line uses the nearest preceding mapped move, while a line before
 the first mapping leaves the inspection state
 unchanged. A result-local source index is built once during slice-result

@@ -92,7 +92,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
         onOpenChange={setPreviewExpanded}
         data-testid="preview-controls"
         aria-label="G-code preview controls"
-        className="pointer-events-auto absolute right-20 top-3 z-20 flex max-h-[calc(100%-6rem)] w-52 flex-col overflow-auto rounded-md border bg-card/90 p-3 text-card-foreground shadow-lg backdrop-blur"
+        className="pointer-events-auto absolute right-20 top-3 z-20 flex max-h-[calc(100%-6rem)] min-h-0 w-52 flex-col overflow-hidden rounded-md border bg-card/90 p-3 text-card-foreground shadow-lg backdrop-blur"
       >
         <CollapsibleTrigger
           render={
@@ -100,14 +100,14 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
               variant="ghost"
               size="sm"
               data-testid="preview-controls-header"
-              className="h-7 w-full justify-between rounded px-1 py-1 text-left text-xs font-semibold"
+              className="h-7 w-full shrink-0 justify-between rounded px-1 py-1 text-left text-xs font-semibold"
             />
           }
         >
           <span>Preview</span>
           <ChevronDownIcon className="size-3 transition-transform group-aria-expanded/button:rotate-0 group-not-aria-expanded/button:-rotate-90" aria-hidden="true" />
         </CollapsibleTrigger>
-        <CollapsibleContent id="preview-controls-content" className="mt-3 space-y-3">
+        <CollapsibleContent id="preview-controls-content" className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           <Button variant="ghost" size="xs" aria-pressed={preview.singleLayer} data-testid="preview-single-layer" onClick={() => setSingleLayer(!preview.singleLayer)}>
             {preview.singleLayer ? 'All layers' : 'Single layer'}
           </Button>

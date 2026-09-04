@@ -256,6 +256,15 @@ describe('LayerScrubber preview controls', () => {
     expect(container.querySelector('[data-testid="preview-color-scheme"]')).toBeTruthy();
     expect(entry()).toBeTruthy();
 
+    const controls = container.querySelector('[data-testid="preview-controls"]') as HTMLElement;
+    expect(controls.className).toContain('overflow-hidden');
+    expect(controls.className).not.toContain('overflow-auto');
+    expect(header.className).toContain('shrink-0');
+    expect(content.className).toContain('overflow-y-auto');
+    expect(content.className).toContain('flex-1');
+    expect(content.parentElement).toBe(controls);
+    expect(header.parentElement).toBe(controls);
+
     await act(async () => { header.click(); });
     expect(header.getAttribute('aria-expanded')).toBe('false');
     expect(content.hasAttribute('data-closed')).toBe(true);
