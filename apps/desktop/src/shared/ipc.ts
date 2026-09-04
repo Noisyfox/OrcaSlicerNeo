@@ -34,6 +34,12 @@ export const Ipc = {
 } as const;
 
 export const MENU_COMMAND_IDS = [
+  'new-project',
+  'open-project',
+  'import-geometry',
+  'save-project',
+  'save-project-as',
+  'preferences',
   'add-model',
   'clear-scene',
   'slice',

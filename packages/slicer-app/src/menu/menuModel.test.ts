@@ -159,9 +159,44 @@ describe('buildMenuModel', () => {
     const raw = input({ scene: { hasModel: true } });
     const states = deriveMenuItemStates(raw, web);
     expect(Object.keys(states).sort()).toEqual([
-      'add-model', 'clear-scene', 'export-gcode', 'open-source', 'quit', 'slice',
+      'add-model', 'clear-scene', 'export-gcode', 'import-geometry', 'new-project', 'open-project', 'open-source', 'preferences', 'quit', 'save-project', 'save-project-as', 'slice',
     ]);
     expect(states['open-source'].checked).toBe(false);
     expect(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus).toEqual(buildMenuModel(buildMenuStateSnapshot(raw, web), web).menus);
+  });
+
+  it('projects project commands from the session state and keeps Save As enabled for clean content', () => {
+    const raw = input({
+      project: {
+        hasContent: true,
+        dirty: false,
+        flattenedMultiPlate: false,
+        operation: { phase: 'idle', progress: 0, cancellable: false },
+      },
+    });
+    const state = buildMenuStateSnapshot(raw, web);
+    const model = buildMenuModel(state, web);
+    expect(model.menus[0].items.map((entry) => entry.command).filter(Boolean)).toEqual([
+      'add-model', 'clear-scene', 'slice', 'export-gcode',
+      'new-project', 'open-project', 'import-geometry', 'save-project', 'save-project-as', 'preferences',
+    ]);
+    expect(state.items['new-project'].enabled).toBe(true);
+    expect(state.items['save-project'].enabled).toBe(false);
+    expect(state.items['save-project-as'].enabled).toBe(true);
+  });
+
+  it('locks every menu action while a project operation is waiting or running', () => {
+    const state = buildMenuStateSnapshot(input({
+      project: {
+        hasContent: true,
+        dirty: true,
+        flattenedMultiPlate: false,
+        operation: { phase: 'waiting-for-load-choice', progress: 0, cancellable: false },
+      },
+      scene: { hasModel: true },
+    }), web);
+    for (const command of ['new-project', 'open-project', 'import-geometry', 'save-project', 'save-project-as', 'preferences', 'add-model', 'clear-scene', 'slice'] as const) {
+      expect(state.items[command].enabled).toBe(false);
+    }
   });
 });

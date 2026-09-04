@@ -42,6 +42,17 @@ export function buildMenuModel(
     item('file-slice', 'Slice', 'slice'),
     item('file-export-gcode', 'Export G-code', 'export-gcode'),
   ];
+  if (snapshot.project) {
+    fileItems.push(
+      separator('file-separator-before-project'),
+      item('file-new-project', 'New Project', 'new-project'),
+      item('file-open-project', 'Open Project…', 'open-project'),
+      item('file-import-geometry', 'Import Geometry', 'import-geometry'),
+      item('file-save-project', 'Save Project', 'save-project'),
+      item('file-save-project-as', 'Save Project As…', 'save-project-as'),
+      item('file-preferences', 'Preferences…', 'preferences'),
+    );
+  }
 
   if (isElectron) {
     fileItems.push(separator('file-separator-before-quit'));
@@ -71,16 +82,33 @@ export function deriveMenuItemStates(
   snapshot: MenuStateSnapshotInput,
   chrome: PlatformChrome,
 ): MenuItemStates {
+  // Keep this selector tolerant of v1 snapshots produced by older hosts while
+  // they are being upgraded. New snapshots always include the project block.
+  const project = snapshot.project ?? {
+    hasContent: snapshot.scene.hasModel,
+    dirty: false,
+    operation: { phase: 'idle' as const, progress: 0, cancellable: false },
+    flattenedMultiPlate: false,
+  };
   const ready = snapshot.boot.phase === 'ready';
   const slicing = snapshot.slicer.status === 'slicing';
   const hasCompletedResult = snapshot.result.hasResult && snapshot.slicer.status === 'done';
   const workspaceTab = isWorkspaceTab(snapshot.activeTab);
   const prepareTab = isPrepareTab(snapshot.activeTab);
-  const fileActionsEnabled = ready && !slicing;
+  const projectOperationActive = ['waiting-for-load-choice', 'waiting-for-dirty-decision', 'loading', 'saving']
+    .includes(project.operation.phase);
+  const fileActionsEnabled = ready && !slicing && !projectOperationActive;
+  const projectActionsEnabled = fileActionsEnabled;
   const electron = isElectronHost(snapshot, chrome);
   const state = (enabled: boolean): { enabled: boolean; checked: false } => ({ enabled, checked: false });
 
-  return {
+  const states = {
+    'new-project': state(projectActionsEnabled),
+    'open-project': state(projectActionsEnabled),
+    'import-geometry': state(projectActionsEnabled && prepareTab),
+    'save-project': state(projectActionsEnabled && project.hasContent && project.dirty),
+    'save-project-as': state(projectActionsEnabled && project.hasContent),
+    preferences: state(projectActionsEnabled),
     'add-model': state(fileActionsEnabled && prepareTab),
     'clear-scene': state(fileActionsEnabled && prepareTab && snapshot.scene.hasModel),
     'slice': state(fileActionsEnabled && workspaceTab && snapshot.scene.hasModel && !hasCompletedResult),
@@ -88,6 +116,7 @@ export function deriveMenuItemStates(
     'quit': state(electron),
     'open-source': state(true),
   };
+  return states;
 }
 
 /**
@@ -103,8 +132,15 @@ export function buildMenuStateSnapshot(
   snapshot: MenuStateSnapshotInput,
   chrome: PlatformChrome,
 ): MenuStateSnapshot {
+  const project = snapshot.project ?? {
+    hasContent: snapshot.scene.hasModel,
+    dirty: false,
+    operation: { phase: 'idle' as const, progress: 0, cancellable: false },
+    flattenedMultiPlate: false,
+  };
   return {
     ...snapshot,
+    ...(snapshot.project ? { project } : {}),
     slicer: { ...snapshot.slicer, progress: snapshot.slicer.progress / 100 },
     items: deriveMenuItemStates(snapshot, chrome),
   };

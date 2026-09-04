@@ -19,6 +19,16 @@ import { addModel, clearScene } from './components/workspace/actions/sceneAction
 import { exportGcode, sliceModel } from './components/workspace/actions/sliceActions';
 import { createCommandDispatcher, registerNativeMenuCommands } from './menu/commands';
 import { buildMenuModel, buildMenuStateSnapshot, resolveMenuMode } from './menu/menuModel';
+import {
+  DirtyProjectDialog,
+  ProjectLoadChoiceDialog,
+  ProjectNoticeDialog,
+  ProjectPreferencesDialog,
+  ProjectProgressDialog,
+} from './components/project/ProjectDialogs';
+import { cancelProjectOperation, newProject, openProject, saveProject, saveProjectAs } from './projectActions';
+import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
+import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 
 export default function App() {
   const platform = usePlatform();
@@ -31,10 +41,19 @@ export default function App() {
   const progress = useSlicerStore((s) => s.progress);
   const slicerError = useSlicerStore((s) => s.error);
   const resultExported = useSlicerStore((s) => s.resultExported);
+  const projectState = useProjectStore((s) => s);
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [prewarmingWorkspace, setPrewarmingWorkspace] = useState(false);
+  const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'flatten' | 'notice' | null>(null);
+  const [loadInput, setLoadInput] = useState<ProjectInput | null>(null);
+  const [dirtyOperation, setDirtyOperation] = useState<'new' | 'open'>('open');
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [extraNotice, setExtraNotice] = useState<string | null>(null);
+  const loadChoiceResolver = useRef<((choice: ProjectLoadChoice) => void) | null>(null);
+  const dirtyResolver = useRef<((decision: DirtyProjectDecision) => void) | null>(null);
+  const flattenResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const previewTransitionRef = useRef<PreviewRenderTransition | null>(null);
   const handleTabChange = useCallback((tab: AppTab) => {
     if (tab !== 'preview') {
@@ -82,6 +101,55 @@ export default function App() {
     return sliceModel(platform);
   }, [navigateToPreview, platform]);
 
+  const chooseLoad = useCallback((input: ProjectInput) => new Promise<ProjectLoadChoice>((resolve) => {
+    setLoadInput(input); loadChoiceResolver.current = resolve; setDialog('load-choice');
+  }), []);
+  const decideDirty = useCallback((operation: 'new' | 'open') => new Promise<DirtyProjectDecision>((resolve) => {
+    setDirtyOperation(operation); dirtyResolver.current = resolve; setDialog('dirty');
+  }), []);
+  const confirmFlatten = useCallback(() => new Promise<boolean>((resolve) => {
+    flattenResolver.current = resolve; setDialog('flatten');
+  }), []);
+  const reportProjectFailure = useCallback((result: { status: string; error?: unknown }) => {
+    if (result.status === 'failed') {
+      const message = result.error instanceof Error ? result.error.message : String(result.error ?? '');
+      if (/g.?code|sliced.?result|embedded/i.test(message)) setExtraNotice('3MF files containing embedded G-code or a sliced-result package are unsupported. The current project was left unchanged.');
+      else setError(message);
+    }
+  }, [setError]);
+  const runNewProject = useCallback(async () => {
+    const result = await newProject(platform, { decideDirty, confirmFlattenedSave: confirmFlatten });
+    reportProjectFailure(result);
+    if (result.status === 'ok') setActiveTab('prepare');
+  }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  const runOpenProject = useCallback(async () => {
+    const result = await openProject(platform, { chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten });
+    reportProjectFailure(result);
+    if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
+  }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  const runImportGeometry = useCallback(async () => {
+    await addModel(platform, sceneInteractionRef.current);
+  }, [platform]);
+  const runSaveProject = useCallback(async (asCopy = false) => {
+    if (projectState.flattenedMultiPlate) {
+      setDialog(null);
+      const confirmed = await confirmFlatten();
+      if (!confirmed) return;
+    }
+    const result = asCopy ? await saveProjectAs(platform) : await saveProject(platform);
+    reportProjectFailure(result);
+  }, [confirmFlatten, platform, projectState.flattenedMultiPlate, reportProjectFailure]);
+  const openPreferences = useCallback(async () => {
+    try { setPreferences(await platform.preferences.load()); } catch { setPreferences(null); }
+    setDialog('preferences');
+  }, [platform.preferences]);
+  const savePreferences = useCallback(async (behaviour: ProjectLoadBehaviour) => {
+    const current = preferences ?? await platform.preferences.load();
+    const next = { ...current, projectLoadBehaviour: behaviour };
+    setPreferences(next);
+    await platform.preferences.save(next);
+  }, [platform.preferences, preferences]);
+
   const menuState = useMemo(() => buildMenuStateSnapshot({
     version: 1,
     activeTab,
@@ -89,6 +157,17 @@ export default function App() {
     slicer: { status, progress, error: slicerError },
     scene: { hasModel: modelLoaded },
     result: { hasResult: status === 'done', exported: resultExported },
+    project: {
+      hasContent: projectState.hasContent,
+      dirty: projectState.dirty,
+      flattenedMultiPlate: projectState.flattenedMultiPlate,
+      operation: {
+        phase: projectState.operation.phase,
+        progress: projectState.operation.progress / 100,
+        message: projectState.operation.message,
+        cancellable: projectState.operation.cancellable,
+      },
+    },
     host: {
       isElectron: platform.chrome.kind === 'desktop',
       menuMode: resolveMenuMode(platform.chrome),
@@ -103,6 +182,7 @@ export default function App() {
     resultExported,
     slicerError,
     status,
+    projectState,
   ]);
   const menuModel = useMemo(
     () => buildMenuModel(menuState, platform.chrome),
@@ -113,6 +193,12 @@ export default function App() {
   const dispatcher = useMemo(() => createCommandDispatcher({
     getSnapshot: () => menuStateRef.current,
     actions: {
+      newProject: runNewProject,
+      openProject: runOpenProject,
+      importGeometry: runImportGeometry,
+      saveProject: () => runSaveProject(false),
+      saveProjectAs: () => runSaveProject(true),
+      preferences: openPreferences,
       addModel: () => addModel(platform, sceneInteractionRef.current),
       clearScene: () => clearScene(platform, sceneInteractionRef.current),
       slice: requestPreviewSlice,
@@ -120,7 +206,7 @@ export default function App() {
       openSource: async () => { await platform.externalLinks.openSource(); },
       quit: async () => { await platform.menu.execute('quit'); },
     },
-  }), [platform]);
+  }), [openPreferences, platform, requestPreviewSlice, runImportGeometry, runNewProject, runOpenProject, runSaveProject]);
 
   // Strict Mode replays layout effects during development. Keep activation
   // and disposal next to the native subscription so replay cannot leave the
@@ -141,6 +227,28 @@ export default function App() {
       console.error('menu state sync failed:', error);
     });
   }, [menuModel, menuState, platform.menu]);
+
+  // Keyboard accelerators are owned by the shared app so browser and Electron
+  // surfaces dispatch exactly the same guarded command. Prevent the browser's
+  // native tab/page actions even when the command is currently disabled.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      const command = key === 'n' ? 'new-project'
+        : key === 'o' ? 'open-project'
+          : key === 's' && event.shiftKey ? 'save-project-as'
+            : key === 's' ? 'save-project' : null;
+      if (!command) return;
+      event.preventDefault();
+      void dispatcher.dispatch(command);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [dispatcher]);
+  useEffect(() => {
+    if (projectState.notices.length > 0) setDialog('notice');
+  }, [projectState.notices]);
   const titleBar = (
     <TitleBar
       chrome={platform.chrome}
@@ -253,16 +361,54 @@ export default function App() {
     );
   }
 
+  const notices = extraNotice
+    ? [{ kind: 'compatibility-fallback' as const, message: extraNotice }]
+    : projectState.notices;
   return (
-    <AppShell
-      titleBar={titleBar}
-      toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />}
-      activeTab={activeTab}
-      prewarmWorkspace={prewarmingWorkspace}
-      home={<div data-testid="home-page" />}
-      workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={navigateToPreview} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
-      device={<DevicePanel />}
-      status={<StatusBar />}
-    />
+    <>
+      <AppShell
+        titleBar={titleBar}
+        toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />}
+        activeTab={activeTab}
+        prewarmWorkspace={prewarmingWorkspace}
+        home={<div data-testid="home-page" />}
+        workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={navigateToPreview} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
+        device={<DevicePanel />}
+        status={<StatusBar />}
+      />
+      <ProjectLoadChoiceDialog
+        open={dialog === 'load-choice'}
+        input={loadInput}
+        onChoice={(choice) => { loadChoiceResolver.current?.(choice); loadChoiceResolver.current = null; setDialog(null); }}
+        onCancel={() => { loadChoiceResolver.current?.('cancel'); loadChoiceResolver.current = null; setDialog(null); }}
+      />
+      <DirtyProjectDialog
+        open={dialog === 'dirty'}
+        operation={dirtyOperation}
+        onDecision={(decision) => { dirtyResolver.current?.(decision); dirtyResolver.current = null; setDialog(null); }}
+      />
+      <ProjectPreferencesDialog
+        open={dialog === 'preferences'}
+        preferences={preferences}
+        onSave={savePreferences}
+        onClose={() => setDialog(null)}
+      />
+      <ProjectNoticeDialog
+        open={dialog === 'notice' && notices.length > 0}
+        notices={notices}
+        onClose={() => { setDialog(null); setExtraNotice(null); }}
+      />
+      <ProjectNoticeDialog
+        notices={projectState.flattenedMultiPlate && dialog === 'flatten' ? [{ kind: 'multi-plate', message: 'This project contains multiple plates. Saving will flatten it into a single-plate project.' }] : []}
+        title="Flatten project before saving?"
+        testId="project-flatten-dialog"
+        onClose={() => { flattenResolver.current?.(false); flattenResolver.current = null; setDialog(null); }}
+        onContinue={() => { flattenResolver.current?.(true); flattenResolver.current = null; setDialog(null); }}
+      />
+      <ProjectProgressDialog
+        operation={projectState.operation}
+        onCancel={() => { void cancelProjectOperation(platform); }}
+      />
+    </>
   );
 }

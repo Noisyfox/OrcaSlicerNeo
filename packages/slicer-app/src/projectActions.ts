@@ -9,6 +9,8 @@ export interface ProjectActionOptions {
   loadBehaviour?: 'load_all' | 'ask_when_relevant' | 'always_ask' | 'load_geometry_only';
   chooseLoad?: (input: ProjectInput) => Promise<ProjectLoadChoice> | ProjectLoadChoice;
   decideDirty?: (operation: 'new' | 'open', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
+  /** UI confirmation required before saving a flattened multi-plate project. */
+  confirmFlattenedSave?: () => Promise<boolean> | boolean;
   signal?: AbortSignal;
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
@@ -48,6 +50,9 @@ async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 
   const decision = await options.decideDirty?.(operationName, input) ?? 'cancel';
   if (decision === 'cancel') { setOperation('cancelled'); return { status: 'cancelled' }; }
   if (decision === 'dont-save') return null;
+  if (useProjectStore.getState().flattenedMultiPlate && options.confirmFlattenedSave) {
+    if (!await options.confirmFlattenedSave()) { setOperation('cancelled'); return { status: 'cancelled' }; }
+  }
   const saved = await saveProject(platform);
   return saved.status === 'ok' ? null : saved;
 }

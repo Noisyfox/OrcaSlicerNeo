@@ -35,6 +35,9 @@ describe('Electron preload bridge', () => {
       result: { hasResult: false, exported: false },
       host: { isElectron: true, menuMode: 'native' as const },
       items: {
+        'new-project': { enabled: false }, 'open-project': { enabled: false },
+        'import-geometry': { enabled: false }, 'save-project': { enabled: false },
+        'save-project-as': { enabled: false }, preferences: { enabled: false },
         'add-model': { enabled: false }, 'clear-scene': { enabled: false },
         slice: { enabled: false }, 'export-gcode': { enabled: false },
         quit: { enabled: false }, 'open-source': { enabled: true },

@@ -9,3 +9,4 @@ export * from './components/device/DevicePanel';
 export * from './components/send/SendGcodeDialog';
 export * from './stores/useProjectStore';
 export * from './projectActions';
+export * from './components/project/ProjectDialogs';
