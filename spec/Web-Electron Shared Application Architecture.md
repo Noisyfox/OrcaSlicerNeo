@@ -26,9 +26,10 @@ feature-equivalent interface:
    viewport.
 6. Download G-code.
 
-Project persistence, user-created profiles, cloud accounts, cloud slicing,
-profile updates, on-demand profile delivery, drag-and-drop import, PWA/offline
-support, and richer startup recovery are intentionally deferred.
+User-created profiles, cloud accounts, cloud slicing, profile updates, on-demand
+profile delivery, PWA/offline support, and richer startup recovery are
+intentionally deferred. Project persistence and 3MF drag-and-drop are approved
+as a subsequent independent milestone under `spec/3MF Project Persistence.md`.
 
 Temporary slicer setting overrides remain usable during a running session, but
 are not persisted in either host during the first release.
@@ -372,15 +373,10 @@ from one system profile combination to another.
   not create a reduced mobile-style slicer page.
 - Web G-code export triggers a standard browser file download. Electron keeps
   its native save dialog.
-- A 3MF import contributes only its model geometry, instances, and stored
-  layout. Embedded profiles, temporary settings, slice results, and other
-  project-level configuration are ignored; installed system profiles remain
-  the sole configuration source.
-- Imported models and work in progress are ephemeral. Both hosts will warn
-  before leaving when models, temporary slicer-setting overrides, or unexported
-  results would be lost; the exact host confirmation mechanism is an adapter
-  detail. The first release only offers leave/cancel, never a save-custom-
-  profile action.
+- The approved `spec/3MF Project Persistence.md` milestone supersedes the
+  original geometry-only 3MF-import and ephemeral-work assumptions here. It
+  defines project configuration restoration, explicit BBS 3MF persistence,
+  dirty-session protections, and the host-specific Electron/Web save flows.
 - Web uses the browser's native `beforeunload` confirmation for close, reload,
   and navigation away; browsers may not show custom detail. Electron may use a
   native host confirmation. Neither host offers saving or restoration in this
@@ -426,14 +422,15 @@ verification of either artifact.
 
 ## 11. Explicitly Deferred Work
 
-- Drag-and-drop import for Electron and Web.
 - PWA, Service Worker, installation, offline guarantees, and cache migration.
 - Mobile Chrome product support; every new feature must nevertheless assess it.
 - Profile package validation, signatures, hashes, compatibility gates,
   independent online updates, rollback, and on-demand vendor loading.
 - Cloud accounts, cloud profile delivery/synchronization, user-created profile
   persistence, and conflict resolution.
-- Project/model/result/G-code persistence and project save/load.
+- Project persistence and 3MF drag-and-drop are tracked as approved pending
+  work in `spec/3MF Project Persistence.md`; generated G-code/result
+  persistence remains outside that milestone's first-release scope.
 - Remote slicing implementation.
 - In-progress slicing cancellation. The existing bridge capability is not
   exposed through the first-release UI; a future design must define reliable

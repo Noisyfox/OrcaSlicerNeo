@@ -427,7 +427,9 @@ loading remain future increments.
       virtualized read-only rows, and exact/nearest-preceding source-line
       navigation through the typed Worker client
 
-- [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
+- [ ] Multi-plate support
+- [ ] Project save/load (`.3mf` / `bbs_3mf`) — approved, pending independent
+      implementation under `spec/3MF Project Persistence.md`
 - [ ] Full settings surface + search (from metadata)
 - [ ] Gizmos: cut/measure/arrange/orient (move/rotate/scale delivered in
       Milestones 5 + 11)
