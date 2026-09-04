@@ -99,3 +99,15 @@
 - 3MF files that embed G-code or a sliced-result package are unsupported in
   the first release. The application reports that the file type is unsupported
   and leaves the current session unchanged.
+
+## Commands and navigation
+
+- The File menu provides **New Project**, **Open Project…**, **Save Project**,
+  and **Save Project As…**. **Add Model** remains an append-only geometry
+  import operation and is not an alias for opening a project.
+- The application supports `Ctrl/Cmd+N`, `Ctrl/Cmd+O`, `Ctrl/Cmd+S`, and
+  `Ctrl/Cmd+Shift+S` for New, Open, Save, and Save As respectively. The Web
+  host prevents the browser's default page-open and page-save actions for
+  these commands.
+- A successful New Project or Open Project operation selects the Prepare
+  workspace. Save and Save As do not change the active workspace.
