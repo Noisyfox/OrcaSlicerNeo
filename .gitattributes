@@ -2,3 +2,7 @@
 # (multiline if-blocks get misparsed). Written by the build scripts, not
 # by hand, so pin the eol for every checkout.
 *.bat text eol=crlf
+
+# WASM source patches are consumed by `git apply`; their context must retain
+# LF line endings regardless of a developer's core.autocrlf setting.
+/packages/slicer-wasm/patches/*.patch text eol=lf
