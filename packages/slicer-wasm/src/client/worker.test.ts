@@ -74,6 +74,19 @@ describe('worker protocol', () => {
     expect(res.toolpath.positions.byteLength).toBe(res.toolpath.vertexCount * 3 * 4);
   });
 
+  it('round-trips project operations and transfers the exported archive', async () => {
+    const { workerClient, channel } = setup();
+    await workerClient.init();
+    await workerClient.addModel(new Uint8Array(4), 'stl');
+    const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf');
+    expect(loaded.ok).toBe(true);
+    const exported = await workerClient.exportProject();
+    expect(exported.ok).toBe(true);
+    expect(exported.bytes.byteLength).toBeGreaterThan(0);
+    const transfer = channel.transfers.find((items) => items.includes(exported.bytes.buffer));
+    expect(transfer).toBeDefined();
+  });
+
   it('transfers each v2 result ArrayBuffer exactly once from the worker', async () => {
     const { workerClient, channel } = setup();
     await workerClient.init();

@@ -898,6 +898,36 @@ describe('SlicerClient bridge contract', () => {
     expect(new TextDecoder().decode(r.bytes.slice(0, 6))).toBe('; mock');
   });
 
+  it('loads BBS projects with typed compatibility and warning metadata', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const r = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf');
+    expect(r).toMatchObject({
+      ok: true, mode: 'project', compatibility: 'bambu',
+      projectSettingsAvailable: true, multiPlate: false, plateCount: 1,
+    });
+    expect(r.embeddedPresetWarnings?.requiresConfirmation).toBe(true);
+  });
+
+  it('appends geometry-only project imports and exposes an explicit alias', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const imported = await c.importProjectGeometry(new Uint8Array([0x50, 0x4b]), 'part.3mf');
+    expect(imported).toMatchObject({ ok: true, mode: 'geometry-only', compatibility: 'bambu' });
+    expect(imported.objects).toBe(2);
+    const replaced = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project');
+    expect(replaced.objects).toBe(1);
+  });
+
+  it('exportProject returns a transferable BBS archive byte buffer', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const r = await c.exportProject();
+    expect(r.ok).toBe(true);
+    expect(r.bytes.byteLength).toBeGreaterThan(0);
+    expect(new TextDecoder().decode(r.bytes)).toContain('bbs-3mf');
+  });
+
   it('reads bounded UTF-8 source chunks by completed result id', async () => {
     const sourceText = '; 注释\nG1 X1\nG1 X2\n';
     const c = createClient(async () => createMockModule({

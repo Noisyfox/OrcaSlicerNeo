@@ -8,9 +8,9 @@
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, PresetSnapshotResult,
-  OptionMetadata, LoadModelResult,
+  OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
-  ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
+  ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
@@ -125,6 +125,72 @@ export function createClient(
       try {
         return callJson(m, 'orc_add_model', ['pointer', 'number', 'string', 'string'],
                         [ptr, bytes.length, ext, displayName ?? '']) as LoadModelResult;
+      } finally {
+        m._free(ptr);
+      }
+    },
+
+    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string): Promise<ProjectLoadResult> {
+      const m = await module();
+      const ptr = writeBytes(m, bytes);
+      try {
+        const r = callJson(m, 'orc_load_project', ['pointer', 'number', 'number', 'string'],
+          [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? '']) as Record<string, unknown>;
+        if (!r.ok) return r as unknown as ProjectLoadResult;
+        const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
+        return {
+          ok: true,
+          objects: Number(r.objects ?? 0),
+          instances: Number(r.instances ?? 0),
+          mode: r.mode as ProjectLoadMode | undefined,
+          displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
+          compatibility: r.compatibility as ProjectLoadResult['compatibility'],
+          projectSettingsAvailable: r.project_settings_available === true,
+          isBbl3mf: r.is_bbl_3mf === true,
+          isOrca3mf: r.is_orca_3mf === true,
+          fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined,
+          multiPlate: r.multi_plate === true,
+          plateCount: Number(r.plate_count ?? 0),
+          embeddedPresetWarnings: warnings ? {
+            present: warnings.present === true,
+            count: Number(warnings.count ?? 0),
+            printerCount: Number(warnings.printer_count ?? 0),
+            processCount: Number(warnings.process_count ?? 0),
+            filamentCount: Number(warnings.filament_count ?? 0),
+            modifiedPrinterGcode: warnings.modified_printer_gcode === true,
+            modifiedFilamentGcode: warnings.modified_filament_gcode === true,
+            missingSystemPreset: warnings.missing_system_preset === true,
+            requiresConfirmation: warnings.requires_confirmation === true,
+          } : undefined,
+        };
+      } finally {
+        m._free(ptr);
+      }
+    },
+
+    async importProjectGeometry(bytes: Uint8Array, displayName?: string): Promise<ProjectLoadResult> {
+      const m = await module();
+      const ptr = writeBytes(m, bytes);
+      try {
+        const r = callJson(m, 'orc_import_project_geometry', ['pointer', 'number', 'string'],
+          [ptr, bytes.length, displayName ?? '']) as Record<string, unknown>;
+        if (!r.ok) return r as unknown as ProjectLoadResult;
+        // Keep the public result shape identical to loadProject's geometry
+        // mode without making the worker or callers know a second bridge op.
+        return {
+          ok: true,
+          objects: Number(r.objects ?? 0),
+          instances: Number(r.instances ?? 0),
+          mode: 'geometry-only',
+          displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
+          compatibility: r.compatibility as ProjectLoadResult['compatibility'],
+          projectSettingsAvailable: r.project_settings_available === true,
+          isBbl3mf: r.is_bbl_3mf === true,
+          isOrca3mf: r.is_orca_3mf === true,
+          fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined,
+          multiPlate: r.multi_plate === true,
+          plateCount: Number(r.plate_count ?? 0),
+        };
       } finally {
         m._free(ptr);
       }
@@ -473,6 +539,25 @@ export function createClient(
       if (!r.ok) return r as ExportGcodeResult;
       const bytes = m.FS.readFile('/out.gcode');
       return { ok: true, path: r.path ?? '/out.gcode', bytes };
+    },
+
+    async exportProject(): Promise<ExportProjectResult> {
+      const m = await module();
+      const r = callJson(m, 'orc_export_project', [], []) as {
+        ok: boolean; path?: string; bytes_ptr?: number; bytes_length?: number;
+        objects?: number; plate_count?: number; error?: string;
+      };
+      if (!r.ok) return {
+        ok: false, path: r.path ?? '', bytes: new Uint8Array(0), error: r.error,
+      };
+      const length = Number(r.bytes_length ?? 0);
+      if (!Number.isSafeInteger(length) || length < 0 || !r.bytes_ptr)
+        throw new Error('project export bridge returned an invalid byte buffer');
+      const bytes = readBytes(m, Number(r.bytes_ptr), length);
+      return {
+        ok: true, path: r.path ?? '', bytes,
+        objects: Number(r.objects ?? 0), plateCount: Number(r.plate_count ?? 1),
+      };
     },
 
     async readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk> {

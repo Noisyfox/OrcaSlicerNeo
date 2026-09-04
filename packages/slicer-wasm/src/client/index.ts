@@ -7,7 +7,7 @@ export type {
   InitResult, PresetInfo, PresetSelection, PresetSnapshot,
   PresetSnapshotError, PresetSnapshotResult, SelectPresetResult,
   OptionMetadata, OptionMeta,
-  LoadModelResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
+  LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
   ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
@@ -18,7 +18,7 @@ export type {
   PreviewToolpathMetrics, PreviewMetricKey, PreviewMetricRange,
   PreviewAnalysisSummary, PreviewFeatureStatistics, PreviewAnalysis,
   PreviewSourceKind, PreviewTextChunkRequest, PreviewTextChunk, PreviewTextLinesRequest, PreviewTextLines, PreviewSource,
-  ExportGcodeResult, CancelResult,
+  ExportGcodeResult, ExportProjectResult, CancelResult,
 } from './types';
 export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 export { createMockModule } from './testing/mock-module';
