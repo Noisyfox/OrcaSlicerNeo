@@ -128,3 +128,13 @@ The first release's automated compatibility baseline covers:
 
 Cross-host end-to-end coverage verifies project open, save, dirty-state
 protection, and Web download behaviour.
+
+## Long-running project operations
+
+- Project open and save show stage-level progress, disable conflicting project
+  commands, and provide a cancellation action.
+- Cancellation of an open operation leaves the current session unchanged.
+- Project export completes into temporary WASM storage before bytes are passed
+  to a host. A cancelled or failed export, or a cancelled host save dialog,
+  leaves the existing destination file unchanged and leaves the current
+  project dirty.
