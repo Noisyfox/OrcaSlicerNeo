@@ -86,3 +86,16 @@
   that project. Opening a project does not overwrite the user's last-used
   system-profile preference. Leaving the project restores that global
   preference; only selection changes made outside a project session update it.
+
+## First-release boundaries
+
+- A source project with multiple plates loads all parseable model objects and
+  their stored coordinates into the application's single shared scene. Objects
+  from other source plates may therefore appear outside the active bed.
+- The application does not retain source plate membership or per-plate data.
+  Saving such a loaded project writes a single-plate project. The application
+  informs the user when the multi-plate project is first loaded and again
+  before it is saved in this flattened form.
+- 3MF files that embed G-code or a sliced-result package are unsupported in
+  the first release. The application reports that the file type is unsupported
+  and leaves the current session unchanged.
