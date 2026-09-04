@@ -117,9 +117,13 @@ wheel changes keep both layer bounds coupled. The wheel hit area includes the
 entire surrounding dark frame, including its padding and labels, while remaining
 isolated from the preview canvas. Wheel changes select the next existing
 renderable layer ID, so sparse or stale layer data cannot land on an empty
-layer. Selecting an exact mapped line moves the
-preview to its layer and move; an unmappable line uses the nearest preceding
-  mapped move, while a line before the first mapping leaves the inspection state
+layer. The preview controls panel uses a shadcn Collapsible: the Preview header
+is the single trigger, and collapsing it hides the color scheme, complete legend,
+inspection details, single-layer, travel, and dimming controls while leaving the
+compact header visible. The legend itself is always expanded whenever the panel
+is open. Selecting an exact mapped line moves the preview to its layer and move;
+an unmappable line uses the nearest preceding mapped move, while a line before
+the first mapping leaves the inspection state
 unchanged. A result-local source index is built once during slice-result
 construction; ordered processor IDs are binary-searched without a duplicate
 React-side map, so repeated opening and navigation are independent of full

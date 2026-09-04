@@ -28,7 +28,7 @@ function previewWheelStep(event: WheelEvent): number {
 
 /** Orca-style canvas overlay for the Phase-B preview controls. */
 export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
-  const [legendExpanded, setLegendExpanded] = useState(true);
+  const [previewExpanded, setPreviewExpanded] = useState(true);
   const renderableLayers = useMemo(() => renderablePreviewLayers(data), [data]);
   const maxLayer = renderableLayers[renderableLayers.length - 1] ?? 0;
   const preview = useSlicerStore((s) => s.preview);
@@ -87,44 +87,46 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
 
   return (
     <>
-      <aside data-testid="preview-controls" aria-label="G-code preview controls" className="pointer-events-auto absolute right-20 top-3 z-20 flex max-h-[calc(100%-6rem)] w-52 flex-col gap-3 overflow-auto rounded-md border bg-card/90 p-3 text-card-foreground shadow-lg backdrop-blur">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs font-semibold">Preview</Label>
+      <Collapsible
+        open={previewExpanded}
+        onOpenChange={setPreviewExpanded}
+        data-testid="preview-controls"
+        aria-label="G-code preview controls"
+        className="pointer-events-auto absolute right-20 top-3 z-20 flex max-h-[calc(100%-6rem)] w-52 flex-col overflow-auto rounded-md border bg-card/90 p-3 text-card-foreground shadow-lg backdrop-blur"
+      >
+        <CollapsibleTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="sm"
+              data-testid="preview-controls-header"
+              className="h-7 w-full justify-between rounded px-1 py-1 text-left text-xs font-semibold"
+            />
+          }
+        >
+          <span>Preview</span>
+          <ChevronDownIcon className="size-3 transition-transform group-aria-expanded/button:rotate-0 group-not-aria-expanded/button:-rotate-90" aria-hidden="true" />
+        </CollapsibleTrigger>
+        <CollapsibleContent id="preview-controls-content" className="mt-3 space-y-3">
           <Button variant="ghost" size="xs" aria-pressed={preview.singleLayer} data-testid="preview-single-layer" onClick={() => setSingleLayer(!preview.singleLayer)}>
             {preview.singleLayer ? 'All layers' : 'Single layer'}
           </Button>
-        </div>
-        <div className="space-y-1 text-xs">
-          <span className="sr-only">Color scheme</span>
-          <Select value={activeScheme} items={schemes.map((scheme) => ({ value: scheme, label: PREVIEW_SCHEME_LABELS[scheme] }))} onValueChange={(value) => setColorScheme(value as PreviewColorScheme)}>
-            <SelectTrigger id="preview-color-scheme" aria-label="Preview color scheme" data-testid="preview-color-scheme" className="h-7 w-full bg-background px-2 py-1 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {schemes.map((scheme) => <SelectItem key={scheme} value={scheme} data-testid={`preview-color-scheme-${scheme}`}>{PREVIEW_SCHEME_LABELS[scheme]}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <Collapsible
-          open={legendExpanded}
-          onOpenChange={setLegendExpanded}
-          data-testid="preview-legend"
-          className="space-y-1"
-        >
-          <CollapsibleTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="xs"
-                data-testid="preview-legend-header"
-                className="h-auto w-full justify-between rounded px-1 py-1 text-left text-[0.65rem] uppercase tracking-wide text-muted-foreground hover:bg-muted/50"
-              />
-            }
-          >
-            <span>{descriptor?.label ?? PREVIEW_SCHEME_LABELS[activeScheme]}</span>
-            <ChevronDownIcon className="size-3 transition-transform group-aria-expanded/button:rotate-0 group-not-aria-expanded/button:-rotate-90" aria-hidden="true" />
-          </CollapsibleTrigger>
-          <CollapsibleContent id="preview-legend-content">
+          <div className="space-y-1 text-xs">
+            <span className="sr-only">Color scheme</span>
+            <Select value={activeScheme} items={schemes.map((scheme) => ({ value: scheme, label: PREVIEW_SCHEME_LABELS[scheme] }))} onValueChange={(value) => setColorScheme(value as PreviewColorScheme)}>
+              <SelectTrigger id="preview-color-scheme" aria-label="Preview color scheme" data-testid="preview-color-scheme" className="h-7 w-full bg-background px-2 py-1 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {schemes.map((scheme) => <SelectItem key={scheme} value={scheme} data-testid={`preview-color-scheme-${scheme}`}>{PREVIEW_SCHEME_LABELS[scheme]}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div data-testid="preview-legend" className="space-y-1">
+            <div data-testid="preview-legend-header" className="px-1 py-1 text-[0.65rem] uppercase tracking-wide text-muted-foreground">
+              {descriptor?.label ?? PREVIEW_SCHEME_LABELS[activeScheme]}
+            </div>
+            <div id="preview-legend-content">
             {descriptor?.kind === 'categorical' && descriptor.items.map((item) => {
               const enabled = visibility[item.id] !== false;
               return (
@@ -139,12 +141,13 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
               <div className="flex justify-between text-[0.65rem] text-muted-foreground"><span>{formatPreviewValue(descriptor.min ?? 0, descriptor.unit)}</span><span>{formatPreviewValue(descriptor.max ?? 0, descriptor.unit)}</span></div>
             </>}
             {!descriptor && <div className="text-xs text-muted-foreground">No data for this scheme</div>}
-          </CollapsibleContent>
-        </Collapsible>
-        <PreviewInspectionPanel data={data} />
-        <Button variant={preview.showTravel ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.showTravel} data-testid="preview-travel-toggle" onClick={() => setShowTravel(!preview.showTravel)}>{preview.showTravel ? 'Hide travel' : 'Show travel'}</Button>
-        <Button variant={preview.dimPreviousLayers ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.dimPreviousLayers} data-testid="preview-dimming-toggle" onClick={() => setDimPreviousLayers(!preview.dimPreviousLayers)}>{preview.dimPreviousLayers ? 'Dim previous layers' : 'Show layers equally'}</Button>
-      </aside>
+            </div>
+          </div>
+          <PreviewInspectionPanel data={data} />
+          <Button variant={preview.showTravel ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.showTravel} data-testid="preview-travel-toggle" onClick={() => setShowTravel(!preview.showTravel)}>{preview.showTravel ? 'Hide travel' : 'Show travel'}</Button>
+          <Button variant={preview.dimPreviousLayers ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.dimPreviousLayers} data-testid="preview-dimming-toggle" onClick={() => setDimPreviousLayers(!preview.dimPreviousLayers)}>{preview.dimPreviousLayers ? 'Dim previous layers' : 'Show layers equally'}</Button>
+        </CollapsibleContent>
+      </Collapsible>
       <div ref={layerRangeFrameRef} data-testid="preview-layer-range" onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; adjustLayerEndWithWheel(step); }} className="pointer-events-auto absolute right-2 top-1/2 z-30 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <Label className="sr-only">Visible layer range</Label>
         <div data-testid="layer-scrubber" className="relative h-full w-6">

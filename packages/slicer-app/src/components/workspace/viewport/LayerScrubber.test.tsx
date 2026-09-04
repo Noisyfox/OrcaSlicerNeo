@@ -243,22 +243,27 @@ describe('LayerScrubber preview controls', () => {
     expect(container.querySelector('[data-testid="preview-feature-visibility-1"]')).toBeTruthy();
   });
 
-  it('collapses and re-expands legend entries from the scheme header', async () => {
+  it('collapses and re-expands the entire preview controls panel from the Preview header', async () => {
     useSlicerStore.getState().setPreviewBounds(1, 1, 1);
     const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     await act(async () => { root?.render(<LayerScrubber data={data} />); });
 
-    const header = container.querySelector('[data-testid="preview-legend-header"]') as HTMLButtonElement;
+    const header = container.querySelector('[data-testid="preview-controls-header"]') as HTMLButtonElement;
+    const content = container.querySelector('#preview-controls-content') as HTMLElement;
     const entry = () => container.querySelector('[data-testid="preview-feature-visibility-1"]');
     expect(header.getAttribute('aria-expanded')).toBe('true');
+    expect(content.hidden).toBe(false);
+    expect(container.querySelector('[data-testid="preview-color-scheme"]')).toBeTruthy();
     expect(entry()).toBeTruthy();
 
     await act(async () => { header.click(); });
     expect(header.getAttribute('aria-expanded')).toBe('false');
-    expect(entry()).toBeNull();
+    expect(content.hasAttribute('data-closed')).toBe(true);
 
     await act(async () => { header.click(); });
     expect(header.getAttribute('aria-expanded')).toBe('true');
+    const reopenedContent = container.querySelector('#preview-controls-content') as HTMLElement;
+    expect(reopenedContent.hasAttribute('data-closed')).toBe(false);
     expect(entry()).toBeTruthy();
   });
 });
