@@ -155,13 +155,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   type PresetFixture = {
     name: string; is_visible: boolean; is_default: boolean;
     vendor_id: string; model: string; variant: string;
+    printable_area?: Array<[number, number]>;
     compatible_printers?: string[];
     compatible_prints?: string[];
   };
   const presetFixtures: Record<PresetKind, PresetFixture[]> = {
     printer: [
-      { name: 'Bambu Lab X1 Carbon 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'X1 Carbon', variant: '0.4' },
-      { name: 'Bambu Lab P1S 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'P1S', variant: '0.4' },
+      { name: 'Bambu Lab X1 Carbon 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'X1 Carbon', variant: '0.4', printable_area: [[0, 0], [220, 0], [220, 220], [0, 220]] },
+      { name: 'Bambu Lab P1S 0.4 nozzle', is_visible: true, is_default: false, vendor_id: 'bambulab', model: 'P1S', variant: '0.4', printable_area: [[0, 0], [256, 0], [256, 256], [0, 256]] },
       { name: 'Afinia H+1(HS)', is_visible: false, is_default: false, vendor_id: 'afinia', model: 'H+1(HS)', variant: '0.4' },
     ],
     print: [
@@ -216,6 +217,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       printer: selectedEntry('printer'),
       print: selectedEntry('print'),
       filament: selectedEntry('filament'),
+      printable_area: presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area
+        ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
     };
   }
 

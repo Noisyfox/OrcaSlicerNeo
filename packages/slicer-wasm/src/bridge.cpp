@@ -563,6 +563,20 @@ json preset_selection_json(const PresetCollection& collection) {
                 {"idx", collection.get_selected_idx()}};
 }
 
+json selected_printer_printable_area_json() {
+    json points = json::array();
+    const Preset& printer = state().presets.printers.get_selected_preset();
+    const ConfigOptionPoints* area = printer.config.opt<ConfigOptionPoints>("printable_area");
+    if (area == nullptr || area->values.size() < 3)
+        return points;
+    for (const Vec2d& point : area->values) {
+        if (!std::isfinite(point.x()) || !std::isfinite(point.y()))
+            return json::array();
+        points.push_back({point.x(), point.y()});
+    }
+    return points;
+}
+
 // This is emitted only after the caller has completed any native compatibility
 // recalculation and fallback. It is intentionally the only picker-state read:
 // callers must not compose a UI state from separate collection reads.
@@ -573,7 +587,8 @@ json preset_snapshot_json() {
                 {"filaments", preset_candidates_json(state().presets.filaments, true)},
                 {"printer", preset_selection_json(state().presets.printers)},
                 {"print", preset_selection_json(state().presets.prints)},
-                {"filament", preset_selection_json(state().presets.filaments)}};
+                {"filament", preset_selection_json(state().presets.filaments)},
+                {"printable_area", selected_printer_printable_area_json()}};
 }
 
 // Shared initialization body. The incoming JSON is ignored legacy input.

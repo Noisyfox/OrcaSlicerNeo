@@ -1,29 +1,89 @@
 // packages/slicer-app/src/components/viewport/BedPlate.tsx
 import * as THREE from 'three';
+import { useMemo } from 'react';
 import { Grid } from '@react-three/drei';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 
 export const BED_SIZE = 220;
+export const DEFAULT_PRINTABLE_AREA: Array<[number, number]> = [
+  [0, 0], [BED_SIZE, 0], [BED_SIZE, BED_SIZE], [0, BED_SIZE],
+];
+
+export interface PrintableAreaBounds {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+  width: number;
+  depth: number;
+  centerX: number;
+  centerY: number;
+}
+
+export function normalizePrintableArea(points: unknown): Array<[number, number]> {
+  if (!Array.isArray(points) || points.length < 3 || points.some((point) => (
+    !Array.isArray(point)
+      || point.length < 2
+      || typeof point[0] !== 'number'
+      || typeof point[1] !== 'number'
+      || !Number.isFinite(point[0])
+      || !Number.isFinite(point[1])
+  ))) {
+    return DEFAULT_PRINTABLE_AREA;
+  }
+  return points as Array<[number, number]>;
+}
+
+export function getPrintableAreaBounds(points: Array<[number, number]>): PrintableAreaBounds {
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const maxX = Math.max(...xs);
+  const maxY = Math.max(...ys);
+  return {
+    minX, minY, maxX, maxY,
+    width: Math.max(maxX - minX, 1),
+    depth: Math.max(maxY - minY, 1),
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2,
+  };
+}
+
 const participateInPointerRaycast = () => {};
 const GROUND_Z = -0.04;
 const GROUND_Z_GRID = -0.26;
 const GROUND_Z_BED = -0.41 + GROUND_Z;
 
 export function BedPlate() {
+  const printableArea = useSettingsStore((state) => state.printableArea);
+  const area = useMemo(() => normalizePrintableArea(printableArea), [printableArea]);
+  const bounds = useMemo(() => getPrintableAreaBounds(area), [area]);
+  const shape = useMemo(() => {
+    const value = new THREE.Shape();
+    area.forEach(([x, y], index) => {
+      if (index === 0) value.moveTo(x, y);
+      else value.lineTo(x, y);
+    });
+    value.closePath();
+    return value;
+  }, [area]);
+
   return (
     <group>
       {/* Slicer convention: Z up, X right, Y into screen — the bed is the XY
           plane at Z=0, so the plane geometry needs no rotation (it is born
           in XY) and all core coordinates pass through unmodified. */}
       <mesh
-        position={[BED_SIZE / 2, BED_SIZE / 2, GROUND_Z_BED]}
+        position={[0, 0, GROUND_Z_BED]}
         userData={{ orcaRaycastRole: BUILD_PLATE_RAYCAST }}
         // This makes the plate available to the canvas intersection filter.
         // It has no pointer behavior of its own; the filter removes it after
         // using its nearest hit to suppress occluded model-body hits.
         onPointerMove={participateInPointerRaycast}
       >
-        <planeGeometry args={[BED_SIZE, BED_SIZE]} />
+        <shapeGeometry args={[shape]} />
         <meshStandardMaterial color="#1e293b" roughness={0.9} />
       </mesh>
       {/* drei's Grid is a GROUND grid: its vertex shader swizzles to local
@@ -34,9 +94,9 @@ export function BedPlate() {
           rendered from steep top-down angles). DoubleSide renders from
           every view above the bed. */}
       <Grid
-        position={[BED_SIZE / 2, BED_SIZE / 2, GROUND_Z_GRID]}
+        position={[bounds.centerX, bounds.centerY, GROUND_Z_GRID]}
         rotation={[-Math.PI / 2, 0, 0]}
-        args={[BED_SIZE, BED_SIZE]}
+        args={[bounds.width, bounds.depth]}
         side={THREE.DoubleSide}
         cellSize={10}
         cellThickness={0.5}

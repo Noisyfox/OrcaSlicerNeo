@@ -63,7 +63,7 @@ function check(label, cond, detail = '') {
 // wasm64: every C param needs a value — orc_init's app_config_json arg
 // gets an empty string (null-ish → fresh config), never zero args
 // (undefined → BigInt conversion TypeError in the wasm64 wrapper).
-const init = callJson('orc_init', ['string'], ['']);
+const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
 check('orc_init ok', init.ok === true, JSON.stringify(init));
 check('init has printers', init.printers > 0, `printers=${init.printers}`);
 
@@ -96,6 +96,11 @@ check('orc_get_preset_snapshot returns coherent picker candidates',
       && snapshotHasSelection(snapshot, 'print')
       && snapshotHasSelection(snapshot, 'filament'),
       JSON.stringify({ printer: snapshot.printer, print: snapshot.print, filament: snapshot.filament }));
+check('preset snapshot carries the selected printer build plate',
+      Array.isArray(snapshot.printable_area) && snapshot.printable_area.length >= 3
+      && snapshot.printable_area.every((point) => Array.isArray(point)
+        && point.length >= 2 && point.every((value) => Number.isFinite(value))),
+      JSON.stringify(snapshot.printable_area));
 // Select a different visible printer and then process.  Their returned
 // snapshots prove that the bridge runs Orca's printer -> process -> filament
 // and process -> filament compatibility/fallback chains before responding.

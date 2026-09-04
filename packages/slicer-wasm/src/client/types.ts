@@ -79,6 +79,8 @@ export interface PresetSnapshot {
   printer: PresetSelection;
   print: PresetSelection;
   filament: PresetSelection;
+  /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
+  printable_area?: Array<[number, number]>;
 }
 
 /** A bridge rejection has no partial snapshot and leaves engine state unchanged. */

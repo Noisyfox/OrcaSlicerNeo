@@ -16,6 +16,8 @@ interface SettingsState {
   selectedPrinter: string;
   selectedPrint: string;
   selectedFilament: string;
+  /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
+  printableArea: Array<[number, number]>;
   values: Record<string, string>;
   modelLoaded: boolean;
   /** Advances on every successful add or clear so repeated adds reload the viewport. */
@@ -40,6 +42,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   selectedPrinter: '',
   selectedPrint: '',
   selectedFilament: '',
+  printableArea: [[0, 0], [220, 0], [220, 220], [0, 220]],
   values: {},
   modelLoaded: false,
   modelRevision: 0,
@@ -51,6 +54,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     selectedPrinter: snapshot.printer.name,
     selectedPrint: snapshot.print.name,
     selectedFilament: snapshot.filament.name,
+    printableArea: snapshot.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
     // A system preset transition replaces the base configuration. Temporary
     // renderer overrides belong to the previous combination and must not leak
     // into the next slice.

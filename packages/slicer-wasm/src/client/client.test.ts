@@ -41,6 +41,7 @@ describe('SlicerClient bridge contract', () => {
     expect(snapshot.printer.name).toBe('Bambu Lab X1 Carbon 0.4 nozzle');
     expect(snapshot.print.name).toBe('0.20mm Standard @BBL X1C');
     expect(snapshot.filament.name).toBe('Bambu PLA Basic @BBL X1C');
+    expect(snapshot.printable_area).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
   });
 
   it('selectPreset returns the resolved printer-to-process-to-filament snapshot', async () => {
@@ -56,6 +57,7 @@ describe('SlicerClient bridge contract', () => {
       'Bambu PLA Basic @BBL P1S',
       'Generic PLA @System',
     ]);
+    expect(r.printable_area).toEqual([[0, 0], [256, 0], [256, 256], [0, 256]]);
   });
 
   it('selecting a process refreshes its dependent filament candidates and fallbacks', async () => {

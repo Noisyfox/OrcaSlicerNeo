@@ -44,6 +44,7 @@ describe('useSettingsStore', () => {
     expect(state.prints).toBe(bootSnapshot.prints);
     expect(state.filaments).toBe(bootSnapshot.filaments);
     expect([state.selectedPrinter, state.selectedPrint, state.selectedFilament]).toEqual(['P', 'Q', 'F']);
+    expect(state.printableArea).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
     expect(state.values).toEqual({});
   });
 });

@@ -1,9 +1,9 @@
 // packages/slicer-app/src/components/viewport/Viewport.tsx
-import { Component, useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import * as THREE from 'three';
-import { Canvas, events as createPointerEvents, useFrame, type RootState } from '@react-three/fiber';
+import { Canvas, events as createPointerEvents, useFrame, useThree, type RootState } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport, Stats } from '@react-three/drei';
-import { BED_SIZE } from './BedPlate';
+import { BED_SIZE, getPrintableAreaBounds, normalizePrintableArea, type PrintableAreaBounds } from './BedPlate';
 import { Scene } from './Scene';
 import { LayerScrubber } from './LayerScrubber';
 import { GizmoToolbar } from './GizmoToolbar';
@@ -16,19 +16,17 @@ import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { deleteSelection } from '../actions/deleteSelection';
 import { isPrepareTab, isPreviewTab } from '../../layout/appTabs';
 import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus } from './previewSemantics';
 import { GcodeTextWindow } from './GcodeTextWindow';
 
-// Launch camera: look at the plate center (the bed spans [0, BED_SIZE]² in
-// XY with Z up), with the plate at 45° to the screen plane and its X axis
-// horizontal. For the plate plane (XY, normal Z) to make 45° with the screen
-// plane, the view direction sits at 45° elevation — f ∝ (0, 1, -1) from the
-// front −Y octant — and with camera up = Z the screen-right vector is
-// f × up ∝ (1, 0, 0), so X is exactly horizontal and points right.
-const CAMERA_TARGET: [number, number, number] = [BED_SIZE / 2, BED_SIZE / 2, 0];
+// Launch camera: look at the plate center with the plate at 45° to the screen
+// plane and its X axis horizontal. The initial values use the fallback plate;
+// CameraFraming below reapplies the same framing for the selected profile.
 const CAMERA_DISTANCE = 450;
+const CAMERA_DISTANCE_PER_BED_MM = CAMERA_DISTANCE / BED_SIZE;
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [
   BED_SIZE / 2,
   BED_SIZE / 2 - CAMERA_DISTANCE / Math.SQRT2,
@@ -73,6 +71,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
 }) {
   const platform = usePlatform();
+  const printableArea = useSettingsStore((s) => s.printableArea);
+  const bedBounds = useMemo(
+    () => getPrintableAreaBounds(normalizePrintableArea(printableArea)),
+    [printableArea],
+  );
   const slicing = useSlicerStore((s) => s.status === 'slicing');
   const previewTab = isPreviewTab(activeTab);
   const prepareTab = isPrepareTab(activeTab);
@@ -366,7 +369,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
             // main.tsx before the Canvas mounts — so no per-camera up wiring
             // here. The launch view looks at the plate center with X horizontal
             // and the plate at 45° to the screen plane (DEFAULT_CAMERA_POSITION
-            // above); the OrbitControls target below keeps that framing.
+            // above); CameraFraming below keeps that framing in sync with the
+            // active printer profile.
             // OrbitControls in three r185 takes its orbit axis from camera.up.
             camera={{ position: DEFAULT_CAMERA_POSITION, fov: 45 }}
             dpr={[1, 2]}
@@ -395,7 +399,6 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
             <OrbitControls
               makeDefault
               enableDamping
-              target={CAMERA_TARGET}
               // LEFT = orbit, MIDDLE = pan, RIGHT = pan, wheel = zoom — the
               // upstream OrcaSlicer drag defaults (see AppConfig.cpp
               // `*_mouse_drag_action`). Body/gizmo drags (DragControls
@@ -412,6 +415,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
               onStart={() => setCameraGestureActive(true)}
               onEnd={() => setCameraGestureActive(false)}
             />
+            <CameraFraming bounds={bedBounds} />
             {/* Orientation gizmo (X/Y/Z axes), bottom-left corner. GizmoHelper
                 renders the gizmo into an orthographic overlay (Hud portal);
                 head clicks tween the main camera to look along that axis.
@@ -430,6 +434,33 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
     </div>
   );
+}
+
+/** Keep the initial view centered and scaled to the active printer profile. */
+function CameraFraming({ bounds }: { bounds: PrintableAreaBounds }) {
+  const camera = useThree((state) => state.camera);
+  const controls = useThree((state) => state.controls as unknown as {
+    target: THREE.Vector3;
+    update: () => void;
+  } | undefined);
+
+  useEffect(() => {
+    const distance = Math.max(300, Math.max(bounds.width, bounds.depth) * CAMERA_DISTANCE_PER_BED_MM);
+    const target = new THREE.Vector3(bounds.centerX, bounds.centerY, 0);
+    camera.position.set(
+      bounds.centerX,
+      bounds.centerY - distance / Math.SQRT2,
+      distance / Math.SQRT2,
+    );
+    camera.lookAt(target);
+    camera.updateProjectionMatrix();
+    if (controls) {
+      controls.target.copy(target);
+      controls.update();
+    }
+  }, [bounds, camera, controls]);
+
+  return null;
 }
 
 /** Notify Workspace after the current Prepare/Preview scene reaches the render loop. */
