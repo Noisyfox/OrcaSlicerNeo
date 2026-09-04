@@ -43,6 +43,10 @@
   the current OrcaSlicer policy.
 - The application presents the reason for that fallback. It does not request
   an additional confirmation before continuing.
+- A compatibility fallback after the user chose **Open as project** still
+  replaces the current project; it omits only the unavailable project
+  settings. Geometry is appended only when the user explicitly chose
+  **Import geometry only**.
 - A failed parse or cancelled operation is atomic: the current session stays
   unchanged.
 
