@@ -222,7 +222,7 @@ structure retention.
 
 Observed verification on Windows:
 
-- `pnpm test` passed (553 tests) and `pnpm typecheck` passed.
+- `pnpm test` passed (572 tests) and `pnpm typecheck` passed.
 - `scripts\\build-windows.bat quick` rebuilt/staged both variants; the existing
   `scripts\\build-windows.bat smoke` suite passed.
 - Serial self-save/reopen and all three fixture compatibility/fallback checks

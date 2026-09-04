@@ -216,7 +216,7 @@ verified as `bambu` with project settings available.
 
 Evidence currently available on Windows:
 
-- `pnpm test`: pass (8 workspace projects; 553 tests).
+- `pnpm test`: pass (8 workspace projects; 572 tests).
 - `pnpm typecheck`: pass.
 - `scripts\\build-windows.bat quick`: pass; threaded and serial artifacts
   rebuilt and staged.
