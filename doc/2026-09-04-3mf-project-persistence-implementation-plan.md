@@ -354,3 +354,24 @@ The milestone is complete only when each step's primary-agent acceptance has
 passed, the shared app remains host-independent, both real WASM variants share
 the new contract, and the compatibility verification matrix in the approved
 spec has evidence or an explicitly retained CI gate.
+
+### Step 11 — Cross-host 3MF drag/drop remediation (2026-09-04)
+
+The accepted drag/drop path uses a capturing document listener so file drops
+remain visible even when an inner object-list drop target stops propagation for
+its own text drag. External file drops are always prevented from navigating the
+document; only a file identified as 3MF by extension or known MIME type enters
+the shared Open Project action, leaving internal text-based model reordering
+unchanged. Electron resolves modern dropped `File` objects through its
+preload-owned `webUtils.getPathForFile` bridge while retaining the legacy
+`File.path` fallback; the shared contract still receives only bytes,
+displayName, and an opaque location.
+
+Verification completed on Windows:
+
+- Shared drop-filter unit tests, Electron adapter/preload tests, and shared,
+  Electron, and Web typechecks passed.
+- `pnpm --filter @orca/desktop test:e2e` — pass (28 passed; 3 intentional
+  skips), including a drop targeted at the nested object list.
+- `pnpm --filter @orca/web test:e2e:threaded` — pass (2 passed).
+- `pnpm --filter @orca/web test:e2e:serial` — pass (2 passed).

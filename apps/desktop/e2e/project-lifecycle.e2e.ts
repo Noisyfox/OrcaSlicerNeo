@@ -57,12 +57,14 @@ test('Electron picker and drop use shared project actions, and Save As writes a 
     await page.getByTestId('file-save-project-as').click();
     await expect.poll(() => existsSync(savePath)).toBe(true);
 
-    // A dropped 3MF enters the same Open Project action and therefore exposes
-    // the same Save As state, rather than taking an Add Model-only shortcut.
+    // A dropped 3MF over the object list enters the same Open Project action.
+    // The nested list intentionally stops propagation for its own text drags;
+    // this verifies an OS file drop is captured before that handler runs.
     await page.evaluate(() => {
       const transfer = new DataTransfer();
       transfer.items.add(new File([new Uint8Array([80, 75, 3, 4])], 'dropped.3mf'));
-      document.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      const target = document.querySelector('[data-testid="object-list"]') ?? document;
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
     });
     await expect(page.getByTestId('file-save-project-as')).toBeAttached();
   } finally {

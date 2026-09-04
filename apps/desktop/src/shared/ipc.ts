@@ -63,6 +63,8 @@ export interface ElectronBridge {
   readFile(path: string): Promise<ArrayBuffer>;
   writeFile(path: string, bytes: ArrayBuffer): Promise<void>;
   projects: {
+    /** Resolve an OS-dropped File in the renderer without exposing its path to shared code. */
+    getPathForFile(file: File): string;
     open(): Promise<ProjectOpenIpcResult>;
     openMany(): Promise<ProjectOpenIpcResult>;
     openDropped(paths: string[]): Promise<ProjectOpenIpcResult>;

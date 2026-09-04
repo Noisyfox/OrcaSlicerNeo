@@ -29,6 +29,7 @@ import {
 import { cancelProjectOperation, newProject, openProject, saveProject, saveProjectAs } from './projectActions';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
+import { externalDropFiles, isThreeMfDropFile } from './dropHandling';
 
 export function handleMenuKeyDown(
   event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'key' | 'shiftKey' | 'preventDefault'>,
@@ -369,12 +370,19 @@ export default function App() {
   useEffect(() => {
     if (boot !== 'ready') return;
     const onDragOver = (event: DragEvent) => {
-      if (event.dataTransfer?.files.length) event.preventDefault();
+      // Capture the browser's external-file drag before nested drop targets
+      // can claim it. Internal object/part reordering uses text/plain and has
+      // no files, so it continues through the existing row handlers.
+      if (externalDropFiles(event.dataTransfer).length) event.preventDefault();
     };
     const onDrop = (event: DragEvent) => {
-      const files = Array.from(event.dataTransfer?.files ?? []);
-      if (!files.some((file) => file.name.toLowerCase().endsWith('.3mf'))) return;
+      const files = externalDropFiles(event.dataTransfer);
+      // Never let an external file drop navigate the document. In particular,
+      // Chromium otherwise opens the dropped 3MF as a new page. Text-only
+      // drags remain untouched so the object-list reorder interaction works.
+      if (files.length === 0) return;
       event.preventDefault();
+      if (!files.some(isThreeMfDropFile)) return;
       void (async () => {
         try {
           const dropped = platform.projects.openDropped
@@ -394,9 +402,12 @@ export default function App() {
         }
       })();
     };
-    document.addEventListener('dragover', onDragOver);
-    document.addEventListener('drop', onDrop);
-    return () => { document.removeEventListener('dragover', onDragOver); document.removeEventListener('drop', onDrop); };
+    // Use capture: object-list rows intentionally stop propagation for their
+    // own text drags, but an OS file dropped over one of those rows must still
+    // enter the shared Open Project flow.
+    document.addEventListener('dragover', onDragOver, true);
+    document.addEventListener('drop', onDrop, true);
+    return () => { document.removeEventListener('dragover', onDragOver, true); document.removeEventListener('drop', onDrop, true); };
   }, [boot, chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
 
   // Keep the shared application inert until the worker has initialized the

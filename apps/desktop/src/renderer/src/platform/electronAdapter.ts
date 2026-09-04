@@ -82,8 +82,17 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     },
     async openDropped(files: readonly ProjectDropFile[]): Promise<ProjectOpenBatchResult> {
       try {
-        const paths = files.map((file) => (file as ProjectDropFile & { path?: unknown }).path).filter((path): path is string => typeof path === 'string' && path.length > 0);
-        if (paths.length === files.length) {
+        const paths = files.map((file) => {
+          const legacyPath = (file as ProjectDropFile & { path?: unknown }).path;
+          if (typeof legacyPath === 'string' && legacyPath.length > 0) return legacyPath;
+          try {
+            const path = host.projects.getPathForFile(file as unknown as File);
+            return typeof path === 'string' && path.length > 0 ? path : null;
+          } catch {
+            return null;
+          }
+        });
+        if (paths.every((path): path is string => path !== null)) {
           const result = await host.projects.openDropped(paths);
           if (result.canceled) return { status: 'cancelled' };
           if (result.files) return { status: 'ok', inputs: result.files.map((file) => ({ displayName: file.displayName, bytes: new Uint8Array(file.bytes), location: createProjectLocation(file.locationToken) })) };

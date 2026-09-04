@@ -8,6 +8,7 @@ const electronMocks = vi.hoisted(() => ({
   send: vi.fn(),
   on: vi.fn(),
   removeListener: vi.fn(),
+  getPathForFile: vi.fn(() => 'C:\\drop\\scene.3mf'),
 }));
 
 vi.mock('electron', () => ({
@@ -18,6 +19,7 @@ vi.mock('electron', () => ({
     on: electronMocks.on,
     removeListener: electronMocks.removeListener,
   },
+  webUtils: { getPathForFile: electronMocks.getPathForFile },
 }));
 
 await import('./index');
@@ -124,6 +126,13 @@ describe('Electron preload bridge', () => {
     expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.projectSave, 'opaque-token', 'scene.3mf', expect.any(ArrayBuffer));
     expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.projectSaveAs, 'scene.3mf', expect.any(ArrayBuffer));
     expect(bridge.projects).not.toHaveProperty('readFile');
+  });
+
+  it('forwards modern dropped-file path resolution only through the host bridge', () => {
+    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
+    const file = {} as File;
+    expect(bridge.projects.getPathForFile(file)).toBe('C:\\drop\\scene.3mf');
+    expect(electronMocks.getPathForFile).toHaveBeenCalledWith(file);
   });
 
   it('exposes close requests as a narrow lifecycle bridge', async () => {

@@ -144,6 +144,16 @@ describe('Electron adapter', () => {
     expect(result?.status === 'ok' && result.inputs[0]?.location).toBeDefined();
   });
 
+  it('resolves modern Electron dropped files through webUtils when File.path is absent', async () => {
+    const getPathForFile = vi.fn(() => 'C:\\drop\\modern.3mf');
+    const openDropped = vi.fn(async () => ({ canceled: false, locationToken: 'drop-token', displayName: 'modern.3mf', bytes: Uint8Array.from([9]).buffer, files: [{ locationToken: 'drop-token', displayName: 'modern.3mf', bytes: Uint8Array.from([9]).buffer }] }));
+    const { adapter } = setup({ projects: { open: vi.fn(), openMany: vi.fn(), getPathForFile, openDropped, save: vi.fn(), saveAs: vi.fn() } });
+    const file = { name: 'modern.3mf', arrayBuffer: async () => Uint8Array.from([9]).buffer };
+    await adapter.projects.openDropped?.([file]);
+    expect(getPathForFile).toHaveBeenCalledWith(file);
+    expect(openDropped).toHaveBeenCalledWith(['C:\\drop\\modern.3mf']);
+  });
+
   it('resolves packaged profile assets from the renderer root', async () => {
     const previousDocument = globalThis.document;
     Object.defineProperty(globalThis, 'document', {

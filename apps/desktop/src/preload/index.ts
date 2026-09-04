@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import {
   Ipc,
   isMenuCommandId,
@@ -33,6 +33,7 @@ const bridge: ElectronBridge = {
     ipcRenderer.invoke(Ipc.writeFile, path, bytes) as Promise<void>,
 
   projects: {
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
     open: () => ipcRenderer.invoke(Ipc.projectOpen) as Promise<import('../shared/ipc').ProjectOpenIpcResult>,
     openMany: () => ipcRenderer.invoke(Ipc.projectOpen) as Promise<import('../shared/ipc').ProjectOpenIpcResult>,
     openDropped: (paths) => ipcRenderer.invoke(Ipc.projectOpenDropped, paths) as Promise<import('../shared/ipc').ProjectOpenIpcResult>,
