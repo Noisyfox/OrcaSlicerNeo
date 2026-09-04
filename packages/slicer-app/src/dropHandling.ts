@@ -18,3 +18,28 @@ export function isThreeMfDropFile(file: Pick<File, 'name' | 'type'>): boolean {
 export function externalDropFiles(dataTransfer: DataTransfer | null | undefined): File[] {
   return Array.from(dataTransfer?.files ?? []);
 }
+
+/** Install shared external-file listeners at capture phase. */
+export function registerProjectDropHandlers(
+  target: Pick<Document, 'addEventListener' | 'removeEventListener'>,
+  onProjectDrop: (files: File[]) => void | Promise<void>,
+): () => void {
+  const onDragOver = (event: DragEvent) => {
+    if (externalDropFiles(event.dataTransfer).length) event.preventDefault();
+  };
+  const onDrop = (event: DragEvent) => {
+    const files = externalDropFiles(event.dataTransfer);
+    // Prevent Chromium from opening an external file as a new document. A
+    // text-only application drag has no files and remains untouched.
+    if (files.length === 0) return;
+    event.preventDefault();
+    if (!files.some(isThreeMfDropFile)) return;
+    void onProjectDrop(files);
+  };
+  target.addEventListener('dragover', onDragOver, true);
+  target.addEventListener('drop', onDrop, true);
+  return () => {
+    target.removeEventListener('dragover', onDragOver, true);
+    target.removeEventListener('drop', onDrop, true);
+  };
+}

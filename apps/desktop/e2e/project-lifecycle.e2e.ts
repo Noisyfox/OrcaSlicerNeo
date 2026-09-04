@@ -46,7 +46,7 @@ async function makeDirty(page: Page): Promise<void> {
 }
 
 test('Electron picker and drop use shared project actions, and Save As writes a project', async () => {
-  const { app, savePath } = await launchProjectApp();
+  const { app, projectPath, savePath } = await launchProjectApp();
   try {
     const page = await app.firstWindow();
     await ready(page);
@@ -60,13 +60,21 @@ test('Electron picker and drop use shared project actions, and Save As writes a 
     // A dropped 3MF over the object list enters the same Open Project action.
     // The nested list intentionally stops propagation for its own text drags;
     // this verifies an OS file drop is captured before that handler runs.
-    await page.evaluate(() => {
+    await page.evaluate((path) => {
       const transfer = new DataTransfer();
-      transfer.items.add(new File([new Uint8Array([80, 75, 3, 4])], 'dropped.3mf'));
+      const file = new File([new Uint8Array([80, 75, 3, 4])], 'dropped.3mf');
+      // Exercise Electron's native dropped-file path forwarding as well as
+      // the capture listener. Real OS files carry this private property.
+      Object.defineProperty(file, 'path', { value: path });
+      transfer.items.add(file);
       const target = document.querySelector('[data-testid="object-list"]') ?? document;
       target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    });
-    await expect(page.getByTestId('file-save-project-as')).toBeAttached();
+    }, projectPath);
+    // Ask When Relevant is active and the opened picker project has a model,
+    // so this visible dialog proves the drop reached the shared Open action.
+    await expect(page.getByTestId('project-load-choice-dialog')).toBeVisible();
+    await page.getByTestId('project-load-cancel').click();
+    await expect(page.getByTestId('project-load-choice-dialog')).toBeHidden();
   } finally {
     await app.close();
   }

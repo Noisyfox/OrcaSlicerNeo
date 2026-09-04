@@ -29,7 +29,7 @@ import {
 import { cancelProjectOperation, newProject, openProject, saveProject, saveProjectAs } from './projectActions';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
-import { externalDropFiles, isThreeMfDropFile } from './dropHandling';
+import { registerProjectDropHandlers } from './dropHandling';
 
 export function handleMenuKeyDown(
   event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'key' | 'shiftKey' | 'preventDefault'>,
@@ -367,48 +367,29 @@ export default function App() {
   // boundary, then pass the complete batch into the shared action layer so
   // policy, choice, dirty protection, and compatibility handling are shared
   // with File > Open Project.
+  const handleDroppedProjectFiles = useCallback(async (files: File[]) => {
+    try {
+      const dropped = platform.projects.openDropped
+        ? await platform.projects.openDropped(files)
+        : { status: 'ok' as const, inputs: await Promise.all(files.map(async (file) => ({
+            displayName: file.name,
+            bytes: new Uint8Array(await file.arrayBuffer()),
+          }))) };
+      if (dropped.status === 'cancelled') return;
+      if (dropped.status === 'failed') { reportProjectFailure(dropped); return; }
+      const result = await openProject(platform, { inputs: dropped.inputs, chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten });
+      reportProjectFailure(result);
+      if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
+    } catch (error) {
+      reportProjectFailure({ status: 'failed', error });
+    }
+  }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
   useEffect(() => {
     if (boot !== 'ready') return;
-    const onDragOver = (event: DragEvent) => {
-      // Capture the browser's external-file drag before nested drop targets
-      // can claim it. Internal object/part reordering uses text/plain and has
-      // no files, so it continues through the existing row handlers.
-      if (externalDropFiles(event.dataTransfer).length) event.preventDefault();
-    };
-    const onDrop = (event: DragEvent) => {
-      const files = externalDropFiles(event.dataTransfer);
-      // Never let an external file drop navigate the document. In particular,
-      // Chromium otherwise opens the dropped 3MF as a new page. Text-only
-      // drags remain untouched so the object-list reorder interaction works.
-      if (files.length === 0) return;
-      event.preventDefault();
-      if (!files.some(isThreeMfDropFile)) return;
-      void (async () => {
-        try {
-          const dropped = platform.projects.openDropped
-            ? await platform.projects.openDropped(files)
-            : { status: 'ok' as const, inputs: await Promise.all(files.map(async (file) => ({
-              displayName: file.name,
-              bytes: new Uint8Array(await file.arrayBuffer()),
-            }))) };
-          if (dropped.status === 'cancelled') return;
-          if (dropped.status === 'failed') { reportProjectFailure(dropped); return; }
-          const inputs = dropped.inputs;
-          const result = await openProject(platform, { inputs, chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten });
-          reportProjectFailure(result);
-          if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
-        } catch (error) {
-          reportProjectFailure({ status: 'failed', error });
-        }
-      })();
-    };
-    // Use capture: object-list rows intentionally stop propagation for their
-    // own text drags, but an OS file dropped over one of those rows must still
-    // enter the shared Open Project flow.
-    document.addEventListener('dragover', onDragOver, true);
-    document.addEventListener('drop', onDrop, true);
-    return () => { document.removeEventListener('dragover', onDragOver, true); document.removeEventListener('drop', onDrop, true); };
-  }, [boot, chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
+    // Capture file drops before nested object-list handlers can stop
+    // propagation for their own text-based reorder gestures.
+    return registerProjectDropHandlers(document, handleDroppedProjectFiles);
+  }, [boot, handleDroppedProjectFiles]);
 
   // Keep the shared application inert until the worker has initialized the
   // core and every profile package has been installed. This is intentionally

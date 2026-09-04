@@ -14,6 +14,12 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
       if (url !== undefined) opened.push(String(url));
       return null;
     }) as typeof window.open;
+    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+      version: 1,
+      projectLoadBehaviour: 'always_ask',
+      selectedProfiles: {},
+      ui: {},
+    }));
   });
   page.on('console', (msg) => console.log(`[browser:${msg.type()}] ${msg.text()}`));
   page.on('pageerror', (error) => console.log(`[browser:error] ${String(error)}`));
@@ -31,6 +37,19 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   }
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+  // A file drop over the nested object list must reach the shared Open
+  // Project action even though that target stops propagation for text drags.
+  const urlBeforeDrop = page.url();
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array([80, 75, 3, 4])], 'dropped.3mf'));
+    const target = document.querySelector('[data-testid="object-list"]') ?? document;
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await expect(page.getByTestId('project-load-choice-dialog')).toBeVisible();
+  expect(page.url()).toBe(urlBeforeDrop);
+  await page.getByTestId('project-load-cancel').click();
+  await expect(page.getByTestId('project-load-choice-dialog')).toBeHidden();
   await expect(page.getByTestId('titlebar-menu')).toBeVisible();
   await expect(page.getByTestId('menu-file-trigger')).toBeVisible();
   await expect(page.getByTestId('menu-help-trigger')).toBeVisible();

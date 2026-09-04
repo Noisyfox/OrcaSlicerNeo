@@ -369,9 +369,16 @@ displayName, and an opaque location.
 
 Verification completed on Windows:
 
-- Shared drop-filter unit tests, Electron adapter/preload tests, and shared,
-  Electron, and Web typechecks passed.
-- `pnpm --filter @orca/desktop test:e2e` — pass (28 passed; 3 intentional
-  skips), including a drop targeted at the nested object list.
-- `pnpm --filter @orca/web test:e2e:threaded` — pass (2 passed).
-- `pnpm --filter @orca/web test:e2e:serial` — pass (2 passed).
+- Shared jsdom drop tests now dispatch a 3MF onto a nested target that stops
+  propagation and assert the callback/openDropped path, browser-navigation
+  prevention for non-3MF files, and unchanged text-only internal drags.
+  Electron adapter/preload tests and shared, Electron, and Web typechecks
+  passed.
+- `pnpm --filter @orca/desktop exec playwright test --config playwright.config.ts e2e/project-lifecycle.e2e.ts` — pass (2 passed), with the drop carrying
+  a native path and asserting the visible shared load-choice dialog before
+  cancelling.
+- `pnpm --filter @orca/web test:e2e:threaded` — pass (2 passed), including an
+  object-list 3MF drop that opens and cancels the shared load-choice dialog
+  without changing the URL.
+- `pnpm --filter @orca/web test:e2e:serial` — pass (2 passed), including the
+  same observable drop assertion.
