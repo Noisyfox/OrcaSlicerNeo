@@ -344,8 +344,9 @@ Release-gate evidence:
 - `pnpm --filter @orca/web test:e2e:serial` — pass (2 passed, rerun sequentially after an invalid concurrent port-sharing attempt).
 
 No product code changed during Step 9. The milestone is released with the
-approved compatibility and cross-host evidence; the existing unrelated dirty
-`packages/slicer-wasm/cpp` submodule remains untouched.
+approved compatibility and cross-host evidence; `packages/slicer-wasm/cpp`
+currently reflects build-time reapplication of patches 0001–0008 after the
+requested reset, and the submodule is not included in this docs-only commit.
 
 ## Completion criteria
 
