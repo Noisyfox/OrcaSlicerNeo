@@ -259,6 +259,26 @@ artifact after a dual-variant quick build.  Serial project harnesses and typed
 client tests remain green.  Any C++ change follows the WASM patch/bridge rules
 and does not modify the upstream submodule.
 
+**Step 7 running record (2026-09-04):** The abort was reproduced after the
+geometry-only `load_bbs_3mf` call returned.  The temporary candidate `Model`
+had lazily created a backup path; its destructor then entered upstream
+`_BBS_Backup_Manager::remove_backup`, which constructs a process-lifetime
+`boost::thread`.  That native manager is outside the synchronous WASM bridge
+contract and leaves the threaded Node harness stuck during candidate cleanup.
+The accepted WASM boundary for this step is that backup/restore functionality
+is not provided by either WASM variant.  Patch `0008` conditionally excludes
+the complete upstream manager and its backup entry points from the build, and
+`stubs/backup-manager-stub.cpp` supplies ABI-compatible no-op functions while
+retaining direct temporary-path cleanup in `remove_backup`.  No upstream
+submodule source was edited by hand; serial and threaded builds use the same
+stub boundary.  The full build path applies the patch during configure, and
+the incremental `scripts/build-windows.bat quick` / `scripts/build.sh quick`
+paths now re-apply it before Ninja so neither variant can silently compile the
+upstream manager.  The round-trip harness now follows geometry-only import with
+`orc_get_model_structure` to cover post-destruction bridge liveness.  This is a
+Step 7 implementation record only; the overall milestone is not declared
+released here.
+
 ### Step 8 — Real Web project release E2E completion
 
 **Functional boundary:** Repair the layer-scrubber Playwright assertion so it

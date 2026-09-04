@@ -93,6 +93,13 @@ if (opts['check-geometry'] === 'true') {
   Module._free(geometryPtr);
   check('geometry-only BBS import', geometry.ok === true && geometry.mode === 'geometry-only',
         JSON.stringify(geometry));
+  // The native candidate is destroyed after this call.  Keep a follow-up
+  // bridge call in the regression sequence so a threaded load cannot leave a
+  // backup-manager/lifetime worker or otherwise poison the next request.
+  const geometryFollowup = callJson('orc_get_model_structure', [], []);
+  check('geometry-only cleanup keeps bridge callable',
+        geometryFollowup.ok === true && geometryFollowup.objects?.length === 1,
+        JSON.stringify(geometryFollowup));
   callJson('orc_clear_model', [], []);
 }
 

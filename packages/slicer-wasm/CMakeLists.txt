@@ -50,6 +50,11 @@ if(WASM_THREADING)
 else()
   message(STATUS "WASM threading: serial TBB shim (explicit fallback)")
 endif()
+# The upstream BBS backup manager starts a native boost::thread and is not
+# part of the synchronous WASM bridge contract. Its complete implementation
+# is excluded by patch 0008 for both WASM variants; the ABI-compatible no-op
+# entry points live in stubs/backup-manager-stub.cpp.
+add_compile_definitions(ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER=1)
 if(WASM_DEBUG)
   message(STATUS "WASM debug: libslic3r + bridge at -g -O0 (embedded DWARF); deps stay -O3 without debug info")
 endif()

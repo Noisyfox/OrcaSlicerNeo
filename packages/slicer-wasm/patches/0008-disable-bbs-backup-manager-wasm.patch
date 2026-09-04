@@ -1,0 +1,32 @@
+diff --git a/src/libslic3r/Format/bbs_3mf.cpp b/src/libslic3r/Format/bbs_3mf.cpp
+--- a/src/libslic3r/Format/bbs_3mf.cpp
++++ b/src/libslic3r/Format/bbs_3mf.cpp
+@@ -8745,5 +8745,6 @@
+ }
+
+ // backup backgroud thread to dispatch tasks and coperate with ui thread
++#ifndef ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER
+ class _BBS_Backup_Manager
+ {
+@@ -9104,5 +9105,6 @@
+     boost::thread m_thread;
+ };
+
++#endif // ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER
+
+ //BBS: add plate data list related logic
+@@ -9170,5 +9171,6 @@
+ }
+
+ // backup interface
+
++#ifndef ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER
+ void save_object_mesh(ModelObject& object)
+@@ -9267,5 +9268,6 @@
+ SaveObjectGaurd::~SaveObjectGaurd()
+ {
+     _BBS_Backup_Manager::get().pop_object_gaurd();
+ }
++#endif // ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER
+
+ namespace{
