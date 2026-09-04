@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDownIcon } from 'lucide-react';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
@@ -104,20 +105,26 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
             </SelectContent>
           </Select>
         </div>
-        <div data-testid="preview-legend" className="space-y-1">
-          <Button
-            variant="ghost"
-            size="xs"
-            aria-expanded={legendExpanded}
-            aria-controls="preview-legend-content"
-            data-testid="preview-legend-header"
-            onClick={() => setLegendExpanded((expanded) => !expanded)}
-            className="h-auto w-full justify-between rounded px-1 py-1 text-left text-[0.65rem] uppercase tracking-wide text-muted-foreground hover:bg-muted/50"
+        <Collapsible
+          open={legendExpanded}
+          onOpenChange={setLegendExpanded}
+          data-testid="preview-legend"
+          className="space-y-1"
+        >
+          <CollapsibleTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="xs"
+                data-testid="preview-legend-header"
+                className="h-auto w-full justify-between rounded px-1 py-1 text-left text-[0.65rem] uppercase tracking-wide text-muted-foreground hover:bg-muted/50"
+              />
+            }
           >
             <span>{descriptor?.label ?? PREVIEW_SCHEME_LABELS[activeScheme]}</span>
-            <ChevronDownIcon className={`size-3 transition-transform ${legendExpanded ? '' : '-rotate-90'}`} aria-hidden="true" />
-          </Button>
-          {legendExpanded && <div id="preview-legend-content">
+            <ChevronDownIcon className="size-3 transition-transform group-aria-expanded/button:rotate-0 group-not-aria-expanded/button:-rotate-90" aria-hidden="true" />
+          </CollapsibleTrigger>
+          <CollapsibleContent id="preview-legend-content">
             {descriptor?.kind === 'categorical' && descriptor.items.map((item) => {
               const enabled = visibility[item.id] !== false;
               return (
@@ -132,8 +139,8 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
               <div className="flex justify-between text-[0.65rem] text-muted-foreground"><span>{formatPreviewValue(descriptor.min ?? 0, descriptor.unit)}</span><span>{formatPreviewValue(descriptor.max ?? 0, descriptor.unit)}</span></div>
             </>}
             {!descriptor && <div className="text-xs text-muted-foreground">No data for this scheme</div>}
-          </div>}
-        </div>
+          </CollapsibleContent>
+        </Collapsible>
         <PreviewInspectionPanel data={data} />
         <Button variant={preview.showTravel ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.showTravel} data-testid="preview-travel-toggle" onClick={() => setShowTravel(!preview.showTravel)}>{preview.showTravel ? 'Hide travel' : 'Show travel'}</Button>
         <Button variant={preview.dimPreviousLayers ? 'secondary' : 'outline'} size="sm" aria-pressed={preview.dimPreviousLayers} data-testid="preview-dimming-toggle" onClick={() => setDimPreviousLayers(!preview.dimPreviousLayers)}>{preview.dimPreviousLayers ? 'Dim previous layers' : 'Show layers equally'}</Button>
