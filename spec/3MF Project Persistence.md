@@ -60,6 +60,9 @@
 - Electron provides **Save Project** and **Save Project As…**. Save Project
   overwrites the current project file when the host has an in-memory source
   path; Save Project As… selects a new path.
+- When Electron's Save As target already exists, the native file dialog's
+  normal overwrite confirmation is used. A cancelled dialog or failed write
+  leaves the session and its dirty state unchanged.
 - The Web host provides **Save Project** as a new `.3mf` download on every
   invocation. It does not attempt to overwrite a previously downloaded file.
 - The project file path is host-private, in-memory session data. It is not
