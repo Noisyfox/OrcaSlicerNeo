@@ -18,6 +18,8 @@ import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { deleteSelection } from '../actions/deleteSelection';
 import { isPrepareTab, isPreviewTab } from '../../layout/appTabs';
+import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus } from './previewSemantics';
+import { GcodeTextWindow } from './GcodeTextWindow';
 
 // Launch camera: look at the plate center (the bed spans [0, BED_SIZE]² in
 // XY with Z up), with the plate at 45° to the screen plane and its X axis
@@ -74,6 +76,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   const slicing = useSlicerStore((s) => s.status === 'slicing');
   const previewTab = isPreviewTab(activeTab);
   const prepareTab = isPrepareTab(activeTab);
+  const previewState = useSlicerStore((s) => s.preview);
+  const setPreviewLayerEnd = useSlicerStore((s) => s.setPreviewLayerEnd);
+  const setPreviewMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
+  const setPreviewSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
+  const [showGcodeText, setShowGcodeText] = useState(false);
   // Ref is only consumed as a prop target (drei Stats `parent`), never read
   // by this component — so it can be typed without the null union, which
   // React 19's RefObject<T> = { current: T } requires for assignability.
@@ -81,6 +88,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
   const sceneStateRef = useRef<RootState | null>(null);
   const cameraGestureActiveRef = useRef(false);
+  const [cameraGestureActive, setCameraGestureActiveState] = useState(false);
   const unsubscribeSceneInteractionRef = useRef<(() => void) | null>(null);
   const boxGestureRef = useRef<{
     pointerId: number;
@@ -132,6 +140,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
 
   const setCameraGestureActive = useCallback((active: boolean) => {
     cameraGestureActiveRef.current = active;
+    setCameraGestureActiveState(active);
     updateRaycastingEnabled();
   }, [updateRaycastingEnabled]);
 
@@ -166,6 +175,41 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [platform.runtime, previewTab, sceneInteraction, slicing]);
+
+  // Preview inspection shortcuts are scoped to the viewport focus and are
+  // separate from Prepare's object-editing bindings above.
+  useEffect(() => {
+    if (!sceneInteraction || !previewTab) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!previewViewportOwnsKeyboardFocus(target, viewportRef.current, document.activeElement)) return;
+      if (!isPreviewInspectionKey(event.key)) return;
+      const step = previewKeyboardStep(event);
+      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowUp' ? step : -step;
+        const nextLayer = Math.max(0, Math.min(useSlicerStore.getState().maxLayer, previewState.visibleLayerEnd + delta));
+        setPreviewLayerEnd(nextLayer, toolpath ? maxMoveOrderForLayer(toolpath, nextLayer) : previewState.maxMove);
+        return;
+      }
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault();
+        const delta = event.key === 'ArrowRight' ? step : -step;
+        setPreviewMoveEnd(previewState.activeMoveEnd + delta);
+        return;
+      }
+      if (event.key.toLowerCase() === 'l') {
+        event.preventDefault();
+        setPreviewSingleLayer(!previewState.singleLayer);
+      }
+      if (event.key.toLowerCase() === 'c' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        setShowGcodeText((visible) => !visible);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [previewState, previewTab, sceneInteraction, setPreviewLayerEnd, setPreviewMoveEnd, setPreviewSingleLayer, toolpath]);
 
   const viewportPointOf = useCallback((clientX: number, clientY: number) => {
     const rect = viewportRef.current.getBoundingClientRect();
@@ -271,6 +315,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
     <div
       ref={viewportRef}
       className="absolute inset-0"
+      tabIndex={0}
+      aria-label={previewTab ? 'G-code preview viewport' : '3D viewport'}
       data-testid="viewport"
       onContextMenuCapture={(event) => {
         // Keep the Web canvas from exposing the browser host menu in every
@@ -280,7 +326,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
         if (previewTab) event.stopPropagation();
       }}
       onPointerDownCapture={(event) => {
-        if (previewTab) return;
+        if (previewTab) {
+          if ((event.target as HTMLElement | null)?.closest('canvas')) viewportRef.current.focus();
+          return;
+        }
         const native = event.nativeEvent;
         // Capture runs before three/drei target handlers. Recheck the live
         // picker here so a stale hover frame cannot start an overlapping body
@@ -302,6 +351,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
         <SceneContextMenu sceneInteraction={sceneInteraction} sceneStateRef={sceneStateRef}>
           <Canvas
             events={viewportEvents}
+            // WebGL's adapter-selection hint prefers a discrete/high-
+            // performance GPU when available. It is only a hint: browsers
+            // retain their normal integrated-GPU/software fallback.
+            gl={{ powerPreference: 'high-performance' }}
             // Render only when something invalidates the frame (camera change,
             // scene data update, resize) — never render continuously. See
             // doc/2026-08-16-demand-render-viewport.md. OrbitControls in demand
@@ -372,7 +425,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
         </SceneContextMenu>
       </ViewportErrorBoundary>
       {prepareTab && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
-      {previewTab && toolpath && <LayerScrubber />}
+      {previewTab && toolpath && <LayerScrubber data={toolpath} />}
+      {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
     </div>
   );

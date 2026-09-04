@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserAdapter, createBrowserPrinterConfigurationRepository, downloadGcode, PRINTER_CONFIGURATION_STORAGE_KEY, SOURCE_URL } from './browserAdapter';
+import { createBrowserAdapter, createBrowserPrinterConfigurationRepository, createBrowserProfileSource, downloadGcode, PRINTER_CONFIGURATION_STORAGE_KEY, SOURCE_URL } from './browserAdapter';
+
+const runtimeLoad = vi.hoisted(() => ({ count: 0 }));
+
+// The runtime root also exports the Worker-backed client. Mock only that
+// entrypoint's profile exports so this adapter suite remains Worker-free while
+// exercising the actual shared profile implementation.
+vi.mock('@orca/slicer-runtime', async () => {
+  runtimeLoad.count += 1;
+  return import('../../../packages/slicer-runtime/src/profiles');
+});
 
 describe('browser adapter', () => {
   beforeEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
@@ -35,6 +45,18 @@ describe('browser adapter', () => {
     expect(adapter.menu.syncModel({ version: 1, menuMode: 'browser', menus: [] })).toBeUndefined();
     adapter.externalLinks.openSource();
     expect(open).toHaveBeenCalledWith(SOURCE_URL, '_blank', 'noopener,noreferrer');
+  });
+
+  it('resolves built profile assets beside the deployment root, not under assets', async () => {
+    const request = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3])),
+    );
+    const source = createBrowserProfileSource('./', 'https://host.test/orca/assets/browser.js');
+    expect(runtimeLoad.count).toBe(0);
+
+    await expect(source.fetch('manifest.json')).resolves.toEqual(new Uint8Array([1, 2, 3]));
+    expect(runtimeLoad.count).toBe(1);
+    expect(String(request.mock.calls[0]?.[0])).toBe('https://host.test/orca/profiles/manifest.json');
   });
 
   it('returns an empty document for missing, corrupt, or non-compliant storage', async () => {

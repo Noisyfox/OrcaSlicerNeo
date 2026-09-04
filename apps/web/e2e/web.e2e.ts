@@ -72,6 +72,19 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   if (await layerHeight.count()) await layerHeight.fill('0.21');
   await page.getByTestId('btn-slice').click();
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  // The native SegmentTemplate renderer is the sole preview backend. A
+  // capability/context failure is surfaced as an explicit diagnostic.
+  await expect.poll(() => page.evaluate(() => {
+    const hooks = (window as unknown as {
+      __orcaE2e?: {
+        gpuStreamingStatus?: () => string;
+        gpuStreamingDiagnostic?: () => { reason?: string } | null;
+      };
+    }).__orcaE2e;
+    const status = hooks?.gpuStreamingStatus?.();
+    return status === 'ready' || (status === 'unavailable' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+  }), { timeout: 20_000 }).toBe(true);
+  await page.setViewportSize({ width: 720, height: 520 });
   await page.getByTestId('menu-file-trigger').click();
   await expect(page.getByTestId('file-export-gcode')).toBeEnabled();
   await page.getByTestId('menu-file-trigger').click();
@@ -92,6 +105,78 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
     expect(await range.inputValue()).not.toBe(before);
   }
 
+  // Phase-B Orca-style overlay contract: feature legend uses hide/show
+  // semantics, travel is a global toggle, layer/move controls are present,
+  // and the camera-facing marker is in the scene at the inspection position.
+  await page.locator('#app-tab-preview').click();
+  await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: 30_000 });
+  const feature = page.locator('[data-testid^="preview-feature-visibility-"]').first();
+  await expect(feature).toHaveAttribute('aria-pressed', 'true');
+  await feature.click();
+  await expect(feature).toHaveAttribute('aria-pressed', 'false');
+  await feature.click();
+  await expect(feature).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('preview-travel-toggle').click();
+  await expect(page.getByTestId('preview-travel-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await page.getByTestId('preview-travel-toggle').click();
+  await expect(page.getByTestId('preview-travel-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('preview-layer-range')).toBeVisible();
+  await expect(page.getByTestId('preview-move-range')).toBeVisible();
+  const overlayGeometry = await page.evaluate(() => {
+    const controls = document.querySelector('[data-testid="preview-controls"]')?.getBoundingClientRect();
+    const layer = document.querySelector('[data-testid="preview-layer-range"]')?.getBoundingClientRect();
+    if (!controls || !layer) return null;
+    return {
+      intersects: controls.left < layer.right && controls.right > layer.left
+        && controls.top < layer.bottom && controls.bottom > layer.top,
+    };
+  });
+  expect(overlayGeometry).not.toBeNull();
+  expect(overlayGeometry?.intersects).toBe(false);
+  const moveInputs = page.getByTestId('preview-move-range').locator('input[type="range"]');
+  await expect(moveInputs).toHaveCount(1);
+  await expect(page.getByTestId('preview-move-range').locator('[role="group"]')).toHaveAttribute('aria-label', 'Active layer move end');
+  const moveInput = moveInputs.first();
+  await moveInput.focus();
+  await page.keyboard.press('Home');
+  await expect(moveInput).toHaveValue('0');
+  const layerInputs = page.getByTestId('preview-layer-range').locator('input[type="range"]');
+  await expect(layerInputs).toHaveCount(2);
+  await layerInputs.nth(1).focus();
+  await page.keyboard.press('Home');
+  await expect(layerInputs.nth(1)).toHaveValue('0');
+
+  // Single-layer inspection keeps the vertical control dual-thumb. Starting
+  // from a multi-layer range, both thumbs collapse to the active layer and
+  // either thumb can then move that layer without reversing the range.
+  const singleLayerToggle = page.getByTestId('preview-single-layer');
+  await singleLayerToggle.click();
+  await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(layerInputs.nth(0)).toHaveValue(await layerInputs.nth(1).inputValue());
+  await layerInputs.nth(0).focus();
+  await page.keyboard.press('Home');
+  await expect(layerInputs.nth(0)).toHaveValue('0');
+  await expect(layerInputs.nth(1)).toHaveValue('0');
+  await layerInputs.nth(1).focus();
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => layerInputs.nth(0).inputValue()).toBe('1');
+  await expect(layerInputs.nth(1)).toHaveValue('1');
+  await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
+  await singleLayerToggle.click();
+  await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(async () => Number(await layerInputs.nth(0).inputValue()) <= Number(await layerInputs.nth(1).inputValue())).toBe(true);
+
+  const currentLayer = await layerInputs.nth(1).inputValue();
+  await layerInputs.nth(1).focus();
+  await page.keyboard.press('Home');
+  await expect.poll(() => layerInputs.nth(1).inputValue()).not.toBe(currentLayer);
+  await expect.poll(() => moveInput.inputValue()).toBe(await moveInput.getAttribute('max'));
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e?: { previewMarkerPresent?: () => boolean } }).__orcaE2e?.previewMarkerPresent?.() ?? false)).toBe(true);
+  const themeToken = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--color-card').trim());
+  expect(themeToken).not.toBe('');
+  await page.evaluate(() => document.documentElement.classList.toggle('dark'));
+  await expect(page.getByTestId('preview-controls')).toBeVisible();
+
   // A settings override invalidates the old toolpath and therefore export.
   if (await layerHeight.count()) {
     await layerHeight.fill('0.2');
@@ -110,4 +195,32 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   const result = await download;
   expect(result.suggestedFilename()).toMatch(/\.gcode$/);
   expect(await result.path()).toBeTruthy();
+});
+
+test('GPU streaming preview: native renderer is the default backend', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
+  const picker = page.getByTestId('preset-select');
+  await picker.click();
+  await page.locator('[data-slot="combobox-content"] input').fill('Creality Ender-3 0.4 nozzle');
+  await page.locator('[data-slot="combobox-content"] [data-slot="combobox-item"]')
+    .filter({ hasText: 'Creality Ender-3 0.4 nozzle' }).click();
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
+  await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  await expect.poll(() => page.evaluate(() => {
+    const hooks = (window as unknown as {
+      __orcaE2e?: {
+        gpuStreamingStatus?: () => string;
+        gpuStreamingDiagnostic?: () => { reason?: string } | null;
+      };
+    }).__orcaE2e;
+    const status = hooks?.gpuStreamingStatus?.();
+    return status === 'ready' || (status === 'unavailable' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+  }), { timeout: 20_000 }).toBe(true);
 });

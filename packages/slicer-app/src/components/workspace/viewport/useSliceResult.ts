@@ -1,14 +1,34 @@
 // packages/slicer-app/src/components/viewport/useSliceResult.ts
 import { useEffect, useMemo, useState } from 'react';
-import * as THREE from 'three';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
-import type { ClientSliceResult } from '@slicer/client';
+import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis } from '@slicer/client';
+import { createPreviewSourceLineIndex, maxMoveOrderForLayer, type PreviewSourceLineIndex } from './previewSemantics';
+import { deriveLogicalMoveOrders } from './gpuStreamingPlanner';
 
 export interface ToolpathGeometry {
-  geometry: THREE.BufferGeometry;
-  /** per-layer [start, count] index ranges into the geometry */
-  layerRanges: Array<[number, number]>;
+  /** Immutable source arrays consumed by the native SegmentTemplate renderer. */
+  segmentCount: number;
+  palette: ClientSliceResult['toolpath']['palette'];
+  layerIds: Uint32Array;
+  moveOrders: Uint32Array;
+  features: Uint32Array;
+  moveTypes: Uint8Array;
+  ends: Float32Array;
+  /** Optional source identifiers used by the read-only Phase-C inspector. */
+  gcodeIds?: Uint32Array;
+  /** Prevalidated processor ordering; lets the text window use binary lookup. */
+  sourceLineOrderValid?: boolean;
+  /** Result-local source index built once while the slice result is created. */
+  sourceLineIndex?: PreviewSourceLineIndex;
+  extruderIds: Uint8Array;
+  metrics: PreviewToolpathMetrics;
+  extruderPalette?: readonly PreviewPaletteEntry[];
+  analysis?: PreviewAnalysis;
+  /** Immutable source retained for the optional indexed streaming backend. */
+  source?: ClientSliceResult['toolpath'];
+  metadata?: PreviewMetadata;
+  dispose: () => void;
 }
 
 export function useSliceResult() {
@@ -18,6 +38,8 @@ export function useSliceResult() {
   const setLayers = useSlicerStore((s) => s.setLayers);
   const setMaxLayer = useSlicerStore((s) => s.setMaxLayer);
   const setLayer = useSlicerStore((s) => s.setLayer);
+  const setPreviewBounds = useSlicerStore((s) => s.setPreviewBounds);
+  const resetPreviewState = useSlicerStore((s) => s.resetPreviewState);
   const [result, setResult] = useState<ClientSliceResult | null>(null);
 
   useEffect(() => {
@@ -31,17 +53,26 @@ export function useSliceResult() {
       setResult(null);
       setLayer(0);
       setMaxLayer(0);
+      resetPreviewState();
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-      const r = await platform.runtime.getSliceResult();
+        const r = await platform.runtime.getSliceResult();
         if (!r.ok) throw new Error(r.error ?? 'getSliceResult failed');
         if (cancelled) return;
-        setResult(r);
+        // bridge_buffers supplies a raw per-segment stream. Canonicalize it
+        // once here so arc tessellation is one logical move for all consumers;
+        // the enriched result/source then retains this array by reference.
+        const moveOrders = deriveLogicalMoveOrders(r.toolpath.layerIds, r.toolpath.gcodeIds, r.toolpath.segmentCount);
+        const result = { ...r, toolpath: { ...r.toolpath, moveOrders } };
+        setResult(result);
         setLayers(r.layers);
         setMaxLayer(Math.max(0, r.layers - 1));
+        const activeLayer = Math.max(0, r.layers - 1);
+        const maxMove = maxMoveOrderForLayer({ ...result.toolpath, metadata: r.metadata }, activeLayer);
+        setPreviewBounds(Math.max(0, r.layers - 1), maxMove, r.metadata.resultId);
       } catch (err) {
         if (cancelled) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -56,44 +87,44 @@ export function useSliceResult() {
       }
     })();
     return () => { cancelled = true; };
-  }, [status, setLayers, setMaxLayer, setLayer]);
+  }, [resetPreviewState, setLayers, setMaxLayer, setLayer, setPreviewBounds, status]);
 
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
     if (!result) return null;
-    const t = result.toolpath;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(t.positions, 3));
-    geometry.setDrawRange(0, 0); // scrubber controls visibility
-
-    // vertex colors from the feature palette
-    const colors = new Float32Array(t.vertexCount * 3);
-    for (let i = 0; i < t.vertexCount; i++) {
-      const c = t.palette[t.features[i] % t.palette.length]?.color ?? [255, 255, 255];
-      colors[i * 3] = c[0] / 255;
-      colors[i * 3 + 1] = c[1] / 255;
-      colors[i * 3 + 2] = c[2] / 255;
-    }
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-    // Toolpath vertices are emitted in gcode order — layer-ascending and
-    // contiguous per layer (GCodeProcessorResult.moves). One pass builds
-    // per-layer [start, count] draw ranges (drawRange counts vertices);
-    // O(n), safe for million-vertex toolpaths (no spread/scan-per-layer).
-    const layerRanges: Array<[number, number]> = [];
-    if (t.vertexCount > 0) {
-      let start = 0;
-      let cur = t.layers[0];
-      for (let i = 1; i < t.vertexCount; i++) {
-        if (t.layers[i] !== cur) {
-          layerRanges[cur] = [start, i - start];
-          start = i;
-          cur = t.layers[i];
-        }
-      }
-      layerRanges[cur] = [start, t.vertexCount - start];
-    }
-    return { geometry, layerRanges };
+    const source = result.toolpath;
+    return {
+      segmentCount: source.segmentCount,
+      palette: source.palette,
+      layerIds: source.layerIds,
+      // The effect canonicalizes bridge orders once; keep the result-owned
+      // logical array by reference through the UI and streaming planner.
+      moveOrders: source.moveOrders,
+      features: source.features,
+      moveTypes: source.moveTypes,
+      ends: source.ends,
+      gcodeIds: source.gcodeIds,
+      sourceLineOrderValid: source.sourceLineOrderValid,
+      sourceLineIndex: createPreviewSourceLineIndex({
+        segmentCount: source.segmentCount,
+        gcodeIds: source.gcodeIds,
+        sourceLineOrderValid: source.sourceLineOrderValid,
+        metadata: result.metadata,
+      }),
+      extruderIds: source.extruderIds,
+      metrics: source.metrics,
+      ...(result.metadata.extruderPalette ? { extruderPalette: result.metadata.extruderPalette } : {}),
+      ...(result.metadata.analysis ? { analysis: result.metadata.analysis } : {}),
+      source,
+      metadata: result.metadata,
+      // The source buffers are owned by the slice result and released by the
+      // runtime. The renderer owns and disposes only its GPU resources.
+      dispose: () => {},
+    };
   }, [result]);
+
+  // A result replacement owns the old GPU buffers until React commits the new
+  // tree; clean them up after that transition without touching camera state.
+  useEffect(() => () => toolpath?.dispose(), [toolpath]);
 
   return { result, toolpath };
 }

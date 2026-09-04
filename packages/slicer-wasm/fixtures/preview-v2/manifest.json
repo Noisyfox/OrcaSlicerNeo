@@ -1,0 +1,163 @@
+{
+  "schema": "orca-preview-v2-fixture-manifest",
+  "schemaVersion": 1,
+  "status": "b4-blocked-release-evidence",
+  "nativeReference": {
+    "repository": "Noisyfox/OrcaSlicer",
+    "commit": "b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde",
+    "version": "version_2.4.0-12323-gb97ca3c0ac",
+    "dirtyTreeIncluded": false,
+    "captureComparison": "manual-only-cross-renderer"
+  },
+  "artifactPolicy": {
+    "generatedGcode": "retain-only-for-deterministic-text-mapping-tests",
+    "screenshots": "retain-only-after-manual-approval",
+    "unmaterializedFixtureCommand": "record-reproducible-command"
+  },
+  "fixtures": [
+    {
+      "id": "command-matrix",
+      "kind": "synthetic-preview-source",
+      "status": "planned",
+      "owner": "packages/slicer-app",
+      "sourcePath": null,
+      "profile": null,
+      "configPath": null,
+      "generationCommand": null,
+      "expected": {
+        "commands": null,
+        "segments": null,
+        "layers": null
+      },
+      "artifacts": []
+    },
+    {
+      "id": "single-material-cube",
+      "kind": "real-slice",
+      "status": "input-existing",
+      "owner": "packages/slicer-wasm",
+      "sourcePath": "packages/slicer-wasm/fixtures/cube.stl",
+      "profile": "Bambu Lab P1P 0.4 nozzle",
+      "configPath": "packages/slicer-wasm/fixtures/config.json",
+      "generationCommand": "node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json",
+      "verificationVariants": ["serial", "threaded"],
+      "expected": {
+        "commands": null,
+        "segments": null,
+        "layers": null
+      },
+      "artifacts": []
+    },
+    {
+      "id": "feature-rich-single-material",
+      "kind": "real-slice",
+      "status": "verified-real-probe-not-full-fixture",
+      "owner": "packages/slicer-wasm",
+      "sourcePath": "packages/slicer-wasm/fixtures/cube.stl",
+      "profile": "Bambu Lab P1P 0.4 nozzle",
+      "configPath": "packages/slicer-wasm/fixtures/preview-v2/feature-rich-single-material.config.json",
+      "generationCommands": [
+        "node packages/slicer-wasm/harness/preview-v2-real-fixtures.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --fixture feature-rich-single-material",
+        "node packages/slicer-wasm/harness/preview-v2-real-fixtures.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js --fixture feature-rich-single-material"
+      ],
+      "verificationVariants": ["serial", "threaded"],
+      "expected": {
+        "commands": 12718,
+        "segments": 21609,
+        "layers": 100
+      },
+      "artifacts": [],
+      "observed": {
+        "featureRoles": [1, 2, 4, 5, 6, 7, 10, 18],
+        "moveTypes": [1, 2, 3, 4, 8, 9, 10],
+        "extruders": [0],
+        "colorPrints": [0],
+        "capture": {
+          "status": "blocked",
+          "path": null,
+          "reason": "No native OrcaSlicer executable is available in this checkout; browser/Electron screenshots were not retained as approved native-reference captures."
+        }
+      },
+      "limitation": "This real probe reuses cube.stl and exercises perimeter/infill/solid/top roles and travel/control moves. It is not the planned repository-owned feature-rich model and does not prove support/bridge categories. Keep status non-approved until a dedicated model/profile fixture is added."
+    },
+    {
+      "id": "multi-material",
+      "kind": "real-slice",
+      "status": "blocked",
+      "owner": "packages/slicer-wasm",
+      "sourcePath": null,
+      "profile": null,
+      "configPath": null,
+      "generationCommand": null,
+      "expected": {
+        "commands": null,
+        "segments": null,
+        "layers": null
+      },
+      "artifacts": [],
+      "blocker": {
+        "kind": "bridge-and-fixture",
+        "evidence": "The current public bridge exposes no object/part extruder assignment operation and no repository-owned two-colour 3MF/G-code fixture. The real feature probe and both existing bridge smoke variants report extruders=[0] and colorPrints=[0].",
+        "nextStep": "Add a typed object/part extruder assignment contract or pin a repository-owned multi-material 3MF fixture before claiming Phase-C palette evidence."
+      }
+    },
+    {
+      "id": "performance-streams",
+      "kind": "synthetic-renderer",
+      "status": "planned",
+      "owner": "packages/slicer-app",
+      "sourcePath": null,
+      "profile": null,
+      "configPath": null,
+      "generationCommand": null,
+      "requiredSegmentCounts": [250000, 1000000],
+      "partitioning": "layer-aligned",
+      "expected": {
+        "commands": null,
+        "segments": null,
+        "layers": null
+      },
+      "artifacts": []
+    }
+  ],
+  "releaseEvidence": {
+    "recordedAt": "2026-09-01",
+    "machine": {
+      "os": "Windows",
+      "gpu": "NVIDIA GeForce RTX 3080",
+      "driver": "32.0.16.1088",
+      "cpu": "AMD Ryzen 9 5900X 12-Core Processor",
+      "logicalProcessors": 24,
+      "representative2020IntegratedGpu": false
+    },
+    "nativeCapture": {
+      "status": "blocked",
+      "repository": "Noisyfox/OrcaSlicer",
+      "commit": "b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde",
+      "checkoutHead": "b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde",
+      "cleanCheckout": false,
+      "dirtyPaths": [
+        "src/libslic3r/EdgeGrid.cpp",
+        "src/libslic3r/ExPolygonCollection.cpp",
+        "src/libslic3r/LocalesUtils.cpp",
+        "src/libslic3r/Model.hpp",
+        "src/libslic3r/Platform.cpp",
+        "src/libslic3r/utils.cpp"
+      ],
+      "nativeExecutableFound": false,
+      "reason": "The checkout has pre-existing dirty submodule files and no native OrcaSlicer executable. No checkout, reset, build, or capture was attempted."
+    },
+    "performance": {
+      "status": "blocked",
+      "requiredSegments": [250000, 1000000],
+      "measurement": null,
+      "reason": "The repository has deterministic chunking tests for both counts but no real browser FPS harness connected to those streams. The available GPU is RTX 3080, not a representative 2020-era integrated GPU; no 60/30 FPS claim is made."
+    },
+    "screenshots": {
+      "status": "same-renderer-behavior-only",
+      "nativePixelDiff": false,
+      "evidence": "Desktop preview E2E and Web threaded/serial E2E exercised preview controls and same-renderer pixel-change assertions. No approved screenshot files or cross-renderer pixel diff were created."
+    },
+    "gateStatus": "blocked-native-capture-multimaterial-performance-dedicated-feature-fixture"
+  }
+}

@@ -244,6 +244,18 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
         .toBeGreaterThan(0);
     }
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    // The native SegmentTemplate renderer is the sole preview backend. A
+    // capability/context failure is surfaced as an explicit diagnostic.
+    await expect.poll(() => page.evaluate(() => {
+      const hooks = (window as unknown as {
+        __orcaE2e?: {
+          gpuStreamingStatus?: () => string;
+          gpuStreamingDiagnostic?: () => { reason?: string } | null;
+        };
+      }).__orcaE2e;
+      const status = hooks?.gpuStreamingStatus?.();
+      return status === 'ready' || (status === 'unavailable' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+    }), { timeout: 20_000 }).toBe(true);
     await expect(page.getByTestId('viewport')).toBeVisible();
     await expect(page.getByTestId('layer-scrubber')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
     await expect(page.getByTestId('btn-export')).toBeEnabled();
@@ -297,7 +309,10 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
     const layer0Shot = await shot();
     // Base UI thumb = div wrapper + native input[type=range] (visually hidden,
     // full thumb size); the input owns keydown handling incl. Home/End.
-    await page.getByTestId('layer-scrubber').locator('input[type="range"]').focus();
+    // The layer scrubber is a dual-value slider.  This assertion intentionally
+    // moves the lower/start thumb to the last layer, matching the original
+    // single-thumb scrubber behavior.
+    await page.getByTestId('layer-scrubber').locator('input[type="range"]').nth(0).focus();
     await page.keyboard.press('End');
     await expect
       .poll(async () => (await shot()).equals(layer0Shot), { timeout: 10_000 })
@@ -348,6 +363,130 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
       await diag.dump();
       throw err;
     }
+  } finally {
+    await app.close();
+  }
+});
+
+test('preview overlay: legend, layer range, move end, marker, and theme tokens', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await page.setViewportSize({ width: 720, height: 520 });
+    await page.locator('#app-tab-preview').click();
+    await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: SLICE_RESULT_TIMEOUT });
+    await expect(page.getByTestId('preview-legend')).toBeVisible();
+    await expect(page.getByTestId('preview-inspection-card')).toBeVisible();
+    const feature = page.locator('[data-testid^="preview-feature-visibility-"]').first();
+    await expect(feature).toBeVisible();
+    await expect(feature).toHaveAttribute('aria-pressed', 'true');
+    await feature.click();
+    await expect(feature).toHaveAttribute('aria-pressed', 'false');
+    await feature.click();
+    await expect(feature).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('preview-travel-toggle').click();
+    await expect(page.getByTestId('preview-travel-toggle')).toHaveAttribute('aria-pressed', 'false');
+    await page.getByTestId('preview-travel-toggle').click();
+    await expect(page.getByTestId('preview-travel-toggle')).toHaveAttribute('aria-pressed', 'true');
+
+    const layerInputs = page.getByTestId('preview-layer-range').locator('input[type="range"]');
+    await expect(layerInputs).toHaveCount(2);
+    const overlayGeometry = await page.evaluate(() => {
+      const controls = document.querySelector('[data-testid="preview-controls"]')?.getBoundingClientRect();
+      const layer = document.querySelector('[data-testid="preview-layer-range"]')?.getBoundingClientRect();
+      if (!controls || !layer) return null;
+      return {
+        intersects: controls.left < layer.right && controls.right > layer.left
+          && controls.top < layer.bottom && controls.bottom > layer.top,
+      };
+    });
+    expect(overlayGeometry).not.toBeNull();
+    expect(overlayGeometry?.intersects).toBe(false);
+    await layerInputs.nth(1).focus();
+    await page.keyboard.press('Home');
+    await expect(layerInputs.nth(1)).toHaveValue('0');
+    const moveInputs = page.getByTestId('preview-move-range').locator('input[type="range"]');
+    await expect(moveInputs).toHaveCount(1);
+    await expect(page.getByTestId('preview-move-range').locator('[role="group"]')).toHaveAttribute('aria-label', 'Active layer move end');
+    const moveInput = moveInputs.first();
+    await moveInput.focus();
+    await page.keyboard.press('Home');
+    await expect(moveInput).toHaveValue('0');
+
+    // Single-layer inspection keeps the vertical control dual-thumb. Starting
+    // from a multi-layer range, both thumbs collapse to the active layer and
+    // either thumb can then move that layer without reversing the range.
+    const singleLayerToggle = page.getByTestId('preview-single-layer');
+    await singleLayerToggle.click();
+    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(layerInputs.nth(0)).toHaveValue(await layerInputs.nth(1).inputValue());
+    await layerInputs.nth(0).focus();
+    await page.keyboard.press('Home');
+    await expect(layerInputs.nth(0)).toHaveValue('0');
+    await expect(layerInputs.nth(1)).toHaveValue('0');
+    await layerInputs.nth(1).focus();
+    await page.keyboard.press('ArrowUp');
+    await expect.poll(() => layerInputs.nth(0).inputValue()).toBe('1');
+    await expect(layerInputs.nth(1)).toHaveValue('1');
+    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
+    await singleLayerToggle.click();
+    await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(async () => Number(await layerInputs.nth(0).inputValue()) <= Number(await layerInputs.nth(1).inputValue())).toBe(true);
+
+    const layerBefore = await layerInputs.nth(1).inputValue();
+    await layerInputs.nth(1).focus();
+    await page.keyboard.press('Home');
+    await expect.poll(() => layerInputs.nth(1).inputValue()).not.toBe(layerBefore);
+    // Layer changes reset the single move-end thumb to the new layer's local
+    // maximum; no move-start thumb remains to carry stale range state.
+    await expect.poll(() => moveInput.inputValue()).toBe(await moveInput.getAttribute('max'));
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e?: { previewMarkerPresent?: () => boolean } }).__orcaE2e?.previewMarkerPresent?.() ?? false)).toBe(true);
+
+    const token = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--color-card').trim());
+    expect(token).not.toBe('');
+    await page.evaluate(() => document.documentElement.classList.toggle('dark'));
+    await expect(page.getByTestId('preview-controls')).toBeVisible();
+
+    // Phase-C source inspection is a separate, virtualized read-only overlay.
+    // It is toggled only while the viewport itself owns keyboard focus, so C
+    // cannot hijack the sliders or any text input.
+    await page.getByTestId('viewport').focus();
+    await page.keyboard.press('c');
+    await expect(page.getByTestId('gcode-text-window')).toBeVisible();
+    await expect(page.getByTestId('gcode-text-scroll')).toBeVisible();
+    const renderedSourceRows = await page.locator('[data-testid^="gcode-line-"]').count();
+    expect(renderedSourceRows).toBeLessThan(2401);
+    await page.getByTestId('gcode-text-close').click();
+    await expect(page.getByTestId('gcode-text-window')).toBeHidden();
+  } finally {
+    await app.close();
+  }
+});
+
+test('GPU streaming preview: native renderer is the default backend', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await selectStableRealPrinter(page);
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 60_000 });
+    await expect.poll(() => page.evaluate(() => {
+      const hooks = (window as unknown as {
+        __orcaE2e?: {
+          gpuStreamingStatus?: () => string;
+          gpuStreamingDiagnostic?: () => { reason?: string } | null;
+        };
+      }).__orcaE2e;
+      const status = hooks?.gpuStreamingStatus?.();
+      return status === 'ready' || (status === 'unavailable' && Boolean(hooks?.gpuStreamingDiagnostic?.()?.reason));
+    }), { timeout: 10_000 }).toBe(true);
   } finally {
     await app.close();
   }

@@ -19,6 +19,25 @@ export interface MockSliceFixture {
   layers: number;
   toolpathVertices: number; // per vertex: xyz (Float32)
   features: MockFeature[];
+  optionalMetrics?: Record<string, number[]>;
+  extruderPalette?: Array<MockFeature & { tool?: number }>;
+  resultId?: number;
+  sourceFilename?: string;
+  sourceText?: string;
+  analysis?: {
+    summary?: {
+      estimatedTimeSeconds?: number;
+      filamentLengthMeters?: number;
+      filamentWeightGrams?: number;
+      filamentCost?: number;
+    };
+    featureStatistics?: Array<{
+      featureId: number;
+      timeSeconds?: number;
+      filamentLengthMeters?: number;
+      filamentWeightGrams?: number;
+    }>;
+  };
 }
 
 const HEAP_BYTES = 64 * 1024 * 1024;
@@ -61,6 +80,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const HEAPU32 = new Uint32Array(heap);
   const HEAPF32 = new Float32Array(heap);
   const files = new Map<string, Uint8Array>();
+  let previewSourceBytes: Uint8Array | undefined;
   const freedPointers: number[] = [];
 
   // ---- heap allocator (bump; free records for leak checks) ----
@@ -891,40 +911,182 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_slice_result() {
       if (!sliced) return { error: 'no slice result' };
       const n = fixture.toolpathVertices;
-      const vptr = malloc(n * 3 * 4);
-      const lptr = malloc(n * 4);
-      const fptr = malloc(n * 4);
-      const vo = vptr / 4;
-      const lo = lptr / 4;
-      const fo = fptr / 4;
+      const allocF32 = (values: number[]) => {
+        const ptr = malloc(values.length * 4);
+        HEAPF32.set(values, ptr / 4);
+        return ptr;
+      };
+      const allocU32 = (values: number[]) => {
+        const ptr = malloc(values.length * 4);
+        HEAPU32.set(values, ptr / 4);
+        return ptr;
+      };
+      const allocU8 = (values: number[]) => {
+        const ptr = malloc(values.length);
+        HEAPU8.set(values, ptr);
+        return ptr;
+      };
+      const allocU16 = (values: number[]) => {
+        const ptr = malloc(values.length * 2);
+        new Uint16Array(heap, ptr, values.length).set(values);
+        return ptr;
+      };
+      const starts: number[] = [], ends: number[] = [];
+      const layerIds: number[] = [], moveOrders: number[] = [], gcodeIds: number[] = [];
+      const moveTypes: number[] = [], roles: number[] = [], extruders: number[] = [], colors: number[] = [];
+      const widths: number[] = [], heights: number[] = [];
+      let previousLayer = -1;
       for (let i = 0; i < n; i++) {
-        const layer = Math.floor((i / n) * fixture.layers);
-        HEAPF32.set([i % 200, (i * 3) % 200, layer * 0.2], vo + i * 3);
-        HEAPU32[lo + i] = layer;
-        HEAPU32[fo + i] = i % fixture.features.length;
+        const layer = Math.floor((i / Math.max(1, n)) * fixture.layers);
+        const order = layer === previousLayer ? moveOrders[i - 1] + 1 : 0;
+        previousLayer = layer;
+        starts.push(i === 0 ? 0 : i, i === 0 ? 0 : ((i - 1) * 3 + 1) % 200,
+          i === 0 ? 0 : Math.floor(((i - 1) / Math.max(1, n)) * fixture.layers) * 0.2);
+        ends.push(i + 1, (i * 3 + 1) % 200, layer * 0.2);
+        layerIds.push(layer); moveOrders.push(order); gcodeIds.push(i + 1);
+        moveTypes.push(i % 4 === 0 ? 8 : 10); // Travel / Extrude
+        roles.push(i % fixture.features.length); extruders.push(i % 2); colors.push(i % 2);
+        widths.push(0.4 + (i % 3) * 0.05); heights.push(0.2);
       }
+      const sptr = allocF32(starts), eptr = allocF32(ends);
+      const lptr = allocU32(layerIds), optr = allocU32(moveOrders), gptr = allocU32(gcodeIds);
+      const mtptr = allocU8(moveTypes), rptr = allocU16(roles), xptr = allocU8(extruders), cptr = allocU8(colors);
+      const wptr = allocF32(widths), hptr = allocF32(heights);
+      const metrics: Record<string, { ptr: number; count: number }> = {};
+      for (const [name, values] of Object.entries(fixture.optionalMetrics ?? {})) {
+        if (values.length !== n) throw new Error(`mock metric ${name} must match segment count`);
+        metrics[name] = { ptr: allocF32(values), count: n };
+      }
+      const layerRanges = Array.from({ length: fixture.layers }, (_, id) => {
+        const first = layerIds.indexOf(id);
+        return { id, z: id * 0.2, first_segment: Math.max(0, first), segment_count: layerIds.filter((v) => v === id).length };
+      }).filter((x) => x.segment_count > 0);
       return {
-        ok: true,
+        ok: true, preview_version: 2,
         objects: objectTransforms.length,
         layers: fixture.layers,
+        metadata: {
+          result_id: fixture.resultId ?? 1,
+          source_filename: fixture.sourceFilename ?? '/out.gcode',
+          layer_ranges: layerRanges,
+          feature_palette: fixture.features,
+          ...(fixture.extruderPalette ? { extruder_palette: fixture.extruderPalette } : {}),
+          source_line_mapping: { available: true, line_count: n + 1 },
+          source_text: { available: true },
+          ...(fixture.analysis ? {
+            analysis: {
+              ...(fixture.analysis.summary ? {
+                summary: {
+                  ...(fixture.analysis.summary.estimatedTimeSeconds === undefined ? {} : { estimated_time_seconds: fixture.analysis.summary.estimatedTimeSeconds }),
+                  ...(fixture.analysis.summary.filamentLengthMeters === undefined ? {} : { filament_length_meters: fixture.analysis.summary.filamentLengthMeters }),
+                  ...(fixture.analysis.summary.filamentWeightGrams === undefined ? {} : { filament_weight_grams: fixture.analysis.summary.filamentWeightGrams }),
+                  ...(fixture.analysis.summary.filamentCost === undefined ? {} : { filament_cost: fixture.analysis.summary.filamentCost }),
+                },
+              } : {}),
+              ...(fixture.analysis.featureStatistics ? {
+                feature_statistics: fixture.analysis.featureStatistics.map((stats) => ({
+                  feature_id: stats.featureId,
+                  ...(stats.timeSeconds === undefined ? {} : { time_seconds: stats.timeSeconds }),
+                  ...(stats.filamentLengthMeters === undefined ? {} : { filament_length_meters: stats.filamentLengthMeters }),
+                  ...(stats.filamentWeightGrams === undefined ? {} : { filament_weight_grams: stats.filamentWeightGrams }),
+                })),
+              } : {}),
+            },
+          } : {}),
+        },
         toolpath: {
-          vertex_ptr: vptr, vertex_count: n,
+          segment_count: n, starts_ptr: sptr, ends_ptr: eptr,
+          layer_id_ptr: lptr, move_order_ptr: optr, gcode_id_ptr: gptr,
+          move_type_ptr: mtptr, extrusion_role_ptr: rptr,
+          extruder_id_ptr: xptr, color_print_id_ptr: cptr,
+          width_ptr: wptr, height_ptr: hptr, metrics,
+          vertex_ptr: eptr, vertex_count: n,
           layer_ptr: lptr, layer_count: n,
-          feature_ptr: fptr, feature_count: n,
+          feature_ptr: allocU32(roles), feature_count: n,
           features: fixture.features,
         },
       };
     },
     orc_export_gcode() {
-      const gcode = [
+      const gcode = fixture.sourceText ?? [
         '; mock gcode (unit-test fixture)',
         'G21', 'G90',
         'G1 X0 Y0 Z0.2 F1200',
         'G1 X20 Y0 E1.0',
         'M104 S0', '',
       ].join('\n');
-      files.set('/out.gcode', new TextEncoder().encode(gcode));
+      previewSourceBytes = new TextEncoder().encode(gcode);
+      files.set('/out.gcode', previewSourceBytes);
       return { ok: true, path: '/out.gcode' };
+    },
+    orc_read_gcode_chunk(resultId: number, offset: number, length: number) {
+      const maxChunkBytes = 64 * 1024;
+      if (!Number.isSafeInteger(resultId) || resultId !== (fixture.resultId ?? 1))
+        return { ok: false, error: 'preview text is unavailable' };
+      if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) ||
+          length < 0 || length > maxChunkBytes)
+        return { ok: false, error: 'invalid chunk range' };
+      if (!previewSourceBytes) {
+        const gcode = fixture.sourceText ?? [
+          '; mock gcode (unit-test fixture)', 'G21', 'G90',
+          'G1 X0 Y0 Z0.2 F1200', 'G1 X20 Y0 E1.0', 'M104 S0', '',
+        ].join('\n');
+        previewSourceBytes = new TextEncoder().encode(gcode);
+      }
+      if (offset > previewSourceBytes.length)
+        return { ok: false, error: 'chunk range is outside the preview text' };
+      let actualOffset = offset;
+      let actualEnd = Math.min(previewSourceBytes.length, offset + length);
+      let continuationBytes = 0;
+      while (length > 0 && actualOffset > 0 && continuationBytes < 3 &&
+             (previewSourceBytes[actualOffset] & 0xc0) === 0x80) {
+        actualOffset--;
+        continuationBytes++;
+      }
+      while (length > 0 && actualEnd < previewSourceBytes.length && actualEnd < offset + length + 3 &&
+             (previewSourceBytes[actualEnd] & 0xc0) === 0x80) actualEnd++;
+      const bytes = previewSourceBytes.slice(actualOffset, actualEnd);
+      const ptr = malloc(Math.max(1, bytes.length));
+      HEAPU8.set(bytes, ptr);
+      return {
+        ok: true, result_id: fixture.resultId ?? 1, offset: actualOffset,
+        length: bytes.length, eof: actualEnd >= previewSourceBytes.length,
+        bytes_ptr: ptr, bytes_length: bytes.length,
+      };
+    },
+    orc_read_gcode_lines(resultId: number, startLine: number, lineCount: number) {
+      const maxLineCount = 128;
+      const maxPageBytes = 64 * 1024;
+      if (!Number.isSafeInteger(resultId) || resultId !== (fixture.resultId ?? 1))
+        return { ok: false, error: 'preview text is unavailable' };
+      if (!Number.isSafeInteger(startLine) || startLine < 1 ||
+          !Number.isSafeInteger(lineCount) || lineCount < 1 || lineCount > maxLineCount)
+        return { ok: false, error: 'invalid source line page' };
+      if (!previewSourceBytes) {
+        const gcode = fixture.sourceText ?? [
+          '; mock gcode (unit-test fixture)', 'G21', 'G90',
+          'G1 X0 Y0 Z0.2 F1200', 'G1 X20 Y0 E1.0', 'M104 S0', '',
+        ].join('\n');
+        previewSourceBytes = new TextEncoder().encode(gcode);
+      }
+      const ends: number[] = [];
+      for (let i = 0; i < previewSourceBytes.length; i++)
+        if (previewSourceBytes[i] === 10) ends.push(i + 1);
+      if (startLine > ends.length)
+        return { ok: false, error: 'source line page is outside the preview' };
+      const endLine = Math.min(ends.length, startLine + lineCount - 1);
+      const startByte = startLine === 1 ? 0 : ends[startLine - 2];
+      const endByte = ends[endLine - 1];
+      if (endByte - startByte > maxPageBytes)
+        return { ok: false, error: 'source line page exceeds byte bound' };
+      const bytes = previewSourceBytes.slice(startByte, endByte);
+      const ptr = malloc(Math.max(1, bytes.length));
+      HEAPU8.set(bytes, ptr);
+      return {
+        ok: true, result_id: fixture.resultId ?? 1, start_line: startLine,
+        line_count: endLine - startLine + 1, eof: endLine === ends.length,
+        bytes_ptr: ptr, bytes_length: bytes.length,
+      };
     },
     orc_cancel() {
       return { ok: true };
@@ -966,6 +1128,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_slice: { ret: 'number', args: ['string'] },
     orc_get_slice_result: { ret: 'number', args: [] },
     orc_export_gcode: { ret: 'number', args: [] },
+    orc_read_gcode_chunk: { ret: 'number', args: ['number', 'number', 'number'] },
+    orc_read_gcode_lines: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_cancel: { ret: 'number', args: [] },
   };
 

@@ -547,19 +547,49 @@ const result = callJson('orc_get_slice_result', [], []);
 check('orc_get_slice_result layers > 0', result.ok === true && result.layers > 0,
       JSON.stringify(result));
 
-// 7b. binary slice-result buffers (M2 contract)
-const res2 = callJson('orc_get_slice_result', [], []);
-check('slice result has toolpath buffers', res2.ok === true
-      && res2.toolpath && res2.toolpath.vertex_count > 0,
+// 7b. binary slice-result buffers (Preview data v2 contract)
+const res2 = result;
+check('slice result has v2 segments', res2.ok === true && res2.preview_version === 2
+      && res2.toolpath && res2.toolpath.segment_count > 0,
       JSON.stringify(res2).slice(0, 200));
-if (res2.toolpath && res2.toolpath.vertex_count > 0) {
-  const n = res2.toolpath.vertex_count;
-  const pos = new Float32Array(readBytes(Module, Number(res2.toolpath.vertex_ptr), n * 3 * 4).buffer);
-  const layers = new Uint32Array(readBytes(Module, Number(res2.toolpath.layer_ptr), n * 4).buffer);
-  const feats = new Uint32Array(readBytes(Module, Number(res2.toolpath.feature_ptr), n * 4).buffer);
-  check('toolpath positions finite', pos.every((v) => Number.isFinite(v)));
-  check('toolpath layers ascending within range', layers.every((l) => l >= 0 && l < res2.layers));
-  check('toolpath features in palette', feats.every((f) => Number.isInteger(f) && f >= 0));
+if (res2.toolpath && res2.toolpath.segment_count > 0) {
+  const n = res2.toolpath.segment_count;
+  const start = new Float32Array(readBytes(Module, Number(res2.toolpath.starts_ptr), n * 3 * 4).buffer);
+  const end = new Float32Array(readBytes(Module, Number(res2.toolpath.ends_ptr), n * 3 * 4).buffer);
+  const layers = new Uint32Array(readBytes(Module, Number(res2.toolpath.layer_id_ptr), n * 4).buffer);
+  const orders = new Uint32Array(readBytes(Module, Number(res2.toolpath.move_order_ptr), n * 4).buffer);
+  const ids = new Uint32Array(readBytes(Module, Number(res2.toolpath.gcode_id_ptr), n * 4).buffer);
+  const roles = new Uint16Array(readBytes(Module, Number(res2.toolpath.extrusion_role_ptr), n * 2).buffer);
+  check('toolpath starts/ends finite', [...start, ...end].every((v) => Number.isFinite(v)));
+  check('toolpath segments are continuous', start.every((v, i) => i < 3 || v === end[i - 3]));
+  check('toolpath layers within range', layers.every((l) => l >= 0 && l < res2.layers));
+  check('toolpath move indexes and source ids present', orders.length === n && ids.length === n);
+  check('toolpath roles are uint16 values', roles.every((v) => Number.isInteger(v) && v >= 0));
+  check('feature palette metadata present', res2.metadata?.feature_palette?.length > 0);
+  // The bridge's role palette is keyed by libslic3r's stable ExtrusionRole
+  // values. Keep this regression next to the real bridge smoke so omitted
+  // standard roles cannot regress to the generic "Role N" label in React.
+  const orcaRoleNames = new Map([
+    [0, 'Undefined'], [1, 'Inner wall'], [2, 'Outer wall'], [3, 'Overhang wall'],
+    [4, 'Sparse infill'], [5, 'Internal solid infill'], [6, 'Top surface'],
+    [7, 'Bottom surface'], [8, 'Ironing'], [9, 'Bridge'], [10, 'Internal Bridge'],
+    [11, 'Gap infill'], [12, 'Skirt'], [13, 'Brim'], [14, 'Support'],
+    [15, 'Support interface'], [16, 'Support transition'], [17, 'Prime tower'],
+    [18, 'Custom'], [19, 'Multiple'],
+  ]);
+  for (const entry of res2.metadata?.feature_palette ?? []) {
+    const role = Number(entry.role);
+    const expected = orcaRoleNames.get(role);
+    check(`feature role ${role} uses Orca display name`, expected === undefined
+      ? entry.name === `Role ${role}`
+      : entry.name === expected,
+    `${entry.name}`);
+  }
+  for (const [name, descriptor] of Object.entries(res2.toolpath.metrics ?? {})) {
+    const values = new Float32Array(readBytes(Module, Number(descriptor.ptr), n * 4).buffer);
+    check(`optional metric ${name} length`, values.length === n);
+  }
+  // readBytes copies and frees each allocation exactly once.
 }
 
 // 7c. model mesh buffers (M2 contract)

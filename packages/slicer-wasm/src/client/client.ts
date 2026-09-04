@@ -15,8 +15,12 @@ import type {
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
-  ProgressMailbox, ReadLogResult,
+  ProgressMailbox, ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
+  PreviewAnalysis, PreviewMetricKey,
+  PreviewTextChunk, PreviewTextChunkRequest,
+  PreviewTextLines, PreviewTextLinesRequest,
 } from './types';
+import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
 export function createClient(
@@ -296,8 +300,37 @@ export function createClient(
     async getSliceResult(): Promise<ClientSliceResult> {
       const m = await module();
       const r = callJson(m, 'orc_get_slice_result', [], []) as {
-        ok: boolean; error?: string; objects?: number; layers?: number;
+        ok: boolean; error?: string; objects?: number; layers?: number; preview_version?: number;
+        metadata?: {
+          result_id?: number; source_filename?: string;
+          layer_ranges?: Array<{ id: number; z: number; first_segment: number; segment_count: number }>;
+          feature_palette?: ToolpathFeature[];
+          extruder_palette?: Array<ToolpathFeature & { tool?: number }>;
+          source_line_mapping?: { available: boolean; line_count: number };
+          source_text?: { available: boolean; byte_length?: number };
+          analysis?: {
+            summary?: {
+              estimated_time_seconds?: number;
+              filament_length_meters?: number;
+              filament_weight_grams?: number;
+              filament_cost?: number;
+            };
+            feature_statistics?: Array<{
+              feature_id: number;
+              time_seconds?: number;
+              filament_length_meters?: number;
+              filament_weight_grams?: number;
+            }>;
+          };
+        };
         toolpath?: {
+          segment_count?: number;
+          starts_ptr?: number; ends_ptr?: number;
+          layer_id_ptr?: number; move_order_ptr?: number; gcode_id_ptr?: number;
+          move_type_ptr?: number; extrusion_role_ptr?: number;
+          extruder_id_ptr?: number; color_print_id_ptr?: number;
+          width_ptr?: number; height_ptr?: number;
+          metrics?: Record<string, { ptr: number; count: number }>;
           vertex_ptr: number; vertex_count: number;
           layer_ptr: number; layer_count: number;
           feature_ptr: number; feature_count: number;
@@ -307,15 +340,131 @@ export function createClient(
       if (!r.ok || !r.toolpath) return r as unknown as ClientSliceResult;
 
       const t = r.toolpath;
+      const segmentCount = Number(t.segment_count ?? t.vertex_count ?? 0);
+      const readF32 = (ptr: number | undefined, count: number): Float32Array =>
+        ptr && count > 0 ? new Float32Array(readBytes(m, Number(ptr), count * 4).buffer) : new Float32Array(count);
+      const readU32 = (ptr: number | undefined, count: number): Uint32Array =>
+        ptr && count > 0 ? new Uint32Array(readBytes(m, Number(ptr), count * 4).buffer) : new Uint32Array(count);
+      const readU16 = (ptr: number | undefined, count: number): Uint16Array =>
+        ptr && count > 0 ? new Uint16Array(readBytes(m, Number(ptr), count * 2).buffer) : new Uint16Array(count);
+      const readU8 = (ptr: number | undefined, count: number): Uint8Array =>
+        ptr && count > 0 ? readBytes(m, Number(ptr), count) : new Uint8Array(count);
+      const starts = readF32(t.starts_ptr, segmentCount * 3);
+      const ends = readF32(t.ends_ptr, segmentCount * 3);
+      // v1 result fallback: old bridges only had endpoint positions. Keep the
+      // aliases usable while making the v2 arrays total and typed.
+      // The bridge keeps vertex_ptr as a v1 compatibility allocation. Read it
+      // even for v2 responses so its heap ownership is released exactly once;
+      // v2 rendering uses ends instead.
+      const legacyPositions = t.ends_ptr && t.vertex_ptr === t.ends_ptr
+        ? new Float32Array(0)
+        : t.ends_ptr
+        ? (readF32(t.vertex_ptr, (t.vertex_count ?? segmentCount) * 3), new Float32Array(0))
+        : readF32(t.vertex_ptr, (t.vertex_count ?? segmentCount) * 3);
+      const resolvedEnds = t.ends_ptr ? ends : legacyPositions;
+      const resolvedStarts = t.starts_ptr ? starts : resolvedEnds.slice();
+      const layerIds = readU32(t.layer_id_ptr ?? t.layer_ptr, segmentCount);
+      const features = readU32(t.feature_ptr, segmentCount);
+      const metricKeyMap: Record<string, keyof PreviewToolpathMetrics> = {
+        feedrate: 'feedrate', actual_feedrate: 'actualFeedrate',
+        volumetric_flow: 'volumetricFlow', actual_volumetric_flow: 'actualVolumetricFlow',
+        fan_speed: 'fanSpeed', temperature: 'temperature', pressure_advance: 'pressureAdvance',
+        acceleration: 'acceleration', jerk: 'jerk', time: 'time', layer_duration: 'layerDuration',
+      };
+      const metrics: PreviewToolpathMetrics = {};
+      for (const [wireName, field] of Object.entries(metricKeyMap)) {
+        const descriptor = t.metrics?.[wireName];
+        if (descriptor && descriptor.ptr && descriptor.count === segmentCount)
+          metrics[field] = readF32(descriptor.ptr, descriptor.count);
+      }
+      const metricRanges: PreviewAnalysis['metricRanges'] = {};
+      for (const [field, values] of Object.entries(metrics) as Array<[PreviewMetricKey, Float32Array]>) {
+        let min = Infinity;
+        let max = -Infinity;
+        for (const value of values) {
+          if (!Number.isFinite(value)) continue;
+          min = Math.min(min, value);
+          max = Math.max(max, value);
+        }
+        if (min !== Infinity) metricRanges[field] = { min, max };
+      }
+      const rawAnalysis = r.metadata?.analysis;
+      const analysis: PreviewAnalysis | undefined = rawAnalysis ? {
+        summary: {
+          ...(Number.isFinite(rawAnalysis.summary?.estimated_time_seconds) ? {
+            estimatedTimeSeconds: rawAnalysis.summary?.estimated_time_seconds,
+          } : {}),
+          ...(Number.isFinite(rawAnalysis.summary?.filament_length_meters) ? {
+            filamentLengthMeters: rawAnalysis.summary?.filament_length_meters,
+          } : {}),
+          ...(Number.isFinite(rawAnalysis.summary?.filament_weight_grams) ? {
+            filamentWeightGrams: rawAnalysis.summary?.filament_weight_grams,
+          } : {}),
+          ...(Number.isFinite(rawAnalysis.summary?.filament_cost) ? {
+            filamentCost: rawAnalysis.summary?.filament_cost,
+          } : {}),
+        },
+        featureStatistics: (rawAnalysis.feature_statistics ?? []).map((stats) => ({
+          featureId: stats.feature_id,
+          ...(Number.isFinite(stats.time_seconds) ? { timeSeconds: stats.time_seconds } : {}),
+          ...(Number.isFinite(stats.filament_length_meters) ? { filamentLengthMeters: stats.filament_length_meters } : {}),
+          ...(Number.isFinite(stats.filament_weight_grams) ? { filamentWeightGrams: stats.filament_weight_grams } : {}),
+        })),
+        metricRanges,
+      } : (Object.keys(metricRanges).length > 0 ? {
+        summary: {}, featureStatistics: [], metricRanges,
+      } : undefined);
+      const sourceText = r.metadata?.source_text;
+      const sourceByteLength = sourceText?.byte_length;
+      const metadata: PreviewMetadata = {
+        resultId: Number(r.metadata?.result_id ?? 0),
+        ...(r.metadata?.source_filename ? { sourceFilename: r.metadata.source_filename } : {}),
+        layerRanges: (r.metadata?.layer_ranges ?? []).map((layer) => ({
+          id: layer.id, z: layer.z, firstSegment: layer.first_segment, segmentCount: layer.segment_count,
+        })),
+        featurePalette: r.metadata?.feature_palette ?? t.features,
+        ...(r.metadata?.extruder_palette ? { extruderPalette: r.metadata.extruder_palette } : {}),
+        ...(r.metadata?.source_line_mapping ? {
+          sourceLineMapping: {
+            available: r.metadata.source_line_mapping.available,
+            lineCount: r.metadata.source_line_mapping.line_count,
+          },
+        } : {}),
+        ...(sourceText ? {
+          sourceText: {
+            available: sourceText.available,
+            ...(typeof sourceByteLength === 'number' && Number.isSafeInteger(sourceByteLength) && sourceByteLength >= 0
+              ? { byteLength: sourceByteLength } : {}),
+          },
+        } : {}),
+        ...(analysis ? { analysis } : {}),
+      };
+      const moveOrders = readU32(t.move_order_ptr, segmentCount);
+      const gcodeIds = readU32(t.gcode_id_ptr, segmentCount);
+      const sourceLineOrderValid = gcodeIds.every((line, index) => index === 0 || line >= gcodeIds[index - 1]);
       const toolpath: ClientToolpath = {
-        vertexCount: t.vertex_count,
-        positions: new Float32Array(readBytes(m, Number(t.vertex_ptr), t.vertex_count * 3 * 4).buffer),
-        layers: new Uint32Array(readBytes(m, Number(t.layer_ptr), t.layer_count * 4).buffer),
-        features: new Uint32Array(readBytes(m, Number(t.feature_ptr), t.feature_count * 4).buffer),
+        vertexCount: segmentCount,
+        positions: resolvedEnds,
+        layers: layerIds,
+        features,
         palette: t.features,
+        segmentCount,
+        starts: resolvedStarts,
+        ends: resolvedEnds,
+        layerIds,
+        moveOrders,
+        gcodeIds,
+        sourceLineOrderValid,
+        moveTypes: readU8(t.move_type_ptr, segmentCount),
+        extrusionRoles: readU16(t.extrusion_role_ptr, segmentCount),
+        extruderIds: readU8(t.extruder_id_ptr, segmentCount),
+        colorPrintIds: readU8(t.color_print_id_ptr, segmentCount),
+        widths: readF32(t.width_ptr, segmentCount),
+        heights: readF32(t.height_ptr, segmentCount),
+        metrics,
       };
 
-      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath };
+      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath, metadata };
     },
 
     async exportGcode(): Promise<ExportGcodeResult> {
@@ -324,6 +473,78 @@ export function createClient(
       if (!r.ok) return r as ExportGcodeResult;
       const bytes = m.FS.readFile('/out.gcode');
       return { ok: true, path: r.path ?? '/out.gcode', bytes };
+    },
+
+    async readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk> {
+      const offset = request?.offset;
+      const length = request?.length;
+      if (!Number.isSafeInteger(offset) || offset < 0 ||
+          !Number.isSafeInteger(length) || length < 0 ||
+          length > PREVIEW_TEXT_CHUNK_MAX_BYTES)
+        throw new RangeError(`preview text chunk must be a safe range of at most ${PREVIEW_TEXT_CHUNK_MAX_BYTES} bytes`);
+      const m = await module();
+      const r = callJson(m, 'orc_read_gcode_chunk', ['number', 'number', 'number'], [
+        // The result id is intentionally read from the caller's completed
+        // result metadata in the app. A zero id is rejected by the bridge.
+        request.resultId,
+        offset,
+        length,
+      ]) as {
+        ok: boolean;
+        error?: string;
+        offset?: number;
+        length?: number;
+        eof?: boolean;
+        bytes_ptr?: number;
+        bytes_length?: number;
+      };
+      if (!r.ok) throw new Error(r.error ?? 'preview text is unavailable');
+      const actualOffset = Number(r.offset);
+      const byteLength = Number(r.bytes_length ?? r.length ?? 0);
+      if (!Number.isSafeInteger(actualOffset) || actualOffset < 0 ||
+          !Number.isSafeInteger(byteLength) || byteLength < 0 ||
+          byteLength > PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES || !r.bytes_ptr)
+        throw new Error('preview text bridge returned an invalid chunk');
+      const bytes = readBytes(m, Number(r.bytes_ptr), byteLength);
+      // The bridge aligns the range to UTF-8 boundaries. Decode as one
+      // complete chunk so no decoder state leaks across coalesced requests.
+      return {
+        offset: actualOffset,
+        text: new TextDecoder('utf-8', { fatal: false }).decode(bytes),
+        eof: r.eof === true,
+      };
+    },
+
+    async readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines> {
+      const startLine = request?.startLine;
+      const lineCount = request?.lineCount;
+      if (!Number.isSafeInteger(request?.resultId) || request.resultId < 1 ||
+          !Number.isSafeInteger(startLine) || startLine < 1 ||
+          !Number.isSafeInteger(lineCount) || lineCount < 1 || lineCount > PREVIEW_TEXT_LINES_MAX)
+        throw new RangeError(`preview text page must contain 1-${PREVIEW_TEXT_LINES_MAX} lines`);
+      const m = await module();
+      const r = callJson(m, 'orc_read_gcode_lines', ['number', 'number', 'number'], [
+        request.resultId, startLine, lineCount,
+      ]) as {
+        ok: boolean; error?: string; start_line?: number; line_count?: number;
+        eof?: boolean; bytes_ptr?: number; bytes_length?: number;
+      };
+      if (!r.ok) throw new Error(r.error ?? 'preview text page is unavailable');
+      const actualStart = Number(r.start_line);
+      const actualCount = Number(r.line_count);
+      const byteLength = Number(r.bytes_length ?? 0);
+      if (!Number.isSafeInteger(actualStart) || actualStart < 1 ||
+          !Number.isSafeInteger(actualCount) || actualCount < 1 || actualCount > PREVIEW_TEXT_LINES_MAX ||
+          !Number.isSafeInteger(byteLength) || byteLength < 0 ||
+          byteLength > PREVIEW_TEXT_CHUNK_MAX_BYTES || !r.bytes_ptr)
+        throw new Error('preview text bridge returned an invalid page');
+      const bytes = readBytes(m, Number(r.bytes_ptr), byteLength);
+      return {
+        startLine: actualStart,
+        lineCount: actualCount,
+        text: new TextDecoder('utf-8', { fatal: false }).decode(bytes),
+        eof: r.eof === true,
+      };
     },
 
     async readLog(): Promise<ReadLogResult> {

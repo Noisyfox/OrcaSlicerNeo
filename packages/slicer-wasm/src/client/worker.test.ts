@@ -8,10 +8,12 @@ import { createWorkerClient, startWorker, type WorkerMessage, type WorkerTranspo
 // (createWorkerClient's response handler + startWorker's request handler).
 class Channel implements WorkerTransport {
   private listeners: ((msg: WorkerMessage) => void)[] = [];
+  transfers: Transferable[][] = [];
   onMessage(fn: (msg: WorkerMessage) => void): void {
     this.listeners.push(fn);
   }
-  post(msg: WorkerMessage): void {
+  post(msg: WorkerMessage, transfer?: Transferable[]): void {
+    if (transfer) this.transfers.push(transfer);
     for (const l of this.listeners) l(msg);
   }
 }
@@ -20,8 +22,8 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
   const module = createMockModule();
   const channel = new Channel();
   const workerClient = createWorkerClient(channel);
-  void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn), undefined, beforeRequest);
-  return { workerClient, module };
+  void startWorker(async () => module, (msg, transfer) => channel.post(msg, transfer), (fn) => channel.onMessage(fn), undefined, beforeRequest);
+  return { workerClient, module, channel };
 }
 
 describe('worker protocol', () => {
@@ -70,6 +72,19 @@ describe('worker protocol', () => {
     const res = await workerClient.getSliceResult();
     expect(res.toolpath.vertexCount).toBeGreaterThan(0);
     expect(res.toolpath.positions.byteLength).toBe(res.toolpath.vertexCount * 3 * 4);
+  });
+
+  it('transfers each v2 result ArrayBuffer exactly once from the worker', async () => {
+    const { workerClient, channel } = setup();
+    await workerClient.init();
+    await workerClient.addModel(new Uint8Array(4), 'stl');
+    await workerClient.slice({});
+    const result = await workerClient.getSliceResult();
+    const responseTransfers = channel.transfers.find((items) => items.length > 5);
+    expect(responseTransfers).toBeDefined();
+    expect(new Set(responseTransfers as Transferable[]).size).toBe((responseTransfers as Transferable[]).length);
+    expect(result.toolpath.starts).toBeInstanceOf(Float32Array);
+    expect(result.toolpath.gcodeIds).toBeInstanceOf(Uint32Array);
   });
 
   it('rejects on missing op', async () => {

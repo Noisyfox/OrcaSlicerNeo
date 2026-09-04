@@ -7,6 +7,7 @@ import { BedPlate } from './BedPlate';
 import { GLVolumeMesh } from './ModelMesh';
 import type { ToolpathGeometry } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
+import { ToolpathMarker } from './ToolpathMarker';
 import { TransformGizmo, type TransformGizmoMode } from './gizmo/TransformGizmo';
 import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
@@ -42,13 +43,15 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
     }
     previousActiveTabRef.current = activeTab;
   }, [activeTab, sceneInteraction]);
-  // Test-only projection hook (mock/e2e builds): Playwright needs exact
+  // Test-only projection hook (e2e builds): Playwright needs exact
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
-  // No-op in production builds (VITE_USE_MOCK is unset).
+  // No-op in production builds (the e2e-only VITE_E2E flag is unset).
   const camera = useThree((s) => s.camera);
+  const scene = useThree((s) => s.scene);
   const size = useThree((s) => s.size);
   useEffect(() => {
-    if (!(import.meta.env as { VITE_USE_MOCK?: string }).VITE_USE_MOCK) return;
+    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
+    if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
     // The container is shared with TransformGizmo (gizmoAxis), and per-key
     // cleanup leaves a partial behind — so every key is optional here.
     const w = window as unknown as {
@@ -66,6 +69,7 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
         pointerOwner?: () => 'none' | 'gizmo' | 'body' | 'box';
         selectionInstanceCount?: () => number;
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
+        previewMarkerPresent?: () => boolean;
       };
     };
     const projectPoint = (p: THREE.Vector3) => {
@@ -118,6 +122,7 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
         // (false) rather than throwing so the e2e hook is retryable.
         return hit && sceneInteraction ? sceneInteraction.selectFromHit(hit, additive) : false;
       },
+      previewMarkerPresent: () => Boolean(scene.getObjectByName('preview-nozzle-marker')),
     };
     return () => {
       if (w.__orcaE2e) {
@@ -129,12 +134,13 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
           pointerOwner: _owner,
           selectionInstanceCount: _count,
           selectMockInstance: _selection,
+          previewMarkerPresent: _marker,
           ...rest
         } = w.__orcaE2e;
         w.__orcaE2e = rest;
       }
     };
-  }, [camera, glVolumes, size, sceneInteraction]);
+  }, [camera, glVolumes, scene, size, sceneInteraction]);
 
   // A loader replacement is a new scene even if it reuses the prior model's
   // composite IDs, so selection and the active gizmo must not leak across it.
@@ -191,6 +197,7 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false }:
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}
       {toolpath && <ToolpathLines data={toolpath} />}
+      {toolpath && <ToolpathMarker data={toolpath} />}
     </>
   );
 }

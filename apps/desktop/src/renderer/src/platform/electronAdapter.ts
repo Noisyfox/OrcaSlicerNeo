@@ -102,7 +102,11 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     printers: { configuration: printerConfiguration, transport: createElectronPrinterTransport(host) },
     webview: createElectronWebViewHost(),
     runtime,
-    profiles: { fetch: async (relativePath) => new Uint8Array(await (await fetch(relativePath)).arrayBuffer()) },
+    profiles: { fetch: async (relativePath) => {
+      const response = await fetch(new URL(`profiles/${relativePath}`, document.baseURI));
+      if (!response.ok) throw new Error(`profile asset request failed (${response.status}): ${relativePath}`);
+      return new Uint8Array(await response.arrayBuffer());
+    } },
     chrome: {
       kind: 'desktop',
       platform: host.platform,

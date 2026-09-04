@@ -5,6 +5,8 @@ export interface ProfilePackage { id: string; kind: 'core' | 'vendor'; path: str
 export interface ProfileManifest { version: 1; packages: ProfilePackage[]; }
 export interface ProfileSource { fetch(relativePath: string): Promise<Uint8Array | ReadableStream<Uint8Array>>; }
 
+export interface HotendPrinter { vendor_id: string; model: string; }
+
 export interface ProfileInstallProgress {
   package: ProfilePackage;
   index: number;
@@ -25,6 +27,70 @@ function unzip(data: Uint8Array): Array<{ path: string; data: Uint8Array }> {
   return Object.entries(files)
     .filter(([path]) => !path.endsWith('/'))
     .map(([path, content]) => ({ path, data: content }));
+}
+
+function archiveEntry(data: Uint8Array, path: string): Uint8Array | null {
+  const files = unzipSync(data, { filter: (file) => file.name === path });
+  return files[path] ?? null;
+}
+
+function archiveEntries(data: Uint8Array, predicate: (path: string) => boolean): Array<{ path: string; data: Uint8Array }> {
+  const files = unzipSync(data, { filter: (file) => predicate(file.name) });
+  return Object.entries(files).map(([path, content]) => ({ path, data: content }));
+}
+
+function manifestPackage(manifest: ProfileManifest, kind: ProfilePackage['kind'], id?: string): ProfilePackage | null {
+  return manifest.packages.find((pkg) => pkg.kind === kind && (id === undefined || pkg.id === id)) ?? null;
+}
+
+async function readProfileManifest(source: ProfileSource): Promise<ProfileManifest> {
+  const value = JSON.parse(new TextDecoder().decode(await readBytes(await source.fetch('manifest.json')))) as ProfileManifest;
+  if (value.version !== 1 || !Array.isArray(value.packages)) throw new Error('unsupported profile manifest');
+  return value;
+}
+
+/**
+ * Reads Orca's selected printer hotend directly from the profile archives.
+ * Machine JSON is used as the authoritative vendor/model -> hotend_model
+ * mapping; only machine JSON entries and the selected STL are extracted.
+ */
+export async function readHotendProfileAsset(
+  source: ProfileSource,
+  printer: HotendPrinter | null,
+): Promise<Uint8Array | null> {
+  const manifest = await readProfileManifest(source);
+  const core = manifestPackage(manifest, 'core');
+
+  if (printer) {
+    const vendor = manifestPackage(manifest, 'vendor', printer.vendor_id);
+    if (vendor) {
+      try {
+        const archive = await readBytes(await source.fetch(vendor.path));
+        const machineEntries = archiveEntries(archive, (path) => path.startsWith('machine/') && path.toLowerCase().endsWith('.json'));
+        for (const machine of machineEntries) {
+          try {
+            const value = JSON.parse(new TextDecoder().decode(machine.data)) as { name?: unknown; hotend_model?: unknown };
+            if (value.name !== printer.model || typeof value.hotend_model !== 'string' || !value.hotend_model) continue;
+            const entry = value.hotend_model.replaceAll('\\', '/');
+            if (!entry || entry.startsWith('/') || entry.split('/').some((part) => !part || part === '.' || part === '..')) continue;
+            const selected = archiveEntry(archive, entry);
+            if (selected) return selected;
+          } catch {
+            // An optional malformed machine profile does not prevent fallback.
+          }
+        }
+      } catch {
+        // Optional vendor package failures use the core fallback below.
+      }
+    }
+  }
+
+  if (!core) return null;
+  try {
+    return archiveEntry(await readBytes(await source.fetch(core.path)), 'hotend.stl');
+  } catch {
+    return null;
+  }
 }
 
 async function readBytes(value: Uint8Array | ReadableStream<Uint8Array>): Promise<Uint8Array> {

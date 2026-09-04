@@ -3,8 +3,9 @@
 // bridge-shaped mock module (Task 1). These pin the M2 bridge
 // contract that Task 7 implements in C++.
 import { describe, it, expect } from 'vitest';
-import { createMockModule } from './testing/mock-module';
+import { createMockModule, type MockFeature } from './testing/mock-module';
 import { createClient } from './client';
+import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES } from './types';
 import type { ModelTransform, VolumeType } from './types';
 
 function makeClient() {
@@ -793,11 +794,169 @@ describe('SlicerClient bridge contract', () => {
     expect(r.toolpath.features.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('decodes continuous v2 segments, indexes, palettes and metadata', async () => {
+    const c = createClient(async () => createMockModule({
+      sliceFixture: {
+        layers: 2, toolpathVertices: 4,
+        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }, { id: 1, name: 'Infill', color: [0, 0, 255] }],
+        extruderPalette: [
+          { id: 0, name: 'Red PLA', color: [255, 0, 0], tool: 0 },
+          { id: 1, name: 'Blue PETG', color: [0, 0, 255], tool: 1 },
+        ],
+        resultId: 42,
+        optionalMetrics: { feedrate: [10, 20, 30, 40], volumetric_flow: [1, 2, 3, 4] },
+        analysis: {
+          summary: { estimatedTimeSeconds: 12.5, filamentLengthMeters: 1.25, filamentWeightGrams: 3.5, filamentCost: 0.07 },
+          featureStatistics: [{ featureId: 0, timeSeconds: 8, filamentLengthMeters: 0.75 }, { featureId: 1, timeSeconds: 4.5, filamentWeightGrams: 1.2 }],
+        },
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const r = await c.getSliceResult();
+    const t = r.toolpath;
+    expect(t.segmentCount).toBe(4);
+    expect(t.starts.length).toBe(12);
+    expect(t.ends.length).toBe(12);
+    for (let i = 1; i < t.segmentCount; i++)
+      expect(Array.from(t.starts.slice(i * 3, i * 3 + 3))).toEqual(Array.from(t.ends.slice((i - 1) * 3, i * 3)));
+    expect(t.layerIds.length).toBe(4);
+    expect(t.moveOrders).toEqual(new Uint32Array([0, 1, 0, 1]));
+    expect(t.gcodeIds).toEqual(new Uint32Array([1, 2, 3, 4]));
+    expect(t.widths[1]).toBeCloseTo(0.45);
+    expect(t.metrics.feedrate).toEqual(new Float32Array([10, 20, 30, 40]));
+    expect(t.metrics.actualFeedrate).toBeUndefined();
+    expect(r.metadata.resultId).toBe(42);
+    expect(r.metadata.sourceText).toEqual({ available: true });
+    expect(r.metadata.layerRanges).toHaveLength(2);
+    expect(r.metadata.extruderPalette?.[0].tool).toBe(0);
+    expect(r.metadata.extruderPalette).toEqual([
+      { id: 0, name: 'Red PLA', color: [255, 0, 0], tool: 0 },
+      { id: 1, name: 'Blue PETG', color: [0, 0, 255], tool: 1 },
+    ]);
+    expect(r.metadata.analysis?.summary).toEqual({
+      estimatedTimeSeconds: 12.5, filamentLengthMeters: 1.25, filamentWeightGrams: 3.5, filamentCost: 0.07,
+    });
+    expect(r.metadata.analysis?.featureStatistics).toEqual([
+      { featureId: 0, timeSeconds: 8, filamentLengthMeters: 0.75 },
+      { featureId: 1, timeSeconds: 4.5, filamentWeightGrams: 1.2 },
+    ]);
+    expect(r.metadata.analysis?.metricRanges).toEqual({
+      feedrate: { min: 10, max: 40 }, volumetricFlow: { min: 1, max: 4 },
+    });
+  });
+
+  it('preserves every Orca extrusion-role label and color in the client palette', async () => {
+    const orcaPalette: MockFeature[] = [
+      { id: 0, name: 'Undefined', color: [230, 179, 179] },
+      { id: 1, name: 'Inner wall', color: [255, 230, 77] },
+      { id: 2, name: 'Outer wall', color: [255, 125, 56] },
+      { id: 3, name: 'Overhang wall', color: [31, 31, 255] },
+      { id: 4, name: 'Sparse infill', color: [176, 48, 41] },
+      { id: 5, name: 'Internal solid infill', color: [150, 84, 204] },
+      { id: 6, name: 'Top surface', color: [240, 64, 64] },
+      { id: 7, name: 'Bottom surface', color: [102, 92, 199] },
+      { id: 8, name: 'Ironing', color: [255, 140, 105] },
+      { id: 9, name: 'Bridge', color: [77, 128, 186] },
+      { id: 10, name: 'Internal Bridge', color: [77, 128, 186] },
+      { id: 11, name: 'Gap infill', color: [255, 255, 255] },
+      { id: 12, name: 'Skirt', color: [0, 135, 110] },
+      { id: 13, name: 'Brim', color: [0, 59, 110] },
+      { id: 14, name: 'Support', color: [0, 255, 0] },
+      { id: 15, name: 'Support interface', color: [0, 128, 0] },
+      { id: 16, name: 'Support transition', color: [0, 64, 0] },
+      { id: 17, name: 'Prime tower', color: [179, 227, 171] },
+      { id: 18, name: 'Custom', color: [94, 209, 148] },
+      { id: 19, name: 'Multiple', color: [128, 128, 128] },
+    ];
+    const c = createClient(async () => createMockModule({
+      sliceFixture: { layers: 1, toolpathVertices: 2, features: orcaPalette },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const r = await c.getSliceResult();
+    expect(r.metadata.featurePalette).toEqual(orcaPalette);
+    expect(r.toolpath.palette).toEqual(orcaPalette);
+  });
+
+  it('omits unavailable optional metrics while preserving required arrays', async () => {
+    const c = createClient(async () => createMockModule({
+      sliceFixture: { layers: 1, toolpathVertices: 2, features: [{ id: 0, name: 'Travel', color: [1, 2, 3] }] },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const r = await c.getSliceResult();
+    expect(r.toolpath.segmentCount).toBe(2);
+    expect(r.toolpath.metrics).toEqual({});
+    expect(r.metadata.sourceLineMapping?.available).toBe(true);
+  });
+
   it('exportGcode returns the MEMFS bytes', async () => {
     const c = makeClient();
     const r = await c.exportGcode();
     expect(r.ok).toBe(true);
     expect(new TextDecoder().decode(r.bytes.slice(0, 6))).toBe('; mock');
+  });
+
+  it('reads bounded UTF-8 source chunks by completed result id', async () => {
+    const sourceText = '; 注释\nG1 X1\nG1 X2\n';
+    const c = createClient(async () => createMockModule({
+      sliceFixture: {
+        layers: 1, toolpathVertices: 2,
+        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        resultId: 17, sourceText,
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const result = await c.getSliceResult();
+    const encoded = new TextEncoder().encode(sourceText);
+    const middle = await c.readTextChunk({ resultId: result.metadata.resultId, offset: 3, length: 5 });
+    expect(middle.offset).toBe(2);
+    expect(middle.text).toBe('注释');
+    expect(middle.eof).toBe(false);
+    const tail = await c.readTextChunk({ resultId: result.metadata.resultId, offset: encoded.length - 1, length: 1 });
+    expect(tail.text).toBe('\n');
+    await expect(c.readTextChunk({ resultId: 16, offset: 0, length: 1 })).rejects.toThrow('unavailable');
+    await expect(c.readTextChunk({ resultId: 17, offset: 0, length: 64 * 1024 + 1 })).rejects.toThrow('at most');
+  });
+
+  it('bounds both UTF-8 alignment edges for a maximum-size request', async () => {
+    const sourceText = `😀${'a'.repeat(65534)}😀tail`;
+    const c = createClient(async () => createMockModule({
+      sliceFixture: {
+        layers: 1, toolpathVertices: 2,
+        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        resultId: 18, sourceText,
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const result = await c.getSliceResult();
+    const chunk = await c.readTextChunk({
+      resultId: result.metadata.resultId,
+      offset: 3,
+      length: PREVIEW_TEXT_CHUNK_MAX_BYTES,
+    });
+    expect(chunk.offset).toBe(0);
+    expect(new TextEncoder().encode(chunk.text).byteLength).toBe(PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES);
+    expect(chunk.eof).toBe(false);
+  });
+
+  it('reads a seekable bounded source-line page without a prefix request', async () => {
+    const c = createClient(async () => createMockModule({
+      sliceFixture: {
+        layers: 1, toolpathVertices: 2,
+        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        resultId: 19, sourceText: '; header\nG1 X1\nG1 X2\n',
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    await c.slice({});
+    const result = await c.getSliceResult();
+    const page = await c.readTextLines({ resultId: result.metadata.resultId, startLine: 3, lineCount: 1 });
+    expect(page).toMatchObject({ startLine: 3, lineCount: 1, eof: true, text: 'G1 X2\n' });
+    await expect(c.readTextLines({ resultId: 19, startLine: 1, lineCount: 129 })).rejects.toThrow('1-128');
   });
 
   it('cancel is safe', async () => {

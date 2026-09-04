@@ -454,6 +454,16 @@
 - [x] Generic OrcaFilamentLibrary profiles remain suppressed only when native
       alias-based matching selects a printer-specific profile.
 
+## G-code preview GPU streaming renderer (2026-09-02)
+
+The WebGL2 streaming/indexed-segment backend has passed functional, lifetime,
+and Web/Electron verification and is now the default and sole toolpath
+renderer. Capability, budget, compile, source, context, and selection failures
+produce an explicit unavailable diagnostic. Browser smoke covers native default
+selection, static/index uploads, camera uniform-only frames, capabilities, and
+disposal; large-slice measurements remain manual diagnostics.
+See `doc/2026-09-02-gcode-preview-gpu-streaming-renderer.md`.
+
 ## Cross-Cutting Practices
 
 - **Bridge is the only seam:** renderer code never imports the WASM module

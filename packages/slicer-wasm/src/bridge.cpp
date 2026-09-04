@@ -21,6 +21,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -29,6 +31,7 @@
 #include <utility>
 
 #include "libslic3r/AppConfig.hpp"
+#include "libslic3r/Color.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -95,8 +98,26 @@ struct BridgeState {
     PresetBundle presets;
     Model       model;
     Print       print;
+    // The current completed preview owns the exported G-code in MEMFS. Keep
+    // only its identity and file metadata here: full source text must never
+    // be copied into the initial preview JSON or retained as a second string.
+    std::uint32_t preview_result_id = 0;
+    std::string preview_gcode_path;
+    std::size_t preview_gcode_size = 0;
+    std::vector<std::size_t> preview_gcode_line_ends;
+    bool preview_text_available = false;
 };
 BridgeState& state() { static BridgeState s; return s; }
+
+void invalidate_preview_source()
+{
+    auto& bridge_state = state();
+    bridge_state.preview_result_id = 0;
+    bridge_state.preview_gcode_path.clear();
+    bridge_state.preview_gcode_size = 0;
+    bridge_state.preview_gcode_line_ends.clear();
+    bridge_state.preview_text_available = false;
+}
 
 // Copy a string into a malloc'd C string the JS side can read then _free().
 const char* dup_json(const std::string& s) {
@@ -703,6 +724,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
             state().model.add_object(*o);
         // A model mutation makes any existing Print/G-code result stale.
         state().print.clear();
+        invalidate_preview_source();
         // Drift at the pinned SHA: Model has no instance accessor — instances
         // live per-object (ModelObject::instances, Model.hpp:385; Model itself
         // only has the objects list, Model.hpp:1553-1560). Sum per object.
@@ -780,6 +802,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
         new_object->ensure_on_bed();
         // A model mutation makes any existing Print/G-code result stale.
         state().print.clear();
+        invalidate_preview_source();
         size_t instance_count = 0;
         for (const ModelObject* o : state().model.objects)
             instance_count += o->instances.size();
@@ -801,6 +824,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
 EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     try {
         state().print.clear();
+        invalidate_preview_source();
         state().model = Model{};
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -826,6 +850,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json)
         for (const std::size_t id : *ids)
             state().model.delete_object(ObjectID(id));
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objects", state().model.objects.size()},
                              {"deleted", ids->size()}}.dump());
@@ -868,6 +893,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
                 obj->delete_volume(idx);
         }
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objects", state().model.objects.size()},
                              {"deleted", ids->size()}}.dump());
@@ -895,6 +921,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) 
             new_object_ids.push_back(clone->id().id);
         }
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
                              {"objects", state().model.objects.size()}}.dump());
@@ -929,6 +956,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double 
             objs.insert(objs.begin() + static_cast<std::ptrdiff_t>(target), from_obj);
         }
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -963,6 +991,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
         }
         obj->invalidate_bounding_box();
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1001,6 +1030,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
                 new_volume_ids.push_back(v->id().id);
 
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"parts", parts},
                              {"newVolumeIds", new_volume_ids},
@@ -1042,6 +1072,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
             state().model.adjust_min_z();
 
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
                              {"objects", state().model.objects.size()}}.dump());
@@ -1102,6 +1133,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
             model.delete_object(src);
 
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objectId", new_obj->id().id},
                              {"objects", model.objects.size()}}.dump());
@@ -1155,6 +1187,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
             obj->delete_instance(i);
 
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
                              {"objects", state().model.objects.size()}}.dump());
@@ -1185,6 +1218,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
         ModelInstance* inst = obj->add_instance();
         inst->set_offset(Slic3r::Vec3d(base.x() + step, base.y(), base.z()));
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objectId", obj->id().id},
                              {"instanceId", inst->id().id}}.dump());
@@ -1209,6 +1243,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double in
             if (obj->instances[i]->id().id == *iid) {
                 obj->delete_instance(i);
                 state().print.clear();
+                invalidate_preview_source();
                 return dup_json(json{{"ok", true}}.dump());
             }
         }
@@ -1317,6 +1352,9 @@ EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
 
 EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     try {
+        // A new slice invalidates both the old toolpath and its source text
+        // before any work begins. The client must fetch a fresh result id.
+        invalidate_preview_source();
         // libslic3r's internal phase reporting does not promise a final 100%
         // notification (the current FDM path often ends at 75%). Establish
         // stable operation boundaries for the UI around those detailed phases.
@@ -1606,6 +1644,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_object(double object_id, const char*
         // A rename does not change geometry, but it does change the object's
         // reported name; the existing Print/G-code is still considered stale.
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1623,6 +1662,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_volume(double volume_id, const char*
         if (vol == nullptr) return error_json("volume not found");
         vol->name = name_cstr;
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1649,6 +1689,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         // object bounds so a later getModelMesh / slice recomputes them.
         vol->get_object()->invalidate_bounding_box();
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1672,6 +1713,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, doub
         for (auto& inst : obj->instances)
             inst->printable = value;
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1688,6 +1730,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
         if (inst == nullptr) return error_json("instance not found");
         inst->printable = printable != 0.0;
         state().print.clear();
+        invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1745,17 +1788,35 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_mesh() {
     }
 }
 
-// Binary toolpath + stats. Contract mirrors the Task 1 mock; JS reads the
-// heap buffers and _free()s the pointers.
+// Binary preview result. v2 publishes explicit continuous segments as
+// structure-of-arrays buffers. The returned pointers are transferred exactly
+// once to the Worker client; that client copies each array and frees the
+// corresponding heap allocation immediately (the JSON itself is freed by the
+// normal callJson path).
 EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     try {
         auto& print = state().print;
-        if (print.objects().empty())
-            return dup_json(json{{"ok", true}, {"objects", 0}, {"layers", 0},
-                                 {"toolpath", json{{"vertex_ptr", 0}, {"vertex_count", 0},
-                                                   {"layer_ptr", 0}, {"layer_count", 0},
-                                                   {"feature_ptr", 0}, {"feature_count", 0},
-                                                   {"features", json::array()}}}}.dump());
+        if (print.objects().empty()) {
+            invalidate_preview_source();
+            json empty_toolpath{{"segment_count", 0},
+                                {"starts_ptr", 0}, {"ends_ptr", 0},
+                                {"layer_id_ptr", 0}, {"move_order_ptr", 0},
+                                {"gcode_id_ptr", 0}, {"move_type_ptr", 0},
+                                {"extrusion_role_ptr", 0}, {"extruder_id_ptr", 0},
+                                {"color_print_id_ptr", 0}, {"width_ptr", 0}, {"height_ptr", 0},
+                                // v1 aliases, retained until the renderer
+                                // migration is complete.
+                                {"vertex_ptr", 0}, {"vertex_count", 0},
+                                {"layer_ptr", 0}, {"layer_count", 0},
+                                {"feature_ptr", 0}, {"feature_count", 0},
+                                {"features", json::array()}, {"metrics", json::object()}};
+            return dup_json(json{{"ok", true}, {"preview_version", 2},
+                                 {"objects", 0}, {"layers", 0},
+                                 {"metadata", json{{"result_id", 0}, {"layer_ranges", json::array()},
+                                                    {"feature_palette", json::array()},
+                                                    {"source_text", json{{"available", false}, {"byte_length", 0}}}}},
+                                 {"toolpath", std::move(empty_toolpath)}}.dump());
+        }
 
         // The toolpath comes from post-processing the exported gcode
         // (GCodeProcessor::process_file — the GUI's own mechanism). Export
@@ -1770,43 +1831,305 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             processor.process_file("/out.gcode");
             gcode_result = processor.get_result();
         }
+        {
+            auto& bridge_state = state();
+            bridge_state.preview_result_id = gcode_result.id;
+            bridge_state.preview_gcode_path = "/out.gcode";
+            std::ifstream source(bridge_state.preview_gcode_path, std::ios::binary | std::ios::ate);
+            bridge_state.preview_text_available = source.good();
+            bridge_state.preview_gcode_size = source.good()
+                ? static_cast<std::size_t>(source.tellg())
+                : 0;
+            bridge_state.preview_gcode_line_ends.assign(gcode_result.lines_ends.begin(), gcode_result.lines_ends.end());
+        }
         auto tp = bridge::build_toolpath(gcode_result);
+        const auto analysis = bridge::build_preview_analysis(gcode_result, tp);
         // Layer count = max layer id present in the toolpath + 1. The gcode
         // spans the whole plate, so this covers every object's height — the
         // previous objects().front() cap hid taller objects' extra layers.
         const size_t layers = tp.layerCount;
 
         // Feature palette (local id → name/color). build_toolpath assigns
-        // ids 0..N-1 in order of first use; the features buffer holds those
-        // ids, so this list lines up 1:1.
+        // ids 0..N-1 in order of first use; the compatibility feature buffer
+        // and the v2 extrusion_roles array both remain stable across calls.
         json features = json::array();
+        json feature_palette = json::array();
         for (const auto& [role, info] : tp.palette_used) {
-            (void)role;
-            features.push_back({{"id", static_cast<int>(features.size())},
-                                {"name", info.name},
+            const auto id = static_cast<int>(features.size());
+            features.push_back({{"id", id}, {"name", info.name},
                                 {"color", {info.color[0], info.color[1], info.color[2]}}});
+            feature_palette.push_back({{"id", id}, {"role", static_cast<unsigned>(role)},
+                                       {"name", info.name},
+                                       {"color", {info.color[0], info.color[1], info.color[2]}}});
         }
 
+        json layer_ranges = json::array();
+        for (const auto& range : tp.layer_ranges)
+            if (range.count > 0)
+                layer_ranges.push_back({{"id", range.id}, {"z", range.z},
+                                         {"first_segment", range.first},
+                                         {"segment_count", range.count}});
+
+        // GCodeProcessorResult keeps the configured filament colours parsed
+        // from the completed G-code and the selected filament preset names.
+        // Tool ids are stable zero-based indices. An undecodable source color
+        // is omitted rather than replaced with an invented value.
+        json extruder_palette = json::array();
+        for (size_t tool = 0; tool < gcode_result.extruder_colors.size(); ++tool) {
+            ColorRGB color;
+            if (!decode_color(gcode_result.extruder_colors[tool], color)) continue;
+            const std::string name = tool < gcode_result.settings_ids.filament.size() &&
+                    !gcode_result.settings_ids.filament[tool].empty()
+                ? gcode_result.settings_ids.filament[tool]
+                : "Tool " + std::to_string(tool + 1);
+            extruder_palette.push_back({
+                {"id", tool}, {"tool", tool}, {"name", name},
+                {"color", {color.r_uchar(), color.g_uchar(), color.b_uchar()}},
+            });
+        }
+
+        auto ptr = [](const MallocBuffer& buffer) -> std::uintptr_t {
+            return reinterpret_cast<std::uintptr_t>(buffer.data);
+        };
+        json metrics = {
+            {"feedrate", { {"ptr", ptr(tp.feedrates)}, {"count", tp.segmentCount} }},
+            {"actual_feedrate", { {"ptr", ptr(tp.actual_feedrates)}, {"count", tp.segmentCount} }},
+            {"volumetric_flow", { {"ptr", ptr(tp.volumetric_flows)}, {"count", tp.segmentCount} }},
+            {"actual_volumetric_flow", { {"ptr", ptr(tp.actual_volumetric_flows)}, {"count", tp.segmentCount} }},
+            {"fan_speed", { {"ptr", ptr(tp.fan_speeds)}, {"count", tp.segmentCount} }},
+            {"temperature", { {"ptr", ptr(tp.temperatures)}, {"count", tp.segmentCount} }},
+            {"pressure_advance", { {"ptr", ptr(tp.pressure_advances)}, {"count", tp.segmentCount} }},
+            {"acceleration", { {"ptr", ptr(tp.accelerations)}, {"count", tp.segmentCount} }},
+            {"jerk", { {"ptr", ptr(tp.jerks)}, {"count", tp.segmentCount} }},
+            {"time", { {"ptr", ptr(tp.times)}, {"count", tp.segmentCount} }},
+            {"layer_duration", { {"ptr", ptr(tp.layer_durations)}, {"count", tp.segmentCount} }},
+        };
+
         // wasm64: heap pointers as uintptr_t (see orc_get_model_mesh).
-        const std::uintptr_t tvptr = reinterpret_cast<std::uintptr_t>(tp.positions.data);
+        const std::uintptr_t tvptr = ptr(tp.positions);
+        const std::uintptr_t ts = ptr(tp.starts);
+        const std::uintptr_t te = ptr(tp.ends);
         const std::uintptr_t tlptr = reinterpret_cast<std::uintptr_t>(tp.layers.data);
         const std::uintptr_t tfptr = reinterpret_cast<std::uintptr_t>(tp.features.data);
         const size_t n_verts = tp.positions.size / 12;
-        tp.positions.release(); tp.layers.release(); tp.features.release();
 
-        json out{{"ok", true}, {"objects", print.objects().size()}, {"layers", layers}};
+        json out{{"ok", true}, {"preview_version", 2},
+                 {"objects", print.objects().size()}, {"layers", layers}};
+        out["metadata"] = {
+            {"result_id", gcode_result.id}, {"source_filename", gcode_result.filename},
+            {"layer_ranges", std::move(layer_ranges)},
+            {"feature_palette", std::move(feature_palette)},
+            // Full G-code text is intentionally not copied. gcode_ids are
+            // source-line identifiers; lines_ends records that source mapping
+            // is available for a future chunked text API.
+            {"source_line_mapping", json{{"available", !gcode_result.lines_ends.empty()},
+                                           {"line_count", gcode_result.lines_ends.size()}}},
+            {"source_text", json{{"available", state().preview_text_available},
+                                  {"byte_length", state().preview_gcode_size}}},
+        };
+        if (!extruder_palette.empty()) out["metadata"]["extruder_palette"] = std::move(extruder_palette);
+        json summary = json::object();
+        if (analysis.has_estimated_time) summary["estimated_time_seconds"] = analysis.estimated_time_seconds;
+        if (analysis.has_filament_length) summary["filament_length_meters"] = analysis.filament_length_meters;
+        if (analysis.has_filament_weight) summary["filament_weight_grams"] = analysis.filament_weight_grams;
+        if (analysis.has_filament_cost) summary["filament_cost"] = analysis.filament_cost;
+        json feature_statistics = json::array();
+        for (const auto& stats : analysis.feature_statistics) {
+            json entry{{"feature_id", stats.feature_id}};
+            if (stats.has_time) entry["time_seconds"] = stats.time_seconds;
+            if (stats.has_filament) {
+                entry["filament_length_meters"] = stats.filament_length_meters;
+                entry["filament_weight_grams"] = stats.filament_weight_grams;
+            }
+            feature_statistics.push_back(std::move(entry));
+        }
+        out["metadata"]["analysis"] = {
+            {"summary", std::move(summary)},
+            {"feature_statistics", std::move(feature_statistics)},
+        };
         out["toolpath"] = {
+            {"segment_count", tp.segmentCount},
+            {"starts_ptr", ts}, {"ends_ptr", te},
+            {"layer_id_ptr", ptr(tp.layers)}, {"move_order_ptr", ptr(tp.move_orders)},
+            {"gcode_id_ptr", ptr(tp.gcode_ids)}, {"move_type_ptr", ptr(tp.move_types)},
+            {"extrusion_role_ptr", ptr(tp.extrusion_roles)},
+            {"extruder_id_ptr", ptr(tp.extruders)},
+            {"color_print_id_ptr", ptr(tp.color_prints)},
+            {"width_ptr", ptr(tp.widths)}, {"height_ptr", ptr(tp.heights)},
+            {"metrics", std::move(metrics)},
             {"vertex_ptr", tvptr}, {"vertex_count", n_verts},
-            {"layer_ptr", tlptr}, {"layer_count", n_verts},
+            {"layer_ptr", ptr(tp.layers)}, {"layer_count", n_verts},
             {"feature_ptr", tfptr}, {"feature_count", n_verts},
             {"features", std::move(features)},
         };
+        // Every pointer above is released after it has been recorded. JS now
+        // owns the corresponding bytes and must _free() each exactly once.
+        tp.starts.release(); tp.ends.release(); tp.positions.release();
+        tp.layers.release(); tp.move_orders.release(); tp.gcode_ids.release();
+        tp.move_types.release(); tp.extrusion_roles.release(); tp.extruders.release();
+        tp.color_prints.release(); tp.widths.release(); tp.heights.release();
+        tp.features.release(); tp.feedrates.release(); tp.actual_feedrates.release();
+        tp.volumetric_flows.release(); tp.actual_volumetric_flows.release();
+        tp.fan_speeds.release(); tp.temperatures.release(); tp.pressure_advances.release();
+        tp.accelerations.release(); tp.jerks.release(); tp.times.release();
+        tp.layer_durations.release();
         return dup_json(out.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Read a bounded byte range from the current completed result's exported
+// G-code. The source is kept in MEMFS and opened only for this request; the
+// initial preview payload contains metadata and line identifiers, never the
+// complete text. `offset` and `length` are doubles at the Emscripten ABI so
+// wasm32/wasm64 callers share one signature; both are validated as exact,
+// non-negative integers before conversion.
+EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_id_number,
+                                                      double offset_number,
+                                                      double length_number) {
+    try {
+        constexpr std::size_t max_chunk_bytes = 64 * 1024;
+        constexpr std::size_t max_alignment_overrun_bytes = 3;
+        constexpr std::size_t max_response_bytes = max_chunk_bytes + max_alignment_overrun_bytes * 2;
+        auto& bridge_state = state();
+        const auto valid_integer = [](double value) {
+            return std::isfinite(value) && value >= 0.0 &&
+                   std::floor(value) == value &&
+                   value <= static_cast<double>(std::numeric_limits<std::size_t>::max());
+        };
+        if (!valid_integer(result_id_number) || !valid_integer(offset_number) ||
+            !valid_integer(length_number))
+            return dup_json(json{{"ok", false}, {"error", "invalid chunk range"}}.dump());
+
+        if (result_id_number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()))
+            return dup_json(json{{"ok", false}, {"error", "invalid result id"}}.dump());
+        const auto result_id = static_cast<std::uint32_t>(result_id_number);
+        const auto requested_offset = static_cast<std::size_t>(offset_number);
+        const auto requested_length = static_cast<std::size_t>(length_number);
+        if (result_id == 0 || result_id != bridge_state.preview_result_id ||
+            !bridge_state.preview_text_available)
+            return dup_json(json{{"ok", false}, {"error", "preview text is unavailable"}}.dump());
+        if (requested_length > max_chunk_bytes || requested_offset > bridge_state.preview_gcode_size)
+            return dup_json(json{{"ok", false}, {"error", "chunk range is outside the preview text"}}.dump());
+
+        // Align the returned bytes to UTF-8 code-point boundaries. A caller
+        // may request arbitrary byte offsets (for example after estimating a
+        // virtualized line viewport), so include up to three preceding bytes
+        // and up to three continuation bytes after the requested range.
+        std::size_t actual_offset = requested_offset;
+        std::size_t actual_end = std::min(bridge_state.preview_gcode_size,
+                                          requested_offset + requested_length);
+        std::ifstream source(bridge_state.preview_gcode_path, std::ios::binary);
+        if (!source.good())
+            return dup_json(json{{"ok", false}, {"error", "preview text could not be opened"}}.dump());
+        auto read_byte = [&](std::size_t position, unsigned char& value) {
+            source.clear();
+            source.seekg(static_cast<std::streamoff>(position), std::ios::beg);
+            char byte = 0;
+            if (!source.get(byte)) return false;
+            value = static_cast<unsigned char>(byte);
+            return true;
+        };
+        if (requested_length > 0 && actual_offset > 0) {
+            unsigned char byte = 0;
+            std::size_t continuation_bytes = 0;
+            while (actual_offset > 0 && continuation_bytes < max_alignment_overrun_bytes && read_byte(actual_offset, byte) &&
+                   (byte & 0xc0u) == 0x80u)
+                --actual_offset, ++continuation_bytes;
+        }
+        if (requested_length > 0 && actual_end < bridge_state.preview_gcode_size) {
+            unsigned char byte = 0;
+            while (actual_end < bridge_state.preview_gcode_size &&
+                   actual_end < requested_offset + requested_length + max_alignment_overrun_bytes &&
+                   read_byte(actual_end, byte) && (byte & 0xc0u) == 0x80u)
+                ++actual_end;
+        }
+        const auto byte_count = actual_end - actual_offset;
+        if (byte_count > max_response_bytes)
+            return dup_json(json{{"ok", false}, {"error", "aligned chunk exceeds bounded response"}}.dump());
+        auto* bytes = static_cast<std::uint8_t*>(std::malloc(byte_count == 0 ? 1 : byte_count));
+        if (byte_count > 0) {
+            source.clear();
+            source.seekg(static_cast<std::streamoff>(actual_offset), std::ios::beg);
+            source.read(reinterpret_cast<char*>(bytes), static_cast<std::streamsize>(byte_count));
+            if (source.gcount() != static_cast<std::streamsize>(byte_count)) {
+                std::free(bytes);
+                return dup_json(json{{"ok", false}, {"error", "preview text read failed"}}.dump());
+            }
+        }
+        return dup_json(json{{"ok", true}, {"result_id", bridge_state.preview_result_id},
+                             {"offset", actual_offset}, {"length", byte_count},
+                             {"eof", actual_end >= bridge_state.preview_gcode_size},
+                             {"bytes_ptr", reinterpret_cast<std::uintptr_t>(bytes)},
+                             {"bytes_length", byte_count}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Read a seekable bounded page of complete source lines. The line-end table
+// stays in the bridge's current result; only the requested bytes cross the
+// seam, so late-line inspection never walks or copies the preceding file.
+EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(double result_id_number,
+                                                      double start_line_number,
+                                                      double line_count_number) {
+    try {
+        constexpr std::size_t max_line_count = 128;
+        constexpr std::size_t max_page_bytes = 64 * 1024;
+        auto& bridge_state = state();
+        const auto valid_integer = [](double value) {
+            return std::isfinite(value) && value >= 0.0 &&
+                   std::floor(value) == value &&
+                   value <= static_cast<double>(std::numeric_limits<std::size_t>::max());
+        };
+        if (!valid_integer(result_id_number) || !valid_integer(start_line_number) ||
+            !valid_integer(line_count_number) ||
+            result_id_number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()))
+            return dup_json(json{{"ok", false}, {"error", "invalid source line page"}}.dump());
+        const auto result_id = static_cast<std::uint32_t>(result_id_number);
+        const auto start_line = static_cast<std::size_t>(start_line_number);
+        const auto line_count = static_cast<std::size_t>(line_count_number);
+        if (result_id == 0 || result_id != bridge_state.preview_result_id ||
+            !bridge_state.preview_text_available)
+            return dup_json(json{{"ok", false}, {"error", "preview text is unavailable"}}.dump());
+        if (line_count == 0 || line_count > max_line_count ||
+            start_line == 0 || start_line > bridge_state.preview_gcode_line_ends.size())
+            return dup_json(json{{"ok", false}, {"error", "source line page is outside the preview"}}.dump());
+        const auto end_line = std::min(bridge_state.preview_gcode_line_ends.size(),
+                                      start_line + line_count - 1);
+        const auto start_byte = start_line == 1 ? 0 : bridge_state.preview_gcode_line_ends[start_line - 2];
+        const auto end_byte = bridge_state.preview_gcode_line_ends[end_line - 1];
+        if (start_byte > end_byte || end_byte > bridge_state.preview_gcode_size ||
+            end_byte - start_byte > max_page_bytes)
+            return dup_json(json{{"ok", false}, {"error", "source line page exceeds byte bound"}}.dump());
+        std::ifstream source(bridge_state.preview_gcode_path, std::ios::binary);
+        if (!source.good())
+            return dup_json(json{{"ok", false}, {"error", "preview text could not be opened"}}.dump());
+        const auto byte_count = end_byte - start_byte;
+        auto* bytes = static_cast<std::uint8_t*>(std::malloc(byte_count == 0 ? 1 : byte_count));
+        source.seekg(static_cast<std::streamoff>(start_byte), std::ios::beg);
+        if (byte_count > 0) {
+            source.read(reinterpret_cast<char*>(bytes), static_cast<std::streamsize>(byte_count));
+            if (source.gcount() != static_cast<std::streamsize>(byte_count)) {
+                std::free(bytes);
+                return dup_json(json{{"ok", false}, {"error", "preview text read failed"}}.dump());
+            }
+        }
+        return dup_json(json{{"ok", true}, {"result_id", bridge_state.preview_result_id},
+                             {"start_line", start_line}, {"line_count", end_line - start_line + 1},
+                             {"eof", end_line == bridge_state.preview_gcode_line_ends.size()},
+                             {"bytes_ptr", reinterpret_cast<std::uintptr_t>(bytes)},
+                             {"bytes_length", byte_count}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
         return error_json("unknown C++ exception");
     }
 }
@@ -1827,6 +2150,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
 
 EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
     try {
+        invalidate_preview_source();
         state().print.cancel();
         // Fix round 1: the bridge is strictly synchronous — JS cannot reenter
         // wasm while orc_slice is running, so a cancel can never interrupt an

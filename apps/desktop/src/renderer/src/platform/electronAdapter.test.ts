@@ -65,6 +65,26 @@ describe('Electron adapter', () => {
     expect(writeFile).not.toHaveBeenCalled();
   });
 
+  it('resolves packaged profile assets from the renderer root', async () => {
+    const previousDocument = globalThis.document;
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: { baseURI: 'file:///opt/orca/out/renderer/index.html' },
+    });
+    const request = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3])),
+    );
+
+    try {
+      const { adapter } = setup();
+      await expect(adapter.profiles.fetch('manifest.json')).resolves.toEqual(new Uint8Array([1, 2, 3]));
+      expect(String(request.mock.calls[0]?.[0])).toBe('file:///opt/orca/out/renderer/profiles/manifest.json');
+    } finally {
+      if (previousDocument === undefined) delete (globalThis as { document?: Document }).document;
+      else Object.defineProperty(globalThis, 'document', { configurable: true, value: previousDocument });
+    }
+  });
+
   it.each(['darwin', 'win32'])('supplies correct brand-bar props for %s', async (platform) => {
     const { adapter } = setup({ platform });
     expect(adapter.chrome).toMatchObject({

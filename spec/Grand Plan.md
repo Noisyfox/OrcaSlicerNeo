@@ -363,6 +363,70 @@ and drives structural operations through the typed client.
 
 ## Post-v1 Expansion (queued, not yet scheduled)
 
+### G-code preview GPU streaming renderer
+
+> [!info] Native libvgcode SegmentTemplate GPU path accepted 2026-09-02. The
+> shared template has 8 logical vertices and 24 invocations per segment; the
+> camera-aware vertex shader retains `POINTY_CAPS` and `FIX_TWISTING`. Static
+> position/shape/colour data use RGBA32F textures and selected IDs use R32UI
+> textures. The material is opaque (`NoBlending`, depth test/write); DoubleSide
+> matches native `GL_CULL_FACE` disable, with depth buffering providing
+> occlusion.
+> The native SegmentTemplate renderer is now the default and sole toolpath
+> backend. WebGL2/capability/context failures leave the preview unavailable and
+> expose a diagnostic. Large GPU timing
+> measurements are manual diagnostics and are not part of normal startup/e2e.
+> Travel segments are coloured by their move type rather than any preserved
+> extrusion role, using libvgcode's `Travels` colour `RGB(56, 72, 155)`;
+> extrusion feature filters do not hide travel, and the global travel toggle
+> remains authoritative.
+> The current-move marker is OrcaSlicer's translucent hotend STL model,
+> preferring the selected printer's vendor model and falling back to the
+> shared `hotend.stl`; it uses Orca's endpoint anchor, 0.5 mm Z offset,
+> 180-degree X rotation, and depth-tested rendering. It hides at the final
+> enabled endpoint.
+>
+> Major renderer/performance specification:
+> [`G-code Preview GPU Streaming Renderer`](G-code%20Preview%20GPU%20Streaming%20Renderer.md)
+
+> Cross-host adapter policy: the shared WebGL/R3F canvas requests
+> `powerPreference: 'high-performance'`, and Electron uses Chromium's
+> `force_high_performance_gpu` startup preference. These are hints only; no
+> named/discrete GPU is required, and browser/Electron software/integrated-GPU
+> fallbacks remain available.
+
+- [x] Step 1 — accept the source-neutral planner contract (no bridge change)
+- [x] Step 2 — source adapter/page planner
+- [x] Step 3 — WebGL2 native libvgcode SegmentTemplate backend and
+      capability/lifetime fallback (8 logical vertices / 24 invocations,
+      camera-aware POINTY_CAPS + FIX_TWISTING shader, RGBA32F static textures,
+      page-local R32UI selected-index textures; no alpha blend)
+- [x] Cross-page source addressing fix — page-local selected IDs are translated
+      with each page's `firstSegment` before global static-texture fetches
+- [x] Step 4 — real preview integration with native renderer diagnostics and
+      dual-host smoke coverage
+- [x] Step 5 — native renderer made default and sole toolpath backend;
+      unsupported native initialization is explicitly unavailable
+
+### G-code preview Phase C — read-only analysis
+
+The Phase-C foundation extends the accepted preview data contract without
+changing the Phase-B renderer or controls. External G-code and source-text
+loading remain future increments.
+
+- [x] Step C1 — typed source-neutral preview analysis contract, bridge-side
+      standard-time/filament summary and per-feature statistics, and Worker-side
+      optional metric ranges
+- [x] Step C2 — read-only analysis scheme selection, palettes, and legend
+      (Feature/Tool, five core native metric ramps, scheme-scoped filtering)
+- [x] Step C3 — summary/per-feature statistics and current-move inspection
+      card; summary values remain bridge-precomputed and the indexed card
+      preserves the right-slider gutter
+- [x] Step C4 — lazy G-code text window with bidirectional line navigation;
+      64 KiB UTF-8-safe result-bound chunks, result-ID lifecycle binding,
+      virtualized read-only rows, and exact/nearest-preceding source-line
+      navigation through the typed Worker client
+
 - [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
 - [ ] Full settings surface + search (from metadata)
 - [ ] Gizmos: cut/measure/arrange/orient (move/rotate/scale delivered in

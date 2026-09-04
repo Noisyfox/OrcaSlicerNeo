@@ -307,6 +307,114 @@ export interface ToolpathFeature {
   id: number;
   name: string;
   color: [number, number, number];
+  role?: number;
+}
+
+export interface PreviewLayerRange {
+  id: number;
+  z: number;
+  firstSegment: number;
+  segmentCount: number;
+}
+
+export interface PreviewPaletteEntry extends ToolpathFeature {
+  tool?: number;
+}
+
+export type PreviewMetricKey = keyof PreviewToolpathMetrics;
+
+export interface PreviewMetricRange {
+  min: number;
+  max: number;
+}
+
+export interface PreviewAnalysisSummary {
+  estimatedTimeSeconds?: number;
+  filamentLengthMeters?: number;
+  filamentWeightGrams?: number;
+  filamentCost?: number;
+}
+
+export interface PreviewFeatureStatistics {
+  featureId: number;
+  timeSeconds?: number;
+  filamentLengthMeters?: number;
+  filamentWeightGrams?: number;
+}
+
+export interface PreviewAnalysis {
+  summary: PreviewAnalysisSummary;
+  featureStatistics: PreviewFeatureStatistics[];
+  metricRanges: Partial<Record<PreviewMetricKey, PreviewMetricRange>>;
+}
+
+export type PreviewSourceKind = 'slice-result' | 'external-gcode';
+
+export interface PreviewTextChunkRequest {
+  /** Completed preview result identity; stale results are rejected by bridge. */
+  resultId: number;
+  offset: number;
+  length: number;
+}
+
+export interface PreviewTextChunk {
+  offset: number;
+  text: string;
+  eof: boolean;
+}
+
+/** Bounded, seekable source-text page addressed by 1-based source lines. */
+export interface PreviewTextLinesRequest {
+  resultId: number;
+  startLine: number;
+  lineCount: number;
+}
+
+export interface PreviewTextLines {
+  startLine: number;
+  lineCount: number;
+  text: string;
+  eof: boolean;
+}
+
+/** Maximum source bytes returned by one lazy preview text request. */
+export const PREVIEW_TEXT_CHUNK_MAX_BYTES = 64 * 1024;
+/** At most three UTF-8 continuation bytes may be included at either edge. */
+export const PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES = 3;
+/** Explicit upper bound after both UTF-8 edge alignments. */
+export const PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES = PREVIEW_TEXT_CHUNK_MAX_BYTES + PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES * 2;
+export const PREVIEW_TEXT_LINES_MAX = 128;
+
+/** Source-neutral read-only preview input; external G-code is future work. */
+export interface PreviewSource {
+  kind: PreviewSourceKind;
+  getPreviewResult(): Promise<ClientSliceResult>;
+  readTextChunk?: (request: PreviewTextChunkRequest) => Promise<PreviewTextChunk>;
+}
+
+export interface PreviewMetadata {
+  resultId: number;
+  sourceFilename?: string;
+  layerRanges: PreviewLayerRange[];
+  featurePalette: ToolpathFeature[];
+  extruderPalette?: PreviewPaletteEntry[];
+  sourceLineMapping?: { available: boolean; lineCount: number };
+  sourceText?: { available: boolean; byteLength?: number };
+  analysis?: PreviewAnalysis;
+}
+
+export interface PreviewToolpathMetrics {
+  feedrate?: Float32Array;
+  actualFeedrate?: Float32Array;
+  volumetricFlow?: Float32Array;
+  actualVolumetricFlow?: Float32Array;
+  fanSpeed?: Float32Array;
+  temperature?: Float32Array;
+  pressureAdvance?: Float32Array;
+  acceleration?: Float32Array;
+  jerk?: Float32Array;
+  time?: Float32Array;
+  layerDuration?: Float32Array;
 }
 
 export interface ClientToolpath {
@@ -319,6 +427,22 @@ export interface ClientToolpath {
   features: Uint32Array;
   /** per-feature id → palette color (palette may index beyond, client clamps) */
   palette: ToolpathFeature[];
+  /** Explicit continuous segment arrays. Every array has segmentCount entries. */
+  segmentCount: number;
+  starts: Float32Array;
+  ends: Float32Array;
+  layerIds: Uint32Array;
+  moveOrders: Uint32Array;
+  gcodeIds: Uint32Array;
+  /** True when processor source ids are non-decreasing in move order. */
+  sourceLineOrderValid?: boolean;
+  moveTypes: Uint8Array;
+  extrusionRoles: Uint16Array;
+  extruderIds: Uint8Array;
+  colorPrintIds: Uint8Array;
+  widths: Float32Array;
+  heights: Float32Array;
+  metrics: PreviewToolpathMetrics;
 }
 
 export interface ClientSliceResult {
@@ -326,6 +450,7 @@ export interface ClientSliceResult {
   objects: number;
   layers: number;
   toolpath: ClientToolpath;
+  metadata: PreviewMetadata;
   error?: string;
 }
 
@@ -410,6 +535,10 @@ export interface SlicerClient {
   selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<PresetSnapshotResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   getSliceResult(): Promise<ClientSliceResult>;
+  /** Read a bounded UTF-8 chunk from the current completed slice result. */
+  readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk>;
+  /** Read a bounded, seekable source-text page from the current result. */
+  readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
   exportGcode(): Promise<ExportGcodeResult>;
   cancel(): Promise<CancelResult>;
   /** Read the C++ boost::log file sink output from MEMFS. */

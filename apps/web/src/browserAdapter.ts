@@ -2,6 +2,7 @@ import {
   normalizeUserPreferences,
   type PlatformCapabilities,
   type PlatformMenu,
+  type ProfileSource,
   type PrinterConfigurationRepository,
   type SlicerRuntime,
 } from '@orca/platform-contract';
@@ -90,19 +91,32 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
     printers: { configuration: printerConfiguration, transport: createBrowserPrinterTransport() },
     webview: createBrowserWebViewHost(),
     runtime,
-    profiles: { fetch: async (relativePath) => {
-      const Url = globalThis.URL;
-      const href = new Url(relativePath, new Url(import.meta.env.BASE_URL, String(import.meta.url))).href;
-      const response = await fetch(href);
-      if (!response.ok) throw new Error(`profile asset request failed (${response.status}): ${relativePath}`);
-      return new Uint8Array(await response.arrayBuffer());
-    } },
+    profiles: createBrowserProfileSource(),
     chrome: { kind: 'web', platform: navigator.platform, menuMode: 'browser' },
     menu: browserMenu,
     externalLinks: {
       openSource() {
         window.open(SOURCE_URL, '_blank', 'noopener,noreferrer');
       },
+    },
+  };
+}
+
+/**
+ * Profile packages are published beside `wasm/` at the deployment root.
+ * Resolve that root from the emitted module URL so Vite's relative `./`
+ * base does not accidentally resolve under the module's `assets/` folder.
+ */
+export function createBrowserProfileSource(
+  baseUrl = import.meta.env.BASE_URL,
+  moduleUrl: string | URL = String(import.meta.url),
+): ProfileSource {
+  let source: Promise<ProfileSource> | undefined;
+  return {
+    fetch: (relativePath) => {
+      source ??= import('@orca/slicer-runtime').then(({ createFetchProfileSource, resolveProfileBaseUrl }) =>
+        createFetchProfileSource(resolveProfileBaseUrl(baseUrl, moduleUrl)));
+      return source.then((profileSource) => profileSource.fetch(relativePath));
     },
   };
 }

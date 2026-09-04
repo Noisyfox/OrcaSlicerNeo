@@ -20,13 +20,33 @@ export type WorkerMessage =
   | { type: 'progress-mailbox'; mailbox: ProgressMailbox };
 
 export interface WorkerTransport {
-  post(msg: WorkerMessage): void;
+  post(msg: WorkerMessage, transfer?: Transferable[]): void;
   onMessage(fn: (msg: WorkerMessage) => void): void;
+}
+
+function collectTransferables(value: unknown): Transferable[] {
+  const buffers = new Set<ArrayBuffer>();
+  const visit = (item: unknown): void => {
+    if (ArrayBuffer.isView(item)) {
+      const buffer = item.buffer;
+      // SharedArrayBuffer cannot be transferred; preview result arrays are
+      // ordinary copied ArrayBuffers, while progress mailbox is only sent in
+      // its dedicated message and is intentionally shared.
+      if (buffer instanceof ArrayBuffer) buffers.add(buffer);
+      return;
+    }
+    if (Array.isArray(item)) { item.forEach(visit); return; }
+    if (item && typeof item === 'object')
+      Object.values(item as Record<string, unknown>).forEach(visit);
+  };
+  visit(value);
+  return [...buffers];
 }
 
 export function startWorker(
   moduleFactory: OrcaModuleFactory,
-  post: (msg: WorkerMessage) => void = (msg) => (self as unknown as { postMessage(m: WorkerMessage): void }).postMessage(msg),
+  post: (msg: WorkerMessage, transfer?: Transferable[]) => void = (msg, transfer) =>
+    (self as unknown as { postMessage(m: WorkerMessage, t?: Transferable[]): void }).postMessage(msg, transfer),
   onMessage: (fn: (msg: WorkerMessage) => void) => void = (fn) => {
     (self as unknown as { onmessage: (e: MessageEvent<WorkerMessage>) => void }).onmessage = (e) => fn(e.data);
   },
@@ -50,7 +70,7 @@ export function startWorker(
       if (typeof method !== 'function') throw new Error(`unknown op: ${op}`);
       await beforeRequest?.(op, args ?? []);
       const result = await method(...(args ?? []));
-      post({ type: 'response', id, ok: true, result });
+      post({ type: 'response', id, ok: true, result }, collectTransferables(result));
     } catch (err) {
       post({ type: 'response', id, ok: false, result: undefined, error: String(err) });
     }

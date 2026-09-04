@@ -17,6 +17,11 @@ import {
 } from './nativeMenu';
 import { configureWebViewAttachPolicy, configureWebViewGuest } from './webviewSecurity';
 
+// Chromium documents this as a preference for a discrete GPU when multiple
+// adapters are available. It does not name or require a particular GPU; the
+// normal integrated-GPU/software fallback remains available.
+app.commandLine.appendSwitch('force_high_performance_gpu');
+
 // Linux containers/VMs without a DRM/VA-API device cannot start Chromium's
 // separate GPU process; Electron aborts with "GPU process isn't usable.
 // Goodbye." after vaInitialize / CreateCommandBuffer failures. Run the GPU

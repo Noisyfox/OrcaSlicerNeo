@@ -1,26 +1,232 @@
-// packages/slicer-app/src/components/viewport/ToolpathLines.tsx
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import type { ToolpathGeometry } from './useSliceResult';
+import {
+  createGpuStreamingPagePlan,
+  rebuildGpuStreamingSelection,
+  type GpuStreamingPagePlan,
+} from './gpuStreamingPlanner';
+import {
+  createGpuStreamingRenderer,
+  type GpuStreamingRenderer,
+  type GpuStreamingRendererHost,
+  type GpuStreamingUnavailableDiagnostics,
+} from './gpuStreamingRenderer';
 
+interface GpuStreamingDiagnostic {
+  readonly reason: string;
+  readonly message: string;
+}
+
+function reportGpuStreamingDiagnostic(diagnostic: GpuStreamingDiagnostic): void {
+  console.warn(`[gpu-streaming] ${diagnostic.reason}: ${diagnostic.message}`);
+}
+
+/**
+ * Native Orca/libvgcode-style SegmentTemplate renderer.
+ *
+ * A capability, allocation, shader, or context failure leaves the preview
+ * unavailable and reports a diagnostic. A renderer failure remains visible to
+ * the user instead of silently changing the rendering contract.
+ */
 export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
-  const ref = useRef<THREE.LineSegments>(null);
-  const layer = useSlicerStore((s) => s.layer);
-  // setDrawRange mutates the geometry imperatively — invisible to the r3f
-  // reconciler, so demand mode needs an explicit invalidate to redraw.
+  const preview = useSlicerStore((s) => s.preview);
   const invalidate = useThree((s) => s.invalidate);
+  const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const [active, setActive] = useState<{
+    plan: GpuStreamingPagePlan;
+    backend: GpuStreamingRenderer;
+  } | null>(null);
+  const activeRef = useRef<typeof active>(null);
+  const diagnosticRef = useRef<GpuStreamingDiagnostic | null>(null);
+  activeRef.current = active;
+
+  const source = data.source;
+  const planState = useMemo(() => {
+    if (!source) {
+      return {
+        plan: null,
+        error: new Error('The slice result did not expose ClientToolpath data'),
+      };
+    }
+    try {
+      return {
+        plan: createGpuStreamingPagePlan(source, data.metadata),
+        error: null as Error | null,
+      };
+    } catch (error) {
+      return {
+        plan: null,
+        error: error instanceof Error ? error : new Error(String(error)),
+      };
+    }
+  }, [data.metadata, source]);
+  const plan = planState.plan;
+
+  const selection = useMemo(() => plan ? rebuildGpuStreamingSelection(plan, {
+    visibleLayerStart: preview.visibleLayerStart,
+    visibleLayerEnd: preview.visibleLayerEnd,
+    activeMoveEnd: preview.activeMoveEnd,
+    showTravel: preview.showTravel,
+    visibility: preview.schemeVisibility[preview.colorScheme],
+    visibilityField: preview.colorScheme === 'filament' ? 'filament' : 'feature',
+  }) : null, [plan, preview.activeMoveEnd, preview.colorScheme, preview.schemeVisibility, preview.showTravel, preview.visibleLayerEnd, preview.visibleLayerStart]);
+
+  useLayoutEffect(() => {
+    if (!source) {
+      const diagnostic = {
+        reason: 'source-unavailable',
+        message: 'The slice result did not expose ClientToolpath data',
+      };
+      diagnosticRef.current = diagnostic;
+      reportGpuStreamingDiagnostic(diagnostic);
+      setActive(null);
+      return;
+    }
+    if (planState.error) {
+      const diagnostic = {
+        reason: 'planner-failed',
+        message: planState.error.message,
+      };
+      diagnosticRef.current = diagnostic;
+      reportGpuStreamingDiagnostic(diagnostic);
+      setActive(null);
+      return;
+    }
+    if (!plan) return;
+
+    let cancelled = false;
+    let backend: GpuStreamingRenderer | null = null;
+    const host: GpuStreamingRendererHost = {
+      getContext: () => gl.getContext() as WebGLRenderingContext,
+      domElement: gl.domElement,
+      compile: (nextScene: THREE.Scene, nextCamera: THREE.Camera) => gl.compile(nextScene, nextCamera),
+    };
+    const unavailable = (reason: string, error?: unknown) => {
+      if (cancelled) return;
+      const message = error instanceof Error ? error.message : error ? String(error) : reason;
+      const diagnostic = { reason, message };
+      diagnosticRef.current = diagnostic;
+      reportGpuStreamingDiagnostic(diagnostic);
+      if (backend) {
+        try { backend.detachFromScene(scene); } catch { /* best effort */ }
+        backend.dispose();
+        backend = null;
+      }
+      setActive(null);
+      invalidate();
+    };
+
+    try {
+      const result = createGpuStreamingRenderer(plan, { renderer: host });
+      if (!result.ok) {
+        unavailable(result.diagnostics.reason, result.diagnostics.message);
+        return;
+      }
+      backend = result.backend;
+      if (selection) backend.updateSelection(selection);
+      if (cancelled) {
+        backend.dispose();
+        backend = null;
+        return;
+      }
+      backend.attachToScene(scene);
+      setActive({ plan, backend });
+      invalidate();
+      const onContextLost = () => unavailable('context-lost', 'WebGL context was lost');
+      gl.domElement.addEventListener('webglcontextlost', onContextLost);
+      return () => {
+        cancelled = true;
+        gl.domElement.removeEventListener('webglcontextlost', onContextLost);
+        if (backend) {
+          try { backend.detachFromScene(scene); } catch { /* best effort */ }
+          backend.dispose();
+          backend = null;
+        }
+        setActive((current) => current?.plan === plan ? null : current);
+        invalidate();
+      };
+    } catch (error) {
+      unavailable('construction-failed', error);
+    }
+  // Selection is intentionally read only for the first upload. Subsequent
+  // slider/filter changes use the index-only effect below and must not rebuild
+  // the native static textures or page meshes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gl, invalidate, plan, planState.error, scene, source]);
 
   useEffect(() => {
-    const range = data.layerRanges[layer] ?? [0, 0];
-    data.geometry.setDrawRange(range[0], range[1]);
-    invalidate();
-  }, [data, layer, invalidate]);
+    const current = activeRef.current;
+    if (!current || current.plan !== plan || !selection) return;
+    try {
+      current.backend.updateSelection(selection);
+      invalidate();
+    } catch (error) {
+      const diagnostic = {
+        reason: 'selection-update-failed',
+        message: error instanceof Error ? error.message : String(error),
+      };
+      diagnosticRef.current = diagnostic;
+      reportGpuStreamingDiagnostic(diagnostic);
+      try { current.backend.detachFromScene(scene); } catch { /* best effort */ }
+      current.backend.dispose();
+      activeRef.current = null;
+      setActive(null);
+      invalidate();
+    }
+  }, [invalidate, plan, scene, selection]);
 
-  return (
-    <lineSegments ref={ref} geometry={data.geometry} frustumCulled={false} renderOrder={1000}>
-      <lineBasicMaterial vertexColors depthTest={false} transparent opacity={0.95} />
-    </lineSegments>
-  );
+  useEffect(() => {
+    const current = activeRef.current;
+    if (!current || current.plan !== plan) return;
+    try {
+      current.backend.updateDimming(preview.visibleLayerEnd, preview.dimPreviousLayers ? 0.34 : 1);
+    } catch (error) {
+      reportGpuStreamingDiagnostic({
+        reason: 'dimming-update-failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [plan, preview.dimPreviousLayers, preview.visibleLayerEnd]);
+
+  useEffect(() => {
+    const current = activeRef.current;
+    if (!current || current.plan !== plan) return;
+    try {
+      current.backend.updateColorScheme(preview.colorScheme);
+      invalidate();
+    } catch (error) {
+      reportGpuStreamingDiagnostic({
+        reason: 'color-scheme-update-failed',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }, [invalidate, plan, preview.colorScheme]);
+
+  // Diagnostic-only test seam; it never selects another renderer.
+  useEffect(() => {
+    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
+    if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
+    const testWindow = globalThis as typeof globalThis & {
+      __orcaE2e?: {
+        gpuStreamingStatus?: () => 'ready' | 'context-lost' | 'disposed' | 'unavailable';
+        gpuStreamingDiagnostic?: () => GpuStreamingDiagnostic | null;
+      };
+    };
+    testWindow.__orcaE2e = {
+      ...testWindow.__orcaE2e,
+      gpuStreamingStatus: () => activeRef.current?.backend.status ?? 'unavailable',
+      gpuStreamingDiagnostic: () => diagnosticRef.current,
+    };
+    return () => {
+      if (!testWindow.__orcaE2e) return;
+      const { gpuStreamingStatus: _status, gpuStreamingDiagnostic: _diagnostic, ...rest } = testWindow.__orcaE2e;
+      testWindow.__orcaE2e = rest;
+    };
+  }, []);
+
+  return <group renderOrder={1000} />;
 }

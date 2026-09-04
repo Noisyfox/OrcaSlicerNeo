@@ -59,6 +59,10 @@ are not persisted in either host during the first release.
 - **Transport:** production Web deployments require HTTPS. `localhost` is the
   sole development exception; public HTTP deployment is unsupported.
 - **Rendering:** the application requires WebGL 2; WebGL 1 is not a fallback.
+  The shared R3F canvas requests the browser's `high-performance` WebGL
+  adapter preference without requiring or naming a GPU. Electron additionally
+  asks Chromium to prefer a discrete adapter at startup; normal browser,
+  integrated-GPU, and software-rendering fallbacks remain valid.
 - **Language:** English-only initially. User-visible copy must be organized so
   a later i18n layer can replace it without reworking feature logic.
 - **Mobile:** not a first-release target. Every new feature design must record

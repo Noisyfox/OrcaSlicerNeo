@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeUserPreferences, type GcodeExporter, type ModelImporter, type ProfileSource, type SlicerRuntime, type UserPreferencesRepository, type PrinterConfigurationRepository, type WebViewHost } from './contracts';
+import { normalizeGcodeTextWindowGeometry, normalizeUserPreferences, type GcodeExporter, type ModelImporter, type ProfileSource, type SlicerRuntime, type UserPreferencesRepository, type PrinterConfigurationRepository, type WebViewHost } from './contracts';
 import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
 
 describe('user preferences', () => {
@@ -21,6 +21,15 @@ describe('user preferences', () => {
   it('preserves the send navigation preference and migrates old preferences to enabled', () => {
     expect(normalizeUserPreferences({ version: 1, ui: { switchToDeviceAfterSend: false } }).ui.switchToDeviceAfterSend).toBe(false);
     expect(normalizeUserPreferences({ version: 1, ui: {} }).ui.switchToDeviceAfterSend).toBe(true);
+  });
+
+  it('keeps a complete finite G-code window geometry and rejects malformed values', () => {
+    const geometry = { left: 12, top: 24, width: 560, height: 424 };
+    expect(normalizeGcodeTextWindowGeometry(geometry)).toEqual(geometry);
+    expect(normalizeGcodeTextWindowGeometry({ ...geometry, width: Number.NaN })).toBeUndefined();
+    expect(normalizeGcodeTextWindowGeometry({ ...geometry, height: '424' })).toBeUndefined();
+    expect(normalizeUserPreferences({ version: 1, ui: { gcodeTextWindow: geometry } }).ui.gcodeTextWindow).toEqual(geometry);
+    expect(normalizeUserPreferences({ version: 1, ui: { gcodeTextWindow: { ...geometry, left: Infinity } } }).ui.gcodeTextWindow).toBeUndefined();
   });
 });
 
