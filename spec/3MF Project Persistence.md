@@ -91,6 +91,14 @@
   that project. Opening a project does not overwrite the user's last-used
   system-profile preference. Leaving the project restores that global
   preference; only selection changes made outside a project session update it.
+- Geometry-only import does not apply the selected file's project settings.
+  It retains the session's active printer, process, filament, and project
+  configuration; imported model object and part configuration is cleared
+  except for its extruder assignment.
+- The first save of an Untitled or geometry-only session writes a secure,
+  complete snapshot composed from the current printer, process, project, and
+  filament configurations. Print-host addresses, API keys, passwords, and
+  other connection credentials are excluded from that snapshot.
 
 ## First-release boundaries
 
