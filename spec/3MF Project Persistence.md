@@ -63,12 +63,17 @@
 - Model and layout changes, object-structure changes, project-setting changes,
   and preset-selection changes mark the project as having unsaved changes.
   Geometry-only import also marks the existing session as changed.
-- Before opening another project, creating a new project, or closing a dirty
+- Before opening another project or creating a new project from a dirty
   session, the application offers **Save**, **Don't Save**, and **Cancel**.
-  Cancel leaves the current session unchanged.
+  Cancel leaves the current session unchanged. Electron provides the same
+  choice before closing a dirty session.
 - In the Web host, selecting Save starts the project download and then
-  continues the requested operation. Browser download APIs cannot verify that
-  the user retained the downloaded file.
+  continues the requested internal operation. Browser download APIs cannot
+  verify that the user retained the downloaded file.
+- Browsers cannot offer that three-way choice during tab close, reload, or
+  navigation. For these Web lifecycle events, the application uses the native
+  browser leave/cancel confirmation; leaving never triggers an automatic
+  project download.
 
 ## Project configuration and presets
 
@@ -114,6 +119,10 @@
 - Selecting a `.3mf` through **Add Model** always performs geometry-only,
   append-only import. It does not show the project-load choice or restore
   project settings.
+- When the load-behaviour policy requires a choice, the application asks
+  whether to open the file as a project or import geometry before it asks for
+  dirty-project confirmation. Only choosing Open as project can replace the
+  current session and therefore trigger the Save/Don't Save/Cancel prompt.
 
 ## Compatibility verification
 
