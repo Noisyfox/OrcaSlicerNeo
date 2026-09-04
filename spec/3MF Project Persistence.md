@@ -216,3 +216,7 @@ protection, and Web download behaviour.
 The first release provides only explicit project open and save operations. It
 does not add autosave, crash recovery, a recent-project list, or automatic
 reopening of the last project at startup.
+
+It also does not introduce product-level compressed-file or decompressed-archive
+size quotas for 3MF input. Resource-limit policy is deferred; a runtime
+resource failure still follows the atomic open-failure rule.
