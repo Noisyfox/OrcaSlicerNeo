@@ -291,6 +291,21 @@ real host defect, in which case the smallest tested fix is applied.
 real artifacts.  The locator must be scoped by a stable user-facing or test
 identifier rather than positional coincidence.
 
+### Step 8 execution record (2026-09-04)
+
+The dual-thumb layer scrubber now exposes stable `layer-scrubber-start` and
+`layer-scrubber-end` test identifiers.  The real Web flow targets the end
+thumb explicitly, preserving the existing layer-range interaction without
+depending on descendant order.  No 3MF product behavior changed.
+
+Verification completed on Windows:
+
+- `pnpm --filter @orca/slicer-app test` — 46 files, 334 tests passed.
+- `pnpm --filter @orca/slicer-app typecheck` and
+  `pnpm --filter @orca/web typecheck` — passed.
+- `pnpm --filter @orca/web test:e2e:threaded` — 2 passed.
+- `pnpm --filter @orca/web test:e2e:serial` — 2 passed.
+
 ### Step 9 — Release-gate closure and documentation
 
 **Functional boundary:** Rerun the complete release matrix only after Steps

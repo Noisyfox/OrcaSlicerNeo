@@ -15,14 +15,20 @@ import { cn } from "@/lib/utils"
 // form: the un-bracketed `data-orientation=horizontal:` shorthand is NOT
 // valid Tailwind v4.3 syntax and compiles to nothing (regression 2026-08-16:
 // the track collapsed to 0px and the scrubber was invisible to the e2e).
+type SliderProps = SliderPrimitive.Root.Props & {
+  /** Optional stable identifiers for individual thumbs in multi-thumb sliders. */
+  thumbTestIds?: string[];
+};
+
 function Slider({
   className,
   defaultValue,
   value,
   min = 0,
   max = 100,
+  thumbTestIds,
   ...props
-}: SliderPrimitive.Root.Props) {
+}: SliderProps) {
   const _values = Array.isArray(value)
     ? value
     : Array.isArray(defaultValue)
@@ -53,6 +59,7 @@ function Slider({
         {Array.from({ length: _values.length }, (_, index) => (
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
+            data-testid={thumbTestIds?.[index]}
             key={index}
             className="relative z-10 block size-3 shrink-0 rounded-md border border-ring bg-white ring-ring/30 transition-[color,box-shadow] select-none after:absolute after:-inset-2 hover:ring-2 focus-visible:ring-2 focus-visible:outline-hidden active:ring-2 disabled:pointer-events-none disabled:opacity-50"
           />
