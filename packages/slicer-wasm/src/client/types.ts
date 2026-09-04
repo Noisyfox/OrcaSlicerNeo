@@ -158,6 +158,8 @@ export interface ProjectLoadResult {
     missingSystemPresetTypes?: Array<'printer' | 'filament'>;
     presetEvidence?: EmbeddedPresetEvidence[];
   };
+  /** Candidate picker state captured in the same native load response. */
+  presetSnapshot?: PresetSnapshot;
   error?: string;
 }
 

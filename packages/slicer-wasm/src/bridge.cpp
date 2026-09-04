@@ -1112,6 +1112,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
             {"plate_count", plate_data.size()},
             {"embedded_preset_warnings", std::move(warning_metadata)},
         };
+        // Include the candidate picker state in this same response. The
+        // shared transaction can therefore commit model + presets together;
+        // it never has to issue a second read after native replacement.
+        if (!geometry_only)
+            out["preset_snapshot"] = preset_snapshot_json();
         release_PlateData_list(plate_data);
         release_presets();
         remove_project_temp_path(path);

@@ -545,6 +545,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           preset_evidence: projectWarningFixture.presetEvidence,
           requires_confirmation: !geometryOnly,
         },
+        preset_snapshot: geometryOnly ? undefined : snapshot(),
       };
     },
     orc_import_project_geometry(_ptr: number, len: number, displayName: string) {

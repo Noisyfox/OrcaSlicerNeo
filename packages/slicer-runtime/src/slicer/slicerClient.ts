@@ -6,4 +6,9 @@ import { createWorkerRuntime } from '../bootstrap';
 // inlining the linked workspace worker as a data URL (which CSP blocks).
 import workerUrl from './slicer.worker.ts?worker&url';
 
-export const slicerClient = createWorkerRuntime(workerUrl);
+// Public runtime helpers are also consumed by isolated Node/Vitest tests. Do
+// not construct a browser Worker merely because the package barrel was
+// imported; the real hosts always provide Worker and get the normal client.
+export const slicerClient = typeof Worker === 'undefined'
+  ? ({} as ReturnType<typeof createWorkerRuntime>)
+  : createWorkerRuntime(workerUrl);

@@ -1,6 +1,6 @@
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
 import type { ProjectLoadResult, SlicerClient } from '@slicer/client';
-import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '../../slicer-runtime/src/projectSession';
+import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
 import { useProjectStore, projectPresetTriple, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
@@ -110,7 +110,10 @@ export async function openProject(platform: PlatformCapabilities, options: Proje
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
     const load = await runtimeOf(platform).loadProject(input.bytes, 'project', input.displayName); if (!load.ok) throw new Error(load.error ?? 'project load failed');
-    const snapshot = await runtimeOf(platform).getPresetSnapshot(); if (!snapshot.ok) throw new Error(snapshot.error ?? 'project preset snapshot failed');
+    // The native load response contains the candidate preset snapshot from
+    // the same replacement transaction. A second getPresetSnapshot call here
+    // could fail after native state changed and leave the UI inconsistent.
+    const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
     useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput(); useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: false, scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: load.multiPlate === true }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }

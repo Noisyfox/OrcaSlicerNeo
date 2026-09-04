@@ -179,6 +179,9 @@ export function createClient(
               }];
             }) : undefined,
           } : undefined,
+          presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object'
+            && (r.preset_snapshot as Record<string, unknown>).ok === true
+            ? r.preset_snapshot as unknown as import('./types').PresetSnapshot : undefined,
         };
       } finally {
         m._free(ptr);

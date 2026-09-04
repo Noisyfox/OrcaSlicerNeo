@@ -16,7 +16,7 @@ const snapshot: PresetSnapshot = {
 };
 function platformFor(load: Record<string, unknown> = {}) {
   const runtime = {
-    loadProject: vi.fn(async () => ({ ok: true, objects: 1, instances: 1, mode: 'project' as const, compatibility: 'bambu' as const, projectSettingsAvailable: true, ...load })),
+    loadProject: vi.fn(async () => ({ ok: true, objects: 1, instances: 1, mode: 'project' as const, compatibility: 'bambu' as const, projectSettingsAvailable: true, presetSnapshot: snapshot, ...load })),
     importProjectGeometry: vi.fn(async () => ({ ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
     clearModel: vi.fn(async () => ({ ok: true })),
     exportProject: vi.fn(async () => ({ ok: true, path: '/tmp/project.3mf', bytes: new Uint8Array([1, 2]) })),
@@ -66,6 +66,15 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok');
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', dirty: false, scope: 'project', hasContent: true });
     expect(useProjectStore.getState().notices[0]?.kind).toBe('compatibility-fallback');
+  });
+
+  it('commits the native load response without a second snapshot read', async () => {
+    const { platform, runtime } = platformFor();
+    runtime.getPresetSnapshot.mockResolvedValue({ ok: false, error: 'late snapshot read failed' } as never);
+    const result = await openProject(platform, { loadBehaviour: 'load_all' });
+    expect(result.status).toBe('ok');
+    expect(runtime.getPresetSnapshot).not.toHaveBeenCalled();
+    expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', scope: 'project', dirty: false });
   });
 
   it('geometry import never replaces active settings and makes the session dirty', async () => {
