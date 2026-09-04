@@ -113,6 +113,14 @@
   preset cannot be found. The warning allows the user to continue for that
   load and to remember the warning preference, following OrcaSlicer's safety
   behaviour.
+- Valid project-level custom G-code settings, including layer-change, pause,
+  and colour-change instructions, are restored, participate in re-slicing,
+  and are saved with the project. They are distinct from an already generated
+  G-code result, which remains outside the first-release project format scope.
+- The application preserves, on a best-effort basis through the upstream model
+  and BBS 3MF reader/writer, model semantics that the first-release UI may not
+  edit: multipart and modifier relationships, printable state, object and part
+  names, instance transforms, and support, seam, and multi-material painting.
 
 ## First-release boundaries
 
