@@ -372,11 +372,12 @@ and drives structural operations through the typed client.
 > retain a known test failure; see the release-gate evidence in the approved
 > spec.
 
-- [ ] Implement the BBS 3MF project reader/writer bridge and typed Worker client
-- [ ] Implement shared project session, load/save commands, preference modal,
+- [x] Implement the BBS 3MF project reader/writer bridge and typed Worker client
+- [x] Implement shared project session, load/save commands, preference modal,
       confirmation/progress UI, and Electron/Web host adapters
-- [ ] Implement cross-host drag-and-drop, compatibility fallback, and automated
-      serial/threaded WASM and host end-to-end coverage
+- [ ] Release verification — cross-host drag-and-drop and compatibility fallback
+      implementation is complete; serial/threaded WASM and real Web E2E gates
+      remain pending
 
 Release-gate commands (all must pass before marking this milestone delivered):
 `node packages/slicer-wasm/harness/acquire-project-fixtures.mjs --check`, both
