@@ -84,6 +84,7 @@ const MIME_BY_EXT: Record<string, string> = {
 // by the e2e launcher (playwright config / CI); never in production.
 const e2eOpenPath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_MODEL ?? null) : null;
 const e2eSavePath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_EXPORT ?? null) : null;
+const e2eProjectSavePath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_PROJECT_SAVE ?? null) : null;
 
 // Project paths are deliberately kept in the main process. The renderer only
 // receives an opaque token, so shared React state can never expose a desktop
@@ -300,7 +301,9 @@ function registerIpc(): void {
 
   ipcMain.handle(Ipc.projectSaveAs, async (event, defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult> => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    const result = await dialog.showSaveDialog(win!, { defaultPath: defaultName, filters: projectFilters });
+    const result = e2eProjectSavePath
+      ? { canceled: false, filePath: e2eProjectSavePath }
+      : await dialog.showSaveDialog(win!, { defaultPath: defaultName, filters: projectFilters });
     if (result.canceled || !result.filePath) return { canceled: true, locationToken: null };
     await writeFileAtomically(result.filePath, Buffer.from(bytes));
     const locationToken = randomUUID();
@@ -505,7 +508,7 @@ app.on('window-all-closed', () => {
 // deterministic for the existing mock E2E suite; production close requests
 // always use the lifecycle bridge above.
 app.on('before-quit', () => {
-  if (process.env.ORCA_E2E === '1') allowWindowClose = true;
+  if (process.env.ORCA_E2E === '1' && process.env.ORCA_E2E_LIFECYCLE !== '1') allowWindowClose = true;
 });
 
 app.on('will-quit', () => {

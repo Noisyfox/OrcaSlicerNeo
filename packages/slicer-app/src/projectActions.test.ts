@@ -144,4 +144,25 @@ describe('transactional project actions', () => {
     expect(runtime.loadProject).not.toHaveBeenCalled();
     expect(runtime.importProjectGeometry).not.toHaveBeenCalled();
   });
+
+  it('rejects gcode.3mf and bgcode.3mf names before any batch mutation', async () => {
+    const { platform, runtime } = platformFor();
+    const result = await openProjectInputs(platform, [
+      { displayName: 'a-project.3mf', bytes: new Uint8Array([1]) },
+      { displayName: 'b.gcode.3mf', bytes: new Uint8Array([2]) },
+      { displayName: 'c.bgcode.3mf', bytes: new Uint8Array([3]) },
+    ], { loadBehaviour: 'load_all' });
+    expect(result.status).toBe('failed');
+    expect(runtime.loadProject).not.toHaveBeenCalled();
+    expect(runtime.importProjectGeometry).not.toHaveBeenCalled();
+  });
+
+  it('retains a first project multi-plate notice while appending geometry', async () => {
+    const { platform, runtime } = platformFor({ multiPlate: true, plateCount: 2 });
+    const first = { displayName: 'project.3mf', bytes: new Uint8Array([1]), location: {} as ProjectInput['location'] };
+    const result = await openProjectInputs(platform, [first, { displayName: 'part.stl', bytes: new Uint8Array([2]) }], { loadBehaviour: 'load_all' });
+    expect(result.status).toBe('ok');
+    expect(useProjectStore.getState().flattenedMultiPlate).toBe(true);
+    expect(useProjectStore.getState().notices.some((notice) => notice.kind === 'multi-plate')).toBe(true);
+  });
 });

@@ -97,7 +97,12 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const load = await runtimeOf(platform).importProjectGeometry(input.bytes, input.displayName); if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
-    invalidateInput(); const existing = useProjectStore.getState(); useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, dirty: true, notices: noticesFor(load), flattenedMultiPlate: load.multiPlate === true, scope: existing.scope }); useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
+    invalidateInput();
+    const existing = useProjectStore.getState();
+    const incomingNotices = noticesFor(load);
+    const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
+    useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, dirty: true, notices, flattenedMultiPlate: existing.flattenedMultiPlate || load.multiPlate === true, scope: existing.scope });
+    useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 async function openProjectInput(platform: PlatformCapabilities, input: ProjectInput, options: ProjectActionOptions): Promise<ProjectActionResult> {
@@ -130,6 +135,9 @@ function extensionOf(name: string): string {
   const dot = base.lastIndexOf('.');
   return dot < 0 ? '' : base.slice(dot + 1).toLowerCase();
 }
+function hasUnsupportedResultSuffix(name: string): boolean {
+  return /\.(?:gcode|bgcode)\.3mf$/i.test(name.split(/[\\/]/).pop() ?? name);
+}
 export function sortProjectInputs(inputs: readonly ProjectInput[]): ProjectInput[] {
   return [...inputs].sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }) || a.displayName.localeCompare(b.displayName));
 }
@@ -137,6 +145,7 @@ export function sortProjectInputs(inputs: readonly ProjectInput[]): ProjectInput
 export function validateProjectInputs(inputs: readonly ProjectInput[]): string | null {
   if (inputs.length === 0) return 'no project files were selected';
   for (const input of inputs) {
+    if (hasUnsupportedResultSuffix(input.displayName)) return `${input.displayName} is an unsupported sliced-result or G-code file`;
     const extension = extensionOf(input.displayName);
     if (UNSUPPORTED_EXTENSIONS.has(extension)) return `${input.displayName} is an unsupported sliced-result or G-code file`;
     if (!MODEL_EXTENSIONS.has(extension)) return `${input.displayName} is not a supported model or 3MF project file`;
