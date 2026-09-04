@@ -69,3 +69,20 @@
 - In the Web host, selecting Save starts the project download and then
   continues the requested operation. Browser download APIs cannot verify that
   the user retained the downloaded file.
+
+## Project configuration and presets
+
+- Valid project settings are retained in the WASM project session, participate
+  in slicing, and are preserved on a later project save even when the current
+  UI has no control for a setting. Edits through supported UI controls overlay
+  those retained values.
+- Unrecognized, invalid, or incompatible settings follow the compatibility
+  fallback policy rather than being silently discarded.
+- Embedded printer, process, and filament presets are available only for the
+  lifetime of the opened project. The application restores their project
+  selection when applicable, but never installs them into system profiles or
+  global preferences.
+- Project preset selections and edits are project-scoped and are saved with
+  that project. Opening a project does not overwrite the user's last-used
+  system-profile preference. Leaving the project restores that global
+  preference; only selection changes made outside a project session update it.
