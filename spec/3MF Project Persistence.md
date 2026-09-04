@@ -51,3 +51,21 @@
   invocation. It does not attempt to overwrite a previously downloaded file.
 - The project file path is host-private, in-memory session data. It is not
   stored in shared preferences or made available to the shared application.
+
+## Project identity and unsaved changes
+
+- An opened project uses its source-file base name as its project name. A new
+  session or a geometry-only import uses the project name **Untitled**.
+- The suggested name for a first save or Save Project As… is
+  `<project-name>.3mf`. A successful Electron save updates the session's
+  project path and name. The Web host uses the same suggested download name
+  without retaining an overwrite path.
+- Model and layout changes, object-structure changes, project-setting changes,
+  and preset-selection changes mark the project as having unsaved changes.
+  Geometry-only import also marks the existing session as changed.
+- Before opening another project, creating a new project, or closing a dirty
+  session, the application offers **Save**, **Don't Save**, and **Cancel**.
+  Cancel leaves the current session unchanged.
+- In the Web host, selecting Save starts the project download and then
+  continues the requested operation. Browser download APIs cannot verify that
+  the user retained the downloaded file.
