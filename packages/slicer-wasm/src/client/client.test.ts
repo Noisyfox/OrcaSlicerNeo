@@ -928,6 +928,33 @@ describe('SlicerClient bridge contract', () => {
     expect(new TextDecoder().decode(r.bytes)).toContain('bbs-3mf');
   });
 
+  it('exportProject frees the native archive buffer when reading fails', async () => {
+    let module: ReturnType<typeof createMockModule> | undefined;
+    let archivePtr = 0;
+    const c = createClient(async () => {
+      module = createMockModule();
+      const originalCcall = module.ccall;
+      module.ccall = (name, ret, argTypes, args) => {
+        const result = originalCcall(name, ret, argTypes, args);
+        if (name === 'orc_export_project') {
+          archivePtr = Number(JSON.parse(module!.UTF8ToString(Number(result))).bytes_ptr);
+        }
+        return result;
+      };
+      return module;
+    });
+    await c.addModel(new Uint8Array(4), 'stl');
+    const heap = module!.HEAPU8;
+    const originalSlice = heap.slice;
+    Object.defineProperty(heap, 'slice', {
+      configurable: true,
+      value: () => { throw new Error('simulated archive read failure'); },
+    });
+    await expect(c.exportProject()).rejects.toThrow('simulated archive read failure');
+    Object.defineProperty(heap, 'slice', { configurable: true, value: originalSlice });
+    expect(module!._freedPointers).toContain(archivePtr);
+  });
+
   it('reads bounded UTF-8 source chunks by completed result id', async () => {
     const sourceText = '; 注释\nG1 X1\nG1 X2\n';
     const c = createClient(async () => createMockModule({

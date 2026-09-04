@@ -149,10 +149,21 @@ void append_model_object_geometry(Model& destination, const ModelObject& source)
     object->input_file = source.input_file;
     object->printable = source.printable;
     object->origin_translation = source.origin_translation;
-    object->config.assign_config(source.config);
+    if (const auto* extruder = dynamic_cast<const ConfigOptionInt*>(source.config.option("extruder"));
+        extruder != nullptr && extruder->value > 0)
+        object->config.set_key_value("extruder", new ConfigOptionInt(extruder->value));
     for (const ModelVolume* volume : source.volumes) {
-        ModelVolume* added = object->add_volume(*volume, volume->type());
+        // Do not use add_volume(const ModelVolume&): that constructor copies
+        // the volume's model config. Geometry-only imports intentionally keep
+        // only mesh, source, material identity, and transforms.
+        TriangleMesh empty_mesh;
+        ModelVolume* added = object->add_volume(std::move(empty_mesh), volume->type());
+        std::shared_ptr<const TriangleMesh> shared_mesh = volume->get_mesh_shared_ptr();
+        added->set_mesh(shared_mesh);
         added->name = volume->name;
+        added->source = volume->source;
+        added->set_material_id(volume->material_id());
+        added->set_transformation(volume->get_transformation());
     }
     for (const ModelInstance* instance : source.instances)
         object->add_instance(*instance);
@@ -748,8 +759,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         // Add Model remains geometry-only, but it must still request model
         // resources explicitly.
         if (lower_ext == "3mf")
-            model_strategy = model_strategy | LoadStrategy::LoadModel |
-                             LoadStrategy::LoadConfig | LoadStrategy::LoadAuxiliary;
+            model_strategy = model_strategy | LoadStrategy::LoadModel;
         Model imported;
         if (lower_ext == "3mf") {
             // Keep Add Model on the native BBS reader, but avoid
@@ -1023,7 +1033,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         params.plate_data_list = plates;
         params.project_presets = state().presets.get_current_project_embedded_presets();
         params.config = &config;
-        params.strategy = SaveStrategy::Zip64 | SaveStrategy::Silence |
+        params.strategy = SaveStrategy::SplitModel | SaveStrategy::ShareMesh |
+                          SaveStrategy::Zip64 | SaveStrategy::Silence |
                           SaveStrategy::SkipStatic | SaveStrategy::SkipAuxiliary;
         if (!store_bbs_3mf(params))
             throw Slic3r::RuntimeError("BBS 3MF export failed");

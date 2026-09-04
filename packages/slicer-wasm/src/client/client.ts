@@ -550,14 +550,19 @@ export function createClient(
       if (!r.ok) return {
         ok: false, path: r.path ?? '', bytes: new Uint8Array(0), error: r.error,
       };
-      const length = Number(r.bytes_length ?? 0);
-      if (!Number.isSafeInteger(length) || length < 0 || !r.bytes_ptr)
-        throw new Error('project export bridge returned an invalid byte buffer');
-      const bytes = readBytes(m, Number(r.bytes_ptr), length);
-      return {
-        ok: true, path: r.path ?? '', bytes,
-        objects: Number(r.objects ?? 0), plateCount: Number(r.plate_count ?? 1),
-      };
+      const bytesPtr = Number(r.bytes_ptr ?? 0);
+      try {
+        const length = Number(r.bytes_length ?? 0);
+        if (!Number.isSafeInteger(length) || length < 0 || !bytesPtr)
+          throw new Error('project export bridge returned an invalid byte buffer');
+        const bytes = m.HEAPU8.slice(bytesPtr, bytesPtr + length);
+        return {
+          ok: true, path: r.path ?? '', bytes,
+          objects: Number(r.objects ?? 0), plateCount: Number(r.plate_count ?? 1),
+        };
+      } finally {
+        if (bytesPtr) m._free(bytesPtr);
+      }
     },
 
     async readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk> {
