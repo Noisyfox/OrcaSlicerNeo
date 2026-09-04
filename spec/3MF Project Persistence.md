@@ -168,6 +168,10 @@
   whether to open the file as a project or import geometry before it asks for
   dirty-project confirmation. Only choosing Open as project can replace the
   current session and therefore trigger the Save/Don't Save/Cancel prompt.
+- Dropping a `.3mf` file onto either the Electron or Web application is an
+  Open Project entry point. It uses the same load-behaviour policy,
+  compatibility fallback, and dirty-session protections as File \u2192 Open
+  Project.
 
 ## Compatibility verification
 
