@@ -8,9 +8,9 @@
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, PresetSnapshotResult,
-  OptionMetadata, LoadModelResult,
+  OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
-  ExportGcodeResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
+  ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
@@ -125,6 +125,103 @@ export function createClient(
       try {
         return callJson(m, 'orc_add_model', ['pointer', 'number', 'string', 'string'],
                         [ptr, bytes.length, ext, displayName ?? '']) as LoadModelResult;
+      } finally {
+        m._free(ptr);
+      }
+    },
+
+    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string): Promise<ProjectLoadResult> {
+      const m = await module();
+      const ptr = writeBytes(m, bytes);
+      try {
+        const r = callJson(m, 'orc_load_project', ['pointer', 'number', 'number', 'string'],
+          [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? '']) as Record<string, unknown>;
+        if (!r.ok) return r as unknown as ProjectLoadResult;
+        const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
+        return {
+          ok: true,
+          objects: Number(r.objects ?? 0),
+          instances: Number(r.instances ?? 0),
+          mode: r.mode as ProjectLoadMode | undefined,
+          displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
+          compatibility: r.compatibility as ProjectLoadResult['compatibility'],
+          projectSettingsAvailable: r.project_settings_available === true,
+          isBbl3mf: r.is_bbl_3mf === true,
+          isOrca3mf: r.is_orca_3mf === true,
+          fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined,
+          multiPlate: r.multi_plate === true,
+          plateCount: Number(r.plate_count ?? 0),
+          embeddedPresetWarnings: warnings ? {
+            present: warnings.present === true,
+            count: Number(warnings.count ?? 0),
+            printerCount: Number(warnings.printer_count ?? 0),
+            processCount: Number(warnings.process_count ?? 0),
+            filamentCount: Number(warnings.filament_count ?? 0),
+            modifiedPrinterGcode: warnings.modified_printer_gcode === true,
+            modifiedFilamentGcode: warnings.modified_filament_gcode === true,
+            missingSystemPreset: warnings.missing_system_preset === true,
+            requiresConfirmation: warnings.requires_confirmation === true,
+            modifiedGcodeKeys: Array.isArray(warnings.modified_gcode_keys)
+              ? warnings.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : undefined,
+            missingSystemPresetTypes: Array.isArray(warnings.missing_system_preset_types)
+              ? warnings.missing_system_preset_types.filter((type): type is 'printer' | 'filament' =>
+                type === 'printer' || type === 'filament') : undefined,
+            presetEvidence: Array.isArray(warnings.preset_evidence) ? warnings.preset_evidence.flatMap((evidence) => {
+              if (!evidence || typeof evidence !== 'object') return [];
+              const item = evidence as Record<string, unknown>;
+              const type = item.type === 'printer' || item.type === 'filament' ? item.type : undefined;
+              if (!type || typeof item.name !== 'string' || typeof item.inherits !== 'string') return [];
+              return [{
+                type, name: item.name, inherits: item.inherits,
+                hasMatchingSystemPreset: item.has_matching_system_preset === true,
+                modifiedGcodeKeys: Array.isArray(item.modified_gcode_keys)
+                  ? item.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : [],
+              }];
+            }) : undefined,
+          } : undefined,
+          presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object'
+            && (r.preset_snapshot as Record<string, unknown>).ok === true
+            ? r.preset_snapshot as unknown as import('./types').PresetSnapshot : undefined,
+        };
+      } finally {
+        m._free(ptr);
+      }
+    },
+
+    async importProjectGeometry(bytes: Uint8Array, displayName?: string): Promise<ProjectLoadResult> {
+      const m = await module();
+      const ptr = writeBytes(m, bytes);
+      try {
+        const r = callJson(m, 'orc_import_project_geometry', ['pointer', 'number', 'string'],
+          [ptr, bytes.length, displayName ?? '']) as Record<string, unknown>;
+        if (!r.ok) return r as unknown as ProjectLoadResult;
+        // Keep the public result shape identical to loadProject's geometry
+        // mode without making the worker or callers know a second bridge op.
+        return {
+          ok: true,
+          objects: Number(r.objects ?? 0),
+          instances: Number(r.instances ?? 0),
+          mode: 'geometry-only',
+          displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
+          compatibility: r.compatibility as ProjectLoadResult['compatibility'],
+          projectSettingsAvailable: r.project_settings_available === true,
+          isBbl3mf: r.is_bbl_3mf === true,
+          isOrca3mf: r.is_orca_3mf === true,
+          fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined,
+          multiPlate: r.multi_plate === true,
+          plateCount: Number(r.plate_count ?? 0),
+          embeddedPresetWarnings: r.embedded_preset_warnings ? {
+            present: (r.embedded_preset_warnings as Record<string, unknown>).present === true,
+            count: Number((r.embedded_preset_warnings as Record<string, unknown>).count ?? 0),
+            printerCount: Number((r.embedded_preset_warnings as Record<string, unknown>).printer_count ?? 0),
+            processCount: Number((r.embedded_preset_warnings as Record<string, unknown>).process_count ?? 0),
+            filamentCount: Number((r.embedded_preset_warnings as Record<string, unknown>).filament_count ?? 0),
+            modifiedPrinterGcode: (r.embedded_preset_warnings as Record<string, unknown>).modified_printer_gcode === true,
+            modifiedFilamentGcode: (r.embedded_preset_warnings as Record<string, unknown>).modified_filament_gcode === true,
+            missingSystemPreset: (r.embedded_preset_warnings as Record<string, unknown>).missing_system_preset === true,
+            requiresConfirmation: (r.embedded_preset_warnings as Record<string, unknown>).requires_confirmation === true,
+          } : undefined,
+        };
       } finally {
         m._free(ptr);
       }
@@ -473,6 +570,30 @@ export function createClient(
       if (!r.ok) return r as ExportGcodeResult;
       const bytes = m.FS.readFile('/out.gcode');
       return { ok: true, path: r.path ?? '/out.gcode', bytes };
+    },
+
+    async exportProject(): Promise<ExportProjectResult> {
+      const m = await module();
+      const r = callJson(m, 'orc_export_project', [], []) as {
+        ok: boolean; path?: string; bytes_ptr?: number; bytes_length?: number;
+        objects?: number; plate_count?: number; error?: string;
+      };
+      if (!r.ok) return {
+        ok: false, path: r.path ?? '', bytes: new Uint8Array(0), error: r.error,
+      };
+      const bytesPtr = Number(r.bytes_ptr ?? 0);
+      try {
+        const length = Number(r.bytes_length ?? 0);
+        if (!Number.isSafeInteger(length) || length < 0 || !bytesPtr)
+          throw new Error('project export bridge returned an invalid byte buffer');
+        const bytes = m.HEAPU8.slice(bytesPtr, bytesPtr + length);
+        return {
+          ok: true, path: r.path ?? '', bytes,
+          objects: Number(r.objects ?? 0), plateCount: Number(r.plate_count ?? 1),
+        };
+      } finally {
+        if (bytesPtr) m._free(bytesPtr);
+      }
     },
 
     async readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk> {

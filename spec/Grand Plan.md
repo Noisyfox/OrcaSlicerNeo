@@ -361,6 +361,30 @@ and drives structural operations through the typed client.
 - [ ] Real macOS packaged-app manual check: traffic lights, exactly-one native
       menu, Quit/source behavior, drag interaction, and reopen-state reset
 
+## Milestone 15: 3MF Project Persistence
+
+> [!success] **Delivered 2026-09-04.** The independent cross-host
+> project-open, project-save, compatibility, dirty-state, and verification
+> contract is [`3MF Project Persistence.md`](3MF%20Project%20Persistence.md).
+> The controlled external fixture manifest, both real WASM variants, desktop
+> E2E, and threaded/serial Web E2E release gates all pass. See the release-gate
+> evidence in the approved spec and the Step 9 execution record in
+> `doc/2026-09-04-3mf-project-persistence-implementation-plan.md`.
+
+- [x] Implement the BBS 3MF project reader/writer bridge and typed Worker client
+- [x] Implement shared project session, load/save commands, preference modal,
+      confirmation/progress UI, and Electron/Web host adapters
+- [x] Release verification — cross-host drag-and-drop and compatibility fallback
+      implementation, serial/threaded WASM, desktop, and real Web E2E gates
+      all pass
+
+Release-gate commands (all passed on 2026-09-04):
+`node packages/slicer-wasm/harness/acquire-project-fixtures.mjs --check`, both
+`project-roundtrip.mjs` and `project-compatibility.mjs` invocations for
+`out/serial` and `out/threaded`, `pnpm --filter @orca/desktop test:e2e`,
+`pnpm --filter @orca/web test:e2e:threaded`, and
+`pnpm --filter @orca/web test:e2e:serial`.
+
 ## Post-v1 Expansion (queued, not yet scheduled)
 
 ### G-code preview GPU streaming renderer
@@ -427,7 +451,9 @@ loading remain future increments.
       virtualized read-only rows, and exact/nearest-preceding source-line
       navigation through the typed Worker client
 
-- [ ] Multi-plate support; project save/load (`.3mf` / `bbs_3mf`)
+- [ ] Multi-plate support
+- [ ] Project save/load (`.3mf` / `bbs_3mf`) — tracked in Milestone 15;
+      release verification remains pending
 - [ ] Full settings surface + search (from metadata)
 - [ ] Gizmos: cut/measure/arrange/orient (move/rotate/scale delivered in
       Milestones 5 + 11)

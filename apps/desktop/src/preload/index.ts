@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron';
 import {
   Ipc,
   isMenuCommandId,
@@ -31,6 +31,26 @@ const bridge: ElectronBridge = {
 
   writeFile: (path: string, bytes: ArrayBuffer) =>
     ipcRenderer.invoke(Ipc.writeFile, path, bytes) as Promise<void>,
+
+  projects: {
+    getPathForFile: (file: File) => webUtils.getPathForFile(file),
+    open: () => ipcRenderer.invoke(Ipc.projectOpen) as Promise<import('../shared/ipc').ProjectOpenIpcResult>,
+    openMany: () => ipcRenderer.invoke(Ipc.projectOpen) as Promise<import('../shared/ipc').ProjectOpenIpcResult>,
+    openDropped: (paths) => ipcRenderer.invoke(Ipc.projectOpenDropped, paths) as Promise<import('../shared/ipc').ProjectOpenIpcResult>,
+    save: (locationToken: string | null, defaultName: string, bytes: ArrayBuffer) =>
+      ipcRenderer.invoke(Ipc.projectSave, locationToken, defaultName, bytes) as Promise<import('../shared/ipc').ProjectSaveIpcResult>,
+    saveAs: (defaultName: string, bytes: ArrayBuffer) =>
+      ipcRenderer.invoke(Ipc.projectSaveAs, defaultName, bytes) as Promise<import('../shared/ipc').ProjectSaveIpcResult>,
+  },
+
+  lifecycle: {
+    onCloseRequest: (listener) => {
+      const handler = () => { void listener(); };
+      ipcRenderer.on(Ipc.windowCloseRequest, handler);
+      return () => ipcRenderer.removeListener(Ipc.windowCloseRequest, handler);
+    },
+    respondClose: (allow) => ipcRenderer.invoke(Ipc.windowCloseDecision, allow) as Promise<void>,
+  },
 
   preferences: {
     load: () => ipcRenderer.invoke(Ipc.preferencesLoad) as Promise<PreferencesLoadResult>,

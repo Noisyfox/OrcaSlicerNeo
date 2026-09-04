@@ -7,6 +7,19 @@ function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], bool
     enabled: enabled[command] ?? false,
     checked: false,
   });
+  const items = {
+    'add-model': state('add-model'),
+    'clear-scene': state('clear-scene'),
+    slice: state('slice'),
+    'export-gcode': state('export-gcode'),
+    quit: state('quit'),
+    'open-source': state('open-source'),
+    'new-project': state('new-project'),
+    'open-project': state('open-project'),
+    'save-project': state('save-project'),
+    'save-project-as': state('save-project-as'),
+    preferences: state('preferences'),
+  };
   return {
     version: 1,
     activeTab: 'prepare',
@@ -15,14 +28,7 @@ function snapshot(enabled: Partial<Record<keyof MenuStateSnapshot['items'], bool
     scene: { hasModel: true },
     result: { hasResult: false, exported: false },
     host: { isElectron: true, menuMode: 'custom' },
-    items: {
-      'add-model': state('add-model'),
-      'clear-scene': state('clear-scene'),
-      slice: state('slice'),
-      'export-gcode': state('export-gcode'),
-      quit: state('quit'),
-      'open-source': state('open-source'),
-    },
+    items,
   };
 }
 
@@ -137,5 +143,31 @@ describe('shared menu command dispatcher', () => {
     dispatcher.activate();
     await expect(dispatcher.dispatch('quit')).resolves.toBe(true);
     expect(calls.quit).toHaveBeenCalledTimes(2);
+  });
+
+  it('routes project commands through the same guarded dispatcher', async () => {
+    const calls = {
+      ...actions(),
+      newProject: vi.fn(async () => {}),
+      openProject: vi.fn(async () => {}),
+      saveProject: vi.fn(async () => {}),
+      saveProjectAs: vi.fn(async () => {}),
+      preferences: vi.fn(async () => {}),
+    };
+    const dispatcher = createCommandDispatcher({
+      getSnapshot: () => snapshot({
+        'new-project': true, 'open-project': true,
+        'save-project': true, 'save-project-as': true, preferences: true,
+      }),
+      actions: calls,
+    });
+    for (const command of ['new-project', 'open-project', 'save-project', 'save-project-as', 'preferences'] as const) {
+      await expect(dispatcher.dispatch(command)).resolves.toBe(true);
+    }
+    expect(calls.newProject).toHaveBeenCalledOnce();
+    expect(calls.openProject).toHaveBeenCalledOnce();
+    expect(calls.saveProject).toHaveBeenCalledOnce();
+    expect(calls.saveProjectAs).toHaveBeenCalledOnce();
+    expect(calls.preferences).toHaveBeenCalledOnce();
   });
 });

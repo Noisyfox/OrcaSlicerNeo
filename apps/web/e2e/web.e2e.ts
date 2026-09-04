@@ -14,6 +14,12 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
       if (url !== undefined) opened.push(String(url));
       return null;
     }) as typeof window.open;
+    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+      version: 1,
+      projectLoadBehaviour: 'always_ask',
+      selectedProfiles: {},
+      ui: {},
+    }));
   });
   page.on('console', (msg) => console.log(`[browser:${msg.type()}] ${msg.text()}`));
   page.on('pageerror', (error) => console.log(`[browser:error] ${String(error)}`));
@@ -31,6 +37,19 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   }
   await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+  // A file drop over the nested object list must reach the shared Open
+  // Project action even though that target stops propagation for text drags.
+  const urlBeforeDrop = page.url();
+  await page.evaluate(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array([80, 75, 3, 4])], 'dropped.3mf'));
+    const target = document.querySelector('[data-testid="object-list"]') ?? document;
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await expect(page.getByTestId('project-load-choice-dialog')).toBeVisible();
+  expect(page.url()).toBe(urlBeforeDrop);
+  await page.getByTestId('project-load-cancel').click();
+  await expect(page.getByTestId('project-load-choice-dialog')).toBeHidden();
   await expect(page.getByTestId('titlebar-menu')).toBeVisible();
   await expect(page.getByTestId('menu-file-trigger')).toBeVisible();
   await expect(page.getByTestId('menu-help-trigger')).toBeVisible();
@@ -92,18 +111,18 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   const scrubber = page.getByTestId('layer-scrubber');
   await expect(scrubber).toBeAttached({ timeout: 30_000 });
   await scrubber.scrollIntoViewIfNeeded();
-  await expect(scrubber.locator('input[type="range"]')).toBeAttached();
-  const range = scrubber.locator('input[type="range"]');
-  if (await range.count()) {
-    const before = await range.inputValue();
-    await range.evaluate((element) => {
-      const input = element as HTMLInputElement;
-      input.value = input.max === '0' ? '0' : '1';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    expect(await range.inputValue()).not.toBe(before);
-  }
+  // The layer control has two thumbs; target the end thumb by its stable
+  // semantic test id instead of relying on an ambiguous descendant locator.
+  const range = scrubber.getByTestId('layer-scrubber-end').locator('input[type="range"]');
+  await expect(range).toBeAttached();
+  const before = await range.inputValue();
+  await range.evaluate((element) => {
+    const input = element as HTMLInputElement;
+    input.value = input.max === '0' ? '0' : '1';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(await range.inputValue()).not.toBe(before);
 
   // Phase-B Orca-style overlay contract: feature legend uses hide/show
   // semantics, travel is a global toggle, layer/move controls are present,
@@ -142,9 +161,13 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   await expect(moveInput).toHaveValue('0');
   const layerInputs = page.getByTestId('preview-layer-range').locator('input[type="range"]');
   await expect(layerInputs).toHaveCount(2);
-  await layerInputs.nth(1).focus();
+  const layerStartInput = page.getByTestId('layer-scrubber-start').locator('input[type="range"]');
+  const layerEndInput = page.getByTestId('layer-scrubber-end').locator('input[type="range"]');
+  await expect(layerStartInput).toBeAttached();
+  await expect(layerEndInput).toBeAttached();
+  await layerEndInput.focus();
   await page.keyboard.press('Home');
-  await expect(layerInputs.nth(1)).toHaveValue('0');
+  await expect(layerEndInput).toHaveValue('0');
 
   // Single-layer inspection keeps the vertical control dual-thumb. Starting
   // from a multi-layer range, both thumbs collapse to the active layer and
@@ -152,24 +175,24 @@ test('real Web flow: import DRC → profile → slice → layer → G-code downl
   const singleLayerToggle = page.getByTestId('preview-single-layer');
   await singleLayerToggle.click();
   await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
-  await expect(layerInputs.nth(0)).toHaveValue(await layerInputs.nth(1).inputValue());
-  await layerInputs.nth(0).focus();
+  await expect(layerStartInput).toHaveValue(await layerEndInput.inputValue());
+  await layerStartInput.focus();
   await page.keyboard.press('Home');
-  await expect(layerInputs.nth(0)).toHaveValue('0');
-  await expect(layerInputs.nth(1)).toHaveValue('0');
-  await layerInputs.nth(1).focus();
+  await expect(layerStartInput).toHaveValue('0');
+  await expect(layerEndInput).toHaveValue('0');
+  await layerEndInput.focus();
   await page.keyboard.press('ArrowUp');
-  await expect.poll(() => layerInputs.nth(0).inputValue()).toBe('1');
-  await expect(layerInputs.nth(1)).toHaveValue('1');
+  await expect.poll(() => layerStartInput.inputValue()).toBe('1');
+  await expect(layerEndInput).toHaveValue('1');
   await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'true');
   await singleLayerToggle.click();
   await expect(singleLayerToggle).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(async () => Number(await layerInputs.nth(0).inputValue()) <= Number(await layerInputs.nth(1).inputValue())).toBe(true);
 
-  const currentLayer = await layerInputs.nth(1).inputValue();
-  await layerInputs.nth(1).focus();
+  const currentLayer = await layerEndInput.inputValue();
+  await layerEndInput.focus();
   await page.keyboard.press('Home');
-  await expect.poll(() => layerInputs.nth(1).inputValue()).not.toBe(currentLayer);
+  await expect.poll(() => layerEndInput.inputValue()).not.toBe(currentLayer);
   await expect.poll(() => moveInput.inputValue()).toBe(await moveInput.getAttribute('max'));
   await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e?: { previewMarkerPresent?: () => boolean } }).__orcaE2e?.previewMarkerPresent?.() ?? false)).toBe(true);
   const themeToken = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--color-card').trim());

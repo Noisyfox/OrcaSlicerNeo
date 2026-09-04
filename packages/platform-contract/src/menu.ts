@@ -8,6 +8,11 @@ export const APP_TABS = ['home', 'prepare', 'preview', 'device'] as const;
 export type AppTab = (typeof APP_TABS)[number];
 
 export type MenuCommandId =
+  | 'new-project'
+  | 'open-project'
+  | 'save-project'
+  | 'save-project-as'
+  | 'preferences'
   | 'add-model'
   | 'clear-scene'
   | 'slice'
@@ -45,6 +50,7 @@ export interface MenuItemState {
   checked?: boolean;
 }
 
+/** Complete per-command state table synchronized to every host surface. */
 export type MenuItemStates = Readonly<Record<MenuCommandId, MenuItemState>>;
 
 /** Snapshot fields owned by the shared selector before item states are derived. */
@@ -70,11 +76,25 @@ export interface MenuStateSnapshot {
     hasResult: boolean;
     exported: boolean;
   };
+  /** Optional for snapshots produced by hosts before project persistence. */
+  project?: MenuProjectState;
   host: {
     isElectron: boolean;
     menuMode: TitlebarMenuMode;
   };
   items: MenuItemStates;
+}
+
+export interface MenuProjectState {
+  hasContent: boolean;
+  dirty: boolean;
+  operation: {
+    phase: 'idle' | 'waiting-for-load-choice' | 'waiting-for-dirty-decision' | 'loading' | 'saving' | 'completed' | 'cancelled' | 'failed';
+    progress: number;
+    message?: string;
+    cancellable: boolean;
+  };
+  flattenedMultiPlate: boolean;
 }
 
 /** Shared-app-to-host menu synchronization and host command boundary. */

@@ -120,6 +120,49 @@ export interface LoadModelResult {
   error?: string;
 }
 
+export type ProjectLoadMode = 'project' | 'geometry-only';
+
+export interface EmbeddedPresetEvidence {
+  type: 'printer' | 'filament';
+  name: string;
+  inherits: string;
+  hasMatchingSystemPreset: boolean;
+  modifiedGcodeKeys: string[];
+}
+
+/** Result metadata from the native BBS 3MF reader. */
+export interface ProjectLoadResult {
+  ok: boolean;
+  objects: number;
+  instances: number;
+  mode?: ProjectLoadMode;
+  displayName?: string;
+  compatibility?: 'orca' | 'bambu' | 'generic' | 'unsupported';
+  projectSettingsAvailable?: boolean;
+  isBbl3mf?: boolean;
+  isOrca3mf?: boolean;
+  fileVersion?: string;
+  multiPlate?: boolean;
+  plateCount?: number;
+  embeddedPresetWarnings?: {
+    present: boolean;
+    count: number;
+    printerCount: number;
+    processCount: number;
+    filamentCount: number;
+    modifiedPrinterGcode: boolean;
+    modifiedFilamentGcode: boolean;
+    missingSystemPreset: boolean;
+    requiresConfirmation: boolean;
+    modifiedGcodeKeys?: string[];
+    missingSystemPresetTypes?: Array<'printer' | 'filament'>;
+    presetEvidence?: EmbeddedPresetEvidence[];
+  };
+  /** Candidate picker state captured in the same native load response. */
+  presetSnapshot?: PresetSnapshot;
+  error?: string;
+}
+
 export interface ModelObjectBuffer {
   objectIdx: number;
   volumeIdx: number;
@@ -461,6 +504,16 @@ export interface ExportGcodeResult {
   error?: string;
 }
 
+export interface ExportProjectResult {
+  ok: boolean;
+  /** Native temporary path, for diagnostics only; never a host path. */
+  path: string;
+  bytes: Uint8Array;
+  objects?: number;
+  plateCount?: number;
+  error?: string;
+}
+
 export interface CancelResult {
   ok: boolean;
   error?: string;
@@ -483,6 +536,10 @@ export interface SlicerClient {
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
   addModel(bytes: Uint8Array, ext: string, displayName?: string): Promise<LoadModelResult>;
+  /** Load a BBS 3MF as a project (replace) or geometry-only append. */
+  loadProject(bytes: Uint8Array, mode?: ProjectLoadMode, displayName?: string): Promise<ProjectLoadResult>;
+  /** Explicit geometry-only alias used by Add Model/project fallback callers. */
+  importProjectGeometry(bytes: Uint8Array, displayName?: string): Promise<ProjectLoadResult>;
   /** Add an OrcaSlicer primitive to the current scene, exactly like its
    *  Add Cube: the bridge mirrors ObjectList::load_shape_object →
    *  create_mesh → load_mesh_object, building the mesh in the engine
@@ -540,6 +597,8 @@ export interface SlicerClient {
   /** Read a bounded, seekable source-text page from the current result. */
   readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
   exportGcode(): Promise<ExportGcodeResult>;
+  /** Export the active single-plate project as a secure BBS 3MF archive. */
+  exportProject(): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;
   /** Read the C++ boost::log file sink output from MEMFS. */
   readLog(): Promise<ReadLogResult>;

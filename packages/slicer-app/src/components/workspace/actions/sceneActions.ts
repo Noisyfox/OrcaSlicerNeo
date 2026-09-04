@@ -7,6 +7,7 @@ import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
@@ -40,6 +41,8 @@ async function commitAdded(
   // paths must never cross the platform boundary.
   settings.setValue('modelPath', displayName);
   settings.setModelLoaded(true);
+  useProjectStore.getState().setProject({ hasContent: true });
+  useProjectStore.getState().markDirty();
   sceneInteraction?.resetForModel();
   slicer.setError(null);
 }
@@ -156,6 +159,8 @@ export async function clearScene(
     slicer.setStatus('idle');
     slicer.setResultExported(false);
     settings.setModelLoaded(false);
+    useProjectStore.getState().setProject({ hasContent: false });
+    useProjectStore.getState().markDirty();
     sceneInteraction?.resetForModel();
     slicer.setError(null);
   } catch (err) {

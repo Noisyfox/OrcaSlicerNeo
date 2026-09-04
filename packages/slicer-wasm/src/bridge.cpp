@@ -26,6 +26,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -33,6 +34,7 @@
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Color.hpp"
 #include "libslic3r/Exception.hpp"
+#include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
@@ -108,6 +110,181 @@ struct BridgeState {
     bool preview_text_available = false;
 };
 BridgeState& state() { static BridgeState s; return s; }
+
+// Project archives are staged under a fresh name for every request.  Besides
+// preventing concurrent calls from clobbering one another, this keeps the
+// source path private to the bridge and avoids leaking host filenames into
+// the native reader's temporary files.
+std::atomic<std::uint64_t> g_project_temp_sequence{0};
+
+std::string next_project_temp_path(const char* suffix)
+{
+    const auto sequence = g_project_temp_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    return "/tmp/orca-project-" + std::to_string(sequence) + (suffix ? suffix : "");
+}
+
+void remove_project_temp_path(const std::string& path)
+{
+    std::remove(path.c_str());
+    std::remove((path + ".tmp").c_str());
+}
+
+std::size_t model_instance_count(const Model& model)
+{
+    std::size_t count = 0;
+    for (const ModelObject* object : model.objects)
+        count += object->instances.size();
+    return count;
+}
+
+// Model::add_object(const ModelObject&) uses the full clone machinery.  BBS
+// project objects can contain archive-backed metadata that makes that clone
+// path re-enter the threaded pool, so geometry imports copy the public model
+// hierarchy through the normal add-volume/add-instance constructors instead.
+void append_model_object_geometry(Model& destination, const ModelObject& source)
+{
+    ModelObject* object = destination.add_object();
+    object->name = source.name;
+    object->module_name = source.module_name;
+    object->input_file = source.input_file;
+    object->printable = source.printable;
+    object->origin_translation = source.origin_translation;
+    if (const auto* extruder = dynamic_cast<const ConfigOptionInt*>(source.config.option("extruder"));
+        extruder != nullptr && extruder->value > 0)
+        object->config.set_key_value("extruder", new ConfigOptionInt(extruder->value));
+    for (const ModelVolume* volume : source.volumes) {
+        // Do not use add_volume(const ModelVolume&): that constructor copies
+        // the volume's model config. Geometry-only imports intentionally keep
+        // only mesh, source, material identity, and transforms.
+        TriangleMesh empty_mesh;
+        ModelVolume* added = object->add_volume(std::move(empty_mesh), volume->type());
+        std::shared_ptr<const TriangleMesh> shared_mesh = volume->get_mesh_shared_ptr();
+        added->set_mesh(shared_mesh);
+        added->name = volume->name;
+        added->source = volume->source;
+        added->set_material_id(volume->material_id());
+        added->set_transformation(volume->get_transformation());
+    }
+    for (const ModelInstance* instance : source.instances)
+        object->add_instance(*instance);
+}
+
+struct ProjectPresetWarningDetails {
+    bool modified_printer_gcode = false;
+    bool modified_filament_gcode = false;
+    bool missing_system_preset = false;
+    std::set<std::string> modified_gcode_keys;
+    json missing_system_preset_types = json::array();
+    json preset_evidence = json::array();
+};
+
+// Keep this classification in the bridge because PresetBundle's upstream
+// validate_presets() returns one mixed set of g-code keys.  The project
+// warning contract needs to tell the shared layer whether the modified code
+// came from the printer or filament profile.  The sets mirror Orca's
+// PresetBundle::gcodes_key_set at the pinned upstream revision.
+ProjectPresetWarningDetails inspect_project_preset_warnings(
+    PresetBundle& bundle, DynamicPrintConfig& config,
+    const std::vector<Preset*>& project_presets, const std::string& path)
+{
+    ProjectPresetWarningDetails details;
+    if (project_presets.empty())
+        return details;
+
+    // Run the same upstream validation used by Plater.  We still inspect each
+    // embedded preset below so the result can distinguish printer and
+    // filament g-code and expose evidence to callers.
+    std::set<std::string> upstream_different_gcodes;
+    try {
+        bundle.validate_presets(path, config, upstream_different_gcodes);
+    } catch (...) {
+        // Warning extraction must never turn a valid project load into a
+        // failed load when an older/generic project omits optional config.
+    }
+
+    const std::set<std::string> printer_gcode_keys = {
+        "layer_change_gcode", "machine_end_gcode", "machine_pause_gcode",
+        "machine_start_gcode", "template_custom_gcode",
+        "printing_by_object_gcode", "before_layer_change_gcode",
+        "time_lapse_gcode", "wrapping_detection_gcode"
+    };
+    const std::set<std::string> filament_gcode_keys = {
+        "filament_end_gcode", "filament_start_gcode", "change_filament_gcode"
+    };
+    auto trusted = [](const Preset* preset) {
+        return preset != nullptr &&
+            (preset->is_system || preset->is_default || preset->is_from_bundle());
+    };
+
+    auto inspect_collection = [&](Preset::Type type, PresetCollection& collection,
+                                  const char* type_name,
+                                  const std::set<std::string>& gcode_keys) {
+        for (const Preset* embedded : project_presets) {
+            if (!embedded || embedded->type != type)
+                continue;
+
+            std::string inherits = embedded->inherits();
+            const Preset* parent = inherits.empty() ? nullptr :
+                collection.find_preset(inherits, false);
+            bool has_matching_system_preset = trusted(parent);
+            if (!has_matching_system_preset) {
+                // This also honors Orca's renamed-system-preset lookup and is
+                // the authoritative missing-preset condition from upstream.
+                std::string validation_inherits = inherits;
+                has_matching_system_preset =
+                    collection.validate_preset(embedded->name, validation_inherits);
+                if (has_matching_system_preset && !trusted(parent))
+                    parent = collection.find_preset(validation_inherits, false);
+            }
+
+            std::vector<std::string> modified_keys;
+            if (trusted(parent)) {
+                for (const std::string& key : embedded->config.diff(parent->config)) {
+                    if (gcode_keys.find(key) != gcode_keys.end()) {
+                        modified_keys.push_back(key);
+                        details.modified_gcode_keys.insert(key);
+                        if (type == Preset::TYPE_PRINTER)
+                            details.modified_printer_gcode = true;
+                        else if (type == Preset::TYPE_FILAMENT)
+                            details.modified_filament_gcode = true;
+                    }
+                }
+            }
+            if (!has_matching_system_preset &&
+                (type == Preset::TYPE_PRINTER || type == Preset::TYPE_FILAMENT)) {
+                details.missing_system_preset = true;
+                details.missing_system_preset_types.push_back(type_name);
+            }
+
+            details.preset_evidence.push_back({
+                {"type", type_name},
+                {"name", embedded->name},
+                {"inherits", inherits},
+                {"has_matching_system_preset", has_matching_system_preset},
+                {"modified_gcode_keys", modified_keys},
+            });
+        }
+    };
+
+    inspect_collection(Preset::TYPE_PRINTER, bundle.printers, "printer", printer_gcode_keys);
+    inspect_collection(Preset::TYPE_FILAMENT, bundle.filaments, "filament", filament_gcode_keys);
+
+    // Preserve any upstream g-code evidence that was present in the project
+    // config even when the corresponding embedded preset was omitted.  The
+    // final printer slot is emitted by PresetBundle::full_fff_config(), while
+    // filament slots precede it; this is intentionally supplemental to the
+    // per-preset comparison above.
+    for (const std::string& key : upstream_different_gcodes) {
+        if (printer_gcode_keys.find(key) != printer_gcode_keys.end())
+            details.modified_printer_gcode = true;
+        if (filament_gcode_keys.find(key) != filament_gcode_keys.end())
+            details.modified_filament_gcode = true;
+        if (printer_gcode_keys.find(key) != printer_gcode_keys.end() ||
+            filament_gcode_keys.find(key) != filament_gcode_keys.end())
+            details.modified_gcode_keys.insert(key);
+    }
+    return details;
+}
 
 void invalidate_preview_source()
 {
@@ -690,8 +867,41 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         std::fclose(f);
 
         DynamicPrintConfig dummy;
-        Model imported = Model::read_from_file(path, &dummy, nullptr,
-                                               LoadStrategy::AddDefaultInstances);
+        LoadStrategy model_strategy = LoadStrategy::AddDefaultInstances;
+        std::string lower_ext = ext ? ext : "";
+        std::transform(lower_ext.begin(), lower_ext.end(), lower_ext.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        // Model::read_from_file delegates .3mf to load_bbs_3mf.  The BBS
+        // importer deliberately does nothing unless LoadModel is present;
+        // Add Model remains geometry-only, but it must still request model
+        // resources explicitly.
+        if (lower_ext == "3mf")
+            model_strategy = model_strategy | LoadStrategy::LoadModel;
+        Model imported;
+        if (lower_ext == "3mf") {
+            // Keep Add Model on the native BBS reader, but avoid
+            // Model::read_from_file's silent fallback context.  The latter
+            // takes a different importer path in threaded wasm and can spin
+            // while resolving a BBS archive; this explicit geometry-only
+            // invocation is the same seam used by project loads.
+            ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Enable};
+            std::vector<PlateData*> plate_data_storage;
+            std::vector<Preset*> project_presets;
+            bool is_bbl_3mf = false;
+            bool is_orca_3mf = false;
+            Semver file_version;
+            if (!load_bbs_3mf(path.c_str(), &dummy, &substitutions, &imported,
+                              &plate_data_storage, &project_presets, &is_bbl_3mf,
+                              &is_orca_3mf, &file_version, nullptr, model_strategy,
+                              nullptr, 0))
+                throw Slic3r::RuntimeError("Loading of a model file failed.");
+            imported.add_default_instances();
+            release_PlateData_list(plate_data_storage);
+            for (Preset* preset : project_presets) delete preset;
+        } else {
+            imported = Model::read_from_file(path, &dummy, nullptr,
+                                              model_strategy);
+        }
         // The wxWidgets GUI is not compiled into the WASM build, so replicate
         // the Plater's post-load steps for non-project files (Plater.cpp
         // _load_files: per object center_around_origin(false) + ensure_on_bed
@@ -705,9 +915,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         // (auto_drop), which orc_get_model_mesh reports and the renderer
         // applies as the group position.
         {
-            std::string lower_ext = ext ? ext : "";
-            std::transform(lower_ext.begin(), lower_ext.end(), lower_ext.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             const bool is_project_file = lower_ext == "3mf" || lower_ext == "amf";
             if (!is_project_file) {
                 for (ModelObject* o : imported.objects) {
@@ -720,8 +927,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         // complete incoming file succeeds do we copy its objects into the
         // live Model. Model::add_object clones the object and rebinds it to
         // the destination model, so the temporary can be destroyed safely.
-        for (const ModelObject* o : imported.objects)
-            state().model.add_object(*o);
+        for (const ModelObject* o : imported.objects) {
+            if (lower_ext == "3mf")
+                append_model_object_geometry(state().model, *o);
+            else
+                state().model.add_object(*o);
+        }
         // A model mutation makes any existing Print/G-code result stale.
         state().print.clear();
         invalidate_preview_source();
@@ -739,6 +950,247 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Load a BBS 3MF into either a replacement project or an appended,
+// geometry-only import.  Parsing and all candidate preset work happen against
+// temporary objects first.  The live model/preset bundle is touched only
+// after every required step succeeds, so malformed archives and future
+// cancellation paths cannot leave a half-loaded session behind.
+EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
+                                                   int geometry_only,
+                                                   const char* display_name) {
+    const std::string path = next_project_temp_path(".3mf");
+    std::vector<PlateData*> plate_data;
+    std::vector<Preset*> project_presets;
+    auto release_presets = [&]() {
+        for (Preset* preset : project_presets) delete preset;
+        project_presets.clear();
+    };
+    try {
+        if (!data || len <= 0) {
+            remove_project_temp_path(path);
+            return error_json("no project bytes");
+        }
+        // A BBS 3MF is a ZIP archive.  Reject non-ZIP input before entering
+        // minizip: malformed short buffers can otherwise make the threaded
+        // reader spend an unbounded amount of time scanning for an EOCD.
+        if (len < 4 || static_cast<unsigned char>(data[0]) != 0x50 ||
+            static_cast<unsigned char>(data[1]) != 0x4b ||
+            (static_cast<unsigned char>(data[2]) != 0x03 &&
+             static_cast<unsigned char>(data[2]) != 0x05 &&
+             static_cast<unsigned char>(data[2]) != 0x07) ||
+            (static_cast<unsigned char>(data[3]) != 0x04 &&
+             static_cast<unsigned char>(data[3]) != 0x06 &&
+             static_cast<unsigned char>(data[3]) != 0x08)) {
+            remove_project_temp_path(path);
+            return error_json("project bytes are not a ZIP archive");
+        }
+        std::FILE* file = std::fopen(path.c_str(), "wb");
+        if (!file) {
+            remove_project_temp_path(path);
+            return error_json("cannot open temporary project path");
+        }
+        const std::size_t written = std::fwrite(data, 1, static_cast<std::size_t>(len), file);
+        const int close_result = std::fclose(file);
+        if (written != static_cast<std::size_t>(len) || close_result != 0) {
+            remove_project_temp_path(path);
+            return error_json("cannot stage project bytes");
+        }
+
+        DynamicPrintConfig imported_config;
+        ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Enable};
+        Model imported;
+        bool is_bbl_3mf = false;
+        bool is_orca_3mf = false;
+        Semver file_version;
+        // The upstream BBS parser's model-only mode is intended for the GUI
+        // importer and can spin in the threaded wasm build while walking a
+        // project archive.  Read the complete archive into the isolated
+        // candidate for both modes, then discard config/preset state for the
+        // geometry-only commit below.
+        const LoadStrategy strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig |
+                                       LoadStrategy::LoadAuxiliary | LoadStrategy::AddDefaultInstances;
+        const bool loaded = load_bbs_3mf(path.c_str(), &imported_config, &substitutions,
+                                          &imported, &plate_data, &project_presets,
+                                          &is_bbl_3mf, &is_orca_3mf, &file_version,
+                                          nullptr, strategy, nullptr, 0);
+        if (!loaded || imported.objects.empty())
+            throw Slic3r::RuntimeError("Loading of a project file failed.");
+        imported.add_default_instances();
+
+        // Geometry-only imports intentionally discard object/part overrides;
+        // extruder assignment is the one per-object value that remains.
+        if (geometry_only) {
+            for (ModelObject* object : imported.objects) {
+                int extruder = 0;
+                if (const auto* option = dynamic_cast<const ConfigOptionInt*>(object->config.option("extruder")))
+                    extruder = option->value;
+                object->config.reset();
+                if (extruder > 0)
+                    object->config.set_key_value("extruder", new ConfigOptionInt(extruder));
+                for (ModelVolume* volume : object->volumes)
+                    volume->config.reset();
+            }
+        }
+
+        PresetBundle candidate = state().presets;
+        std::size_t printer_preset_count = 0;
+        std::size_t process_preset_count = 0;
+        std::size_t filament_preset_count = 0;
+        for (const Preset* preset : project_presets) {
+            if (!preset) continue;
+            if (preset->type == Preset::TYPE_PRINTER) ++printer_preset_count;
+            else if (preset->type == Preset::TYPE_PRINT) ++process_preset_count;
+            else if (preset->type == Preset::TYPE_FILAMENT) ++filament_preset_count;
+        }
+        if (!geometry_only && !project_presets.empty()) {
+            candidate.load_project_embedded_presets(project_presets,
+                ForwardCompatibilitySubstitutionRule::Enable);
+
+            // The BBS config records the selected preset IDs.  Resolve them
+            // in the candidate bundle only; a missing ID leaves the normal
+            // current/default selection in place and is reported in metadata.
+            if (const auto* option = dynamic_cast<const ConfigOptionString*>(imported_config.option("printer_settings_id")))
+                candidate.printers.select_preset_by_name(option->value, true);
+            if (const auto* option = dynamic_cast<const ConfigOptionString*>(imported_config.option("print_settings_id")))
+                candidate.prints.select_preset_by_name(option->value, true);
+            if (const auto* option = dynamic_cast<const ConfigOptionStrings*>(imported_config.option("filament_settings_id"))) {
+                candidate.filament_presets = option->values;
+                if (!option->values.empty())
+                    candidate.filaments.select_preset_by_name(option->values.front(), true);
+            }
+            candidate.update_compatible(PresetSelectCompatibleType::Never);
+            candidate.project_config = imported_config;
+        }
+
+        ProjectPresetWarningDetails warning_details;
+        if (!geometry_only)
+            warning_details = inspect_project_preset_warnings(
+                candidate, imported_config, project_presets, path);
+
+        if (geometry_only) {
+            for (const ModelObject* object : imported.objects)
+                append_model_object_geometry(state().model, *object);
+        } else {
+            state().model = std::move(imported);
+            state().presets = candidate;
+        }
+        state().print.clear();
+        invalidate_preview_source();
+
+        const std::string compatibility = is_orca_3mf ? "orca" :
+            (is_bbl_3mf ? "bambu" : "generic");
+        json warning_metadata{
+            {"present", !project_presets.empty()},
+            {"count", project_presets.size()},
+            {"printer_count", printer_preset_count},
+            {"process_count", process_preset_count},
+            {"filament_count", filament_preset_count},
+            {"modified_printer_gcode", warning_details.modified_printer_gcode},
+            {"modified_filament_gcode", warning_details.modified_filament_gcode},
+            {"missing_system_preset", warning_details.missing_system_preset},
+            {"modified_gcode_keys", warning_details.modified_gcode_keys},
+            {"missing_system_preset_types", std::move(warning_details.missing_system_preset_types)},
+            {"preset_evidence", std::move(warning_details.preset_evidence)},
+            {"requires_confirmation", !project_presets.empty()},
+        };
+        json out{
+            {"ok", true},
+            {"objects", state().model.objects.size()},
+            {"instances", model_instance_count(state().model)},
+            {"mode", geometry_only ? "geometry-only" : "project"},
+            {"display_name", display_name ? display_name : ""},
+            {"compatibility", compatibility},
+            {"project_settings_available", is_bbl_3mf || is_orca_3mf},
+            {"is_bbl_3mf", is_bbl_3mf},
+            {"is_orca_3mf", is_orca_3mf},
+            {"file_version", file_version.to_string()},
+            {"multi_plate", plate_data.size() > 1},
+            {"plate_count", plate_data.size()},
+            {"embedded_preset_warnings", std::move(warning_metadata)},
+        };
+        // Include the candidate picker state in this same response. The
+        // shared transaction can therefore commit model + presets together;
+        // it never has to issue a second read after native replacement.
+        if (!geometry_only)
+            out["preset_snapshot"] = preset_snapshot_json();
+        release_PlateData_list(plate_data);
+        release_presets();
+        remove_project_temp_path(path);
+        return dup_json(out.dump());
+    } catch (const std::exception& e) {
+        release_PlateData_list(plate_data);
+        release_presets();
+        remove_project_temp_path(path);
+        return error_json(e.what());
+    } catch (...) {
+        release_PlateData_list(plate_data);
+        release_presets();
+        remove_project_temp_path(path);
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_import_project_geometry(const char* data, int len,
+                                                              const char* display_name) {
+    return orc_load_project(data, len, 1, display_name);
+}
+
+// Export exactly one active plate.  The upstream BBS writer gets a fresh
+// PlateData describing the current object/instance layout, a secure composed
+// config, and no thumbnails/gcode/static auxiliary payloads.  The resulting
+// archive is copied into a malloc'd buffer for the typed Worker client and
+// both the archive and its writer-side .tmp file are removed immediately.
+EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
+    const std::string path = next_project_temp_path(".3mf");
+    try {
+        std::set<std::pair<int, int>> object_instances;
+        for (std::size_t object_idx = 0; object_idx < state().model.objects.size(); ++object_idx) {
+            const ModelObject* object = state().model.objects[object_idx];
+            for (std::size_t instance_idx = 0; instance_idx < object->instances.size(); ++instance_idx)
+                object_instances.emplace(static_cast<int>(object_idx), static_cast<int>(instance_idx));
+        }
+        PlateData plate(0, object_instances, false);
+        plate.plate_name = "Plate 1";
+        PlateDataPtrs plates{&plate};
+        DynamicPrintConfig config = state().presets.full_config_secure();
+        StoreParams params;
+        params.path = path;
+        params.model = &state().model;
+        params.plate_data_list = plates;
+        params.project_presets = state().presets.get_current_project_embedded_presets();
+        params.config = &config;
+        params.strategy = SaveStrategy::SplitModel | SaveStrategy::ShareMesh |
+                          SaveStrategy::Zip64 | SaveStrategy::Silence |
+                          SaveStrategy::SkipStatic | SaveStrategy::SkipAuxiliary;
+        if (!store_bbs_3mf(params))
+            throw Slic3r::RuntimeError("BBS 3MF export failed");
+
+        std::ifstream input(path, std::ios::binary | std::ios::ate);
+        if (!input.good()) throw Slic3r::RuntimeError("BBS 3MF output could not be opened");
+        const auto size = input.tellg();
+        if (size < 0) throw Slic3r::RuntimeError("BBS 3MF output has invalid size");
+        const std::size_t length = static_cast<std::size_t>(size);
+        auto* bytes = static_cast<std::uint8_t*>(std::malloc(length == 0 ? 1 : length));
+        input.seekg(0, std::ios::beg);
+        if (length > 0) input.read(reinterpret_cast<char*>(bytes), static_cast<std::streamsize>(length));
+        if (!input.good() && !input.eof()) {
+            std::free(bytes);
+            throw Slic3r::RuntimeError("BBS 3MF output read failed");
+        }
+        remove_project_temp_path(path);
+        return dup_json(json{{"ok", true}, {"path", path},
+                             {"bytes_ptr", reinterpret_cast<std::uintptr_t>(bytes)},
+                             {"bytes_length", length}, {"objects", state().model.objects.size()},
+                             {"plate_count", 1}}.dump());
+    } catch (const std::exception& e) {
+        remove_project_temp_path(path);
+        return error_json(e.what());
+    } catch (...) {
+        remove_project_temp_path(path);
         return error_json("unknown C++ exception");
     }
 }

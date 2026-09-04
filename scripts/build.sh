@@ -28,9 +28,9 @@
 #   full      deps + boost + build — the complete cold-start path.
 #   quick     INCREMENTAL: ninja in .work/threaded/build and
 #             .work/serial/build + stage the 3 artifacts to out/<variant>.
-#             The fast loop for bridge/CMake changes — no configure, no
-#             patch re-apply, seconds-to-minutes. Use --variant to limit
-#             to one build tree.
+#             The fast loop for bridge/CMake changes — no configure,
+#             reapplies build-time patches, seconds-to-minutes. Use --variant
+#             to limit to one build tree.
 #   shim      Regenerate the TBB/boost::thread/libnoise/libjpeg shim headers
 #             (build.sh --shim-only) after editing TBB_HEADERS in build.sh.
 #   smoke     Run both harnesses against out/threaded and out/serial:
@@ -147,6 +147,25 @@ discard_invalid_link_outputs() {
 }
 
 # ---------------- per-variant helpers ----------------
+# Apply build-time patches before an incremental build. Full build.sh applies
+# patches during configure, but quick intentionally skips configure; without
+# this guard a restored submodule would compile upstream Backup Manager code
+# and invalidate the incremental artifact.
+apply_wasm_patches() {
+  local p
+  for p in "$PKG"/patches/*.patch; do
+    [[ -e "$p" ]] || continue
+    if git -C "$PKG/cpp" apply --ignore-space-change --check "$p" 2>/dev/null; then
+      git -C "$PKG/cpp" apply --ignore-space-change "$p"
+      log "Applied $(basename "$p")"
+    elif git -C "$PKG/cpp" apply --ignore-space-change --reverse --check "$p" 2>/dev/null; then
+      log "Already applied: $(basename "$p")"
+    else
+      die "Patch $(basename "$p") neither applies cleanly nor is already applied — submodule at $PKG/cpp needs review."
+    fi
+  done
+}
+
 # Incremental ninja + stage for ONE variant ($1 = threaded|serial).
 quick_variant() {
   local v="$1" bd="$WORK/$1/build" outd="$PKG/out/$1"
@@ -248,6 +267,7 @@ case "$CMD" in
   # ---------------- incremental ninja loop (both variants unless --variant) ----------------
   quick)
     ensure_emsdk
+    apply_wasm_patches
     if [[ "$VARIANT" == both ]]; then
       quick_variant threaded
       quick_variant serial

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "description": "Release-gated external 3MF compatibility fixtures. Archives are acquired on demand and are not checked into this repository.",
+  "fixtures": [
+    {
+      "id": "orca-upstream-flowrate",
+      "filename": "orca-upstream-flowrate.3mf",
+      "kind": "orca",
+      "source_repository": "Noisyfox/OrcaSlicer",
+      "source_commit": "56a452875eb541f003aa921d3359afcf27afa6eb",
+      "source_path": "resources/calib/filament_flow/flowrate-test-pass1.3mf",
+      "url": "https://raw.githubusercontent.com/Noisyfox/OrcaSlicer/56a452875eb541f003aa921d3359afcf27afa6eb/resources/calib/filament_flow/flowrate-test-pass1.3mf",
+      "license": "AGPL-3.0",
+      "license_url": "https://github.com/Noisyfox/OrcaSlicer/blob/56a452875eb541f003aa921d3359afcf27afa6eb/LICENSE",
+      "size": 151525,
+      "sha256": "6e86280ef6dd912dc4bf8c5eb00d0b21d218f74774602eb10c73c36e5cc2aa5f",
+      "expected_compatibility": "generic",
+      "expected_project_settings": false
+    },
+    {
+      "id": "bambu-upstream-flowrate",
+      "filename": "bambu-upstream-flowrate.3mf",
+      "kind": "bambu",
+      "source_repository": "bambulab/BambuStudio",
+      "source_commit": "66e405477604cf9346ea7aa9e439a7854a01029b",
+      "source_path": "resources/calib/filament_flow/flowrate-test-pass1.3mf",
+      "url": "https://raw.githubusercontent.com/bambulab/BambuStudio/66e405477604cf9346ea7aa9e439a7854a01029b/resources/calib/filament_flow/flowrate-test-pass1.3mf",
+      "license": "AGPL-3.0",
+      "license_url": "https://github.com/bambulab/BambuStudio/blob/66e405477604cf9346ea7aa9e439a7854a01029b/LICENSE",
+      "size": 142970,
+      "sha256": "f71b839130000caab52f99c258a575dabb0f46b1ddc74591c9e438720740e03c",
+      "expected_compatibility": "generic",
+      "expected_project_settings": false
+    },
+    {
+      "id": "prusa-upstream-fdm-roundtrip",
+      "filename": "prusa-upstream-fdm-roundtrip.3mf",
+      "kind": "generic",
+      "source_repository": "prusa3d/PrusaSlicer",
+      "source_commit": "6f510128d7c2e543b62919b74bea7e876f564205",
+      "source_path": "src/slic3r-shared/test/data/fdm_roundtrip1.3mf",
+      "url": "https://raw.githubusercontent.com/prusa3d/PrusaSlicer/6f510128d7c2e543b62919b74bea7e876f564205/src/slic3r-shared/test/data/fdm_roundtrip1.3mf",
+      "license": "AGPL-3.0",
+      "license_url": "https://github.com/prusa3d/PrusaSlicer/blob/6f510128d7c2e543b62919b74bea7e876f564205/LICENSE",
+      "size": 42568,
+      "sha256": "f14d9c803e38eee1477e138ac2b59b7c64950aad4506dbfe9d71784c03cf2737",
+      "expected_compatibility": "generic",
+      "expected_project_settings": false
+    }
+  ]
+}

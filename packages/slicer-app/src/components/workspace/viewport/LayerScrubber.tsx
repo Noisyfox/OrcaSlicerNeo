@@ -151,7 +151,7 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
       <div ref={layerRangeFrameRef} data-testid="preview-layer-range" onWheel={(event) => { const step = previewWheelStep(event); if (!step) return; adjustLayerEndWithWheel(step); }} className="pointer-events-auto absolute right-2 top-1/2 z-30 h-2/5 min-h-36 rounded-md border bg-card/85 p-2 shadow-lg backdrop-blur">
         <Label className="sr-only">Visible layer range</Label>
         <div data-testid="layer-scrubber" className="relative h-full w-6">
-          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart, layerEnd]} onValueChange={(value) => {
+          <Slider orientation="vertical" min={0} max={maxLayer} step={1} value={[layerStart, layerEnd]} thumbTestIds={['layer-scrubber-start', 'layer-scrubber-end']} onValueChange={(value) => {
             const values = Array.isArray(value) ? value : [value];
             const nextStart = values[0] ?? layerStart;
             const nextEnd = values[1] ?? layerEnd;

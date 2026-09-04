@@ -898,6 +898,90 @@ describe('SlicerClient bridge contract', () => {
     expect(new TextDecoder().decode(r.bytes.slice(0, 6))).toBe('; mock');
   });
 
+  it('loads BBS projects with typed compatibility and warning metadata', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const r = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf');
+    expect(r).toMatchObject({
+      ok: true, mode: 'project', compatibility: 'bambu',
+      projectSettingsAvailable: true, multiPlate: false, plateCount: 1,
+    });
+    expect(r.embeddedPresetWarnings?.requiresConfirmation).toBe(true);
+  });
+
+  it('preserves independent embedded preset warning evidence', async () => {
+    const c = createClient(async () => createMockModule({
+      embeddedPresetWarnings: {
+        modifiedPrinterGcode: true,
+        modifiedFilamentGcode: true,
+        missingSystemPreset: true,
+        modifiedGcodeKeys: ['machine_start_gcode', 'filament_start_gcode'],
+        missingSystemPresetTypes: ['printer', 'filament'],
+        presetEvidence: [
+          { type: 'printer', name: 'Custom printer', inherits: 'Missing printer', hasMatchingSystemPreset: false, modifiedGcodeKeys: [] },
+          { type: 'filament', name: 'Custom filament', inherits: 'System filament', hasMatchingSystemPreset: true, modifiedGcodeKeys: ['filament_start_gcode'] },
+        ],
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    const r = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project');
+    expect(r.embeddedPresetWarnings).toMatchObject({
+      modifiedPrinterGcode: true, modifiedFilamentGcode: true,
+      missingSystemPreset: true,
+      modifiedGcodeKeys: ['machine_start_gcode', 'filament_start_gcode'],
+      missingSystemPresetTypes: ['printer', 'filament'],
+    });
+    expect(r.embeddedPresetWarnings?.presetEvidence?.[0]).toMatchObject({
+      type: 'printer', hasMatchingSystemPreset: false,
+    });
+  });
+
+  it('appends geometry-only project imports and exposes an explicit alias', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const imported = await c.importProjectGeometry(new Uint8Array([0x50, 0x4b]), 'part.3mf');
+    expect(imported).toMatchObject({ ok: true, mode: 'geometry-only', compatibility: 'bambu' });
+    expect(imported.objects).toBe(2);
+    const replaced = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project');
+    expect(replaced.objects).toBe(1);
+  });
+
+  it('exportProject returns a transferable BBS archive byte buffer', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const r = await c.exportProject();
+    expect(r.ok).toBe(true);
+    expect(r.bytes.byteLength).toBeGreaterThan(0);
+    expect(new TextDecoder().decode(r.bytes)).toContain('bbs-3mf');
+  });
+
+  it('exportProject frees the native archive buffer when reading fails', async () => {
+    let module: ReturnType<typeof createMockModule> | undefined;
+    let archivePtr = 0;
+    const c = createClient(async () => {
+      module = createMockModule();
+      const originalCcall = module.ccall;
+      module.ccall = (name, ret, argTypes, args) => {
+        const result = originalCcall(name, ret, argTypes, args);
+        if (name === 'orc_export_project') {
+          archivePtr = Number(JSON.parse(module!.UTF8ToString(Number(result))).bytes_ptr);
+        }
+        return result;
+      };
+      return module;
+    });
+    await c.addModel(new Uint8Array(4), 'stl');
+    const heap = module!.HEAPU8;
+    const originalSlice = heap.slice;
+    Object.defineProperty(heap, 'slice', {
+      configurable: true,
+      value: () => { throw new Error('simulated archive read failure'); },
+    });
+    await expect(c.exportProject()).rejects.toThrow('simulated archive read failure');
+    Object.defineProperty(heap, 'slice', { configurable: true, value: originalSlice });
+    expect(module!._freedPointers).toContain(archivePtr);
+  });
+
   it('reads bounded UTF-8 source chunks by completed result id', async () => {
     const sourceText = '; 注释\nG1 X1\nG1 X2\n';
     const c = createClient(async () => createMockModule({

@@ -7,7 +7,7 @@
 // Also usable in the app's dev fallback worker (VITE_USE_MOCK=1).
 // ----------------------------------------------------------------
 
-import type { VolumeType } from '../types';
+import type { ProjectLoadResult, VolumeType } from '../types';
 
 export interface MockFeature {
   id: number;
@@ -72,6 +72,8 @@ export interface MockModuleOptions {
   splitParts?: number;
   /** Simulate the shared-memory mailbox transport used by the pthread build. */
   threaded?: boolean;
+  /** Warning metadata returned by the native BBS project-load bridge. */
+  embeddedPresetWarnings?: Partial<NonNullable<ProjectLoadResult['embeddedPresetWarnings']>>;
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -130,6 +132,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       printable_area: { type: 'points' },
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'] },
     };
+  const projectWarningFixture = {
+    modifiedPrinterGcode: false,
+    modifiedFilamentGcode: false,
+    missingSystemPreset: false,
+    modifiedGcodeKeys: [] as string[],
+    missingSystemPresetTypes: [] as Array<'printer' | 'filament'>,
+    presetEvidence: [],
+    ...opts.embeddedPresetWarnings,
+  };
 
   // The OrcaSlicer "Add Primitive" menu set (GUI_Factories.cpp
   // append_submenu_add_generic): the shapes the native bridge's orc_add_shape
@@ -437,6 +448,21 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return { verts: CUBE_VERTS, tris: CUBE_TRIS };
   }
 
+  function appendMockObject(name = `Object ${objectTransforms.length + 1}`): void {
+    modelLoaded = true;
+    objectTransforms.push(createObjectTransforms());
+    objectVolumeTransforms.push(createObjectVolumeTransforms());
+    objectMeta.push({ id: nextObjectId++, name, printable: true });
+    volumeMeta.push(Array.from({ length: volumeCount }, (_, vi) => ({
+      id: nextVolumeId++, name: `Part ${vi + 1}`,
+      type: 'model_part' as VolumeType, isSplittable: vi === 0,
+    })));
+    instanceMeta.push(Array.from({ length: instanceCount }, () => ({
+      id: nextInstanceId++, printable: true,
+    })));
+    sliced = false;
+  }
+
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
     orc_init(_legacyPreferencesJson?: string) {
@@ -484,31 +510,46 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_add_model(_ptr: number, len: number, ext: string, displayName: string) {
       if (len <= 0) return { error: 'no model bytes' };
-      modelLoaded = true;
-      objectTransforms.push(createObjectTransforms());
-      objectVolumeTransforms.push(createObjectVolumeTransforms());
-      objectMeta.push({
-        id: nextObjectId++,
-        // Keep the established STL mock labels distinct for object-list
-        // regressions.  DRC alone models its upstream filename behaviour,
-        // which is what the widened bridge call needs to assert.
-        name: ext.toLowerCase() === 'drc' && displayName
-          ? displayName
-          : `Object ${objectTransforms.length}`,
-        printable: true,
-      });
-      volumeMeta.push(Array.from({ length: volumeCount }, (_, vi) => ({
-        id: nextVolumeId++,
-        name: `Part ${vi + 1}`,
-        type: 'model_part' as VolumeType,
-        isSplittable: vi === 0,
-      })));
-      instanceMeta.push(Array.from({ length: instanceCount }, (_, ii) => ({
-        id: nextInstanceId++,
-        printable: true,
-      })));
-      sliced = false;
+      // Keep the established STL mock labels distinct for object-list
+      // regressions. DRC alone models its upstream filename behaviour.
+      appendMockObject(ext.toLowerCase() === 'drc' && displayName
+        ? displayName : undefined);
       return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
+    },
+    orc_load_project(_ptr: number, len: number, geometryOnly: number, displayName: string) {
+      if (len <= 0) return { error: 'no project bytes' };
+      if (!geometryOnly) {
+        objectTransforms = [];
+        objectVolumeTransforms = [];
+        objectMeta = [];
+        volumeMeta = [];
+        instanceMeta = [];
+      }
+      appendMockObject(displayName || undefined);
+      return {
+        ok: true, objects: objectTransforms.length,
+        instances: objectTransforms.reduce((total, instances) => total + instances.length, 0),
+        mode: geometryOnly ? 'geometry-only' : 'project',
+        display_name: displayName || '', compatibility: 'bambu',
+        project_settings_available: !geometryOnly, is_bbl_3mf: true, is_orca_3mf: false,
+        file_version: '1.0.0', multi_plate: false, plate_count: 1,
+        embedded_preset_warnings: {
+          present: !geometryOnly, count: geometryOnly ? 0 : 1,
+          printer_count: geometryOnly ? 0 : 1, process_count: geometryOnly ? 0 : 1,
+          filament_count: geometryOnly ? 0 : 1,
+          modified_printer_gcode: projectWarningFixture.modifiedPrinterGcode,
+          modified_filament_gcode: projectWarningFixture.modifiedFilamentGcode,
+          missing_system_preset: projectWarningFixture.missingSystemPreset,
+          modified_gcode_keys: projectWarningFixture.modifiedGcodeKeys,
+          missing_system_preset_types: projectWarningFixture.missingSystemPresetTypes,
+          preset_evidence: projectWarningFixture.presetEvidence,
+          requires_confirmation: !geometryOnly,
+        },
+        preset_snapshot: geometryOnly ? undefined : snapshot(),
+      };
+    },
+    orc_import_project_geometry(_ptr: number, len: number, displayName: string) {
+      return bridge.orc_load_project(_ptr, len, 1, displayName);
     },
     orc_add_shape(type: string, name?: string) {
       if (!SUPPORTED_PRIMITIVES.includes(type)) return { error: `unsupported primitive type: ${type}` };
@@ -1019,6 +1060,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       files.set('/out.gcode', previewSourceBytes);
       return { ok: true, path: '/out.gcode' };
     },
+    orc_export_project() {
+      if (!modelLoaded) return { error: 'no model loaded' };
+      const archive = new TextEncoder().encode(JSON.stringify({
+        format: 'bbs-3mf', objects: buildStructure(), plate_count: 1,
+      }));
+      const ptr = malloc(Math.max(1, archive.length));
+      HEAPU8.set(archive, ptr);
+      return {
+        ok: true, path: '/tmp/mock-project.3mf', bytes_ptr: ptr,
+        bytes_length: archive.length, objects: objectTransforms.length, plate_count: 1,
+      };
+    },
     orc_read_gcode_chunk(resultId: number, offset: number, length: number) {
       const maxChunkBytes = 64 * 1024;
       if (!Number.isSafeInteger(resultId) || resultId !== (fixture.resultId ?? 1))
@@ -1100,6 +1153,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string', 'string'] },
+    orc_load_project: { ret: 'number', args: ['pointer', 'number', 'number', 'string'] },
+    orc_import_project_geometry: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
@@ -1128,6 +1183,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_slice: { ret: 'number', args: ['string'] },
     orc_get_slice_result: { ret: 'number', args: [] },
     orc_export_gcode: { ret: 'number', args: [] },
+    orc_export_project: { ret: 'number', args: [] },
     orc_read_gcode_chunk: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_read_gcode_lines: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_cancel: { ret: 'number', args: [] },

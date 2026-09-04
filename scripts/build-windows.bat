@@ -112,8 +112,8 @@ echo   full      deps + boost + build - the complete cold-start path.
 echo   quick     INCREMENTAL: ninja in .work\threaded\build and
 echo             .work\serial\build + stage the 3 artifacts to out\^<variant^>.
 echo             The fast loop for bridge/CMake changes - no configure,
-echo             no patch re-apply, seconds-to-minutes. Use --variant to
-echo             limit to one build tree.
+echo             reapplies build-time patches, seconds-to-minutes. Use
+echo             --variant to limit to one build tree.
 echo   shim      Regenerate the TBB/boost::thread/libnoise/libjpeg shim headers
 echo             ^(build.bat --shim-only^) after editing TBB_HEADERS in build.bat.
 echo   smoke     Run both harnesses against out\threaded and out\serial:
@@ -239,6 +239,8 @@ exit /b %errorlevel%
 :cmd_quick
 call :ensure_emsdk
 if errorlevel 1 exit /b 1
+call :apply_wasm_patches
+if errorlevel 1 exit /b 1
 if /i "%VARIANT%"=="threaded" (
   call :quick_variant threaded
   exit /b
@@ -322,6 +324,35 @@ if /i "%QV%"=="threaded" (
 )
 echo [winbuild] Staged %QV% to %QOUT%:
 dir "%QOUT%"
+exit /b 0
+
+REM ---- apply build-time submodule patches for incremental builds ----
+REM build.bat applies patches during configure, but quick intentionally skips
+REM configure. Keep the pinned submodule source in the same patched state
+REM before Ninja so an incremental build cannot silently compile upstream
+REM Backup Manager code.
+:apply_wasm_patches
+for %%p in ("%PKG%\patches\*.patch") do (
+  if exist "%%p" (
+    git -C "%PKG%\cpp" apply --ignore-space-change --check "%%p" >nul 2>nul
+    if not errorlevel 1 (
+      git -C "%PKG%\cpp" apply --ignore-space-change "%%p"
+      if errorlevel 1 (
+        echo [winbuild] ERROR: git apply failed for %%~nxp.
+        exit /b 1
+      )
+      echo [winbuild] Applied %%~nxp
+    ) else (
+      git -C "%PKG%\cpp" apply --ignore-space-change --reverse --check "%%p" >nul 2>nul
+      if not errorlevel 1 (
+        echo [winbuild] Already applied: %%~nxp
+      ) else (
+        echo [winbuild] ERROR: Patch %%~nxp neither applies cleanly nor is already applied.
+        exit /b 1
+      )
+    )
+  )
+)
 exit /b 0
 
 REM A failed em++/wasm-opt invocation can leave partial target files behind.

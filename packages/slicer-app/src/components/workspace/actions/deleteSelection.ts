@@ -3,6 +3,7 @@ import type { ModelObjectStructure } from '@slicer/client';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 
 export type DeleteSelectionResult = { ok: boolean; error?: string };
@@ -76,8 +77,12 @@ export async function deleteSelection(
     slicer.setStatus('idle');
     slicer.setResultExported(false);
     slicer.setError(null);
-    if ((result.objects ?? 0) === 0) settings.setModelLoaded(false);
+    if ((result.objects ?? 0) === 0) {
+      settings.setModelLoaded(false);
+      useProjectStore.getState().setProject({ hasContent: false });
+    }
     else settings.refreshModel();
+    useProjectStore.getState().markDirty();
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

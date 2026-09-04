@@ -16,6 +16,10 @@ export const Ipc = {
   saveFileDialog: 'dialog:saveFile',
   readFile: 'file:read',
   writeFile: 'file:write',
+  projectOpen: 'project:open',
+  projectOpenDropped: 'project:openDropped',
+  projectSave: 'project:save',
+  projectSaveAs: 'project:saveAs',
   preferencesLoad: 'preferences:load',
   preferencesSave: 'preferences:save',
   printerConfigurationLoad: 'printerConfiguration:load',
@@ -28,9 +32,16 @@ export const Ipc = {
   nativeMenuCommand: 'menu:command',
   executeHostCommand: 'host:executeCommand',
   openSource: 'external:openSource',
+  windowCloseRequest: 'window:closeRequest',
+  windowCloseDecision: 'window:closeDecision',
 } as const;
 
 export const MENU_COMMAND_IDS = [
+  'new-project',
+  'open-project',
+  'save-project',
+  'save-project-as',
+  'preferences',
   'add-model',
   'clear-scene',
   'slice',
@@ -51,6 +62,19 @@ export interface ElectronBridge {
   saveFileDialog(defaultName: string, filters: FileDialogFilter[]): Promise<SaveFileResult>;
   readFile(path: string): Promise<ArrayBuffer>;
   writeFile(path: string, bytes: ArrayBuffer): Promise<void>;
+  projects: {
+    /** Resolve an OS-dropped File in the renderer without exposing its path to shared code. */
+    getPathForFile(file: File): string;
+    open(): Promise<ProjectOpenIpcResult>;
+    openMany(): Promise<ProjectOpenIpcResult>;
+    openDropped(paths: string[]): Promise<ProjectOpenIpcResult>;
+    save(locationToken: string | null, defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult>;
+    saveAs(defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult>;
+  };
+  lifecycle: {
+    onCloseRequest(listener: () => void | Promise<void>): () => void;
+    respondClose(allow: boolean): Promise<void>;
+  };
   preferences: {
     load(): Promise<PreferencesLoadResult>;
     save(json: unknown): Promise<void>;
@@ -113,6 +137,26 @@ export interface OpenFileResult {
 export interface SaveFileResult {
   canceled: boolean;
   path: string | null;
+}
+
+/** Project IPC carries bytes and an opaque host token, never a filesystem path. */
+export interface ProjectOpenIpcResult {
+  canceled: boolean;
+  locationToken: string | null;
+  displayName: string | null;
+  bytes: ArrayBuffer | null;
+  files?: ProjectOpenIpcFile[];
+}
+
+export interface ProjectOpenIpcFile {
+  locationToken: string;
+  displayName: string;
+  bytes: ArrayBuffer;
+}
+
+export interface ProjectSaveIpcResult {
+  canceled: boolean;
+  locationToken: string | null;
 }
 
 /** Result for the small versioned shared preferences document. */

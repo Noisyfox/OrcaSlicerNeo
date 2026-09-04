@@ -1,4 +1,4 @@
-# High Level Development Plan (updated 2026-08-28)
+# High Level Development Plan (updated 2026-09-04)
 
 ## Context
 
@@ -440,6 +440,32 @@
       with progress, cancellation, start-only retry, and optional keyless use
 - [x] After success, count down before closing and optionally switch to Device;
       this preference is persisted and enabled by default
+
+### Milestone 15 — 3MF Project Persistence
+
+> **Status: delivered 2026-09-04.** The independent cross-host project-open,
+> project-save, compatibility, dirty-state, and verification contract is
+> `spec/3MF Project Persistence.md`. It supersedes the earlier geometry-only
+> 3MF-import and deferred-project-persistence assumptions in the shared-
+> application architecture. The controlled external fixture manifest, both
+> real WASM variants, desktop E2E, and threaded/serial Web E2E release gates
+> all pass. Exact evidence is recorded in the living implementation plan.
+
+- [x] Implement the BBS 3MF project reader/writer bridge and its typed Worker
+      client contract.
+- [x] Implement shared project session, load/save commands, preference modal,
+      confirmation/progress UI, and Electron/Web host adapters.
+- [x] Implement cross-host drag-and-drop entry, compatibility fallback, and
+      automated serial/threaded WASM and host end-to-end coverage.
+
+The release gate passed: acquire/check
+`packages/slicer-wasm/fixtures/project-compatibility/manifest.json`, run both
+real WASM variants' `project-roundtrip.mjs` and `project-compatibility.mjs`,
+then run `pnpm --filter @orca/desktop test:e2e`,
+`pnpm --filter @orca/web test:e2e:threaded`, and
+`pnpm --filter @orca/web test:e2e:serial`. Fixture provenance and exact
+results are recorded in `spec/3MF Project Persistence.md` and the Step 9
+execution record.
 
 ### Maintenance — Filament Library Selector Completeness
 

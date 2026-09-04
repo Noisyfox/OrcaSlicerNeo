@@ -13,6 +13,11 @@ const BOOT_PHASES = ['starting', 'ready', 'failed'] as const;
 const SLICER_STATUSES = ['idle', 'slicing', 'done', 'error'] as const;
 const MAX_MENU_DEPTH = 8;
 const MAX_MENU_ITEMS = 128;
+const MENU_STATE_COMMANDS = [
+  'new-project', 'open-project', 'save-project', 'save-project-as', 'preferences',
+  'add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source',
+] as const;
+const LEGACY_MENU_STATE_COMMANDS = ['add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source'] as const;
 
 export interface NativeMenuTemplateItem {
   id?: string;
@@ -75,8 +80,19 @@ export const STARTUP_DISABLED_MENU_STATE: MenuStateSnapshot = {
   slicer: { status: 'idle', progress: 0, error: null },
   scene: { hasModel: false },
   result: { hasResult: false, exported: false },
+  project: {
+    hasContent: false,
+    dirty: false,
+    flattenedMultiPlate: false,
+    operation: { phase: 'idle', progress: 0, cancellable: false },
+  },
   host: { isElectron: true, menuMode: 'native' },
   items: {
+    'new-project': { enabled: false, checked: false },
+    'open-project': { enabled: false, checked: false },
+    'save-project': { enabled: false, checked: false },
+    'save-project-as': { enabled: false, checked: false },
+    preferences: { enabled: false, checked: false },
     'add-model': { enabled: false, checked: false },
     'clear-scene': { enabled: false, checked: false },
     slice: { enabled: false, checked: false },
@@ -162,16 +178,51 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
   if (!isRecord(value.result) || typeof value.result.hasResult !== 'boolean' || typeof value.result.exported !== 'boolean') return null;
   if (!isRecord(value.host) || typeof value.host.isElectron !== 'boolean' || !isOneOf(MENU_MODES, value.host.menuMode)) return null;
   if (!isRecord(value.items)) return null;
+  const rawItems = value.items;
 
   const items = {} as Record<MenuCommandId, { enabled: boolean; checked?: boolean }>;
-  for (const command of ['add-model', 'clear-scene', 'slice', 'export-gcode', 'quit', 'open-source'] as const) {
-    const item = value.items[command];
+  const commandsToValidate = MENU_STATE_COMMANDS.filter((command) => rawItems[command] !== undefined);
+  for (const command of commandsToValidate) {
+    const item = rawItems[command];
     if (!isRecord(item) || typeof item.enabled !== 'boolean' || (item.checked !== undefined && typeof item.checked !== 'boolean')) return null;
     items[command] = item.checked === undefined
       ? { enabled: item.enabled }
       : { enabled: item.enabled, checked: item.checked };
   }
-  if (Object.keys(value.items).length !== 6) return null;
+  const keys = Object.keys(rawItems);
+  const hasFullCommands = MENU_STATE_COMMANDS.every((command) => keys.includes(command));
+  const hasLegacyCommands = LEGACY_MENU_STATE_COMMANDS.every((command) => keys.includes(command));
+  if ((!hasFullCommands && !hasLegacyCommands) || keys.length !== (hasFullCommands ? MENU_STATE_COMMANDS.length : LEGACY_MENU_STATE_COMMANDS.length)) return null;
+
+  const rawProject = value.project;
+  const project = isRecord(rawProject)
+    && typeof rawProject.hasContent === 'boolean'
+    && typeof rawProject.dirty === 'boolean'
+    && typeof rawProject.flattenedMultiPlate === 'boolean'
+    && isRecord(rawProject.operation)
+    && isOneOf(['idle', 'waiting-for-load-choice', 'waiting-for-dirty-decision', 'loading', 'saving', 'completed', 'cancelled', 'failed'] as const, rawProject.operation.phase)
+    && typeof rawProject.operation.progress === 'number'
+    && Number.isFinite(rawProject.operation.progress)
+    && rawProject.operation.progress >= 0 && rawProject.operation.progress <= 1
+    && typeof rawProject.operation.cancellable === 'boolean'
+    ? {
+      hasContent: rawProject.hasContent,
+      dirty: rawProject.dirty,
+      flattenedMultiPlate: rawProject.flattenedMultiPlate,
+      operation: {
+        phase: rawProject.operation.phase,
+        progress: rawProject.operation.progress,
+        ...(typeof rawProject.operation.message === 'string' ? { message: rawProject.operation.message } : {}),
+        cancellable: rawProject.operation.cancellable,
+      },
+    }
+    : hasLegacyCommands ? {
+      hasContent: value.scene.hasModel,
+      dirty: false,
+      flattenedMultiPlate: false,
+      operation: { phase: 'idle' as const, progress: 0, cancellable: false },
+    } : null;
+  if (!project) return null;
 
   return {
     version: 1,
@@ -180,6 +231,7 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
     slicer: { status: value.slicer.status, progress: value.slicer.progress, error: value.slicer.error },
     scene: { hasModel: value.scene.hasModel },
     result: { hasResult: value.result.hasResult, exported: value.result.exported },
+    project,
     host: { isElectron: value.host.isElectron, menuMode: value.host.menuMode },
     items,
   };

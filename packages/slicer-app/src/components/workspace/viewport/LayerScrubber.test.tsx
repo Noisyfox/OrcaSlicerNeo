@@ -46,6 +46,9 @@ describe('LayerScrubber preview controls', () => {
     expect(moveSlider.querySelector('[role="group"]')?.getAttribute('aria-label')).toBe('Active layer move end');
     expect(moveInput.value).toBe('1');
 
+    expect(container.querySelector('[data-testid="layer-scrubber-start"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="layer-scrubber-end"]')).toBeTruthy();
+
     await act(async () => {
       moveInput.focus();
       moveInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }));

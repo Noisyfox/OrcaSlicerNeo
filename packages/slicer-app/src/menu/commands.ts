@@ -5,6 +5,11 @@ import type {
 } from '@orca/platform-contract';
 
 export interface CommandActions {
+  newProject?: () => Promise<void>;
+  openProject?: () => Promise<void>;
+  saveProject?: () => Promise<void>;
+  saveProjectAs?: () => Promise<void>;
+  preferences?: () => Promise<void>;
   addModel: () => Promise<void>;
   clearScene: () => Promise<void>;
   slice: () => Promise<void>;
@@ -50,7 +55,9 @@ export function createCommandDispatcher({
 
       inFlight.add(command);
       try {
-        await actions[commandToAction(command)]();
+        const action = actions[commandToAction(command)];
+        if (!action) return false;
+        await action();
         return active;
       } catch (error) {
         // Existing action helpers own user-facing error state. The dispatcher
@@ -74,6 +81,11 @@ export function createCommandDispatcher({
 
 function commandToAction(command: MenuCommandId): keyof CommandActions {
   switch (command) {
+    case 'new-project': return 'newProject';
+    case 'open-project': return 'openProject';
+    case 'save-project': return 'saveProject';
+    case 'save-project-as': return 'saveProjectAs';
+    case 'preferences': return 'preferences';
     case 'add-model': return 'addModel';
     case 'clear-scene': return 'clearScene';
     case 'slice': return 'slice';

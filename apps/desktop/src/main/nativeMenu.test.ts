@@ -105,6 +105,11 @@ describe('Electron native menu boundary', () => {
       result: { hasResult: true, exported: false },
       host: { isElectron: true, menuMode: 'native' },
       items: {
+        'new-project': { enabled: true, checked: false },
+        'open-project': { enabled: true, checked: false },
+        'save-project': { enabled: true, checked: false },
+        'save-project-as': { enabled: true, checked: false },
+        preferences: { enabled: true, checked: false },
         'add-model': { enabled: true, checked: false },
         'clear-scene': { enabled: true, checked: false },
         slice: { enabled: true, checked: false },

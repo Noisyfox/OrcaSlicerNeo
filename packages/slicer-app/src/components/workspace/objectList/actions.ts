@@ -4,6 +4,7 @@ import { useObjectListStore } from './useObjectListStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { waitForSettledModelTransforms } from '../actions/persistModelTransforms';
+import { useProjectStore } from '../../../stores/useProjectStore';
 
 export interface MutationOutcome {
   ok: boolean;
@@ -53,11 +54,17 @@ export async function refreshAfterModelMutation(
   slicer.setError(null);
   slicer.setLayers(0);
   if (geometryChanged) useSettingsStore.getState().refreshModel();
+  useProjectStore.getState().markDirty();
   const structure = await runtime.getModelStructure();
   if (structure.ok && structure.objects) {
     useObjectListStore.getState().setStructure(structure.objects);
     useObjectListStore.getState().setLoaded(true);
-    if (structure.objects.length === 0) useSettingsStore.getState().setModelLoaded(false);
+    if (structure.objects.length === 0) {
+      useSettingsStore.getState().setModelLoaded(false);
+      useProjectStore.getState().setProject({ hasContent: false });
+    } else {
+      useProjectStore.getState().setProject({ hasContent: true });
+    }
   }
 }
 
