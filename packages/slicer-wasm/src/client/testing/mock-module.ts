@@ -7,7 +7,7 @@
 // Also usable in the app's dev fallback worker (VITE_USE_MOCK=1).
 // ----------------------------------------------------------------
 
-import type { VolumeType } from '../types';
+import type { ProjectLoadResult, VolumeType } from '../types';
 
 export interface MockFeature {
   id: number;
@@ -72,6 +72,8 @@ export interface MockModuleOptions {
   splitParts?: number;
   /** Simulate the shared-memory mailbox transport used by the pthread build. */
   threaded?: boolean;
+  /** Warning metadata returned by the native BBS project-load bridge. */
+  embeddedPresetWarnings?: Partial<NonNullable<ProjectLoadResult['embeddedPresetWarnings']>>;
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -130,6 +132,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       printable_area: { type: 'points' },
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'] },
     };
+  const projectWarningFixture = {
+    modifiedPrinterGcode: false,
+    modifiedFilamentGcode: false,
+    missingSystemPreset: false,
+    modifiedGcodeKeys: [] as string[],
+    missingSystemPresetTypes: [] as Array<'printer' | 'filament'>,
+    presetEvidence: [],
+    ...opts.embeddedPresetWarnings,
+  };
 
   // The OrcaSlicer "Add Primitive" menu set (GUI_Factories.cpp
   // append_submenu_add_generic): the shapes the native bridge's orc_add_shape
@@ -526,8 +537,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           present: !geometryOnly, count: geometryOnly ? 0 : 1,
           printer_count: geometryOnly ? 0 : 1, process_count: geometryOnly ? 0 : 1,
           filament_count: geometryOnly ? 0 : 1,
-          modified_printer_gcode: false, modified_filament_gcode: false,
-          missing_system_preset: false, requires_confirmation: !geometryOnly,
+          modified_printer_gcode: projectWarningFixture.modifiedPrinterGcode,
+          modified_filament_gcode: projectWarningFixture.modifiedFilamentGcode,
+          missing_system_preset: projectWarningFixture.missingSystemPreset,
+          modified_gcode_keys: projectWarningFixture.modifiedGcodeKeys,
+          missing_system_preset_types: projectWarningFixture.missingSystemPresetTypes,
+          preset_evidence: projectWarningFixture.presetEvidence,
+          requires_confirmation: !geometryOnly,
         },
       };
     },

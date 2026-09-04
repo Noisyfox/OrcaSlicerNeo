@@ -161,6 +161,23 @@ export function createClient(
             modifiedFilamentGcode: warnings.modified_filament_gcode === true,
             missingSystemPreset: warnings.missing_system_preset === true,
             requiresConfirmation: warnings.requires_confirmation === true,
+            modifiedGcodeKeys: Array.isArray(warnings.modified_gcode_keys)
+              ? warnings.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : undefined,
+            missingSystemPresetTypes: Array.isArray(warnings.missing_system_preset_types)
+              ? warnings.missing_system_preset_types.filter((type): type is 'printer' | 'filament' =>
+                type === 'printer' || type === 'filament') : undefined,
+            presetEvidence: Array.isArray(warnings.preset_evidence) ? warnings.preset_evidence.flatMap((evidence) => {
+              if (!evidence || typeof evidence !== 'object') return [];
+              const item = evidence as Record<string, unknown>;
+              const type = item.type === 'printer' || item.type === 'filament' ? item.type : undefined;
+              if (!type || typeof item.name !== 'string' || typeof item.inherits !== 'string') return [];
+              return [{
+                type, name: item.name, inherits: item.inherits,
+                hasMatchingSystemPreset: item.has_matching_system_preset === true,
+                modifiedGcodeKeys: Array.isArray(item.modified_gcode_keys)
+                  ? item.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : [],
+              }];
+            }) : undefined,
           } : undefined,
         };
       } finally {
@@ -190,6 +207,17 @@ export function createClient(
           fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined,
           multiPlate: r.multi_plate === true,
           plateCount: Number(r.plate_count ?? 0),
+          embeddedPresetWarnings: r.embedded_preset_warnings ? {
+            present: (r.embedded_preset_warnings as Record<string, unknown>).present === true,
+            count: Number((r.embedded_preset_warnings as Record<string, unknown>).count ?? 0),
+            printerCount: Number((r.embedded_preset_warnings as Record<string, unknown>).printer_count ?? 0),
+            processCount: Number((r.embedded_preset_warnings as Record<string, unknown>).process_count ?? 0),
+            filamentCount: Number((r.embedded_preset_warnings as Record<string, unknown>).filament_count ?? 0),
+            modifiedPrinterGcode: (r.embedded_preset_warnings as Record<string, unknown>).modified_printer_gcode === true,
+            modifiedFilamentGcode: (r.embedded_preset_warnings as Record<string, unknown>).modified_filament_gcode === true,
+            missingSystemPreset: (r.embedded_preset_warnings as Record<string, unknown>).missing_system_preset === true,
+            requiresConfirmation: (r.embedded_preset_warnings as Record<string, unknown>).requires_confirmation === true,
+          } : undefined,
         };
       } finally {
         m._free(ptr);

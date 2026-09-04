@@ -122,6 +122,14 @@ export interface LoadModelResult {
 
 export type ProjectLoadMode = 'project' | 'geometry-only';
 
+export interface EmbeddedPresetEvidence {
+  type: 'printer' | 'filament';
+  name: string;
+  inherits: string;
+  hasMatchingSystemPreset: boolean;
+  modifiedGcodeKeys: string[];
+}
+
 /** Result metadata from the native BBS 3MF reader. */
 export interface ProjectLoadResult {
   ok: boolean;
@@ -146,6 +154,9 @@ export interface ProjectLoadResult {
     modifiedFilamentGcode: boolean;
     missingSystemPreset: boolean;
     requiresConfirmation: boolean;
+    modifiedGcodeKeys?: string[];
+    missingSystemPresetTypes?: Array<'printer' | 'filament'>;
+    presetEvidence?: EmbeddedPresetEvidence[];
   };
   error?: string;
 }

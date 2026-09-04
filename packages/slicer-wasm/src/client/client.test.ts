@@ -909,6 +909,33 @@ describe('SlicerClient bridge contract', () => {
     expect(r.embeddedPresetWarnings?.requiresConfirmation).toBe(true);
   });
 
+  it('preserves independent embedded preset warning evidence', async () => {
+    const c = createClient(async () => createMockModule({
+      embeddedPresetWarnings: {
+        modifiedPrinterGcode: true,
+        modifiedFilamentGcode: true,
+        missingSystemPreset: true,
+        modifiedGcodeKeys: ['machine_start_gcode', 'filament_start_gcode'],
+        missingSystemPresetTypes: ['printer', 'filament'],
+        presetEvidence: [
+          { type: 'printer', name: 'Custom printer', inherits: 'Missing printer', hasMatchingSystemPreset: false, modifiedGcodeKeys: [] },
+          { type: 'filament', name: 'Custom filament', inherits: 'System filament', hasMatchingSystemPreset: true, modifiedGcodeKeys: ['filament_start_gcode'] },
+        ],
+      },
+    }));
+    await c.addModel(new Uint8Array(4), 'stl');
+    const r = await c.loadProject(new Uint8Array([0x50, 0x4b]), 'project');
+    expect(r.embeddedPresetWarnings).toMatchObject({
+      modifiedPrinterGcode: true, modifiedFilamentGcode: true,
+      missingSystemPreset: true,
+      modifiedGcodeKeys: ['machine_start_gcode', 'filament_start_gcode'],
+      missingSystemPresetTypes: ['printer', 'filament'],
+    });
+    expect(r.embeddedPresetWarnings?.presetEvidence?.[0]).toMatchObject({
+      type: 'printer', hasMatchingSystemPreset: false,
+    });
+  });
+
   it('appends geometry-only project imports and exposes an explicit alias', async () => {
     const c = makeClient();
     await c.addModel(new Uint8Array(4), 'stl');
