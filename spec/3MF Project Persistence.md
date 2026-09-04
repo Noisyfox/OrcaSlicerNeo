@@ -138,3 +138,9 @@ protection, and Web download behaviour.
   to a host. A cancelled or failed export, or a cancelled host save dialog,
   leaves the existing destination file unchanged and leaves the current
   project dirty.
+
+## Persistence boundary
+
+The first release provides only explicit project open and save operations. It
+does not add autosave, crash recovery, a recent-project list, or automatic
+reopening of the last project at startup.
