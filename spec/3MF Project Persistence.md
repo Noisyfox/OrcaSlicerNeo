@@ -99,6 +99,11 @@
   complete snapshot composed from the current printer, process, project, and
   filament configurations. Print-host addresses, API keys, passwords, and
   other connection credentials are excluded from that snapshot.
+- When restoring embedded presets, the application warns if the project
+  contains modified printer or filament G-code, or if its corresponding system
+  preset cannot be found. The warning allows the user to continue for that
+  load and to remember the warning preference, following OrcaSlicer's safety
+  behaviour.
 
 ## First-release boundaries
 
