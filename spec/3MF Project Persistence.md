@@ -37,3 +37,17 @@
 - A failed parse or cancelled operation is atomic: the current session stays
   unchanged.
 
+## Project-save behaviour
+
+- **Save Project** writes an Orca/Bambu-compatible BBS 3MF file with the
+  `.3mf` extension. It preserves the single-plate model, object and part
+  semantics, instance layout, and eligible project settings.
+- Normal project saves do not embed a slice result, G-code, or thumbnails.
+  G-code export and send-to-printer remain independent operations.
+- Electron provides **Save Project** and **Save Project As…**. Save Project
+  overwrites the current project file when the host has an in-memory source
+  path; Save Project As… selects a new path.
+- The Web host provides **Save Project** as a new `.3mf` download on every
+  invocation. It does not attempt to overwrite a previously downloaded file.
+- The project file path is host-private, in-memory session data. It is not
+  stored in shared preferences or made available to the shared application.
