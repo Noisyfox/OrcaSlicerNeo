@@ -87,6 +87,9 @@
   navigation. For these Web lifecycle events, the application uses the native
   browser leave/cancel confirmation; leaving never triggers an automatic
   project download.
+- An unexported slice result or generated G-code is not part of project dirty
+  state and adds no confirmation to New, Open, or close. It may be discarded
+  and sliced again later.
 
 ## Project configuration and presets
 
@@ -148,6 +151,11 @@
   `Ctrl/Cmd+Shift+S` for New, Open, Save, and Save As respectively. The Web
   host prevents the browser's default page-open and page-save actions for
   these commands.
+- Once the runtime is ready and no slice or project operation is running,
+  New Project, Open Project, and Preferences are available. Save Project is
+  available only for a dirty session. Save Project As is available whenever
+  the current session has project content, including a clean opened project,
+  so it can create a copy immediately.
 - A successful New Project or Open Project operation selects the Prepare
   workspace. Save and Save As do not change the active workspace.
 - Selecting a `.3mf` through **Add Model** always performs geometry-only,
