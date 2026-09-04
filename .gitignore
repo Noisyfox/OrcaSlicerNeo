@@ -9,6 +9,9 @@ playwright-report/
 .DS_Store
 packages/slicer-wasm/.work/
 packages/slicer-wasm/out/
+# External compatibility archives are acquired from their pinned upstream
+# commits by the release-gate harness; keep them out of source control.
+packages/slicer-wasm/fixtures/project-compatibility/*.3mf
 apps/desktop/src/renderer/public/wasm/
 apps/desktop/src/renderer/public/profiles/
 apps/desktop/src/renderer/public/handy-models/

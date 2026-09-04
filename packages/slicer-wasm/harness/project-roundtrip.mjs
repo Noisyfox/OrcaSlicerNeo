@@ -100,7 +100,8 @@ const projectPtr = writeBytes(project);
 const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
                         [projectPtr, project.length, 0, 'roundtrip.3mf']);
 Module._free(projectPtr);
-check('reload exported project', loaded.ok === true && loaded.mode === 'project' && loaded.objects === 1,
+check('reload exported project', loaded.ok === true && loaded.mode === 'project' && loaded.objects === 1
+      && loaded.compatibility === 'bambu' && loaded.project_settings_available === true,
       JSON.stringify(loaded));
 
 const after = callJson('orc_get_model_structure', [], []);

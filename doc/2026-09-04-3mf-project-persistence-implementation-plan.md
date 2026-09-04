@@ -208,6 +208,36 @@ skips/failures.
 available environment, review fixture provenance and all documentation status,
 then make the final in-scope commit only if the evidence supports it.
 
+### Step 6 execution record (2026-09-04)
+
+The controlled fixture set is `packages/slicer-wasm/fixtures/project-compatibility/`.
+`acquire-project-fixtures.mjs --download` fetched the fixed OrcaSlicer,
+BambuStudio, and PrusaSlicer archives from the manifest URLs and verified all
+three byte counts and SHA-256 digests; the archives remain git-ignored. Since
+the two vendor calibration samples contain geometry but no embedded project
+preset settings, `project-compatibility.mjs` records their observed `generic`
+classification and successful geometry-only fallback. `project-roundtrip.mjs`
+records the generated self-saved BBS archive as `bambu` and checks model
+structure retention.
+
+Observed verification on Windows:
+
+- `pnpm test` passed (553 tests) and `pnpm typecheck` passed.
+- `scripts\\build-windows.bat quick` rebuilt/staged both variants; the existing
+  `scripts\\build-windows.bat smoke` suite passed.
+- Serial self-save/reopen and all three fixture compatibility/fallback checks
+  passed.
+- Desktop E2E passed (28 passed, 3 intentional skips).
+- Threaded project round-trip/compatibility aborts during geometry-only load;
+  this remains a CI/release gate.
+- Threaded and serial Web E2E each have 1 pass and 1 failure at the existing
+  strict `web.e2e.ts:95` layer-scrubber locator (two range inputs). These are
+  reported as failures, not delivered evidence.
+
+The spec and roadmap intentionally remain non-delivered until the retained
+threaded and Web gates pass. No new user-visible behavior was introduced by
+Step 6.
+
 ## Completion criteria
 
 The milestone is complete only when each step's primary-agent acceptance has

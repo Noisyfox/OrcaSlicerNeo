@@ -1,6 +1,6 @@
 # 3MF Project Persistence
 
-**Status:** Approved — implementation basis  
+**Status:** Approved — implementation basis; release verification in progress
 **Scope:** Single-plate 3MF project open/save in the shared Electron and Web application.
 
 ## Project-open behaviour
@@ -200,6 +200,51 @@ The first release's automated compatibility baseline covers:
 
 Cross-host end-to-end coverage verifies project open, save, dirty-state
 protection, and Web download behaviour.
+
+### Release-gate evidence (2026-09-04)
+
+The external fixture set is controlled by
+`packages/slicer-wasm/fixtures/project-compatibility/manifest.json`. It pins
+the upstream repository, commit, path, URL, byte count, SHA-256, and AGPL-3.0
+license for OrcaSlicer, BambuStudio, and PrusaSlicer samples. Archives are
+acquired on demand by `harness/acquire-project-fixtures.mjs`; they are not
+checked into this repository. The OrcaSlicer and BambuStudio samples are
+upstream calibration geometry without embedded project presets at the pinned
+commits, so the bridge correctly reports `generic` and the harness verifies
+geometry-only fallback. A generated self-saved BBS archive is separately
+verified as `bambu` with project settings available.
+
+Evidence currently available on Windows:
+
+- `pnpm test`: pass (8 workspace projects; 553 tests).
+- `pnpm typecheck`: pass.
+- `scripts\\build-windows.bat quick`: pass; threaded and serial artifacts
+  rebuilt and staged.
+- `scripts\\build-windows.bat smoke`: pass for the existing dual-variant
+  bridge smoke suite.
+- `node harness/project-roundtrip.mjs --module out/serial/orca_slice.js`:
+  pass, including self-save/reopen, Bambu compatibility, structure retention,
+  and invalid-input atomicity.
+- `node harness/project-compatibility.mjs --module out/serial/orca_slice.js`:
+  pass for all three pinned fixtures and geometry-only fallback.
+- `pnpm --filter @orca/desktop test:e2e`: pass, 28 passed and 3 intentional
+  platform/real-runtime skips.
+
+The following remain explicit CI/release gates and are not marked delivered:
+
+- `node harness/project-roundtrip.mjs --module out/threaded/orca_slice.js`
+  and the threaded project compatibility harness currently abort during the
+  native geometry-only project load after the first fixture on this machine.
+- `pnpm --filter @orca/web test:e2e:threaded` and
+  `pnpm --filter @orca/web test:e2e:serial` each run 1 passing and 1 failing
+  test. The failure is the existing `web.e2e.ts:95` strict locator assertion
+  (the layer scrubber intentionally contains two range inputs); it is not
+  represented as a compatibility pass.
+
+CI/release must provision or acquire the three manifest archives, run
+`--check`, run both real WASM variants' round-trip and compatibility harnesses,
+and run both real Web E2E commands before changing this spec or the roadmap to
+delivered.
 
 ## Long-running project operations
 
