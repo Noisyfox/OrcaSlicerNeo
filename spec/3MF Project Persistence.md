@@ -170,8 +170,8 @@
   current session and therefore trigger the Save/Don't Save/Cancel prompt.
 - Dropping a `.3mf` file onto either the Electron or Web application is an
   Open Project entry point. It uses the same load-behaviour policy,
-  compatibility fallback, and dirty-session protections as File \u2192 Open
-  Project.
+  compatibility fallback, and dirty-session protections as the File menu's
+  Open Project command.
 - Operating-system `.3mf` file association and double-click-to-launch or
   wake the desktop application are outside the first-release scope.
 
