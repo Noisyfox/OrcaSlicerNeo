@@ -1,5 +1,7 @@
 import {
   normalizeUserPreferences,
+  type ProjectFileCapability,
+  type ProjectInput,
   type PlatformCapabilities,
   type PlatformMenu,
   type ProfileSource,
@@ -69,9 +71,36 @@ export function createBrowserPrinterConfigurationRepository(
 export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabilities {
   let inMemory = normalizeUserPreferences(null);
   const printerConfiguration = createBrowserPrinterConfigurationRepository();
+  const projects: ProjectFileCapability = {
+    async open() {
+      try {
+        const input = await pickProject();
+        return input === null ? { status: 'cancelled' as const } : { status: 'ok' as const, input };
+      } catch (error) {
+        return { status: 'failed' as const, error };
+      }
+    },
+    async save(input) {
+      try {
+        await downloadProject(input);
+        return { status: 'ok' as const };
+      } catch (error) {
+        return { status: 'failed' as const, error };
+      }
+    },
+    async saveAs(input) {
+      try {
+        await downloadProject(input);
+        return { status: 'ok' as const };
+      } catch (error) {
+        return { status: 'failed' as const, error };
+      }
+    },
+  };
   return {
     models: { pick: pickModel },
     exports: { save: downloadGcode },
+    projects,
     preferences: {
       async load() {
         try {
@@ -130,6 +159,34 @@ export function pickModel(): Promise<{ displayName: string; bytes: Uint8Array } 
     input.addEventListener('cancel', () => { cleanup(); resolve(null); }, { once: true });
     document.body.append(input); input.click();
   });
+}
+
+/** Browser project input is intentionally separate from the model picker. */
+export function pickProject(): Promise<ProjectInput | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.3mf'; input.hidden = true;
+    const cleanup = () => input.remove();
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) { cleanup(); resolve(null); return; }
+      try {
+        resolve({ displayName: file.name, bytes: new Uint8Array(await file.arrayBuffer()) });
+      } finally {
+        cleanup();
+      }
+    };
+    input.addEventListener('cancel', () => { cleanup(); resolve(null); }, { once: true });
+    document.body.append(input); input.click();
+  });
+}
+
+export async function downloadProject(input: ProjectInput): Promise<void> {
+  const href = URL.createObjectURL(new Blob([input.bytes.slice().buffer as ArrayBuffer], { type: 'application/vnd.ms-package.3dmanufacturing-3dmodel+xml' }));
+  const link = document.createElement('a'); link.href = href;
+  link.download = input.displayName.toLowerCase().endsWith('.3mf') ? input.displayName : `${input.displayName}.3mf`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(href), 0);
 }
 
 export async function downloadGcode(defaultName: string, bytes: Uint8Array): Promise<void> {

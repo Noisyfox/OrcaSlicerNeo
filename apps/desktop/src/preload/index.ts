@@ -32,6 +32,14 @@ const bridge: ElectronBridge = {
   writeFile: (path: string, bytes: ArrayBuffer) =>
     ipcRenderer.invoke(Ipc.writeFile, path, bytes) as Promise<void>,
 
+  projects: {
+    open: () => ipcRenderer.invoke(Ipc.projectOpen) as Promise<import('../shared/ipc').ProjectOpenIpcResult>,
+    save: (locationToken: string | null, defaultName: string, bytes: ArrayBuffer) =>
+      ipcRenderer.invoke(Ipc.projectSave, locationToken, defaultName, bytes) as Promise<import('../shared/ipc').ProjectSaveIpcResult>,
+    saveAs: (defaultName: string, bytes: ArrayBuffer) =>
+      ipcRenderer.invoke(Ipc.projectSaveAs, defaultName, bytes) as Promise<import('../shared/ipc').ProjectSaveIpcResult>,
+  },
+
   preferences: {
     load: () => ipcRenderer.invoke(Ipc.preferencesLoad) as Promise<PreferencesLoadResult>,
     save: (json: unknown) => ipcRenderer.invoke(Ipc.preferencesSave, json) as Promise<void>,

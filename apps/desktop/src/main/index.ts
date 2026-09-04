@@ -4,7 +4,8 @@ import type { Server } from 'node:http';
 import { extname, join, sep } from 'node:path';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
-import { Ipc, type FileDialogFilter, type PreferencesLoadResult } from '../shared/ipc';
+import { randomUUID } from 'node:crypto';
+import { Ipc, type FileDialogFilter, type PreferencesLoadResult, type ProjectOpenIpcResult, type ProjectSaveIpcResult } from '../shared/ipc';
 import type { MenuCommandId } from '../shared/ipc';
 import { createPrinterConfigurationIpcHandlers } from './printerConfigurationIpc';
 import { createPrinterTransportIpcHandlers } from './printerHttpTransport';
@@ -82,6 +83,12 @@ const MIME_BY_EXT: Record<string, string> = {
 // by the e2e launcher (playwright config / CI); never in production.
 const e2eOpenPath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_MODEL ?? null) : null;
 const e2eSavePath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_EXPORT ?? null) : null;
+
+// Project paths are deliberately kept in the main process. The renderer only
+// receives an opaque token, so shared React state can never expose a desktop
+// filesystem path.
+const projectLocations = new Map<string, string>();
+const projectFilters: FileDialogFilter[] = [{ name: '3MF project', extensions: ['3mf'] }];
 
 // M9: only the small shared UserPreferences document is persisted. Keep the
 // old IPC channel names during the incremental Electron migration.
@@ -225,6 +232,45 @@ function registerIpc(): void {
 
   ipcMain.handle(Ipc.writeFile, async (_event, path: string, bytes: ArrayBuffer) => {
     await writeFile(path, Buffer.from(bytes));
+  });
+
+  ipcMain.handle(Ipc.projectOpen, async (event): Promise<ProjectOpenIpcResult> => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const selectedPath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_MODEL ?? null) : null;
+    const result = selectedPath
+      ? { canceled: false, filePaths: [selectedPath] }
+      : await dialog.showOpenDialog(win!, { properties: ['openFile'], filters: projectFilters });
+    if (result.canceled || !result.filePaths[0]) {
+      return { canceled: true, locationToken: null, displayName: null, bytes: null };
+    }
+    const path = result.filePaths[0];
+    const bytes = await readFile(path);
+    const locationToken = randomUUID();
+    projectLocations.set(locationToken, path);
+    return {
+      canceled: false,
+      locationToken,
+      displayName: path.split(/[\\/]/).pop() ?? null,
+      bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    };
+  });
+
+  ipcMain.handle(Ipc.projectSave, async (event, locationToken: unknown, _defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult> => {
+    if (typeof locationToken !== 'string' || !projectLocations.has(locationToken)) {
+      throw new Error('Unknown project location token');
+    }
+    await writeFile(projectLocations.get(locationToken)!, Buffer.from(bytes));
+    return { canceled: false, locationToken };
+  });
+
+  ipcMain.handle(Ipc.projectSaveAs, async (event, defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult> => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showSaveDialog(win!, { defaultPath: defaultName, filters: projectFilters });
+    if (result.canceled || !result.filePath) return { canceled: true, locationToken: null };
+    await writeFile(result.filePath, Buffer.from(bytes));
+    const locationToken = randomUUID();
+    projectLocations.set(locationToken, result.filePath);
+    return { canceled: false, locationToken };
   });
 
   ipcMain.handle(Ipc.preferencesLoad, async (): Promise<PreferencesLoadResult> => {

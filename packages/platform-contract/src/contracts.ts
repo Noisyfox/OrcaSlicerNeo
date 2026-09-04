@@ -21,6 +21,49 @@ export interface ModelImporter {
 /** @deprecated Use ModelImporter; retained as a naming bridge for host adapters. */
 export type ModelPicker = ModelImporter;
 
+/** Values persisted for the Orca/Bambu 3MF project-load policy. */
+export const PROJECT_LOAD_BEHAVIOURS = [
+  'load_all',
+  'ask_when_relevant',
+  'always_ask',
+  'load_geometry_only',
+] as const;
+export type ProjectLoadBehaviour = typeof PROJECT_LOAD_BEHAVIOURS[number];
+export const DEFAULT_PROJECT_LOAD_BEHAVIOUR: ProjectLoadBehaviour = 'ask_when_relevant';
+
+/**
+ * A host-owned project location. The object deliberately has no path or
+ * serializable identifier; only the host adapter that created it can use it.
+ */
+export interface OpaqueProjectLocation {
+  readonly __opaqueProjectLocation: unique symbol;
+}
+
+/** Bytes and display metadata for a project, with an optional host location. */
+export interface ProjectInput {
+  displayName: string;
+  bytes: Uint8Array;
+  location?: OpaqueProjectLocation;
+}
+export type ProjectFileInput = ProjectInput;
+export type ProjectLocation = OpaqueProjectLocation;
+
+export type ProjectOpenResult =
+  | { status: 'ok'; input: ProjectInput }
+  | { status: 'cancelled' }
+  | { status: 'failed'; error: unknown };
+export type ProjectSaveResult =
+  | { status: 'ok'; location?: OpaqueProjectLocation }
+  | { status: 'cancelled' }
+  | { status: 'failed'; error: unknown };
+export type ProjectSaveAsResult = ProjectSaveResult;
+
+export interface ProjectFileCapability {
+  open(): Promise<ProjectOpenResult>;
+  save(input: ProjectInput): Promise<ProjectSaveResult>;
+  saveAs(input: ProjectInput): Promise<ProjectSaveAsResult>;
+}
+
 export interface GcodeExporter {
   save(defaultName: string, bytes: Uint8Array): Promise<void>;
 }
@@ -34,6 +77,8 @@ export interface GcodeTextWindowGeometry {
 
 export interface UserPreferences {
   version: 1;
+  /** Global project-open policy; project bytes and locations never belong here. */
+  projectLoadBehaviour?: ProjectLoadBehaviour;
   selectedProfiles: {
     printer?: string;
     print?: string;
@@ -136,6 +181,7 @@ export interface ProfileSource {
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   version: 1,
+  projectLoadBehaviour: DEFAULT_PROJECT_LOAD_BEHAVIOUR,
   selectedProfiles: {},
   ui: { switchToDeviceAfterSend: true },
 };
@@ -159,12 +205,15 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown> };
+  const v = value as { projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown> };
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
   const gcodeTextWindow = normalizeGcodeTextWindowGeometry(ui.gcodeTextWindow);
   return {
     version: 1,
+    projectLoadBehaviour: PROJECT_LOAD_BEHAVIOURS.includes(v.projectLoadBehaviour as ProjectLoadBehaviour)
+      ? v.projectLoadBehaviour as ProjectLoadBehaviour
+      : DEFAULT_PROJECT_LOAD_BEHAVIOUR,
     selectedProfiles: {
       ...(typeof selectedProfiles.printer === 'string' ? { printer: selectedProfiles.printer } : {}),
       ...(typeof selectedProfiles.print === 'string' ? { print: selectedProfiles.print } : {}),
@@ -193,6 +242,7 @@ export interface SlicerRuntime extends SlicerClient {
 export interface PlatformCapabilities {
   models: ModelPicker;
   exports: GcodeExporter;
+  projects: ProjectFileCapability;
   preferences: UserPreferencesRepository;
   printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };
   webview: WebViewHost;

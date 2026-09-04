@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserAdapter, createBrowserPrinterConfigurationRepository, createBrowserProfileSource, downloadGcode, PRINTER_CONFIGURATION_STORAGE_KEY, SOURCE_URL } from './browserAdapter';
+import { createBrowserAdapter, createBrowserPrinterConfigurationRepository, createBrowserProfileSource, downloadGcode, downloadProject, pickProject, PRINTER_CONFIGURATION_STORAGE_KEY, SOURCE_URL } from './browserAdapter';
 
 const runtimeLoad = vi.hoisted(() => ({ count: 0 }));
 
@@ -36,6 +36,31 @@ describe('browser adapter', () => {
     expect(anchor.download).toBe('cube.gcode');
     expect(anchor.href).toContain('blob:test');
     expect(click).toHaveBeenCalled();
+  });
+
+  it('uses a dedicated .3mf picker for projects without changing the model picker', async () => {
+    const input = document.createElement('input');
+    Object.defineProperty(input, 'files', { value: [{ name: 'scene.3mf', arrayBuffer: async () => Uint8Array.from([7, 8]).buffer }] });
+    const click = vi.spyOn(input, 'click').mockImplementation(() => input.dispatchEvent(new Event('change')));
+    vi.spyOn(document, 'createElement').mockReturnValue(input);
+    await expect(pickProject()).resolves.toMatchObject({ displayName: 'scene.3mf', bytes: Uint8Array.from([7, 8]) });
+    expect(click).toHaveBeenCalled();
+    expect(input.accept).toBe('.3mf');
+  });
+
+  it('downloads a new .3mf project on every save and retains no location', async () => {
+    const anchor = document.createElement('a');
+    const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);
+    vi.spyOn(document, 'createElement').mockReturnValue(anchor);
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:project');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    const adapter = createBrowserAdapter({} as never);
+    const input = { displayName: 'scene', bytes: Uint8Array.from([1, 2]) };
+    await expect(adapter.projects.save(input)).resolves.toEqual({ status: 'ok' });
+    await downloadProject(input);
+    expect(anchor.download).toBe('scene.3mf');
+    expect(click).toHaveBeenCalledTimes(2);
+    expect(input).not.toHaveProperty('location');
   });
 
   it('supplies browser menu mode and opens only the fixed source URL', () => {

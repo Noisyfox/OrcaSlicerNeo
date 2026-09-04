@@ -19,7 +19,12 @@ function setup(overrides: Record<string, unknown> = {}) {
       cancel: vi.fn(async () => {}),
       onProgress: vi.fn((_listener: (id: string, progress: { loaded: number; total?: number }) => void) => () => {}),
     };
-    const host = { preferences: { load, save }, printers: { configuration: { load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
+    const projects = {
+      open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
+      save: vi.fn(async () => ({ canceled: false, locationToken: 'project-token' })),
+      saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'project-token' })),
+    };
+    const host = { preferences: { load, save }, projects, printers: { configuration: { load: configurationLoad, save: configurationSave }, transport }, menu, externalLinks, platform: 'win32', ...overrides };
     vi.stubGlobal('window', { orca: host });
     return { adapter: createElectronAdapter({} as never), load, save, menu, externalLinks, configurationLoad, configurationSave, transport };
 }
@@ -27,9 +32,9 @@ function setup(overrides: Record<string, unknown> = {}) {
 describe('Electron adapter', () => {
   it('normalizes load and writes the shared preference shape', async () => {
     const { adapter, save } = setup();
-    expect(await adapter.preferences.load()).toEqual({ version: 1, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });
+    expect(await adapter.preferences.load()).toEqual({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });
     await adapter.preferences.save({ version: 1, selectedProfiles: { filament: 'F' }, ui: {} });
-    expect(save).toHaveBeenCalledWith({ version: 1, selectedProfiles: { filament: 'F' }, ui: { switchToDeviceAfterSend: true } });
+    expect(save).toHaveBeenCalledWith({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { filament: 'F' }, ui: { switchToDeviceAfterSend: true } });
   });
 
   it('maps native import success to display name and bytes', async () => {
@@ -63,6 +68,59 @@ describe('Electron adapter', () => {
     const { adapter } = setup({ saveFileDialog: vi.fn(async () => ({ canceled: true, path: null })), writeFile });
     await adapter.exports.save('output.gcode', Uint8Array.from([3]));
     expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it('opens projects through the dedicated native 3MF capability and keeps only an opaque location', async () => {
+    const open = vi.fn(async () => ({ canceled: false, locationToken: 'private-token', displayName: 'cube.3mf', bytes: Uint8Array.from([1, 2]).buffer }));
+    const { adapter } = setup({ projects: { open, save: vi.fn(), saveAs: vi.fn() } });
+    const result = await adapter.projects.open();
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.input).toMatchObject({ displayName: 'cube.3mf', bytes: Uint8Array.from([1, 2]) });
+    expect(result.input).not.toHaveProperty('path');
+    expect(result.input.location).toBeDefined();
+  });
+
+  it('distinguishes project cancellation and failures and saves by opaque token', async () => {
+    const save = vi.fn(async () => ({ canceled: false, locationToken: 'saved-token' }));
+    const { adapter } = setup({
+      projects: {
+        open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
+        save,
+        saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'saved-token' })),
+      },
+    });
+    expect(await adapter.projects.open()).toEqual({ status: 'cancelled' });
+    const first = await adapter.projects.open();
+    expect(first.status).toBe('cancelled');
+    const input = { displayName: 'cube', bytes: Uint8Array.from([3]) };
+    const saved = await adapter.projects.save(input);
+    expect(saved.status).toBe('ok');
+    expect(save).not.toHaveBeenCalled(); // Untitled save uses Save As.
+  });
+
+  it('keeps the native location token private while saving an opened project', async () => {
+    const open = vi.fn(async () => ({ canceled: false, locationToken: 'private-token', displayName: 'scene.3mf', bytes: Uint8Array.from([4, 5]).buffer }));
+    const save = vi.fn(async () => ({ canceled: false, locationToken: 'private-token' }));
+    const { adapter } = setup({ projects: { open, save, saveAs: vi.fn() } });
+    const opened = await adapter.projects.open();
+    expect(opened.status).toBe('ok');
+    if (opened.status !== 'ok') return;
+    const result = await adapter.projects.save(opened.input);
+    expect(result.status).toBe('ok');
+    expect(save).toHaveBeenCalledWith('private-token', 'scene.3mf', expect.any(ArrayBuffer));
+    expect(opened.input.location).not.toHaveProperty('token');
+    expect(opened.input.location).not.toHaveProperty('path');
+  });
+
+  it('reports native project read/write failures instead of treating them as cancellation', async () => {
+    const { adapter } = setup({ projects: {
+      open: vi.fn(async () => { throw new Error('read failed'); }),
+      save: vi.fn(async () => { throw new Error('write failed'); }),
+      saveAs: vi.fn(async () => { throw new Error('write failed'); }),
+    } });
+    await expect(adapter.projects.open()).resolves.toMatchObject({ status: 'failed' });
+    await expect(adapter.projects.save({ displayName: 'scene', bytes: new Uint8Array() })).resolves.toMatchObject({ status: 'failed' });
   });
 
   it('resolves packaged profile assets from the renderer root', async () => {
@@ -123,7 +181,7 @@ describe('Electron adapter', () => {
     const { adapter } = setup({ preferences: { load, save } });
     const value = { version: 1 as const, selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 300 } };
     await adapter.preferences.save(value);
-    await expect(adapter.preferences.load()).resolves.toEqual({ ...value, ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } });
+    await expect(adapter.preferences.load()).resolves.toEqual({ ...value, projectLoadBehaviour: 'ask_when_relevant', ui: { sidebarWidth: 300, switchToDeviceAfterSend: true } });
   });
 
   it('round-trips complete printer configuration through the typed host API', async () => {

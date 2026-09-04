@@ -111,4 +111,15 @@ describe('Electron preload bridge', () => {
     await bridge.printers.transport.cancel('request-1');
     expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.printerTransportCancel, 'request-1');
   });
+
+  it('exposes project bytes and opaque location tokens without a path API', async () => {
+    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
+    await bridge.projects.open();
+    await bridge.projects.save('opaque-token', 'scene.3mf', new ArrayBuffer(2));
+    await bridge.projects.saveAs('scene.3mf', new ArrayBuffer(2));
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.projectOpen);
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.projectSave, 'opaque-token', 'scene.3mf', expect.any(ArrayBuffer));
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.projectSaveAs, 'scene.3mf', expect.any(ArrayBuffer));
+    expect(bridge.projects).not.toHaveProperty('readFile');
+  });
 });

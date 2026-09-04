@@ -5,6 +5,8 @@ import {
   type MenuCommandId,
   type PlatformCapabilities,
   type PlatformMenu,
+  type ProjectFileCapability,
+  type ProjectInput,
   type UserPreferences,
 } from '@orca/platform-contract';
 import {
@@ -25,6 +27,17 @@ const GCODE_FILTERS: FileDialogFilter[] = [
   { name: 'G-code', extensions: ['gcode'] },
 ];
 
+function projectBytes(input: ProjectInput): ArrayBuffer {
+  return input.bytes.buffer.slice(
+    input.bytes.byteOffset,
+    input.bytes.byteOffset + input.bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+function projectName(name: string): string {
+  return name.toLowerCase().endsWith('.3mf') ? name : `${name}.3mf`;
+}
+
 /** The only renderer module allowed to know about the Electron preload API. */
 export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilities {
   const host = window.orca;
@@ -33,6 +46,57 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
   // support without leaking absolute paths into shared state.
   const importPaths = new Map<string, string>();
   let importSequence = 0;
+  const projectTokens = new WeakMap<object, string>();
+  const createProjectLocation = (token: string) => {
+    const location = {} as import('@orca/platform-contract').OpaqueProjectLocation;
+    projectTokens.set(location, token);
+    return location;
+  };
+  const projects: ProjectFileCapability = {
+    async open() {
+      try {
+        const result = await host.projects.open();
+        if (result.canceled) return { status: 'cancelled' };
+        if (!result.bytes || !result.displayName || !result.locationToken) {
+          return { status: 'failed', error: new Error('Electron returned an invalid project input') };
+        }
+        return {
+          status: 'ok',
+          input: {
+            displayName: result.displayName,
+            bytes: new Uint8Array(result.bytes),
+            location: createProjectLocation(result.locationToken),
+          },
+        };
+      } catch (error) {
+        return { status: 'failed', error };
+      }
+    },
+    async save(input) {
+      try {
+        const token = input.location ? projectTokens.get(input.location as object) ?? null : null;
+        const result = token
+          ? await host.projects.save(token, projectName(input.displayName), projectBytes(input))
+          : await host.projects.saveAs(projectName(input.displayName), projectBytes(input));
+        if (result.canceled) return { status: 'cancelled' };
+        if (!result.locationToken) return { status: 'failed', error: new Error('Electron did not return a project location') };
+        const location = createProjectLocation(result.locationToken);
+        return { status: 'ok', location };
+      } catch (error) {
+        return { status: 'failed', error };
+      }
+    },
+    async saveAs(input) {
+      try {
+        const result = await host.projects.saveAs(projectName(input.displayName), projectBytes(input));
+        if (result.canceled) return { status: 'cancelled' };
+        if (!result.locationToken) return { status: 'failed', error: new Error('Electron did not return a project location') };
+        return { status: 'ok', location: createProjectLocation(result.locationToken) };
+      } catch (error) {
+        return { status: 'failed', error };
+      }
+    },
+  };
   let inMemoryPreferences: UserPreferences = normalizeUserPreferences(DEFAULT_USER_PREFERENCES);
   let inMemoryPrinterConfiguration: PrinterConfigurationDocument = { version: 1, printers: [] };
   const printerConfiguration: PrinterConfigurationRepository = {
@@ -81,6 +145,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
         ) as ArrayBuffer);
       },
     },
+    projects,
     preferences: {
       async load() {
         try {
