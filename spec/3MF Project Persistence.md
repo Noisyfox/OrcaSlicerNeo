@@ -172,6 +172,8 @@
   Open Project entry point. It uses the same load-behaviour policy,
   compatibility fallback, and dirty-session protections as File \u2192 Open
   Project.
+- Operating-system `.3mf` file association and double-click-to-launch or
+  wake the desktop application are outside the first-release scope.
 
 ## Compatibility verification
 
