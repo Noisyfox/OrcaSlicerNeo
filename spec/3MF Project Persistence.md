@@ -24,6 +24,15 @@
   preset protections before replacing the current project. Importing geometry
   only does not replace the existing scene.
 
+## Project preferences
+
+- **Preferences…** is available from the File menu on every host, including
+  macOS, and opens a shared lightweight modal dialog.
+- In the first release, this dialog contains only **Project Load Behaviour**:
+  Load All, Ask When Relevant, Always Ask, or Load Geometry Only.
+- This is a global user preference, not a project setting. It is persisted
+  through the existing cross-host preferences repository.
+
 ## Compatibility and fallback
 
 - The application identifies whether a 3MF carries supported Orca project
