@@ -443,30 +443,29 @@
 
 ### Milestone 15 — 3MF Project Persistence
 
-> **Status: implementation present; release verification pending.** The independent cross-host
-> project-open, project-save, compatibility, dirty-state, and verification
-> contract is `spec/3MF Project Persistence.md`. It supersedes the earlier
-> geometry-only 3MF-import and deferred-project-persistence assumptions in the
-> shared-application architecture. The controlled external fixture manifest
-> and serial-variant compatibility evidence are in place, but the milestone
-> remains pending until the threaded project-load and both real Web E2E release
-> gates pass.
+> **Status: delivered 2026-09-04.** The independent cross-host project-open,
+> project-save, compatibility, dirty-state, and verification contract is
+> `spec/3MF Project Persistence.md`. It supersedes the earlier geometry-only
+> 3MF-import and deferred-project-persistence assumptions in the shared-
+> application architecture. The controlled external fixture manifest, both
+> real WASM variants, desktop E2E, and threaded/serial Web E2E release gates
+> all pass. Exact evidence is recorded in the living implementation plan.
 
-- [ ] Implement the BBS 3MF project reader/writer bridge and its typed Worker
+- [x] Implement the BBS 3MF project reader/writer bridge and its typed Worker
       client contract.
-- [ ] Implement shared project session, load/save commands, preference modal,
+- [x] Implement shared project session, load/save commands, preference modal,
       confirmation/progress UI, and Electron/Web host adapters.
-- [ ] Implement cross-host drag-and-drop entry, compatibility fallback, and
+- [x] Implement cross-host drag-and-drop entry, compatibility fallback, and
       automated serial/threaded WASM and host end-to-end coverage.
 
-The release gate is explicit: acquire/check
+The release gate passed: acquire/check
 `packages/slicer-wasm/fixtures/project-compatibility/manifest.json`, run both
 real WASM variants' `project-roundtrip.mjs` and `project-compatibility.mjs`,
 then run `pnpm --filter @orca/desktop test:e2e`,
 `pnpm --filter @orca/web test:e2e:threaded`, and
-`pnpm --filter @orca/web test:e2e:serial`. Current evidence and known failures
-are recorded in `spec/3MF Project Persistence.md`; no pending check is claimed
-as delivered from this Windows run.
+`pnpm --filter @orca/web test:e2e:serial`. Fixture provenance and exact
+results are recorded in `spec/3MF Project Persistence.md` and the Step 9
+execution record.
 
 ### Maintenance — Filament Library Selector Completeness
 

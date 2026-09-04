@@ -318,6 +318,35 @@ typecheck`, dual-variant smoke, desktop E2E, and both Web E2E commands pass.
 If a command cannot pass, its documented gate remains pending and the
 milestone is not marked delivered.
 
+### Step 9 execution record (2026-09-04)
+
+The complete release matrix passed on Windows after Steps 7 and 8. The
+controlled fixture manifest check passed for all three pinned archives. The
+dual-variant quick build rebuilt/staged `threaded` and `serial`, and the
+dual-variant smoke suite passed. Both real WASM variants passed project
+round-trip and compatibility harnesses: self-saved BBS archives reopened with
+structure retention and invalid-input atomicity, while OrcaSlicer,
+BambuStudio, and Prusa/generic fixtures all opened and completed the documented
+geometry-only fallback checks.
+
+Release-gate evidence:
+
+- `pnpm test` — pass (8 workspace projects; 572 tests).
+- `pnpm typecheck` — pass.
+- `scripts\\build-windows.bat quick` — pass; both variants rebuilt/staged.
+- `scripts\\build-windows.bat smoke` — pass.
+- `node packages/slicer-wasm/harness/project-roundtrip.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` — pass.
+- `node packages/slicer-wasm/harness/project-compatibility.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` — pass.
+- `node packages/slicer-wasm/harness/project-roundtrip.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js` — pass.
+- `node packages/slicer-wasm/harness/project-compatibility.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js` — pass.
+- `pnpm --filter @orca/desktop test:e2e` — pass (28 passed; 3 intentional skips).
+- `pnpm --filter @orca/web test:e2e:threaded` — pass (2 passed).
+- `pnpm --filter @orca/web test:e2e:serial` — pass (2 passed, rerun sequentially after an invalid concurrent port-sharing attempt).
+
+No product code changed during Step 9. The milestone is released with the
+approved compatibility and cross-host evidence; the existing unrelated dirty
+`packages/slicer-wasm/cpp` submodule remains untouched.
+
 ## Completion criteria
 
 The milestone is complete only when each step's primary-agent acceptance has

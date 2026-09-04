@@ -363,23 +363,22 @@ and drives structural operations through the typed client.
 
 ## Milestone 15: 3MF Project Persistence
 
-> [!info] **Implementation present; release verification pending.** The
-> independent cross-host project-open, project-save, compatibility, dirty-state,
-> and verification contract is [`3MF Project Persistence.md`](3MF%20Project%20Persistence.md).
-> Step 6 added a controlled, license-safe external fixture manifest and real
-> serial-variant evidence. The milestone is not marked delivered because the
-> threaded project-load harness currently aborts and both real Web E2E commands
-> retain a known test failure; see the release-gate evidence in the approved
-> spec.
+> [!success] **Delivered 2026-09-04.** The independent cross-host
+> project-open, project-save, compatibility, dirty-state, and verification
+> contract is [`3MF Project Persistence.md`](3MF%20Project%20Persistence.md).
+> The controlled external fixture manifest, both real WASM variants, desktop
+> E2E, and threaded/serial Web E2E release gates all pass. See the release-gate
+> evidence in the approved spec and the Step 9 execution record in
+> `doc/2026-09-04-3mf-project-persistence-implementation-plan.md`.
 
 - [x] Implement the BBS 3MF project reader/writer bridge and typed Worker client
 - [x] Implement shared project session, load/save commands, preference modal,
       confirmation/progress UI, and Electron/Web host adapters
-- [ ] Release verification — cross-host drag-and-drop and compatibility fallback
-      implementation is complete; serial/threaded WASM and real Web E2E gates
-      remain pending
+- [x] Release verification — cross-host drag-and-drop and compatibility fallback
+      implementation, serial/threaded WASM, desktop, and real Web E2E gates
+      all pass
 
-Release-gate commands (all must pass before marking this milestone delivered):
+Release-gate commands (all passed on 2026-09-04):
 `node packages/slicer-wasm/harness/acquire-project-fixtures.mjs --check`, both
 `project-roundtrip.mjs` and `project-compatibility.mjs` invocations for
 `out/serial` and `out/threaded`, `pnpm --filter @orca/desktop test:e2e`,
