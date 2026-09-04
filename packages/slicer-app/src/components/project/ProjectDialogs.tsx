@@ -117,6 +117,11 @@ const LOAD_BEHAVIOUR_LABELS: Record<ProjectLoadBehaviour, string> = {
   load_geometry_only: 'Load Geometry Only',
 };
 
+const LOAD_BEHAVIOUR_OPTIONS = (Object.keys(LOAD_BEHAVIOUR_LABELS) as ProjectLoadBehaviour[]).map((value) => ({
+  value,
+  label: LOAD_BEHAVIOUR_LABELS[value],
+}));
+
 export function ProjectPreferencesDialog({
   open,
   preferences,
@@ -144,6 +149,7 @@ export function ProjectPreferencesDialog({
         <Label htmlFor="project-load-behaviour">Project Load Behaviour</Label>
         <Select
           value={behaviour}
+          items={LOAD_BEHAVIOUR_OPTIONS}
           onValueChange={(value) => setBehaviour(value as ProjectLoadBehaviour)}
           disabled={saving}
         >
@@ -152,8 +158,8 @@ export function ProjectPreferencesDialog({
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              {(Object.keys(LOAD_BEHAVIOUR_LABELS) as ProjectLoadBehaviour[]).map((value) => (
-                <SelectItem key={value} value={value}>{LOAD_BEHAVIOUR_LABELS[value]}</SelectItem>
+              {LOAD_BEHAVIOUR_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
               ))}
             </SelectGroup>
           </SelectContent>

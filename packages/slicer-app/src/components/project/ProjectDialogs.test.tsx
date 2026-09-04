@@ -55,6 +55,7 @@ describe('project dialogs', () => {
     expect(document.body.textContent).toContain('Project Load Behaviour');
     const trigger = document.querySelector('[data-testid="project-load-behaviour"]');
     expect(trigger?.getAttribute('role')).toBe('combobox');
+    expect(trigger?.textContent).toContain('Always Ask');
     await act(async () => { (trigger as HTMLElement).click(); });
     expect(document.body.textContent).toContain('Load All');
     expect(document.body.textContent).toContain('Ask When Relevant');
