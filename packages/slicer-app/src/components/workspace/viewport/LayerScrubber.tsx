@@ -95,7 +95,6 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
         </div>
         <div className="space-y-1 text-xs">
           <span className="sr-only">Color scheme</span>
-          {/* base-ui Select.Value renders the selected value, not the item text; the Root's items prop supplies the value→label mapping for the trigger display */}
           <Select value={activeScheme} items={schemes.map((scheme) => ({ value: scheme, label: PREVIEW_SCHEME_LABELS[scheme] }))} onValueChange={(value) => setColorScheme(value as PreviewColorScheme)}>
             <SelectTrigger id="preview-color-scheme" aria-label="Preview color scheme" data-testid="preview-color-scheme" className="h-7 w-full bg-background px-2 py-1 text-xs">
               <SelectValue />
@@ -106,17 +105,18 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
           </Select>
         </div>
         <div data-testid="preview-legend" className="space-y-1">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="xs"
             aria-expanded={legendExpanded}
             aria-controls="preview-legend-content"
             data-testid="preview-legend-header"
             onClick={() => setLegendExpanded((expanded) => !expanded)}
-            className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-[0.65rem] uppercase tracking-wide text-muted-foreground hover:bg-muted/50"
+            className="h-auto w-full justify-between rounded px-1 py-1 text-left text-[0.65rem] uppercase tracking-wide text-muted-foreground hover:bg-muted/50"
           >
             <span>{descriptor?.label ?? PREVIEW_SCHEME_LABELS[activeScheme]}</span>
             <ChevronDownIcon className={`size-3 transition-transform ${legendExpanded ? '' : '-rotate-90'}`} aria-hidden="true" />
-          </button>
+          </Button>
           {legendExpanded && <div id="preview-legend-content">
             {descriptor?.kind === 'categorical' && descriptor.items.map((item) => {
               const enabled = visibility[item.id] !== false;
