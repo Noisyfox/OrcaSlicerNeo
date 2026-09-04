@@ -48,6 +48,18 @@ describe('browser adapter', () => {
     expect(input.accept).toBe('.3mf');
   });
 
+  it('reads all selected project files in deterministic filename order', async () => {
+    const input = document.createElement('input');
+    Object.defineProperty(input, 'files', { value: [
+      { name: 'z.3mf', arrayBuffer: async () => Uint8Array.from([3]).buffer },
+      { name: 'a.3mf', arrayBuffer: async () => Uint8Array.from([1]).buffer },
+    ] });
+    vi.spyOn(input, 'click').mockImplementation(() => input.dispatchEvent(new Event('change')));
+    vi.spyOn(document, 'createElement').mockReturnValue(input);
+    await expect(createBrowserAdapter({} as never).projects.openMany?.()).resolves.toMatchObject({ status: 'ok', inputs: [{ displayName: 'a.3mf' }, { displayName: 'z.3mf' }] });
+    expect(input.multiple).toBe(true);
+  });
+
   it('propagates project file read failures so the adapter can report failed', async () => {
     const input = document.createElement('input');
     Object.defineProperty(input, 'files', { value: [{ name: 'broken.3mf', arrayBuffer: async () => { throw new Error('read failed'); } }] });

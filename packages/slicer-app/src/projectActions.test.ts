@@ -4,7 +4,7 @@ import type { PresetSnapshot } from '@slicer/client';
 import { useProjectStore } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
-import { importProjectGeometry, newProject, openProject, saveProject } from './projectActions';
+import { importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, sortProjectInputs } from './projectActions';
 
 const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([80, 75, 3, 4]) };
 const snapshot: PresetSnapshot = {
@@ -103,5 +103,45 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok'); expect(runtime.clearModel).toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: false, scope: 'system', hasContent: false });
     expect(runtime.selectPreset).toHaveBeenCalledWith('printer', 'System printer');
+  });
+
+  it('sorts a batch, asks only for the first 3MF, then appends every remainder', async () => {
+    const { platform, runtime } = platformFor();
+    const files = [
+      { displayName: 'z-model.stl', bytes: new Uint8Array([3]) },
+      { displayName: 'b-project.3mf', bytes: new Uint8Array([2]) },
+      { displayName: 'a-project.3mf', bytes: new Uint8Array([1]), location: {} as ProjectInput['location'] },
+    ];
+    const choose = vi.fn(() => 'project' as const);
+    const result = await openProjectInputs(platform, files, { loadBehaviour: 'always_ask', chooseLoad: choose });
+    expect(result.status).toBe('ok');
+    expect(choose).toHaveBeenCalledWith(files[2]);
+    expect(runtime.loadProject).toHaveBeenCalledWith(files[2].bytes, 'project', 'a-project.3mf');
+    expect(runtime.importProjectGeometry).toHaveBeenCalledTimes(2);
+    expect(runtime.importProjectGeometry.mock.calls.map((call) => (call as unknown[])[1])).toEqual(['b-project.3mf', 'z-model.stl']);
+    expect(useProjectStore.getState()).toMatchObject({ projectName: 'a-project', dirty: true, location: files[2].location });
+    expect(sortProjectInputs(files).map((file) => file.displayName)).toEqual(['a-project.3mf', 'b-project.3mf', 'z-model.stl']);
+  });
+
+  it('cancelling the first project choice leaves a whole batch untouched', async () => {
+    const { platform, runtime } = platformFor();
+    const result = await openProjectInputs(platform, [
+      { displayName: 'first.3mf', bytes: new Uint8Array([1]) },
+      { displayName: 'later.stl', bytes: new Uint8Array([2]) },
+    ], { loadBehaviour: 'always_ask', chooseLoad: () => 'cancel' });
+    expect(result.status).toBe('cancelled');
+    expect(runtime.loadProject).not.toHaveBeenCalled();
+    expect(runtime.importProjectGeometry).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported mixed input before any runtime mutation', async () => {
+    const { platform, runtime } = platformFor();
+    const result = await openProjectInputs(platform, [
+      { displayName: 'project.3mf', bytes: new Uint8Array([1]) },
+      { displayName: 'result.gcode', bytes: new Uint8Array([2]) },
+    ], { loadBehaviour: 'load_all' });
+    expect(result.status).toBe('failed');
+    expect(runtime.loadProject).not.toHaveBeenCalled();
+    expect(runtime.importProjectGeometry).not.toHaveBeenCalled();
   });
 });

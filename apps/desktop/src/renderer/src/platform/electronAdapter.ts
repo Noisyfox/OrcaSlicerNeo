@@ -7,6 +7,9 @@ import {
   type PlatformMenu,
   type ProjectFileCapability,
   type ProjectInput,
+  type ProjectOpenResult,
+  type ProjectOpenBatchResult,
+  type ProjectDropFile,
   type UserPreferences,
 } from '@orca/platform-contract';
 import {
@@ -52,26 +55,68 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     projectTokens.set(location, token);
     return location;
   };
-  const projects: ProjectFileCapability = {
+  const projects = {
     async open() {
+      return openOne();
+    },
+    async openMany(): Promise<ProjectOpenBatchResult> {
       try {
-        const result = await host.projects.open();
+        const result = await host.projects.openMany();
         if (result.canceled) return { status: 'cancelled' };
-        if (!result.bytes || !result.displayName || !result.locationToken) {
-          return { status: 'failed', error: new Error('Electron returned an invalid project input') };
+        const files = result.files;
+        if (files) {
+          return {
+            status: 'ok',
+            inputs: files.map((file) => ({
+              displayName: file.displayName,
+              bytes: new Uint8Array(file.bytes),
+              location: createProjectLocation(file.locationToken),
+            })),
+          };
         }
-        return {
-          status: 'ok',
-          input: {
-            displayName: result.displayName,
-            bytes: new Uint8Array(result.bytes),
-            location: createProjectLocation(result.locationToken),
-          },
-        };
+        const one = await projectInputFrom(result);
+        return one ? { status: 'ok', inputs: [one] } : { status: 'failed', error: new Error('Electron returned an invalid project input') };
       } catch (error) {
         return { status: 'failed', error };
       }
     },
+    async openDropped(files: readonly ProjectDropFile[]): Promise<ProjectOpenBatchResult> {
+      try {
+        const paths = files.map((file) => (file as ProjectDropFile & { path?: unknown }).path).filter((path): path is string => typeof path === 'string' && path.length > 0);
+        if (paths.length === files.length) {
+          const result = await host.projects.openDropped(paths);
+          if (result.canceled) return { status: 'cancelled' };
+          if (result.files) return { status: 'ok', inputs: result.files.map((file) => ({ displayName: file.displayName, bytes: new Uint8Array(file.bytes), location: createProjectLocation(file.locationToken) })) };
+        }
+        return { status: 'ok', inputs: await Promise.all(files.map(async (file) => ({ displayName: file.name, bytes: new Uint8Array(await file.arrayBuffer()) }))) };
+      } catch (error) {
+        return { status: 'failed', error };
+      }
+    },
+  };
+  async function projectInputFrom(result: Awaited<ReturnType<typeof host.projects.open>>): Promise<ProjectInput | null> {
+    if (!result.bytes || !result.displayName || !result.locationToken) return null;
+    return {
+      displayName: result.displayName,
+      bytes: new Uint8Array(result.bytes),
+      location: createProjectLocation(result.locationToken),
+    };
+  }
+  async function openOne(): Promise<ProjectOpenResult> {
+      try {
+        const result = await host.projects.open();
+        if (result.canceled) return { status: 'cancelled' };
+        const input = await projectInputFrom(result);
+        if (!input) {
+          return { status: 'failed', error: new Error('Electron returned an invalid project input') };
+        }
+        return { status: 'ok', input };
+      } catch (error) {
+        return { status: 'failed', error };
+      }
+  }
+  const projectCapability: ProjectFileCapability = {
+    ...projects,
     async save(input) {
       try {
         const token = input.location ? projectTokens.get(input.location as object) ?? null : null;
@@ -145,7 +190,7 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
         ) as ArrayBuffer);
       },
     },
-    projects,
+    projects: projectCapability,
     preferences: {
       async load() {
         try {
@@ -167,6 +212,10 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
     printers: { configuration: printerConfiguration, transport: createElectronPrinterTransport(host) },
     webview: createElectronWebViewHost(),
     runtime,
+    lifecycle: {
+      onCloseRequest: (listener) => host.lifecycle.onCloseRequest(listener),
+      respondClose: (allow) => host.lifecycle.respondClose(allow),
+    },
     profiles: { fetch: async (relativePath) => {
       const response = await fetch(new URL(`profiles/${relativePath}`, document.baseURI));
       if (!response.ok) throw new Error(`profile asset request failed (${response.status}): ${relativePath}`);

@@ -58,10 +58,31 @@ export type ProjectSaveResult =
   | { status: 'failed'; error: unknown };
 export type ProjectSaveAsResult = ProjectSaveResult;
 
+/** A host-neutral batch returned by a multi-selection picker or drag/drop. */
+export type ProjectOpenBatchResult =
+  | { status: 'ok'; inputs: ProjectInput[] }
+  | { status: 'cancelled' }
+  | { status: 'failed'; error: unknown };
+
 export interface ProjectFileCapability {
   open(): Promise<ProjectOpenResult>;
+  /** Optional multi-file picker. Older hosts may implement only open(). */
+  openMany?(): Promise<ProjectOpenBatchResult>;
+  /** Optional drag/drop bridge; host may attach a private source location. */
+  openDropped?(files: readonly ProjectDropFile[]): Promise<ProjectOpenBatchResult>;
   save(input: ProjectInput): Promise<ProjectSaveResult>;
   saveAs(input: ProjectInput): Promise<ProjectSaveAsResult>;
+}
+
+export interface ProjectDropFile {
+  name: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+/** Native window lifecycle events are host-owned; no filesystem data crosses here. */
+export interface PlatformLifecycle {
+  onCloseRequest(listener: () => void | Promise<void>): () => void;
+  respondClose(allow: boolean): Promise<void> | void;
 }
 
 export interface GcodeExporter {
@@ -247,6 +268,7 @@ export interface PlatformCapabilities {
   printers: { configuration: PrinterConfigurationRepository; transport: PrinterTransport };
   webview: WebViewHost;
   runtime: SlicerRuntime;
+  lifecycle?: PlatformLifecycle;
   profiles: ProfileSource;
   chrome: PlatformChrome;
   menu: PlatformMenu;

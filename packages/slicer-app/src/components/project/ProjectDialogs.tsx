@@ -66,11 +66,11 @@ export function DirtyProjectDialog({
   onDecision,
 }: {
   open: boolean;
-  operation: 'new' | 'open';
+  operation: 'new' | 'open' | 'close';
   onDecision: (decision: DirtyProjectDecision) => void;
 }) {
   if (!open) return null;
-  const verb = operation === 'new' ? 'create a new project' : 'open another project';
+  const verb = operation === 'new' ? 'create a new project' : operation === 'close' ? 'close OrcaSlicerNeo' : 'open another project';
   return (
     <Modal title="Save changes?" testId="project-dirty-dialog">
       <p className="text-sm text-muted-foreground">This project has unsaved changes. Save them before you {verb}?</p>

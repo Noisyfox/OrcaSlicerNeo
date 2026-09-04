@@ -21,6 +21,8 @@ function setup(overrides: Record<string, unknown> = {}) {
     };
     const projects = {
       open: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
+      openMany: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
+      openDropped: vi.fn(async () => ({ canceled: true, locationToken: null, displayName: null, bytes: null })),
       save: vi.fn(async () => ({ canceled: false, locationToken: 'project-token' })),
       saveAs: vi.fn(async () => ({ canceled: false, locationToken: 'project-token' })),
     };
@@ -130,6 +132,16 @@ describe('Electron adapter', () => {
       saveAs: vi.fn(async () => ({ canceled: true, locationToken: null })),
     } });
     await expect(adapter.projects.save({ displayName: 'scene', bytes: new Uint8Array([1]) })).resolves.toEqual({ status: 'cancelled' });
+  });
+
+  it('adopts dropped Electron files through native opaque locations', async () => {
+    const openDropped = vi.fn(async () => ({ canceled: false, locationToken: 'drop-token', displayName: 'drop.3mf', bytes: Uint8Array.from([9]).buffer, files: [{ locationToken: 'drop-token', displayName: 'drop.3mf', bytes: Uint8Array.from([9]).buffer }] }));
+    const { adapter } = setup({ projects: { open: vi.fn(), openMany: vi.fn(), openDropped, save: vi.fn(), saveAs: vi.fn() } });
+    const file = Object.assign({ name: 'drop.3mf', arrayBuffer: async () => Uint8Array.from([9]).buffer }, { path: 'C:\\drop.3mf' });
+    const result = await adapter.projects.openDropped?.([file]);
+    expect(openDropped).toHaveBeenCalledWith(['C:\\drop.3mf']);
+    expect(result).toMatchObject({ status: 'ok', inputs: [{ displayName: 'drop.3mf' }] });
+    expect(result?.status === 'ok' && result.inputs[0]?.location).toBeDefined();
   });
 
   it('resolves packaged profile assets from the renderer root', async () => {

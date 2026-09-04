@@ -52,7 +52,6 @@ export default function App() {
   const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
-  const values = useSettingsStore((s) => s.values);
   const status = useSlicerStore((s) => s.status);
   const progress = useSlicerStore((s) => s.progress);
   const slicerError = useSlicerStore((s) => s.error);
@@ -64,7 +63,7 @@ export default function App() {
   const [prewarmingWorkspace, setPrewarmingWorkspace] = useState(false);
   const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'flatten' | 'notice' | null>(null);
   const [loadInput, setLoadInput] = useState<ProjectInput | null>(null);
-  const [dirtyOperation, setDirtyOperation] = useState<'new' | 'open'>('open');
+  const [dirtyOperation, setDirtyOperation] = useState<'new' | 'open' | 'close'>('open');
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [extraNotice, setExtraNotice] = useState<string | null>(null);
   const loadChoiceResolver = useRef<((choice: ProjectLoadChoice) => void) | null>(null);
@@ -120,7 +119,7 @@ export default function App() {
   const chooseLoad = useCallback((input: ProjectInput) => new Promise<ProjectLoadChoice>((resolve) => {
     setLoadInput(input); loadChoiceResolver.current = resolve; setDialog('load-choice');
   }), []);
-  const decideDirty = useCallback((operation: 'new' | 'open') => new Promise<DirtyProjectDecision>((resolve) => {
+  const decideDirty = useCallback((operation: 'new' | 'open' | 'close') => new Promise<DirtyProjectDecision>((resolve) => {
     setDirtyOperation(operation); dirtyResolver.current = resolve; setDialog('dirty');
   }), []);
   const confirmFlatten = useCallback(() => new Promise<boolean>((resolve) => {
@@ -143,6 +142,23 @@ export default function App() {
     reportProjectFailure(result);
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
   }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  const runCloseRequest = useCallback(async () => {
+    let allow = true;
+    if (useProjectStore.getState().dirty) {
+      const decision = await decideDirty('close');
+      if (decision === 'cancel') allow = false;
+      else if (decision === 'save') {
+        if (useProjectStore.getState().flattenedMultiPlate && !(await confirmFlatten())) {
+          allow = false;
+        } else {
+          const result = await saveProject(platform);
+          reportProjectFailure(result);
+          allow = result.status === 'ok';
+        }
+      }
+    }
+    await platform.lifecycle?.respondClose(allow);
+  }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);
   const runSaveProject = useCallback(async (asCopy = false) => {
     if (projectState.flattenedMultiPlate) {
       setDialog(null);
@@ -327,15 +343,61 @@ export default function App() {
   useEffect(() => {
     if (platform.chrome.kind !== 'web') return;
     const protect = (event: BeforeUnloadEvent) => {
-      const hasOverrides = Object.keys(values).some((key) => key !== 'modelPath');
-      const hasUnexportedResult = status === 'done' && !resultExported;
-      if (!modelLoaded && !hasOverrides && !hasUnexportedResult) return;
+      // Browser lifecycle cannot present the app's Save/Don't Save/Cancel
+      // dialog. It only gets the native leave/cancel prompt, and must never
+      // trigger a download while the browser is unloading.
+      if (!useProjectStore.getState().dirty) return;
       event.preventDefault();
       event.returnValue = '';
     };
     window.addEventListener('beforeunload', protect);
     return () => window.removeEventListener('beforeunload', protect);
-  }, [platform.chrome.kind, modelLoaded, resultExported, status, values]);
+  }, [platform.chrome.kind]);
+
+  // Electron's close request enters the same shared dirty dialog/save path as
+  // New and Open. The Web host intentionally has no lifecycle bridge here;
+  // its beforeunload handler remains the browser-native leave/cancel prompt.
+  useEffect(() => {
+    if (platform.chrome.kind !== 'desktop' || !platform.lifecycle) return;
+    return platform.lifecycle.onCloseRequest(() => { void runCloseRequest(); });
+  }, [platform.chrome.kind, platform.lifecycle, runCloseRequest]);
+
+  // A dropped 3MF is an Open Project entry point. Convert files at the host
+  // boundary, then pass the complete batch into the shared action layer so
+  // policy, choice, dirty protection, and compatibility handling are shared
+  // with File > Open Project.
+  useEffect(() => {
+    if (boot !== 'ready') return;
+    const onDragOver = (event: DragEvent) => {
+      if (event.dataTransfer?.files.length) event.preventDefault();
+    };
+    const onDrop = (event: DragEvent) => {
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (!files.some((file) => file.name.toLowerCase().endsWith('.3mf'))) return;
+      event.preventDefault();
+      void (async () => {
+        try {
+          const dropped = platform.projects.openDropped
+            ? await platform.projects.openDropped(files)
+            : { status: 'ok' as const, inputs: await Promise.all(files.map(async (file) => ({
+              displayName: file.name,
+              bytes: new Uint8Array(await file.arrayBuffer()),
+            }))) };
+          if (dropped.status === 'cancelled') return;
+          if (dropped.status === 'failed') { reportProjectFailure(dropped); return; }
+          const inputs = dropped.inputs;
+          const result = await openProject(platform, { inputs, chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten });
+          reportProjectFailure(result);
+          if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
+        } catch (error) {
+          reportProjectFailure({ status: 'failed', error });
+        }
+      })();
+    };
+    document.addEventListener('dragover', onDragOver);
+    document.addEventListener('drop', onDrop);
+    return () => { document.removeEventListener('dragover', onDragOver); document.removeEventListener('drop', onDrop); };
+  }, [boot, chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
 
   // Keep the shared application inert until the worker has initialized the
   // core and every profile package has been installed. This is intentionally

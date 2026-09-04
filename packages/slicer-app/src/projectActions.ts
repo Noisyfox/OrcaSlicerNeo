@@ -6,9 +6,13 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 
 export interface ProjectActionOptions {
+  /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
+  inputs?: readonly ProjectInput[];
+  /** Keep the opened project's identity while appending later batch files. */
+  preserveSessionIdentity?: boolean;
   loadBehaviour?: 'load_all' | 'ask_when_relevant' | 'always_ask' | 'load_geometry_only';
   chooseLoad?: (input: ProjectInput) => Promise<ProjectLoadChoice> | ProjectLoadChoice;
-  decideDirty?: (operation: 'new' | 'open', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
+  decideDirty?: (operation: 'new' | 'open' | 'close', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
   /** UI confirmation required before saving a flattened multi-plate project. */
   confirmFlattenedSave?: () => Promise<boolean> | boolean;
   signal?: AbortSignal;
@@ -93,14 +97,10 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const load = await runtimeOf(platform).importProjectGeometry(input.bytes, input.displayName); if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
-    invalidateInput(); const existing = useProjectStore.getState(); useProjectStore.getState().setProject({ projectName: 'Untitled', location: undefined, hasContent: true, dirty: true, notices: noticesFor(load), flattenedMultiPlate: load.multiPlate === true, scope: existing.scope }); useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
+    invalidateInput(); const existing = useProjectStore.getState(); useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, dirty: true, notices: noticesFor(load), flattenedMultiPlate: load.multiPlate === true, scope: existing.scope }); useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
-export async function openProject(platform: PlatformCapabilities, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
-  const picked = await platform.projects.open();
-  if (picked.status === 'cancelled') { setOperation('cancelled'); return { status: 'cancelled' }; }
-  if (picked.status === 'failed') { setOperation('failed'); return errorResult(picked.error); }
-  const input = picked.input;
+async function openProjectInput(platform: PlatformCapabilities, input: ProjectInput, options: ProjectActionOptions): Promise<ProjectActionResult> {
   let behaviour = options.loadBehaviour;
   if (!behaviour) {
     try { behaviour = (await platform.preferences.load()).projectLoadBehaviour; } catch (error) { console.warn('project load preference unavailable; using Ask When Relevant', error); }
@@ -121,6 +121,57 @@ export async function openProject(platform: PlatformCapabilities, options: Proje
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
     useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput(); useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: false, scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: load.multiPlate === true }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
+}
+
+const MODEL_EXTENSIONS = new Set(['3mf', 'stl', 'obj', 'drc', 'amf', 'ply']);
+const UNSUPPORTED_EXTENSIONS = new Set(['gcode', 'bgcode', 'sl1', 'sl1s', 'sliced']);
+function extensionOf(name: string): string {
+  const base = name.split(/[\\/]/).pop() ?? name;
+  const dot = base.lastIndexOf('.');
+  return dot < 0 ? '' : base.slice(dot + 1).toLowerCase();
+}
+export function sortProjectInputs(inputs: readonly ProjectInput[]): ProjectInput[] {
+  return [...inputs].sort((a, b) => a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' }) || a.displayName.localeCompare(b.displayName));
+}
+/** Reject the whole batch before invoking WASM, so unsupported mixed drops are atomic. */
+export function validateProjectInputs(inputs: readonly ProjectInput[]): string | null {
+  if (inputs.length === 0) return 'no project files were selected';
+  for (const input of inputs) {
+    const extension = extensionOf(input.displayName);
+    if (UNSUPPORTED_EXTENSIONS.has(extension)) return `${input.displayName} is an unsupported sliced-result or G-code file`;
+    if (!MODEL_EXTENSIONS.has(extension)) return `${input.displayName} is not a supported model or 3MF project file`;
+  }
+  if (!inputs.some((input) => extensionOf(input.displayName) === '3mf')) return 'Open Project requires at least one .3mf file';
+  return null;
+}
+
+/** Shared project action entry point for picker batches and drag/drop batches. */
+export async function openProjectInputs(platform: PlatformCapabilities, inputs: readonly ProjectInput[], options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
+  const ordered = sortProjectInputs(inputs);
+  const invalid = validateProjectInputs(ordered);
+  if (invalid) { setOperation('failed', 0, invalid); return errorResult(new Error(invalid)); }
+  // The first 3MF is the only candidate for replacement. Other files are
+  // deliberately deferred until that decision/load succeeds.
+  const firstIndex = ordered.findIndex((input) => extensionOf(input.displayName) === '3mf');
+  const first = ordered[firstIndex];
+  const result = await openProjectInput(platform, first, options);
+  if (result.status !== 'ok') return result;
+  const remainder = [...ordered.slice(0, firstIndex), ...ordered.slice(firstIndex + 1)];
+  for (const input of remainder) {
+    const imported = await importProjectGeometry(platform, input, { ...options, preserveSessionIdentity: true });
+    if (imported.status !== 'ok') return imported;
+  }
+  return result;
+}
+
+export async function openProject(platform: PlatformCapabilities, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
+  if (options.inputs) return openProjectInputs(platform, options.inputs, options);
+  const picked = platform.projects.openMany ? await platform.projects.openMany() : await platform.projects.open();
+  if (picked.status === 'cancelled') { setOperation('cancelled'); return { status: 'cancelled' }; }
+  if (picked.status === 'failed') { setOperation('failed'); return errorResult(picked.error); }
+  return 'inputs' in picked
+    ? openProjectInputs(platform, picked.inputs, options)
+    : openProjectInput(platform, picked.input, options);
 }
 
 /** UI-independent cancellation hook for the progress dialog/action surface. */

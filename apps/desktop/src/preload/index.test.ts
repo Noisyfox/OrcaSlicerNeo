@@ -125,4 +125,17 @@ describe('Electron preload bridge', () => {
     expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.projectSaveAs, 'scene.3mf', expect.any(ArrayBuffer));
     expect(bridge.projects).not.toHaveProperty('readFile');
   });
+
+  it('exposes close requests as a narrow lifecycle bridge', async () => {
+    const bridge = electronMocks.expose.mock.calls[0]?.[1] as ElectronBridge;
+    const listener = vi.fn();
+    const cleanup = bridge.lifecycle.onCloseRequest(listener);
+    const handler = electronMocks.on.mock.calls.at(-1)?.[1] as () => void;
+    handler();
+    expect(listener).toHaveBeenCalledOnce();
+    cleanup();
+    expect(electronMocks.removeListener).toHaveBeenCalledWith(Ipc.windowCloseRequest, handler);
+    await bridge.lifecycle.respondClose(false);
+    expect(electronMocks.invoke).toHaveBeenCalledWith(Ipc.windowCloseDecision, false);
+  });
 });

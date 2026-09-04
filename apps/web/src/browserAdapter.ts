@@ -2,6 +2,7 @@ import {
   normalizeUserPreferences,
   type ProjectFileCapability,
   type ProjectInput,
+  type ProjectDropFile,
   type PlatformCapabilities,
   type PlatformMenu,
   type ProfileSource,
@@ -76,6 +77,21 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
       try {
         const input = await pickProject();
         return input === null ? { status: 'cancelled' as const } : { status: 'ok' as const, input };
+      } catch (error) {
+        return { status: 'failed' as const, error };
+      }
+    },
+    async openMany() {
+      try {
+        const inputs = await pickProjects();
+        return inputs.length === 0 ? { status: 'cancelled' as const } : { status: 'ok' as const, inputs };
+      } catch (error) {
+        return { status: 'failed' as const, error };
+      }
+    },
+    async openDropped(files: readonly ProjectDropFile[]) {
+      try {
+        return { status: 'ok' as const, inputs: await Promise.all(files.map(async (file) => ({ displayName: file.name, bytes: new Uint8Array(await file.arrayBuffer()) }))) };
       } catch (error) {
         return { status: 'failed' as const, error };
       }
@@ -179,6 +195,31 @@ export function pickProject(): Promise<ProjectInput | null> {
       }
     };
     input.addEventListener('cancel', () => { cleanup(); resolve(null); }, { once: true });
+    document.body.append(input); input.click();
+  });
+}
+
+/** Multi-selection variant used by Open Project; model picker remains single-file. */
+export function pickProjects(): Promise<ProjectInput[]> {
+  return new Promise((resolve, reject) => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = '.3mf'; input.multiple = true; input.hidden = true;
+    const cleanup = () => input.remove();
+    input.onchange = async () => {
+      try {
+        const files = Array.from(input.files ?? [])
+          .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+        resolve(await Promise.all(files.map(async (file) => ({
+          displayName: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        }))));
+      } catch (error) {
+        reject(error);
+      } finally {
+        cleanup();
+      }
+    };
+    input.addEventListener('cancel', () => { cleanup(); resolve([]); }, { once: true });
     document.body.append(input); input.click();
   });
 }

@@ -109,6 +109,7 @@ let rendererPort = 0;
 let rendererServer: Server | null = null;
 let mainWindow: BrowserWindow | null = null;
 let nativeMenuController: NativeMenuController | null = null;
+let allowWindowClose = false;
 
 function isCurrentRenderer(sender: WebContents): boolean {
   return isCurrentRendererSender(sender, mainWindow);
@@ -146,6 +147,13 @@ function createWindow(): void {
     },
   });
   mainWindow = win;
+  win.on('close', (event) => {
+    if (allowWindowClose) return;
+    event.preventDefault();
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send(Ipc.windowCloseRequest);
+    }
+  });
   // `will-attach-webview` runs before a guest exists. Strip any page-supplied
   // preload and force the guest security flags before Electron creates it.
   configureWebViewAttachPolicy(win.webContents as unknown as Parameters<typeof configureWebViewAttachPolicy>[0]);
@@ -240,20 +248,46 @@ function registerIpc(): void {
     const selectedPath = process.env.ORCA_E2E === '1' ? (process.env.ORCA_E2E_MODEL ?? null) : null;
     const result = selectedPath
       ? { canceled: false, filePaths: [selectedPath] }
-      : await dialog.showOpenDialog(win!, { properties: ['openFile'], filters: projectFilters });
+      : await dialog.showOpenDialog(win!, { properties: ['openFile', 'multiSelections'], filters: projectFilters });
     if (result.canceled || !result.filePaths[0]) {
       return { canceled: true, locationToken: null, displayName: null, bytes: null };
     }
-    const path = result.filePaths[0];
-    const bytes = await readFile(path);
-    const locationToken = randomUUID();
-    projectLocations.set(locationToken, path);
+    const files = await Promise.all(result.filePaths.map(async (path) => {
+      const bytes = await readFile(path);
+      const locationToken = randomUUID();
+      projectLocations.set(locationToken, path);
+      return {
+        locationToken,
+        displayName: path.split(/[\\/]/).pop() ?? path,
+        bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+      };
+    }));
+    const first = files[0];
     return {
       canceled: false,
-      locationToken,
-      displayName: path.split(/[\\/]/).pop() ?? null,
-      bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+      locationToken: first.locationToken,
+      displayName: first.displayName,
+      bytes: first.bytes,
+      files,
     };
+  });
+
+  ipcMain.handle(Ipc.projectOpenDropped, async (event, paths: unknown): Promise<ProjectOpenIpcResult> => {
+    if (!isCurrentRenderer(event.sender) || !Array.isArray(paths) || paths.length === 0 || paths.length > 128 || !paths.every((path) => typeof path === 'string')) {
+      return { canceled: true, locationToken: null, displayName: null, bytes: null };
+    }
+    const files = await Promise.all((paths as string[]).map(async (path) => {
+      const bytes = await readFile(path);
+      const locationToken = randomUUID();
+      projectLocations.set(locationToken, path);
+      return {
+        locationToken,
+        displayName: path.split(/[\\/]/).pop() ?? path,
+        bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+      };
+    }));
+    const first = files[0];
+    return { canceled: false, locationToken: first.locationToken, displayName: first.displayName, bytes: first.bytes, files };
   });
 
   ipcMain.handle(Ipc.projectSave, async (event, locationToken: unknown, _defaultName: string, bytes: ArrayBuffer): Promise<ProjectSaveIpcResult> => {
@@ -272,6 +306,15 @@ function registerIpc(): void {
     const locationToken = randomUUID();
     projectLocations.set(locationToken, result.filePath);
     return { canceled: false, locationToken };
+  });
+
+  ipcMain.handle(Ipc.windowCloseDecision, async (event, allow: unknown): Promise<void> => {
+    if (!isCurrentRenderer(event.sender) || typeof allow !== 'boolean') return;
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
+    if (!allow) return;
+    allowWindowClose = true;
+    win.destroy();
   });
 
   ipcMain.handle(Ipc.preferencesLoad, async (): Promise<PreferencesLoadResult> => {
@@ -454,6 +497,15 @@ app.whenReady().then(() => {
 // doc/2026-08-16-quit-on-window-close.md.
 app.on('window-all-closed', () => {
   app.quit();
+});
+
+// Playwright's ElectronApplication.close() is a test-process teardown, not a
+// user window-close gesture. It does not provide a renderer response channel
+// and otherwise waits forever behind the dirty-session prompt. Keep teardown
+// deterministic for the existing mock E2E suite; production close requests
+// always use the lifecycle bridge above.
+app.on('before-quit', () => {
+  if (process.env.ORCA_E2E === '1') allowWindowClose = true;
 });
 
 app.on('will-quit', () => {
