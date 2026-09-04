@@ -2,6 +2,7 @@
 import type { OptionMeta } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,6 +21,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
     // A settings override belongs to a new configuration. Invalidate the
     // previous toolpath immediately so export/leave-warning state is honest.
     setStatus('idle'); setLayers(0); setProgress(0); setError(null); setResultExported(false);
+    useProjectStore.getState().markDirty();
   };
   const label = meta.label ?? optionKey;
 

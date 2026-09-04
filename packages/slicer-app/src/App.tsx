@@ -10,6 +10,7 @@ import { DevicePanel } from './components/device/DevicePanel';
 import { StatusBar } from './components/layout/StatusBar';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
+import { useProjectStore } from './stores/useProjectStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from './components/workspace/sliceCoordinator';
 import { usePlatform } from '@orca/platform-contract';
@@ -190,6 +191,13 @@ export default function App() {
         await persistRestoredSelections(platform.preferences, restored.preferences);
         if (cancelled) return;
         hydratePresetSnapshot(restored.snapshot);
+        useProjectStore.getState().setProject({
+          systemPresets: {
+            printer: restored.snapshot.printer.name,
+            print: restored.snapshot.print.name,
+            filament: restored.snapshot.filament.name,
+          },
+        });
         setMetadata(metadata);
         setBoot('ready');
       } catch (err) {

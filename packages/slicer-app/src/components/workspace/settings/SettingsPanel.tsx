@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import type { PresetInfo } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
 import { OptionField } from './OptionField';
 import { MovePanel } from './MovePanel';
 import { RotatePanel } from './RotatePanel';
@@ -70,10 +71,22 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       // The result belongs to the old profile combination. One action clears
       // export, toolpath-layer state, progress, and completed status together.
       invalidateSliceResult();
+      const project = useProjectStore.getState();
+      project.setProject({
+        ...(project.scope === 'project' ? { projectPresets: {
+          printer: r.printer.name, print: r.print.name, filament: r.filament.name,
+        } } : { systemPresets: {
+          printer: r.printer.name, print: r.print.name, filament: r.filament.name,
+        } }),
+      });
+      project.markDirty();
 
       // Persistence failure is non-fatal: the engine-resolved snapshot remains
       // the active session state even when the next-launch preference cannot
       // be written.
+      // A project preset is private to the opened project. Only selections
+      // made in the system scope may update the cross-host preference store.
+      if (project.scope === 'project') return;
       try {
         const prefs = await platform.preferences.load();
         await platform.preferences.save({ ...prefs, selectedProfiles: {

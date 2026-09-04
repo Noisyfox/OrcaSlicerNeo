@@ -3,3 +3,4 @@ export { slicerClient } from './slicer/slicerClient';
 export { errorText } from './slicer/errors';
 export * from './profiles';
 export * from './bootstrap';
+export * from './projectSession';
