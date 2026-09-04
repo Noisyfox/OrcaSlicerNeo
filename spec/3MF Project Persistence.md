@@ -224,3 +224,10 @@ resource failure still follows the atomic open-failure rule.
 Electron does not monitor or merge external changes to an opened project file
 in this release. Save Project follows the Orca-style normal overwrite path;
 only a write failure leaves the session dirty.
+
+## Platform support
+
+3MF project persistence targets the existing Electron desktop hosts and desktop
+Chrome Web host. Mobile Web is unsupported and untested: the first release
+makes no touch-input, mobile file-picker, drag-and-drop, or large-file memory
+compatibility commitment.
