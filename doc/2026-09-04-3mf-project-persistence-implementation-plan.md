@@ -238,6 +238,51 @@ The spec and roadmap intentionally remain non-delivered until the retained
 threaded and Web gates pass. No new user-visible behavior was introduced by
 Step 6.
 
+## Release-blocker remediation (2026-09-04)
+
+The user requested that the two retained release blockers be fixed on this
+branch.  The remediation remains strictly serial: a fresh `gpt-5.6-luna`
+agent at `high` reasoning effort implements each step, self-verifies it, and
+commits it.  The primary agent independently reproduces and accepts that step
+before starting the next one.
+
+### Step 7 — Threaded 3MF geometry-only load stability
+
+**Functional boundary:** Reproduce the threaded artifact's abort during the
+geometry-only stage of the project round-trip/compatibility harness, identify
+the native/bridge lifetime or concurrency defect, and fix it without changing
+serial behavior or the public project contract.
+
+**Acceptance boundary:** Both `project-roundtrip.mjs` and
+`project-compatibility.mjs` complete successfully against the current threaded
+artifact after a dual-variant quick build.  Serial project harnesses and typed
+client tests remain green.  Any C++ change follows the WASM patch/bridge rules
+and does not modify the upstream submodule.
+
+### Step 8 — Real Web project release E2E completion
+
+**Functional boundary:** Repair the layer-scrubber Playwright assertion so it
+selects the intended control unambiguously, then run threaded and serial real
+Web E2E.  This step changes no 3MF product behavior unless testing exposes a
+real host defect, in which case the smallest tested fix is applied.
+
+**Acceptance boundary:** `pnpm --filter @orca/web test:e2e:threaded` and
+`pnpm --filter @orca/web test:e2e:serial` both pass against their intended
+real artifacts.  The locator must be scoped by a stable user-facing or test
+identifier rather than positional coincidence.
+
+### Step 9 — Release-gate closure and documentation
+
+**Functional boundary:** Rerun the complete release matrix only after Steps
+7 and 8 have passed, then update the approved spec and roadmaps to delivered
+only with the exact passing evidence.
+
+**Acceptance boundary:** All retained commands in the Step 6 release-gate
+record pass; fixture provenance remains verified; `pnpm test`, `pnpm
+typecheck`, dual-variant smoke, desktop E2E, and both Web E2E commands pass.
+If a command cannot pass, its documented gate remains pending and the
+milestone is not marked delivered.
+
 ## Completion criteria
 
 The milestone is complete only when each step's primary-agent acceptance has
