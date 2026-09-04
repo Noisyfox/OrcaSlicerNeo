@@ -220,3 +220,7 @@ reopening of the last project at startup.
 It also does not introduce product-level compressed-file or decompressed-archive
 size quotas for 3MF input. Resource-limit policy is deferred; a runtime
 resource failure still follows the atomic open-failure rule.
+
+Electron does not monitor or merge external changes to an opened project file
+in this release. Save Project follows the Orca-style normal overwrite path;
+only a write failure leaves the session dirty.
