@@ -25,6 +25,10 @@
 - Newly imported models start at the center of the current plate, including
   `Plate 1`, and initially belong to that plate. They may overlap existing
   objects there; automatic placement is deferred with automatic arrangement.
+- The object list groups entries by plate and has a separate Unprintable group;
+  choosing an entry does not change the current plate. For this first release,
+  a multi-instance model appears only in the group of its first instance rather
+  than being split across every plate containing an instance.
 - Plate membership is not an editing restriction. After each committed geometry
   or transform edit, the application recomputes each affected instance's plate
   membership from its resulting placement. An instance outside every printable
