@@ -15,7 +15,7 @@ export interface ProjectActionOptions {
   loadBehaviour?: 'load_all' | 'ask_when_relevant' | 'always_ask' | 'load_geometry_only';
   chooseLoad?: (input: ProjectInput) => Promise<ProjectLoadChoice> | ProjectLoadChoice;
   decideDirty?: (operation: 'new' | 'open' | 'close', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
-  /** UI confirmation required before saving a flattened multi-plate project. */
+  /** Legacy compatibility hook; multi-plate projects are now persisted natively. */
   confirmFlattenedSave?: () => Promise<boolean> | boolean;
   signal?: AbortSignal;
 }
@@ -31,7 +31,6 @@ function currentPresets(): ProjectPresetSelections {
 function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   const notices: ProjectNotice[] = [];
   const fallback = compatibilityFallback(load); if (fallback) notices.push({ kind: 'compatibility-fallback', message: fallback });
-  if (load.multiPlate) notices.push({ kind: 'multi-plate', message: `This project has ${load.plateCount ?? 0} plates and will be flattened into one scene.` });
   if (load.embeddedPresetWarnings?.present) notices.push({ kind: 'embedded-presets', message: 'This project contains embedded preset settings that may differ from system presets.', details: load.embeddedPresetWarnings });
   return notices;
 }
@@ -106,7 +105,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
     const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
     if (load.plateSession) useProjectStore.getState().recordPlateMutation(load.plateSession);
     else useProjectStore.getState().markDirty('model-import');
-    useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: existing.flattenedMultiPlate || load.multiPlate === true, scope: existing.scope });
+    useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
     useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
@@ -130,7 +129,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     // the same replacement transaction. A second getPresetSnapshot call here
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
-    useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput(); useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: false, scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: load.multiPlate === true }); setOperation('completed', 100); return { status: 'ok', load };
+    useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput(); useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: false, scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 

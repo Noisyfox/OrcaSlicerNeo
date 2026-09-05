@@ -157,12 +157,12 @@ describe('transactional project actions', () => {
     expect(runtime.importProjectGeometry).not.toHaveBeenCalled();
   });
 
-  it('retains a first project multi-plate notice while appending geometry', async () => {
+  it('keeps native multi-plate projects intact while appending geometry', async () => {
     const { platform, runtime } = platformFor({ multiPlate: true, plateCount: 2 });
     const first = { displayName: 'project.3mf', bytes: new Uint8Array([1]), location: {} as ProjectInput['location'] };
     const result = await openProjectInputs(platform, [first, { displayName: 'part.stl', bytes: new Uint8Array([2]) }], { loadBehaviour: 'load_all' });
     expect(result.status).toBe('ok');
-    expect(useProjectStore.getState().flattenedMultiPlate).toBe(true);
-    expect(useProjectStore.getState().notices.some((notice) => notice.kind === 'multi-plate')).toBe(true);
+    expect(useProjectStore.getState().flattenedMultiPlate).toBe(false);
+    expect(useProjectStore.getState().notices.some((notice) => notice.kind === 'multi-plate')).toBe(false);
   });
 });

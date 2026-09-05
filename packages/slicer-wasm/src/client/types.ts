@@ -54,6 +54,12 @@ export interface PlateSessionPlate {
   readonly origin: readonly [number, number, number];
   /** Native-compatible default display name. */
   readonly name: string;
+  /** Native Orca lock flag, retained but not acted on in this release. */
+  readonly locked?: boolean;
+  /** Opaque serialized per-plate setting slot. */
+  readonly settings?: Readonly<Record<string, unknown>>;
+  /** Ordered unknown native metadata records, retained across save/load. */
+  readonly opaqueMetadata?: readonly Readonly<{ key: string; value: string }>[];
   readonly instanceIds?: readonly number[];
   readonly outOfBoundsInstanceIds?: readonly number[];
   readonly valid?: boolean;
@@ -692,7 +698,7 @@ export interface SlicerClient {
   /** Read a bounded, seekable source-text page from the current result. */
   readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
   exportGcode(): Promise<ExportGcodeResult>;
-  /** Export the active single-plate project as a secure BBS 3MF archive. */
+  /** Export the complete active plate session as a native-compatible BBS 3MF archive. */
   exportProject(): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;
   /** Read the C++ boost::log file sink output from MEMFS. */

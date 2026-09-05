@@ -46,8 +46,24 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
       origin: [coordinates[0], coordinates[1], coordinates[2]] as [number, number, number],
       name: plate.name,
     };
+    const hasSettings = plate.settings !== undefined;
+    const settings = hasSettings && plate.settings && typeof plate.settings === 'object' && !Array.isArray(plate.settings)
+      ? plate.settings as Readonly<Record<string, unknown>> : undefined;
+    if (hasSettings && !settings) return null;
+    const hasOpaqueMetadata = plate.opaque_metadata !== undefined;
+    const opaqueMetadata = hasOpaqueMetadata && Array.isArray(plate.opaque_metadata)
+      ? plate.opaque_metadata.map((entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const item = entry as Record<string, unknown>;
+        return typeof item.key === 'string' && typeof item.value === 'string'
+          ? { key: item.key, value: item.value } : null;
+      }) : undefined;
+    if (hasOpaqueMetadata && (!opaqueMetadata || opaqueMetadata.some((entry) => entry === null))) return null;
     return {
       ...normalized,
+      ...(typeof plate.locked === 'boolean' ? { locked: plate.locked } : {}),
+      ...(settings ? { settings } : {}),
+      ...(opaqueMetadata ? { opaqueMetadata: opaqueMetadata as { key: string; value: string }[] } : {}),
       ...(Array.isArray(plate.instance_ids) && plate.instance_ids.every((id) => Number.isSafeInteger(id))
         ? { instanceIds: plate.instance_ids as number[] } : {}),
       ...(Array.isArray(plate.out_of_bounds_instance_ids) && plate.out_of_bounds_instance_ids.every((id) => Number.isSafeInteger(id))

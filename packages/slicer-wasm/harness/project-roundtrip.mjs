@@ -66,6 +66,19 @@ const beforeObject = before.objects?.[0];
 check('capture source structure', before.ok === true && beforeObject?.volumes?.length === 1,
       JSON.stringify(beforeObject));
 
+const secondPlate = callJson('orc_add_plate', [], []);
+check('create second native plate', secondPlate.ok === true && secondPlate.plates?.length === 2,
+      JSON.stringify(secondPlate));
+const secondPlateModel = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Second Plate Cube']);
+check('add geometry to second plate', secondPlateModel.ok === true && secondPlateModel.affected_plate_ids_after?.length === 1
+      && secondPlateModel.affected_plate_ids_after[0] === secondPlate.current_plate_id,
+      JSON.stringify(secondPlateModel));
+const beforeExportSession = callJson('orc_get_plate_session_snapshot', [], []);
+check('capture complete multi-plate session', beforeExportSession.ok === true && beforeExportSession.plates?.length === 2
+      && beforeExportSession.instances?.some((instance) => instance.plate_id === beforeExportSession.plates[0].plate_id)
+      && beforeExportSession.instances?.some((instance) => instance.plate_id === beforeExportSession.plates[1].plate_id),
+      JSON.stringify(beforeExportSession));
+
 const exported = callJson('orc_export_project', [], []);
 check('export native BBS 3MF', exported.ok === true && exported.bytes_ptr > 0 && exported.bytes_length > 4,
       JSON.stringify(exported));
@@ -82,7 +95,7 @@ if (opts['check-add-model'] === 'true') {
                                 [addProjectPtr, project.length, '3mf', 'added.3mf']);
   Module._free(addProjectPtr);
   check('add-model 3MF requests and loads model resources',
-        addedProject.ok === true && addedProject.objects === 1 && addedProject.instances === 1,
+        addedProject.ok === true && addedProject.objects === 2 && addedProject.instances === 2,
         JSON.stringify(addedProject));
   callJson('orc_clear_model', [], []);
 }
@@ -98,7 +111,7 @@ if (opts['check-geometry'] === 'true') {
   // backup-manager/lifetime worker or otherwise poison the next request.
   const geometryFollowup = callJson('orc_get_model_structure', [], []);
   check('geometry-only cleanup keeps bridge callable',
-        geometryFollowup.ok === true && geometryFollowup.objects?.length === 1,
+        geometryFollowup.ok === true && geometryFollowup.objects?.length === 2,
         JSON.stringify(geometryFollowup));
   callJson('orc_clear_model', [], []);
 }
@@ -107,14 +120,27 @@ const projectPtr = writeBytes(project);
 const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
                         [projectPtr, project.length, 0, 'roundtrip.3mf']);
 Module._free(projectPtr);
-check('reload exported project', loaded.ok === true && loaded.mode === 'project' && loaded.objects === 1
+check('reload exported project', loaded.ok === true && loaded.mode === 'project' && loaded.objects === 2
       && loaded.compatibility === 'bambu' && loaded.project_settings_available === true,
       JSON.stringify(loaded));
+
+const afterSession = callJson('orc_get_plate_session_snapshot', [], []);
+check('reload preserves plate order and current identity', afterSession.ok === true && afterSession.plates?.length === 2
+      && afterSession.current_plate_id === afterSession.plates[1].plate_id
+      && afterSession.plates.every((plate, index) => plate.display_index === index),
+      JSON.stringify(afterSession));
+check('reload preserves plate membership', afterSession.instances?.some((instance) => instance.plate_id === afterSession.plates[0].plate_id)
+      && afterSession.instances?.some((instance) => instance.plate_id === afterSession.plates[1].plate_id),
+      JSON.stringify(afterSession.instances));
+const afterSlice = callJson('orc_get_slice_result', [], []);
+check('reload does not restore derived slice result', afterSlice.ok === true && afterSlice.objects === 0
+      && afterSlice.layers === 0 && afterSlice.metadata?.result_id === 0
+      && afterSlice.metadata?.source_text?.available === false, JSON.stringify(afterSlice));
 
 const after = callJson('orc_get_model_structure', [], []);
 const afterObject = after.objects?.[0];
 check('round-trip preserves object and volume structure',
-      after.ok === true && afterObject?.volumes?.length === beforeObject?.volumes?.length
+      after.ok === true && after.objects?.length === 2 && afterObject?.volumes?.length === beforeObject?.volumes?.length
       && afterObject?.instanceCount === beforeObject?.instanceCount,
       JSON.stringify(afterObject));
 

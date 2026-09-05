@@ -76,6 +76,28 @@ describe('SlicerClient bridge contract', () => {
     expect(recomputed.instanceTransforms).toEqual([]);
   });
 
+  it('rejects malformed opaque plate metadata instead of silently dropping it', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    module.ccall = (name, ret, argTypes, args) => {
+      const pointer = originalCall(name, ret, argTypes, args);
+      if (name !== 'orc_get_plate_session_snapshot') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer))) as Record<string, any>;
+      module._free(Number(pointer));
+      payload.plates[0].opaque_metadata = [{ key: 'future-key', value: 42 }];
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const replacement = module._malloc(bytes.byteLength + 1);
+      module.HEAPU8.set(bytes, replacement);
+      module.HEAPU8[replacement + bytes.byteLength] = 0;
+      return replacement;
+    };
+    const c = createClient(async () => module);
+    await expect(c.getPlateSessionSnapshot()).resolves.toEqual({
+      ok: false,
+      error: 'invalid plate session response',
+    });
+  });
+
   it('keeps the current plate identity when adding a model', async () => {
     const c = makeClient();
     const before = await c.getPlateSessionSnapshot();
