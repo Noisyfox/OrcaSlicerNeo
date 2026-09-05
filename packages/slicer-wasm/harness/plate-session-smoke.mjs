@@ -43,10 +43,9 @@ check('add reflow fixture', callJson('orc_add_shape', ['string', 'string'], ['Cu
 const reflowTransform = JSON.stringify({ offset: [10, -296, 10], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] });
 const volumeIdentity = JSON.stringify({ offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] });
 check('place reflow fixture on plate 3', callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'], [0, 0, 0, reflowTransform, volumeIdentity]).ok === true);
-let reflowMembership = callJson('orc_recompute_plate_membership');
-check('reflow fixture membership', reflowMembership.instances?.[0]?.plate_id === session.plates[2].plate_id);
 const fifth = callJson('orc_add_plate');
 const reflowed = fifth.instance_transforms?.find((entry) => entry.object_index === 0);
+check('add recomputes stale membership before reflow', fifth.ok === true && fifth.instances?.[0]?.plate_id === fifth.plates[2].plate_id);
 check('add reflows instances atomically', fifth.ok === true && reflowed?.world_transform?.offset?.every((value, axis) => Math.abs(value - [506.8, 10, 10][axis]) < 1e-6));
 check('add preserves local coordinates', fifth.ok === true && reflowed?.world_transform?.offset?.every((value, axis) => Math.abs(value - fifth.plates[2].origin[axis] - [10, 10, 10][axis]) < 1e-6));
 session = fifth;

@@ -1137,6 +1137,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate() {
         ensure_plate_session_state();
         if (state().plate_session_plates.size() >= static_cast<size_t>(kMaxPlateCount))
             return error_json("maximum of 36 plates");
+        // Editing commands may have changed instance transforms since the
+        // last explicit membership read. Refresh from the live native model
+        // before computing grid deltas; parked instances remain parked.
+        rebuild_plate_membership(false);
         const PlateBounds bounds = selected_plate_bounds();
         const auto old_plates = state().plate_session_plates;
         const int new_count = static_cast<int>(old_plates.size()) + 1;
@@ -1185,6 +1189,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr) {
                                      [&](const auto& plate) { return plate.id == requested; });
         if (it == state().plate_session_plates.end()) return error_json("plate not found");
         if (state().plate_session_plates.size() <= 1) return error_json("at least one plate must remain");
+        // Resolve ownership from current convex hulls before moving or
+        // parking objects. This covers transforms applied without an
+        // intervening recompute command while retaining parked semantics.
+        rebuild_plate_membership(false);
         const PlateBounds bounds = selected_plate_bounds();
         const size_t deleted_index = static_cast<size_t>(std::distance(state().plate_session_plates.begin(), it));
         const auto old_plates = state().plate_session_plates;
