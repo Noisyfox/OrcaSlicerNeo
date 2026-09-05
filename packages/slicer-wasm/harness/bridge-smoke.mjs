@@ -258,30 +258,28 @@ check('adding a model preserves the current plate identity',
       check(`primitive is the ${p.verts}-vertex ${p.type} mesh`,
             o.vertex_count === p.verts && o.index_count === p.idx,
             `verts=${o.vertex_count} idx=${o.index_count}`);
-      if (p.type === 'Cube' || p.type === 'Cylinder') {
-        const verts = new Float32Array(readBytes(Module, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
-        const min = [Infinity, Infinity, Infinity];
-        const max = [-Infinity, -Infinity, -Infinity];
-        for (let i = 0; i < verts.length; i += 3)
-          for (let a = 0; a < 3; a++) {
-            if (verts[i + a] < min[a]) min[a] = verts[i + a];
-            if (verts[i + a] > max[a]) max[a] = verts[i + a];
-          }
-        const center = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
-        const primitivePlate = added.plates?.find((plate) =>
-          plate.plate_id === added.current_plate_id);
-        const primitiveExpectedXY = [
-          primitivePlate.origin[0] + (areaBounds.minX + areaBounds.maxX) * 0.5,
-          primitivePlate.origin[1] + (areaBounds.minY + areaBounds.maxY) * 0.5,
-        ];
-        check(`primitive mesh centered at the origin (${p.type})`,
-              center.every((c) => near(c, 0)), `center=[${center}]`);
-        check(`primitive uses selected plate world center (${p.type})`,
-              near(o.offset[0], primitiveExpectedXY[0]) && near(o.offset[1], primitiveExpectedXY[1]),
-              `offset=[${o.offset}] expectedXY=[${primitiveExpectedXY}]`);
-        check(`primitive rests on the bed (world min Z = 0) (${p.type})`,
-              near(min[2] + o.offset[2], 0), `minZ=${min[2]} offsetZ=${o.offset[2]}`);
-      }
+      const verts = new Float32Array(readBytes(Module, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
+      const min = [Infinity, Infinity, Infinity];
+      const max = [-Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < verts.length; i += 3)
+        for (let a = 0; a < 3; a++) {
+          if (verts[i + a] < min[a]) min[a] = verts[i + a];
+          if (verts[i + a] > max[a]) max[a] = verts[i + a];
+        }
+      const center = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
+      const primitivePlate = added.plates?.find((plate) =>
+        plate.plate_id === added.current_plate_id);
+      const primitiveExpectedXY = [
+        primitivePlate.origin[0] + (areaBounds.minX + areaBounds.maxX) * 0.5,
+        primitivePlate.origin[1] + (areaBounds.minY + areaBounds.maxY) * 0.5,
+      ];
+      check(`primitive mesh centered at the origin (${p.type})`,
+            center.every((c) => near(c, 0)), `center=[${center}]`);
+      check(`primitive uses selected plate world center (${p.type})`,
+            near(o.offset[0], primitiveExpectedXY[0]) && near(o.offset[1], primitiveExpectedXY[1]),
+            `offset=[${o.offset}] expectedXY=[${primitiveExpectedXY}]`);
+      check(`primitive rests on the bed (world min Z = 0) (${p.type})`,
+            near(min[2] + o.offset[2], 0), `minZ=${min[2]} offsetZ=${o.offset[2]}`);
     } else {
       check(`primitive mesh available (${p.type})`, false, JSON.stringify(mm).slice(0, 120));
     }
