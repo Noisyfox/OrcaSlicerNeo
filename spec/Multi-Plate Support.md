@@ -1,6 +1,6 @@
 # Multi-Plate Support
 
-**Status:** Implementation in progress — Steps 1–3 accepted; Steps 4–9 pending
+**Status:** Implementation in progress — Steps 1–4 accepted; Steps 5–9 pending
 
 **Date:** 2026-09-05
 

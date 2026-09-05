@@ -452,7 +452,7 @@ loading remain future increments.
       navigation through the typed Worker client
 
 - [ ] [Multi-plate support](Multi-Plate%20Support.md) — implementation in
-      progress; Steps 1–3 accepted, Steps 4–9 pending
+      progress; Steps 1–4 accepted, Steps 5–9 pending
 - [ ] Project save/load (`.3mf` / `bbs_3mf`) — tracked in Milestone 15;
       release verification remains pending
 - [ ] Full settings surface + search (from metadata)
