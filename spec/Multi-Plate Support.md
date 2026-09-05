@@ -12,6 +12,8 @@
 - Prepare renders all plates simultaneously in an OrcaSlicer-style, automatically
   reflowed grid. The first release supports at most **36** plates, matching
   OrcaSlicer's product/UI limit.
+- Grid column counts and plate-origin ordering exactly follow native OrcaSlicer
+  so add, delete, and project reload reproduce the same layout.
 - One plate is the current plate. Selecting a plate through plate UI changes
   the current plate and supplies the context for plate-scoped operations.
 - Clicking a non-current plate's empty bed selects it. Switching plates keeps
@@ -137,6 +139,9 @@
 - A plain 3MF or legacy project with no plate metadata imports into one default
   plate, `Plate 1`. Instance membership is then recalculated from current
   coordinates.
+- A project with duplicate, missing, or out-of-order `plate_index` values is
+  normalized like native OrcaSlicer: record order becomes a contiguous plate
+  order, rather than rejecting the project.
 - Import rejects a project with more than 36 plates with a clear error. This
   deliberately replaces native OrcaSlicer's unsafe over-limit load path while
   retaining its 36-plate product limit.
