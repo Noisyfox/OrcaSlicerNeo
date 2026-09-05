@@ -242,8 +242,9 @@ check('adding a model preserves the current plate identity',
     callJson('orc_clear_model', [], []);
     const added = callJson('orc_add_shape', ['string', 'string'], [p.type, p.type]);
     check(`orc_add_shape adds one object and one instance (${p.type})`,
-          added.ok === true && added.objects === 1 && Array.isArray(added.instances)
-          && added.instances.length === 1,
+          added.ok === true && added.objects === 1 && added.instances === 1
+          && Array.isArray(added.plate_session?.instances)
+          && added.plate_session.instances.length === 1,
           JSON.stringify(added));
     const structure = callJson('orc_get_model_structure', [], []);
     const sObj = structure.objects?.[0];

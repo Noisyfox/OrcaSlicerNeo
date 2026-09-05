@@ -124,13 +124,22 @@ function normalizePlateMutationResult(raw: unknown): PlateSessionMutationResult 
   return result as PlateSessionMutationResult;
 }
 
+function normalizeCount(raw: unknown): number | null {
+  return typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0 ? raw : null;
+}
+
 function normalizeLoadModelResult(raw: unknown): LoadModelResult {
   if (!raw || typeof raw !== 'object') return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation response' };
   const value = raw as Record<string, unknown>;
   if (value.ok !== true) return { ok: false, objects: 0, instances: 0, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
+  const objects = normalizeCount(value.objects ?? 0);
+  const instances = normalizeCount(value.instances ?? 0);
+  if (objects === null || instances === null) {
+    return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation counts' };
+  }
   const nested = value.plate_session;
   const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
-  return { ok: true, objects: Number(value.objects ?? 0), instances: Number(value.instances ?? 0),
+  return { ok: true, objects, instances,
     ...(plateSession?.ok ? { plateSession } : {}) };
 }
 

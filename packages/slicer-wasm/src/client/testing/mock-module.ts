@@ -304,7 +304,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         instance_ids: [], out_of_bounds_instance_ids: [], valid: true,
       }) : ({ plate_id: id, display_index: index, origin: [index * 240, 0, 0], name: `Plate ${index + 1}` })),
     };
-    if (includeMutation) { result.instance_transforms = []; result.instances = []; }
+    if (includeMutation) {
+      result.instance_transforms = [];
+      result.instances = objectTransforms.flatMap((transforms, objectIndex) =>
+        transforms.map((_transform, instanceIndex) => {
+          const instance = instanceMeta[objectIndex]?.[instanceIndex];
+          return {
+            instance_id: instance?.id ?? 0,
+            object_id: objectMeta[objectIndex]?.id ?? 0,
+            object_index: objectIndex,
+            instance_index: instanceIndex,
+            plate_id: currentPlateId,
+            member: true,
+            unprintable: false,
+            out_of_bounds: false,
+          };
+        }));
+    }
     return result;
   }
   function plateMutation(reason: string, before = [currentPlateId], after = [currentPlateId]) {

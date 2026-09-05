@@ -116,8 +116,9 @@ for (const expected of meshes) {
   callJson('orc_clear_model', [], []);
   const added = addDrc(await fixture(expected.name), expected.name);
   check(`${expected.name}: imports as one object and instance`,
-        added.ok === true && added.objects === 1 && Array.isArray(added.instances)
-        && added.instances.length === 1, JSON.stringify(added));
+        added.ok === true && added.objects === 1 && added.instances === 1
+        && Array.isArray(added.plate_session?.instances)
+        && added.plate_session.instances.length === 1, JSON.stringify(added));
   const structure = callJson('orc_get_model_structure', [], []);
   check(`${expected.name}: selected filename becomes the object name`,
         structure.ok === true && structure.objects?.[0]?.name === expected.name
@@ -146,7 +147,8 @@ const first = addDrc(cube, 'first.drc');
 const second = addDrc(cube, 'second.drc');
 check('DRC imports append to the current plate',
       first.ok === true && second.ok === true && second.objects === 2
-      && Array.isArray(second.instances) && second.instances.length === 2,
+      && second.instances === 2 && Array.isArray(second.plate_session?.instances)
+      && second.plate_session.instances.length === 2,
       JSON.stringify(second));
 
 // The documented supported failure modes must be atomic: leave both the

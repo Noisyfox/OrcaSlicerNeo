@@ -210,6 +210,9 @@ describe('SlicerClient bridge contract', () => {
     const r = await c.addModel(bytes, 'drc', 'cube_att.drc');
     expect(r.ok).toBe(true);
     expect(r.objects).toBe(1);
+    expect(Number.isFinite(r.instances)).toBe(true);
+    expect(r.instances).toBe(1);
+    expect(r.plateSession?.instances).toHaveLength(1);
     await expect(c.getModelStructure()).resolves.toMatchObject({
       objects: [{ name: 'cube_att.drc' }],
     });
@@ -224,7 +227,10 @@ describe('SlicerClient bridge contract', () => {
     ];
     for (const [type, vertexCount] of EXPECTED) {
       const c = makeClient();
-      await c.addShape(type, type);
+      const added = await c.addShape(type, type);
+      expect(added).toMatchObject({ ok: true, objects: 1, instances: 1 });
+      expect(Number.isFinite(added.instances)).toBe(true);
+      expect(added.plateSession?.instances).toHaveLength(1);
       const s = await c.getModelStructure();
       expect(s.ok).toBe(true);
       expect(s.objects?.[0].name).toBe(type);

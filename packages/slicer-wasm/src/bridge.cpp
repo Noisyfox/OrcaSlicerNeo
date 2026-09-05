@@ -528,7 +528,11 @@ json attach_plate_mutation(json result, const json& mutation)
     for (const char* key : {"plates", "current_plate_id", "instances", "instance_transforms",
                             "input_revisions", "affected_plate_ids_before",
                             "affected_plate_ids_after", "affected_plate_ids", "dirty_reasons"}) {
-        if (mutation.contains(key)) result[key] = mutation.at(key);
+        // Some structural results already expose a legacy top-level field
+        // with the same name (notably numeric `instances` counts for model
+        // imports/shapes). Preserve that caller-owned contract; the complete
+        // membership array remains available under plate_session.
+        if (mutation.contains(key) && !result.contains(key)) result[key] = mutation.at(key);
     }
     return result;
 }
