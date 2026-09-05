@@ -451,8 +451,7 @@ loading remain future increments.
       virtualized read-only rows, and exact/nearest-preceding source-line
       navigation through the typed Worker client
 
-- [ ] [Multi-plate support](Multi-Plate%20Support.md) — implementation in
-      progress; Steps 1–8 accepted, Step 9 pending
+- [x] [Multi-plate support](Multi-Plate%20Support.md) — Steps 1–9 accepted
 - [ ] Project save/load (`.3mf` / `bbs_3mf`) — tracked in Milestone 15;
       release verification remains pending
 - [ ] Full settings surface + search (from metadata)
