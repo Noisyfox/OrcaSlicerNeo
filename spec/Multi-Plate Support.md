@@ -141,6 +141,13 @@ per-plate membership, metadata, settings, and slice-result state, while the
 shared React layer renders the grid and controls. The existing platform
 contracts remain host-neutral.
 
+React consumes an authoritative `PlateSessionSnapshot` from WASM and never
+maintains or derives instance membership independently. Plate selection,
+addition, deletion, and post-edit membership recomputation are bridge commands.
+An add/delete response atomically includes the session snapshot and every
+instance world transform changed by grid reflow; the frontend applies these
+returned transforms rather than calculating movement itself.
+
 Within a running session, each plate has an immutable opaque `plateId`.
 Frontend selection, preview ownership, and slice jobs use this identity rather
 than the display index, which may change during compaction. Project 3MF remains
