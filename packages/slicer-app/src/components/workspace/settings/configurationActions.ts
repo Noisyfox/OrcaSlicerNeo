@@ -22,6 +22,11 @@ export async function commitSharedConfigurationMutation(
     throw new Error(errorText(error));
   }
   if (!mutation.ok) throw new Error(mutation.error ?? 'shared configuration mutation failed');
+  const activeJob = useSlicerStore.getState().activeSliceTarget;
+  if (activeJob && (mutation.affectedPlateIds ?? []).includes(activeJob.plateId)) {
+    useSlicerStore.getState().invalidatePlateResults([activeJob.plateId]);
+    void platform.runtime.cancel().catch(() => undefined);
+  }
   applyPlateSessionTransforms(mutation, glVolumeCollection.volumes);
   usePlateSessionStore.getState().setSnapshot(mutation);
   useProjectStore.getState().recordPlateMutation(mutation);
@@ -30,5 +35,7 @@ export async function commitSharedConfigurationMutation(
 
 /** Clear stale slice UI after a successful shared configuration commit. */
 export function invalidateAfterSharedConfigurationMutation(): void {
+  // Shared printer/process/filament inputs are common to every plate. Keep
+  // no completed result (or active job) across this boundary.
   useSlicerStore.getState().invalidateSliceResult();
 }

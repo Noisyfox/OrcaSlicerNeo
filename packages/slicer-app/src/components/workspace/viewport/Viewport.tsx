@@ -234,15 +234,39 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
       useSlicerStore.getState().setError(result.error);
       return false;
     }
+    const previous = usePlateSessionStore.getState().snapshot;
+    const slicer = useSlicerStore.getState();
+    const activeJob = slicer.activeSliceTarget;
+    const affected = result.affectedPlateIds ?? [];
+    const structural = result.dirtyReasons?.includes('plate-structure') ?? false;
+    if (!structural && activeJob && affected.includes(activeJob.plateId)) {
+      // The native bridge is synchronous, but worker-backed/fake runtimes can
+      // still have a cancellable in-flight promise. Mark it stale first and
+      // request cancellation without interrupting unrelated plates.
+      slicer.invalidatePlateResults([activeJob.plateId]);
+      void platform.runtime.cancel().catch(() => undefined);
+    } else if (!structural && affected.length) {
+      slicer.invalidatePlateResults(affected);
+    }
+    // Grid reflow is placement-neutral: surviving plate identities retain
+    // their results. Only a deleted identity loses its session result.
+    if (structural && previous) {
+      const nextIds = new Set(result.plates.map((plate) => plate.plateId));
+      const removed = previous.plates.filter((plate) => !nextIds.has(plate.plateId)).map((plate) => plate.plateId);
+      for (const plateId of removed) slicer.discardPlateResult(plateId);
+      if (activeJob && removed.includes(activeJob.plateId)) {
+        slicer.invalidatePlateResults([activeJob.plateId]);
+        void platform.runtime.cancel().catch(() => undefined);
+      }
+    }
     setPlateSnapshot(result);
-    const sliceTarget = useSlicerStore.getState().sliceTarget;
-    if (sliceTarget && sliceTarget.plateId !== result.currentPlateId)
-      useSlicerStore.getState().invalidateSliceResult();
     if (result.instanceTransforms) {
       applyPlateSessionTransforms({ instanceTransforms: result.instanceTransforms }, glVolumeCollection.volumes);
     }
+    const revision = result.inputRevisions?.[result.currentPlateId];
+    if (typeof revision === 'number' && Number.isSafeInteger(revision)) useSlicerStore.getState().activatePlateResult(result.currentPlateId, revision);
     return true;
-  }, [setPlateSnapshot]);
+  }, [platform.runtime, setPlateSnapshot]);
 
   const selectPlate = useCallback(async (plateId: string) => {
     if (plateActionPending || plateId === plateSession?.currentPlateId) return;

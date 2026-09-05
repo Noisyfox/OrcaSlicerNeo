@@ -57,6 +57,7 @@ export function Workspace({
   onPreviewTransitionChange?: (transition: PreviewRenderTransition | null) => void;
 }) {
   const platform = usePlatform();
+  const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
   const glVolumes = useModelLoader();
   const sliceResult = useSliceResult();
@@ -134,6 +135,13 @@ export function Workspace({
     previousActiveTabRef.current = activeTab;
     if (enteredPreview) void sliceCoordinator.ensureSlice();
   }, [activeTab, sliceCoordinator]);
+
+  // Orca Preview follows the selected plate. A retained result is activated
+  // synchronously by the viewport; an otherwise valid unsliced plate starts
+  // one job automatically when the selection changes in Preview.
+  useEffect(() => {
+    if (isPreviewTab(activeTab) && currentPlateId) void sliceCoordinator.ensureSlice();
+  }, [activeTab, currentPlateId, sliceCoordinator]);
 
   useEffect(() => {
     let active = true;

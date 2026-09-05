@@ -78,6 +78,7 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
   const platform = injectedPlatform ?? contextPlatform;
   const sliceStatus = useSlicerStore((state) => state.status);
   const sliceTarget = useSlicerStore((state) => state.sliceTarget);
+  const plateResults = useSlicerStore((state) => state.plateResults);
   const sliceReady = sliceStatus === 'done';
   const [document, setDocument] = useState<PrinterConfigurationDocument>({ version: 1, printers: [] });
   const [selectedPrinterId, setSelectedPrinterId] = useState<string | null>(initialSelection);
@@ -295,7 +296,10 @@ export function SendGcodeDialog({ open, action, onClose, initialSelection = null
         const membershipKnown = currentPlate?.instanceIds !== undefined || currentSession.instances !== undefined;
         if (!currentPlate || currentPlate.valid === false || (membershipKnown && !(currentPlate.instanceIds?.length)))
           throw new Error(currentPlate?.valid === false ? 'current plate contains an out-of-bounds instance' : 'current plate is empty');
-        exported = await runtime.exportGcodePlate(sliceTarget);
+        const cached = plateResults[sliceTarget.plateId];
+        exported = cached?.target.inputRevision === sliceTarget.inputRevision && cached.gcode
+          ? { ok: true, path: 'output.gcode', bytes: cached.gcode }
+          : await runtime.exportGcodePlate(sliceTarget);
       } else {
         exported = await platform.runtime.exportGcode();
       }

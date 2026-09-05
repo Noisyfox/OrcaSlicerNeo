@@ -9,6 +9,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { applyPlateSessionTransforms } from './syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 
 export type DeleteSelectionResult = { ok: boolean; error?: string };
 
@@ -88,7 +89,9 @@ export async function deleteSelection(
     }
     else settings.refreshModel();
     if (result.plateSession) {
+      const previousPlateSession = usePlateSessionStore.getState().snapshot;
       usePlateSessionStore.getState().setSnapshot(result.plateSession);
+      applyPlateResultMutation(result.plateSession, previousPlateSession);
       useProjectStore.getState().recordPlateMutation(result.plateSession);
     }
     else useProjectStore.getState().markDirty('model-delete');

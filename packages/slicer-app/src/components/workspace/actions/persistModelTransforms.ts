@@ -1,6 +1,7 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { PlateSessionMutation } from '@slicer/client';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
@@ -36,7 +37,9 @@ export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<S
       slicer.setLayers(0);
       slicer.setProgress(0);
       if (result.plateSession) {
+        const previousPlateSession = usePlateSessionStore.getState().snapshot;
         usePlateSessionStore.getState().setSnapshot(result.plateSession);
+        applyPlateResultMutation(result.plateSession, previousPlateSession);
         useProjectStore.getState().recordPlateMutation(result.plateSession);
       }
       else useProjectStore.getState().markDirty('model-transform');

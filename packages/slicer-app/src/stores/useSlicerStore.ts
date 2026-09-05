@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { PlateOperationTarget } from '@slicer/client';
+import type { ClientSliceResult, PlateOperationTarget } from '@slicer/client';
 
 export type SliceStatus = 'idle' | 'slicing' | 'done' | 'error';
 export type PreviewColorScheme = 'feature' | 'filament' | 'speed' | 'volumetricFlow' | 'layerTime' | 'temperature' | 'fanSpeed';
@@ -16,6 +16,13 @@ export interface PreviewState {
   schemeVisibility: PreviewSchemeVisibility;
   singleLayer: boolean;
   resultId: number | null;
+}
+
+export interface PlateSliceResult {
+  target: PlateOperationTarget;
+  result: ClientSliceResult;
+  /** Host-neutral G-code bytes retained with the session result. */
+  gcode?: Uint8Array;
 }
 
 export const DEFAULT_PREVIEW_STATE: PreviewState = {
@@ -40,6 +47,10 @@ interface SlicerState {
   resultExported: boolean;
   /** Identity of the single current-plate result until Step 8's cache. */
   sliceTarget: PlateOperationTarget | null;
+  /** Session-lifetime completed results, keyed by immutable plate identity. */
+  plateResults: Readonly<Record<string, PlateSliceResult>>;
+  /** The one job allowed to run at a time. */
+  activeSliceTarget: PlateOperationTarget | null;
   layer: number; // scrubber position (0-based, default = max)
   maxLayer: number;
   preview: PreviewState;
@@ -51,6 +62,12 @@ interface SlicerState {
   setMaxLayer: (n: number) => void;
   setResultExported: (exported: boolean) => void;
   setSliceTarget: (target: PlateOperationTarget | null) => void;
+  setActiveSliceTarget: (target: PlateOperationTarget | null) => void;
+  setPlateResult: (target: PlateOperationTarget, result: ClientSliceResult, gcode?: Uint8Array) => void;
+  activatePlateResult: (plateId: string, inputRevision: number) => boolean;
+  invalidatePlateResults: (plateIds: readonly string[]) => void;
+  discardPlateResult: (plateId: string) => void;
+  clearPlateResults: () => void;
   setPreviewBounds: (maxLayer: number, maxMove: number, resultId?: number | null) => void;
   /** Update the inclusive visible range and the active layer's local move bound atomically. */
   setPreviewLayerRange: (range: [number, number], activeLayerMaxMove?: number) => void;
@@ -74,6 +91,8 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   error: null,
   resultExported: false,
   sliceTarget: null,
+  plateResults: {},
+  activeSliceTarget: null,
   layer: 0,
   maxLayer: 0,
   preview: DEFAULT_PREVIEW_STATE,
@@ -88,6 +107,86 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setMaxLayer: (maxLayer) => set({ maxLayer }),
   setResultExported: (resultExported) => set({ resultExported }),
   setSliceTarget: (sliceTarget) => set({ sliceTarget }),
+  setActiveSliceTarget: (activeSliceTarget) => set({ activeSliceTarget }),
+  setPlateResult: (target, result, gcode) => set((state) => ({
+    plateResults: { ...state.plateResults, [target.plateId]: { target, result, ...(gcode ? { gcode } : {}) } },
+    // Keep the legacy active-result fields coherent for callers that only
+    // render the current plate.
+    ...(state.sliceTarget?.plateId === target.plateId || state.activeSliceTarget?.plateId === target.plateId
+      ? { sliceTarget: target, status: 'done' as const, resultExported: false, error: null }
+      : {}),
+  })),
+  activatePlateResult: (plateId, inputRevision) => {
+    let matched = false;
+    set((state) => {
+    const cached = state.plateResults[plateId];
+    if (!cached || cached.target.inputRevision !== inputRevision) {
+      return {
+        sliceTarget: null,
+        status: 'idle' as const,
+        progress: 0,
+        layers: 0,
+        error: null,
+        resultExported: false,
+        layer: 0,
+        maxLayer: 0,
+        preview: { ...DEFAULT_PREVIEW_STATE },
+      };
+    }
+    matched = true;
+    return {
+      sliceTarget: cached.target,
+      status: 'done' as const,
+      progress: 100,
+      layers: cached.result.layers,
+      error: null,
+      resultExported: false,
+    };
+    });
+    return matched;
+  },
+  invalidatePlateResults: (plateIds) => set((state) => {
+    if (plateIds.length === 0) return state;
+    const invalidated = new Set(plateIds);
+    const plateResults = Object.fromEntries(Object.entries(state.plateResults).filter(([id]) => !invalidated.has(id)));
+    const activeAffected = state.activeSliceTarget && invalidated.has(state.activeSliceTarget.plateId);
+    const currentAffected = state.sliceTarget && invalidated.has(state.sliceTarget.plateId);
+    return {
+      plateResults,
+      ...(activeAffected ? { activeSliceTarget: null } : {}),
+      ...(currentAffected ? {
+        sliceTarget: null,
+        status: 'idle' as const,
+        progress: 0,
+        layers: 0,
+        error: null,
+        resultExported: false,
+        layer: 0,
+        maxLayer: 0,
+        preview: { ...DEFAULT_PREVIEW_STATE },
+      } : {}),
+    };
+  }),
+  discardPlateResult: (plateId) => set((state) => {
+    const { [plateId]: _discarded, ...plateResults } = state.plateResults;
+    const current = state.sliceTarget?.plateId === plateId;
+    return {
+      plateResults,
+      ...(state.activeSliceTarget?.plateId === plateId ? { activeSliceTarget: null } : {}),
+      ...(current ? {
+        sliceTarget: null,
+        status: 'idle' as const,
+        progress: 0,
+        layers: 0,
+        error: null,
+        resultExported: false,
+        layer: 0,
+        maxLayer: 0,
+        preview: { ...DEFAULT_PREVIEW_STATE },
+      } : {}),
+    };
+  }),
+  clearPlateResults: () => set({ plateResults: {}, sliceTarget: null, activeSliceTarget: null }),
   setPreviewBounds: (maxLayer, maxMove, resultId = null) => set((state) => ({
     maxLayer,
     layer: maxLayer,
@@ -207,6 +306,8 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     error: null,
     resultExported: false,
     sliceTarget: null,
+    plateResults: {},
+    activeSliceTarget: null,
     layer: 0,
     maxLayer: 0,
     preview: { ...DEFAULT_PREVIEW_STATE },

@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis } from '@slicer/client';
 import { createPreviewSourceLineIndex, maxMoveOrderForLayer, type PreviewSourceLineIndex } from './previewSemantics';
 import { deriveLogicalMoveOrders } from './gpuStreamingPlanner';
@@ -34,6 +35,9 @@ export interface ToolpathGeometry {
 export function useSliceResult() {
   const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
+  const sliceTarget = useSlicerStore((s) => s.sliceTarget);
+  const plateResults = useSlicerStore((s) => s.plateResults);
+  const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const layers = useSlicerStore((s) => s.layers);
   const setLayers = useSlicerStore((s) => s.setLayers);
   const setMaxLayer = useSlicerStore((s) => s.setMaxLayer);
@@ -56,6 +60,18 @@ export function useSliceResult() {
       resetPreviewState();
       return;
     }
+    const cached = currentPlateId && sliceTarget?.plateId === currentPlateId
+      ? plateResults[currentPlateId]
+      : undefined;
+    if (cached && cached.target.inputRevision === sliceTarget?.inputRevision) {
+      setResult(cached.result);
+      setLayers(cached.result.layers);
+      setMaxLayer(Math.max(0, cached.result.layers - 1));
+      const activeLayer = Math.max(0, cached.result.layers - 1);
+      const maxMove = maxMoveOrderForLayer({ ...cached.result.toolpath, metadata: cached.result.metadata }, activeLayer);
+      setPreviewBounds(activeLayer, maxMove, cached.result.metadata.resultId);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -68,6 +84,8 @@ export function useSliceResult() {
         const moveOrders = deriveLogicalMoveOrders(r.toolpath.layerIds, r.toolpath.gcodeIds, r.toolpath.segmentCount);
         const result = { ...r, toolpath: { ...r.toolpath, moveOrders } };
         setResult(result);
+        const target = useSlicerStore.getState().sliceTarget;
+        if (target) useSlicerStore.getState().setPlateResult(target, result);
         setLayers(r.layers);
         setMaxLayer(Math.max(0, r.layers - 1));
         const activeLayer = Math.max(0, r.layers - 1);
@@ -87,7 +105,7 @@ export function useSliceResult() {
       }
     })();
     return () => { cancelled = true; };
-  }, [resetPreviewState, setLayers, setMaxLayer, setLayer, setPreviewBounds, status]);
+  }, [currentPlateId, plateResults, resetPreviewState, setLayers, setMaxLayer, setLayer, setPreviewBounds, sliceTarget, status]);
 
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
     if (!result) return null;

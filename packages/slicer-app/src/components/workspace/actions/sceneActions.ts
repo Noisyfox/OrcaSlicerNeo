@@ -14,6 +14,7 @@ import type { SceneInteractionController } from '../viewport/SceneInteractionCon
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { applyPlateSessionTransforms } from './syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 
 export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
@@ -48,7 +49,9 @@ async function commitAdded(
   settings.setModelLoaded(true);
   useProjectStore.getState().setProject({ hasContent: true });
   if (r.plateSession) {
+    const previousPlateSession = usePlateSessionStore.getState().snapshot;
     usePlateSessionStore.getState().setSnapshot(r.plateSession);
+    applyPlateResultMutation(r.plateSession, previousPlateSession);
     useProjectStore.getState().recordPlateMutation(r.plateSession);
   }
   else useProjectStore.getState().markDirty('model-import');
@@ -173,7 +176,9 @@ export async function clearScene(
     settings.setModelLoaded(false);
     useProjectStore.getState().setProject({ hasContent: false });
     if (r.plateSession) {
+      const previousPlateSession = usePlateSessionStore.getState().snapshot;
       usePlateSessionStore.getState().setSnapshot(r.plateSession);
+      applyPlateResultMutation(r.plateSession, previousPlateSession);
       useProjectStore.getState().recordPlateMutation(r.plateSession);
     }
     else useProjectStore.getState().markDirty('model-clear');

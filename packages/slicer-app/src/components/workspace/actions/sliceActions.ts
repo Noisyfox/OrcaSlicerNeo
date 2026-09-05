@@ -6,6 +6,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { syncModelTransforms } from './syncModelTransforms';
+import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 
 /**
  * Run the shared slice flow. Toolbar buttons and menu commands must use this
@@ -23,6 +24,7 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     Object.entries(state.values).filter(([key]) => meta[key] !== undefined),
   );
   const setFailure = (message: string) => {
+    useSlicerStore.getState().setActiveSliceTarget(null);
     useSlicerStore.getState().setStatus('error');
     useSlicerStore.getState().setError(message);
   };
@@ -59,6 +61,10 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     setFailure(synced.error ?? 'model synchronization failed');
     return;
   }
+  if (synced.plateSession) {
+    applyPlateResultMutation(synced.plateSession);
+    usePlateSessionStore.getState().setSnapshot(synced.plateSession);
+  }
 
   const session = await platform.runtime.getPlateSessionSnapshot();
   if (!session.ok) { setFailure(session.error); return; }
@@ -73,8 +79,15 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
   }
   const target: PlateOperationTarget = { plateId: session.currentPlateId, inputRevision: revision as number };
 
+  const existing = useSlicerStore.getState().plateResults[target.plateId];
+  if (existing?.target.inputRevision === target.inputRevision) {
+    useSlicerStore.getState().activatePlateResult(target.plateId, target.inputRevision);
+    return;
+  }
+
   const slicer = useSlicerStore.getState();
   slicer.setStatus('slicing');
+  slicer.setActiveSliceTarget(target);
   slicer.setResultExported(false);
   slicer.setError(null);
   try {
@@ -91,9 +104,22 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     if (result.unrecognized_keys.length) {
       console.warn('unrecognized keys dropped by libslic3r:', result.unrecognized_keys);
     }
-    useSlicerStore.getState().setSliceTarget(target);
-    useSlicerStore.getState().setStatus('done');
+    // Read and retain the completed result while the worker still owns the
+    // corresponding native Print. The immutable target guards against a
+    // mutation/cancellation race; a late completion never becomes visible.
+    const live = useSlicerStore.getState();
+    if (!live.activeSliceTarget || live.activeSliceTarget.plateId !== target.plateId ||
+        live.activeSliceTarget.inputRevision !== target.inputRevision) return;
+    const preview = await platform.runtime.getSliceResult();
+    if (!preview.ok) { setFailure(preview.error ?? 'slice result unavailable'); return; }
+    const exported = await platform.runtime.exportGcodePlate(target);
+    if (!exported.ok) { setFailure(exported.error ?? 'slice G-code unavailable'); return; }
+    useSlicerStore.getState().setPlateResult(target, preview, exported.bytes);
+    useSlicerStore.getState().setActiveSliceTarget(null);
+    const current = usePlateSessionStore.getState().snapshot?.currentPlateId;
+    if (current === target.plateId) useSlicerStore.getState().activatePlateResult(target.plateId, target.inputRevision);
   } catch (err) {
+    useSlicerStore.getState().setActiveSliceTarget(null);
     setFailure(errorText(err));
     console.error('slice failed:', err);
   }
@@ -113,9 +139,15 @@ export async function exportGcode(platform: PlatformCapabilities): Promise<void>
     const target: PlateOperationTarget = { plateId: session.currentPlateId, inputRevision: Number(revision) };
     if (!currentTarget || currentTarget.plateId !== target.plateId || currentTarget.inputRevision !== target.inputRevision)
       throw new Error('current plate slice result is stale or unavailable');
-    const result = await platform.runtime.exportGcodePlate(target);
-    if (!result.ok) throw new Error(result.error ?? 'export failed');
-    await platform.exports.save('output.gcode', result.bytes);
+    const cached = useSlicerStore.getState().plateResults[target.plateId];
+    let bytes = cached?.target.inputRevision === target.inputRevision && cached.gcode ? cached.gcode : undefined;
+    if (!bytes) {
+      const fresh = await platform.runtime.exportGcodePlate(target);
+      if (!fresh.ok) throw new Error(fresh.error ?? 'export failed');
+      bytes = fresh.bytes;
+    }
+    if (!bytes) throw new Error('export failed');
+    await platform.exports.save('output.gcode', bytes);
     useSlicerStore.getState().setResultExported(true);
   } catch (err) {
     useSlicerStore.getState().setError(`export: ${errorText(err)}`);
