@@ -27,6 +27,23 @@
   in the first implementation. Batch "Slice all" and multi-plate export/send
   behaviour are deferred decisions.
 
+## Plate lifecycle and grid reflow
+
+- The first implementation exposes only **Add plate** and **Delete plate**.
+  Plate duplication, reordering, and renaming are deferred.
+- At least one plate always remains; the sole remaining plate cannot be
+  deleted.
+- Deleting a plate never deletes its model instances. Its instances move to
+  the final vacant grid position and retain their local coordinates relative
+  to their deleted plate. They are unprintable until a later editing operation
+  places them on a printable plate.
+- Deleting an intermediate plate compacts the following plates forward. Each
+  moved plate's instances move by the same world-space delta, preserving their
+  local coordinates relative to that plate.
+- Adding or deleting a plate may change the automatically calculated grid
+  dimensions. Whenever that reflow moves an existing plate, its instances move
+  with it and preserve their local coordinates.
+
 ## Architectural direction
 
 The implementation will mirror OrcaSlicer's state model without importing its
@@ -36,6 +53,6 @@ shared React layer renders the grid and controls. The existing platform
 contracts remain host-neutral.
 
 Further decisions are intentionally pending: membership calculation rules at
-plate boundaries, project-load/save fidelity, per-plate settings, plate
-creation/deletion/reordering, per-plate preview retention, and the detailed
+plate boundaries, project-load/save fidelity, per-plate settings, exact
+new-plate selection behaviour, per-plate preview retention, and the detailed
 bridge/client contract.
