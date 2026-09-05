@@ -29,3 +29,4 @@ opencode.jsonc
 .vscode/mcp.json
 # Added by code-review-graph
 .code-review-graph/
+.zvec-grep/
