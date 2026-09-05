@@ -161,6 +161,12 @@ An add/delete response atomically includes the session snapshot and every
 instance world transform changed by grid reflow; the frontend applies these
 returned transforms rather than calculating movement itself.
 
+To slice a plate, WASM derives a temporary model containing only that plate's
+instances and translated into the plate's local printer origin; slicing never
+mutates the global editing model. Exported G-code always uses this local machine
+coordinate system, so identical local placement on different plates produces
+identical printer coordinates and G-code.
+
 Within a running session, each plate has an immutable opaque `plateId`.
 Frontend selection, preview ownership, and slice jobs use this identity rather
 than the display index, which may change during compaction. Project 3MF remains
