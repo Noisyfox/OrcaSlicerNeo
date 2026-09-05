@@ -22,6 +22,9 @@
 - Object selection and editing remain global across the visible grid. Users may
   select objects or instances from different plates together and move, scale,
   rotate, or delete them in one operation.
+- Newly imported models start at the center of the current plate, including
+  `Plate 1`, and initially belong to that plate. They may overlap existing
+  objects there; automatic placement is deferred with automatic arrangement.
 - Plate membership is not an editing restriction. After each committed geometry
   or transform edit, the application recomputes each affected instance's plate
   membership from its resulting placement. An instance outside every printable
