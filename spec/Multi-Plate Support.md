@@ -178,30 +178,215 @@ IDs are created on load. A slice job records its target `plateId` and input
 revision, and its result is accepted only if both still match on completion;
 cancelled or stale completions are discarded.
 
-## Implementation plan
+## Execution protocol and quality gates
 
-1. **Plate-session foundation.** Introduce the headless WASM plate session,
-   stable session IDs, native grid calculations, membership/printability
-   recalculation, and typed `PlateSessionSnapshot` bridge/client contracts.
-   Cover add/delete, reflow transforms, selection, empty plates, and the
-   36-plate limit with focused unit tests.
-2. **Project persistence.** Replace the single synthesized `PlateData` with
-   full plate import/export, opaque metadata retention, legacy fallback,
-   normalization, and safe over-limit rejection. Verify save/load through both
-   WASM variants.
-3. **Shared workspace UI.** Render the full grid in the shared React app;
-   add plate controls, current-plate affordances, object-list projection, and
-   transform synchronization. Exercise these shared behaviours in unit tests
-   and both host end-to-end suites.
-4. **Per-plate slicing and preview.** Build local temporary slice models,
-   bind jobs and results to `plateId`/revision, enforce invalidation and
-   cancellation, then swap the current plate's retained result into the one
-   GPU preview. Confirm current-only slice/export/send behaviour.
-5. **Manual interoperability suite.** Add the checksum-pinned native fixture
-   and the native-parser verifier described below. Keep the suite opt-in under
-   the execution policy in this specification.
+The following is an executable plan, but does not itself authorize product-code
+implementation. Every numbered step is a strict gate.
 
-Each implementation step is independently testable and committed separately.
+1. Begin at the preceding accepted commit on `dev/multi-plate-spec` (or its
+   implementation successor). Preserve the pre-existing dirty
+   `packages/slicer-wasm/cpp` submodule; it is never part of a step commit.
+2. Start a **new** `gpt-5.6-luna` sub-agent with **high** reasoning effort for
+   that one step. Its prompt includes this specification, the exact scope,
+   exclusions, and acceptance commands. Never reuse an agent on a later step.
+3. The agent implements only that step, adds/updates its required tests, runs
+   all listed commands successfully, reports their actual output, and makes
+   one focused commit. A failure is fixed and re-tested by the same agent;
+   unsupported claims of verification do not pass the gate.
+4. I independently inspect the committed diff and rerun every acceptance
+   command listed for the step. I must confirm the functional boundary, the
+   normal single-plate flow, and a clean in-scope worktree before explicitly
+   accepting it. Only then may the next step receive a fresh agent.
+5. If my acceptance fails, the same agent remediates the current step and
+   repeats self-verification. No future step runs early or in parallel.
+
+Every implementation and acceptance run includes `pnpm test` and
+`pnpm typecheck`. A change to the bridge, C++, WASM client, or staged WASM
+artifact also runs `scripts\\build-windows.bat quick` and the stated serial and
+threaded harnesses. A shared UI or host-flow change also runs
+`pnpm --filter @orca/desktop test:e2e`,
+`pnpm --filter @orca/web test:e2e:threaded`, and
+`pnpm --filter @orca/web test:e2e:serial`. A command that cannot run fails the
+gate unless the user explicitly changes it.
+
+## Detailed implementation plan
+
+### Step 1 — Plate-session contract and deterministic layout
+
+**Implement.** Add a headless WASM-owned session around the global editing
+model: default `Plate 1`, immutable runtime `plateId`, current plate,
+native-compatible grid origins/display indices, and typed
+`PlateSessionSnapshot` read/reset/select bridge-client-runtime contracts.
+React receives the snapshot but renders no new plate UI yet.
+
+**Do not implement.** Add/delete, membership, 3MF format, model transforms,
+visible multi-bed UI, or slice results.
+
+**Accept when.** Fresh, cleared, and legacy-loaded projects each expose one
+current plate; reads are deterministic; reset/load creates new runtime IDs;
+malformed calls fail without mutating state; existing single-plate calls stay
+compatible.
+
+**Evidence.** Focused bridge/client/runtime tests plus
+`project-roundtrip.mjs` against `out/serial` and `out/threaded` after the quick
+WASM build.
+
+### Step 2 — Authoritative membership and plate lifecycle
+
+**Implement.** Add native convex-hull AABB membership with lowest-index tie
+breaking and independent out-of-bounds validity. Add/select/delete/recompute
+commands return one atomic snapshot and all reflowed instance transforms.
+Implement the 36-plate ceiling, sole-plate guard, new-plate selection,
+empty-plate retention, deletion selection, deleted-instance parking, and grid
+reflow rules.
+
+**Do not implement.** React controls, object-list grouping, 3MF persistence,
+slice jobs, or automatic arrangement.
+
+**Accept when.** Tests demonstrate overlap ties, unprintable and out-of-bounds
+states, local-coordinate preservation during add/delete/reflow, specified
+current selection after deleting current/non-current plates, and atomic
+rejection of the 37th add or sole-plate deletion.
+
+**Evidence.** Deterministic session tests and a direct bridge harness covering
+all mutations in both WASM variants; existing single-plate slice harnesses
+remain green.
+
+### Step 3 — Editing integration, dirty state, and invalidation inputs
+
+**Implement.** Route model creation/import, deletion, and committed
+move/scale/rotate through membership recomputation. New models use the current
+plate's local center and may overlap. Apply bridge-returned transforms without
+restricting global selection. Track per-plate input revisions, before/after
+affected plates, and dirty reasons; current-plate selection stays clean.
+
+**Do not implement.** Visible multi-plate controls/list groups, persistence,
+actual result storage, undo/redo, or auto-arrange.
+
+**Accept when.** One edit can act on selections across plates; membership is
+recomputed only after commit; affected plates are exactly those holding an
+instance before or after the edit; unrelated plates remain unaffected; only
+specified structural/model/configuration operations mark the project dirty.
+
+**Evidence.** Store/action and transform-sync tests, mock-client tests, a
+real-WASM focused harness, and existing save-prompt coverage.
+
+### Step 4 — Native-compatible 3MF persistence
+
+**Implement.** Replace synthesized single `PlateData` save output with all
+native-format plate records. Round-trip `plate_index`, layout/membership,
+names, locks, settings slots, and unsupported per-plate metadata opaquely. On
+load normalize invalid index sequences by record order, re-create runtime IDs,
+recompute membership, clear results, fall back to one legacy plate, and reject
+over-36 input before session mutation.
+
+**Do not implement.** G-code/preview persistence, per-plate settings UI/effect,
+or the native fixture suite.
+
+**Accept when.** Canonical Neo save/load preserves order, local coordinates,
+membership, names, locks and opaque fields; no-metadata 3MF becomes `Plate 1`;
+bad ordering normalizes; 37 plates fails clearly without altering prior state;
+reload is unsliced with first plate current.
+
+**Evidence.** Extend `project-roundtrip.mjs` and
+`project-compatibility.mjs` with generated cases, run both variants, and add
+client/runtime safe-failure tests.
+
+### Step 5 — Prepare grid and plate controls
+
+**Implement.** Render all authoritative beds in the shared Prepare viewport
+with current and out-of-bounds state. Add Add/Delete plate controls and their
+availability rules. Empty-bed click selects its plate; add/delete use the
+session result; every selection/reflow retains the camera viewport.
+
+**Do not implement.** Object-list changes, model-click plate switching,
+cross-plate edit restrictions, or Preview behaviour.
+
+**Accept when.** Electron and Web show the same grid through 36 plates;
+controls enforce limits; empty-bed click switches current, non-current model
+click does not, and camera state stays unchanged. The UI never calculates
+layout or instance offsets itself.
+
+**Evidence.** Viewport/component tests and Electron, threaded-Web, and
+serial-Web Playwright flows for add, intermediate delete/reflow, selection,
+and camera preservation.
+
+### Step 6 — Object list and global editing UI
+
+**Implement.** Project snapshots into plate groups and Unprintable; list a
+multi-instance model only under its first instance's group. Wire import,
+transform, and delete UI to Step 3's global commands and show validity state.
+List selection keeps the current plate.
+
+**Do not implement.** Auto-arrange, per-plate settings UI, rename/reorder/
+duplicate, or active lock behaviour.
+
+**Accept when.** Cross-plate objects can be edited/deleted together; a commit
+updates groups and beds from the returned snapshot; list clicks do not switch
+current; empty plates persist; deleted-plate instances appear Unprintable at
+the prescribed parked coordinates.
+
+**Evidence.** Object-list projection/action and shared UI tests, followed by
+all three host flows for global edits and list/current independence.
+
+### Step 7 — Current-plate local slice, export, and send
+
+**Implement.** Derive an isolated local model containing only current-plate
+members translated to that plate's printer origin. Bind start data to
+`plateId`/revision and use it for slice/export/send. Gate those actions on a
+non-empty, fully printable current plate.
+
+**Do not implement.** Slice queue/result cache, Preview auto-reslice, per-plate
+settings, or batch slice/export/send.
+
+**Accept when.** G-code excludes other plates; equivalent local geometry on
+different plates yields equivalent local G-code; empty/invalid plates cannot
+act; temporary slicing never mutates the global editing model; public actions
+reject a non-current target.
+
+**Evidence.** Serial/threaded real-WASM multi-plate harnesses, action/
+coordinator tests, and all three host flows for guards and export.
+
+### Step 8 — Results, Preview, job lifecycle, and global invalidation
+
+**Implement.** Own results by plate for the session, with one active job.
+Accept completion only when `plateId` and revision still match; discard stale
+or cancelled output. Invalidate before/after affected plates, cancel only an
+affected active job, preserve unaffected results through reflow, discard a
+deleted plate result, and load GPU toolpaths only for the current plate.
+Implement Orca Preview switching and all-plate invalidation/reflow for shared
+configuration or printer/build-volume changes.
+
+**Do not implement.** Parallel/batch slices, result persistence across reopen,
+inactive GPU caches, per-plate configuration UI, or active lock semantics.
+
+**Accept when.** Unchanged results restore without reslice; a valid unsliced
+Preview target slices; empty/invalid Preview remains unavailable; unrelated
+edits do not interrupt a job; affected edits cancel and suppress late output;
+reflow preserves surviving results; config/printer changes invalidate all;
+only one GPU toolpath is live; reopen has none.
+
+**Evidence.** Deterministic fake-worker race tests, result/preview component
+tests, real-WASM serial/threaded checks, and all three host flows for
+switching, cancellation, invalidation, and restoration.
+
+### Step 9 — Opt-in native interoperability suite
+
+**Implement.** Add a checksum-pinned native OrcaSlicer multi-plate fixture,
+canonical-state comparison, pinned native 3MF parser verifier for Neo output,
+and documented manual acquisition/run commands for both production variants.
+
+**Do not implement.** Inclusion in `pnpm test`, PR/nightly/release automation,
+or product behaviour changes.
+
+**Accept when.** The manual command passes a pinned native fixture and detects
+controlled differences in order, membership, local coordinates, names, locks,
+opaque data, legacy fallback, over-limit rejection, omitted derived artifacts,
+and fixture checksum tampering.
+
+**Evidence.** The agent and parent each run the opt-in suite in both variants,
+including one controlled negative checksum/fixture case. Normal test scripts
+remain unchanged.
 
 ## Compatibility verification
 
@@ -217,5 +402,5 @@ Each implementation step is independently testable and committed separately.
   gates at this stage. It remains an explicit manual verification tool until a
   later decision schedules it.
 
-Further decisions are intentionally pending: membership calculation rules at
-plate boundaries and the detailed bridge/client contract.
+The detailed wire format remains an implementation detail, but it must satisfy
+the Step 1 snapshot contract and every later acceptance boundary above.
