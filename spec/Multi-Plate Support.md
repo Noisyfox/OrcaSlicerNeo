@@ -94,6 +94,9 @@
   is shown immediately; an unsliced but valid target starts slicing
   automatically; and an empty or invalid target remains in Preview with its
   unavailable state shown rather than returning to Prepare.
+- Each plate retains its own slice result for the lifetime of the session, but
+  the renderer loads GPU toolpaths for only the current plate. Switching plate
+  replaces that one active GPU preview from the target's retained result.
 - The first implementation uses one shared printing configuration for every
   plate. Per-plate configuration controls are explicitly out of scope.
 - Changing the shared configuration invalidates every plate's slice result.
