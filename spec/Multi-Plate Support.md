@@ -1,6 +1,6 @@
 # Multi-Plate Support
 
-**Status:** Draft — interaction model accepted; implementation and persistence details remain under review
+**Status:** Approved design — implementation not started
 
 **Date:** 2026-09-05
 
@@ -177,6 +177,31 @@ native-compatible and persists plate order with `plate_index`; fresh internal
 IDs are created on load. A slice job records its target `plateId` and input
 revision, and its result is accepted only if both still match on completion;
 cancelled or stale completions are discarded.
+
+## Implementation plan
+
+1. **Plate-session foundation.** Introduce the headless WASM plate session,
+   stable session IDs, native grid calculations, membership/printability
+   recalculation, and typed `PlateSessionSnapshot` bridge/client contracts.
+   Cover add/delete, reflow transforms, selection, empty plates, and the
+   36-plate limit with focused unit tests.
+2. **Project persistence.** Replace the single synthesized `PlateData` with
+   full plate import/export, opaque metadata retention, legacy fallback,
+   normalization, and safe over-limit rejection. Verify save/load through both
+   WASM variants.
+3. **Shared workspace UI.** Render the full grid in the shared React app;
+   add plate controls, current-plate affordances, object-list projection, and
+   transform synchronization. Exercise these shared behaviours in unit tests
+   and both host end-to-end suites.
+4. **Per-plate slicing and preview.** Build local temporary slice models,
+   bind jobs and results to `plateId`/revision, enforce invalidation and
+   cancellation, then swap the current plate's retained result into the one
+   GPU preview. Confirm current-only slice/export/send behaviour.
+5. **Manual interoperability suite.** Add the checksum-pinned native fixture
+   and the native-parser verifier described below. Keep the suite opt-in under
+   the execution policy in this specification.
+
+Each implementation step is independently testable and committed separately.
 
 ## Compatibility verification
 
