@@ -69,6 +69,12 @@
 - The plate-session data model and bridge contract must nevertheless reserve a
   per-plate settings/override slot, so a later release can add Orca-compatible
   per-plate configuration without changing plate identity or result ownership.
+- Per-plate configuration overrides imported from a native OrcaSlicer project
+  are retained as opaque metadata and written back unchanged. They have no UI
+  and do not affect first-release slicing, which uses the shared configuration.
+- Plate lock state imported from native OrcaSlicer is likewise retained and
+  written back unchanged. It has no first-release UI or behaviour because its
+  native purpose is to constrain automatic rearrangement, which is deferred.
 
 ## Project persistence
 
