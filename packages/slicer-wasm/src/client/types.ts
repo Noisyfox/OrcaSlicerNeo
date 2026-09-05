@@ -624,6 +624,8 @@ export interface SlicerClient {
   addPlate(): Promise<PlateSessionMutationResult>;
   deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;
+  /** Advance every existing plate for a committed shared configuration edit. */
+  markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
   getPresetSnapshot(): Promise<PresetSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;

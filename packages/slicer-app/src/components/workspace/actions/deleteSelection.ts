@@ -86,7 +86,8 @@ export async function deleteSelection(
       useProjectStore.getState().setProject({ hasContent: false });
     }
     else settings.refreshModel();
-    useProjectStore.getState().markDirty('model-delete');
+    if (result.plateSession) useProjectStore.getState().recordPlateMutation(result.plateSession);
+    else useProjectStore.getState().markDirty('model-delete');
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

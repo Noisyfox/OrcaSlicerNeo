@@ -94,6 +94,13 @@ check('membership and out-of-bounds are independent', membership.instances?.find
 check('moving from unprintable increments destination revision only', membership.affected_plate_ids_before?.length === 0 &&
   membership.affected_plate_ids_after?.length === 1 && membership.affected_plate_ids_after[0] === session.plates[1].plate_id &&
   membership.input_revisions?.[session.plates[1].plate_id] === 3, JSON.stringify(membership));
+const revisionsBeforeConfiguration = { ...(membership.input_revisions ?? {}) };
+const configuration = callJson('orc_mark_shared_configuration_mutation');
+check('shared configuration affects every existing plate', configuration.dirty_reasons?.includes('shared-configuration') &&
+  configuration.affected_plate_ids_before?.length === session.plates.length &&
+  configuration.affected_plate_ids_after?.length === session.plates.length &&
+  session.plates.every((plate) => configuration.input_revisions?.[plate.plate_id] ===
+    (revisionsBeforeConfiguration[plate.plate_id] ?? 0) + 1), JSON.stringify(configuration));
 
 const beforeDelete = callJson('orc_get_plate_session_snapshot');
 const currentId = beforeDelete.current_plate_id;

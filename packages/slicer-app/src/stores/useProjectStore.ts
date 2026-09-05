@@ -60,6 +60,8 @@ export interface ProjectSessionState {
   operation: ProjectOperation;
   setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'scope' | 'systemPresets' | 'projectPresets' | 'flattenedMultiPlate' | 'notices'>>) => void;
   markDirty: (reason?: ProjectDirtyReason) => void;
+  /** Advance every known plate input for one shared configuration commit. */
+  recordSharedConfigurationMutation: () => void;
   recordPlateMutation: (mutation: {
     inputRevisions?: Readonly<Record<string, number>>;
     dirtyReasons?: readonly string[];
@@ -74,7 +76,7 @@ export const DEFAULT_PROJECT_PRESETS: ProjectPresetSelections = {
   printer: '', print: '', filament: '',
 };
 
-const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
+const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' | 'recordSharedConfigurationMutation' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
   projectName: 'Untitled',
   location: undefined,
   hasContent: false,
@@ -95,6 +97,15 @@ export const useProjectStore = create<ProjectSessionState>((set) => ({
   markDirty: (reason) => set((state) => ({
     dirty: true,
     ...(reason && !state.dirtyReasons.includes(reason) ? { dirtyReasons: [...state.dirtyReasons, reason] } : {}),
+  })),
+  recordSharedConfigurationMutation: () => set((state) => ({
+    dirty: true,
+    dirtyReasons: state.dirtyReasons.includes('shared-configuration')
+      ? state.dirtyReasons
+      : [...state.dirtyReasons, 'shared-configuration'],
+    plateInputRevisions: Object.fromEntries(
+      Object.entries(state.plateInputRevisions).map(([plateId, revision]) => [plateId, revision + 1]),
+    ),
   })),
   recordPlateMutation: (mutation) => set((state) => {
     const reasons = mutation.dirtyReasons ?? [];

@@ -34,7 +34,8 @@ export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<S
       slicer.setError(null);
       slicer.setLayers(0);
       slicer.setProgress(0);
-      useProjectStore.getState().markDirty('model-transform');
+      if (result.plateSession) useProjectStore.getState().recordPlateMutation(result.plateSession);
+      else useProjectStore.getState().markDirty('model-transform');
     }
     return result;
   });

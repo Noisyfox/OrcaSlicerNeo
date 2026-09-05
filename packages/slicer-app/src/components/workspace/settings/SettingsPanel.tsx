@@ -12,6 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
+import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
+import { glVolumeCollection } from '../viewport/GLVolume';
 import {
   Combobox,
   ComboboxContent,
@@ -64,6 +66,16 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
     try {
       const r = await platform.runtime.selectPreset(kind, name);
       if (!r.ok) throw new Error(r.error ?? 'selectPreset failed');
+      // Preset selection changes the shared slice input for every plate. The
+      // bridge owns the complete plate set and advances all revisions in one
+      // typed transaction; test-only/minimal adapters may use the store
+      // fallback, which advances the revisions already known to the app.
+      const markConfiguration = platform.runtime.markSharedConfigurationMutation;
+      const mutation = typeof markConfiguration === 'function'
+        ? await markConfiguration.call(platform.runtime)
+        : undefined;
+      if (mutation && !mutation.ok) throw new Error(mutation.error ?? 'configuration mutation failed');
+      if (mutation) applyPlateSessionTransforms(mutation, glVolumeCollection.volumes);
       // The bridge's arrays are already the complete picker-ready candidate
       // sets, in engine order. Replace every picker and resolved name together
       // rather than composing a selection with independently fetched lists.
@@ -79,7 +91,8 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
           printer: r.printer.name, print: r.print.name, filament: r.filament.name,
         } }),
       });
-      project.markDirty('shared-configuration');
+      if (mutation) project.recordPlateMutation(mutation);
+      else project.recordSharedConfigurationMutation();
 
       // Persistence failure is non-fatal: the engine-resolved snapshot remains
       // the active session state even when the next-launch preference cannot

@@ -90,6 +90,22 @@ describe('SlicerClient bridge contract', () => {
     expect(after.plates[0]?.plateId).toBe(before.plates[0]?.plateId);
   });
 
+  it('returns an all-plate transaction for shared configuration changes', async () => {
+    const c = makeClient();
+    await c.addPlate();
+    const before = await c.getPlateSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const changed = await c.markSharedConfigurationMutation();
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) throw new Error(changed.error);
+    expect(changed.dirtyReasons).toEqual(['shared-configuration']);
+    expect(changed.affectedPlateIdsBefore).toEqual(before.plates.map((plate) => plate.plateId));
+    expect(changed.affectedPlateIdsAfter).toEqual(before.plates.map((plate) => plate.plateId));
+    for (const plate of before.plates) {
+      expect(changed.inputRevisions?.[plate.plateId]).toBe((before.inputRevisions?.[plate.plateId] ?? 0) + 1);
+    }
+  });
+
   it('refreshes the runtime plate identity when clearing or loading a project', async () => {
     const c = makeClient();
     const initial = await c.getPlateSessionSnapshot();

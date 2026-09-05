@@ -264,6 +264,11 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_recompute_plate_membership', [], []));
     },
 
+    async markSharedConfigurationMutation(): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_mark_shared_configuration_mutation', [], []));
+    },
+
     async getPresetSnapshot(): Promise<PresetSnapshotResult> {
       const m = await module();
       return callJson(m, 'orc_get_preset_snapshot', [], []) as PresetSnapshotResult;

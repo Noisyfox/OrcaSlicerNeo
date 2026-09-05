@@ -548,6 +548,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_recompute_plate_membership() {
       return plateSessionSnapshot(true);
     },
+    orc_mark_shared_configuration_mutation() {
+      const affected = [...plateIds];
+      for (const id of affected) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
+      const result = plateSessionSnapshot(true) as Record<string, unknown>;
+      result.affected_plate_ids_before = affected;
+      result.affected_plate_ids_after = affected;
+      result.affected_plate_ids = affected;
+      result.dirty_reasons = ['shared-configuration'];
+      return result;
+    },
     orc_get_preset_snapshot() {
       return snapshot();
     },
@@ -624,7 +634,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
-        ...(geometryOnly ? { plate_session: plateMutation('model-import') } : {}),
+        plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(true),
       };
     },
     orc_import_project_geometry(_ptr: number, len: number, displayName: string) {
@@ -1243,6 +1253,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_add_plate: { ret: 'number', args: [] },
     orc_delete_plate: { ret: 'number', args: ['string'] },
     orc_recompute_plate_membership: { ret: 'number', args: [] },
+    orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },
     orc_clone_objects: { ret: 'number', args: ['string'] },

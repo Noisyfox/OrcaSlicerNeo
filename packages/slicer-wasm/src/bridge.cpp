@@ -438,6 +438,13 @@ std::set<std::string> member_plate_ids()
     return ids;
 }
 
+std::set<std::string> all_plate_ids()
+{
+    std::set<std::string> ids;
+    for (const auto& plate : state().plate_session_plates) ids.insert(plate.id);
+    return ids;
+}
+
 std::set<std::string> member_plate_ids_for_instances(const std::set<std::size_t>& instance_ids)
 {
     std::set<std::string> ids;
@@ -489,6 +496,24 @@ json plate_mutation_snapshot(const std::set<std::string>& before,
     // A completed transaction consumes any deferred transform markers. This
     // is important when a structural command (for example Add plate) follows
     // a transform write before the normal recompute call.
+    state().pending_membership_instance_ids.clear();
+    return result;
+}
+
+// Shared printer/process/filament configuration affects every existing plate,
+// including empty plates. Keep this transaction in the bridge so the complete
+// plate set and its revisions remain authoritative rather than relying on a
+// renderer-side list that may be stale.
+json shared_configuration_mutation_snapshot()
+{
+    const auto affected = all_plate_ids();
+    for (const auto& id : affected) ++state().plate_input_revisions[id];
+    json result = plate_session_snapshot_json();
+    result["input_revisions"] = plate_revisions_json();
+    result["affected_plate_ids_before"] = plate_id_array(affected);
+    result["affected_plate_ids_after"] = plate_id_array(affected);
+    result["affected_plate_ids"] = plate_id_array(affected);
+    result["dirty_reasons"] = {"shared-configuration"};
     state().pending_membership_instance_ids.clear();
     return result;
 }
@@ -1363,6 +1388,17 @@ EMSCRIPTEN_KEEPALIVE const char* orc_recompute_plate_membership() {
                                                        json::array(), &affected_instances);
         state().pending_membership_instance_ids.clear();
         return dup_json(mutation.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_mark_shared_configuration_mutation() {
+    try {
+        ensure_plate_session_state();
+        return dup_json(shared_configuration_mutation_snapshot().dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
