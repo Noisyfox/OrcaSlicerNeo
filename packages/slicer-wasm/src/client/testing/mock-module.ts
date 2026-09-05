@@ -545,6 +545,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // regressions. DRC alone models its upstream filename behaviour.
       appendMockObject(ext.toLowerCase() === 'drc' && displayName
         ? displayName : undefined);
+      // Model imports belong to the current plate; they do not recreate the
+      // runtime plate session or change its current identity.
       return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
     },
     orc_load_project(_ptr: number, len: number, geometryOnly: number, displayName: string) {

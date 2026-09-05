@@ -163,6 +163,12 @@ const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
                         [dataPtr, stl.length, 'stl']);
 Module._free(dataPtr);
 check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringify(loaded));
+const plateAfterModel = callJson('orc_get_plate_session_snapshot', [], []);
+check('adding a model preserves the current plate identity',
+      plateAfterModel.ok === true &&
+      plateAfterModel.current_plate_id === plateReset.current_plate_id &&
+      plateAfterModel.plates?.[0]?.plate_id === plateReset.plates?.[0]?.plate_id,
+      JSON.stringify(plateAfterModel));
 
 // 4b. load-time centering (OrcaSlicer Plater behavior, replicated in the
 // bridge because the GUI is not compiled into the WASM build): non-project

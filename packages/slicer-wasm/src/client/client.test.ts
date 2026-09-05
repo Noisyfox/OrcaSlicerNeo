@@ -41,6 +41,20 @@ describe('SlicerClient bridge contract', () => {
     expect(await c.getPlateSessionSnapshot()).toEqual(reset);
   });
 
+  it('keeps the current plate identity when adding a model', async () => {
+    const c = makeClient();
+    const before = await c.getPlateSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+
+    const added = await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
+    expect(added.ok).toBe(true);
+
+    const after = await c.getPlateSessionSnapshot();
+    if (!after.ok) throw new Error(after.error);
+    expect(after.currentPlateId).toBe(before.currentPlateId);
+    expect(after.plates[0]?.plateId).toBe(before.plates[0]?.plateId);
+  });
+
   it('refreshes the runtime plate identity when clearing or loading a project', async () => {
     const c = makeClient();
     const initial = await c.getPlateSessionSnapshot();
@@ -49,11 +63,13 @@ describe('SlicerClient bridge contract', () => {
     const afterClear = await c.getPlateSessionSnapshot();
     if (!afterClear.ok) throw new Error(afterClear.error);
     expect(afterClear.currentPlateId).not.toBe(initial.currentPlateId);
+    expect(afterClear.plates[0]?.plateId).toBe(afterClear.currentPlateId);
     await c.loadProject(new Uint8Array([1]), 'project', 'legacy.3mf');
     const afterLoad = await c.getPlateSessionSnapshot();
     if (!afterLoad.ok) throw new Error(afterLoad.error);
     expect(afterLoad.currentPlateId).not.toBe(afterClear.currentPlateId);
     expect(afterLoad.plates).toHaveLength(1);
+    expect(afterLoad.plates[0]?.plateId).toBe(afterLoad.currentPlateId);
   });
 
   it('getPresetSnapshot returns the coherent strict-hide picker state', async () => {
