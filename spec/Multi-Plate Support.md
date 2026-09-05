@@ -63,6 +63,16 @@
   per-plate settings/override slot, so a later release can add Orca-compatible
   per-plate configuration without changing plate identity or result ownership.
 
+## Project persistence
+
+- Project 3MF files must persist and restore the complete multi-plate model:
+  plate count, layout, instance membership, and the information needed to
+  reconstruct every plate's editing state.
+- The project file does not embed per-plate G-code or preview data. Those
+  derived slice artifacts remain session-only data.
+- On project reload, every plate is treated as unsliced. A user must slice the
+  selected plate again before preview, export, or send-to-printer is available.
+
 ## Architectural direction
 
 The implementation will mirror OrcaSlicer's state model without importing its
@@ -72,5 +82,5 @@ shared React layer renders the grid and controls. The existing platform
 contracts remain host-neutral.
 
 Further decisions are intentionally pending: membership calculation rules at
-plate boundaries, project-load/save fidelity, and the detailed bridge/client
-contract.
+plate boundaries, compatibility behaviour for imported project files, and the
+detailed bridge/client contract.
