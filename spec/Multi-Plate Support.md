@@ -46,6 +46,9 @@
   deleted.
 - Plate add/delete does not introduce a separate undo/redo facility in the
   first release. Deletion proceeds without a confirmation dialog.
+- Removing every object from a plate leaves that plate in place; only an
+  explicit Delete plate action removes it. An empty current plate cannot be
+  sliced, exported, or sent.
 - Deleting the current plate selects the plate that compacts into its former
   position; when the deleted plate was last, the preceding plate becomes
   current. Deleting a non-current plate preserves the current plate's identity,
