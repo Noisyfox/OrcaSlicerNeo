@@ -84,6 +84,10 @@
 - If an edit affects the plate currently being sliced, that job is cancelled
   immediately and the plate becomes unsliced. An edit to another plate does
   not interrupt the running job.
+- Preview-mode plate switching follows native OrcaSlicer. A valid target result
+  is shown immediately; an unsliced but valid target starts slicing
+  automatically; and an empty or invalid target remains in Preview with its
+  unavailable state shown rather than returning to Prepare.
 - The first implementation uses one shared printing configuration for every
   plate. Per-plate configuration controls are explicitly out of scope.
 - Changing the shared configuration invalidates every plate's slice result.
