@@ -14,6 +14,9 @@
   OrcaSlicer's product/UI limit.
 - One plate is the current plate. Selecting a plate through plate UI changes
   the current plate and supplies the context for plate-scoped operations.
+- Clicking a non-current plate's empty bed selects it. Switching plates keeps
+  the current camera position and zoom; it does not automatically frame the
+  selected plate.
 - Clicking a model on a non-current plate does **not** automatically select
   that plate.
 - Object selection and editing remain global across the visible grid. Users may
@@ -41,6 +44,8 @@
 - Adding a plate automatically makes that new plate the current plate.
 - At least one plate always remains; the sole remaining plate cannot be
   deleted.
+- Plate add/delete does not introduce a separate undo/redo facility in the
+  first release. Deletion proceeds without a confirmation dialog.
 - Deleting the current plate selects the plate that compacts into its former
   position; when the deleted plate was last, the preceding plate becomes
   current. Deleting a non-current plate preserves the current plate's identity,
