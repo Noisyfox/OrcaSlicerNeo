@@ -235,6 +235,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
       return false;
     }
     setPlateSnapshot(result);
+    const sliceTarget = useSlicerStore.getState().sliceTarget;
+    if (sliceTarget && sliceTarget.plateId !== result.currentPlateId)
+      useSlicerStore.getState().invalidateSliceResult();
     if (result.instanceTransforms) {
       applyPlateSessionTransforms({ instanceTransforms: result.instanceTransforms }, glVolumeCollection.volumes);
     }

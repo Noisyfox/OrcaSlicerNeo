@@ -1,6 +1,8 @@
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
+import type { PlateOperationTarget } from '@slicer/client';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { syncModelTransforms } from './syncModelTransforms';
@@ -58,12 +60,26 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     return;
   }
 
+  const session = await platform.runtime.getPlateSessionSnapshot();
+  if (!session.ok) { setFailure(session.error); return; }
+  usePlateSessionStore.getState().setSnapshot(session);
+  const current = session.plates.find((plate) => plate.plateId === session.currentPlateId);
+  const revision = session.inputRevisions?.[session.currentPlateId];
+  const membershipKnown = current?.instanceIds !== undefined || session.instances !== undefined;
+  if (!current || current.valid === false || (membershipKnown && !(current.instanceIds?.length)) ||
+      !Number.isSafeInteger(revision)) {
+    setFailure(current?.valid === false ? 'current plate contains an out-of-bounds instance' : 'current plate is empty');
+    return;
+  }
+  const target: PlateOperationTarget = { plateId: session.currentPlateId, inputRevision: revision as number };
+
   const slicer = useSlicerStore.getState();
   slicer.setStatus('slicing');
   slicer.setResultExported(false);
   slicer.setError(null);
   try {
-    const result = await platform.runtime.slice(
+    const result = await platform.runtime.slicePlate(
+      target,
       values,
       (pct) => useSlicerStore.getState().setProgress(pct),
     );
@@ -75,6 +91,7 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     if (result.unrecognized_keys.length) {
       console.warn('unrecognized keys dropped by libslic3r:', result.unrecognized_keys);
     }
+    useSlicerStore.getState().setSliceTarget(target);
     useSlicerStore.getState().setStatus('done');
   } catch (err) {
     setFailure(errorText(err));
@@ -89,7 +106,14 @@ export async function exportGcode(platform: PlatformCapabilities): Promise<void>
   if (exportInFlight) return;
   exportInFlight = true;
   try {
-    const result = await platform.runtime.exportGcode();
+    const session = await platform.runtime.getPlateSessionSnapshot();
+    if (!session.ok) throw new Error(session.error);
+    const currentTarget = useSlicerStore.getState().sliceTarget;
+    const revision = session.inputRevisions?.[session.currentPlateId];
+    const target: PlateOperationTarget = { plateId: session.currentPlateId, inputRevision: Number(revision) };
+    if (!currentTarget || currentTarget.plateId !== target.plateId || currentTarget.inputRevision !== target.inputRevision)
+      throw new Error('current plate slice result is stale or unavailable');
+    const result = await platform.runtime.exportGcodePlate(target);
     if (!result.ok) throw new Error(result.error ?? 'export failed');
     await platform.exports.save('output.gcode', result.bytes);
     useSlicerStore.getState().setResultExported(true);

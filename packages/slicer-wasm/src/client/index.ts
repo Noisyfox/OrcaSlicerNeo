@@ -15,7 +15,7 @@ export type {
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
   ModelInstanceStructure, VolumeType,
-  SliceResultStatus, ClientSliceResult, ClientToolpath,
+  SliceResultStatus, PlateOperationTarget, ClientSliceResult, ClientToolpath,
   ToolpathFeature, PreviewLayerRange, PreviewPaletteEntry, PreviewMetadata,
   PreviewToolpathMetrics, PreviewMetricKey, PreviewMetricRange,
   PreviewAnalysisSummary, PreviewFeatureStatistics, PreviewAnalysis,

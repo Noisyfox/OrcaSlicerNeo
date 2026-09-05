@@ -280,6 +280,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
   let sliced = false;
+  let slicedPlateId = '';
+  let slicedPlateRevision = 0;
   let plateSessionSequence = 0;
   let plateSessionId = '';
   let plateIds: string[] = [];
@@ -354,6 +356,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     Atomics.store(mailboxWords, 1, percent);
     Atomics.store(mailboxWords, 2, bytes.length);
     Atomics.add(mailboxWords, 0, 1);
+  }
+
+  function runMockSlice(plateId: string, revision: number): unknown {
+    if (!modelLoaded) return { error: 'no model loaded' };
+    if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
+    if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
+    for (let pct = 0; pct <= 100; pct += 25) {
+      if (opts.threaded) {
+        publishMailboxProgress(pct, `slice ${pct}%`);
+        continue;
+      }
+      if (!progressCallback) continue;
+      const bytes = new TextEncoder().encode(`slice ${pct}%`);
+      const tp = malloc(bytes.length + 1);
+      HEAPU8.set(bytes, tp);
+      functionTable.get(progressCallback)?.(pct, tp);
+    }
+    sliced = true;
+    slicedPlateId = plateId;
+    slicedPlateRevision = revision;
+    return { ok: true, unrecognized_keys: [] };
   }
 
   // Serialize the current structure in the bridge's object/part/instance shape.
@@ -1063,23 +1086,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { ok: true, byte_offset: mailboxOffset, text_capacity: mailboxText.length };
     },
     orc_slice(_config: string) {
-      if (!modelLoaded) return { error: 'no model loaded' };
-      // Drive progress 0..100 synchronously, exactly like the real bridge:
-      // the callback's second arg is a const char* (malloc'd C string ptr),
-      // matching the client's 'vij' wrapper which UTF8ToString()s it.
-      for (let pct = 0; pct <= 100; pct += 25) {
-        if (opts.threaded) {
-          publishMailboxProgress(pct, `slice ${pct}%`);
-          continue;
-        }
-        if (!progressCallback) continue;
-        const bytes = new TextEncoder().encode(`slice ${pct}%`);
-        const tp = malloc(bytes.length + 1);
-        HEAPU8.set(bytes, tp);
-        functionTable.get(progressCallback)?.(pct, tp);
-      }
-      sliced = true;
-      return { ok: true, unrecognized_keys: [] };
+      return runMockSlice(currentPlateId, plateInputRevisions[currentPlateId] ?? 0);
+    },
+    orc_slice_plate(_config: string, plateId: string, revision: number) {
+      return runMockSlice(plateId, revision);
     },
     orc_get_slice_result() {
       if (!sliced) return { error: 'no slice result' };
@@ -1191,6 +1201,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       previewSourceBytes = new TextEncoder().encode(gcode);
       files.set('/out.gcode', previewSourceBytes);
       return { ok: true, path: '/out.gcode' };
+    },
+    orc_export_gcode_plate(plateId: string, revision: number) {
+      if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
+      if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
+      if (!sliced || slicedPlateId !== plateId || slicedPlateRevision !== revision)
+        return { error: 'plate slice result is stale or unavailable' };
+      return bridge.orc_export_gcode();
     },
     orc_export_project() {
       if (!modelLoaded) return { error: 'no model loaded' };
@@ -1320,8 +1337,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_threading_info: { ret: 'number', args: [] },
     orc_get_progress_mailbox: { ret: 'number', args: [] },
     orc_slice: { ret: 'number', args: ['string'] },
+    orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
     orc_get_slice_result: { ret: 'number', args: [] },
     orc_export_gcode: { ret: 'number', args: [] },
+    orc_export_gcode_plate: { ret: 'number', args: ['string', 'number'] },
     orc_export_project: { ret: 'number', args: [] },
     orc_read_gcode_chunk: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_read_gcode_lines: { ret: 'number', args: ['number', 'number', 'number'] },

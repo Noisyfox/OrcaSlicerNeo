@@ -11,7 +11,7 @@ import type {
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
   ClearModelResult,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult,
-  ModelMeshResult, SliceResultStatus, ClientSliceResult,
+  ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
@@ -592,6 +592,18 @@ export function createClient(
       }
     },
 
+    async slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus> {
+      const m = await module();
+      if (onProgress) progressListeners.add(onProgress);
+      try {
+        return callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
+          JSON.stringify(config), target.plateId, target.inputRevision,
+        ]) as SliceResultStatus;
+      } finally {
+        if (onProgress) progressListeners.delete(onProgress);
+      }
+    },
+
     async getSliceResult(): Promise<ClientSliceResult> {
       const m = await module();
       const r = callJson(m, 'orc_get_slice_result', [], []) as {
@@ -765,6 +777,16 @@ export function createClient(
     async exportGcode(): Promise<ExportGcodeResult> {
       const m = await module();
       const r = callJson(m, 'orc_export_gcode', [], []) as { ok: boolean; path?: string; error?: string };
+      if (!r.ok) return r as ExportGcodeResult;
+      const bytes = m.FS.readFile('/out.gcode');
+      return { ok: true, path: r.path ?? '/out.gcode', bytes };
+    },
+
+    async exportGcodePlate(target: PlateOperationTarget): Promise<ExportGcodeResult> {
+      const m = await module();
+      const r = callJson(m, 'orc_export_gcode_plate', ['string', 'number'], [
+        target.plateId, target.inputRevision,
+      ]) as { ok: boolean; path?: string; error?: string };
       if (!r.ok) return r as ExportGcodeResult;
       const bytes = m.FS.readFile('/out.gcode');
       return { ok: true, path: r.path ?? '/out.gcode', bytes };

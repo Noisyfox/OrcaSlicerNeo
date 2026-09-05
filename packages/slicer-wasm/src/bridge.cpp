@@ -112,6 +112,12 @@ struct BridgeState {
     std::size_t preview_gcode_size = 0;
     std::vector<std::size_t> preview_gcode_line_ends;
     bool preview_text_available = false;
+    // The current result is deliberately single-plate until Step 8 adds the
+    // per-plate result cache.  Keep its operation identity beside the result
+    // so export cannot accidentally consume a result for another plate or
+    // revision after selection/editing races.
+    std::string preview_plate_id;
+    std::uint64_t preview_plate_revision = 0;
     // Runtime-only identity for the headless plate session. These records are
     // deliberately independent from native plate_index values and are never
     // persisted. Membership is derived from the live Model, not maintained by
@@ -673,6 +679,85 @@ std::vector<PlateInstanceRef> plate_instance_refs()
     return refs;
 }
 
+// Build the print input for one plate without touching the authoritative
+// editing model.  Model::add_object performs a deep copy of each selected
+// object; non-member instances are removed from that copy and every retained
+// instance is translated back into the printer's local coordinate system.
+// This is intentionally temporary data: the global model continues to carry
+// world-space coordinates for rendering, editing, and persistence.
+std::optional<Model> make_current_plate_model(const BridgeState::PlateSessionPlate& plate,
+                                              std::string& error)
+{
+    Model local_model;
+    const Vec3d local_origin = plate.origin;
+    std::size_t selected_instances = 0;
+    for (ModelObject* source : state().model.objects) {
+        std::vector<std::size_t> selected_indices;
+        for (std::size_t index = 0; index < source->instances.size(); ++index) {
+            const auto instance_id = source->instances[index]->id().id;
+            const auto membership = state().instance_plate_ids.find(instance_id);
+            if (membership != state().instance_plate_ids.end() && membership->second == plate.id)
+                selected_indices.push_back(index);
+        }
+        if (selected_indices.empty()) continue;
+
+        ModelObject* copy = local_model.add_object(*source);
+        const std::set<std::size_t> selected_index_set(selected_indices.begin(), selected_indices.end());
+        for (std::size_t index = copy->instances.size(); index-- > 0;) {
+            if (selected_index_set.find(index) == selected_index_set.end())
+                copy->delete_instance(index);
+        }
+        for (ModelInstance* instance : copy->instances) {
+            auto transform = instance->get_transformation();
+            transform.set_offset(transform.get_offset() - local_origin);
+            instance->set_transformation(transform);
+        }
+        copy->invalidate_bounding_box();
+        selected_instances += copy->instances.size();
+    }
+    if (selected_instances == 0) {
+        error = "current plate is empty";
+        return std::nullopt;
+    }
+    return local_model;
+}
+
+bool validate_plate_operation_target(const std::string& plate_id,
+                                     const std::uint64_t revision,
+                                     std::string& error)
+{
+    ensure_plate_session_state();
+    if (plate_id.empty() || plate_id != state().current_plate_id) {
+        error = "plate operation target is not the current plate";
+        return false;
+    }
+    const auto* plate = find_plate(plate_id);
+    if (plate == nullptr) {
+        error = "plate operation target was not found";
+        return false;
+    }
+    const auto current_revision = state().plate_input_revisions[plate_id];
+    if (revision != current_revision) {
+        error = "plate operation target is stale";
+        return false;
+    }
+    const auto out_of_bounds = state().plate_out_of_bounds_ids.find(plate_id);
+    if (out_of_bounds != state().plate_out_of_bounds_ids.end() && !out_of_bounds->second.empty()) {
+        error = "current plate contains an out-of-bounds instance";
+        return false;
+    }
+    bool has_member = false;
+    for (const auto& [instance_id, member_plate_id] : state().instance_plate_ids) {
+        (void)instance_id;
+        if (member_plate_id == plate_id) { has_member = true; break; }
+    }
+    if (!has_member) {
+        error = "current plate is empty";
+        return false;
+    }
+    return true;
+}
+
 BoundingBoxf3 instance_hull_box(const PlateInstanceRef& ref)
 {
     for (ModelVolume* volume : ref.object->volumes) {
@@ -1051,6 +1136,8 @@ void invalidate_preview_source()
     bridge_state.preview_gcode_size = 0;
     bridge_state.preview_gcode_line_ends.clear();
     bridge_state.preview_text_available = false;
+    bridge_state.preview_plate_id.clear();
+    bridge_state.preview_plate_revision = 0;
 }
 
 // Copy a string into a malloc'd C string the JS side can read then _free().
@@ -2965,8 +3052,21 @@ EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
 #endif
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
+const char* slice_for_plate(const char* config_json, const std::string& plate_id,
+                            const std::uint64_t revision) {
+    std::optional<Model> local_model;
     try {
+        // Refresh membership before the operation gate.  This is read-only
+        // with respect to the editing model and makes direct bridge callers
+        // obey the same empty/out-of-bounds rules as the UI path.
+        rebuild_plate_membership(false);
+        std::string target_error;
+        if (!validate_plate_operation_target(plate_id, revision, target_error))
+            return error_json(target_error);
+        std::string model_error;
+        local_model = make_current_plate_model(*find_plate(plate_id), model_error);
+        if (!local_model) return error_json(model_error);
+
         // A new slice invalidates both the old toolpath and its source text
         // before any work begins. The client must fetch a fresh result id.
         invalidate_preview_source();
@@ -3068,7 +3168,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         // Without it Bambu G-code takes the non-Bambu nozzle/context path and
         // a successful P1P slice can later yield an empty preview.
         state().print.is_BBL_printer() = state().presets.is_bbl_vendor();
-        state().print.apply(state().model, config);
+        // Apply and process the isolated local model.  `state().model` is the
+        // authoritative world-space editing model and is never changed by a
+        // slice operation.
+        state().print.apply(*local_model, config);
         // Drift at the pinned SHA: validate() returns StringObjectException
         // (PrintBase.hpp:30); use its .string member (same adaptation as
         // slice_main.cpp:55).
@@ -3100,6 +3203,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         json dropped = json::array();
         for (const std::string& k : substitutions.unrecogized_keys)
             dropped.push_back(k);
+        state().preview_plate_id = plate_id;
+        state().preview_plate_revision = revision;
         return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)}}.dump());
     } catch (const std::exception& e) {
         stop_progress();
@@ -3124,6 +3229,29 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
         catch (const char* s) { msg = s ? s : "null"; }
         catch (...) {}
         return error_json(msg);
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
+    ensure_plate_session_state();
+    const auto revision = state().plate_input_revisions[state().current_plate_id];
+    return slice_for_plate(config_json, state().current_plate_id, revision);
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_slice_plate(const char* config_json,
+                                                  const char* plate_id,
+                                                  double revision_number) {
+    try {
+        if (!plate_id || !std::isfinite(revision_number) || revision_number < 0.0 ||
+            std::floor(revision_number) != revision_number ||
+            revision_number > static_cast<double>(std::numeric_limits<std::uint64_t>::max()))
+            return error_json("invalid plate operation target");
+        return slice_for_plate(config_json, plate_id,
+                               static_cast<std::uint64_t>(revision_number));
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
     }
 }
 
@@ -3753,8 +3881,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(double result_id_number,
     }
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
+const char* export_gcode_for_target(const std::string& plate_id,
+                                    const std::uint64_t revision) {
     try {
+        std::string target_error;
+        if (!validate_plate_operation_target(plate_id, revision, target_error))
+            return error_json(target_error);
+        if (state().preview_plate_id != plate_id || state().preview_plate_revision != revision)
+            return error_json("plate slice result is stale or unavailable");
         const std::string path = "/out.gcode";
         state().print.export_gcode(path, nullptr, nullptr);
         return dup_json(json{{"ok", true}, {"path", path}}.dump());
@@ -3763,6 +3897,35 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
+    ensure_plate_session_state();
+    try {
+        const std::string path = "/out.gcode";
+        state().print.export_gcode(path, nullptr, nullptr);
+        return dup_json(json{{"ok", true}, {"path", path}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* plate_id,
+                                                         double revision_number) {
+    try {
+        if (!plate_id || !std::isfinite(revision_number) || revision_number < 0.0 ||
+            std::floor(revision_number) != revision_number ||
+            revision_number > static_cast<double>(std::numeric_limits<std::uint64_t>::max()))
+            return error_json("invalid plate operation target");
+        return export_gcode_for_target(plate_id,
+                                       static_cast<std::uint64_t>(revision_number));
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
         return error_json("unknown C++ exception");
     }
 }

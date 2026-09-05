@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { PlateOperationTarget } from '@slicer/client';
 
 export type SliceStatus = 'idle' | 'slicing' | 'done' | 'error';
 export type PreviewColorScheme = 'feature' | 'filament' | 'speed' | 'volumetricFlow' | 'layerTime' | 'temperature' | 'fanSpeed';
@@ -37,6 +38,8 @@ interface SlicerState {
   error: string | null;
   /** A completed slice remains dirty until its G-code is saved by the host. */
   resultExported: boolean;
+  /** Identity of the single current-plate result until Step 8's cache. */
+  sliceTarget: PlateOperationTarget | null;
   layer: number; // scrubber position (0-based, default = max)
   maxLayer: number;
   preview: PreviewState;
@@ -47,6 +50,7 @@ interface SlicerState {
   setLayer: (n: number) => void;
   setMaxLayer: (n: number) => void;
   setResultExported: (exported: boolean) => void;
+  setSliceTarget: (target: PlateOperationTarget | null) => void;
   setPreviewBounds: (maxLayer: number, maxMove: number, resultId?: number | null) => void;
   /** Update the inclusive visible range and the active layer's local move bound atomically. */
   setPreviewLayerRange: (range: [number, number], activeLayerMaxMove?: number) => void;
@@ -69,6 +73,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   layers: 0,
   error: null,
   resultExported: false,
+  sliceTarget: null,
   layer: 0,
   maxLayer: 0,
   preview: DEFAULT_PREVIEW_STATE,
@@ -82,6 +87,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   })),
   setMaxLayer: (maxLayer) => set({ maxLayer }),
   setResultExported: (resultExported) => set({ resultExported }),
+  setSliceTarget: (sliceTarget) => set({ sliceTarget }),
   setPreviewBounds: (maxLayer, maxMove, resultId = null) => set((state) => ({
     maxLayer,
     layer: maxLayer,
@@ -200,6 +206,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     layers: 0,
     error: null,
     resultExported: false,
+    sliceTarget: null,
     layer: 0,
     maxLayer: 0,
     preview: { ...DEFAULT_PREVIEW_STATE },

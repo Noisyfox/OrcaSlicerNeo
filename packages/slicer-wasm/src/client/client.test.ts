@@ -882,6 +882,30 @@ describe('SlicerClient bridge contract', () => {
     expect(events).toContain(100);
   });
 
+  it('binds local slice and export to the current plate identity and revision', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const session = await c.getPlateSessionSnapshot();
+    if (!session.ok) throw new Error(session.error);
+    const target = { plateId: session.currentPlateId, inputRevision: session.inputRevisions?.[session.currentPlateId] ?? 0 };
+    await expect(c.slicePlate(target, {})).resolves.toMatchObject({ ok: true });
+    await expect(c.exportGcodePlate(target)).resolves.toMatchObject({ ok: true });
+    const changed = await c.addPlate();
+    if (!changed.ok) throw new Error(changed.error);
+    await expect(c.exportGcodePlate(target)).resolves.toMatchObject({ error: 'plate operation target is not the current plate' });
+  });
+
+  it('rejects stale current-plate targets before slicing', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const session = await c.getPlateSessionSnapshot();
+    if (!session.ok) throw new Error(session.error);
+    const target = { plateId: session.currentPlateId, inputRevision: session.inputRevisions?.[session.currentPlateId] ?? 0 };
+    const changed = await c.addModel(new Uint8Array(4), 'stl');
+    if (!changed.ok) throw new Error(changed.error);
+    await expect(c.slicePlate(target, {})).resolves.toMatchObject({ error: 'plate operation target is stale' });
+  });
+
   it('threaded client publishes progress through shared memory, never addFunction', async () => {
     const module = createMockModule({ threaded: true });
     const c = createClient(async () => module);

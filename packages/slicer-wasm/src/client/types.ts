@@ -436,6 +436,12 @@ export interface SliceResultStatus {
   error?: string;
 }
 
+/** Immutable identity captured when a current-plate operation starts. */
+export interface PlateOperationTarget {
+  readonly plateId: string;
+  readonly inputRevision: number;
+}
+
 export interface ToolpathFeature {
   id: number;
   name: string;
@@ -692,12 +698,16 @@ export interface SlicerClient {
   /** Select a preset by name and return the final atomic compatibility state. */
   selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<PresetSnapshotResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
+  /** Slice only the captured current plate; stale/non-current targets reject. */
+  slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   getSliceResult(): Promise<ClientSliceResult>;
   /** Read a bounded UTF-8 chunk from the current completed slice result. */
   readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk>;
   /** Read a bounded, seekable source-text page from the current result. */
   readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
   exportGcode(): Promise<ExportGcodeResult>;
+  /** Export only the captured current plate's completed result. */
+  exportGcodePlate(target: PlateOperationTarget): Promise<ExportGcodeResult>;
   /** Export the complete active plate session as a native-compatible BBS 3MF archive. */
   exportProject(): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;
