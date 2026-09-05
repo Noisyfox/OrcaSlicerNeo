@@ -6,6 +6,7 @@ import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { waitForSettledModelTransforms } from '../actions/persistModelTransforms';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 
@@ -61,6 +62,7 @@ export async function refreshAfterModelMutation(
   if (geometryChanged) useSettingsStore.getState().refreshModel();
   if (plateSession) {
     applyPlateSessionTransforms(plateSession, glVolumeCollection.volumes);
+    usePlateSessionStore.getState().setSnapshot(plateSession);
     useProjectStore.getState().recordPlateMutation(plateSession);
   } else {
     useProjectStore.getState().markDirty(dirtyReason);

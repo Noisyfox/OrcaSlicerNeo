@@ -57,7 +57,7 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
   useLayoutEffect(() => {
     applySceneTransforms();
     return sceneInteraction.subscribe(applySceneTransforms);
-  }, [applySceneTransforms, sceneInteraction]);
+  }, [applySceneTransforms, data.instanceTransform, data.volumeTransform, sceneInteraction]);
 
   const modelMesh = (
     <group ref={volumeGroupRef}>

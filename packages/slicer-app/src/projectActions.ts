@@ -6,6 +6,7 @@ import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
+import { usePlateSessionStore } from './stores/usePlateSessionStore';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -89,6 +90,7 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const runtime = runtimeOf(platform); const cleared = await runtime.clearModel(); if (!cleared.ok) throw new Error(cleared.error ?? 'new project failed');
+    if (cleared.plateSession) usePlateSessionStore.getState().setSnapshot(cleared.plateSession);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);
     invalidateInput(); const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
@@ -103,7 +105,10 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
     const existing = useProjectStore.getState();
     const incomingNotices = noticesFor(load);
     const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
-    if (load.plateSession) useProjectStore.getState().recordPlateMutation(load.plateSession);
+    if (load.plateSession) {
+      usePlateSessionStore.getState().setSnapshot(load.plateSession);
+      useProjectStore.getState().recordPlateMutation(load.plateSession);
+    }
     else useProjectStore.getState().markDirty('model-import');
     useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
     useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
@@ -125,6 +130,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
     const load = await runtimeOf(platform).loadProject(input.bytes, 'project', input.displayName); if (!load.ok) throw new Error(load.error ?? 'project load failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
+    if (load.plateSession) usePlateSessionStore.getState().setSnapshot(load.plateSession);
     // The native load response contains the candidate preset snapshot from
     // the same replacement transaction. A second getPresetSnapshot call here
     // could fail after native state changed and leave the UI inconsistent.

@@ -251,11 +251,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const instanceCount = Math.max(1, Math.floor(opts.instanceCount ?? 1));
   const volumeCount = Math.max(1, Math.floor(opts.volumeCount ?? 1));
   const splitParts = Math.max(1, Math.floor(opts.splitParts ?? 2));
-  const createObjectTransforms = () => Array.from({ length: instanceCount }, (_, index) => ({
+  const createObjectTransforms = (originX = 0) => Array.from({ length: instanceCount }, (_, index) => ({
     ...identityTransform(),
     // Keep mock instances visibly separate so selection tests can hit each
     // one without a model fixture that depends on the native build.
-    offset: [index * 50, 0, 0],
+    offset: [originX + index * 50, 0, 0],
   }));
   // A ModelVolume belongs to the object, not to an instance.  Its transform
   // is therefore shared by every instance of that object, just as in the
@@ -323,10 +323,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     }
     return result;
   }
-  function plateMutation(reason: string, before = [currentPlateId], after = [currentPlateId]) {
+  function plateMutation(
+    reason: string,
+    before = [currentPlateId],
+    after = [currentPlateId],
+    instanceTransforms: readonly Record<string, unknown>[] = [],
+  ) {
     const affected = [...new Set([...before, ...after])];
     for (const id of affected) if (plateIds.includes(id)) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
     const result = plateSessionSnapshot(true) as Record<string, unknown>;
+    result.instance_transforms = instanceTransforms;
     result.affected_plate_ids_before = before;
     result.affected_plate_ids_after = after;
     result.affected_plate_ids = affected;
@@ -506,7 +512,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   function appendMockObject(name = `Object ${objectTransforms.length + 1}`): void {
     modelLoaded = true;
-    objectTransforms.push(createObjectTransforms());
+    const currentPlateIndex = Math.max(0, plateIds.indexOf(currentPlateId));
+    objectTransforms.push(createObjectTransforms(currentPlateIndex * 240));
     objectVolumeTransforms.push(createObjectVolumeTransforms());
     objectMeta.push({ id: nextObjectId++, name, printable: true });
     volumeMeta.push(Array.from({ length: volumeCount }, (_, vi) => ({
@@ -556,10 +563,28 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const index = plateIds.indexOf(plateId);
       if (index < 0) return { error: 'plate not found' };
       const deletingCurrent = currentPlateId === plateId;
+      const oldTransforms = objectTransforms.map((instances) => instances.map((transform) => structuredClone(transform)));
       plateIds.splice(index, 1);
       delete plateInputRevisions[plateId];
       if (deletingCurrent) currentPlateId = plateIds[Math.min(index, plateIds.length - 1)];
-      return plateSessionSnapshot(true);
+      const changed: Record<string, unknown>[] = [];
+      for (let objectIndex = 0; objectIndex < objectTransforms.length; objectIndex += 1) {
+        for (let instanceIndex = 0; instanceIndex < objectTransforms[objectIndex].length; instanceIndex += 1) {
+          const transform = objectTransforms[objectIndex][instanceIndex];
+          if (transform.offset[0] < index * 240) continue;
+          transform.offset = [transform.offset[0] - 240, transform.offset[1], transform.offset[2]];
+          if (JSON.stringify(transform) === JSON.stringify(oldTransforms[objectIndex][instanceIndex])) continue;
+          const instance = instanceMeta[objectIndex]?.[instanceIndex];
+          changed.push({
+            instance_id: instance?.id ?? 0,
+            object_id: objectMeta[objectIndex]?.id ?? 0,
+            object_index: objectIndex,
+            instance_index: instanceIndex,
+            world_transform: transform,
+          });
+        }
+      }
+      return plateMutation('plate-delete', [plateId], plateIds, changed);
     },
     orc_recompute_plate_membership() {
       return plateSessionSnapshot(true);
@@ -665,7 +690,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // The object records its type so orc_get_model_mesh returns the
       // per-shape geometry (primitiveMesh below).
       modelLoaded = true;
-      objectTransforms.push(createObjectTransforms());
+      const currentPlateIndex = Math.max(0, plateIds.indexOf(currentPlateId));
+      objectTransforms.push(createObjectTransforms(currentPlateIndex * 240));
       objectVolumeTransforms.push([identityTransform()]);
       objectMeta.push({ id: nextObjectId++, name: shapeName, printable: true, primitive: type });
       volumeMeta.push([{ id: nextVolumeId++, name: shapeName, type: 'model_part' as VolumeType, isSplittable: false }]);

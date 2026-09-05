@@ -9,6 +9,7 @@ import type { PlateSessionMutation } from '@slicer/client';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { applyPlateSessionTransforms } from './syncModelTransforms';
@@ -46,7 +47,10 @@ async function commitAdded(
   settings.setValue('modelPath', displayName);
   settings.setModelLoaded(true);
   useProjectStore.getState().setProject({ hasContent: true });
-  if (r.plateSession) useProjectStore.getState().recordPlateMutation(r.plateSession);
+  if (r.plateSession) {
+    usePlateSessionStore.getState().setSnapshot(r.plateSession);
+    useProjectStore.getState().recordPlateMutation(r.plateSession);
+  }
   else useProjectStore.getState().markDirty('model-import');
   sceneInteraction?.resetForModel();
   slicer.setError(null);
@@ -168,7 +172,10 @@ export async function clearScene(
     slicer.setResultExported(false);
     settings.setModelLoaded(false);
     useProjectStore.getState().setProject({ hasContent: false });
-    if (r.plateSession) useProjectStore.getState().recordPlateMutation(r.plateSession);
+    if (r.plateSession) {
+      usePlateSessionStore.getState().setSnapshot(r.plateSession);
+      useProjectStore.getState().recordPlateMutation(r.plateSession);
+    }
     else useProjectStore.getState().markDirty('model-clear');
     sceneInteraction?.resetForModel();
     slicer.setError(null);

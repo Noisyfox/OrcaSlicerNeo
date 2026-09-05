@@ -5,6 +5,7 @@ import type { SceneInteractionController } from '../viewport/SceneInteractionCon
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { applyPlateSessionTransforms } from './syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
@@ -86,7 +87,10 @@ export async function deleteSelection(
       useProjectStore.getState().setProject({ hasContent: false });
     }
     else settings.refreshModel();
-    if (result.plateSession) useProjectStore.getState().recordPlateMutation(result.plateSession);
+    if (result.plateSession) {
+      usePlateSessionStore.getState().setSnapshot(result.plateSession);
+      useProjectStore.getState().recordPlateMutation(result.plateSession);
+    }
     else useProjectStore.getState().markDirty('model-delete');
     return { ok: true };
   } catch (err) {

@@ -2,6 +2,7 @@ import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { PlateSessionMutation } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
@@ -22,6 +23,7 @@ export async function commitSharedConfigurationMutation(
   }
   if (!mutation.ok) throw new Error(mutation.error ?? 'shared configuration mutation failed');
   applyPlateSessionTransforms(mutation, glVolumeCollection.volumes);
+  usePlateSessionStore.getState().setSnapshot(mutation);
   useProjectStore.getState().recordPlateMutation(mutation);
   return mutation;
 }

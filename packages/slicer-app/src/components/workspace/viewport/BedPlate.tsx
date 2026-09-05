@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { Grid } from '@react-three/drei';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
+import type { PlateSessionPlate } from '@slicer/client';
 
 export const BED_SIZE = 220;
 export const DEFAULT_PRINTABLE_AREA: Array<[number, number]> = [
@@ -56,7 +57,13 @@ const GROUND_Z = -0.04;
 const GROUND_Z_GRID = -0.26;
 const GROUND_Z_BED = -0.41 + GROUND_Z;
 
-export function BedPlate() {
+export interface BedPlateProps {
+  plate?: PlateSessionPlate;
+  current?: boolean;
+  onEmptyBedClick?: (plateId: string) => void;
+}
+
+export function BedPlate({ plate, current = false, onEmptyBedClick }: BedPlateProps = {}) {
   const printableArea = useSettingsStore((state) => state.printableArea);
   const area = useMemo(() => normalizePrintableArea(printableArea), [printableArea]);
   const bounds = useMemo(() => getPrintableAreaBounds(area), [area]);
@@ -70,21 +77,36 @@ export function BedPlate() {
     return value;
   }, [area]);
 
+  const plateOrigin = plate?.origin ?? [0, 0, 0] as const;
+  const outOfBounds = Boolean(plate && plate.valid === false);
   return (
     <group>
       {/* Slicer convention: Z up, X right, Y into screen — the bed is the XY
           plane at Z=0, so the plane geometry needs no rotation (it is born
           in XY) and all core coordinates pass through unmodified. */}
       <mesh
-        position={[0, 0, GROUND_Z_BED]}
-        userData={{ orcaRaycastRole: BUILD_PLATE_RAYCAST }}
+        position={[plateOrigin[0], plateOrigin[1], plateOrigin[2] + GROUND_Z_BED]}
+        userData={{
+          orcaRaycastRole: BUILD_PLATE_RAYCAST,
+          plateId: plate?.plateId,
+          plateCurrent: current,
+          plateOutOfBounds: outOfBounds,
+          plateName: plate?.name,
+        }}
         // This makes the plate available to the canvas intersection filter.
         // It has no pointer behavior of its own; the filter removes it after
         // using its nearest hit to suppress occluded model-body hits.
         onPointerMove={participateInPointerRaycast}
+        onClick={plate?.plateId ? (event) => {
+          event.stopPropagation();
+          onEmptyBedClick?.(plate.plateId);
+        } : undefined}
       >
         <shapeGeometry args={[shape]} />
-        <meshStandardMaterial color="#1e293b" roughness={0.9} />
+        <meshStandardMaterial
+          color={outOfBounds ? '#7f1d1d' : current ? '#1e40af' : '#1e293b'}
+          roughness={0.9}
+        />
       </mesh>
       {/* drei's Grid is a GROUND grid: its vertex shader swizzles to local
           XZ (position.xzy), so an unrotated grid stands vertical in the
@@ -94,7 +116,7 @@ export function BedPlate() {
           rendered from steep top-down angles). DoubleSide renders from
           every view above the bed. */}
       <Grid
-        position={[bounds.centerX, bounds.centerY, GROUND_Z_GRID]}
+        position={[plateOrigin[0] + bounds.centerX, plateOrigin[1] + bounds.centerY, plateOrigin[2] + GROUND_Z_GRID]}
         rotation={[-Math.PI / 2, 0, 0]}
         args={[bounds.width, bounds.depth]}
         side={THREE.DoubleSide}
@@ -115,7 +137,7 @@ export function BedPlate() {
         fadeStrength={1}
         infiniteGrid={false}
       />
-      <axesHelper args={[30]} />
+      {plate?.plateId && <axesHelper args={[30]} position={plateOrigin} />}
     </group>
   );
 }

@@ -3,6 +3,7 @@ import type { PlateSessionMutation } from '@slicer/client';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { applyPlateSessionTransforms, syncModelTransforms } from './syncModelTransforms';
 
 type SyncResult = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };
@@ -34,7 +35,10 @@ export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<S
       slicer.setError(null);
       slicer.setLayers(0);
       slicer.setProgress(0);
-      if (result.plateSession) useProjectStore.getState().recordPlateMutation(result.plateSession);
+      if (result.plateSession) {
+        usePlateSessionStore.getState().setSnapshot(result.plateSession);
+        useProjectStore.getState().recordPlateMutation(result.plateSession);
+      }
       else useProjectStore.getState().markDirty('model-transform');
     }
     return result;

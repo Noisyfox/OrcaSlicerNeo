@@ -13,24 +13,30 @@ import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import { SelectionBoundsBox } from './SelectionBoundsBox';
 import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
+import type { PlateSessionSnapshot } from '@slicer/client';
+import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 
-export function Scene({ activeTab, controller, glVolumes, toolpath }: {
+export function Scene({ activeTab, controller, glVolumes, toolpath, plateSession, onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
   controller: SceneInteractionController;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
+  plateSession?: PlateSessionSnapshot | null;
+  onEmptyBedClick?: (plateId: string) => void;
 }) {
   return (
     <SceneInteractionProvider controller={controller}>
-      <SceneContents activeTab={activeTab} glVolumes={glVolumes} toolpath={toolpath} />
+      <SceneContents activeTab={activeTab} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} onEmptyBedClick={onEmptyBedClick} />
     </SceneInteractionProvider>
   );
 }
 
-function SceneContents({ activeTab, glVolumes, toolpath }: {
+function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
+  plateSession?: PlateSessionSnapshot | null;
+  onEmptyBedClick?: (plateId: string) => void;
 }) {
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
@@ -47,6 +53,7 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
   // No-op in production builds (the e2e-only VITE_E2E flag is unset).
   const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls as unknown as { target?: THREE.Vector3 } | undefined);
   const scene = useThree((s) => s.scene);
   const size = useThree((s) => s.size);
   useEffect(() => {
@@ -70,6 +77,14 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
         selectionInstanceCount?: () => number;
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
         previewMarkerPresent?: () => boolean;
+        cameraState?: () => { position: [number, number, number]; target: [number, number, number] };
+        bedPlateStates?: () => Array<{
+          plateId?: string;
+          current: boolean;
+          outOfBounds: boolean;
+          position: [number, number, number];
+        }>;
+        modelWorldCenters?: () => Array<[number, number, number]>;
       };
     };
     const projectPoint = (p: THREE.Vector3) => {
@@ -123,6 +138,34 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
         return hit && sceneInteraction ? sceneInteraction.selectFromHit(hit, additive) : false;
       },
       previewMarkerPresent: () => Boolean(scene.getObjectByName('preview-nozzle-marker')),
+      cameraState: () => ({
+        position: [camera.position.x, camera.position.y, camera.position.z],
+        target: controls?.target ? [controls.target.x, controls.target.y, controls.target.z] : [0, 0, 0],
+      }),
+      bedPlateStates: () => {
+        const beds: Array<{
+          plateId?: string;
+          current: boolean;
+          outOfBounds: boolean;
+          position: [number, number, number];
+        }> = [];
+        scene.traverse((object) => {
+          if (object.userData.orcaRaycastRole !== BUILD_PLATE_RAYCAST) return;
+          const position = new THREE.Vector3();
+          object.getWorldPosition(position);
+          beds.push({
+            plateId: object.userData.plateId as string | undefined,
+            current: Boolean(object.userData.plateCurrent),
+            outOfBounds: Boolean(object.userData.plateOutOfBounds),
+            position: [position.x, position.y, position.z],
+          });
+        });
+        return beds;
+      },
+      modelWorldCenters: () => glVolumes.map((volume) => {
+        const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
+        return [center.x, center.y, center.z];
+      }),
     };
     return () => {
       if (w.__orcaE2e) {
@@ -135,12 +178,15 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
           selectionInstanceCount: _count,
           selectMockInstance: _selection,
           previewMarkerPresent: _marker,
+          cameraState: _camera,
+          bedPlateStates: _beds,
+          modelWorldCenters: _models,
           ...rest
         } = w.__orcaE2e;
         w.__orcaE2e = rest;
       }
     };
-  }, [camera, glVolumes, scene, size, sceneInteraction]);
+  }, [camera, controls, glVolumes, scene, size, sceneInteraction]);
 
   // A loader replacement is a new scene even if it reuses the prior model's
   // composite IDs, so selection and the active gizmo must not leak across it.
@@ -153,7 +199,16 @@ function SceneContents({ activeTab, glVolumes, toolpath }: {
       <ambientLight intensity={0.6} />
       {/* height along Z — scene is Z-up slicer convention */}
       <directionalLight position={[100, 150, 200]} intensity={1.2} />
-      <BedPlate />
+      {!isPreviewTab(activeTab) && plateSession?.plates?.length
+        ? plateSession.plates.map((plate) => (
+          <BedPlate
+            key={plate.plateId}
+            plate={plate}
+            current={plate.plateId === plateSession.currentPlateId}
+            onEmptyBedClick={onEmptyBedClick}
+          />
+        ))
+        : <BedPlate />}
       {isPreviewTab(activeTab) ? (
         <PreviewScene glVolumes={glVolumes} toolpath={toolpath} />
       ) : (

@@ -23,6 +23,7 @@ import { createWorkspaceSliceCoordinator, type WorkspaceSliceCoordinator } from 
 import { sliceModel } from './actions/sliceActions';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -56,6 +57,7 @@ export function Workspace({
   onPreviewTransitionChange?: (transition: PreviewRenderTransition | null) => void;
 }) {
   const platform = usePlatform();
+  const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
   const glVolumes = useModelLoader();
   const sliceResult = useSliceResult();
   // Workspace is kept mounted by AppShell. Keep the controller here, beside
@@ -66,6 +68,15 @@ export function Workspace({
     sceneInteractionRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
   }
   const sceneInteraction = sceneInteractionRef.current;
+  useEffect(() => {
+    const getSnapshot = platform.runtime?.getPlateSessionSnapshot;
+    if (!getSnapshot) return;
+    let active = true;
+    void getSnapshot.call(platform.runtime).then((snapshot) => {
+      if (active && snapshot.ok) setPlateSnapshot(snapshot);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [platform.runtime, setPlateSnapshot]);
   const sliceCoordinatorRef = useRef<WorkspaceSliceCoordinator | null>(null);
   if (!sliceCoordinatorRef.current) {
     sliceCoordinatorRef.current = createWorkspaceSliceCoordinator({

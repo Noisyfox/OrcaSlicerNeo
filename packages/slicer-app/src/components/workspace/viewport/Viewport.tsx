@@ -11,7 +11,7 @@ import { SceneContextMenu } from './SceneContextMenu';
 import type { SceneInteractionController } from './SceneInteractionController';
 import type { LoadedObject } from './useModelLoader';
 import type { ToolpathGeometry } from './useSliceResult';
-import { filterBuildPlateOccludedIntersections, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
+import { filterBuildPlateOccludedIntersections, pickBuildPlateId, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
@@ -21,6 +21,13 @@ import { deleteSelection } from '../actions/deleteSelection';
 import { isPrepareTab, isPreviewTab } from '../../layout/appTabs';
 import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus } from './previewSemantics';
 import { GcodeTextWindow } from './GcodeTextWindow';
+import { Button } from '@/components/ui/button';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
+import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
+import { glVolumeCollection } from './GLVolume';
+import type { PlateSessionMutationResult, PlateSessionSnapshotResult, PlateSessionSnapshot } from '@slicer/client';
+import { canAddPlate, canDeletePlate } from './plateControls';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
@@ -71,6 +78,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
 }) {
   const platform = usePlatform();
+  const plateSession = usePlateSessionStore((s) => s.snapshot);
+  const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
   const printableArea = useSettingsStore((s) => s.printableArea);
   const bedBounds = useMemo(
     () => getPrintableAreaBounds(normalizePrintableArea(printableArea)),
@@ -84,6 +93,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   const setPreviewMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
   const setPreviewSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
   const [showGcodeText, setShowGcodeText] = useState(false);
+  const [plateActionPending, setPlateActionPending] = useState(false);
   // Ref is only consumed as a prop target (drei Stats `parent`), never read
   // by this component — so it can be typed without the null union, which
   // React 19's RefObject<T> = { current: T } requires for assignability.
@@ -218,6 +228,56 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
     const rect = viewportRef.current.getBoundingClientRect();
     return { x: clientX - rect.left, y: clientY - rect.top };
   }, []);
+
+  const applyPlateResponse = useCallback((result: PlateSessionSnapshotResult | PlateSessionMutationResult) => {
+    if (!result.ok) {
+      useSlicerStore.getState().setError(result.error);
+      return false;
+    }
+    setPlateSnapshot(result);
+    if (result.instanceTransforms) {
+      applyPlateSessionTransforms({ instanceTransforms: result.instanceTransforms }, glVolumeCollection.volumes);
+    }
+    return true;
+  }, [setPlateSnapshot]);
+
+  const selectPlate = useCallback(async (plateId: string) => {
+    if (plateActionPending || plateId === plateSession?.currentPlateId) return;
+    setPlateActionPending(true);
+    try {
+      applyPlateResponse(await platform.runtime.selectPlate(plateId));
+    } catch (error) {
+      useSlicerStore.getState().setError(String(error));
+    } finally {
+      setPlateActionPending(false);
+    }
+  }, [applyPlateResponse, plateActionPending, platform.runtime, plateSession?.currentPlateId]);
+
+  const addPlate = useCallback(async () => {
+    if (plateActionPending || !canAddPlate(plateSession)) return;
+    setPlateActionPending(true);
+    try {
+      const result = await platform.runtime.addPlate();
+      if (applyPlateResponse(result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+    } catch (error) {
+      useSlicerStore.getState().setError(String(error));
+    } finally {
+      setPlateActionPending(false);
+    }
+  }, [applyPlateResponse, plateActionPending, platform.runtime, plateSession]);
+
+  const deletePlate = useCallback(async () => {
+    if (plateActionPending || !plateSession || !canDeletePlate(plateSession)) return;
+    setPlateActionPending(true);
+    try {
+      const result = await platform.runtime.deletePlate(plateSession.currentPlateId);
+      if (applyPlateResponse(result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+    } catch (error) {
+      useSlicerStore.getState().setError(String(error));
+    } finally {
+      setPlateActionPending(false);
+    }
+  }, [applyPlateResponse, plateActionPending, platform.runtime, plateSession]);
 
   const canStartBoxSelect = useCallback((event: PointerEvent, grabbedGizmo: boolean): boolean => {
     if (event.button !== 0 || !event.shiftKey || grabbedGizmo) return false;
@@ -378,8 +438,16 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
               sceneStateRef.current = state;
               updateRaycastingEnabled();
             }}
-            onPointerMissed={() => {
-              if (!previewTab) sceneInteractionRef.current?.clearSelection();
+            onPointerMissed={(event) => {
+              if (!previewTab) {
+                const rect = viewportRef.current.getBoundingClientRect();
+                const plateId = pickBuildPlateId(sceneStateRef.current, {
+                  x: event.clientX - rect.left,
+                  y: event.clientY - rect.top,
+                });
+                if (plateId) void selectPlate(plateId);
+                else sceneInteractionRef.current?.clearSelection();
+              }
             }}
           >
             <color attach="background" args={['#0f172a']} />
@@ -394,6 +462,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
               controller={sceneInteraction}
               glVolumes={glVolumes}
               toolpath={toolpath}
+              plateSession={plateSession}
+              onEmptyBedClick={selectPlate}
             />
             <ViewportFrameGate mode={activeTab} onRendered={() => onSceneFrameRendered?.(activeTab)} />
             <OrbitControls
@@ -432,6 +502,39 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
       {previewTab && toolpath && <LayerScrubber data={toolpath} />}
       {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
+      {prepareTab && plateSession && <PlateControls
+        plateSession={plateSession}
+        pending={plateActionPending}
+        onAdd={addPlate}
+        onDelete={deletePlate}
+      />}
+    </div>
+  );
+}
+
+function PlateControls({
+  plateSession,
+  pending,
+  onAdd,
+  onDelete,
+}: {
+  plateSession: PlateSessionSnapshot;
+  pending: boolean;
+  onAdd: () => void;
+  onDelete: () => void;
+}) {
+  const current = plateSession.plates.find((plate) => plate.plateId === plateSession.currentPlateId);
+  return (
+    <div className="absolute bottom-2 right-2 z-20 flex items-center gap-2 rounded-md border bg-background/90 p-1.5 shadow-sm backdrop-blur" data-testid="plate-controls">
+      <span className="px-1 text-xs text-muted-foreground" data-testid="current-plate-label">
+        {current?.name ?? 'Plate'} ({plateSession.plates.length}/36)
+      </span>
+      <Button size="xs" variant="secondary" onClick={onAdd} disabled={pending || !canAddPlate(plateSession)} data-testid="add-plate">
+        Add plate
+      </Button>
+      <Button size="xs" variant="outline" onClick={onDelete} disabled={pending || !canDeletePlate(plateSession)} data-testid="delete-plate">
+        Delete plate
+      </Button>
     </div>
   );
 }

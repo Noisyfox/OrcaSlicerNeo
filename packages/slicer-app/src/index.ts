@@ -8,5 +8,6 @@ export * from './components/workspace/viewport/SceneInteractionController';
 export * from './components/device/DevicePanel';
 export * from './components/send/SendGcodeDialog';
 export * from './stores/useProjectStore';
+export * from './stores/usePlateSessionStore';
 export * from './projectActions';
 export * from './components/project/ProjectDialogs';
