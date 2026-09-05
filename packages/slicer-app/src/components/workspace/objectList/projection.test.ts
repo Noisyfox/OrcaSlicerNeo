@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ModelObjectStructure } from '@slicer/client';
-import { buildSelectableRows, projectSelection } from './projection';
+import { buildSelectableRows, objectListValidity, projectObjectGroups, projectSelection } from './projection';
+import type { PlateSessionSnapshot } from '@slicer/client';
 
 const structure: ModelObjectStructure[] = [
   {
@@ -137,5 +138,45 @@ describe('buildSelectableRows', () => {
       instances: [{ id: 20, index: 0, printable: true }],
     }];
     expect(buildSelectableRows(single).map((r) => r.key)).toEqual(['obj:0']);
+  });
+});
+
+describe('projectObjectGroups', () => {
+  const snapshot: PlateSessionSnapshot = {
+    ok: true,
+    version: 1,
+    currentPlateId: 'plate-1',
+    plates: [
+      { plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1', valid: true },
+      { plateId: 'plate-2', displayIndex: 1, origin: [240, 0, 0], name: 'Plate 2', valid: false },
+    ],
+    instances: [
+      { instanceId: 20, objectId: 1, objectIndex: 0, instanceIndex: 0, plateId: 'plate-2', member: true, unprintable: false, outOfBounds: false },
+      // The second instance is on another plate, but the object remains in the
+      // first-instance group by design.
+      { instanceId: 21, objectId: 1, objectIndex: 0, instanceIndex: 1, plateId: 'plate-1', member: true, unprintable: false, outOfBounds: false },
+      { instanceId: 22, objectId: 2, objectIndex: 1, instanceIndex: 0, plateId: '', member: false, unprintable: true, outOfBounds: false },
+    ],
+  };
+
+  it('keeps empty plates and groups multi-instance objects by their first instance', () => {
+    const groups = projectObjectGroups(structure, snapshot);
+    expect(groups.map((group) => [group.label, group.objects.map((object) => object.id)])).toEqual([
+      ['Plate 1', []],
+      ['Plate 2', [1]],
+      ['Unprintable', [2]],
+    ]);
+  });
+
+  it('projects validity independently from first-instance grouping', () => {
+    expect(objectListValidity(structure[0], snapshot)).toBe('valid');
+    expect(objectListValidity(structure[1], snapshot)).toBe('unprintable');
+    const outOfBounds = {
+      ...snapshot,
+      instances: snapshot.instances?.map((instance) => instance.instanceId === 21
+        ? { ...instance, outOfBounds: true }
+        : instance),
+    };
+    expect(objectListValidity(structure[0], outOfBounds)).toBe('out-of-bounds');
   });
 });
