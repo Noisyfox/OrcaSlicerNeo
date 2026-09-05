@@ -5,7 +5,8 @@ export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
   InitResult, PresetInfo, PresetSelection, PresetSnapshot,
-  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotError, PlateSessionSnapshotResult,
+  PlateSessionPlate, PlateSessionInstance, PlateSessionInstanceTransform, PlateSessionSnapshot,
+  PlateSessionMutation, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult,
   PresetSnapshotError, PresetSnapshotResult, SelectPresetResult,
   OptionMetadata, OptionMeta,
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,

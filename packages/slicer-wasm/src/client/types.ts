@@ -54,6 +54,28 @@ export interface PlateSessionPlate {
   readonly origin: readonly [number, number, number];
   /** Native-compatible default display name. */
   readonly name: string;
+  readonly instanceIds?: readonly number[];
+  readonly outOfBoundsInstanceIds?: readonly number[];
+  readonly valid?: boolean;
+}
+
+export interface PlateSessionInstance {
+  readonly instanceId: number;
+  readonly objectId: number;
+  readonly objectIndex: number;
+  readonly instanceIndex: number;
+  readonly plateId: string;
+  readonly member: boolean;
+  readonly unprintable: boolean;
+  readonly outOfBounds: boolean;
+}
+
+export interface PlateSessionInstanceTransform {
+  readonly instanceId: number;
+  readonly objectId: number;
+  readonly objectIndex: number;
+  readonly instanceIndex: number;
+  readonly worldTransform: ModelTransform;
 }
 
 /** Atomic read of the WASM-owned plate session. */
@@ -62,6 +84,12 @@ export interface PlateSessionSnapshot {
   readonly version: 1;
   readonly plates: readonly PlateSessionPlate[];
   readonly currentPlateId: string;
+  instances?: readonly PlateSessionInstance[];
+  instanceTransforms?: readonly PlateSessionInstanceTransform[];
+}
+
+export interface PlateSessionMutation extends PlateSessionSnapshot {
+  readonly instanceTransforms: readonly PlateSessionInstanceTransform[];
 }
 
 /** A malformed or rejected plate-session command has no partial state. */
@@ -71,6 +99,7 @@ export interface PlateSessionSnapshotError {
 }
 
 export type PlateSessionSnapshotResult = PlateSessionSnapshot | PlateSessionSnapshotError;
+export type PlateSessionMutationResult = PlateSessionMutation | PlateSessionSnapshotError;
 
 export interface PresetInfo {
   name: string;
@@ -567,6 +596,9 @@ export interface SlicerClient {
   resetPlateSession(): Promise<PlateSessionSnapshotResult>;
   /** Select an existing plate by its opaque runtime identity. */
   selectPlate(plateId: string): Promise<PlateSessionSnapshotResult>;
+  addPlate(): Promise<PlateSessionMutationResult>;
+  deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
+  recomputePlateMembership(): Promise<PlateSessionMutationResult>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
   getPresetSnapshot(): Promise<PresetSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;

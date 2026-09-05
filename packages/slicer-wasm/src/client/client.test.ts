@@ -41,6 +41,41 @@ describe('SlicerClient bridge contract', () => {
     expect(await c.getPlateSessionSnapshot()).toEqual(reset);
   });
 
+  it('exposes atomic plate mutations and preserves rejection snapshots', async () => {
+    const c = makeClient();
+    const initial = await c.getPlateSessionSnapshot();
+    if (!initial.ok) throw new Error(initial.error);
+
+    const added = await c.addPlate();
+    expect(added.ok).toBe(true);
+    if (!added.ok) throw new Error(added.error);
+    expect(added.plates).toHaveLength(2);
+    expect(added.currentPlateId).toBe(added.plates[1].plateId);
+    expect(added.instanceTransforms).toEqual([]);
+
+    const restored = await c.selectPlate(initial.currentPlateId);
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) throw new Error(restored.error);
+    expect(restored.currentPlateId).toBe(initial.currentPlateId);
+
+    const deleted = await c.deletePlate(added.plates[1].plateId);
+    expect(deleted.ok).toBe(true);
+    if (!deleted.ok) throw new Error(deleted.error);
+    expect(deleted.plates).toHaveLength(1);
+    expect(deleted.currentPlateId).toBe(initial.currentPlateId);
+    expect(deleted.instanceTransforms).toEqual([]);
+
+    const beforeRejectedDelete = await c.getPlateSessionSnapshot();
+    const rejected = await c.deletePlate(initial.currentPlateId);
+    expect(rejected).toEqual({ ok: false, error: 'at least one plate must remain' });
+    expect(await c.getPlateSessionSnapshot()).toEqual(beforeRejectedDelete);
+
+    const recomputed = await c.recomputePlateMembership();
+    expect(recomputed.ok).toBe(true);
+    if (!recomputed.ok) throw new Error(recomputed.error);
+    expect(recomputed.instanceTransforms).toEqual([]);
+  });
+
   it('keeps the current plate identity when adding a model', async () => {
     const c = makeClient();
     const before = await c.getPlateSessionSnapshot();

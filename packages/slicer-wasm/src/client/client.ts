@@ -8,7 +8,7 @@
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, PresetSnapshotResult,
-  PlateSessionPlate, PlateSessionSnapshotResult,
+  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
@@ -39,11 +39,19 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
         !Number.isInteger(plate.display_index) || !Array.isArray(origin) || origin.length !== 3 ||
         !origin.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))) return null;
     const coordinates = origin as [number, number, number];
-    return {
+    const normalized = {
       plateId: plate.plate_id,
       displayIndex: plate.display_index as number,
-      origin: [coordinates[0], coordinates[1], coordinates[2]],
+      origin: [coordinates[0], coordinates[1], coordinates[2]] as [number, number, number],
       name: plate.name,
+    };
+    return {
+      ...normalized,
+      ...(Array.isArray(plate.instance_ids) && plate.instance_ids.every((id) => Number.isSafeInteger(id))
+        ? { instanceIds: plate.instance_ids as number[] } : {}),
+      ...(Array.isArray(plate.out_of_bounds_instance_ids) && plate.out_of_bounds_instance_ids.every((id) => Number.isSafeInteger(id))
+        ? { outOfBoundsInstanceIds: plate.out_of_bounds_instance_ids as number[] } : {}),
+      ...(typeof plate.valid === 'boolean' ? { valid: plate.valid } : {}),
     };
   });
   if (plates.some((plate): plate is null => plate === null) || plates.length === 0) {
@@ -52,12 +60,49 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (!plates.some((plate) => plate!.plateId === value.current_plate_id)) {
     return { ok: false, error: 'invalid plate session current identity' };
   }
-  return {
+  const result: PlateSessionSnapshot = {
     ok: true,
     version: 1,
     currentPlateId: value.current_plate_id,
     plates: plates as PlateSessionPlate[],
   };
+  if (Array.isArray(value.instances)) {
+    const instances = value.instances.map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const item = entry as Record<string, unknown>;
+      if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
+        .every((id) => Number.isSafeInteger(id)) || typeof item.plate_id !== 'string' ||
+          typeof item.member !== 'boolean' || typeof item.unprintable !== 'boolean' ||
+          typeof item.out_of_bounds !== 'boolean') return null;
+      return { instanceId: item.instance_id as number, objectId: item.object_id as number,
+        objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
+        plateId: item.plate_id, member: item.member, unprintable: item.unprintable,
+        outOfBounds: item.out_of_bounds };
+    });
+    if (instances.some((instance) => instance === null)) return { ok: false, error: 'invalid plate session instances' };
+    result.instances = instances as NonNullable<typeof instances[number]>[];
+  }
+  if (Array.isArray(value.instance_transforms)) {
+    const transforms = value.instance_transforms.map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const item = entry as Record<string, unknown>;
+      if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
+        .every((id) => Number.isSafeInteger(id)) || !item.world_transform || typeof item.world_transform !== 'object') return null;
+      return { instanceId: item.instance_id as number, objectId: item.object_id as number,
+        objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
+        worldTransform: item.world_transform as any };
+    });
+    if (transforms.some((transform) => transform === null)) return { ok: false, error: 'invalid plate session transforms' };
+    result.instanceTransforms = transforms as NonNullable<typeof transforms[number]>[];
+  }
+  return result;
+}
+
+function normalizePlateMutationResult(raw: unknown): PlateSessionMutationResult {
+  const result = normalizePlateSessionResult(raw);
+  if (!result.ok) return result;
+  if (!result.instanceTransforms) return { ok: false, error: 'plate mutation omitted instance transforms' };
+  return result as PlateSessionMutationResult;
 }
 
 export function createClient(
@@ -154,6 +199,21 @@ export function createClient(
     async selectPlate(plateId: string): Promise<PlateSessionSnapshotResult> {
       const m = await module();
       return normalizePlateSessionResult(callJson(m, 'orc_select_plate', ['string'], [plateId]));
+    },
+
+    async addPlate(): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_add_plate', [], []));
+    },
+
+    async deletePlate(plateId: string): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_delete_plate', ['string'], [plateId]));
+    },
+
+    async recomputePlateMembership(): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_recompute_plate_membership', [], []));
     },
 
     async getPresetSnapshot(): Promise<PresetSnapshotResult> {

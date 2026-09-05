@@ -282,18 +282,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let sliced = false;
   let plateSessionSequence = 0;
   let plateSessionId = '';
+  let plateIds: string[] = [];
+  let currentPlateId = '';
   function resetPlateSession(): void {
     plateSessionSequence += 1;
     plateSessionId = `plate-session-${plateSessionSequence}-plate-1`;
+    plateIds = [plateSessionId];
+    currentPlateId = plateSessionId;
   }
   resetPlateSession();
-  function plateSessionSnapshot() {
-    return {
-      ok: true as const,
-      version: 1 as const,
-      current_plate_id: plateSessionId,
-      plates: [{ plate_id: plateSessionId, display_index: 0, origin: [0, 0, 0], name: 'Plate 1' }],
+  function plateSessionSnapshot(includeMutation = false) {
+    const result: Record<string, unknown> = {
+      ok: true,
+      version: 1,
+      current_plate_id: currentPlateId,
+      plates: plateIds.map((id, index) => includeMutation ? ({
+        plate_id: id, display_index: index, origin: [index * 240, 0, 0], name: `Plate ${index + 1}`,
+        instance_ids: [], out_of_bounds_instance_ids: [], valid: true,
+      }) : ({ plate_id: id, display_index: index, origin: [index * 240, 0, 0], name: `Plate ${index + 1}` })),
     };
+    if (includeMutation) { result.instance_transforms = []; result.instances = []; }
+    return result;
   }
   let progressCallback = 0;
   const functionTable = new Map<number, (...args: unknown[]) => void>();
@@ -501,8 +510,28 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_select_plate(plateId: string) {
       if (typeof plateId !== 'string' || plateId.length === 0) return { error: 'plateId is required' };
-      if (plateId !== plateSessionId) return { error: 'plate not found' };
+      if (!plateIds.includes(plateId)) return { error: 'plate not found' };
+      currentPlateId = plateId;
       return plateSessionSnapshot();
+    },
+    orc_add_plate() {
+      if (plateIds.length >= 36) return { error: 'maximum of 36 plates' };
+      const id = `plate-session-${++plateSessionSequence}-plate-${plateIds.length + 1}`;
+      plateIds.push(id);
+      currentPlateId = id;
+      return plateSessionSnapshot(true);
+    },
+    orc_delete_plate(plateId: string) {
+      if (plateIds.length <= 1) return { error: 'at least one plate must remain' };
+      const index = plateIds.indexOf(plateId);
+      if (index < 0) return { error: 'plate not found' };
+      const deletingCurrent = currentPlateId === plateId;
+      plateIds.splice(index, 1);
+      if (deletingCurrent) currentPlateId = plateIds[Math.min(index, plateIds.length - 1)];
+      return plateSessionSnapshot(true);
+    },
+    orc_recompute_plate_membership() {
+      return plateSessionSnapshot(true);
     },
     orc_get_preset_snapshot() {
       return snapshot();
@@ -1195,6 +1224,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_plate_session_snapshot: { ret: 'number', args: [] },
     orc_reset_plate_session: { ret: 'number', args: [] },
     orc_select_plate: { ret: 'number', args: ['string'] },
+    orc_add_plate: { ret: 'number', args: [] },
+    orc_delete_plate: { ret: 'number', args: ['string'] },
+    orc_recompute_plate_membership: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },
     orc_clone_objects: { ret: 'number', args: ['string'] },
