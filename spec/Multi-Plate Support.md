@@ -66,6 +66,11 @@
   for all other plates remain available.
 - The first implementation uses one shared printing configuration for every
   plate. Per-plate configuration controls are explicitly out of scope.
+- Changing the shared configuration invalidates every plate's slice result.
+- Changing the printer or its build-volume dimensions or shape preserves plate
+  count; the grid is recomputed, plates carry their instances to their new
+  origins, and membership and printability are recalculated. All slice results
+  are then invalidated.
 - The plate-session data model and bridge contract must nevertheless reserve a
   per-plate settings/override slot, so a later release can add Orca-compatible
   per-plate configuration without changing plate identity or result ownership.
