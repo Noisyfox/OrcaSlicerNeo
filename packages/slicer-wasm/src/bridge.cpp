@@ -478,8 +478,10 @@ std::optional<json> parse_neo_plate_metadata(const std::string& bytes)
             throw Slic3r::RuntimeError("unsupported Neo plate metadata version");
         if (payload["plates"].empty() || payload["plates"].size() > static_cast<size_t>(kMaxPlateCount))
             throw Slic3r::RuntimeError("project contains more than 36 plates");
-        for (const auto& plate : payload["plates"]) {
+        for (size_t plate_index = 0; plate_index < payload["plates"].size(); ++plate_index) {
+            const auto& plate = payload["plates"][plate_index];
             if (!plate.is_object() || !plate.contains("plate_index") || !plate["plate_index"].is_number_integer() ||
+                plate["plate_index"].get<int>() != static_cast<int>(plate_index) ||
                 !plate.contains("origin") || !plate["origin"].is_array() || plate["origin"].size() != 3 ||
                 !std::all_of(plate["origin"].begin(), plate["origin"].end(), [](const json& coordinate) {
                     return coordinate.is_number() && std::isfinite(coordinate.get<double>());
