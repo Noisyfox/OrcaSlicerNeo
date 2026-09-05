@@ -135,5 +135,13 @@ per-plate membership, metadata, settings, and slice-result state, while the
 shared React layer renders the grid and controls. The existing platform
 contracts remain host-neutral.
 
+Within a running session, each plate has an immutable opaque `plateId`.
+Frontend selection, preview ownership, and slice jobs use this identity rather
+than the display index, which may change during compaction. Project 3MF remains
+native-compatible and persists plate order with `plate_index`; fresh internal
+IDs are created on load. A slice job records its target `plateId` and input
+revision, and its result is accepted only if both still match on completion;
+cancelled or stale completions are discarded.
+
 Further decisions are intentionally pending: membership calculation rules at
 plate boundaries and the detailed bridge/client contract.
