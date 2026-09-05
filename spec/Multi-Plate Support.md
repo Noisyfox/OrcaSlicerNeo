@@ -44,6 +44,20 @@
   dimensions. Whenever that reflow moves an existing plate, its instances move
   with it and preserve their local coordinates.
 
+## Slice results and configuration scope
+
+- Each plate retains its own completed G-code and preview result when the user
+  switches to another plate. Returning to an unchanged plate restores that
+  result without a new slice.
+- A committed edit invalidates the results of every plate that contained an
+  affected instance immediately before or immediately after that edit. Results
+  for all other plates remain available.
+- The first implementation uses one shared printing configuration for every
+  plate. Per-plate configuration controls are explicitly out of scope.
+- The plate-session data model and bridge contract must nevertheless reserve a
+  per-plate settings/override slot, so a later release can add Orca-compatible
+  per-plate configuration without changing plate identity or result ownership.
+
 ## Architectural direction
 
 The implementation will mirror OrcaSlicer's state model without importing its
@@ -53,6 +67,5 @@ shared React layer renders the grid and controls. The existing platform
 contracts remain host-neutral.
 
 Further decisions are intentionally pending: membership calculation rules at
-plate boundaries, project-load/save fidelity, per-plate settings, exact
-new-plate selection behaviour, per-plate preview retention, and the detailed
-bridge/client contract.
+plate boundaries, project-load/save fidelity, exact new-plate selection
+behaviour, and the detailed bridge/client contract.
