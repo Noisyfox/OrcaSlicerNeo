@@ -37,4 +37,31 @@ describe('portable runtime bootstrap', () => {
     await (runtime as typeof runtime & { ready: Promise<void> }).ready;
     expect(runtime.status?.phase).toBe('ready');
   });
+
+  it('preserves the typed plate-session contract through the runtime worker boundary', async () => {
+    let receive!: (message: import('../../slicer-wasm/src/client').WorkerMessage) => void;
+    const transport: WorkerTransport = {
+      post(message) {
+        if (message.type === 'request' && message.op === 'getPlateSessionSnapshot') {
+          receive({
+            type: 'response', id: message.id, ok: true,
+            result: {
+              ok: true, version: 1, currentPlateId: 'plate-session-1-plate-1',
+              plates: [{ plateId: 'plate-session-1-plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
+            },
+          });
+        }
+      },
+      onMessage(listener) { receive = listener; },
+    };
+    const runtime = createRuntimeBootstrap({
+      transport,
+      capabilities: { webgl2: true, wasm64: true, threadedWasm: false },
+    });
+    const snapshot = await runtime.getPlateSessionSnapshot();
+    expect(snapshot).toEqual({
+      ok: true, version: 1, currentPlateId: 'plate-session-1-plate-1',
+      plates: [{ plateId: 'plate-session-1-plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
+    });
+  });
 });

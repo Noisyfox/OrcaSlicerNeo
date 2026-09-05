@@ -280,6 +280,21 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
   let sliced = false;
+  let plateSessionSequence = 0;
+  let plateSessionId = '';
+  function resetPlateSession(): void {
+    plateSessionSequence += 1;
+    plateSessionId = `plate-session-${plateSessionSequence}-plate-1`;
+  }
+  resetPlateSession();
+  function plateSessionSnapshot() {
+    return {
+      ok: true as const,
+      version: 1 as const,
+      current_plate_id: plateSessionId,
+      plates: [{ plate_id: plateSessionId, display_index: 0, origin: [0, 0, 0], name: 'Plate 1' }],
+    };
+  }
   let progressCallback = 0;
   const functionTable = new Map<number, (...args: unknown[]) => void>();
   let nextFunctionIndex = 1000;
@@ -469,12 +484,25 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
     orc_init(_legacyPreferencesJson?: string) {
+      resetPlateSession();
       return {
         ok: true,
         prints: presetFixtures.print.length,
         filaments: presetFixtures.filament.length,
         printers: presetFixtures.printer.length,
       };
+    },
+    orc_get_plate_session_snapshot() {
+      return plateSessionSnapshot();
+    },
+    orc_reset_plate_session() {
+      resetPlateSession();
+      return plateSessionSnapshot();
+    },
+    orc_select_plate(plateId: string) {
+      if (typeof plateId !== 'string' || plateId.length === 0) return { error: 'plateId is required' };
+      if (plateId !== plateSessionId) return { error: 'plate not found' };
+      return plateSessionSnapshot();
     },
     orc_get_preset_snapshot() {
       return snapshot();
@@ -529,6 +557,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         instanceMeta = [];
       }
       appendMockObject(displayName || undefined);
+      resetPlateSession();
       return {
         ok: true, objects: objectTransforms.length,
         instances: objectTransforms.reduce((total, instances) => total + instances.length, 0),
@@ -582,6 +611,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       instanceMeta = [];
       modelLoaded = false;
       sliced = false;
+      resetPlateSession();
       return { ok: true };
     },
     orc_delete_objects(objectIdsJson: string) {
@@ -1160,6 +1190,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_import_project_geometry: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
+    orc_get_plate_session_snapshot: { ret: 'number', args: [] },
+    orc_reset_plate_session: { ret: 'number', args: [] },
+    orc_select_plate: { ret: 'number', args: ['string'] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },
     orc_clone_objects: { ret: 'number', args: ['string'] },

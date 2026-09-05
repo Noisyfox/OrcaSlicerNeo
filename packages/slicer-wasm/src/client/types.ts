@@ -44,6 +44,34 @@ export interface InitResult {
   error?: string;
 }
 
+/** A single headless editing plate owned by the WASM session. */
+export interface PlateSessionPlate {
+  /** Opaque identity; never derive or persist this value. */
+  readonly plateId: string;
+  /** Native OrcaSlicer display/order index (zero based). */
+  readonly displayIndex: number;
+  /** Native world-space origin in millimetres. */
+  readonly origin: readonly [number, number, number];
+  /** Native-compatible default display name. */
+  readonly name: string;
+}
+
+/** Atomic read of the WASM-owned plate session. */
+export interface PlateSessionSnapshot {
+  readonly ok: true;
+  readonly version: 1;
+  readonly plates: readonly PlateSessionPlate[];
+  readonly currentPlateId: string;
+}
+
+/** A malformed or rejected plate-session command has no partial state. */
+export interface PlateSessionSnapshotError {
+  readonly ok?: false;
+  readonly error: string;
+}
+
+export type PlateSessionSnapshotResult = PlateSessionSnapshot | PlateSessionSnapshotError;
+
 export interface PresetInfo {
   name: string;
   /** Real preset visibility result from the bundled profile state. */
@@ -533,6 +561,12 @@ export interface ReadLogResult {
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
+  /** Read the authoritative headless plate session snapshot. */
+  getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult>;
+  /** Reset to one fresh default Plate 1 and return its new runtime identity. */
+  resetPlateSession(): Promise<PlateSessionSnapshotResult>;
+  /** Select an existing plate by its opaque runtime identity. */
+  selectPlate(plateId: string): Promise<PlateSessionSnapshotResult>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
   getPresetSnapshot(): Promise<PresetSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;

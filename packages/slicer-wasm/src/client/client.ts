@@ -8,6 +8,7 @@
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, PresetSnapshotResult,
+  PlateSessionPlate, PlateSessionSnapshotResult,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
@@ -22,6 +23,42 @@ import type {
 } from './types';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
+
+function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid plate session response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'plate session request failed' };
+  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || !Array.isArray(value.plates)) {
+    return { ok: false, error: 'invalid plate session response' };
+  }
+  const plates = value.plates.map((entry): PlateSessionPlate | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const plate = entry as Record<string, unknown>;
+    const origin = plate.origin;
+    if (typeof plate.plate_id !== 'string' || typeof plate.name !== 'string' ||
+        !Number.isInteger(plate.display_index) || !Array.isArray(origin) || origin.length !== 3 ||
+        !origin.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))) return null;
+    const coordinates = origin as [number, number, number];
+    return {
+      plateId: plate.plate_id,
+      displayIndex: plate.display_index as number,
+      origin: [coordinates[0], coordinates[1], coordinates[2]],
+      name: plate.name,
+    };
+  });
+  if (plates.some((plate): plate is null => plate === null) || plates.length === 0) {
+    return { ok: false, error: 'invalid plate session response' };
+  }
+  if (!plates.some((plate) => plate!.plateId === value.current_plate_id)) {
+    return { ok: false, error: 'invalid plate session current identity' };
+  }
+  return {
+    ok: true,
+    version: 1,
+    currentPlateId: value.current_plate_id,
+    plates: plates as PlateSessionPlate[],
+  };
+}
 
 export function createClient(
   moduleFactory: OrcaModuleFactory,
@@ -102,6 +139,21 @@ export function createClient(
         log_level: (globalThis as { ORCA_LOG_LEVEL?: unknown }).ORCA_LOG_LEVEL,
       };
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
+    },
+
+    async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {
+      const m = await module();
+      return normalizePlateSessionResult(callJson(m, 'orc_get_plate_session_snapshot', [], []));
+    },
+
+    async resetPlateSession(): Promise<PlateSessionSnapshotResult> {
+      const m = await module();
+      return normalizePlateSessionResult(callJson(m, 'orc_reset_plate_session', [], []));
+    },
+
+    async selectPlate(plateId: string): Promise<PlateSessionSnapshotResult> {
+      const m = await module();
+      return normalizePlateSessionResult(callJson(m, 'orc_select_plate', ['string'], [plateId]));
     },
 
     async getPresetSnapshot(): Promise<PresetSnapshotResult> {

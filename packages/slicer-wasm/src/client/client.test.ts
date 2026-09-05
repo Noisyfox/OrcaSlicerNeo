@@ -20,6 +20,42 @@ describe('SlicerClient bridge contract', () => {
     expect(r.printers).toBeGreaterThan(0);
   });
 
+  it('exposes one deterministic default plate and opaque runtime identity', async () => {
+    const c = makeClient();
+    const first = await c.getPlateSessionSnapshot();
+    expect(first).toMatchObject({ ok: true, version: 1, currentPlateId: expect.any(String) });
+    if (!first.ok) throw new Error(first.error);
+    expect(first.plates).toEqual([{
+      plateId: first.currentPlateId,
+      displayIndex: 0,
+      origin: [0, 0, 0],
+      name: 'Plate 1',
+    }]);
+    expect(await c.getPlateSessionSnapshot()).toEqual(first);
+    expect(await c.selectPlate(first.currentPlateId)).toEqual(first);
+    const reset = await c.resetPlateSession();
+    expect(reset.ok).toBe(true);
+    if (!reset.ok) throw new Error(reset.error);
+    expect(reset.currentPlateId).not.toBe(first.currentPlateId);
+    expect(await c.selectPlate('malformed-or-stale-id')).toEqual({ ok: false, error: 'plate not found' });
+    expect(await c.getPlateSessionSnapshot()).toEqual(reset);
+  });
+
+  it('refreshes the runtime plate identity when clearing or loading a project', async () => {
+    const c = makeClient();
+    const initial = await c.getPlateSessionSnapshot();
+    if (!initial.ok) throw new Error(initial.error);
+    await c.clearModel();
+    const afterClear = await c.getPlateSessionSnapshot();
+    if (!afterClear.ok) throw new Error(afterClear.error);
+    expect(afterClear.currentPlateId).not.toBe(initial.currentPlateId);
+    await c.loadProject(new Uint8Array([1]), 'project', 'legacy.3mf');
+    const afterLoad = await c.getPlateSessionSnapshot();
+    if (!afterLoad.ok) throw new Error(afterLoad.error);
+    expect(afterLoad.currentPlateId).not.toBe(afterClear.currentPlateId);
+    expect(afterLoad.plates).toHaveLength(1);
+  });
+
   it('getPresetSnapshot returns the coherent strict-hide picker state', async () => {
     const c = makeClient();
     const snapshot = await c.getPresetSnapshot();

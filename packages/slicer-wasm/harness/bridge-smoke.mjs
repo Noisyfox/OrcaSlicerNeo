@@ -67,6 +67,25 @@ const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
 check('orc_init ok', init.ok === true, JSON.stringify(init));
 check('init has printers', init.printers > 0, `printers=${init.printers}`);
 
+const plateSession = callJson('orc_get_plate_session_snapshot', [], []);
+check('plate session starts with one native-positioned Plate 1',
+  plateSession.ok === true && plateSession.version === 1 &&
+  plateSession.plates?.length === 1 && plateSession.current_plate_id === plateSession.plates[0]?.plate_id &&
+  plateSession.plates[0]?.display_index === 0 &&
+  JSON.stringify(plateSession.plates[0]?.origin) === JSON.stringify([0, 0, 0]) &&
+  plateSession.plates[0]?.name === 'Plate 1', JSON.stringify(plateSession));
+const plateReadAgain = callJson('orc_get_plate_session_snapshot', [], []);
+check('plate session reads are deterministic', JSON.stringify(plateReadAgain) === JSON.stringify(plateSession));
+const plateReset = callJson('orc_reset_plate_session', [], []);
+check('plate session reset refreshes runtime identity',
+  plateReset.ok === true && plateReset.current_plate_id !== plateSession.current_plate_id,
+  JSON.stringify(plateReset));
+const rejectedPlate = callJson('orc_select_plate', ['string'], ['malformed-or-stale-id']);
+const plateAfterReject = callJson('orc_get_plate_session_snapshot', [], []);
+check('malformed plate selection rejects without mutation',
+  rejectedPlate.ok !== true && JSON.stringify(plateAfterReject) === JSON.stringify(plateReset),
+  JSON.stringify(rejectedPlate));
+
 // The threaded wasm build must use every logical core available at runtime;
 // the serial build (WASM_THREADING=0) must report a single-concurrency pool.
 // The loader evaluates navigator.hardwareConcurrency dynamically, so the

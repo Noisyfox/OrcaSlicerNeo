@@ -108,8 +108,41 @@ struct BridgeState {
     std::size_t preview_gcode_size = 0;
     std::vector<std::size_t> preview_gcode_line_ends;
     bool preview_text_available = false;
+    // Runtime-only identity for the headless plate session. This is kept
+    // separate from native plate_index values and is never persisted.
+    std::string plate_session_id;
 };
 BridgeState& state() { static BridgeState s; return s; }
+
+std::atomic<std::uint64_t> g_plate_session_sequence{0};
+
+void reset_plate_session_state()
+{
+    auto& s = state();
+    const auto sequence = g_plate_session_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    s.plate_session_id = "plate-session-" + std::to_string(sequence) + "-plate-1";
+}
+
+void ensure_plate_session_state()
+{
+    if (state().plate_session_id.empty()) reset_plate_session_state();
+}
+
+json plate_session_snapshot_json()
+{
+    ensure_plate_session_state();
+    return json{
+        {"ok", true},
+        {"version", 1},
+        {"current_plate_id", state().plate_session_id},
+        {"plates", json::array({json{
+            {"plate_id", state().plate_session_id},
+            {"display_index", 0},
+            {"origin", json::array({0.0, 0.0, 0.0})},
+            {"name", "Plate 1"},
+        }})},
+    };
+}
 
 // Project archives are staged under a fresh name for every request.  Besides
 // preventing concurrent calls from clobbering one another, this keeps the
@@ -768,6 +801,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         wasm_log::init_with_level(log_level);
 
         const char* result = init_with_app_config(json::object());
+        reset_plate_session_state();
         // First bridge log record — proves the sink pipeline end-to-end
         // (console + /tmp/orca.log).
         BOOST_LOG_TRIVIAL(info) << "orc_init: bridge ready, log level "
@@ -784,6 +818,46 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         // Non-std throw: never let a C++ exception cross the extern "C" seam
         // (it would surface in JS as an uncatchable CppException crash).
         fprintf(stderr, "orc_init caught (...) via catch-all\n");
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Step 1 plate-session seam. The first implementation intentionally exposes
+// exactly one default plate; lifecycle and membership mutations arrive in
+// later steps. Every response is an atomic snapshot so a caller never has to
+// compose current identity and layout from separate reads.
+EMSCRIPTEN_KEEPALIVE const char* orc_get_plate_session_snapshot() {
+    try {
+        return dup_json(plate_session_snapshot_json().dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_reset_plate_session() {
+    try {
+        reset_plate_session_state();
+        return dup_json(plate_session_snapshot_json().dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_select_plate(const char* plate_id_cstr) {
+    try {
+        ensure_plate_session_state();
+        const std::string requested = plate_id_cstr ? plate_id_cstr : "";
+        if (requested.empty()) return error_json("plateId is required");
+        if (requested != state().plate_session_id)
+            return error_json("plate not found");
+        return dup_json(plate_session_snapshot_json().dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
         return error_json("unknown C++ exception");
     }
 }
@@ -1095,6 +1169,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
         }
         state().print.clear();
         invalidate_preview_source();
+        reset_plate_session_state();
 
         const std::string compatibility = is_orca_3mf ? "orca" :
             (is_bbl_3mf ? "bambu" : "generic");
@@ -1293,6 +1368,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
         state().print.clear();
         invalidate_preview_source();
         state().model = Model{};
+        reset_plate_session_state();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
