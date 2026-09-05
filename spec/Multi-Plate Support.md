@@ -120,6 +120,10 @@
 - Except for those intentionally omitted derived artifacts, unsupported native
   per-plate metadata is retained as opaque data and written back unchanged so
   an open/save cycle does not discard it.
+- Plate add/delete, model edits, and shared configuration changes mark the
+  project unsaved. Slice results, preview changes, and current-plate selection
+  do not. The existing save-prompt flow applies before closing or replacing a
+  project with unsaved multi-plate changes.
 
 ## Project import compatibility
 
