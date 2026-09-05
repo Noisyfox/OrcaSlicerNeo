@@ -31,8 +31,13 @@
 
 - The first implementation exposes only **Add plate** and **Delete plate**.
   Plate duplication, reordering, and renaming are deferred.
+- Adding a plate automatically makes that new plate the current plate.
 - At least one plate always remains; the sole remaining plate cannot be
   deleted.
+- Deleting the current plate selects the plate that compacts into its former
+  position; when the deleted plate was last, the preceding plate becomes
+  current. Deleting a non-current plate preserves the current plate's identity,
+  even if grid compaction changes its index and world position.
 - Deleting a plate never deletes its model instances. Its instances move to
   the final vacant grid position and retain their local coordinates relative
   to their deleted plate. They are unprintable until a later editing operation
@@ -67,5 +72,5 @@ shared React layer renders the grid and controls. The existing platform
 contracts remain host-neutral.
 
 Further decisions are intentionally pending: membership calculation rules at
-plate boundaries, project-load/save fidelity, exact new-plate selection
-behaviour, and the detailed bridge/client contract.
+plate boundaries, project-load/save fidelity, and the detailed bridge/client
+contract.
