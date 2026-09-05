@@ -64,6 +64,15 @@
 - A committed edit invalidates the results of every plate that contained an
   affected instance immediately before or immediately after that edit. Results
   for all other plates remain available.
+- Grid reflow caused only by adding or deleting a plate preserves surviving
+  plates' slice results because their local placement is unchanged. A new plate
+  starts unsliced, and deleting a plate discards its result.
+- Only one slice job runs at a time, but users may switch, view, and edit other
+  plates while it runs. Its result is bound to the plate selected when the job
+  started, not whichever plate is current when it completes.
+- If an edit affects the plate currently being sliced, that job is cancelled
+  immediately and the plate becomes unsliced. An edit to another plate does
+  not interrupt the running job.
 - The first implementation uses one shared printing configuration for every
   plate. Per-plate configuration controls are explicitly out of scope.
 - Changing the shared configuration invalidates every plate's slice result.
