@@ -73,6 +73,18 @@
 - On project reload, every plate is treated as unsliced. A user must slice the
   selected plate again before preview, export, or send-to-printer is available.
 
+## Project import compatibility
+
+- Importing a multi-plate project produced by native OrcaSlicer must preserve
+  its plate layout and object membership; it must not be flattened into one
+  plate.
+- A plain 3MF or legacy project with no plate metadata imports into one default
+  plate, `Plate 1`. Instance membership is then recalculated from current
+  coordinates.
+- Import rejects a project with more than 36 plates with a clear error. This
+  deliberately replaces native OrcaSlicer's unsafe over-limit load path while
+  retaining its 36-plate product limit.
+
 ## Architectural direction
 
 The implementation will mirror OrcaSlicer's state model without importing its
@@ -82,5 +94,4 @@ shared React layer renders the grid and controls. The existing platform
 contracts remain host-neutral.
 
 Further decisions are intentionally pending: membership calculation rules at
-plate boundaries, compatibility behaviour for imported project files, and the
-detailed bridge/client contract.
+plate boundaries and the detailed bridge/client contract.
