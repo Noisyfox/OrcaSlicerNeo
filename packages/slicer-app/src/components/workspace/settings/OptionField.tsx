@@ -1,27 +1,38 @@
 // packages/slicer-app/src/components/settings/OptionField.tsx
 import type { OptionMeta } from '@slicer/client';
+import { usePlatform } from '@orca/platform-contract';
+import { errorText } from '@orca/slicer-runtime';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
+import { commitSharedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
+export async function commitOptionFieldChange(
+  platform: Parameters<typeof commitSharedConfigurationMutation>[0],
+  optionKey: string,
+  next: string,
+): Promise<void> {
+  await commitSharedConfigurationMutation(platform);
+  useSettingsStore.getState().setValue(optionKey, next);
+  invalidateAfterSharedConfigurationMutation();
+}
+
 export function OptionField({ optionKey, meta }: { optionKey: string; meta: OptionMeta }) {
+  const platform = usePlatform();
   const value = useSettingsStore((s) => s.values[optionKey] ?? meta.default ?? '');
-  const setValue = useSettingsStore((s) => s.setValue);
-  const setStatus = useSlicerStore((s) => s.setStatus);
-  const setLayers = useSlicerStore((s) => s.setLayers);
-  const setProgress = useSlicerStore((s) => s.setProgress);
   const setError = useSlicerStore((s) => s.setError);
-  const setResultExported = useSlicerStore((s) => s.setResultExported);
-  const change = (next: string) => {
-    setValue(optionKey, next);
-    // A settings override belongs to a new configuration. Invalidate the
-    // previous toolpath immediately so export/leave-warning state is honest.
-    setStatus('idle'); setLayers(0); setProgress(0); setError(null); setResultExported(false);
-    useProjectStore.getState().recordSharedConfigurationMutation();
+  const change = async (next: string) => {
+    try {
+      // A settings override belongs to a new configuration. The shared
+      // helper commits the authoritative bridge transaction before changing
+      // the local value, so a rejection cannot look committed in the UI.
+      await commitOptionFieldChange(platform, optionKey, next);
+    } catch (error) {
+      setError(errorText(error));
+    }
   };
   const label = meta.label ?? optionKey;
 
