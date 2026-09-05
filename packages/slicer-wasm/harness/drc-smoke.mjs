@@ -80,6 +80,19 @@ function meshSummary() {
 
 const init = callJson('orc_init', ['string'], ['']);
 check('orc_init succeeds', init.ok === true, JSON.stringify(init));
+const presetSnapshot = callJson('orc_get_preset_snapshot', [], []);
+const plateSnapshot = callJson('orc_get_plate_session_snapshot', [], []);
+const printableArea = presetSnapshot.printable_area ?? [];
+const areaBounds = printableArea.reduce((bounds, point) => ({
+  minX: Math.min(bounds.minX, point[0]), maxX: Math.max(bounds.maxX, point[0]),
+  minY: Math.min(bounds.minY, point[1]), maxY: Math.max(bounds.maxY, point[1]),
+}), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+const selectedPlate = plateSnapshot.plates?.find((plate) =>
+  plate.plate_id === plateSnapshot.current_plate_id);
+const selectedPlateWorldCenter = [
+  selectedPlate.origin[0] + (areaBounds.minX + areaBounds.maxX) * 0.5,
+  selectedPlate.origin[1] + (areaBounds.minY + areaBounds.maxY) * 0.5,
+];
 
 // Each sample is an official Google Draco v1.5.7 triangular mesh.  The exact
 // local bounding box deliberately proves the loader retained the source axes
@@ -103,7 +116,8 @@ for (const expected of meshes) {
   callJson('orc_clear_model', [], []);
   const added = addDrc(await fixture(expected.name), expected.name);
   check(`${expected.name}: imports as one object and instance`,
-        added.ok === true && added.objects === 1 && added.instances === 1, JSON.stringify(added));
+        added.ok === true && added.objects === 1 && Array.isArray(added.instances)
+        && added.instances.length === 1, JSON.stringify(added));
   const structure = callJson('orc_get_model_structure', [], []);
   check(`${expected.name}: selected filename becomes the object name`,
         structure.ok === true && structure.objects?.[0]?.name === expected.name
@@ -117,9 +131,11 @@ for (const expected of meshes) {
         && summary.max?.every((value, axis) => nearly(value, expected.max[axis])),
         JSON.stringify({ min: summary.min, max: summary.max }));
   check(`${expected.name}: centered and resting on the bed`,
-        summary.object && nearly(summary.object.offset[0], 0) && nearly(summary.object.offset[1], 0)
+        summary.object && nearly(summary.object.offset[0], selectedPlateWorldCenter[0])
+        && nearly(summary.object.offset[1], selectedPlateWorldCenter[1])
         && nearly(summary.min[2] + summary.object.offset[2], 0),
-        JSON.stringify({ minZ: summary.min?.[2], offset: summary.object?.offset }));
+        JSON.stringify({ minZ: summary.min?.[2], offset: summary.object?.offset,
+          expectedXY: selectedPlateWorldCenter }));
 }
 
 // Appending follows the existing STL semantics; a second successful import
@@ -129,7 +145,8 @@ const cube = await fixture('cube_att.drc');
 const first = addDrc(cube, 'first.drc');
 const second = addDrc(cube, 'second.drc');
 check('DRC imports append to the current plate',
-      first.ok === true && second.ok === true && second.objects === 2 && second.instances === 2,
+      first.ok === true && second.ok === true && second.objects === 2
+      && Array.isArray(second.instances) && second.instances.length === 2,
       JSON.stringify(second));
 
 // The documented supported failure modes must be atomic: leave both the

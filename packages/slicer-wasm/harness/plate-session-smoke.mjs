@@ -26,6 +26,16 @@ function check(label, condition, detail = '') {
 let failures = 0;
 const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
 check('init', init.ok === true);
+const presetSnapshot = callJson('orc_get_preset_snapshot');
+const printableArea = presetSnapshot.printable_area ?? [];
+const areaBounds = printableArea.reduce((bounds, point) => ({
+  minX: Math.min(bounds.minX, point[0]), maxX: Math.max(bounds.maxX, point[0]),
+  minY: Math.min(bounds.minY, point[1]), maxY: Math.max(bounds.maxY, point[1]),
+}), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
+const plateWorldCenter = (plate) => [
+  plate.origin[0] + (areaBounds.minX + areaBounds.maxX) * 0.5,
+  plate.origin[1] + (areaBounds.minY + areaBounds.maxY) * 0.5,
+];
 let session = callJson('orc_get_plate_session_snapshot');
 const firstId = session.current_plate_id;
 check('one default plate', session.plates?.length === 1 && session.plates[0].display_index === 0);
@@ -64,6 +74,15 @@ const revisionsBeforeImport = { ...(session.input_revisions ?? {}) };
 const addedCube = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Step2 Cube']);
 check('add cube on current plate', addedCube.ok === true && addedCube.dirty_reasons?.includes('model-import') &&
   addedCube.affected_plate_ids_after?.includes(session.plates[1].plate_id));
+const addedCubeTransform = addedCube.instance_transforms?.find((entry) => entry.object_index === 1);
+const selectedPlateCenter = plateWorldCenter(selected.plates.find((plate) =>
+  plate.plate_id === selected.current_plate_id));
+check('new model uses selected non-first plate world center and rests on bed',
+  addedCubeTransform?.world_transform?.offset?.length === 3 &&
+  Math.abs(addedCubeTransform.world_transform.offset[0] - selectedPlateCenter[0]) < 1e-6 &&
+  Math.abs(addedCubeTransform.world_transform.offset[1] - selectedPlateCenter[1]) < 1e-6 &&
+  Math.abs(addedCubeTransform.world_transform.offset[2] - 10) < 1e-6,
+  JSON.stringify({ transform: addedCubeTransform, expectedXY: selectedPlateCenter }));
 const addedRevision = addedCube.input_revisions?.[session.plates[1].plate_id];
 check('model import advances only its current plate revision', Number.isSafeInteger(addedRevision) &&
   Object.entries(addedCube.input_revisions ?? {}).every(([id, revision]) =>
