@@ -9,6 +9,7 @@ import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, PresetSnapshotResult,
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  ClearModelResult,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult,
   ModelMeshResult, SliceResultStatus, ClientSliceResult,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
@@ -95,6 +96,24 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
     if (transforms.some((transform) => transform === null)) return { ok: false, error: 'invalid plate session transforms' };
     result.instanceTransforms = transforms as NonNullable<typeof transforms[number]>[];
   }
+  if (value.input_revisions && typeof value.input_revisions === 'object' && !Array.isArray(value.input_revisions)) {
+    const revisions: Record<string, number> = {};
+    for (const [id, revision] of Object.entries(value.input_revisions as Record<string, unknown>))
+      if (typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0) revisions[id] = revision;
+    result.inputRevisions = revisions;
+  }
+  const ids = (key: string): string[] | undefined => Array.isArray(value[key])
+    && (value[key] as unknown[]).every((id) => typeof id === 'string')
+    ? value[key] as string[] : undefined;
+  const before = ids('affected_plate_ids_before');
+  const after = ids('affected_plate_ids_after');
+  const affected = ids('affected_plate_ids');
+  const reasons = Array.isArray(value.dirty_reasons) && (value.dirty_reasons as unknown[]).every((reason) => typeof reason === 'string')
+    ? value.dirty_reasons as string[] : undefined;
+  if (before) result.affectedPlateIdsBefore = before;
+  if (after) result.affectedPlateIdsAfter = after;
+  if (affected) result.affectedPlateIds = affected;
+  if (reasons) result.dirtyReasons = reasons;
   return result;
 }
 
@@ -103,6 +122,35 @@ function normalizePlateMutationResult(raw: unknown): PlateSessionMutationResult 
   if (!result.ok) return result;
   if (!result.instanceTransforms) return { ok: false, error: 'plate mutation omitted instance transforms' };
   return result as PlateSessionMutationResult;
+}
+
+function normalizeLoadModelResult(raw: unknown): LoadModelResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, objects: 0, instances: 0, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
+  const nested = value.plate_session;
+  const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
+  return { ok: true, objects: Number(value.objects ?? 0), instances: Number(value.instances ?? 0),
+    ...(plateSession?.ok ? { plateSession } : {}) };
+}
+
+function normalizeDeleteResult(raw: unknown): DeleteObjectsResult & DeleteVolumesResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid model mutation response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
+  const nested = value.plate_session;
+  const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
+  return { ok: true, objects: Number(value.objects ?? 0), deleted: Number(value.deleted ?? 0),
+    ...(plateSession?.ok ? { plateSession } : {}) };
+}
+
+function normalizeClearResult(raw: unknown): ClearModelResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid model mutation response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
+  const nested = value.plate_session;
+  const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
+  return { ok: true, ...(plateSession?.ok ? { plateSession } : {}) };
 }
 
 export function createClient(
@@ -235,8 +283,8 @@ export function createClient(
       const m = await module();
       const ptr = writeBytes(m, bytes);
       try {
-        return callJson(m, 'orc_add_model', ['pointer', 'number', 'string', 'string'],
-                        [ptr, bytes.length, ext, displayName ?? '']) as LoadModelResult;
+        return normalizeLoadModelResult(callJson(m, 'orc_add_model', ['pointer', 'number', 'string', 'string'],
+                        [ptr, bytes.length, ext, displayName ?? '']));
       } finally {
         m._free(ptr);
       }
@@ -294,6 +342,10 @@ export function createClient(
           presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object'
             && (r.preset_snapshot as Record<string, unknown>).ok === true
             ? r.preset_snapshot as unknown as import('./types').PresetSnapshot : undefined,
+          ...(r.plate_session ? (() => {
+            const plateSession = normalizePlateMutationResult(r.plate_session);
+            return plateSession.ok ? { plateSession } : {};
+          })() : {}),
         };
       } finally {
         m._free(ptr);
@@ -333,6 +385,10 @@ export function createClient(
             missingSystemPreset: (r.embedded_preset_warnings as Record<string, unknown>).missing_system_preset === true,
             requiresConfirmation: (r.embedded_preset_warnings as Record<string, unknown>).requires_confirmation === true,
           } : undefined,
+          ...(r.plate_session ? (() => {
+            const plateSession = normalizePlateMutationResult(r.plate_session);
+            return plateSession.ok ? { plateSession } : {};
+          })() : {}),
         };
       } finally {
         m._free(ptr);
@@ -341,13 +397,13 @@ export function createClient(
 
     async addShape(type: string, name?: string): Promise<LoadModelResult> {
       const m = await module();
-      return callJson(m, 'orc_add_shape', ['string', 'string'],
-                      [type, name ?? '']) as LoadModelResult;
+      return normalizeLoadModelResult(callJson(m, 'orc_add_shape', ['string', 'string'],
+                      [type, name ?? '']));
     },
 
-    async clearModel(): Promise<{ ok: boolean; error?: string }> {
+    async clearModel(): Promise<ClearModelResult> {
       const m = await module();
-      return callJson(m, 'orc_clear_model', [], []) as { ok: boolean; error?: string };
+      return normalizeClearResult(callJson(m, 'orc_clear_model', [], []));
     },
 
     async setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number) {
@@ -400,14 +456,14 @@ export function createClient(
 
     async deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult> {
       const m = await module();
-      return callJson(m, 'orc_delete_objects', ['string'],
-                      [JSON.stringify(objectIds)]) as DeleteObjectsResult;
+      return normalizeDeleteResult(callJson(m, 'orc_delete_objects', ['string'],
+                      [JSON.stringify(objectIds)])) as DeleteObjectsResult;
     },
 
     async deleteVolumes(volumeIds: number[]): Promise<DeleteVolumesResult> {
       const m = await module();
-      return callJson(m, 'orc_delete_volumes', ['string'],
-                      [JSON.stringify(volumeIds)]) as DeleteVolumesResult;
+      return normalizeDeleteResult(callJson(m, 'orc_delete_volumes', ['string'],
+                      [JSON.stringify(volumeIds)])) as DeleteVolumesResult;
     },
 
     async cloneObjects(objectIds: number[]): Promise<CloneObjectsResult> {

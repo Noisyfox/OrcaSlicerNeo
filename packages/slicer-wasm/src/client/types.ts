@@ -78,6 +78,15 @@ export interface PlateSessionInstanceTransform {
   readonly worldTransform: ModelTransform;
 }
 
+/** Impact metadata emitted by one committed model/configuration transaction. */
+export interface PlateMutationImpact {
+  readonly inputRevisions?: Readonly<Record<string, number>>;
+  readonly affectedPlateIdsBefore?: readonly string[];
+  readonly affectedPlateIdsAfter?: readonly string[];
+  readonly affectedPlateIds?: readonly string[];
+  readonly dirtyReasons?: readonly string[];
+}
+
 /** Atomic read of the WASM-owned plate session. */
 export interface PlateSessionSnapshot {
   readonly ok: true;
@@ -86,6 +95,11 @@ export interface PlateSessionSnapshot {
   readonly currentPlateId: string;
   instances?: readonly PlateSessionInstance[];
   instanceTransforms?: readonly PlateSessionInstanceTransform[];
+  inputRevisions?: Readonly<Record<string, number>>;
+  affectedPlateIdsBefore?: readonly string[];
+  affectedPlateIdsAfter?: readonly string[];
+  affectedPlateIds?: readonly string[];
+  dirtyReasons?: readonly string[];
 }
 
 export interface PlateSessionMutation extends PlateSessionSnapshot {
@@ -177,6 +191,13 @@ export interface LoadModelResult {
   objects: number;
   instances: number;
   error?: string;
+  plateSession?: PlateSessionMutation;
+}
+
+export interface ClearModelResult {
+  ok: boolean;
+  error?: string;
+  plateSession?: PlateSessionMutation;
 }
 
 export type ProjectLoadMode = 'project' | 'geometry-only';
@@ -219,6 +240,8 @@ export interface ProjectLoadResult {
   };
   /** Candidate picker state captured in the same native load response. */
   presetSnapshot?: PresetSnapshot;
+  /** Authoritative plate membership returned by the native model transaction. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -270,6 +293,7 @@ export interface DeleteObjectsResult {
   /** Number of objects actually removed (duplicates are ignored). */
   deleted?: number;
   error?: string;
+  plateSession?: PlateSessionMutation;
 }
 
 /** Multi-delete of parts by stable ObjectID. */
@@ -280,6 +304,7 @@ export interface DeleteVolumesResult {
   /** Number of volumes actually removed (duplicates are ignored). */
   deleted?: number;
   error?: string;
+  plateSession?: PlateSessionMutation;
 }
 
 /** Clone result: the freshly minted stable ObjectIDs of the clones. */
@@ -615,7 +640,7 @@ export interface SlicerClient {
    *  — no staging file involved. `name` defaults to `type`. */
   addShape(type: string, name?: string): Promise<LoadModelResult>;
   /** Reset the complete scene in the WASM model and invalidate its Print. */
-  clearModel(): Promise<{ ok: boolean; error?: string }>;
+  clearModel(): Promise<ClearModelResult>;
   setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number): Promise<{ ok: boolean; error?: string }>;
   setModelTransform(
     objIdx: number, volumeIdx: number, instIdx: number,

@@ -60,20 +60,40 @@ check('invalid select is atomic', rejectedSelect.ok !== true && afterRejectedSel
 
 // A deliberately oversized convex-hull box intersects plate 1 and plate 2;
 // lowest display index wins.  The later move intersects neither plate.
-check('add cube', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Step2 Cube']).ok === true);
+const revisionsBeforeImport = { ...(session.input_revisions ?? {}) };
+const addedCube = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Step2 Cube']);
+check('add cube on current plate', addedCube.ok === true && addedCube.dirty_reasons?.includes('model-import') &&
+  addedCube.affected_plate_ids_after?.includes(session.plates[1].plate_id));
+const addedRevision = addedCube.input_revisions?.[session.plates[1].plate_id];
+check('model import advances only its current plate revision', Number.isSafeInteger(addedRevision) &&
+  Object.entries(addedCube.input_revisions ?? {}).every(([id, revision]) =>
+  revision === (id === session.plates[1].plate_id ? (revisionsBeforeImport[id] ?? 0) + 1 : revisionsBeforeImport[id] ?? 0)), JSON.stringify(addedCube));
 const identity = JSON.stringify({ offset: [120, 0, 10], rotation: [0, 0, 0], scale: [30, 30, 30], mirror: [1, 1, 1] });
 check('set oversized instance', callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'], [1, 0, 0, identity, volumeIdentity]).ok === true);
+const beforeCommit = callJson('orc_get_plate_session_snapshot');
+check('membership waits for transform commit', beforeCommit.instances?.find((item) => item.object_index === 1)?.plate_id === session.plates[1].plate_id);
 let membership = callJson('orc_recompute_plate_membership');
 const instance = membership.instances?.find((item) => item.object_index === 1 && item.instance_index === 0);
 check('convex-hull tie chooses lowest index', instance?.plate_id === session.plates[0].plate_id);
+check('transform reports exact before/after affected plates', membership.dirty_reasons?.includes('model-transform') &&
+  membership.affected_plate_ids_before?.length === 1 && membership.affected_plate_ids_before[0] === session.plates[1].plate_id &&
+  membership.affected_plate_ids_after?.length === 1 && membership.affected_plate_ids_after[0] === session.plates[0].plate_id &&
+  membership.affected_plate_ids?.length === 2 && membership.input_revisions?.[session.plates[0].plate_id] === 1 &&
+  membership.input_revisions?.[session.plates[1].plate_id] === 2 && membership.input_revisions?.[session.plates[2].plate_id] === 1, JSON.stringify(membership));
 const outside = JSON.stringify({ offset: [1000, 0, 10], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] });
 check('move instance', callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'], [1, 0, 0, outside, volumeIdentity]).ok === true);
 membership = callJson('orc_recompute_plate_membership');
 check('no matching plate is unprintable', membership.instances?.find((item) => item.object_index === 1)?.unprintable === true && membership.instances?.find((item) => item.object_index === 1)?.plate_id === '');
+check('moving to no plate reports exact affected union', membership.affected_plate_ids_before?.length === 1 &&
+  membership.affected_plate_ids_after?.length === 0 && membership.affected_plate_ids?.length === 1 &&
+  membership.affected_plate_ids[0] === session.plates[0].plate_id, JSON.stringify(membership));
 const partial = JSON.stringify({ offset: [243, 0, 10], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] });
 check('move partially into plate', callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'], [1, 0, 0, partial, volumeIdentity]).ok === true);
 membership = callJson('orc_recompute_plate_membership');
 check('membership and out-of-bounds are independent', membership.instances?.find((item) => item.object_index === 1)?.plate_id === session.plates[1].plate_id && membership.instances?.find((item) => item.object_index === 1)?.out_of_bounds === true);
+check('moving from unprintable increments destination revision only', membership.affected_plate_ids_before?.length === 0 &&
+  membership.affected_plate_ids_after?.length === 1 && membership.affected_plate_ids_after[0] === session.plates[1].plate_id &&
+  membership.input_revisions?.[session.plates[1].plate_id] === 3, JSON.stringify(membership));
 
 const beforeDelete = callJson('orc_get_plate_session_snapshot');
 const currentId = beforeDelete.current_plate_id;

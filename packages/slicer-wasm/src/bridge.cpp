@@ -124,6 +124,14 @@ struct BridgeState {
     std::map<std::size_t, std::string> instance_plate_ids;
     std::map<std::string, std::set<std::size_t>> plate_out_of_bounds_ids;
     std::set<std::size_t> parked_instance_ids;
+    // Instances touched by a pending committed transform.  The renderer may
+    // send one setModelTransform call per composite, but recomputation is
+    // deliberately deferred until the complete global operation has settled.
+    std::set<std::size_t> pending_membership_instance_ids;
+    // Per-plate slice-input generations.  Selection and preview-only reads do
+    // not advance these values; a committed model/configuration mutation does
+    // so only for plates containing an instance before or after the command.
+    std::map<std::string, std::uint64_t> plate_input_revisions;
 };
 BridgeState& state() { static BridgeState s; return s; }
 
@@ -224,8 +232,11 @@ void reset_plate_session_state()
     s.instance_plate_ids.clear();
     s.plate_out_of_bounds_ids.clear();
     s.parked_instance_ids.clear();
+    s.pending_membership_instance_ids.clear();
+    s.plate_input_revisions.clear();
     const auto plate_id = "plate-session-" + std::to_string(sequence) + "-plate-1";
     s.plate_session_plates.push_back({plate_id, "Plate 1", 0, Vec3d::Zero()});
+    s.plate_input_revisions[plate_id] = 0;
     s.current_plate_id = plate_id;
 }
 
@@ -275,6 +286,8 @@ json instance_membership_json()
     return instances;
 }
 
+json plate_revisions_json();
+
 json plate_session_snapshot_json(const json& instance_transforms = json::array(), bool include_membership = true)
 {
     ensure_plate_session_state();
@@ -303,6 +316,7 @@ json plate_session_snapshot_json(const json& instance_transforms = json::array()
         {"current_plate_id", state().current_plate_id},
         {"plates", std::move(plates)},
         {"instance_transforms", instance_transforms},
+        {"input_revisions", plate_revisions_json()},
     };
     if (include_membership) result["instances"] = instance_membership_json();
     return result;
@@ -414,6 +428,86 @@ json reflow_instance_transforms(const std::map<std::size_t, Vec3d>& changed)
     return transforms;
 }
 
+std::set<std::string> member_plate_ids()
+{
+    std::set<std::string> ids;
+    for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
+        (void)instance_id;
+        if (!plate_id.empty()) ids.insert(plate_id);
+    }
+    return ids;
+}
+
+std::set<std::string> member_plate_ids_for_instances(const std::set<std::size_t>& instance_ids)
+{
+    std::set<std::string> ids;
+    for (const auto instance_id : instance_ids) {
+        const auto it = state().instance_plate_ids.find(instance_id);
+        if (it != state().instance_plate_ids.end() && !it->second.empty()) ids.insert(it->second);
+    }
+    return ids;
+}
+
+json plate_id_array(const std::set<std::string>& ids)
+{
+    json out = json::array();
+    for (const auto& id : ids) out.push_back(id);
+    return out;
+}
+
+json plate_revisions_json()
+{
+    json out = json::object();
+    for (const auto& plate : state().plate_session_plates) {
+        const auto it = state().plate_input_revisions.find(plate.id);
+        out[plate.id] = it == state().plate_input_revisions.end() ? 0 : it->second;
+    }
+    return out;
+}
+
+// Finish a committed model mutation.  The membership snapshot is captured
+// before callers mutate the Model, then rebuilt exactly once after all selected
+// transforms/deletes/imports have been applied.  This gives the renderer one
+// atomic response and makes cross-plate edits a single invalidation event.
+json plate_mutation_snapshot(const std::set<std::string>& before,
+                             const std::vector<std::string>& dirty_reasons,
+                             const json& instance_transforms = json::array(),
+                             const std::set<std::size_t>* affected_instances = nullptr)
+{
+    const auto after = affected_instances == nullptr ? member_plate_ids()
+                                                       : member_plate_ids_for_instances(*affected_instances);
+    std::set<std::string> affected = before;
+    affected.insert(after.begin(), after.end());
+    for (const auto& id : affected)
+        if (find_plate(id) != nullptr) ++state().plate_input_revisions[id];
+    json result = plate_session_snapshot_json(instance_transforms);
+    result["input_revisions"] = plate_revisions_json();
+    result["affected_plate_ids_before"] = plate_id_array(before);
+    result["affected_plate_ids_after"] = plate_id_array(after);
+    result["affected_plate_ids"] = plate_id_array(affected);
+    result["dirty_reasons"] = dirty_reasons;
+    // A completed transaction consumes any deferred transform markers. This
+    // is important when a structural command (for example Add plate) follows
+    // a transform write before the normal recompute call.
+    state().pending_membership_instance_ids.clear();
+    return result;
+}
+
+json attach_plate_mutation(json result, const json& mutation)
+{
+    // Keep the historical result fields stable while exposing the richer
+    // session transaction to new clients.  Top-level aliases are intentional:
+    // direct bridge harnesses can inspect the contract without knowing the
+    // nested client representation.
+    result["plate_session"] = mutation;
+    for (const char* key : {"plates", "current_plate_id", "instances", "instance_transforms",
+                            "input_revisions", "affected_plate_ids_before",
+                            "affected_plate_ids_after", "affected_plate_ids", "dirty_reasons"}) {
+        if (mutation.contains(key)) result[key] = mutation.at(key);
+    }
+    return result;
+}
+
 // Project archives are staged under a fresh name for every request.  Besides
 // preventing concurrent calls from clobbering one another, this keeps the
 // source path private to the bridge and avoids leaking host filenames into
@@ -444,7 +538,7 @@ std::size_t model_instance_count(const Model& model)
 // project objects can contain archive-backed metadata that makes that clone
 // path re-enter the threaded pool, so geometry imports copy the public model
 // hierarchy through the normal add-volume/add-instance constructors instead.
-void append_model_object_geometry(Model& destination, const ModelObject& source)
+ModelObject* append_model_object_geometry(Model& destination, const ModelObject& source)
 {
     ModelObject* object = destination.add_object();
     object->name = source.name;
@@ -470,6 +564,7 @@ void append_model_object_geometry(Model& destination, const ModelObject& source)
     }
     for (const ModelInstance* instance : source.instances)
         object->add_instance(*instance);
+    return object;
 }
 
 struct ProjectPresetWarningDetails {
@@ -1141,6 +1236,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate() {
         // last explicit membership read. Refresh from the live native model
         // before computing grid deltas; parked instances remain parked.
         rebuild_plate_membership(false);
+        const auto affected_before = member_plate_ids();
         const PlateBounds bounds = selected_plate_bounds();
         const auto old_plates = state().plate_session_plates;
         const int new_count = static_cast<int>(old_plates.size()) + 1;
@@ -1163,6 +1259,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate() {
         const std::string id = "plate-session-plate-" + std::to_string(sequence);
         state().plate_session_plates.push_back({id, "Plate " + std::to_string(new_count), new_count - 1,
                                                 plate_origin_for_index(new_count - 1, new_count, bounds)});
+        state().plate_input_revisions[id] = 0;
         for (size_t index = 0; index < state().plate_session_plates.size(); ++index) {
             auto& plate = state().plate_session_plates[index];
             plate.display_index = static_cast<int>(index);
@@ -1172,7 +1269,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate() {
         // Existing memberships remain valid because reflow preserves each
         // instance's local coordinates. New/previously unprintable instances
         // are intentionally not auto-arranged here.
-        return dup_json(plate_session_snapshot_json(reflow_instance_transforms(changed)).dump());
+        const auto mutation = plate_mutation_snapshot(affected_before, {"plate-structure"},
+                                                       reflow_instance_transforms(changed));
+        return dup_json(mutation.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1193,6 +1292,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr) {
         // parking objects. This covers transforms applied without an
         // intervening recompute command while retaining parked semantics.
         rebuild_plate_membership(false);
+        const auto affected_before = member_plate_ids();
         const PlateBounds bounds = selected_plate_bounds();
         const size_t deleted_index = static_cast<size_t>(std::distance(state().plate_session_plates.begin(), it));
         const auto old_plates = state().plate_session_plates;
@@ -1216,6 +1316,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr) {
             }
         }
         state().plate_session_plates.erase(state().plate_session_plates.begin() + static_cast<std::ptrdiff_t>(deleted_index));
+        state().plate_input_revisions.erase(requested);
         for (size_t index = 0; index < state().plate_session_plates.size(); ++index) {
             auto& plate = state().plate_session_plates[index];
             const Vec3d new_origin = plate_origin_for_index(static_cast<int>(index), new_count, bounds);
@@ -1241,7 +1342,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr) {
         }
         // Deletion deliberately does not recompute the parked objects: they
         // remain unprintable until a later editing/recompute operation.
-        return dup_json(plate_session_snapshot_json(reflow_instance_transforms(changed)).dump());
+        const auto mutation = plate_mutation_snapshot(affected_before, {"plate-structure"},
+                                                       reflow_instance_transforms(changed));
+        return dup_json(mutation.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1251,8 +1354,15 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr) {
 
 EMSCRIPTEN_KEEPALIVE const char* orc_recompute_plate_membership() {
     try {
+        const auto affected_instances = state().pending_membership_instance_ids;
+        const auto affected_before = affected_instances.empty()
+            ? std::set<std::string>{}
+            : member_plate_ids_for_instances(affected_instances);
         rebuild_plate_membership(true);
-        return dup_json(plate_session_snapshot_json().dump());
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
+                                                       json::array(), &affected_instances);
+        state().pending_membership_instance_ids.clear();
+        return dup_json(mutation.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1414,11 +1524,33 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         // complete incoming file succeeds do we copy its objects into the
         // live Model. Model::add_object clones the object and rebinds it to
         // the destination model, so the temporary can be destroyed safely.
+        const auto* current_plate = find_plate(state().current_plate_id);
+        const PlateBounds placement_bounds = selected_plate_bounds();
+        const Vec3d placement_center = current_plate
+            ? Vec3d(current_plate->origin.x() + (placement_bounds.min_x + placement_bounds.max_x) * 0.5,
+                    current_plate->origin.y() + (placement_bounds.min_y + placement_bounds.max_y) * 0.5,
+                    current_plate->origin.z())
+            : Vec3d::Zero();
+        std::map<std::size_t, Vec3d> added_instances;
         for (const ModelObject* o : imported.objects) {
             if (lower_ext == "3mf")
-                append_model_object_geometry(state().model, *o);
+                {
+                    ModelObject* added = append_model_object_geometry(state().model, *o);
+                    for (ModelInstance* instance : added->instances) {
+                        const auto offset = instance->get_offset();
+                        instance->set_offset(Vec3d(placement_center.x(), placement_center.y(), offset.z()));
+                        added_instances[instance->id().id] = Vec3d::Zero();
+                    }
+                }
             else
-                state().model.add_object(*o);
+                {
+                    ModelObject* added = state().model.add_object(*o);
+                    for (ModelInstance* instance : added->instances) {
+                        const auto offset = instance->get_offset();
+                        instance->set_offset(Vec3d(placement_center.x(), placement_center.y(), offset.z()));
+                        added_instances[instance->id().id] = Vec3d::Zero();
+                    }
+                }
         }
         rebuild_plate_membership(true);
         // A model mutation makes any existing Print/G-code result stale.
@@ -1430,9 +1562,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         size_t instance_count = 0;
         for (const ModelObject* o : state().model.objects)
             instance_count += o->instances.size();
-        return dup_json(json{{"ok", true},
+        std::set<std::size_t> added_instance_ids;
+        for (const auto& [instance_id, _] : added_instances) added_instance_ids.insert(instance_id);
+        const auto mutation = plate_mutation_snapshot({}, {"model-import"},
+                                                       reflow_instance_transforms(added_instances),
+                                                       &added_instance_ids);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"objects",   state().model.objects.size()},
-                             {"instances", instance_count}}.dump());
+                             {"instances", instance_count}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1511,6 +1648,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
 
         // Geometry-only imports intentionally discard object/part overrides;
         // extruder assignment is the one per-object value that remains.
+        const auto* geometry_current_plate = find_plate(state().current_plate_id);
+        const PlateBounds geometry_bounds = selected_plate_bounds();
+        const Vec3d geometry_center = geometry_current_plate
+            ? Vec3d(geometry_current_plate->origin.x() + (geometry_bounds.min_x + geometry_bounds.max_x) * 0.5,
+                    geometry_current_plate->origin.y() + (geometry_bounds.min_y + geometry_bounds.max_y) * 0.5,
+                    geometry_current_plate->origin.z())
+            : Vec3d::Zero();
+        std::map<std::size_t, Vec3d> geometry_added_instances;
         if (geometry_only) {
             for (ModelObject* object : imported.objects) {
                 int extruder = 0;
@@ -1560,15 +1705,29 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
                 candidate, imported_config, project_presets, path);
 
         if (geometry_only) {
-            for (const ModelObject* object : imported.objects)
-                append_model_object_geometry(state().model, *object);
+            for (const ModelObject* object : imported.objects) {
+                ModelObject* added = append_model_object_geometry(state().model, *object);
+                for (ModelInstance* instance : added->instances) {
+                    const auto offset = instance->get_offset();
+                    instance->set_offset(Vec3d(geometry_center.x(), geometry_center.y(), offset.z()));
+                    geometry_added_instances[instance->id().id] = Vec3d::Zero();
+                }
+            }
         } else {
             state().model = std::move(imported);
             state().presets = candidate;
         }
         state().print.clear();
         invalidate_preview_source();
-        reset_plate_session_state();
+        if (!geometry_only) {
+            reset_plate_session_state();
+            // Replacement project loads create a fresh one-plate runtime
+            // session in this milestone; still derive membership immediately
+            // so the first snapshot is authoritative for the imported model.
+            rebuild_plate_membership(true);
+        } else {
+            rebuild_plate_membership(true);
+        }
 
         const std::string compatibility = is_orca_3mf ? "orca" :
             (is_bbl_3mf ? "bambu" : "generic");
@@ -1606,6 +1765,16 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
         // it never has to issue a second read after native replacement.
         if (!geometry_only)
             out["preset_snapshot"] = preset_snapshot_json();
+        if (geometry_only) {
+            const auto mutation = plate_mutation_snapshot({}, {"model-import"},
+                reflow_instance_transforms(geometry_added_instances));
+            out = attach_plate_mutation(std::move(out), mutation);
+        } else {
+            // Replacement loads establish a fresh authoritative membership
+            // snapshot for the newly loaded model without dirtying the clean
+            // project session.
+            out["plate_session"] = plate_session_snapshot_json();
+        }
         release_PlateData_list(plate_data);
         release_presets();
         remove_project_temp_path(path);
@@ -1697,6 +1866,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
 // to produce.
 EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* name) {
     try {
+        const auto* current_plate = find_plate(state().current_plate_id);
+        const PlateBounds placement_bounds = selected_plate_bounds();
+        const Vec3d placement_center = current_plate
+            ? Vec3d(current_plate->origin.x() + (placement_bounds.min_x + placement_bounds.max_x) * 0.5,
+                    current_plate->origin.y() + (placement_bounds.min_y + placement_bounds.max_y) * 0.5,
+                    current_plate->origin.z())
+            : Vec3d::Zero();
         const std::string type_str = type ? type : "";
         const std::string object_name = (name && *name) ? name : type_str;
         // App-sized primitive: OrcaSlicer sizes shapes at 10% of the max bed
@@ -1739,7 +1915,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
         // (get_nearest_empty_cell at the build-volume center) — the shared
         // renderer's scene origin plays the same role here.
         new_object->translate(-bb.center());
-        new_object->instances[0]->set_offset(Slic3r::Vec3d(0.0, 0.0, -new_object->origin_translation.z()));
+        new_object->instances[0]->set_offset(Slic3r::Vec3d(placement_center.x(), placement_center.y(),
+                                                            -new_object->origin_translation.z()));
         new_object->ensure_on_bed();
         // A model mutation makes any existing Print/G-code result stale.
         state().print.clear();
@@ -1747,9 +1924,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
         size_t instance_count = 0;
         for (const ModelObject* o : state().model.objects)
             instance_count += o->instances.size();
-        return dup_json(json{{"ok", true},
+        rebuild_plate_membership(true);
+        const std::set<std::size_t> added_instances{new_object->instances[0]->id().id};
+        const auto mutation = plate_mutation_snapshot({}, {"model-import"},
+            reflow_instance_transforms({{new_object->instances[0]->id().id, Vec3d::Zero()}}), &added_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"objects",   state().model.objects.size()},
-                             {"instances", instance_count}}.dump());
+                             {"instances", instance_count}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1764,11 +1945,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
 // export operate on an empty plate.
 EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     try {
+        const auto affected_before = member_plate_ids();
         state().print.clear();
         invalidate_preview_source();
         state().model = Model{};
         reset_plate_session_state();
-        return dup_json(json{{"ok", true}}.dump());
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-clear"});
+        return dup_json(attach_plate_mutation(json{{"ok", true}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1789,13 +1972,22 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json)
         for (const std::size_t id : *ids)
             if (find_object_by_id(id) == nullptr)
                 return error_json("object not found");
+        std::set<std::size_t> affected_instances;
+        for (const std::size_t id : *ids) {
+            const auto* object = find_object_by_id(id);
+            for (const auto* instance : object->instances) affected_instances.insert(instance->id().id);
+        }
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         for (const std::size_t id : *ids)
             state().model.delete_object(ObjectID(id));
+        rebuild_plate_membership(true);
         state().print.clear();
         invalidate_preview_source();
-        return dup_json(json{{"ok", true},
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-delete"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"objects", state().model.objects.size()},
-                             {"deleted", ids->size()}}.dump());
+                             {"deleted", ids->size()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1822,6 +2014,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
                 return error_json("deleting the last solid part is not allowed");
             targets.emplace_back(vol->get_object(), vol);
         }
+        std::set<std::size_t> affected_instances;
+        for (const auto& [object, _] : targets)
+            for (const auto* instance : object->instances) affected_instances.insert(instance->id().id);
+        const auto affected_before = member_plate_ids_for_instances(affected_instances);
         // delete_volume(idx) shifts the object's own volume indices, so group
         // by object and remove in descending index order within each object.
         std::map<ModelObject*, std::vector<std::size_t>> by_object;
@@ -1834,11 +2030,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
             for (const std::size_t idx : indexes)
                 obj->delete_volume(idx);
         }
+        rebuild_plate_membership(true);
         state().print.clear();
         invalidate_preview_source();
-        return dup_json(json{{"ok", true},
+        const auto mutation = plate_mutation_snapshot(affected_before, {"model-delete"},
+                                                       json::array(), &affected_instances);
+        return dup_json(attach_plate_mutation(json{{"ok", true},
                              {"objects", state().model.objects.size()},
-                             {"deleted", ids->size()}}.dump());
+                             {"deleted", ids->size()}}, mutation).dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -2513,7 +2712,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int ins
         if (instance_idx < 0 || instance_idx >= static_cast<int>(obj->instances.size()))
             return error_json("instance index out of range");
         // Drift surface: ModelInstance::set_offset(Vec3d) — confirm at SHA.
-        obj->instances[static_cast<size_t>(instance_idx)]->set_offset(Slic3r::Vec3d(x, y, z));
+        auto* instance = obj->instances[static_cast<size_t>(instance_idx)];
+        instance->set_offset(Slic3r::Vec3d(x, y, z));
+        state().pending_membership_instance_ids.insert(instance->id().id);
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -2545,6 +2746,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
         object->instances[static_cast<size_t>(instance_idx)]->set_transformation(instance);
         object->volumes[static_cast<size_t>(volume_idx)]->set_transformation(volume);
         object->invalidate_bounding_box();
+        state().pending_membership_instance_ids.insert(
+            object->instances[static_cast<size_t>(instance_idx)]->id().id);
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());

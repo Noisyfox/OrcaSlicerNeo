@@ -18,7 +18,7 @@ export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: num
   if (!settled.ok) return settled;
   const r = await runtime.deleteObjects(objectIds);
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
+  await refreshAfterModelMutation(runtime, true, r.plateSession, 'model-delete');
   return { ok: true };
 }
 
@@ -27,7 +27,7 @@ export async function deleteVolumeInList(runtime: SlicerRuntime, volumeId: numbe
   if (!settled.ok) return settled;
   const r = await runtime.deleteVolumes([volumeId]);
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
+  await refreshAfterModelMutation(runtime, true, r.plateSession, 'model-delete');
   return { ok: true };
 }
 

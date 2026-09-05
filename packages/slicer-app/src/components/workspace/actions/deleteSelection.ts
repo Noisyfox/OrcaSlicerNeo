@@ -1,10 +1,13 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { ModelObjectStructure } from '@slicer/client';
+import type { PlateSessionMutation } from '@slicer/client';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
+import { applyPlateSessionTransforms } from './syncModelTransforms';
+import { glVolumeCollection } from '../viewport/GLVolume';
 
 export type DeleteSelectionResult = { ok: boolean; error?: string };
 
@@ -53,7 +56,7 @@ export async function deleteSelection(
       return { ok: false, error: msg };
     }
     const volumeScoped = sceneInteraction.isVolumeScopedSelection();
-    let result: { ok: boolean; objects?: number; error?: string };
+    let result: { ok: boolean; objects?: number; error?: string; plateSession?: PlateSessionMutation };
     if (volumeScoped) {
       const volumeIds = collectSelectedVolumeIds(structure.objects, selected);
       if (volumeIds.length === 0) {
@@ -72,6 +75,7 @@ export async function deleteSelection(
       result = await runtime.deleteObjects(objectIds);
     }
     if (!result.ok) throw new Error(result.error ?? 'delete failed');
+    applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
     const slicer = useSlicerStore.getState();
     const settings = useSettingsStore.getState();
     slicer.setStatus('idle');
@@ -82,7 +86,7 @@ export async function deleteSelection(
       useProjectStore.getState().setProject({ hasContent: false });
     }
     else settings.refreshModel();
-    useProjectStore.getState().markDirty();
+    useProjectStore.getState().markDirty('model-delete');
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

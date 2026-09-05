@@ -284,11 +284,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let plateSessionId = '';
   let plateIds: string[] = [];
   let currentPlateId = '';
+  let plateInputRevisions: Record<string, number> = {};
   function resetPlateSession(): void {
     plateSessionSequence += 1;
     plateSessionId = `plate-session-${plateSessionSequence}-plate-1`;
     plateIds = [plateSessionId];
     currentPlateId = plateSessionId;
+    plateInputRevisions = { [plateSessionId]: 0 };
   }
   resetPlateSession();
   function plateSessionSnapshot(includeMutation = false) {
@@ -296,12 +298,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       ok: true,
       version: 1,
       current_plate_id: currentPlateId,
+      input_revisions: { ...plateInputRevisions },
       plates: plateIds.map((id, index) => includeMutation ? ({
         plate_id: id, display_index: index, origin: [index * 240, 0, 0], name: `Plate ${index + 1}`,
         instance_ids: [], out_of_bounds_instance_ids: [], valid: true,
       }) : ({ plate_id: id, display_index: index, origin: [index * 240, 0, 0], name: `Plate ${index + 1}` })),
     };
     if (includeMutation) { result.instance_transforms = []; result.instances = []; }
+    return result;
+  }
+  function plateMutation(reason: string, before = [currentPlateId], after = [currentPlateId]) {
+    const affected = [...new Set([...before, ...after])];
+    for (const id of affected) if (plateIds.includes(id)) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
+    const result = plateSessionSnapshot(true) as Record<string, unknown>;
+    result.affected_plate_ids_before = before;
+    result.affected_plate_ids_after = after;
+    result.affected_plate_ids = affected;
+    result.dirty_reasons = [reason];
     return result;
   }
   let progressCallback = 0;
@@ -518,6 +531,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (plateIds.length >= 36) return { error: 'maximum of 36 plates' };
       const id = `plate-session-${++plateSessionSequence}-plate-${plateIds.length + 1}`;
       plateIds.push(id);
+      plateInputRevisions[id] = 0;
       currentPlateId = id;
       return plateSessionSnapshot(true);
     },
@@ -527,6 +541,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (index < 0) return { error: 'plate not found' };
       const deletingCurrent = currentPlateId === plateId;
       plateIds.splice(index, 1);
+      delete plateInputRevisions[plateId];
       if (deletingCurrent) currentPlateId = plateIds[Math.min(index, plateIds.length - 1)];
       return plateSessionSnapshot(true);
     },
@@ -576,7 +591,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         ? displayName : undefined);
       // Model imports belong to the current plate; they do not recreate the
       // runtime plate session or change its current identity.
-      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
+      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), plate_session: plateMutation('model-import') };
     },
     orc_load_project(_ptr: number, len: number, geometryOnly: number, displayName: string) {
       if (len <= 0) return { error: 'no project bytes' };
@@ -609,6 +624,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
+        ...(geometryOnly ? { plate_session: plateMutation('model-import') } : {}),
       };
     },
     orc_import_project_geometry(_ptr: number, len: number, displayName: string) {
@@ -632,7 +648,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         printable: true,
       })));
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
+      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), plate_session: plateMutation('model-import') };
     },
     orc_clear_model() {
       objectTransforms = [];
@@ -643,7 +659,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       modelLoaded = false;
       sliced = false;
       resetPlateSession();
-      return { ok: true };
+      return { ok: true, plate_session: plateMutation('model-clear', [], []) };
     },
     orc_delete_objects(objectIdsJson: string) {
       const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
@@ -665,7 +681,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         instanceMeta.splice(oi, 1);
       }
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length };
+      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length, plate_session: plateMutation('model-delete') };
     },
     orc_delete_volumes(volumeIdsJson: string) {
       const ids = JSON.parse(volumeIdsJson ?? '[]') as unknown;

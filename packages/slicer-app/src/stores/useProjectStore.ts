@@ -31,6 +31,16 @@ export interface ProjectOperation {
   cancellable: boolean;
 }
 
+export type ProjectDirtyReason =
+  | 'plate-structure'
+  | 'model-import'
+  | 'model-delete'
+  | 'model-clear'
+  | 'model-transform'
+  | 'model-structure'
+  | 'shared-configuration'
+  | (string & {});
+
 export interface ProjectSessionState {
   /** Base name only; host paths never enter this store. */
   projectName: string;
@@ -38,6 +48,10 @@ export interface ProjectSessionState {
   location?: OpaqueProjectLocation;
   hasContent: boolean;
   dirty: boolean;
+  /** Reasons from committed mutations; selection and preview changes never add one. */
+  dirtyReasons: readonly ProjectDirtyReason[];
+  /** Runtime-only plate input generations used by later result ownership. */
+  plateInputRevisions: Readonly<Record<string, number>>;
   scope: ProjectPresetScope;
   systemPresets: ProjectPresetSelections | null;
   projectPresets: ProjectPresetSelections | null;
@@ -45,7 +59,11 @@ export interface ProjectSessionState {
   notices: ProjectNotice[];
   operation: ProjectOperation;
   setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'scope' | 'systemPresets' | 'projectPresets' | 'flattenedMultiPlate' | 'notices'>>) => void;
-  markDirty: () => void;
+  markDirty: (reason?: ProjectDirtyReason) => void;
+  recordPlateMutation: (mutation: {
+    inputRevisions?: Readonly<Record<string, number>>;
+    dirtyReasons?: readonly string[];
+  }) => void;
   markClean: () => void;
   setOperation: (operation: Partial<ProjectOperation> & Pick<ProjectOperation, 'phase'>) => void;
   resetOperation: () => void;
@@ -56,11 +74,13 @@ export const DEFAULT_PROJECT_PRESETS: ProjectPresetSelections = {
   printer: '', print: '', filament: '',
 };
 
-const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
+const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
   projectName: 'Untitled',
   location: undefined,
   hasContent: false,
   dirty: false,
+  dirtyReasons: [],
+  plateInputRevisions: {},
   scope: 'system',
   systemPresets: null,
   projectPresets: null,
@@ -72,8 +92,19 @@ const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' 
 export const useProjectStore = create<ProjectSessionState>((set) => ({
   ...initialSession(),
   setProject: (value) => set(value),
-  markDirty: () => set({ dirty: true }),
-  markClean: () => set({ dirty: false }),
+  markDirty: (reason) => set((state) => ({
+    dirty: true,
+    ...(reason && !state.dirtyReasons.includes(reason) ? { dirtyReasons: [...state.dirtyReasons, reason] } : {}),
+  })),
+  recordPlateMutation: (mutation) => set((state) => {
+    const reasons = mutation.dirtyReasons ?? [];
+    return {
+      dirty: reasons.length > 0 ? true : state.dirty,
+      ...(mutation.inputRevisions ? { plateInputRevisions: { ...mutation.inputRevisions } } : {}),
+      ...(reasons.length > 0 ? { dirtyReasons: [...new Set([...state.dirtyReasons, ...reasons as ProjectDirtyReason[]])] } : {}),
+    };
+  }),
+  markClean: () => set({ dirty: false, dirtyReasons: [] }),
   setOperation: (operation) => set((state) => ({
     operation: {
       ...state.operation,

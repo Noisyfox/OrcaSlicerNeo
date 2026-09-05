@@ -79,7 +79,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
           printer: r.printer.name, print: r.print.name, filament: r.filament.name,
         } }),
       });
-      project.markDirty();
+      project.markDirty('shared-configuration');
 
       // Persistence failure is non-fatal: the engine-resolved snapshot remains
       // the active session state even when the next-launch preference cannot

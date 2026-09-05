@@ -51,4 +51,31 @@ describe('syncModelTransforms', () => {
       transform([0, 0, 0]),
     );
   });
+
+  it('recomputes membership once after the complete global transform snapshot', async () => {
+    const setModelTransform = vi.fn().mockResolvedValue({ ok: true });
+    const recomputePlateMembership = vi.fn().mockResolvedValue({
+      ok: true,
+      version: 1,
+      currentPlateId: 'plate-1',
+      plates: [],
+      instanceTransforms: [],
+      inputRevisions: { 'plate-1': 4 },
+      affectedPlateIdsBefore: ['plate-1'],
+      affectedPlateIdsAfter: ['plate-2'],
+      affectedPlateIds: ['plate-1', 'plate-2'],
+      dirtyReasons: ['model-transform'],
+    });
+    const volumes = [
+      { buffer: { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([1, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([2, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+    ];
+
+    await expect(syncModelTransforms({ setModelTransform, recomputePlateMembership }, volumes)).resolves.toMatchObject({
+      ok: true,
+      plateSession: { inputRevisions: { 'plate-1': 4 }, affectedPlateIds: ['plate-1', 'plate-2'] },
+    });
+    expect(setModelTransform).toHaveBeenCalledTimes(2);
+    expect(recomputePlateMembership).toHaveBeenCalledTimes(1);
+  });
 });
