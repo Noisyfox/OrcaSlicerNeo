@@ -110,10 +110,16 @@
 - Project 3MF files must persist and restore the complete multi-plate model:
   plate count, layout, instance membership, and the information needed to
   reconstruct every plate's editing state.
+- Neo-generated multi-plate projects must be reopenable by native OrcaSlicer,
+  and native OrcaSlicer projects must be reopenable by Neo with the same plate
+  layout and membership.
 - The project file does not embed per-plate G-code or preview data. Those
   derived slice artifacts remain session-only data.
 - On project reload, every plate is treated as unsliced. A user must slice the
   selected plate again before preview, export, or send-to-printer is available.
+- Except for those intentionally omitted derived artifacts, unsupported native
+  per-plate metadata is retained as opaque data and written back unchanged so
+  an open/save cycle does not discard it.
 
 ## Project import compatibility
 
