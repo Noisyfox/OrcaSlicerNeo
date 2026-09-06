@@ -128,6 +128,34 @@ describe('SlicerClient bridge contract', () => {
     }
   });
 
+  it('returns printer-bound reflow transforms for every member while preserving empty plates', async () => {
+    const c = makeClient();
+    const first = await c.getPlateSessionSnapshot();
+    if (!first.ok) throw new Error(first.error);
+    await c.addShape('Cube', 'Plate one object');
+    const second = await c.addPlate();
+    if (!second.ok) throw new Error(second.error);
+    await c.addShape('Cube', 'Plate two object');
+    const third = await c.addPlate();
+    if (!third.ok) throw new Error(third.error);
+    const selected = await c.selectPlate(second.plates[1].plateId);
+    if (!selected.ok) throw new Error(selected.error);
+
+    const changedPrinter = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');
+    expect(changedPrinter.ok).toBe(true);
+    const mutation = await c.markSharedConfigurationMutation();
+    expect(mutation.ok).toBe(true);
+    if (!mutation.ok) throw new Error(mutation.error);
+    expect(mutation.currentPlateId).toBe(second.plates[1].plateId);
+    expect(mutation.plates.map((plate) => plate.origin)).toEqual([[0, 0, 0], [307.2, 0, 0], [0, -307.2, 0]]);
+    expect(mutation.plates[2].instanceIds).toEqual([]);
+    expect(mutation.instanceTransforms).toHaveLength(1);
+    expect(mutation.instanceTransforms[0]?.objectIndex).toBe(1);
+    expect(mutation.instanceTransforms[0]?.worldTransform.offset).toEqual([307.2, 0, 0]);
+    expect(mutation.instances?.map((instance) => instance.plateId)).toEqual([first.currentPlateId, second.plates[1].plateId]);
+    expect(mutation.affectedPlateIds).toEqual(mutation.plates.map((plate) => plate.plateId));
+  });
+
   it('refreshes the runtime plate identity when clearing or loading a project', async () => {
     const c = makeClient();
     const initial = await c.getPlateSessionSnapshot();

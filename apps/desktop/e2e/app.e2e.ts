@@ -237,24 +237,24 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     await page.getByTestId('add-plate').click();
     await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 3 (3/36)');
     const bedsBeforeReflow = await readBeds();
-    expect(bedsBeforeReflow.map((bed) => bed.position[0])).toEqual([0, 240, 480]);
+    expect(bedsBeforeReflow.map((bed) => bed.position.slice(0, 2))).toEqual([[0, 0], [240, 0], [0, -240]]);
     // Add a model to Plate 3 so deleting the middle plate must move its
     // authoritative world coordinates along with the reflowed bed.
     await page.getByTestId('btn-add-model').click();
     await expect.poll(readModels).toHaveLength(8);
     const modelsBeforeReflow = await readModels();
     const secondObjectModels = modelsBeforeReflow.slice(4);
-    expect(secondObjectModels[0]?.[0]).toBeGreaterThan(modelsBeforeReflow[0]?.[0] ?? 0);
+    expect(secondObjectModels[0]?.[1]).toBeLessThan(modelsBeforeReflow[0]?.[1] ?? 0);
     await clickWorld([350, 110, 0]);
     await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (3/36)');
     await page.getByTestId('delete-plate').click();
     await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
     await expect.poll(readBeds).toHaveLength(2);
     const bedsAfterReflow = await readBeds();
-    expect(bedsAfterReflow.map((bed) => bed.position[0])).toEqual([0, 240]);
+    expect(bedsAfterReflow.map((bed) => bed.position.slice(0, 2))).toEqual([[0, 0], [240, 0]]);
     await expect.poll(readModels).toEqual([
       ...modelsBeforeReflow.slice(0, 4),
-      ...secondObjectModels.map(([x, y, z]) => [x - 240, y, z]),
+      ...secondObjectModels.map(([x, y, z]) => [x + 240, y + 240, z]),
     ]);
     await expect.poll(readCamera).toEqual(cameraBefore);
 

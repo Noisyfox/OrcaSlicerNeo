@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ModelTransform } from '@slicer/client';
-import { syncModelTransforms } from './syncModelTransforms';
+import { applyPlateSessionTransforms, syncModelTransforms } from './syncModelTransforms';
 
 const transform = (offset: [number, number, number]): ModelTransform => ({
   offset,
@@ -10,6 +10,19 @@ const transform = (offset: [number, number, number]): ModelTransform => ({
 });
 
 describe('syncModelTransforms', () => {
+  it('applies a shared-configuration reflow to members on every plate', () => {
+    const volumes = [
+      { buffer: { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([264, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+    ];
+    applyPlateSessionTransforms({ instanceTransforms: [{
+      instanceId: 3001, objectId: 1001, objectIndex: 1, instanceIndex: 0,
+      worldTransform: transform([307.2, 0, 0]),
+    }] }, volumes);
+    expect(volumes[0].instanceTransform.offset).toEqual([0, 0, 0]);
+    expect(volumes[1].instanceTransform.offset).toEqual([307.2, 0, 0]);
+  });
+
   it('synchronizes every composite, including sibling volumes of each instance', async () => {
     const setModelTransform = vi.fn().mockResolvedValue({ ok: true });
     const volumes = [

@@ -915,15 +915,72 @@ json plate_mutation_snapshot(const std::set<std::string>& before,
     return result;
 }
 
+// Reflow the display grid after a shared configuration change (most notably a
+// printer preset changing printable_area).  Plate membership is deliberately
+// not recomputed here: every member keeps the same plate-local coordinates,
+// while parked/unassigned instances remain untouched.  The returned IDs are
+// resolved into authoritative world transforms after all origins have moved.
+std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& bounds)
+{
+    ensure_plate_session_state();
+    const auto old_plates = state().plate_session_plates;
+    std::map<std::size_t, Vec3d> changed;
+    const int count = static_cast<int>(old_plates.size());
+    for (size_t index = 0; index < old_plates.size(); ++index) {
+        const Vec3d new_origin = plate_origin_for_index(static_cast<int>(index), count, bounds);
+        const Vec3d delta = new_origin - old_plates[index].origin;
+        if (delta != Vec3d::Zero()) {
+            for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
+                if (plate_id != old_plates[index].id) continue;
+                for (const auto& ref : plate_instance_refs()) {
+                    if (ref.instance_id == instance_id) {
+                        translate_instance(ref, delta);
+                        changed[instance_id] = delta;
+                        break;
+                    }
+                }
+            }
+        }
+        state().plate_session_plates[index].origin = new_origin;
+    }
+    return changed;
+}
+
+// A printer change must not move an instance to a different plate, but it can
+// change whether that existing member fits its newly sized bed. Refresh only
+// the validity map against the new origins/bounds; parked and unassigned
+// instances remain outside the map and are never reconsidered here.
+void refresh_existing_plate_validity(const PlateBounds& bounds)
+{
+    state().plate_out_of_bounds_ids.clear();
+    for (const auto& membership : state().instance_plate_ids) {
+        const auto instance_id = membership.first;
+        const auto& plate_id = membership.second;
+        if (plate_id.empty() || state().parked_instance_ids.find(instance_id) != state().parked_instance_ids.end())
+            continue;
+        const auto* plate = find_plate(plate_id);
+        if (plate == nullptr) continue;
+        const auto refs = plate_instance_refs();
+        const auto ref = std::find_if(refs.begin(), refs.end(),
+                                      [&](const auto& candidate) { return candidate.instance_id == instance_id; });
+        if (ref == refs.end()) continue;
+        if (!box_fully_inside_plate(instance_hull_box(*ref), *plate, bounds))
+            state().plate_out_of_bounds_ids[plate_id].insert(instance_id);
+    }
+}
+
 // Shared printer/process/filament configuration affects every existing plate,
 // including empty plates. Keep this transaction in the bridge so the complete
 // plate set and its revisions remain authoritative rather than relying on a
 // renderer-side list that may be stale.
 json shared_configuration_mutation_snapshot()
 {
+    const auto bounds = selected_plate_bounds();
+    const auto changed = reflow_plate_origins_for_bounds(bounds);
+    refresh_existing_plate_validity(bounds);
     const auto affected = all_plate_ids();
     for (const auto& id : affected) ++state().plate_input_revisions[id];
-    json result = plate_session_snapshot_json();
+    json result = plate_session_snapshot_json(reflow_instance_transforms(changed));
     result["input_revisions"] = plate_revisions_json();
     result["affected_plate_ids_before"] = plate_id_array(affected);
     result["affected_plate_ids_after"] = plate_id_array(affected);

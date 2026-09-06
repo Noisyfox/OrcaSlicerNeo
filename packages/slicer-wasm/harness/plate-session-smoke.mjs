@@ -113,9 +113,86 @@ check('membership and out-of-bounds are independent', membership.instances?.find
 check('moving from unprintable increments destination revision only', membership.affected_plate_ids_before?.length === 0 &&
   membership.affected_plate_ids_after?.length === 1 && membership.affected_plate_ids_after[0] === session.plates[1].plate_id &&
   membership.input_revisions?.[session.plates[1].plate_id] === 3, JSON.stringify(membership));
+
+// Keep a member exactly inside the original bed's Y edge. A smaller printer
+// must retain its plate assignment but mark that member out of bounds after
+// the shared-configuration reflow.
+check('add smaller-bed validity fixture', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Smaller bed validity'])
+  .ok === true);
+const edgeFixtureTransform = JSON.stringify({ offset: [session.plates[1].origin[0] + 100, 235, 10], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] });
+check('place smaller-bed validity fixture at old bed edge', callJson('orc_set_model_transform',
+  ['number', 'number', 'number', 'string', 'string'], [2, 0, 0, edgeFixtureTransform, volumeIdentity]).ok === true);
+membership = callJson('orc_recompute_plate_membership');
+const edgeFixtureBefore = membership.instances?.find((item) => item.object_index === 2);
+check('validity fixture is initially a valid member', edgeFixtureBefore?.plate_id === session.plates[1].plate_id &&
+  edgeFixtureBefore?.out_of_bounds === false, JSON.stringify(edgeFixtureBefore));
 const revisionsBeforeConfiguration = { ...(membership.input_revisions ?? {}) };
+const beforeConfiguration = callJson('orc_get_plate_session_snapshot');
+const beforeConfigurationMesh = callJson('orc_get_model_mesh');
+const beforeConfigurationInstances = new Map((beforeConfiguration.instances ?? [])
+  .map((item) => [`${item.object_index}:${item.instance_index}`, item]));
+const beforeConfigurationOffsets = new Map((beforeConfigurationMesh.objects ?? [])
+  .map((item) => [`${item.object_idx}:${item.instance_idx}`, item.offset]));
+for (const item of beforeConfigurationMesh.objects ?? []) {
+  if (item.vertex_ptr) Module._free(Number(item.vertex_ptr));
+  if (item.index_ptr) Module._free(Number(item.index_ptr));
+}
+const beforePrinter = callJson('orc_get_preset_snapshot');
+const beforeArea = beforePrinter.printable_area ?? [];
+const areaWidth = (area) => {
+  const xs = area.map((point) => point[0]);
+  return Math.max(...xs) - Math.min(...xs);
+};
+const areaHeight = (area) => {
+  const ys = area.map((point) => point[1]);
+  return Math.max(...ys) - Math.min(...ys);
+};
+let changedPrinter;
+for (const entry of beforePrinter.printers ?? []) {
+  if (entry.name === beforePrinter.printer?.name) continue;
+  const candidate = callJson('orc_select_preset', ['string', 'string'], ['printer', entry.name]);
+  if (candidate.ok === true && areaHeight(candidate.printable_area ?? []) < areaHeight(beforeArea)) {
+    changedPrinter = candidate;
+    break;
+  }
+}
+check('printer preset reduces selected bed height', changedPrinter?.ok === true,
+  JSON.stringify({ before: beforeArea, after: changedPrinter?.printable_area }));
 const configuration = callJson('orc_mark_shared_configuration_mutation');
-check('shared configuration affects every existing plate', configuration.dirty_reasons?.includes('shared-configuration') &&
+const expectedConfigurationOrigins = configuration.plates.map((plate, index) => {
+  const width = areaWidth(changedPrinter?.printable_area ?? beforeArea);
+  const cols = Math.round(Math.sqrt(configuration.plates.length)) +
+    (Math.sqrt(configuration.plates.length) > Math.round(Math.sqrt(configuration.plates.length)) ? 1 : 0);
+  const stride = width * 1.2;
+  return [(index % cols) * stride, -Math.floor(index / cols) * stride, 0];
+});
+check('shared configuration reflows every plate origin, including empty plates',
+  changedPrinter?.ok === true && configuration.plates.every((plate, index) =>
+    plate.origin.every((value, axis) => Math.abs(value - expectedConfigurationOrigins[index][axis]) < 1e-6)),
+  JSON.stringify(configuration.plates.map((plate) => plate.origin)));
+check('shared configuration preserves current plate and membership state',
+  configuration.current_plate_id === beforeConfiguration.current_plate_id &&
+  configuration.instances?.every((item) => {
+    const before = beforeConfigurationInstances.get(`${item.object_index}:${item.instance_index}`);
+    return before && item.plate_id === before.plate_id && item.unprintable === before.unprintable;
+  }), JSON.stringify(configuration.instances));
+const edgeFixtureAfter = configuration.instances?.find((item) => item.object_index === 2);
+const edgeFixturePlate = configuration.plates.find((plate) => plate.plate_id === edgeFixtureBefore?.plate_id);
+check('shared configuration refreshes validity without reassigning the member',
+  edgeFixtureAfter?.plate_id === edgeFixtureBefore?.plate_id && edgeFixtureAfter?.out_of_bounds === true &&
+  edgeFixturePlate?.valid === false && edgeFixturePlate.out_of_bounds_instance_ids?.includes(edgeFixtureAfter.instance_id),
+  JSON.stringify({ instance: edgeFixtureAfter, plate: edgeFixturePlate }));
+const changedConfigurationMesh = configuration.instance_transforms ?? [];
+check('shared configuration returns world transforms for moved members', changedConfigurationMesh.length > 0 &&
+  changedConfigurationMesh.every((entry) => {
+    const before = beforeConfigurationInstances.get(`${entry.object_index}:${entry.instance_index}`);
+    const oldOffset = beforeConfigurationOffsets.get(`${entry.object_index}:${entry.instance_index}`);
+    const plateIndex = before ? beforeConfiguration.plates.findIndex((plate) => plate.plate_id === before.plate_id) : -1;
+    if (!oldOffset || plateIndex < 0) return false;
+    return entry.world_transform.offset.every((value, axis) =>
+      Math.abs(value - oldOffset[axis] + beforeConfiguration.plates[plateIndex].origin[axis] - configuration.plates[plateIndex].origin[axis]) < 1e-6);
+  }), JSON.stringify(changedConfigurationMesh));
+check('shared configuration invalidates every existing plate', configuration.dirty_reasons?.includes('shared-configuration') &&
   configuration.affected_plate_ids_before?.length === session.plates.length &&
   configuration.affected_plate_ids_after?.length === session.plates.length &&
   session.plates.every((plate) => configuration.input_revisions?.[plate.plate_id] ===
@@ -129,7 +206,8 @@ const deleted = callJson('orc_delete_plate', ['string'], [nonCurrentId]);
 check('delete non-current preserves current identity', deleted.ok === true && deleted.current_plate_id === currentId);
 check('delete returns atomic transform list', Array.isArray(deleted.instance_transforms));
 const reflowedByDelete = deleted.instance_transforms?.find((entry) => entry.object_index === 0);
-check('delete reflows following instances', reflowedByDelete?.world_transform?.offset?.every((value, axis) => Math.abs(value - [258.4, 10, 10][axis]) < 1e-6));
+check('delete reflows following instances', reflowedByDelete?.object_index === 0 &&
+  Array.isArray(reflowedByDelete.world_transform?.offset));
 check('delete preserves local coordinates', reflowBeforeDelete?.plate_id === beforeDelete.plates[2].plate_id && reflowedByDelete?.world_transform?.offset?.every((value, axis) => Math.abs(value - deleted.plates[1].origin[axis] - [10, 10, 10][axis]) < 1e-6));
 
 // Current deletion chooses the plate compacting into the deleted slot, and
