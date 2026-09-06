@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
-import { GcodeTextWindow } from './GcodeTextWindow';
+import { GcodeTextWindow, readCachedTextLines } from './GcodeTextWindow';
 import type { ToolpathGeometry } from './useSliceResult';
 
 const ROW_HEIGHT = 20;
@@ -105,6 +105,39 @@ describe('GcodeTextWindow', () => {
     expect(container.querySelector('[data-testid="gcode-text-window"]')).toBeTruthy();
     expect(container.querySelectorAll('[data-testid^="gcode-line-"]').length).toBeLessThan(100);
     expect(container.querySelector('[data-testid="gcode-line-1"]')?.textContent).toContain('G1 X1');
+  });
+
+  it('reads cached plate-owned G-code without asking the single native result', async () => {
+    const readTextLines = vi.fn(async () => { throw new Error('native result was replaced'); });
+    const platform = testPlatform(readTextLines);
+    const cachedData: ToolpathGeometry = {
+      ...data,
+      sourceTextBytes: new TextEncoder().encode('G1 X1\r\nG1 X2\nG1 X3\n'),
+      metadata: { ...data.metadata!, sourceLineMapping: { available: true, lineCount: 3 } },
+    };
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<PlatformProvider value={platform}><GcodeTextWindow data={cachedData} onClose={() => undefined} /></PlatformProvider>); });
+    expect(readTextLines).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="gcode-line-1"]')?.textContent).toContain('G1 X1');
+    expect(container.querySelector('[data-testid="gcode-line-2"]')?.textContent).toContain('G1 X2');
+  });
+
+  it('scans large cached G-code but decodes only the requested page', () => {
+    const bytes = new TextEncoder().encode(Array.from({ length: 5000 }, (_, index) => `G1 X${index}`).join('\n'));
+    const decode = vi.spyOn(TextDecoder.prototype, 'decode');
+    try {
+      const page = readCachedTextLines(bytes, 3000, 2);
+      expect(page.text).toBe('G1 X2999\nG1 X3000');
+      expect(page.lineCount).toBe(2);
+      const decodedInput = decode.mock.calls.at(-1)?.[0];
+      expect(ArrayBuffer.isView(decodedInput)).toBe(true);
+      expect((decodedInput as ArrayBufferView).byteLength).toBeLessThan(bytes.byteLength);
+      expect((decodedInput as ArrayBufferView).byteLength).toBeLessThan(64 * 1024);
+      expect(readCachedTextLines(new TextEncoder().encode('A\nB\n'), 1, 128))
+        .toMatchObject({ startLine: 1, lineCount: 2, text: 'A\nB', eof: true });
+    } finally {
+      decode.mockRestore();
+    }
   });
 
   it('moves with the title bar, clamps to the viewport, and does not drag from Close', async () => {

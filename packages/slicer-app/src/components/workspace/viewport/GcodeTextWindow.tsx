@@ -91,6 +91,40 @@ function pageLines(page: PreviewTextLines): string[] {
   return lines.slice(0, page.lineCount);
 }
 
+export function readCachedTextLines(bytes: Uint8Array, startLine: number, lineCount: number): PreviewTextLines {
+  let currentLine = 1;
+  let pageStart = -1;
+  let pageEnd = -1;
+  let foundLines = 0;
+  for (let index = 0; index < bytes.length; index += 1) {
+    if (currentLine === startLine && pageStart < 0) pageStart = index;
+    if (bytes[index] !== 0x0a) continue;
+    if (currentLine >= startLine && foundLines < lineCount) {
+      foundLines += 1;
+      pageEnd = index;
+      if (foundLines === lineCount) break;
+    }
+    currentLine += 1;
+  }
+  // A final line without a newline is still a source line. A trailing newline
+  // does not create an additional empty source line, matching pageLines().
+  if (foundLines < lineCount && pageStart >= 0 && currentLine >= startLine &&
+      bytes[bytes.length - 1] !== 0x0a) {
+    foundLines += 1;
+    pageEnd = bytes.length;
+  }
+  if (pageStart < 0 || pageEnd < pageStart || foundLines === 0) {
+    throw new Error('cached G-code source page is unavailable');
+  }
+  const text = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(pageStart, pageEnd));
+  return {
+    startLine,
+    lineCount: foundLines,
+    text,
+    eof: pageEnd === bytes.length || pageEnd + 1 === bytes.length,
+  };
+}
+
 function sourceTextAvailable(data: ToolpathGeometry): boolean {
   return data.metadata?.sourceLineMapping?.available === true &&
     data.metadata?.sourceText?.available === true &&
@@ -325,7 +359,9 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
         startLine,
         lineCount: Math.min(PAGE_LINES, lineCount - startLine + 1),
       };
-      const page = await platform.runtime.readTextLines(request);
+      const page = data.sourceTextBytes
+        ? readCachedTextLines(data.sourceTextBytes, startLine, request.lineCount)
+        : await platform.runtime.readTextLines(request);
       if (cacheGenerationRef.current === generation) {
         cacheRef.current.set(pageNumber, { startLine: page.startLine, lines: pageLines(page), eof: page.eof });
         while (cacheRef.current.size > MAX_CACHED_PAGES) {

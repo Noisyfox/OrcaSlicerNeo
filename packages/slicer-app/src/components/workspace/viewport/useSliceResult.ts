@@ -28,6 +28,8 @@ export interface ToolpathGeometry {
   analysis?: PreviewAnalysis;
   /** Immutable source retained for the optional indexed streaming backend. */
   source?: ClientSliceResult['toolpath'];
+  /** The plate-owned local G-code used by the source-text inspector. */
+  sourceTextBytes?: Uint8Array;
   metadata?: PreviewMetadata;
   dispose: () => void;
 }
@@ -44,7 +46,7 @@ export function useSliceResult() {
   const setLayer = useSlicerStore((s) => s.setLayer);
   const setPreviewBounds = useSlicerStore((s) => s.setPreviewBounds);
   const resetPreviewState = useSlicerStore((s) => s.resetPreviewState);
-  const [result, setResult] = useState<ClientSliceResult | null>(null);
+  const [result, setResult] = useState<(ClientSliceResult & { sourceTextBytes?: Uint8Array }) | null>(null);
 
   useEffect(() => {
     if (status !== 'done') {
@@ -64,7 +66,7 @@ export function useSliceResult() {
       ? plateResults[currentPlateId]
       : undefined;
     if (cached && cached.target.inputRevision === sliceTarget?.inputRevision) {
-      setResult(cached.result);
+      setResult({ ...cached.result, sourceTextBytes: cached.gcode });
       setLayers(cached.result.layers);
       setMaxLayer(Math.max(0, cached.result.layers - 1));
       const activeLayer = Math.max(0, cached.result.layers - 1);
@@ -134,6 +136,7 @@ export function useSliceResult() {
       ...(result.metadata.analysis ? { analysis: result.metadata.analysis } : {}),
       source,
       metadata: result.metadata,
+      ...(result.sourceTextBytes ? { sourceTextBytes: result.sourceTextBytes } : {}),
       // The source buffers are owned by the slice result and released by the
       // runtime. The renderer owns and disposes only its GPU resources.
       dispose: () => {},
