@@ -34,4 +34,13 @@ describe('Preview plate list projection', () => {
     expect(rows.find((row) => row.plate.plateId === 'a')?.status).toBe('sliced');
     expect(rows.find((row) => row.plate.plateId === 'b')?.status).toBe('unsliced');
   });
+
+  it('retains an inactive plate result when the current plate changes', () => {
+    const result = { target: { plateId: 'a', inputRevision: 4 }, result: { layers: 2 } as any };
+    const rows = projectPreviewPlateList({ ...snapshot, currentPlateId: 'a' }, { a: result });
+    expect(rows.find((row) => row.plate.plateId === 'a')).toMatchObject({ current: true, status: 'sliced' });
+
+    const afterSelection = projectPreviewPlateList({ ...snapshot, currentPlateId: 'b' }, { a: result });
+    expect(afterSelection.find((row) => row.plate.plateId === 'a')).toMatchObject({ current: false, status: 'sliced' });
+  });
 });

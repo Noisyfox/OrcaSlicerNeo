@@ -3448,13 +3448,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
         auto volume_transform = json::parse(volume_transform_json ? volume_transform_json : "");
         auto instance = object->instances[static_cast<size_t>(instance_idx)]->get_transformation();
         auto volume = object->volumes[static_cast<size_t>(volume_idx)]->get_transformation();
+        const auto previous_instance = instance;
+        const auto previous_volume = volume;
         set_transform(instance, instance_transform);
         set_transform(volume, volume_transform);
         object->instances[static_cast<size_t>(instance_idx)]->set_transformation(instance);
         object->volumes[static_cast<size_t>(volume_idx)]->set_transformation(volume);
         object->invalidate_bounding_box();
-        state().pending_membership_instance_ids.insert(
-            object->instances[static_cast<size_t>(instance_idx)]->id().id);
+        // Slicing synchronizes every rendered composite before starting the
+        // job. Re-emitting an identical transform is not an editing
+        // transaction and must not advance a plate's input revision; doing
+        // so would make retained results on other plates look stale merely
+        // because Preview switched plates and started its target slice.
+        if (instance != previous_instance || volume != previous_volume)
+            state().pending_membership_instance_ids.insert(
+                object->instances[static_cast<size_t>(instance_idx)]->id().id);
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());

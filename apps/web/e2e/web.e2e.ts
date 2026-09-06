@@ -418,6 +418,12 @@ test('multi-plate Preview renders only the current plate and applies its local t
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
   await expect.poll(readToolpathOrigin).toEqual([plate1.position[0], plate1.position[1], 0]);
   await expect(plate1Option).toHaveAttribute('data-plate-status', 'sliced');
+  // Selecting and slicing the other plate must not advance plate 2's input
+  // revision: its retained result remains sliced when it becomes inactive.
+  await plate2Option.click();
+  await expect(plate2Option).toHaveAttribute('aria-selected', 'true');
+  await expect(plate2Option).toHaveAttribute('data-plate-status', 'sliced');
+  await expect(plate1Option).toHaveAttribute('data-plate-status', 'sliced');
 });
 
 test('GPU streaming preview: native renderer is the default backend', async ({ page }) => {
