@@ -17,18 +17,17 @@ import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
 import { deleteSelection } from '../actions/deleteSelection';
 import { isPrepareTab, isPreviewTab } from '../../layout/appTabs';
 import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus } from './previewSemantics';
 import { GcodeTextWindow } from './GcodeTextWindow';
 import { Button } from '@/components/ui/button';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
-import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
-import { glVolumeCollection } from './GLVolume';
-import type { PlateSessionMutationResult, PlateSessionSnapshotResult, PlateSessionSnapshot } from '@slicer/client';
+import type { PlateSessionSnapshot } from '@slicer/client';
 import { canAddPlate, canDeletePlate } from './plateControls';
 import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
+import { applyPlateSessionResponse } from '../plateSessionActions';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
@@ -80,7 +79,6 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
 }) {
   const platform = usePlatform();
   const plateSession = usePlateSessionStore((s) => s.snapshot);
-  const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
   const printableArea = useSettingsStore((s) => s.printableArea);
   const bedBounds = useMemo(
     () => getPrintableAreaBounds(normalizePrintableArea(printableArea)),
@@ -230,82 +228,43 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
     return { x: clientX - rect.left, y: clientY - rect.top };
   }, []);
 
-  const applyPlateResponse = useCallback((result: PlateSessionSnapshotResult | PlateSessionMutationResult) => {
-    if (!result.ok) {
-      useSlicerStore.getState().setError(result.error);
-      return false;
-    }
-    const previous = usePlateSessionStore.getState().snapshot;
-    const slicer = useSlicerStore.getState();
-    const activeJob = slicer.activeSliceTarget;
-    const affected = result.affectedPlateIds ?? [];
-    const structural = result.dirtyReasons?.includes('plate-structure') ?? false;
-    if (!structural && activeJob && affected.includes(activeJob.plateId)) {
-      // The native bridge is synchronous, but worker-backed/fake runtimes can
-      // still have a cancellable in-flight promise. Mark it stale first and
-      // request cancellation without interrupting unrelated plates.
-      slicer.invalidatePlateResults([activeJob.plateId]);
-      void platform.runtime.cancel().catch(() => undefined);
-    } else if (!structural && affected.length) {
-      slicer.invalidatePlateResults(affected);
-    }
-    // Grid reflow is placement-neutral: surviving plate identities retain
-    // their results. Only a deleted identity loses its session result.
-    if (structural && previous) {
-      const nextIds = new Set(result.plates.map((plate) => plate.plateId));
-      const removed = previous.plates.filter((plate) => !nextIds.has(plate.plateId)).map((plate) => plate.plateId);
-      for (const plateId of removed) slicer.discardPlateResult(plateId);
-      if (activeJob && removed.includes(activeJob.plateId)) {
-        slicer.invalidatePlateResults([activeJob.plateId]);
-        void platform.runtime.cancel().catch(() => undefined);
-      }
-    }
-    setPlateSnapshot(result);
-    if (result.instanceTransforms) {
-      applyPlateSessionTransforms({ instanceTransforms: result.instanceTransforms }, glVolumeCollection.volumes);
-    }
-    const revision = result.inputRevisions?.[result.currentPlateId];
-    if (typeof revision === 'number' && Number.isSafeInteger(revision)) useSlicerStore.getState().activatePlateResult(result.currentPlateId, revision);
-    return true;
-  }, [platform.runtime, setPlateSnapshot]);
-
   const selectPlate = useCallback(async (plateId: string) => {
     if (plateActionPending || plateId === plateSession?.currentPlateId) return;
     setPlateActionPending(true);
     try {
-      applyPlateResponse(await platform.runtime.selectPlate(plateId));
+      applyPlateSessionResponse(platform, await platform.runtime.selectPlate(plateId));
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
       setPlateActionPending(false);
     }
-  }, [applyPlateResponse, plateActionPending, platform.runtime, plateSession?.currentPlateId]);
+  }, [plateActionPending, platform, plateSession?.currentPlateId]);
 
   const addPlate = useCallback(async () => {
     if (plateActionPending || !canAddPlate(plateSession)) return;
     setPlateActionPending(true);
     try {
       const result = await platform.runtime.addPlate();
-      if (applyPlateResponse(result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+      if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
       setPlateActionPending(false);
     }
-  }, [applyPlateResponse, plateActionPending, platform.runtime, plateSession]);
+  }, [plateActionPending, platform, plateSession]);
 
   const deletePlate = useCallback(async () => {
     if (plateActionPending || !plateSession || !canDeletePlate(plateSession)) return;
     setPlateActionPending(true);
     try {
       const result = await platform.runtime.deletePlate(plateSession.currentPlateId);
-      if (applyPlateResponse(result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+      if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
       setPlateActionPending(false);
     }
-  }, [applyPlateResponse, plateActionPending, platform.runtime, plateSession]);
+  }, [plateActionPending, platform, plateSession]);
 
   const canStartBoxSelect = useCallback((event: PointerEvent, grabbedGizmo: boolean): boolean => {
     if (event.button !== 0 || !event.shiftKey || grabbedGizmo) return false;

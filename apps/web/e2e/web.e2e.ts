@@ -369,8 +369,9 @@ test('multi-plate Preview renders only the current plate and applies its local t
   const beds = await page.evaluate(() => (window as unknown as {
     __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number] }> };
   }).__orcaE2e?.bedPlateStates?.() ?? []);
+  const plate1 = beds.find((bed) => !bed.current);
   const plate2 = beds.find((bed) => bed.current);
-  if (!plate2?.plateId) throw new Error('current plate is unavailable');
+  if (!plate1?.plateId || !plate2?.plateId) throw new Error('multi-plate identities are unavailable');
 
   const secondChooser = page.waitForEvent('filechooser');
   await page.getByTestId('btn-add-model').click();
@@ -396,6 +397,27 @@ test('multi-plate Preview renders only the current plate and applies its local t
   ]);
   await expect.poll(readModels).toHaveLength(1);
   await expect.poll(readToolpathOrigin).toEqual([plate2.position[0], plate2.position[1], 0]);
+
+  // Preview exposes the same authoritative plate selection transaction in its
+  // left sidebar. The first plate is valid but unsliced, so selecting it must
+  // retain Preview and let the existing coordinator slice that target.
+  const plateList = page.getByTestId('preview-plate-list');
+  await expect(plateList).toBeVisible();
+  const plate1Option = page.getByTestId(`preview-plate-${plate1.plateId}`);
+  const plate2Option = page.getByTestId(`preview-plate-${plate2.plateId}`);
+  await expect(plate2Option).toHaveAttribute('aria-selected', 'true');
+  await expect(plate2Option).toHaveAttribute('data-plate-status', 'sliced');
+  await expect(plate1Option).toHaveAttribute('data-plate-status', 'unsliced');
+  await plate1Option.click();
+  await expect(plate1Option).toHaveAttribute('aria-selected', 'true');
+  await expect(plate2Option).toHaveAttribute('aria-selected', 'false');
+  await expect.poll(readBeds).toEqual([
+    expect.objectContaining({ plateId: plate1.plateId, current: true }),
+  ]);
+  await expect.poll(readModels).toHaveLength(1);
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+  await expect.poll(readToolpathOrigin).toEqual([plate1.position[0], plate1.position[1], 0]);
+  await expect(plate1Option).toHaveAttribute('data-plate-status', 'sliced');
 });
 
 test('GPU streaming preview: native renderer is the default backend', async ({ page }) => {

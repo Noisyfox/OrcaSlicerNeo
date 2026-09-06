@@ -24,6 +24,8 @@ import { sliceModel } from './actions/sliceActions';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
+import { PreviewPlateList } from './PreviewPlateList';
+import { selectPlateSession } from './plateSessionActions';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -57,6 +59,7 @@ export function Workspace({
   onPreviewTransitionChange?: (transition: PreviewRenderTransition | null) => void;
 }) {
   const platform = usePlatform();
+  const plateSession = usePlateSessionStore((s) => s.snapshot);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
   const glVolumes = useModelLoader();
@@ -89,6 +92,7 @@ export function Workspace({
   }
   const sliceCoordinator = sliceCoordinatorRef.current;
   const [previewRenderPending, setPreviewRenderPending] = useState(false);
+  const [previewPlateSelectionPending, setPreviewPlateSelectionPending] = useState(false);
   const previewRenderPendingRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -142,6 +146,18 @@ export function Workspace({
   useEffect(() => {
     if (isPreviewTab(activeTab) && currentPlateId) void sliceCoordinator.ensureSlice();
   }, [activeTab, currentPlateId, sliceCoordinator]);
+
+  const selectPreviewPlate = useCallback(async (plateId: string) => {
+    if (previewPlateSelectionPending || plateId === usePlateSessionStore.getState().snapshot?.currentPlateId) return;
+    setPreviewPlateSelectionPending(true);
+    try {
+      await selectPlateSession(platform, plateId);
+    } catch (error) {
+      useSlicerStore.getState().setError(String(error));
+    } finally {
+      setPreviewPlateSelectionPending(false);
+    }
+  }, [platform, previewPlateSelectionPending]);
 
   useEffect(() => {
     let active = true;
@@ -257,6 +273,13 @@ export function Workspace({
             ::-webkit-scrollbar chrome as a rectangle, ignoring the
             scroller's rounded corners). */}
         <div className="h-full overflow-y-auto">
+          {isPreviewTab(activeTab) && plateSession && (
+            <PreviewPlateList
+              snapshot={plateSession}
+              pending={previewPlateSelectionPending}
+              onSelect={selectPreviewPlate}
+            />
+          )}
           <ObjectList sceneInteraction={sceneInteraction} />
           <SettingsPanel sceneInteraction={sceneInteraction} />
         </div>
