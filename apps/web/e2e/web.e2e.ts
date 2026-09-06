@@ -293,8 +293,8 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
   await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
   await expect.poll(readCamera).toEqual(cameraBefore);
 
-  // Preview deliberately keeps its single fallback bed even after Prepare
-  // has added another authoritative plate. Switching back restores the full
+  // Preview deliberately keeps only the selected authoritative bed after
+  // Prepare has added another plate. Switching back restores the full
   // Prepare grid and its current-plate context.
   await page.locator('#app-tab-preview').click();
   await expect.poll(readBeds).toHaveLength(1);
@@ -344,6 +344,58 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
   }
   await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 36 (36/36)');
   await expect(page.getByTestId('add-plate')).toBeDisabled();
+});
+
+test('multi-plate Preview renders only the current plate and applies its local toolpath origin', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
+      version: 1,
+      projectLoadBehaviour: 'always_ask',
+      selectedProfiles: {},
+      ui: {},
+    }));
+  });
+  await page.goto('/');
+  await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
+  await page.locator('#app-tab-prepare').click();
+  await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: 120_000 });
+
+  const chooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  await page.getByTestId('add-plate').click();
+  await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+  const beds = await page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number] }> };
+  }).__orcaE2e?.bedPlateStates?.() ?? []);
+  const plate2 = beds.find((bed) => bed.current);
+  if (!plate2?.plateId) throw new Error('current plate is unavailable');
+
+  const secondChooser = page.waitForEvent('filechooser');
+  await page.getByTestId('btn-add-model').click();
+  await (await secondChooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/cube.stl'));
+  await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  await page.getByTestId('btn-slice').click();
+  await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+
+  await page.locator('#app-tab-preview').click();
+  await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: 30_000 });
+  const readBeds = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number] }> };
+  }).__orcaE2e?.bedPlateStates?.() ?? []);
+  const readModels = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { modelWorldCenters?: () => Array<[number, number, number]> };
+  }).__orcaE2e?.modelWorldCenters?.() ?? []);
+  const readToolpathOrigin = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { previewToolpathWorldOrigin?: () => [number, number, number] | null };
+  }).__orcaE2e?.previewToolpathWorldOrigin?.() ?? null);
+
+  await expect.poll(readBeds).toEqual([
+    expect.objectContaining({ plateId: plate2.plateId, current: true }),
+  ]);
+  await expect.poll(readModels).toHaveLength(1);
+  await expect.poll(readToolpathOrigin).toEqual([plate2.position[0], plate2.position[1], 0]);
 });
 
 test('GPU streaming preview: native renderer is the default backend', async ({ page }) => {

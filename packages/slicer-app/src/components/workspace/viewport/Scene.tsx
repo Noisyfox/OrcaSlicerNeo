@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/viewport/Scene.tsx
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import type { LoadedObject } from './useModelLoader';
@@ -15,6 +15,7 @@ import { SelectionBoundsBox } from './SelectionBoundsBox';
 import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
 import type { PlateSessionSnapshot } from '@slicer/client';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
+import { currentPreviewPlate, previewToolpathOrigin, previewVolumesForCurrentPlate } from './previewSceneProjection';
 
 export function Scene({ activeTab, controller, glVolumes, toolpath, plateSession, onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
@@ -40,6 +41,10 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
 }) {
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
+  const previewVolumes = useMemo(
+    () => isPreviewTab(activeTab) ? previewVolumesForCurrentPlate(glVolumes, plateSession) : glVolumes,
+    [activeTab, glVolumes, plateSession],
+  );
   const previousActiveTabRef = useRef<'prepare' | 'preview' | null>(null);
   useEffect(() => {
     if (hasEnteredPreview(previousActiveTabRef.current, activeTab)) {
@@ -90,6 +95,7 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
           position: [number, number, number];
         }>;
         modelWorldCenters?: () => Array<[number, number, number]>;
+        previewToolpathWorldOrigin?: () => [number, number, number] | null;
       };
     };
     const projectPoint = (p: THREE.Vector3) => {
@@ -169,10 +175,21 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
         });
         return beds;
       },
-      modelWorldCenters: () => glVolumes.map((volume) => {
+      modelWorldCenters: () => previewVolumes.map((volume) => {
         const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
         return [center.x, center.y, center.z];
       }),
+      previewToolpathWorldOrigin: () => {
+        const group = scene.getObjectByName('preview-toolpath-world');
+        if (!group) return null;
+        let renderedPath: THREE.Object3D | null = null;
+        group.traverse((object) => {
+          if (!renderedPath && object !== group && object.type === 'InstancedMesh') renderedPath = object;
+        });
+        const position = new THREE.Vector3();
+        (renderedPath ?? group).getWorldPosition(position);
+        return [position.x, position.y, position.z];
+      },
     };
     return () => {
       if (w.__orcaE2e) {
@@ -188,12 +205,13 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
           cameraState: _camera,
           bedPlateStates: _beds,
           modelWorldCenters: _models,
+          previewToolpathWorldOrigin: _toolpathOrigin,
           ...rest
         } = w.__orcaE2e;
         w.__orcaE2e = rest;
       }
     };
-  }, [camera, controls, glVolumes, scene, size, sceneInteraction]);
+  }, [activeTab, camera, controls, glVolumes, plateSession, previewVolumes, scene, size, sceneInteraction]);
 
   // A loader replacement is a new scene even if it reuses the prior model's
   // composite IDs, so selection and the active gizmo must not leak across it.
@@ -215,9 +233,15 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
             onEmptyBedClick={onEmptyBedClick}
           />
         ))
-        : <BedPlate />}
+        : isPreviewTab(activeTab) && currentPreviewPlate(plateSession)
+          ? <BedPlate plate={currentPreviewPlate(plateSession)!} current />
+          : <BedPlate />}
       {isPreviewTab(activeTab) ? (
-        <PreviewScene glVolumes={glVolumes} toolpath={toolpath} />
+        <PreviewScene
+          glVolumes={previewVolumes}
+          toolpath={toolpath}
+          plateOrigin={previewToolpathOrigin(plateSession)}
+        />
       ) : (
         <PrepareScene glVolumes={glVolumes} toolpath={toolpath} />
       )}
@@ -238,18 +262,20 @@ function PrepareScene({ glVolumes, toolpath }: {
   return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive />;
 }
 
-function PreviewScene({ glVolumes, toolpath }: {
+function PreviewScene({ glVolumes, toolpath, plateOrigin }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
+  plateOrigin: readonly [number, number, number];
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview plateOrigin={plateOrigin} />;
 }
 
-function SceneContentTree({ glVolumes, toolpath, interactive, preview = false }: {
+function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, plateOrigin = [0, 0, 0] }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   interactive: boolean;
   preview?: boolean;
+  plateOrigin?: readonly [number, number, number];
 }) {
   return (
     <>
@@ -258,8 +284,12 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false }:
       ))}
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}
-      {toolpath && <ToolpathLines data={toolpath} />}
-      {toolpath && <ToolpathMarker data={toolpath} />}
+      {/* Slice results stay in printer-local coordinates. Preview applies the
+          selected plate origin only to this render group; export/send and the
+          retained result cache therefore remain untouched. */}
+      {toolpath && preview && <group name="preview-toolpath-world" position={plateOrigin}><ToolpathLines data={toolpath} /><ToolpathMarker data={toolpath} /></group>}
+      {toolpath && !preview && <ToolpathLines data={toolpath} />}
+      {toolpath && !preview && <ToolpathMarker data={toolpath} />}
     </>
   );
 }

@@ -41,6 +41,10 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
     backend: GpuStreamingRenderer;
   } | null>(null);
   const activeRef = useRef<typeof active>(null);
+  // GPU pages are attached to this component's render group instead of the
+  // root scene. This preserves local result buffers while allowing Preview's
+  // parent group to apply the selected plate's world origin.
+  const renderGroupRef = useRef<THREE.Group>(null);
   const diagnosticRef = useRef<GpuStreamingDiagnostic | null>(null);
   activeRef.current = active;
 
@@ -100,6 +104,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
 
     let cancelled = false;
     let backend: GpuStreamingRenderer | null = null;
+    let renderTarget: THREE.Object3D = scene;
     const host: GpuStreamingRendererHost = {
       getContext: () => gl.getContext() as WebGLRenderingContext,
       domElement: gl.domElement,
@@ -112,7 +117,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
       diagnosticRef.current = diagnostic;
       reportGpuStreamingDiagnostic(diagnostic);
       if (backend) {
-        try { backend.detachFromScene(scene); } catch { /* best effort */ }
+        try { backend.detachFromScene(renderTarget); } catch { /* best effort */ }
         backend.dispose();
         backend = null;
       }
@@ -133,7 +138,8 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
         backend = null;
         return;
       }
-      backend.attachToScene(scene);
+      renderTarget = renderGroupRef.current ?? scene;
+      backend.attachToScene(renderTarget);
       setActive({ plan, backend });
       invalidate();
       const onContextLost = () => unavailable('context-lost', 'WebGL context was lost');
@@ -142,7 +148,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
         cancelled = true;
         gl.domElement.removeEventListener('webglcontextlost', onContextLost);
         if (backend) {
-          try { backend.detachFromScene(scene); } catch { /* best effort */ }
+          try { backend.detachFromScene(renderTarget); } catch { /* best effort */ }
           backend.dispose();
           backend = null;
         }
@@ -171,7 +177,7 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
       };
       diagnosticRef.current = diagnostic;
       reportGpuStreamingDiagnostic(diagnostic);
-      try { current.backend.detachFromScene(scene); } catch { /* best effort */ }
+      try { current.backend.detachFromScene(renderGroupRef.current ?? scene); } catch { /* best effort */ }
       current.backend.dispose();
       activeRef.current = null;
       setActive(null);
@@ -228,5 +234,5 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
     };
   }, []);
 
-  return <group renderOrder={1000} />;
+  return <group ref={renderGroupRef} renderOrder={1000} />;
 }
