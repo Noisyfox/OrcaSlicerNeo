@@ -6,6 +6,8 @@ import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-cont
 import { Workspace } from './Workspace';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
+import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
+import type { PlateSessionSnapshot } from '@slicer/client';
 
 const sliceModelMock = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('./actions/sliceActions', () => ({ sliceModel: sliceModelMock }));
@@ -30,7 +32,19 @@ const platform = {
     load: vi.fn(async () => ({ version: 1 as const, selected: {}, ui: { sidebarWidth: 288 } })),
     save: vi.fn(async () => undefined),
   },
+  runtime: undefined,
 } as unknown as PlatformCapabilities;
+
+const twoPlateSnapshot: PlateSessionSnapshot = {
+  ok: true,
+  version: 1,
+  currentPlateId: 'plate-a',
+  plates: [
+    { plateId: 'plate-a', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1', instanceIds: [1], valid: true },
+    { plateId: 'plate-b', displayIndex: 1, origin: [264, 0, 0], name: 'Plate 2', instanceIds: [2], valid: true },
+  ],
+  inputRevisions: { 'plate-a': 1, 'plate-b': 1 },
+};
 
 describe('Workspace ownership', () => {
   let root: Root | undefined;
@@ -42,6 +56,8 @@ describe('Workspace ownership', () => {
     document.body.innerHTML = '';
     useSettingsStore.setState({ modelLoaded: false });
     useSlicerStore.setState({ status: 'idle', progress: 0, error: null });
+    usePlateSessionStore.getState().reset();
+    (platform as unknown as { runtime?: PlatformCapabilities['runtime'] }).runtime = undefined;
     sliceModelMock.mockClear();
   });
 
@@ -129,5 +145,39 @@ describe('Workspace ownership', () => {
       (previewProps?.onSceneFrameRendered as ((mode: 'prepare' | 'preview') => void) | undefined)?.('preview');
     });
     expect(onPreviewRenderReady).toHaveBeenCalledOnce();
+  });
+
+  it('clears object selection when switching plates from the Preview list', async () => {
+    const switchedSnapshot = { ...twoPlateSnapshot, currentPlateId: 'plate-b' };
+    const runtime = {
+      selectPlate: vi.fn(async () => switchedSnapshot),
+    };
+    platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
+    usePlateSessionStore.getState().setSnapshot(twoPlateSnapshot);
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>);
+    });
+    expect(testMocks.viewportProps.at(-1)?.previewFrameRequest).toBeNull();
+    const previewController = testMocks.viewportProps.at(-1)!.sceneInteraction as { clearSelection: () => boolean };
+    const previewClear = vi.spyOn(previewController, 'clearSelection');
+    await act(async () => {
+      container.querySelector('[data-testid="preview-plate-plate-b"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(runtime.selectPlate).toHaveBeenCalledWith('plate-b');
+    expect(previewClear).toHaveBeenCalledOnce();
+    const frameRequest = testMocks.viewportProps.at(-1)?.previewFrameRequest as { plateId: string; token: number } | null;
+    expect(frameRequest?.plateId).toBe('plate-b');
+    expect(frameRequest?.token).toBe(1);
+
+    await act(async () => {
+      container.querySelector('[data-testid="preview-plate-plate-b"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(runtime.selectPlate).toHaveBeenCalledOnce();
+    expect(previewClear).toHaveBeenCalledTimes(2);
+    expect(testMocks.viewportProps.at(-1)?.previewFrameRequest).toEqual(frameRequest);
   });
 });

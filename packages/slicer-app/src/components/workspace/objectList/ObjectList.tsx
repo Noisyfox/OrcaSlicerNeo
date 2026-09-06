@@ -5,13 +5,35 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { useObjectListStore } from './useObjectListStore';
-import { buildSelectableRows, projectSelection, type SelectableRow } from './projection';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import {
+  buildSelectableRows,
+  objectListValidity,
+  projectObjectGroups,
+  projectSelection,
+  type ObjectListValidity,
+  type SelectableRow,
+} from './projection';
 import { renameObjectInList, renamePartInList } from './actions';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
+
+function ObjectValidityBadge({ validity, objectId }: { validity: ObjectListValidity; objectId: number }) {
+  const label = validity === 'out-of-bounds' ? 'Out of bounds' : 'Unprintable';
+  return (
+    <span
+      data-testid={`object-validity-${objectId}`}
+      data-validity={validity}
+      className="ml-auto pl-1 text-[0.65rem] font-normal text-destructive"
+      title={label}
+    >
+      {label}
+    </span>
+  );
+}
 
 /**
  * The Object List tree (spec §4/§6): objects, their parts, and an Instances
@@ -31,6 +53,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const highlightLevel = useObjectListStore((s) => s.highlightLevel);
   const collapsedInstances = useObjectListStore((s) => s.collapsedInstances);
   const projection = useObjectListStore((s) => s.projection);
+  const plateSession = usePlateSessionStore((s) => s.snapshot);
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
@@ -44,6 +67,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [lastSelectedKey, setLastSelectedKey] = useState<string | null>(null);
   const flatRows = useMemo(() => buildSelectableRows(structure), [structure]);
+  const objectGroups = useMemo(
+    () => projectObjectGroups(structure, plateSession),
+    [structure, plateSession],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -267,11 +294,29 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       onContextMenu={(e) => { if (e.target === e.currentTarget) openContextMenu(e, { kind: 'list' }); }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleListDropToEnd}>
-      {structure.map((obj) => {
+      {objectGroups.map((group) => (
+        <section
+          key={group.key}
+          data-testid={`plate-group-${group.kind === 'unprintable' ? 'unprintable' : group.plateId}`}
+          className="border-b py-1 last:border-b-0"
+        >
+          <div
+            className="flex items-center justify-between px-1 text-[0.68rem] font-semibold uppercase tracking-wide text-muted-foreground"
+            data-testid={`plate-group-label-${group.kind === 'unprintable' ? 'unprintable' : group.plateId}`}
+          >
+            <span>{group.label}</span>
+            {group.kind === 'unprintable' ? (
+              <span data-testid="plate-group-validity-unprintable">Unprintable</span>
+            ) : group.valid === false && (
+              <span data-testid={`plate-group-validity-${group.plateId}`}>Out of bounds</span>
+            )}
+          </div>
+          {group.objects.map((obj) => {
         const objectSelected = projection.objectIds.has(obj.id);
         const hasExpandable = obj.volumes.length > 1 || obj.instanceCount > 1;
         const isExpanded = hasExpandable && !!expanded[obj.id];
         const renamingObject = renaming?.kind === 'object' && renaming.id === obj.id;
+        const validity = objectListValidity(obj, plateSession);
         // A part row's native drag source is its nearest draggable ancestor —
         // the enclosing object row. Renaming a part must therefore freeze the
         // object row too, or the part drag silently reorders the object.
@@ -332,6 +377,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                   className="w-32 rounded border bg-background px-1 text-xs"
                 />
               ) : obj.name}
+              {validity !== 'valid' && <ObjectValidityBadge validity={validity} objectId={obj.id} />}
             </Button>
             {isExpanded && (
               <div className="ml-4">
@@ -454,7 +500,9 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             )}
           </div>
         );
-      })}
+          })}
+        </section>
+      ))}
     </div>
   );
 

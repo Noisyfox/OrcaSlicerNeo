@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "description": "Opt-in native OrcaSlicer multi-plate interoperability fixture. The archive is acquired manually and is never fetched by normal tests.",
+  "parser_source": {
+    "repository": "Noisyfox/OrcaSlicer",
+    "commit": "b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde",
+    "path": "src/libslic3r/Format/bbs_3mf.cpp",
+    "license": "AGPL-3.0",
+    "license_url": "https://github.com/Noisyfox/OrcaSlicer/blob/b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde/LICENSE"
+  },
+  "fixture": {
+    "id": "orca-native-multi-plate",
+    "filename": "orca-native-multi-plate.3mf",
+    "source_repository": "Noisyfox/OrcaSlicer",
+    "source_commit": "b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde",
+    "source_path": "manual native GUI project export (two plates)",
+    "license": "AGPL-3.0",
+    "size": 34962,
+    "sha256": "4775cf19b232bbc49cddae101b7dc32d21f75c41aefede08f7741b27df5dc733",
+    "expected": {
+      "plate_count": 2,
+      "current_plate_index": 0,
+      "plates": [
+        {
+          "display_index": 0,
+          "name": "Native Plate 1",
+          "locked": false,
+          "instance_membership": [{ "object_index": 0, "instance_index": 0 }],
+          "local_offsets": [[103.5, 127.5, 10]],
+          "opaque_metadata": [{ "key": "native_future_key", "value": "native-future-value" }]
+        },
+        {
+          "display_index": 1,
+          "name": "Native Plate 2",
+          "locked": false,
+          "instance_membership": [{ "object_index": 1, "instance_index": 0 }],
+          "local_offsets": [[111.89999999999998, 127.5, 10]],
+          "opaque_metadata": [{ "key": "native_second_key", "value": "native-second-value" }]
+        }
+      ]
+    }
+  }
+}

@@ -134,7 +134,7 @@ export default function App() {
     }
   }, [setError]);
   const runNewProject = useCallback(async () => {
-    const result = await newProject(platform, { decideDirty, confirmFlattenedSave: confirmFlatten });
+    const result = await newProject(platform, { decideDirty, confirmFlattenedSave: confirmFlatten, sceneResetTarget: sceneInteractionRef.current });
     reportProjectFailure(result);
     if (result.status === 'ok') setActiveTab('prepare');
   }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);

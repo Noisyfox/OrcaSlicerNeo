@@ -1,10 +1,13 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
+import type { PlateSessionMutation } from '@slicer/client';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
-import { syncModelTransforms } from './syncModelTransforms';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { applyPlateSessionTransforms, syncModelTransforms } from './syncModelTransforms';
 
-type SyncResult = { ok: boolean; error?: string };
+type SyncResult = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };
 
 // Mouse and numeric move commits deliberately serialize. This preserves the
 // exact state at each settled edit and lets Add Model wait for an in-flight
@@ -25,13 +28,21 @@ export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<S
     // and export is disabled until re-slicing. On sync failure nothing
     // was applied, so the prior result stays valid.
     if (result.ok) {
+      if (result.plateSession)
+        applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
       const slicer = useSlicerStore.getState();
       slicer.setStatus('idle');
       slicer.setResultExported(false);
       slicer.setError(null);
       slicer.setLayers(0);
       slicer.setProgress(0);
-      useProjectStore.getState().markDirty();
+      if (result.plateSession) {
+        const previousPlateSession = usePlateSessionStore.getState().snapshot;
+        usePlateSessionStore.getState().setSnapshot(result.plateSession);
+        applyPlateResultMutation(result.plateSession, previousPlateSession);
+        useProjectStore.getState().recordPlateMutation(result.plateSession);
+      }
+      else useProjectStore.getState().markDirty('model-transform');
     }
     return result;
   });

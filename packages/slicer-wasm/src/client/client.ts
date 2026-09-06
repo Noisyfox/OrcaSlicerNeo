@@ -8,8 +8,10 @@
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, PresetSnapshotResult,
+  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  ClearModelResult,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult,
-  ModelMeshResult, SliceResultStatus, ClientSliceResult,
+  ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
@@ -22,6 +24,159 @@ import type {
 } from './types';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
+
+function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid plate session response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'plate session request failed' };
+  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || !Array.isArray(value.plates)) {
+    return { ok: false, error: 'invalid plate session response' };
+  }
+  const plates = value.plates.map((entry): PlateSessionPlate | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const plate = entry as Record<string, unknown>;
+    const origin = plate.origin;
+    if (typeof plate.plate_id !== 'string' || typeof plate.name !== 'string' ||
+        !Number.isInteger(plate.display_index) || !Array.isArray(origin) || origin.length !== 3 ||
+        !origin.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))) return null;
+    const coordinates = origin as [number, number, number];
+    const normalized = {
+      plateId: plate.plate_id,
+      displayIndex: plate.display_index as number,
+      origin: [coordinates[0], coordinates[1], coordinates[2]] as [number, number, number],
+      name: plate.name,
+    };
+    const hasSettings = plate.settings !== undefined;
+    const settings = hasSettings && plate.settings && typeof plate.settings === 'object' && !Array.isArray(plate.settings)
+      ? plate.settings as Readonly<Record<string, unknown>> : undefined;
+    if (hasSettings && !settings) return null;
+    const hasOpaqueMetadata = plate.opaque_metadata !== undefined;
+    const opaqueMetadata = hasOpaqueMetadata && Array.isArray(plate.opaque_metadata)
+      ? plate.opaque_metadata.map((entry) => {
+        if (!entry || typeof entry !== 'object') return null;
+        const item = entry as Record<string, unknown>;
+        return typeof item.key === 'string' && typeof item.value === 'string'
+          ? { key: item.key, value: item.value } : null;
+      }) : undefined;
+    if (hasOpaqueMetadata && (!opaqueMetadata || opaqueMetadata.some((entry) => entry === null))) return null;
+    return {
+      ...normalized,
+      ...(typeof plate.locked === 'boolean' ? { locked: plate.locked } : {}),
+      ...(settings ? { settings } : {}),
+      ...(opaqueMetadata ? { opaqueMetadata: opaqueMetadata as { key: string; value: string }[] } : {}),
+      ...(Array.isArray(plate.instance_ids) && plate.instance_ids.every((id) => Number.isSafeInteger(id))
+        ? { instanceIds: plate.instance_ids as number[] } : {}),
+      ...(Array.isArray(plate.out_of_bounds_instance_ids) && plate.out_of_bounds_instance_ids.every((id) => Number.isSafeInteger(id))
+        ? { outOfBoundsInstanceIds: plate.out_of_bounds_instance_ids as number[] } : {}),
+      ...(typeof plate.valid === 'boolean' ? { valid: plate.valid } : {}),
+    };
+  });
+  if (plates.some((plate): plate is null => plate === null) || plates.length === 0) {
+    return { ok: false, error: 'invalid plate session response' };
+  }
+  if (!plates.some((plate) => plate!.plateId === value.current_plate_id)) {
+    return { ok: false, error: 'invalid plate session current identity' };
+  }
+  const result: PlateSessionSnapshot = {
+    ok: true,
+    version: 1,
+    currentPlateId: value.current_plate_id,
+    plates: plates as PlateSessionPlate[],
+  };
+  if (Array.isArray(value.instances)) {
+    const instances = value.instances.map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const item = entry as Record<string, unknown>;
+      if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
+        .every((id) => Number.isSafeInteger(id)) || typeof item.plate_id !== 'string' ||
+          typeof item.member !== 'boolean' || typeof item.unprintable !== 'boolean' ||
+          typeof item.out_of_bounds !== 'boolean') return null;
+      return { instanceId: item.instance_id as number, objectId: item.object_id as number,
+        objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
+        plateId: item.plate_id, member: item.member, unprintable: item.unprintable,
+        outOfBounds: item.out_of_bounds };
+    });
+    if (instances.some((instance) => instance === null)) return { ok: false, error: 'invalid plate session instances' };
+    result.instances = instances as NonNullable<typeof instances[number]>[];
+  }
+  if (Array.isArray(value.instance_transforms)) {
+    const transforms = value.instance_transforms.map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const item = entry as Record<string, unknown>;
+      if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
+        .every((id) => Number.isSafeInteger(id)) || !item.world_transform || typeof item.world_transform !== 'object') return null;
+      return { instanceId: item.instance_id as number, objectId: item.object_id as number,
+        objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
+        worldTransform: item.world_transform as any };
+    });
+    if (transforms.some((transform) => transform === null)) return { ok: false, error: 'invalid plate session transforms' };
+    result.instanceTransforms = transforms as NonNullable<typeof transforms[number]>[];
+  }
+  if (value.input_revisions && typeof value.input_revisions === 'object' && !Array.isArray(value.input_revisions)) {
+    const revisions: Record<string, number> = {};
+    for (const [id, revision] of Object.entries(value.input_revisions as Record<string, unknown>))
+      if (typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0) revisions[id] = revision;
+    result.inputRevisions = revisions;
+  }
+  const ids = (key: string): string[] | undefined => Array.isArray(value[key])
+    && (value[key] as unknown[]).every((id) => typeof id === 'string')
+    ? value[key] as string[] : undefined;
+  const before = ids('affected_plate_ids_before');
+  const after = ids('affected_plate_ids_after');
+  const affected = ids('affected_plate_ids');
+  const reasons = Array.isArray(value.dirty_reasons) && (value.dirty_reasons as unknown[]).every((reason) => typeof reason === 'string')
+    ? value.dirty_reasons as string[] : undefined;
+  if (before) result.affectedPlateIdsBefore = before;
+  if (after) result.affectedPlateIdsAfter = after;
+  if (affected) result.affectedPlateIds = affected;
+  if (reasons) result.dirtyReasons = reasons;
+  return result;
+}
+
+function normalizePlateMutationResult(raw: unknown): PlateSessionMutationResult {
+  const result = normalizePlateSessionResult(raw);
+  if (!result.ok) return result;
+  if (!result.instanceTransforms) return { ok: false, error: 'plate mutation omitted instance transforms' };
+  return result as PlateSessionMutationResult;
+}
+
+function normalizeCount(raw: unknown): number | null {
+  return typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0 ? raw : null;
+}
+
+function normalizeLoadModelResult(raw: unknown): LoadModelResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, objects: 0, instances: 0, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
+  const objects = normalizeCount(value.objects ?? 0);
+  const instances = normalizeCount(value.instances ?? 0);
+  if (objects === null || instances === null) {
+    return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation counts' };
+  }
+  const nested = value.plate_session;
+  const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
+  return { ok: true, objects, instances,
+    ...(plateSession?.ok ? { plateSession } : {}) };
+}
+
+function normalizeDeleteResult(raw: unknown): DeleteObjectsResult & DeleteVolumesResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid model mutation response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
+  const nested = value.plate_session;
+  const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
+  return { ok: true, objects: Number(value.objects ?? 0), deleted: Number(value.deleted ?? 0),
+    ...(plateSession?.ok ? { plateSession } : {}) };
+}
+
+function normalizeClearResult(raw: unknown): ClearModelResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid model mutation response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'model mutation failed' };
+  const nested = value.plate_session;
+  const plateSession = nested ? normalizePlateMutationResult(nested) : undefined;
+  return { ok: true, ...(plateSession?.ok ? { plateSession } : {}) };
+}
 
 export function createClient(
   moduleFactory: OrcaModuleFactory,
@@ -104,6 +259,41 @@ export function createClient(
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
     },
 
+    async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {
+      const m = await module();
+      return normalizePlateSessionResult(callJson(m, 'orc_get_plate_session_snapshot', [], []));
+    },
+
+    async resetPlateSession(): Promise<PlateSessionSnapshotResult> {
+      const m = await module();
+      return normalizePlateSessionResult(callJson(m, 'orc_reset_plate_session', [], []));
+    },
+
+    async selectPlate(plateId: string): Promise<PlateSessionSnapshotResult> {
+      const m = await module();
+      return normalizePlateSessionResult(callJson(m, 'orc_select_plate', ['string'], [plateId]));
+    },
+
+    async addPlate(): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_add_plate', [], []));
+    },
+
+    async deletePlate(plateId: string): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_delete_plate', ['string'], [plateId]));
+    },
+
+    async recomputePlateMembership(): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_recompute_plate_membership', [], []));
+    },
+
+    async markSharedConfigurationMutation(): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_mark_shared_configuration_mutation', [], []));
+    },
+
     async getPresetSnapshot(): Promise<PresetSnapshotResult> {
       const m = await module();
       return callJson(m, 'orc_get_preset_snapshot', [], []) as PresetSnapshotResult;
@@ -123,8 +313,8 @@ export function createClient(
       const m = await module();
       const ptr = writeBytes(m, bytes);
       try {
-        return callJson(m, 'orc_add_model', ['pointer', 'number', 'string', 'string'],
-                        [ptr, bytes.length, ext, displayName ?? '']) as LoadModelResult;
+        return normalizeLoadModelResult(callJson(m, 'orc_add_model', ['pointer', 'number', 'string', 'string'],
+                        [ptr, bytes.length, ext, displayName ?? '']));
       } finally {
         m._free(ptr);
       }
@@ -182,6 +372,10 @@ export function createClient(
           presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object'
             && (r.preset_snapshot as Record<string, unknown>).ok === true
             ? r.preset_snapshot as unknown as import('./types').PresetSnapshot : undefined,
+          ...(r.plate_session ? (() => {
+            const plateSession = normalizePlateMutationResult(r.plate_session);
+            return plateSession.ok ? { plateSession } : {};
+          })() : {}),
         };
       } finally {
         m._free(ptr);
@@ -221,6 +415,10 @@ export function createClient(
             missingSystemPreset: (r.embedded_preset_warnings as Record<string, unknown>).missing_system_preset === true,
             requiresConfirmation: (r.embedded_preset_warnings as Record<string, unknown>).requires_confirmation === true,
           } : undefined,
+          ...(r.plate_session ? (() => {
+            const plateSession = normalizePlateMutationResult(r.plate_session);
+            return plateSession.ok ? { plateSession } : {};
+          })() : {}),
         };
       } finally {
         m._free(ptr);
@@ -229,13 +427,13 @@ export function createClient(
 
     async addShape(type: string, name?: string): Promise<LoadModelResult> {
       const m = await module();
-      return callJson(m, 'orc_add_shape', ['string', 'string'],
-                      [type, name ?? '']) as LoadModelResult;
+      return normalizeLoadModelResult(callJson(m, 'orc_add_shape', ['string', 'string'],
+                      [type, name ?? '']));
     },
 
-    async clearModel(): Promise<{ ok: boolean; error?: string }> {
+    async clearModel(): Promise<ClearModelResult> {
       const m = await module();
-      return callJson(m, 'orc_clear_model', [], []) as { ok: boolean; error?: string };
+      return normalizeClearResult(callJson(m, 'orc_clear_model', [], []));
     },
 
     async setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number) {
@@ -288,14 +486,14 @@ export function createClient(
 
     async deleteObjects(objectIds: number[]): Promise<DeleteObjectsResult> {
       const m = await module();
-      return callJson(m, 'orc_delete_objects', ['string'],
-                      [JSON.stringify(objectIds)]) as DeleteObjectsResult;
+      return normalizeDeleteResult(callJson(m, 'orc_delete_objects', ['string'],
+                      [JSON.stringify(objectIds)])) as DeleteObjectsResult;
     },
 
     async deleteVolumes(volumeIds: number[]): Promise<DeleteVolumesResult> {
       const m = await module();
-      return callJson(m, 'orc_delete_volumes', ['string'],
-                      [JSON.stringify(volumeIds)]) as DeleteVolumesResult;
+      return normalizeDeleteResult(callJson(m, 'orc_delete_volumes', ['string'],
+                      [JSON.stringify(volumeIds)])) as DeleteVolumesResult;
     },
 
     async cloneObjects(objectIds: number[]): Promise<CloneObjectsResult> {
@@ -389,6 +587,18 @@ export function createClient(
       if (onProgress) progressListeners.add(onProgress);
       try {
         return callJson(m, 'orc_slice', ['string'], [JSON.stringify(config)]) as SliceResultStatus;
+      } finally {
+        if (onProgress) progressListeners.delete(onProgress);
+      }
+    },
+
+    async slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus> {
+      const m = await module();
+      if (onProgress) progressListeners.add(onProgress);
+      try {
+        return callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
+          JSON.stringify(config), target.plateId, target.inputRevision,
+        ]) as SliceResultStatus;
       } finally {
         if (onProgress) progressListeners.delete(onProgress);
       }
@@ -567,6 +777,16 @@ export function createClient(
     async exportGcode(): Promise<ExportGcodeResult> {
       const m = await module();
       const r = callJson(m, 'orc_export_gcode', [], []) as { ok: boolean; path?: string; error?: string };
+      if (!r.ok) return r as ExportGcodeResult;
+      const bytes = m.FS.readFile('/out.gcode');
+      return { ok: true, path: r.path ?? '/out.gcode', bytes };
+    },
+
+    async exportGcodePlate(target: PlateOperationTarget): Promise<ExportGcodeResult> {
+      const m = await module();
+      const r = callJson(m, 'orc_export_gcode_plate', ['string', 'number'], [
+        target.plateId, target.inputRevision,
+      ]) as { ok: boolean; path?: string; error?: string };
       if (!r.ok) return r as ExportGcodeResult;
       const bytes = m.FS.readFile('/out.gcode');
       return { ok: true, path: r.path ?? '/out.gcode', bytes };

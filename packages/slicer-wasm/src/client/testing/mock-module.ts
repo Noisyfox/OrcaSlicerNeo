@@ -251,11 +251,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const instanceCount = Math.max(1, Math.floor(opts.instanceCount ?? 1));
   const volumeCount = Math.max(1, Math.floor(opts.volumeCount ?? 1));
   const splitParts = Math.max(1, Math.floor(opts.splitParts ?? 2));
-  const createObjectTransforms = () => Array.from({ length: instanceCount }, (_, index) => ({
+  const createObjectTransforms = (origin: [number, number] = [0, 0]) => Array.from({ length: instanceCount }, (_, index) => ({
     ...identityTransform(),
     // Keep mock instances visibly separate so selection tests can hit each
     // one without a model fixture that depends on the native build.
-    offset: [index * 50, 0, 0],
+    offset: [origin[0] + index * 50, origin[1], 0],
   }));
   // A ModelVolume belongs to the object, not to an instance.  Its transform
   // is therefore shared by every instance of that object, just as in the
@@ -280,6 +280,118 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let instanceMeta: Array<Array<{ id: number; printable: boolean }>> = [];
   let modelLoaded = false;
   let sliced = false;
+  let slicedPlateId = '';
+  let slicedPlateRevision = 0;
+  let plateSessionSequence = 0;
+  let plateSessionId = '';
+  let plateIds: string[] = [];
+  let plateOrigins: Array<[number, number, number]> = [];
+  let currentPlateId = '';
+  let plateInputRevisions: Record<string, number> = {};
+  let objectPlateIds: string[] = [];
+
+  function plateStride(): number {
+    const area = presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area;
+    const width = area && area.length > 1 ? Math.max(...area.map((point) => point[0])) - Math.min(...area.map((point) => point[0])) : 200;
+    // Preserve the mock's established 240 mm default grid spacing used by
+    // existing renderer/e2e fixtures; printer changes still exercise the
+    // contract by deriving the new stride from the selected bed.
+    return selected.printer === 'Bambu Lab P1S 0.4 nozzle' ? width * 1.2 : 240;
+  }
+
+  function plateColumnCount(count: number): number {
+    if (count <= 1) return 1;
+    const root = Math.sqrt(count);
+    const rounded = Math.round(root);
+    return root > rounded ? rounded + 1 : rounded;
+  }
+
+  function plateOrigin(index: number, count = plateIds.length): [number, number, number] {
+    const columns = plateColumnCount(count);
+    return [(index % columns) * plateStride(), -Math.floor(index / columns) * plateStride(), 0];
+  }
+
+  function resetPlateSession(): void {
+    plateSessionSequence += 1;
+    plateSessionId = `plate-session-${plateSessionSequence}-plate-1`;
+    plateIds = [plateSessionId];
+    plateOrigins = [[0, 0, 0]];
+    currentPlateId = plateSessionId;
+    plateInputRevisions = { [plateSessionId]: 0 };
+  }
+  resetPlateSession();
+  function plateSessionSnapshot(includeMutation = false) {
+    const result: Record<string, unknown> = {
+      ok: true,
+      version: 1,
+      current_plate_id: currentPlateId,
+      input_revisions: { ...plateInputRevisions },
+      plates: plateIds.map((id, index) => includeMutation ? ({
+        plate_id: id, display_index: index, origin: plateOrigins[index], name: `Plate ${index + 1}`,
+        instance_ids: [], out_of_bounds_instance_ids: [], valid: true,
+      }) : ({ plate_id: id, display_index: index, origin: plateOrigins[index], name: `Plate ${index + 1}` })),
+    };
+    if (includeMutation) {
+      result.instance_transforms = [];
+      result.instances = objectTransforms.flatMap((transforms, objectIndex) =>
+        transforms.map((_transform, instanceIndex) => {
+          const instance = instanceMeta[objectIndex]?.[instanceIndex];
+          return {
+            instance_id: instance?.id ?? 0,
+            object_id: objectMeta[objectIndex]?.id ?? 0,
+            object_index: objectIndex,
+            instance_index: instanceIndex,
+            plate_id: objectPlateIds[objectIndex] ?? currentPlateId,
+            member: true,
+            unprintable: false,
+            out_of_bounds: false,
+          };
+        }));
+    }
+    return result;
+  }
+  function plateMutation(
+    reason: string,
+    before = [currentPlateId],
+    after = [currentPlateId],
+    instanceTransforms: readonly Record<string, unknown>[] = [],
+  ) {
+    const affected = [...new Set([...before, ...after])];
+    for (const id of affected) if (plateIds.includes(id)) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
+    const result = plateSessionSnapshot(true) as Record<string, unknown>;
+    result.instance_transforms = instanceTransforms;
+    result.affected_plate_ids_before = before;
+    result.affected_plate_ids_after = after;
+    result.affected_plate_ids = affected;
+    result.dirty_reasons = [reason];
+    return result;
+  }
+
+  function reflowMockPlateOrigins(): Array<Record<string, unknown>> {
+    const oldOrigins = plateOrigins.map((origin) => [...origin] as [number, number, number]);
+    plateOrigins = plateIds.map((_id, index) => plateOrigin(index, plateIds.length));
+    const changed: Array<Record<string, unknown>> = [];
+    for (let objectIndex = 0; objectIndex < objectTransforms.length; objectIndex += 1) {
+      const plateIndex = plateIds.indexOf(objectPlateIds[objectIndex] ?? '');
+      if (plateIndex < 0) continue;
+      const delta = plateOrigins[plateIndex].map((value, axis) => value - oldOrigins[plateIndex][axis]);
+      if (delta.every((value) => value === 0)) continue;
+      for (let instanceIndex = 0; instanceIndex < objectTransforms[objectIndex].length; instanceIndex += 1) {
+        const transform = objectTransforms[objectIndex][instanceIndex];
+        transform.offset = transform.offset.map((value, axis) => value + delta[axis]);
+        const instance = instanceMeta[objectIndex]?.[instanceIndex];
+        changed.push({
+          instance_id: instance?.id ?? 0,
+          object_id: objectMeta[objectIndex]?.id ?? 0,
+          object_index: objectIndex,
+          instance_index: instanceIndex,
+          world_transform: transform,
+          transform,
+        });
+      }
+    }
+    return changed;
+  }
   let progressCallback = 0;
   const functionTable = new Map<number, (...args: unknown[]) => void>();
   let nextFunctionIndex = 1000;
@@ -295,6 +407,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     Atomics.store(mailboxWords, 1, percent);
     Atomics.store(mailboxWords, 2, bytes.length);
     Atomics.add(mailboxWords, 0, 1);
+  }
+
+  function runMockSlice(plateId: string, revision: number): unknown {
+    if (!modelLoaded) return { error: 'no model loaded' };
+    if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
+    if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
+    for (let pct = 0; pct <= 100; pct += 25) {
+      if (opts.threaded) {
+        publishMailboxProgress(pct, `slice ${pct}%`);
+        continue;
+      }
+      if (!progressCallback) continue;
+      const bytes = new TextEncoder().encode(`slice ${pct}%`);
+      const tp = malloc(bytes.length + 1);
+      HEAPU8.set(bytes, tp);
+      functionTable.get(progressCallback)?.(pct, tp);
+    }
+    sliced = true;
+    slicedPlateId = plateId;
+    slicedPlateRevision = revision;
+    return { ok: true, unrecognized_keys: [] };
   }
 
   // Serialize the current structure in the bridge's object/part/instance shape.
@@ -453,8 +586,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   function appendMockObject(name = `Object ${objectTransforms.length + 1}`): void {
     modelLoaded = true;
-    objectTransforms.push(createObjectTransforms());
+    const currentPlateIndex = Math.max(0, plateIds.indexOf(currentPlateId));
+    objectTransforms.push(createObjectTransforms(plateOrigins[currentPlateIndex]?.slice(0, 2) as [number, number] ?? [0, 0]));
     objectVolumeTransforms.push(createObjectVolumeTransforms());
+    objectPlateIds.push(currentPlateId);
     objectMeta.push({ id: nextObjectId++, name, printable: true });
     volumeMeta.push(Array.from({ length: volumeCount }, (_, vi) => ({
       id: nextVolumeId++, name: `Part ${vi + 1}`,
@@ -469,12 +604,65 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
     orc_init(_legacyPreferencesJson?: string) {
+      resetPlateSession();
       return {
         ok: true,
         prints: presetFixtures.print.length,
         filaments: presetFixtures.filament.length,
         printers: presetFixtures.printer.length,
       };
+    },
+    orc_get_plate_session_snapshot() {
+      return plateSessionSnapshot();
+    },
+    orc_reset_plate_session() {
+      resetPlateSession();
+      return plateSessionSnapshot();
+    },
+    orc_select_plate(plateId: string) {
+      if (typeof plateId !== 'string' || plateId.length === 0) return { error: 'plateId is required' };
+      if (!plateIds.includes(plateId)) return { error: 'plate not found' };
+      currentPlateId = plateId;
+      return plateSessionSnapshot();
+    },
+    orc_add_plate() {
+      if (plateIds.length >= 36) return { error: 'maximum of 36 plates' };
+      const id = `plate-session-${++plateSessionSequence}-plate-${plateIds.length + 1}`;
+      plateIds.push(id);
+      plateInputRevisions[id] = 0;
+      plateOrigins.push([0, 0, 0]);
+      currentPlateId = id;
+      const changed = reflowMockPlateOrigins();
+      const result = plateSessionSnapshot(true) as Record<string, unknown>;
+      result.instance_transforms = changed;
+      return result;
+    },
+    orc_delete_plate(plateId: string) {
+      if (plateIds.length <= 1) return { error: 'at least one plate must remain' };
+      const index = plateIds.indexOf(plateId);
+      if (index < 0) return { error: 'plate not found' };
+      const deletingCurrent = currentPlateId === plateId;
+      plateIds.splice(index, 1);
+      plateOrigins.splice(index, 1);
+      delete plateInputRevisions[plateId];
+      if (deletingCurrent) currentPlateId = plateIds[Math.min(index, plateIds.length - 1)];
+      const changed = reflowMockPlateOrigins();
+      return plateMutation('plate-delete', [plateId], plateIds, changed);
+    },
+    orc_recompute_plate_membership() {
+      return plateSessionSnapshot(true);
+    },
+    orc_mark_shared_configuration_mutation() {
+      const affected = [...plateIds];
+      const changed = reflowMockPlateOrigins();
+      for (const id of affected) plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
+      const result = plateSessionSnapshot(true) as Record<string, unknown>;
+      result.instance_transforms = changed;
+      result.affected_plate_ids_before = affected;
+      result.affected_plate_ids_after = affected;
+      result.affected_plate_ids = affected;
+      result.dirty_reasons = ['shared-configuration'];
+      return result;
     },
     orc_get_preset_snapshot() {
       return snapshot();
@@ -517,7 +705,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // regressions. DRC alone models its upstream filename behaviour.
       appendMockObject(ext.toLowerCase() === 'drc' && displayName
         ? displayName : undefined);
-      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
+      // Model imports belong to the current plate; they do not recreate the
+      // runtime plate session or change its current identity.
+      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), plate_session: plateMutation('model-import') };
     },
     orc_load_project(_ptr: number, len: number, geometryOnly: number, displayName: string) {
       if (len <= 0) return { error: 'no project bytes' };
@@ -529,6 +719,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         instanceMeta = [];
       }
       appendMockObject(displayName || undefined);
+      resetPlateSession();
       return {
         ok: true, objects: objectTransforms.length,
         instances: objectTransforms.reduce((total, instances) => total + instances.length, 0),
@@ -549,6 +740,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
+        plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(true),
       };
     },
     orc_import_project_geometry(_ptr: number, len: number, displayName: string) {
@@ -563,8 +755,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // The object records its type so orc_get_model_mesh returns the
       // per-shape geometry (primitiveMesh below).
       modelLoaded = true;
-      objectTransforms.push(createObjectTransforms());
+      const currentPlateIndex = Math.max(0, plateIds.indexOf(currentPlateId));
+      objectTransforms.push(createObjectTransforms(plateOrigins[currentPlateIndex]?.slice(0, 2) as [number, number] ?? [0, 0]));
       objectVolumeTransforms.push([identityTransform()]);
+      objectPlateIds.push(currentPlateId);
       objectMeta.push({ id: nextObjectId++, name: shapeName, printable: true, primitive: type });
       volumeMeta.push([{ id: nextVolumeId++, name: shapeName, type: 'model_part' as VolumeType, isSplittable: false }]);
       instanceMeta.push(Array.from({ length: instanceCount }, (_, ii) => ({
@@ -572,17 +766,19 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         printable: true,
       })));
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0) };
+      return { ok: true, objects: objectTransforms.length, instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), plate_session: plateMutation('model-import') };
     },
     orc_clear_model() {
       objectTransforms = [];
       objectVolumeTransforms = [];
+      objectPlateIds = [];
       objectMeta = [];
       volumeMeta = [];
       instanceMeta = [];
       modelLoaded = false;
       sliced = false;
-      return { ok: true };
+      resetPlateSession();
+      return { ok: true, plate_session: plateMutation('model-clear', [], []) };
     },
     orc_delete_objects(objectIdsJson: string) {
       const ids = JSON.parse(objectIdsJson ?? '[]') as unknown;
@@ -604,7 +800,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         instanceMeta.splice(oi, 1);
       }
       sliced = false;
-      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length };
+      return { ok: true, objects: objectTransforms.length, deleted: toDelete.length, plate_session: plateMutation('model-delete') };
     },
     orc_delete_volumes(volumeIdsJson: string) {
       const ids = JSON.parse(volumeIdsJson ?? '[]') as unknown;
@@ -934,23 +1130,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { ok: true, byte_offset: mailboxOffset, text_capacity: mailboxText.length };
     },
     orc_slice(_config: string) {
-      if (!modelLoaded) return { error: 'no model loaded' };
-      // Drive progress 0..100 synchronously, exactly like the real bridge:
-      // the callback's second arg is a const char* (malloc'd C string ptr),
-      // matching the client's 'vij' wrapper which UTF8ToString()s it.
-      for (let pct = 0; pct <= 100; pct += 25) {
-        if (opts.threaded) {
-          publishMailboxProgress(pct, `slice ${pct}%`);
-          continue;
-        }
-        if (!progressCallback) continue;
-        const bytes = new TextEncoder().encode(`slice ${pct}%`);
-        const tp = malloc(bytes.length + 1);
-        HEAPU8.set(bytes, tp);
-        functionTable.get(progressCallback)?.(pct, tp);
-      }
-      sliced = true;
-      return { ok: true, unrecognized_keys: [] };
+      return runMockSlice(currentPlateId, plateInputRevisions[currentPlateId] ?? 0);
+    },
+    orc_slice_plate(_config: string, plateId: string, revision: number) {
+      return runMockSlice(plateId, revision);
     },
     orc_get_slice_result() {
       if (!sliced) return { error: 'no slice result' };
@@ -1063,6 +1246,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       files.set('/out.gcode', previewSourceBytes);
       return { ok: true, path: '/out.gcode' };
     },
+    orc_export_gcode_plate(plateId: string, revision: number) {
+      if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
+      if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
+      if (!sliced || slicedPlateId !== plateId || slicedPlateRevision !== revision)
+        return { error: 'plate slice result is stale or unavailable' };
+      return bridge.orc_export_gcode();
+    },
     orc_export_project() {
       if (!modelLoaded) return { error: 'no model loaded' };
       const archive = new TextEncoder().encode(JSON.stringify({
@@ -1160,6 +1350,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_import_project_geometry: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
+    orc_get_plate_session_snapshot: { ret: 'number', args: [] },
+    orc_reset_plate_session: { ret: 'number', args: [] },
+    orc_select_plate: { ret: 'number', args: ['string'] },
+    orc_add_plate: { ret: 'number', args: [] },
+    orc_delete_plate: { ret: 'number', args: ['string'] },
+    orc_recompute_plate_membership: { ret: 'number', args: [] },
+    orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },
     orc_clone_objects: { ret: 'number', args: ['string'] },
@@ -1184,8 +1381,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_threading_info: { ret: 'number', args: [] },
     orc_get_progress_mailbox: { ret: 'number', args: [] },
     orc_slice: { ret: 'number', args: ['string'] },
+    orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
     orc_get_slice_result: { ret: 'number', args: [] },
     orc_export_gcode: { ret: 'number', args: [] },
+    orc_export_gcode_plate: { ret: 'number', args: ['string', 'number'] },
     orc_export_project: { ret: 'number', args: [] },
     orc_read_gcode_chunk: { ret: 'number', args: ['number', 'number', 'number'] },
     orc_read_gcode_lines: { ret: 'number', args: ['number', 'number', 'number'] },

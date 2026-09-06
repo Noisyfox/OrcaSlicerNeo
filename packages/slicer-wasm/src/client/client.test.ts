@@ -20,6 +20,159 @@ describe('SlicerClient bridge contract', () => {
     expect(r.printers).toBeGreaterThan(0);
   });
 
+  it('exposes one deterministic default plate and opaque runtime identity', async () => {
+    const c = makeClient();
+    const first = await c.getPlateSessionSnapshot();
+    expect(first).toMatchObject({ ok: true, version: 1, currentPlateId: expect.any(String) });
+    if (!first.ok) throw new Error(first.error);
+    expect(first.plates).toEqual([{
+      plateId: first.currentPlateId,
+      displayIndex: 0,
+      origin: [0, 0, 0],
+      name: 'Plate 1',
+    }]);
+    expect(await c.getPlateSessionSnapshot()).toEqual(first);
+    expect(await c.selectPlate(first.currentPlateId)).toEqual(first);
+    const reset = await c.resetPlateSession();
+    expect(reset.ok).toBe(true);
+    if (!reset.ok) throw new Error(reset.error);
+    expect(reset.currentPlateId).not.toBe(first.currentPlateId);
+    expect(await c.selectPlate('malformed-or-stale-id')).toEqual({ ok: false, error: 'plate not found' });
+    expect(await c.getPlateSessionSnapshot()).toEqual(reset);
+  });
+
+  it('exposes atomic plate mutations and preserves rejection snapshots', async () => {
+    const c = makeClient();
+    const initial = await c.getPlateSessionSnapshot();
+    if (!initial.ok) throw new Error(initial.error);
+
+    const added = await c.addPlate();
+    expect(added.ok).toBe(true);
+    if (!added.ok) throw new Error(added.error);
+    expect(added.plates).toHaveLength(2);
+    expect(added.currentPlateId).toBe(added.plates[1].plateId);
+    expect(added.instanceTransforms).toEqual([]);
+
+    const restored = await c.selectPlate(initial.currentPlateId);
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) throw new Error(restored.error);
+    expect(restored.currentPlateId).toBe(initial.currentPlateId);
+
+    const deleted = await c.deletePlate(added.plates[1].plateId);
+    expect(deleted.ok).toBe(true);
+    if (!deleted.ok) throw new Error(deleted.error);
+    expect(deleted.plates).toHaveLength(1);
+    expect(deleted.currentPlateId).toBe(initial.currentPlateId);
+    expect(deleted.instanceTransforms).toEqual([]);
+
+    const beforeRejectedDelete = await c.getPlateSessionSnapshot();
+    const rejected = await c.deletePlate(initial.currentPlateId);
+    expect(rejected).toEqual({ ok: false, error: 'at least one plate must remain' });
+    expect(await c.getPlateSessionSnapshot()).toEqual(beforeRejectedDelete);
+
+    const recomputed = await c.recomputePlateMembership();
+    expect(recomputed.ok).toBe(true);
+    if (!recomputed.ok) throw new Error(recomputed.error);
+    expect(recomputed.instanceTransforms).toEqual([]);
+  });
+
+  it('rejects malformed opaque plate metadata instead of silently dropping it', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall;
+    module.ccall = (name, ret, argTypes, args) => {
+      const pointer = originalCall(name, ret, argTypes, args);
+      if (name !== 'orc_get_plate_session_snapshot') return pointer;
+      const payload = JSON.parse(module.UTF8ToString(Number(pointer))) as Record<string, any>;
+      module._free(Number(pointer));
+      payload.plates[0].opaque_metadata = [{ key: 'future-key', value: 42 }];
+      const bytes = new TextEncoder().encode(JSON.stringify(payload));
+      const replacement = module._malloc(bytes.byteLength + 1);
+      module.HEAPU8.set(bytes, replacement);
+      module.HEAPU8[replacement + bytes.byteLength] = 0;
+      return replacement;
+    };
+    const c = createClient(async () => module);
+    await expect(c.getPlateSessionSnapshot()).resolves.toEqual({
+      ok: false,
+      error: 'invalid plate session response',
+    });
+  });
+
+  it('keeps the current plate identity when adding a model', async () => {
+    const c = makeClient();
+    const before = await c.getPlateSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+
+    const added = await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
+    expect(added.ok).toBe(true);
+
+    const after = await c.getPlateSessionSnapshot();
+    if (!after.ok) throw new Error(after.error);
+    expect(after.currentPlateId).toBe(before.currentPlateId);
+    expect(after.plates[0]?.plateId).toBe(before.plates[0]?.plateId);
+  });
+
+  it('returns an all-plate transaction for shared configuration changes', async () => {
+    const c = makeClient();
+    await c.addPlate();
+    const before = await c.getPlateSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const changed = await c.markSharedConfigurationMutation();
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) throw new Error(changed.error);
+    expect(changed.dirtyReasons).toEqual(['shared-configuration']);
+    expect(changed.affectedPlateIdsBefore).toEqual(before.plates.map((plate) => plate.plateId));
+    expect(changed.affectedPlateIdsAfter).toEqual(before.plates.map((plate) => plate.plateId));
+    for (const plate of before.plates) {
+      expect(changed.inputRevisions?.[plate.plateId]).toBe((before.inputRevisions?.[plate.plateId] ?? 0) + 1);
+    }
+  });
+
+  it('returns printer-bound reflow transforms for every member while preserving empty plates', async () => {
+    const c = makeClient();
+    const first = await c.getPlateSessionSnapshot();
+    if (!first.ok) throw new Error(first.error);
+    await c.addShape('Cube', 'Plate one object');
+    const second = await c.addPlate();
+    if (!second.ok) throw new Error(second.error);
+    await c.addShape('Cube', 'Plate two object');
+    const third = await c.addPlate();
+    if (!third.ok) throw new Error(third.error);
+    const selected = await c.selectPlate(second.plates[1].plateId);
+    if (!selected.ok) throw new Error(selected.error);
+
+    const changedPrinter = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');
+    expect(changedPrinter.ok).toBe(true);
+    const mutation = await c.markSharedConfigurationMutation();
+    expect(mutation.ok).toBe(true);
+    if (!mutation.ok) throw new Error(mutation.error);
+    expect(mutation.currentPlateId).toBe(second.plates[1].plateId);
+    expect(mutation.plates.map((plate) => plate.origin)).toEqual([[0, 0, 0], [307.2, 0, 0], [0, -307.2, 0]]);
+    expect(mutation.plates[2].instanceIds).toEqual([]);
+    expect(mutation.instanceTransforms).toHaveLength(1);
+    expect(mutation.instanceTransforms[0]?.objectIndex).toBe(1);
+    expect(mutation.instanceTransforms[0]?.worldTransform.offset).toEqual([307.2, 0, 0]);
+    expect(mutation.instances?.map((instance) => instance.plateId)).toEqual([first.currentPlateId, second.plates[1].plateId]);
+    expect(mutation.affectedPlateIds).toEqual(mutation.plates.map((plate) => plate.plateId));
+  });
+
+  it('refreshes the runtime plate identity when clearing or loading a project', async () => {
+    const c = makeClient();
+    const initial = await c.getPlateSessionSnapshot();
+    if (!initial.ok) throw new Error(initial.error);
+    await c.clearModel();
+    const afterClear = await c.getPlateSessionSnapshot();
+    if (!afterClear.ok) throw new Error(afterClear.error);
+    expect(afterClear.currentPlateId).not.toBe(initial.currentPlateId);
+    expect(afterClear.plates[0]?.plateId).toBe(afterClear.currentPlateId);
+    await c.loadProject(new Uint8Array([1]), 'project', 'legacy.3mf');
+    const afterLoad = await c.getPlateSessionSnapshot();
+    if (!afterLoad.ok) throw new Error(afterLoad.error);
+    expect(afterLoad.currentPlateId).not.toBe(afterClear.currentPlateId);
+    expect(afterLoad.plates).toHaveLength(1);
+    expect(afterLoad.plates[0]?.plateId).toBe(afterLoad.currentPlateId);
+  });
+
   it('getPresetSnapshot returns the coherent strict-hide picker state', async () => {
     const c = makeClient();
     const snapshot = await c.getPresetSnapshot();
@@ -107,6 +260,9 @@ describe('SlicerClient bridge contract', () => {
     const r = await c.addModel(bytes, 'drc', 'cube_att.drc');
     expect(r.ok).toBe(true);
     expect(r.objects).toBe(1);
+    expect(Number.isFinite(r.instances)).toBe(true);
+    expect(r.instances).toBe(1);
+    expect(r.plateSession?.instances).toHaveLength(1);
     await expect(c.getModelStructure()).resolves.toMatchObject({
       objects: [{ name: 'cube_att.drc' }],
     });
@@ -121,7 +277,10 @@ describe('SlicerClient bridge contract', () => {
     ];
     for (const [type, vertexCount] of EXPECTED) {
       const c = makeClient();
-      await c.addShape(type, type);
+      const added = await c.addShape(type, type);
+      expect(added).toMatchObject({ ok: true, objects: 1, instances: 1 });
+      expect(Number.isFinite(added.instances)).toBe(true);
+      expect(added.plateSession?.instances).toHaveLength(1);
       const s = await c.getModelStructure();
       expect(s.ok).toBe(true);
       expect(s.objects?.[0].name).toBe(type);
@@ -749,6 +908,30 @@ describe('SlicerClient bridge contract', () => {
     expect(r.unrecognized_keys).toEqual([]);
     expect(events).toContain(0);
     expect(events).toContain(100);
+  });
+
+  it('binds local slice and export to the current plate identity and revision', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const session = await c.getPlateSessionSnapshot();
+    if (!session.ok) throw new Error(session.error);
+    const target = { plateId: session.currentPlateId, inputRevision: session.inputRevisions?.[session.currentPlateId] ?? 0 };
+    await expect(c.slicePlate(target, {})).resolves.toMatchObject({ ok: true });
+    await expect(c.exportGcodePlate(target)).resolves.toMatchObject({ ok: true });
+    const changed = await c.addPlate();
+    if (!changed.ok) throw new Error(changed.error);
+    await expect(c.exportGcodePlate(target)).resolves.toMatchObject({ error: 'plate operation target is not the current plate' });
+  });
+
+  it('rejects stale current-plate targets before slicing', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const session = await c.getPlateSessionSnapshot();
+    if (!session.ok) throw new Error(session.error);
+    const target = { plateId: session.currentPlateId, inputRevision: session.inputRevisions?.[session.currentPlateId] ?? 0 };
+    const changed = await c.addModel(new Uint8Array(4), 'stl');
+    if (!changed.ok) throw new Error(changed.error);
+    await expect(c.slicePlate(target, {})).resolves.toMatchObject({ error: 'plate operation target is stale' });
   });
 
   it('threaded client publishes progress through shared memory, never addFunction', async () => {

@@ -158,7 +158,19 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   return new Proxy({} as SlicerClient, {
     get(_target, prop) {
       if (typeof prop !== 'string' || prop === 'then') return undefined;
-      if (prop === 'slice') {
+      if (prop === 'slice' || prop === 'slicePlate') {
+        if (prop === 'slicePlate') {
+          return (target: unknown, config: Record<string, string>, onProgress?: (percent: number, text: string) => void) => {
+            if (!onProgress) return call('slicePlate', [target, config]);
+            progressListeners.add(onProgress);
+            updateMailboxPolling();
+            return call('slicePlate', [target, config]).finally(() => {
+              emitMailboxProgress();
+              progressListeners.delete(onProgress);
+              updateMailboxPolling();
+            });
+          };
+        }
         return (config: Record<string, string>, onProgress?: (percent: number, text: string) => void) => {
           if (!onProgress) return call('slice', [config]);
           progressListeners.add(onProgress);

@@ -44,6 +44,83 @@ export interface InitResult {
   error?: string;
 }
 
+/** A single headless editing plate owned by the WASM session. */
+export interface PlateSessionPlate {
+  /** Opaque identity; never derive or persist this value. */
+  readonly plateId: string;
+  /** Native OrcaSlicer display/order index (zero based). */
+  readonly displayIndex: number;
+  /** Native world-space origin in millimetres. */
+  readonly origin: readonly [number, number, number];
+  /** Native-compatible default display name. */
+  readonly name: string;
+  /** Native Orca lock flag, retained but not acted on in this release. */
+  readonly locked?: boolean;
+  /** Opaque serialized per-plate setting slot. */
+  readonly settings?: Readonly<Record<string, unknown>>;
+  /** Ordered unknown native metadata records, retained across save/load. */
+  readonly opaqueMetadata?: readonly Readonly<{ key: string; value: string }>[];
+  readonly instanceIds?: readonly number[];
+  readonly outOfBoundsInstanceIds?: readonly number[];
+  readonly valid?: boolean;
+}
+
+export interface PlateSessionInstance {
+  readonly instanceId: number;
+  readonly objectId: number;
+  readonly objectIndex: number;
+  readonly instanceIndex: number;
+  readonly plateId: string;
+  readonly member: boolean;
+  readonly unprintable: boolean;
+  readonly outOfBounds: boolean;
+}
+
+export interface PlateSessionInstanceTransform {
+  readonly instanceId: number;
+  readonly objectId: number;
+  readonly objectIndex: number;
+  readonly instanceIndex: number;
+  readonly worldTransform: ModelTransform;
+}
+
+/** Impact metadata emitted by one committed model/configuration transaction. */
+export interface PlateMutationImpact {
+  readonly inputRevisions?: Readonly<Record<string, number>>;
+  readonly affectedPlateIdsBefore?: readonly string[];
+  readonly affectedPlateIdsAfter?: readonly string[];
+  readonly affectedPlateIds?: readonly string[];
+  readonly dirtyReasons?: readonly string[];
+}
+
+/** Atomic read of the WASM-owned plate session. */
+export interface PlateSessionSnapshot {
+  readonly ok: true;
+  readonly version: 1;
+  readonly plates: readonly PlateSessionPlate[];
+  readonly currentPlateId: string;
+  instances?: readonly PlateSessionInstance[];
+  instanceTransforms?: readonly PlateSessionInstanceTransform[];
+  inputRevisions?: Readonly<Record<string, number>>;
+  affectedPlateIdsBefore?: readonly string[];
+  affectedPlateIdsAfter?: readonly string[];
+  affectedPlateIds?: readonly string[];
+  dirtyReasons?: readonly string[];
+}
+
+export interface PlateSessionMutation extends PlateSessionSnapshot {
+  readonly instanceTransforms: readonly PlateSessionInstanceTransform[];
+}
+
+/** A malformed or rejected plate-session command has no partial state. */
+export interface PlateSessionSnapshotError {
+  readonly ok?: false;
+  readonly error: string;
+}
+
+export type PlateSessionSnapshotResult = PlateSessionSnapshot | PlateSessionSnapshotError;
+export type PlateSessionMutationResult = PlateSessionMutation | PlateSessionSnapshotError;
+
 export interface PresetInfo {
   name: string;
   /** Real preset visibility result from the bundled profile state. */
@@ -120,6 +197,13 @@ export interface LoadModelResult {
   objects: number;
   instances: number;
   error?: string;
+  plateSession?: PlateSessionMutation;
+}
+
+export interface ClearModelResult {
+  ok: boolean;
+  error?: string;
+  plateSession?: PlateSessionMutation;
 }
 
 export type ProjectLoadMode = 'project' | 'geometry-only';
@@ -162,6 +246,8 @@ export interface ProjectLoadResult {
   };
   /** Candidate picker state captured in the same native load response. */
   presetSnapshot?: PresetSnapshot;
+  /** Authoritative plate membership returned by the native model transaction. */
+  plateSession?: PlateSessionMutation;
   error?: string;
 }
 
@@ -213,6 +299,7 @@ export interface DeleteObjectsResult {
   /** Number of objects actually removed (duplicates are ignored). */
   deleted?: number;
   error?: string;
+  plateSession?: PlateSessionMutation;
 }
 
 /** Multi-delete of parts by stable ObjectID. */
@@ -223,6 +310,7 @@ export interface DeleteVolumesResult {
   /** Number of volumes actually removed (duplicates are ignored). */
   deleted?: number;
   error?: string;
+  plateSession?: PlateSessionMutation;
 }
 
 /** Clone result: the freshly minted stable ObjectIDs of the clones. */
@@ -346,6 +434,12 @@ export interface SliceResultStatus {
   ok: boolean;
   unrecognized_keys: string[];
   error?: string;
+}
+
+/** Immutable identity captured when a current-plate operation starts. */
+export interface PlateOperationTarget {
+  readonly plateId: string;
+  readonly inputRevision: number;
 }
 
 export interface ToolpathFeature {
@@ -533,6 +627,17 @@ export interface ReadLogResult {
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
+  /** Read the authoritative headless plate session snapshot. */
+  getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult>;
+  /** Reset to one fresh default Plate 1 and return its new runtime identity. */
+  resetPlateSession(): Promise<PlateSessionSnapshotResult>;
+  /** Select an existing plate by its opaque runtime identity. */
+  selectPlate(plateId: string): Promise<PlateSessionSnapshotResult>;
+  addPlate(): Promise<PlateSessionMutationResult>;
+  deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
+  recomputePlateMembership(): Promise<PlateSessionMutationResult>;
+  /** Advance every existing plate for a committed shared configuration edit. */
+  markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
   getPresetSnapshot(): Promise<PresetSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;
@@ -549,7 +654,7 @@ export interface SlicerClient {
    *  — no staging file involved. `name` defaults to `type`. */
   addShape(type: string, name?: string): Promise<LoadModelResult>;
   /** Reset the complete scene in the WASM model and invalidate its Print. */
-  clearModel(): Promise<{ ok: boolean; error?: string }>;
+  clearModel(): Promise<ClearModelResult>;
   setInstanceOffset(objIdx: number, instIdx: number, x: number, y: number, z: number): Promise<{ ok: boolean; error?: string }>;
   setModelTransform(
     objIdx: number, volumeIdx: number, instIdx: number,
@@ -593,13 +698,17 @@ export interface SlicerClient {
   /** Select a preset by name and return the final atomic compatibility state. */
   selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<PresetSnapshotResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
+  /** Slice only the captured current plate; stale/non-current targets reject. */
+  slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   getSliceResult(): Promise<ClientSliceResult>;
   /** Read a bounded UTF-8 chunk from the current completed slice result. */
   readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk>;
   /** Read a bounded, seekable source-text page from the current result. */
   readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
   exportGcode(): Promise<ExportGcodeResult>;
-  /** Export the active single-plate project as a secure BBS 3MF archive. */
+  /** Export only the captured current plate's completed result. */
+  exportGcodePlate(target: PlateOperationTarget): Promise<ExportGcodeResult>;
+  /** Export the complete active plate session as a native-compatible BBS 3MF archive. */
   exportProject(): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;
   /** Read the C++ boost::log file sink output from MEMFS. */

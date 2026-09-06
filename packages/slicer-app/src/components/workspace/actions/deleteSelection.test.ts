@@ -3,6 +3,7 @@ import type { SlicerRuntime } from '@orca/platform-contract';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
 import { deleteSelection } from './deleteSelection';
 
 const structure = {
@@ -40,6 +41,7 @@ describe('deleteSelection', () => {
   beforeEach(() => {
     useSlicerStore.setState({ status: 'done', resultExported: true, error: 'stale', layers: 40 });
     useSettingsStore.setState({ modelLoaded: true, modelRevision: 3 });
+    useProjectStore.getState().reset();
   });
 
   it('deletes only the selected parts when the selection is part-scoped', async () => {
@@ -92,6 +94,27 @@ describe('deleteSelection', () => {
     expect(r.ok).toBe(false);
     expect(r.error).toContain('last solid part');
     expect(useSlicerStore.getState().error).toContain('last solid part');
+  });
+
+  it('records bridge revisions and reasons from a successful delete', async () => {
+    const runtime = makeRuntime();
+    (runtime.deleteObjects as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      objects: 0,
+      deleted: 1,
+      plateSession: {
+        inputRevisions: { 'plate-1': 5 },
+        dirtyReasons: ['model-delete'],
+        instanceTransforms: [],
+      },
+    });
+    const scene = makeScene([{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }], false, [0]);
+    await deleteSelection(runtime, scene);
+    expect(useProjectStore.getState()).toMatchObject({
+      dirty: true,
+      dirtyReasons: ['model-delete'],
+      plateInputRevisions: { 'plate-1': 5 },
+    });
   });
 
   it('fails closed when the selection no longer maps to the model', async () => {

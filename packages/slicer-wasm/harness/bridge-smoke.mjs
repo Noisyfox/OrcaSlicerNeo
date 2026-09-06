@@ -67,6 +67,25 @@ const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
 check('orc_init ok', init.ok === true, JSON.stringify(init));
 check('init has printers', init.printers > 0, `printers=${init.printers}`);
 
+const plateSession = callJson('orc_get_plate_session_snapshot', [], []);
+check('plate session starts with one native-positioned Plate 1',
+  plateSession.ok === true && plateSession.version === 1 &&
+  plateSession.plates?.length === 1 && plateSession.current_plate_id === plateSession.plates[0]?.plate_id &&
+  plateSession.plates[0]?.display_index === 0 &&
+  JSON.stringify(plateSession.plates[0]?.origin) === JSON.stringify([0, 0, 0]) &&
+  plateSession.plates[0]?.name === 'Plate 1', JSON.stringify(plateSession));
+const plateReadAgain = callJson('orc_get_plate_session_snapshot', [], []);
+check('plate session reads are deterministic', JSON.stringify(plateReadAgain) === JSON.stringify(plateSession));
+const plateReset = callJson('orc_reset_plate_session', [], []);
+check('plate session reset refreshes runtime identity',
+  plateReset.ok === true && plateReset.current_plate_id !== plateSession.current_plate_id,
+  JSON.stringify(plateReset));
+const rejectedPlate = callJson('orc_select_plate', ['string'], ['malformed-or-stale-id']);
+const plateAfterReject = callJson('orc_get_plate_session_snapshot', [], []);
+check('malformed plate selection rejects without mutation',
+  rejectedPlate.ok !== true && JSON.stringify(plateAfterReject) === JSON.stringify(plateReset),
+  JSON.stringify(rejectedPlate));
+
 // The threaded wasm build must use every logical core available at runtime;
 // the serial build (WASM_THREADING=0) must report a single-concurrency pool.
 // The loader evaluates navigator.hardwareConcurrency dynamically, so the
@@ -126,6 +145,11 @@ if (nextPrint) {
         && snapshotHasSelection(selectedSnapshot, 'filament'),
         JSON.stringify({ print: selectedSnapshot.print, filament: selectedSnapshot.filament }));
 }
+const printableArea = selectedSnapshot.printable_area ?? snapshot.printable_area;
+const areaBounds = printableArea.reduce((bounds, point) => ({
+  minX: Math.min(bounds.minX, point[0]), maxX: Math.max(bounds.maxX, point[0]),
+  minY: Math.min(bounds.minY, point[1]), maxY: Math.max(bounds.maxY, point[1]),
+}), { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity });
 
 // 3. option metadata
 const meta = callJson('orc_get_option_metadata', [], []);
@@ -144,6 +168,12 @@ const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
                         [dataPtr, stl.length, 'stl']);
 Module._free(dataPtr);
 check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringify(loaded));
+const plateAfterModel = callJson('orc_get_plate_session_snapshot', [], []);
+check('adding a model preserves the current plate identity',
+      plateAfterModel.ok === true &&
+      plateAfterModel.current_plate_id === plateReset.current_plate_id &&
+      plateAfterModel.plates?.[0]?.plate_id === plateReset.plates?.[0]?.plate_id,
+      JSON.stringify(plateAfterModel));
 
 // 4b. load-time centering (OrcaSlicer Plater behavior, replicated in the
 // bridge because the GUI is not compiled into the WASM build): non-project
@@ -151,7 +181,8 @@ check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringi
 // (Plater.cpp _load_files: center_around_origin + ensure_on_bed per object).
 // cube.stl spans [0,20]^3 — after load the exported LOCAL vertices must be
 // centered (bbox center ≈ origin, i.e. [-10,10]^3) with the bed drop carried
-// by the instance offset (Z = half height, XY = 0), so the rendered world
+// by the instance offset. The XY offset is the world center of the currently
+// selected plate (the local mesh remains centered), and the rendered world
 // min Z is 0. Regression: vertices used to keep the raw STL coordinates
 // (cube at [0,20]^3, offset 0) and the renderer showed the model wherever
 // the file's own origin was.
@@ -170,11 +201,17 @@ check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringi
       }
     const center = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
     const near = (v, e) => Math.abs(v - e) < 1e-3;
+    const selectedPlate = plateAfterModel.plates?.find((plate) =>
+      plate.plate_id === plateAfterModel.current_plate_id);
+    const expectedWorldCenter = [
+      selectedPlate.origin[0] + (areaBounds.minX + areaBounds.maxX) * 0.5,
+      selectedPlate.origin[1] + (areaBounds.minY + areaBounds.maxY) * 0.5,
+    ];
     check('load-time centering: local bbox center at origin',
           center.every((c) => near(c, 0)), `center=[${center}]`);
-    check('load-time centering: bed drop carried by instance offset',
-          near(o.offset[0], 0) && near(o.offset[1], 0) && near(o.offset[2], (max[2] - min[2]) / 2),
-          `offset=[${o.offset}] height=${(max[2] - min[2]).toFixed(3)}`);
+    check('load-time centering: selected plate world center carried by instance offset',
+          near(o.offset[0], expectedWorldCenter[0]) && near(o.offset[1], expectedWorldCenter[1]),
+          `offset=[${o.offset}] expectedXY=[${expectedWorldCenter}]`);
     check('load-time centering: renders resting on the bed (world min Z = 0)',
           near(min[2] + o.offset[2], 0), `minZ=${min[2]} offsetZ=${o.offset[2]}`);
   } else {
@@ -188,8 +225,9 @@ check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringi
 // and one object + one part both come out named after the primitive. The six
 // shapes are OrcaSlicer's "Add Primitive" submenu set (GUI_Factories.cpp
 // append_submenu_add_generic). Each shape must land the same way as the
-// imported cube: local bbox centered at the origin with the bed drop carried
-// by the instance offset.
+// imported cube: local bbox centered at the origin, XY positioned at the
+// selected plate world center, and the bed drop carried by the instance
+// offset.
 {
   const PRIMITIVES = [
     { type: 'Cube', verts: 8, idx: 36 },
@@ -204,7 +242,9 @@ check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringi
     callJson('orc_clear_model', [], []);
     const added = callJson('orc_add_shape', ['string', 'string'], [p.type, p.type]);
     check(`orc_add_shape adds one object and one instance (${p.type})`,
-          added.ok === true && added.objects === 1 && added.instances === 1,
+          added.ok === true && added.objects === 1 && added.instances === 1
+          && Array.isArray(added.plate_session?.instances)
+          && added.plate_session.instances.length === 1,
           JSON.stringify(added));
     const structure = callJson('orc_get_model_structure', [], []);
     const sObj = structure.objects?.[0];
@@ -219,22 +259,28 @@ check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringi
       check(`primitive is the ${p.verts}-vertex ${p.type} mesh`,
             o.vertex_count === p.verts && o.index_count === p.idx,
             `verts=${o.vertex_count} idx=${o.index_count}`);
-      if (p.type === 'Cube' || p.type === 'Cylinder') {
-        const verts = new Float32Array(readBytes(Module, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
-        const min = [Infinity, Infinity, Infinity];
-        const max = [-Infinity, -Infinity, -Infinity];
-        for (let i = 0; i < verts.length; i += 3)
-          for (let a = 0; a < 3; a++) {
-            if (verts[i + a] < min[a]) min[a] = verts[i + a];
-            if (verts[i + a] > max[a]) max[a] = verts[i + a];
-          }
-        const center = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
-        check(`primitive mesh centered at the origin (${p.type})`,
-              center.every((c) => near(c, 0)), `center=[${center}]`);
-        check(`primitive rests on the bed (world min Z = 0) (${p.type})`,
-              near(o.offset[0], 0) && near(o.offset[1], 0) && near(min[2] + o.offset[2], 0),
-              `offset=[${o.offset}] minZ=${min[2]}`);
-      }
+      const verts = new Float32Array(readBytes(Module, Number(o.vertex_ptr), o.vertex_count * 3 * 4).buffer);
+      const min = [Infinity, Infinity, Infinity];
+      const max = [-Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < verts.length; i += 3)
+        for (let a = 0; a < 3; a++) {
+          if (verts[i + a] < min[a]) min[a] = verts[i + a];
+          if (verts[i + a] > max[a]) max[a] = verts[i + a];
+        }
+      const center = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
+      const primitivePlate = added.plates?.find((plate) =>
+        plate.plate_id === added.current_plate_id);
+      const primitiveExpectedXY = [
+        primitivePlate.origin[0] + (areaBounds.minX + areaBounds.maxX) * 0.5,
+        primitivePlate.origin[1] + (areaBounds.minY + areaBounds.maxY) * 0.5,
+      ];
+      check(`primitive mesh centered at the origin (${p.type})`,
+            center.every((c) => near(c, 0)), `center=[${center}]`);
+      check(`primitive uses selected plate world center (${p.type})`,
+            near(o.offset[0], primitiveExpectedXY[0]) && near(o.offset[1], primitiveExpectedXY[1]),
+            `offset=[${o.offset}] expectedXY=[${primitiveExpectedXY}]`);
+      check(`primitive rests on the bed (world min Z = 0) (${p.type})`,
+            near(min[2] + o.offset[2], 0), `minZ=${min[2]} offsetZ=${o.offset[2]}`);
     } else {
       check(`primitive mesh available (${p.type})`, false, JSON.stringify(mm).slice(0, 120));
     }

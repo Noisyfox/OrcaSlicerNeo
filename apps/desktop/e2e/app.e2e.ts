@@ -156,6 +156,133 @@ test('starts on blank Home and keeps the workspace DOM mounted across tabs', asy
   }
 });
 
+test('Prepare plate controls use the session snapshot and preserve the camera', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('plate-controls')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await expect(page.getByTestId('delete-plate')).toBeDisabled();
+    const readBeds = () => page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: {
+          bedPlateStates?: () => Array<{
+            plateId?: string;
+            current: boolean;
+            outOfBounds: boolean;
+            position: [number, number, number];
+          }>;
+        };
+      }).__orcaE2e?.bedPlateStates?.() ?? [],
+    );
+    const readModels = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { modelWorldCenters?: () => Array<[number, number, number]> } })
+        .__orcaE2e?.modelWorldCenters?.() ?? [],
+    );
+    const readCamera = () => page.evaluate(() => {
+      const value = (window as unknown as { __orcaE2e?: { cameraState?: () => { position: number[]; target: number[] } } }).__orcaE2e?.cameraState?.();
+      if (!value) return undefined;
+      const round = (n: number) => Math.round(n * 100) / 100;
+      return { position: value.position.map(round), target: value.target.map(round) };
+    });
+    const readCameraPlanes = () => page.evaluate(() => {
+      const value = (window as unknown as {
+        __orcaE2e?: { cameraState?: () => { near: number; far: number } }
+      }).__orcaE2e?.cameraState?.();
+      return value ? { near: value.near, far: value.far } : undefined;
+    });
+    const clickWorld = async (point: [number, number, number]) => {
+      const projected = await page.evaluate((p) =>
+        (window as unknown as { __orcaE2e?: { projectWorldToScreen?: (q: [number, number, number]) => { x: number; y: number } | null } })
+          .__orcaE2e?.projectWorldToScreen?.(p) ?? null,
+        point,
+      );
+      expect(projected).not.toBeNull();
+      const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+      const box = await canvas.boundingBox();
+      if (!box || !projected) throw new Error('viewport projection is unavailable');
+      await page.mouse.click(box.x + projected.x, box.y + projected.y);
+    };
+
+    // Prepare owns the grid. Preview keeps its original single fallback bed
+    // and never exposes a plate-selection click target.
+    await page.locator('#app-tab-preview').click();
+    await expect.poll(readBeds).toHaveLength(1);
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('plate-controls')).toBeVisible();
+    await expect.poll(readBeds).toHaveLength(1);
+
+    // Load the first model while Plate 1 is current so the later model click
+    // is explicitly a non-current-model interaction.
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled();
+    await expect.poll(readModels).not.toHaveLength(0);
+
+    await expect.poll(readCamera).not.toBeUndefined();
+    const cameraBefore = await readCamera();
+    await page.getByTestId('add-plate').click();
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expect(page.getByTestId('delete-plate')).toBeEnabled();
+    await expect.poll(readCamera).toEqual(cameraBefore);
+
+    // Empty-bed clicks are real viewport interactions. They select either
+    // non-current plate while preserving the camera, whereas clicking the
+    // model on Plate 1 only changes model selection and never changes plate.
+    await clickWorld([110, 110, 0]);
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 1 (2/36)');
+    await clickWorld([350, 110, 0]);
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    const modelCenter = (await readModels())[0];
+    if (!modelCenter) throw new Error('model center is unavailable');
+    await clickWorld(modelCenter);
+    await expect.poll(() => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { selectionInstanceCount?: () => number } }).__orcaE2e?.selectionInstanceCount?.() ?? 0,
+    )).toBeGreaterThan(0);
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expect.poll(readCamera).toEqual(cameraBefore);
+
+    await page.getByTestId('add-plate').click();
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 3 (3/36)');
+    const bedsBeforeReflow = await readBeds();
+    expect(bedsBeforeReflow.map((bed) => bed.position.slice(0, 2))).toEqual([[0, 0], [240, 0], [0, -240]]);
+    // Add a model to Plate 3 so deleting the middle plate must move its
+    // authoritative world coordinates along with the reflowed bed.
+    await page.getByTestId('btn-add-model').click();
+    await expect.poll(readModels).toHaveLength(8);
+    const modelsBeforeReflow = await readModels();
+    const secondObjectModels = modelsBeforeReflow.slice(4);
+    expect(secondObjectModels[0]?.[1]).toBeLessThan(modelsBeforeReflow[0]?.[1] ?? 0);
+    await clickWorld([350, 110, 0]);
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (3/36)');
+    await page.getByTestId('delete-plate').click();
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expect.poll(readBeds).toHaveLength(2);
+    const bedsAfterReflow = await readBeds();
+    expect(bedsAfterReflow.map((bed) => bed.position.slice(0, 2))).toEqual([[0, 0], [240, 0]]);
+    await expect.poll(readModels).toEqual([
+      ...modelsBeforeReflow.slice(0, 4),
+      ...secondObjectModels.map(([x, y, z]) => [x + 240, y + 240, z]),
+    ]);
+    await expect.poll(readCamera).toEqual(cameraBefore);
+
+    // Exercise the runtime limit through the actual host UI, not just the
+    // pure control predicate: the authoritative snapshot reaches Plate 36
+    // and the Add control is disabled at the limit.
+    for (let count = 3; count <= 36; count += 1) {
+      await page.getByTestId('add-plate').click();
+      await expect(page.getByTestId('current-plate-label')).toHaveText(`Plate ${count} (${count}/36)`);
+    }
+    await expect(page.getByTestId('add-plate')).toBeDisabled();
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 36 (36/36)');
+    const clipping = await readCameraPlanes();
+    expect(clipping).toBeDefined();
+    expect(clipping!.near).toBeGreaterThan(0);
+    expect(clipping!.far).toBeGreaterThanOrEqual(2000);
+    expect(clipping!.far).toBeGreaterThan(clipping!.near);
+  } finally {
+    await app.close();
+  }
+});
+
 async function selectStableRealPrinter(page: Page): Promise<void> {
   await page.getByTestId('preset-select').click();
   await expect(page.locator('[data-slot="combobox-content"]')).toBeVisible();

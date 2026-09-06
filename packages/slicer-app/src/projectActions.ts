@@ -4,6 +4,11 @@ import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad
 import { useProjectStore, projectPresetTriple, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
+import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
+import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
+import { usePlateSessionStore } from './stores/usePlateSessionStore';
+import type { SceneResetTarget } from './components/workspace/actions/resetSceneState';
+import { resetSceneState } from './components/workspace/actions/resetSceneState';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -13,9 +18,11 @@ export interface ProjectActionOptions {
   loadBehaviour?: 'load_all' | 'ask_when_relevant' | 'always_ask' | 'load_geometry_only';
   chooseLoad?: (input: ProjectInput) => Promise<ProjectLoadChoice> | ProjectLoadChoice;
   decideDirty?: (operation: 'new' | 'open' | 'close', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
-  /** UI confirmation required before saving a flattened multi-plate project. */
+  /** Legacy compatibility hook; multi-plate projects are now persisted natively. */
   confirmFlattenedSave?: () => Promise<boolean> | boolean;
   signal?: AbortSignal;
+  /** Renderer cleanup hook used after a successful New Project runtime reset. */
+  sceneResetTarget?: SceneResetTarget | null;
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
 type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel'>;
@@ -29,7 +36,6 @@ function currentPresets(): ProjectPresetSelections {
 function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   const notices: ProjectNotice[] = [];
   const fallback = compatibilityFallback(load); if (fallback) notices.push({ kind: 'compatibility-fallback', message: fallback });
-  if (load.multiPlate) notices.push({ kind: 'multi-plate', message: `This project has ${load.plateCount ?? 0} plates and will be flattened into one scene.` });
   if (load.embeddedPresetWarnings?.present) notices.push({ kind: 'embedded-presets', message: 'This project contains embedded preset settings that may differ from system presets.', details: load.embeddedPresetWarnings });
   return notices;
 }
@@ -88,8 +94,10 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const runtime = runtimeOf(platform); const cleared = await runtime.clearModel(); if (!cleared.ok) throw new Error(cleared.error ?? 'new project failed');
+    resetSceneState(options.sceneResetTarget, { clearSettings: true });
+    usePlateSessionStore.getState().setSnapshot(cleared.plateSession ?? null);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);
-    invalidateInput(); const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
+    const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 export async function importProjectGeometry(platform: PlatformCapabilities, input: ProjectInput, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
@@ -97,11 +105,17 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const load = await runtimeOf(platform).importProjectGeometry(input.bytes, input.displayName); if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
+    applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     invalidateInput();
     const existing = useProjectStore.getState();
     const incomingNotices = noticesFor(load);
     const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
-    useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, dirty: true, notices, flattenedMultiPlate: existing.flattenedMultiPlate || load.multiPlate === true, scope: existing.scope });
+    if (load.plateSession) {
+      usePlateSessionStore.getState().setSnapshot(load.plateSession);
+      useProjectStore.getState().recordPlateMutation(load.plateSession);
+    }
+    else useProjectStore.getState().markDirty('model-import');
+    useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
     useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
@@ -120,11 +134,13 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
     const load = await runtimeOf(platform).loadProject(input.bytes, 'project', input.displayName); if (!load.ok) throw new Error(load.error ?? 'project load failed');
+    applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
+    if (load.plateSession) usePlateSessionStore.getState().setSnapshot(load.plateSession);
     // The native load response contains the candidate preset snapshot from
     // the same replacement transaction. A second getPresetSnapshot call here
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
-    useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput(); useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: false, scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: load.multiPlate === true }); setOperation('completed', 100); return { status: 'ok', load };
+    useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput(); useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: false, scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 

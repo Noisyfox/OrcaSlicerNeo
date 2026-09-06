@@ -23,6 +23,9 @@ import { createWorkspaceSliceCoordinator, type WorkspaceSliceCoordinator } from 
 import { sliceModel } from './actions/sliceActions';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
+import { PreviewPlateList } from './PreviewPlateList';
+import { selectPlateSessionAndClearSelection } from './plateSessionActions';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -56,6 +59,9 @@ export function Workspace({
   onPreviewTransitionChange?: (transition: PreviewRenderTransition | null) => void;
 }) {
   const platform = usePlatform();
+  const plateSession = usePlateSessionStore((s) => s.snapshot);
+  const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
+  const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
   const glVolumes = useModelLoader();
   const sliceResult = useSliceResult();
   // Workspace is kept mounted by AppShell. Keep the controller here, beside
@@ -66,6 +72,15 @@ export function Workspace({
     sceneInteractionRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
   }
   const sceneInteraction = sceneInteractionRef.current;
+  useEffect(() => {
+    const getSnapshot = platform.runtime?.getPlateSessionSnapshot;
+    if (!getSnapshot) return;
+    let active = true;
+    void getSnapshot.call(platform.runtime).then((snapshot) => {
+      if (active && snapshot.ok) setPlateSnapshot(snapshot);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [platform.runtime, setPlateSnapshot]);
   const sliceCoordinatorRef = useRef<WorkspaceSliceCoordinator | null>(null);
   if (!sliceCoordinatorRef.current) {
     sliceCoordinatorRef.current = createWorkspaceSliceCoordinator({
@@ -77,6 +92,9 @@ export function Workspace({
   }
   const sliceCoordinator = sliceCoordinatorRef.current;
   const [previewRenderPending, setPreviewRenderPending] = useState(false);
+  const [previewPlateSelectionPending, setPreviewPlateSelectionPending] = useState(false);
+  const previewFrameTokenRef = useRef(0);
+  const [previewFrameRequest, setPreviewFrameRequest] = useState<{ plateId: string; token: number } | null>(null);
   const previewRenderPendingRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -123,6 +141,33 @@ export function Workspace({
     previousActiveTabRef.current = activeTab;
     if (enteredPreview) void sliceCoordinator.ensureSlice();
   }, [activeTab, sliceCoordinator]);
+
+  // Orca Preview follows the selected plate. A retained result is activated
+  // synchronously by the viewport; an otherwise valid unsliced plate starts
+  // one job automatically when the selection changes in Preview.
+  useEffect(() => {
+    if (isPreviewTab(activeTab) && currentPlateId) void sliceCoordinator.ensureSlice();
+  }, [activeTab, currentPlateId, sliceCoordinator]);
+
+  const selectPreviewPlate = useCallback(async (plateId: string) => {
+    if (previewPlateSelectionPending) return;
+    const previousPlateId = usePlateSessionStore.getState().snapshot?.currentPlateId;
+    setPreviewPlateSelectionPending(true);
+    try {
+      const selected = await selectPlateSessionAndClearSelection(platform, plateId, () => sceneInteraction.clearSelection());
+      // Preview navigation recenters only after a successful switch to a
+      // different plate. Clicking the current plate still clears selection,
+      // but must not disturb the user's camera.
+      if (selected && previousPlateId !== plateId) {
+        previewFrameTokenRef.current += 1;
+        setPreviewFrameRequest({ plateId, token: previewFrameTokenRef.current });
+      }
+    } catch (error) {
+      useSlicerStore.getState().setError(String(error));
+    } finally {
+      setPreviewPlateSelectionPending(false);
+    }
+  }, [platform, previewPlateSelectionPending, sceneInteraction]);
 
   useEffect(() => {
     let active = true;
@@ -238,6 +283,13 @@ export function Workspace({
             ::-webkit-scrollbar chrome as a rectangle, ignoring the
             scroller's rounded corners). */}
         <div className="h-full overflow-y-auto">
+          {isPreviewTab(activeTab) && plateSession && (
+            <PreviewPlateList
+              snapshot={plateSession}
+              pending={previewPlateSelectionPending}
+              onSelect={selectPreviewPlate}
+            />
+          )}
           <ObjectList sceneInteraction={sceneInteraction} />
           <SettingsPanel sceneInteraction={sceneInteraction} />
         </div>
@@ -262,6 +314,7 @@ export function Workspace({
           activeTab={isPreviewTab(activeTab) || previewRenderPending ? 'preview' : 'prepare'}
           glVolumes={glVolumes}
           toolpath={sliceResult.toolpath}
+          previewFrameRequest={previewFrameRequest}
           onSceneFrameRendered={handleSceneFrameRendered}
         />
       </main>

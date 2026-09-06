@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import type { ClientSliceResult, PreviewMetadata, PreviewToolpathMetrics, PreviewPaletteEntry, PreviewAnalysis } from '@slicer/client';
 import { createPreviewSourceLineIndex, maxMoveOrderForLayer, type PreviewSourceLineIndex } from './previewSemantics';
 import { deriveLogicalMoveOrders } from './gpuStreamingPlanner';
@@ -27,6 +28,8 @@ export interface ToolpathGeometry {
   analysis?: PreviewAnalysis;
   /** Immutable source retained for the optional indexed streaming backend. */
   source?: ClientSliceResult['toolpath'];
+  /** The plate-owned local G-code used by the source-text inspector. */
+  sourceTextBytes?: Uint8Array;
   metadata?: PreviewMetadata;
   dispose: () => void;
 }
@@ -34,13 +37,16 @@ export interface ToolpathGeometry {
 export function useSliceResult() {
   const platform = usePlatform();
   const status = useSlicerStore((s) => s.status);
+  const sliceTarget = useSlicerStore((s) => s.sliceTarget);
+  const plateResults = useSlicerStore((s) => s.plateResults);
+  const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const layers = useSlicerStore((s) => s.layers);
   const setLayers = useSlicerStore((s) => s.setLayers);
   const setMaxLayer = useSlicerStore((s) => s.setMaxLayer);
   const setLayer = useSlicerStore((s) => s.setLayer);
   const setPreviewBounds = useSlicerStore((s) => s.setPreviewBounds);
   const resetPreviewState = useSlicerStore((s) => s.resetPreviewState);
-  const [result, setResult] = useState<ClientSliceResult | null>(null);
+  const [result, setResult] = useState<(ClientSliceResult & { sourceTextBytes?: Uint8Array }) | null>(null);
 
   useEffect(() => {
     if (status !== 'done') {
@@ -56,6 +62,18 @@ export function useSliceResult() {
       resetPreviewState();
       return;
     }
+    const cached = currentPlateId && sliceTarget?.plateId === currentPlateId
+      ? plateResults[currentPlateId]
+      : undefined;
+    if (cached && cached.target.inputRevision === sliceTarget?.inputRevision) {
+      setResult({ ...cached.result, sourceTextBytes: cached.gcode });
+      setLayers(cached.result.layers);
+      setMaxLayer(Math.max(0, cached.result.layers - 1));
+      const activeLayer = Math.max(0, cached.result.layers - 1);
+      const maxMove = maxMoveOrderForLayer({ ...cached.result.toolpath, metadata: cached.result.metadata }, activeLayer);
+      setPreviewBounds(activeLayer, maxMove, cached.result.metadata.resultId);
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -68,6 +86,8 @@ export function useSliceResult() {
         const moveOrders = deriveLogicalMoveOrders(r.toolpath.layerIds, r.toolpath.gcodeIds, r.toolpath.segmentCount);
         const result = { ...r, toolpath: { ...r.toolpath, moveOrders } };
         setResult(result);
+        const target = useSlicerStore.getState().sliceTarget;
+        if (target) useSlicerStore.getState().setPlateResult(target, result);
         setLayers(r.layers);
         setMaxLayer(Math.max(0, r.layers - 1));
         const activeLayer = Math.max(0, r.layers - 1);
@@ -87,7 +107,7 @@ export function useSliceResult() {
       }
     })();
     return () => { cancelled = true; };
-  }, [resetPreviewState, setLayers, setMaxLayer, setLayer, setPreviewBounds, status]);
+  }, [currentPlateId, plateResults, resetPreviewState, setLayers, setMaxLayer, setLayer, setPreviewBounds, sliceTarget, status]);
 
   const toolpath = useMemo<ToolpathGeometry | null>(() => {
     if (!result) return null;
@@ -116,6 +136,7 @@ export function useSliceResult() {
       ...(result.metadata.analysis ? { analysis: result.metadata.analysis } : {}),
       source,
       metadata: result.metadata,
+      ...(result.sourceTextBytes ? { sourceTextBytes: result.sourceTextBytes } : {}),
       // The source buffers are owned by the slice result and released by the
       // runtime. The renderer owns and disposes only its GPU resources.
       dispose: () => {},

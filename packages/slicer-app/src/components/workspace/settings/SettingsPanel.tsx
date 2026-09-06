@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
+import { commitSharedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import {
   Combobox,
   ComboboxContent,
@@ -43,10 +44,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
   const selectedFilament = useSettingsStore((s) => s.selectedFilament);
   const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
-  const values = useSettingsStore((s) => s.values);
-  const setValue = useSettingsStore((s) => s.setValue);
   const setError = useSlicerStore((s) => s.setError);
-  const invalidateSliceResult = useSlicerStore((s) => s.invalidateSliceResult);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
 
   // Only render option keys the metadata actually declares (no duplicated
@@ -64,13 +62,18 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
     try {
       const r = await platform.runtime.selectPreset(kind, name);
       if (!r.ok) throw new Error(r.error ?? 'selectPreset failed');
+      // Preset selection changes the shared slice input for every plate. The
+      // bridge owns the complete plate set and advances all revisions in one
+      // typed transaction; its response is the sole source for revisions and
+      // affected plates recorded by the shared action.
+      await commitSharedConfigurationMutation(platform);
       // The bridge's arrays are already the complete picker-ready candidate
       // sets, in engine order. Replace every picker and resolved name together
       // rather than composing a selection with independently fetched lists.
       hydratePresetSnapshot(r);
       // The result belongs to the old profile combination. One action clears
       // export, toolpath-layer state, progress, and completed status together.
-      invalidateSliceResult();
+      invalidateAfterSharedConfigurationMutation();
       const project = useProjectStore.getState();
       project.setProject({
         ...(project.scope === 'project' ? { projectPresets: {
@@ -79,7 +82,6 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
           printer: r.printer.name, print: r.print.name, filament: r.filament.name,
         } }),
       });
-      project.markDirty();
 
       // Persistence failure is non-fatal: the engine-resolved snapshot remains
       // the active session state even when the next-launch preference cannot

@@ -6,6 +6,7 @@ import { PlatformProvider, type PlatformCapabilities, type UserPreferences } fro
 import type { PresetInfo, PresetSnapshot, PresetSnapshotResult } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
 import { SettingsPanel } from './SettingsPanel';
 
 vi.mock('./MovePanel', () => ({ MovePanel: () => null }));
@@ -41,6 +42,7 @@ const resolvedSnapshot: PresetSnapshot = {
 };
 
 function resetStores() {
+  useProjectStore.getState().reset();
   useSettingsStore.setState({
     metadata: {},
     printers: initialSnapshot.printers,
@@ -65,7 +67,21 @@ function makePlatform(selectPreset: (kind: 'printer' | 'print' | 'filament', nam
   };
   return {
     platform: {
-      runtime: { selectPreset: vi.fn(selectPreset) },
+      runtime: {
+        selectPreset: vi.fn(selectPreset),
+        markSharedConfigurationMutation: vi.fn(async () => ({
+          ok: true,
+          version: 1,
+          currentPlateId: 'plate-1',
+          plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], name: 'Plate 1' }],
+          instanceTransforms: [],
+          inputRevisions: { 'plate-1': 1 },
+          affectedPlateIdsBefore: ['plate-1'],
+          affectedPlateIdsAfter: ['plate-1'],
+          affectedPlateIds: ['plate-1'],
+          dirtyReasons: ['shared-configuration'],
+        })),
+      },
       preferences: repository,
     } as unknown as PlatformCapabilities,
     runtime: { selectPreset: undefined as unknown as ReturnType<typeof vi.fn> },
@@ -151,6 +167,12 @@ describe('SettingsPanel preset transitions', () => {
     expect([settings.selectedPrinter, settings.selectedPrint, settings.selectedFilament])
       .toEqual(['New Printer', 'Resolved Process', 'Resolved Filament']);
     expect(settings.values).toEqual({});
+    expect((platform.runtime as unknown as { markSharedConfigurationMutation: ReturnType<typeof vi.fn> })
+      .markSharedConfigurationMutation).toHaveBeenCalledOnce();
+    expect(useProjectStore.getState()).toMatchObject({
+      dirtyReasons: ['shared-configuration'],
+      plateInputRevisions: { 'plate-1': 1 },
+    });
     expect(slicerUpdates).toBe(1);
     expect(useSlicerStore.getState()).toMatchObject({
       status: 'idle', progress: 0, layers: 0, error: null,
@@ -183,4 +205,5 @@ describe('SettingsPanel preset transitions', () => {
     );
     expect((container.querySelector('[data-testid="preset-select"]') as HTMLButtonElement).disabled).toBe(false);
   });
+
 });

@@ -5,6 +5,8 @@ export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
   InitResult, PresetInfo, PresetSelection, PresetSnapshot,
+  PlateSessionPlate, PlateSessionInstance, PlateSessionInstanceTransform, PlateSessionSnapshot,
+  PlateSessionMutation, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult,
   PresetSnapshotError, PresetSnapshotResult, SelectPresetResult,
   OptionMetadata, OptionMeta,
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
@@ -13,7 +15,7 @@ export type {
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,
   ModelStructureResult, ModelObjectStructure, ModelVolumeStructure,
   ModelInstanceStructure, VolumeType,
-  SliceResultStatus, ClientSliceResult, ClientToolpath,
+  SliceResultStatus, PlateOperationTarget, ClientSliceResult, ClientToolpath,
   ToolpathFeature, PreviewLayerRange, PreviewPaletteEntry, PreviewMetadata,
   PreviewToolpathMetrics, PreviewMetricKey, PreviewMetricRange,
   PreviewAnalysisSummary, PreviewFeatureStatistics, PreviewAnalysis,

@@ -1,10 +1,15 @@
 import type { SlicerRuntime } from '@orca/platform-contract';
 import type { VolumeType } from '@slicer/client';
+import type { PlateSessionMutation } from '@slicer/client';
 import { useObjectListStore } from './useObjectListStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { waitForSettledModelTransforms } from '../actions/persistModelTransforms';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
+import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
+import { glVolumeCollection } from '../viewport/GLVolume';
 
 export interface MutationOutcome {
   ok: boolean;
@@ -47,6 +52,8 @@ export async function waitForPendingModelTransforms(): Promise<MutationOutcome> 
 export async function refreshAfterModelMutation(
   runtime: SlicerRuntime,
   geometryChanged = false,
+  plateSession?: PlateSessionMutation,
+  dirtyReason: 'model-delete' | 'model-structure' = 'model-structure',
 ): Promise<void> {
   const slicer = useSlicerStore.getState();
   slicer.setStatus('idle');
@@ -54,7 +61,15 @@ export async function refreshAfterModelMutation(
   slicer.setError(null);
   slicer.setLayers(0);
   if (geometryChanged) useSettingsStore.getState().refreshModel();
-  useProjectStore.getState().markDirty();
+  if (plateSession) {
+    applyPlateSessionTransforms(plateSession, glVolumeCollection.volumes);
+    const previousPlateSession = usePlateSessionStore.getState().snapshot;
+    usePlateSessionStore.getState().setSnapshot(plateSession);
+    applyPlateResultMutation(plateSession, previousPlateSession);
+    useProjectStore.getState().recordPlateMutation(plateSession);
+  } else {
+    useProjectStore.getState().markDirty(dirtyReason);
+  }
   const structure = await runtime.getModelStructure();
   if (structure.ok && structure.objects) {
     useObjectListStore.getState().setStructure(structure.objects);

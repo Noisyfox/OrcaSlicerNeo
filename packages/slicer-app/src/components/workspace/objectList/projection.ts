@@ -1,4 +1,97 @@
-import type { ModelObjectStructure } from '@slicer/client';
+import type { ModelObjectStructure, PlateSessionSnapshot, PlateSessionInstance } from '@slicer/client';
+
+/** The state shown next to an object row in the plate-aware Object List. */
+export type ObjectListValidity = 'valid' | 'out-of-bounds' | 'unprintable';
+
+/** One authoritative plate/unprintable section of the Object List. */
+export interface ObjectListGroup {
+  key: string;
+  kind: 'plate' | 'unprintable';
+  plateId?: string;
+  label: string;
+  /** A plate can be invalid because any member instance is out of bounds. */
+  valid?: boolean;
+  objects: ModelObjectStructure[];
+}
+
+function instancesForObject(
+  object: ModelObjectStructure,
+  snapshot: PlateSessionSnapshot | null | undefined,
+): PlateSessionInstance[] {
+  return (snapshot?.instances ?? [])
+    .filter((instance) => instance.objectId === object.id)
+    .sort((a, b) => a.instanceIndex - b.instanceIndex);
+}
+
+/**
+ * Return the first-instance placement used for Object List grouping.  The
+ * bridge remains the source of truth: this helper only projects its snapshot
+ * and never infers membership from transforms or the current plate.
+ */
+function firstInstancePlacement(
+  object: ModelObjectStructure,
+  snapshot: PlateSessionSnapshot | null | undefined,
+): PlateSessionInstance | undefined {
+  return instancesForObject(object, snapshot)[0];
+}
+
+/** Compute the validity badge for an object without changing its group. */
+export function objectListValidity(
+  object: ModelObjectStructure,
+  snapshot: PlateSessionSnapshot | null | undefined,
+): ObjectListValidity {
+  const instances = instancesForObject(object, snapshot);
+  if (instances.some((instance) => instance.outOfBounds)) return 'out-of-bounds';
+  if (instances.length === 0 || instances.some((instance) => instance.unprintable || !instance.member)) {
+    return 'unprintable';
+  }
+  return 'valid';
+}
+
+/**
+ * Project the model structure into the native-style Object List sections.
+ * Every plate (including an empty one) is retained.  A multi-instance object
+ * appears only in the section selected by its lowest-index/first instance;
+ * later instances may still affect the row's validity badge.
+ */
+export function projectObjectGroups(
+  structure: ModelObjectStructure[],
+  snapshot: PlateSessionSnapshot | null | undefined,
+): ObjectListGroup[] {
+  const plates = snapshot?.plates ?? [];
+  const groups: ObjectListGroup[] = plates.map((plate) => ({
+    key: `plate:${plate.plateId}`,
+    kind: 'plate' as const,
+    plateId: plate.plateId,
+    label: plate.name,
+    valid: plate.valid !== false,
+    objects: [],
+  }));
+  const byPlate = new Map(groups.flatMap((group) => group.plateId ? [[group.plateId, group] as const] : []));
+  const unprintable: ObjectListGroup = {
+    key: 'unprintable',
+    kind: 'unprintable',
+    label: 'Unprintable',
+    valid: false,
+    objects: [],
+  };
+
+  for (const object of structure) {
+    const first = firstInstancePlacement(object, snapshot);
+    const target = first && first.member && !first.unprintable
+      ? byPlate.get(first.plateId)
+      : undefined;
+    (target ?? unprintable).objects.push(object);
+  }
+  if (unprintable.objects.length > 0) groups.push(unprintable);
+  // A legacy/mock snapshot may not carry membership yet. Keep the list
+  // usable without inventing a plate assignment; such objects are unprintable
+  // until the authoritative snapshot arrives.
+  if (groups.length === 0 && structure.length > 0) {
+    groups.push(unprintable);
+  }
+  return groups;
+}
 
 /** The set of structure rows (by stable ObjectID) currently selected in the viewport. */
 export interface SelectionProjection {

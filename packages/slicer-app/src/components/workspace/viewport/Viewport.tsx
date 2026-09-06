@@ -11,16 +11,23 @@ import { SceneContextMenu } from './SceneContextMenu';
 import type { SceneInteractionController } from './SceneInteractionController';
 import type { LoadedObject } from './useModelLoader';
 import type { ToolpathGeometry } from './useSliceResult';
-import { filterBuildPlateOccludedIntersections, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
+import { filterBuildPlateOccludedIntersections, pickBuildPlateId, pickTopmostModelVolume } from './buildPlatePointerOcclusion';
 import { BOX_SELECT_ARM_THRESHOLD_PX } from './boxSelectionMath';
 import { isViewportRaycastingEnabled } from './viewportRaycasting';
 import { usePlatform } from '@orca/platform-contract';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
 import { deleteSelection } from '../actions/deleteSelection';
 import { isPrepareTab, isPreviewTab } from '../../layout/appTabs';
 import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, previewViewportOwnsKeyboardFocus } from './previewSemantics';
 import { GcodeTextWindow } from './GcodeTextWindow';
+import { Button } from '@/components/ui/button';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import type { PlateSessionSnapshot } from '@slicer/client';
+import { canAddPlate, canDeletePlate } from './plateControls';
+import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
+import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
@@ -63,14 +70,16 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onSceneFrameRendered }: {
+export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, previewFrameRequest, onSceneFrameRendered }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   sceneInteraction: SceneInteractionController;
+  previewFrameRequest?: { plateId: string; token: number } | null;
   onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
 }) {
   const platform = usePlatform();
+  const plateSession = usePlateSessionStore((s) => s.snapshot);
   const printableArea = useSettingsStore((s) => s.printableArea);
   const bedBounds = useMemo(
     () => getPrintableAreaBounds(normalizePrintableArea(printableArea)),
@@ -84,6 +93,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   const setPreviewMoveEnd = useSlicerStore((s) => s.setPreviewMoveEnd);
   const setPreviewSingleLayer = useSlicerStore((s) => s.setPreviewSingleLayer);
   const [showGcodeText, setShowGcodeText] = useState(false);
+  const [plateActionPending, setPlateActionPending] = useState(false);
   // Ref is only consumed as a prop target (drei Stats `parent`), never read
   // by this component — so it can be typed without the null union, which
   // React 19's RefObject<T> = { current: T } requires for assignability.
@@ -218,6 +228,44 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
     const rect = viewportRef.current.getBoundingClientRect();
     return { x: clientX - rect.left, y: clientY - rect.top };
   }, []);
+
+  const selectPlate = useCallback(async (plateId: string) => {
+    if (plateActionPending) return;
+    setPlateActionPending(true);
+    try {
+      await selectPlateSessionAndClearSelection(platform, plateId, () => sceneInteraction.clearSelection());
+    } catch (error) {
+      useSlicerStore.getState().setError(String(error));
+    } finally {
+      setPlateActionPending(false);
+    }
+  }, [plateActionPending, platform, plateSession?.currentPlateId]);
+
+  const addPlate = useCallback(async () => {
+    if (plateActionPending || !canAddPlate(plateSession)) return;
+    setPlateActionPending(true);
+    try {
+      const result = await platform.runtime.addPlate();
+      if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+    } catch (error) {
+      useSlicerStore.getState().setError(String(error));
+    } finally {
+      setPlateActionPending(false);
+    }
+  }, [plateActionPending, platform, plateSession]);
+
+  const deletePlate = useCallback(async () => {
+    if (plateActionPending || !plateSession || !canDeletePlate(plateSession)) return;
+    setPlateActionPending(true);
+    try {
+      const result = await platform.runtime.deletePlate(plateSession.currentPlateId);
+      if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+    } catch (error) {
+      useSlicerStore.getState().setError(String(error));
+    } finally {
+      setPlateActionPending(false);
+    }
+  }, [plateActionPending, platform, plateSession]);
 
   const canStartBoxSelect = useCallback((event: PointerEvent, grabbedGizmo: boolean): boolean => {
     if (event.button !== 0 || !event.shiftKey || grabbedGizmo) return false;
@@ -378,8 +426,16 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
               sceneStateRef.current = state;
               updateRaycastingEnabled();
             }}
-            onPointerMissed={() => {
-              if (!previewTab) sceneInteractionRef.current?.clearSelection();
+            onPointerMissed={(event) => {
+              if (!previewTab) {
+                const rect = viewportRef.current.getBoundingClientRect();
+                const plateId = pickBuildPlateId(sceneStateRef.current, {
+                  x: event.clientX - rect.left,
+                  y: event.clientY - rect.top,
+                });
+                if (plateId) void selectPlate(plateId);
+                else sceneInteractionRef.current?.clearSelection();
+              }
             }}
           >
             <color attach="background" args={['#0f172a']} />
@@ -394,6 +450,8 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
               controller={sceneInteraction}
               glVolumes={glVolumes}
               toolpath={toolpath}
+              plateSession={plateSession}
+              onEmptyBedClick={selectPlate}
             />
             <ViewportFrameGate mode={activeTab} onRendered={() => onSceneFrameRendered?.(activeTab)} />
             <OrbitControls
@@ -415,7 +473,18 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
               onStart={() => setCameraGestureActive(true)}
               onEnd={() => setCameraGestureActive(false)}
             />
-            <CameraFraming bounds={bedBounds} />
+            <CameraFraming
+              bounds={bedBounds}
+              mode={previewTab ? 'preview' : 'prepare'}
+              plateSession={plateSession}
+              previewFrameRequest={previewFrameRequest}
+            />
+            <CameraClipping
+              bedBounds={bedBounds}
+              plateSession={plateSession}
+              glVolumes={glVolumes}
+              includePlates={!previewTab}
+            />
             {/* Orientation gizmo (X/Y/Z axes), bottom-left corner. GizmoHelper
                 renders the gizmo into an orthographic overlay (Hud portal);
                 head clicks tween the main camera to look along that axis.
@@ -432,17 +501,61 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
       {previewTab && toolpath && <LayerScrubber data={toolpath} />}
       {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
       {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
+      {prepareTab && plateSession && <PlateControls
+        plateSession={plateSession}
+        pending={plateActionPending}
+        onAdd={addPlate}
+        onDelete={deletePlate}
+      />}
+    </div>
+  );
+}
+
+function PlateControls({
+  plateSession,
+  pending,
+  onAdd,
+  onDelete,
+}: {
+  plateSession: PlateSessionSnapshot;
+  pending: boolean;
+  onAdd: () => void;
+  onDelete: () => void;
+}) {
+  const current = plateSession.plates.find((plate) => plate.plateId === plateSession.currentPlateId);
+  return (
+    <div className="absolute bottom-2 right-2 z-20 flex items-center gap-2 rounded-md border bg-background/90 p-1.5 shadow-sm backdrop-blur" data-testid="plate-controls">
+      <span className="px-1 text-xs text-muted-foreground" data-testid="current-plate-label">
+        {current?.name ?? 'Plate'} ({plateSession.plates.length}/36)
+      </span>
+      <Button size="xs" variant="secondary" onClick={onAdd} disabled={pending || !canAddPlate(plateSession)} data-testid="add-plate">
+        Add plate
+      </Button>
+      <Button size="xs" variant="outline" onClick={onDelete} disabled={pending || !canDeletePlate(plateSession)} data-testid="delete-plate">
+        Delete plate
+      </Button>
     </div>
   );
 }
 
 /** Keep the initial view centered and scaled to the active printer profile. */
-function CameraFraming({ bounds }: { bounds: PrintableAreaBounds }) {
+function CameraFraming({
+  bounds,
+  mode,
+  plateSession,
+  previewFrameRequest,
+}: {
+  bounds: PrintableAreaBounds;
+  mode: 'prepare' | 'preview';
+  plateSession?: PlateSessionSnapshot | null;
+  previewFrameRequest?: { plateId: string; token: number } | null;
+}) {
   const camera = useThree((state) => state.camera);
   const controls = useThree((state) => state.controls as unknown as {
     target: THREE.Vector3;
     update: () => void;
   } | undefined);
+  const appliedPreviewFrameTokenRef = useRef<number | null>(null);
 
   useEffect(() => {
     const distance = Math.max(300, Math.max(bounds.width, bounds.depth) * CAMERA_DISTANCE_PER_BED_MM);
@@ -459,6 +572,70 @@ function CameraFraming({ bounds }: { bounds: PrintableAreaBounds }) {
       controls.update();
     }
   }, [bounds, camera, controls]);
+
+  useEffect(() => {
+    if (mode !== 'preview' || !previewFrameRequest || appliedPreviewFrameTokenRef.current === previewFrameRequest.token) return;
+    const plate = plateSession?.plates.find((candidate) => candidate.plateId === previewFrameRequest.plateId);
+    if (!plate) return;
+
+    const target = new THREE.Vector3(
+      plate.origin[0] + bounds.centerX,
+      plate.origin[1] + bounds.centerY,
+      plate.origin[2],
+    );
+    const previousTarget = controls?.target?.clone() ?? new THREE.Vector3(bounds.centerX, bounds.centerY, 0);
+    const cameraOffset = camera.position.clone().sub(previousTarget);
+    camera.position.copy(target).add(cameraOffset);
+    camera.lookAt(target);
+    camera.updateProjectionMatrix();
+    if (controls) {
+      controls.target.copy(target);
+      controls.update();
+    }
+    appliedPreviewFrameTokenRef.current = previewFrameRequest.token;
+  }, [bounds, camera, controls, mode, plateSession, previewFrameRequest]);
+
+  return null;
+}
+
+/** Keep the complete visible multi-plate scene inside the perspective range. */
+function CameraClipping({
+  bedBounds,
+  plateSession,
+  glVolumes,
+  includePlates,
+}: {
+  bedBounds: PrintableAreaBounds;
+  plateSession: PlateSessionSnapshot | null | undefined;
+  glVolumes: LoadedObject[];
+  includePlates: boolean;
+}) {
+  const camera = useThree((state) => state.camera);
+  const lastPlanesRef = useRef<{ near: number; far: number } | null>(null);
+
+  useFrame(() => {
+    if (!(camera instanceof THREE.PerspectiveCamera)) return;
+
+    const sceneBounds = new THREE.Box3();
+    const plates = includePlates && plateSession?.plates?.length
+      ? plateSession.plates
+      : [{ origin: [0, 0, 0] as const }];
+    for (const plate of plates) {
+      expandCameraBoundsWithPlate(sceneBounds, bedBounds, plate.origin);
+    }
+    // getWorldBounds() is internally cached by the composing transform, so
+    // rebuilding this union per demand-rendered frame also catches a model
+    // transform changed in place without adding a second invalidation loop.
+    for (const volume of glVolumes) sceneBounds.union(volume.getWorldBounds());
+
+    const planes = deriveCameraClippingPlanes(camera, sceneBounds);
+    const previous = lastPlanesRef.current;
+    if (previous && Math.abs(previous.near - planes.near) < 1e-4 && Math.abs(previous.far - planes.far) < 1e-3) return;
+    camera.near = planes.near;
+    camera.far = planes.far;
+    camera.updateProjectionMatrix();
+    lastPlanesRef.current = planes;
+  });
 
   return null;
 }

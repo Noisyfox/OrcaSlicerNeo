@@ -53,3 +53,21 @@ export function pickTopmostModelVolume(
   );
   return (hit?.object.userData as { orcaVolume?: GLVolume } | undefined)?.orcaVolume ?? null;
 }
+
+/** Return the bed identity under a viewport-relative CSS point. */
+export function pickBuildPlateId(
+  state: RootState | null,
+  point: { x: number; y: number },
+): string | null {
+  if (!state) return null;
+  const rect = state.gl.domElement.getBoundingClientRect();
+  const nx = (point.x / rect.width) * 2 - 1;
+  const ny = -((point.y / rect.height) * 2) + 1;
+  if (nx < -1 || nx > 1 || ny < -1 || ny > 1) return null;
+  state.raycaster.setFromCamera(new THREE.Vector2(nx, ny), state.camera);
+  const hit = state.raycaster.intersectObjects(state.scene.children, true).find(
+    (candidate) => hasRaycastRole(candidate.object, BUILD_PLATE_RAYCAST),
+  );
+  const plateId = hit?.object.userData.plateId;
+  return typeof plateId === 'string' ? plateId : null;
+}

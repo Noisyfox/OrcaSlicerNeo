@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ModelObjectBuffer, ModelTransform } from '@slicer/client';
 import { matrixFromTransform, normalizeTransform } from './transformDeltaMath';
+import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 
 /** JavaScript equivalent of the native canvas GLVolume. */
 export class GLVolume {
@@ -26,9 +27,17 @@ export class GLVolume {
     this.geometry.setAttribute('position', new THREE.BufferAttribute(buffer.positions, 3));
     this.geometry.setIndex(new THREE.BufferAttribute(buffer.indices, 1));
     this.geometry.computeVertexNormals();
+
+    // Set up BVH for faster raycasting.
+    this.geometry.computeBoundsTree = computeBoundsTree;
+    this.geometry.disposeBoundsTree = disposeBoundsTree;
+    this.geometry.computeBoundsTree();
   }
 
-  dispose(): void { this.geometry.dispose(); }
+  dispose(): void {
+    this.geometry.disposeBoundsTree();
+    this.geometry.dispose();
+  }
 
   /**
    * Tight world-space AABB over the actual transformed vertices.
