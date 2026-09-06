@@ -101,9 +101,11 @@
   plate. Per-plate configuration controls are explicitly out of scope.
 - Changing the shared configuration invalidates every plate's slice result.
 - Changing the printer or its build-volume dimensions or shape preserves plate
-  count; the grid is recomputed, plates carry their instances to their new
-  origins, and membership and printability are recalculated. All slice results
-  are then invalidated.
+  count; the grid is recomputed and every plate carries its existing members to
+  the new origin by the same world-space delta. This does not reassign
+  membership or unpark instances. Printability is revalidated against the new
+  build volume, so a member that no longer fits becomes out of bounds. All
+  slice results are then invalidated.
 - The plate-session data model and bridge contract must nevertheless reserve a
   per-plate settings/override slot, so a later release can add Orca-compatible
   per-plate configuration without changing plate identity or result ownership.
@@ -160,9 +162,10 @@ contracts remain host-neutral.
 React consumes an authoritative `PlateSessionSnapshot` from WASM and never
 maintains or derives instance membership independently. Plate selection,
 addition, deletion, and post-edit membership recomputation are bridge commands.
-An add/delete response atomically includes the session snapshot and every
-instance world transform changed by grid reflow; the frontend applies these
-returned transforms rather than calculating movement itself.
+An add/delete or shared-configuration response atomically includes the session
+snapshot and every instance world transform changed by grid reflow; the
+frontend applies these returned transforms rather than calculating movement
+itself.
 
 To slice a plate, WASM derives a temporary model containing only that plate's
 instances and translated into the plate's local printer origin; slicing never
