@@ -391,6 +391,9 @@ test('multi-plate Preview renders only the current plate and applies its local t
   const readToolpathOrigin = () => page.evaluate(() => (window as unknown as {
     __orcaE2e?: { previewToolpathWorldOrigin?: () => [number, number, number] | null };
   }).__orcaE2e?.previewToolpathWorldOrigin?.() ?? null);
+  const readCameraTarget = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { cameraState?: () => { target: [number, number, number] } };
+  }).__orcaE2e?.cameraState?.().target ?? null);
 
   await expect.poll(readBeds).toEqual([
     expect.objectContaining({ plateId: plate2.plateId, current: true }),
@@ -426,12 +429,20 @@ test('multi-plate Preview renders only the current plate and applies its local t
   await page.keyboard.press('c');
   await expect(page.getByTestId('gcode-text-window')).toBeVisible();
   await expect(page.locator('[data-testid^="gcode-line-"]').first()).toContainText(/\S/);
+  await expect.poll(readCameraTarget).not.toBeNull();
+  const plate1CameraTarget = await readCameraTarget();
+  if (!plate1CameraTarget) throw new Error('plate 1 camera target is unavailable');
   // Selecting and slicing the other plate must not advance plate 2's input
   // revision: its retained result remains sliced when it becomes inactive.
   await plate2Option.click();
   await expect(plate2Option).toHaveAttribute('aria-selected', 'true');
   await expect(plate2Option).toHaveAttribute('data-plate-status', 'sliced');
   await expect(plate1Option).toHaveAttribute('data-plate-status', 'sliced');
+  await expect.poll(readCameraTarget).toEqual([
+    plate1CameraTarget[0] + (plate2.position[0] - plate1.position[0]),
+    plate1CameraTarget[1] + (plate2.position[1] - plate1.position[1]),
+    plate1CameraTarget[2],
+  ]);
   await expect(page.getByTestId('gcode-text-window')).toBeVisible();
   await expect(page.locator('[data-testid^="gcode-line-"]').first()).toContainText(/\S/);
   await expect(page.getByTestId('gcode-text-window')).not.toContainText('preview text page is unavailable');

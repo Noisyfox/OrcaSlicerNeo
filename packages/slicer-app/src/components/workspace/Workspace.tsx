@@ -93,6 +93,8 @@ export function Workspace({
   const sliceCoordinator = sliceCoordinatorRef.current;
   const [previewRenderPending, setPreviewRenderPending] = useState(false);
   const [previewPlateSelectionPending, setPreviewPlateSelectionPending] = useState(false);
+  const previewFrameTokenRef = useRef(0);
+  const [previewFrameRequest, setPreviewFrameRequest] = useState<{ plateId: string; token: number } | null>(null);
   const previewRenderPendingRef = useRef(false);
   const [sidebarWidth, setSidebarWidth] = useState(DEFAULT_SIDEBAR_WIDTH);
   const sidebarWidthRef = useRef(sidebarWidth);
@@ -149,9 +151,17 @@ export function Workspace({
 
   const selectPreviewPlate = useCallback(async (plateId: string) => {
     if (previewPlateSelectionPending) return;
+    const previousPlateId = usePlateSessionStore.getState().snapshot?.currentPlateId;
     setPreviewPlateSelectionPending(true);
     try {
-      await selectPlateSessionAndClearSelection(platform, plateId, () => sceneInteraction.clearSelection());
+      const selected = await selectPlateSessionAndClearSelection(platform, plateId, () => sceneInteraction.clearSelection());
+      // Preview navigation recenters only after a successful switch to a
+      // different plate. Clicking the current plate still clears selection,
+      // but must not disturb the user's camera.
+      if (selected && previousPlateId !== plateId) {
+        previewFrameTokenRef.current += 1;
+        setPreviewFrameRequest({ plateId, token: previewFrameTokenRef.current });
+      }
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
@@ -304,6 +314,7 @@ export function Workspace({
           activeTab={isPreviewTab(activeTab) || previewRenderPending ? 'preview' : 'prepare'}
           glVolumes={glVolumes}
           toolpath={sliceResult.toolpath}
+          previewFrameRequest={previewFrameRequest}
           onSceneFrameRendered={handleSceneFrameRendered}
         />
       </main>

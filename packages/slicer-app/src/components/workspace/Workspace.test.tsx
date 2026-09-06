@@ -161,6 +161,7 @@ describe('Workspace ownership', () => {
     await act(async () => {
       root?.render(<PlatformProvider value={platform}><Workspace activeTab="preview" /></PlatformProvider>);
     });
+    expect(testMocks.viewportProps.at(-1)?.previewFrameRequest).toBeNull();
     const previewController = testMocks.viewportProps.at(-1)!.sceneInteraction as { clearSelection: () => boolean };
     const previewClear = vi.spyOn(previewController, 'clearSelection');
     await act(async () => {
@@ -168,11 +169,15 @@ describe('Workspace ownership', () => {
     });
     expect(runtime.selectPlate).toHaveBeenCalledWith('plate-b');
     expect(previewClear).toHaveBeenCalledOnce();
+    const frameRequest = testMocks.viewportProps.at(-1)?.previewFrameRequest as { plateId: string; token: number } | null;
+    expect(frameRequest?.plateId).toBe('plate-b');
+    expect(frameRequest?.token).toBe(1);
 
     await act(async () => {
       container.querySelector('[data-testid="preview-plate-plate-b"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
     expect(runtime.selectPlate).toHaveBeenCalledOnce();
     expect(previewClear).toHaveBeenCalledTimes(2);
+    expect(testMocks.viewportProps.at(-1)?.previewFrameRequest).toEqual(frameRequest);
   });
 });
