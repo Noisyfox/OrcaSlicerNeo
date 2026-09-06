@@ -21,8 +21,8 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
-    "@orca/printer-control": "workspace:*",
     "@orca/platform-contract": "workspace:*",
+    "@orca/printer-control": "workspace:*",
     "@orca/slicer-runtime": "workspace:*",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
@@ -33,6 +33,7 @@
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.6.0",
     "three": "^0.185.1",
+    "three-mesh-bvh": "^0.9.14",
     "zustand": "^5.0.15"
   }
 }

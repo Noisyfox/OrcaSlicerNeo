@@ -10,6 +10,7 @@ import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import { persistSettledModelTransforms } from '../actions/persistModelTransforms';
 import { usePlatform } from '@orca/platform-contract';
 import { EULER_ORDER } from './transformDeltaMath';
+import { acceleratedRaycast } from 'three-mesh-bvh';
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
   if (transform.matrix) {
@@ -63,6 +64,7 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
     <group ref={volumeGroupRef}>
       <mesh
         geometry={data.geometry}
+        raycast={acceleratedRaycast}
         userData={{ orcaRaycastRole: MODEL_BODY_RAYCAST, orcaVolume: data }}
         onPointerDown={interactive ? (event) => {
           if (event.nativeEvent.button !== 0) return;
