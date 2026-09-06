@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "profile-smoke": "node harness/profile-smoke.mjs",
-    "profile-compatibility-smoke": "node harness/profile-compatibility-smoke.mjs"
+    "profile-compatibility-smoke": "node harness/profile-compatibility-smoke.mjs",
+    "project-preset-restoration": "node harness/project-preset-restoration.mjs --module out/serial/orca_slice.js"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

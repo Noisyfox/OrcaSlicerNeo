@@ -2103,6 +2103,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
                                                    const char* display_name) {
     const std::string path = next_project_temp_path(".3mf");
     std::string load_path = path;
+    const std::string project_name = display_name && *display_name ? display_name : load_path;
     std::vector<PlateData*> plate_data;
     std::vector<Preset*> project_presets;
     auto release_presets = [&]() {
@@ -2236,24 +2237,25 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
             else if (preset->type == Preset::TYPE_PRINT) ++process_preset_count;
             else if (preset->type == Preset::TYPE_FILAMENT) ++filament_preset_count;
         }
-        if (!geometry_only && !project_presets.empty()) {
+        if (!geometry_only && (!project_presets.empty() || is_bbl_3mf || is_orca_3mf)) {
             candidate.load_project_embedded_presets(project_presets,
                 ForwardCompatibilitySubstitutionRule::Enable);
 
-            // The BBS config records the selected preset IDs.  Resolve them
-            // in the candidate bundle only; a missing ID leaves the normal
-            // current/default selection in place and is reported in metadata.
-            if (const auto* option = dynamic_cast<const ConfigOptionString*>(imported_config.option("printer_settings_id")))
-                candidate.printers.select_preset_by_name(option->value, true);
-            if (const auto* option = dynamic_cast<const ConfigOptionString*>(imported_config.option("print_settings_id")))
-                candidate.prints.select_preset_by_name(option->value, true);
-            if (const auto* option = dynamic_cast<const ConfigOptionStrings*>(imported_config.option("filament_settings_id"))) {
-                candidate.filament_presets = option->values;
-                if (!option->values.empty())
-                    candidate.filaments.select_preset_by_name(option->values.front(), true);
-            }
-            candidate.update_compatible(PresetSelectCompatibleType::Never);
-            candidate.project_config = imported_config;
+            // This is Orca's native project-load sequence after embedded
+            // presets have been imported.  load_config_model delegates to
+            // PresetBundle::load_config_file_config, which loads each merged
+            // print/printer/filament config through load_external_preset with
+            // LoadAndSelect::Always, then refreshes compatibility and the
+            // multi-material filament list.  Keeping this call on the
+            // candidate preserves the transaction while also handling a
+            // parentless project preset (such as Lily.3mf) exactly as Orca.
+            candidate.load_config_model(project_name, imported_config, file_version);
+            // The GUI refreshes its active preset controls after this native
+            // load.  Re-run the bridge's authoritative compatibility pass so
+            // stale selections from the previous project cannot survive a
+            // printer replacement.
+            candidate.update_compatible(PresetSelectCompatibleType::Always);
+            candidate.update_multi_material_filament_presets();
         }
 
         ProjectPresetWarningDetails warning_details;
