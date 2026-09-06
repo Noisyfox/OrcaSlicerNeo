@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "libslic3r/AppConfig.hpp"
+#include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/Color.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
@@ -780,17 +781,62 @@ bool box_intersects_plate(const BoundingBoxf3& box, const BridgeState::PlateSess
            box.max.z() >= 0. && box.min.z() <= bounds.max_z;
 }
 
-bool box_fully_inside_plate(const BoundingBoxf3& box, const BridgeState::PlateSessionPlate& plate,
-                            const PlateBounds& bounds)
+std::vector<Vec2d> selected_printable_area(const PlateBounds& bounds,
+                                           const BridgeState::PlateSessionPlate& plate)
+{
+    std::vector<Vec2d> area;
+    try {
+        const Preset& printer = state().presets.printers.get_selected_preset();
+        if (const auto* configured = printer.config.opt<ConfigOptionPoints>("printable_area");
+            configured != nullptr && configured->values.size() >= 3) {
+            area.reserve(configured->values.size());
+            for (const Vec2d& point : configured->values)
+                area.emplace_back(point.x() + plate.origin.x(), point.y() + plate.origin.y());
+        }
+    } catch (...) {
+        // Keep the deterministic fallback in sync with selected_plate_bounds().
+    }
+    if (area.size() < 3) {
+        area = {{plate.origin.x() + bounds.min_x, plate.origin.y() + bounds.min_y},
+                {plate.origin.x() + bounds.max_x, plate.origin.y() + bounds.min_y},
+                {plate.origin.x() + bounds.max_x, plate.origin.y() + bounds.max_y},
+                {plate.origin.x() + bounds.min_x, plate.origin.y() + bounds.max_y}};
+    }
+    return area;
+}
+
+// Match Orca's PartPlate::check_outside semantics.  In particular, Orca
+// treats a model that is slightly sunk into the bed specially: it evaluates
+// the convex hull with BuildVolume instead of requiring bbox.min.z() >= 0.
+// Support-bearing projects commonly contain this legitimate small negative Z
+// offset, and the old bridge-side AABB check incorrectly marked those plates
+// out of bounds.
+bool box_fully_inside_plate(const PlateInstanceRef& ref, const BoundingBoxf3& box,
+                            const BridgeState::PlateSessionPlate& plate, const PlateBounds& bounds)
 {
     if (!box.defined) return false;
-    const double min_x = plate.origin.x() + bounds.min_x;
-    const double max_x = plate.origin.x() + bounds.max_x;
-    const double min_y = plate.origin.y() + bounds.min_y;
-    const double max_y = plate.origin.y() + bounds.max_y;
-    return box.min.x() >= min_x && box.max.x() <= max_x &&
-           box.min.y() >= min_y && box.max.y() <= max_y &&
-           box.min.z() >= 0. && box.max.z() <= bounds.max_z;
+    const double eps = BuildVolume::SceneEpsilon;
+    BoundingBoxf3 plate_box(
+        Vec3d(plate.origin.x() + bounds.min_x - eps,
+              plate.origin.y() + bounds.min_y - eps,
+              plate.origin.z() - eps),
+        Vec3d(plate.origin.x() + bounds.max_x + eps,
+              plate.origin.y() + bounds.max_y + eps,
+              plate.origin.z() + bounds.max_z + eps));
+
+    // This is the same lower-Z adjustment used by PartPlate::check_outside:
+    // a model that rests below the mathematical bed plane is not rejected
+    // merely because of its sinking offset.
+    if (box.max.z() > plate_box.min.z())
+        plate_box.min.z() += box.min.z();
+
+    if (box.min.z() < SINKING_Z_THRESHOLD) {
+        if (!plate_box.intersects(box)) return false;
+        const BuildVolume build_volume(selected_printable_area(bounds, plate), bounds.max_z, {}, {});
+        return ref.instance->calc_print_volume_state(build_volume) != ModelInstancePVS_Partly_Outside;
+    }
+
+    return plate_box.contains(box);
 }
 
 json instance_transform_record(const PlateInstanceRef& ref)
@@ -826,7 +872,7 @@ void rebuild_plate_membership(bool clear_parked)
         for (const auto& plate : state().plate_session_plates) {
             if (!box_intersects_plate(box, plate, bounds)) continue;
             state().instance_plate_ids[ref.instance_id] = plate.id;
-            if (!box_fully_inside_plate(box, plate, bounds))
+            if (!box_fully_inside_plate(ref, box, plate, bounds))
                 state().plate_out_of_bounds_ids[plate.id].insert(ref.instance_id);
             break; // lowest display-index plate wins ties, matching Orca.
         }
@@ -964,7 +1010,7 @@ void refresh_existing_plate_validity(const PlateBounds& bounds)
         const auto ref = std::find_if(refs.begin(), refs.end(),
                                       [&](const auto& candidate) { return candidate.instance_id == instance_id; });
         if (ref == refs.end()) continue;
-        if (!box_fully_inside_plate(instance_hull_box(*ref), *plate, bounds))
+        if (!box_fully_inside_plate(*ref, instance_hull_box(*ref), *plate, bounds))
             state().plate_out_of_bounds_ids[plate_id].insert(instance_id);
     }
 }
