@@ -208,6 +208,8 @@ export interface ClearModelResult {
 
 export type ProjectLoadMode = 'project' | 'geometry-only';
 
+export type ProjectProgressCallback = (percent: number, text: string) => void;
+
 export interface EmbeddedPresetEvidence {
   type: 'printer' | 'filament';
   name: string;
@@ -644,9 +646,9 @@ export interface SlicerClient {
   /** Add a model file to the current scene without replacing existing objects. */
   addModel(bytes: Uint8Array, ext: string, displayName?: string): Promise<LoadModelResult>;
   /** Load a BBS 3MF as a project (replace) or geometry-only append. */
-  loadProject(bytes: Uint8Array, mode?: ProjectLoadMode, displayName?: string): Promise<ProjectLoadResult>;
+  loadProject(bytes: Uint8Array, mode?: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
   /** Explicit geometry-only alias used by Add Model/project fallback callers. */
-  importProjectGeometry(bytes: Uint8Array, displayName?: string): Promise<ProjectLoadResult>;
+  importProjectGeometry(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
   /** Add an OrcaSlicer primitive to the current scene, exactly like its
    *  Add Cube: the bridge mirrors ObjectList::load_shape_object →
    *  create_mesh → load_mesh_object, building the mesh in the engine

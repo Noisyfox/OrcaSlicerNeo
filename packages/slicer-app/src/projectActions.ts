@@ -104,7 +104,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
   setOperation('loading', 0, 'Importing geometry');
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
-    const load = await runtimeOf(platform).importProjectGeometry(input.bytes, input.displayName); if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
+    const load = await runtimeOf(platform).importProjectGeometry(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message)); if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     invalidateInput();
     const existing = useProjectStore.getState();
@@ -133,7 +133,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
-    const load = await runtimeOf(platform).loadProject(input.bytes, 'project', input.displayName); if (!load.ok) throw new Error(load.error ?? 'project load failed');
+    const load = await runtimeOf(platform).loadProject(input.bytes, 'project', input.displayName, (percent, message) => setOperation('loading', percent, message)); if (!load.ok) throw new Error(load.error ?? 'project load failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     if (load.plateSession) usePlateSessionStore.getState().setSnapshot(load.plateSession);
     // The native load response contains the candidate preset snapshot from

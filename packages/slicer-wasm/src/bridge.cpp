@@ -2139,6 +2139,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
     }
 }
 
+// Progress transport is defined with the other bridge lifecycle helpers
+// below, after the project operations. Keep declarations here so project
+// loading can report its own long-running stages.
+void begin_progress(std::string_view text = "Preparing slice");
+void publish_slicer_progress(int percent, std::string_view text);
+void finish_progress(std::string_view text = "Slice complete");
+void stop_progress();
+
 // Load a BBS 3MF into either a replacement project or an appended,
 // geometry-only import.  Parsing and all candidate preset work happen against
 // temporary objects first.  The live model/preset bundle is touched only
@@ -2179,6 +2187,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
             cleanup_paths();
             return error_json("project bytes are not a ZIP archive");
         }
+        begin_progress(geometry_only ? "Preparing geometry import" : "Preparing project load");
+        struct ProgressScope {
+            bool completed = false;
+            ~ProgressScope() { if (!completed) stop_progress(); }
+        } progress_scope;
         std::FILE* file = std::fopen(path.c_str(), "wb");
         if (!file) {
             cleanup_paths();
@@ -2190,6 +2203,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
             cleanup_paths();
             return error_json("cannot stage project bytes");
         }
+        publish_slicer_progress(10, "Reading project metadata");
 
         const auto model_config = read_archive_entry(path, "Metadata/model_settings.config");
         const auto neo_entry = read_archive_entry(path, kNeoPlateMetadataEntry);
@@ -2223,6 +2237,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
                 }
             }
         }
+        publish_slicer_progress(20, "Loading project model");
 
         DynamicPrintConfig imported_config;
         ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Enable};
@@ -2243,6 +2258,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
                                           nullptr, strategy, nullptr, 0);
         if (!loaded || imported.objects.empty())
             throw Slic3r::RuntimeError("Loading of a project file failed.");
+        publish_slicer_progress(55, geometry_only ? "Preparing imported geometry" : "Reading project settings");
         if (neo_metadata) {
             const size_t native_plate_count = std::max<size_t>(1, raw_records.empty() ? plate_data.size() : raw_records.size());
             if ((*neo_metadata)["plates"].size() != native_plate_count)
@@ -2303,6 +2319,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
             candidate.update_compatible(PresetSelectCompatibleType::Always);
             candidate.update_multi_material_filament_presets();
         }
+        publish_slicer_progress(75, geometry_only ? "Finalizing geometry import" : "Applying project settings");
 
         ProjectPresetWarningDetails warning_details;
         if (!geometry_only)
@@ -2333,6 +2350,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
         } else {
             rebuild_plate_membership(true);
         }
+        publish_slicer_progress(90, "Finalizing project");
 
         const std::string compatibility = is_orca_3mf ? "orca" :
             (is_bbl_3mf ? "bambu" : "generic");
@@ -2380,6 +2398,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
             // project session.
             out["plate_session"] = plate_session_snapshot_json();
         }
+        finish_progress(geometry_only ? "Geometry import complete" : "Project load complete");
+        progress_scope.completed = true;
         release_PlateData_list(plate_data);
         release_presets();
         cleanup_paths();
@@ -3111,27 +3131,52 @@ void publish_progress_locked(int percent, std::string_view text)
     g_progress_mailbox.sequence.store(odd + 1, std::memory_order_release);
 }
 
-void begin_progress()
+void notify_progress(int percent, std::string_view text)
 {
-    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
-    g_progress_open = true;
-    publish_progress_locked(0, "Preparing slice");
+#ifndef ORCA_WASM_THREADING
+    if (g_progress) {
+        const std::string owned_text(text);
+        g_progress(percent, owned_text.c_str());
+    }
+#else
+    (void)percent;
+    (void)text;
+#endif
+}
+
+void begin_progress(std::string_view text)
+{
+    {
+        std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+        g_progress_open = true;
+    }
+    publish_slicer_progress(0, text);
 }
 
 void publish_slicer_progress(int percent, std::string_view text)
 {
-    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
-    if (g_progress_open)
-        publish_progress_locked(percent, text);
+    bool active = false;
+    {
+        std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+        active = g_progress_open;
+        if (active)
+            publish_progress_locked(percent, text);
+    }
+    if (active)
+        notify_progress(percent, text);
 }
 
-void finish_progress()
+void finish_progress(std::string_view text)
 {
-    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
-    // Close before the terminal write. A status callback that reaches us
-    // later must acquire this same mutex and therefore cannot overwrite 100%.
-    g_progress_open = false;
-    publish_progress_locked(100, "Slice complete");
+    {
+        std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
+        // Close before the terminal write. A status callback that reaches us
+        // later must acquire this same mutex and therefore cannot overwrite
+        // 100%.
+        g_progress_open = false;
+        publish_progress_locked(100, text);
+    }
+    notify_progress(100, text);
 }
 
 void stop_progress()
@@ -3288,9 +3333,6 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // type — qualify it (status_callback_type is PrintBase's typedef too).
         state().print.set_status_callback([&](const PrintBase::SlicingStatus& st) {
             publish_slicer_progress(st.percent, st.text);
-#ifndef ORCA_WASM_THREADING
-            if (g_progress) g_progress(st.percent, st.text.c_str());
-#endif
         });
 #ifdef ORCA_WASM_THREADING
         // Keep every libslic3r parallel_for inside the same fixed-size arena.

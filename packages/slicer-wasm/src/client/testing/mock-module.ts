@@ -409,20 +409,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     Atomics.add(mailboxWords, 0, 1);
   }
 
+  function publishProgress(percent: number, text: string): void {
+    if (opts.threaded) {
+      publishMailboxProgress(percent, text);
+      return;
+    }
+    if (!progressCallback) return;
+    const bytes = new TextEncoder().encode(text);
+    const tp = malloc(bytes.length + 1);
+    HEAPU8.set(bytes, tp);
+    functionTable.get(progressCallback)?.(percent, tp);
+  }
+
   function runMockSlice(plateId: string, revision: number): unknown {
     if (!modelLoaded) return { error: 'no model loaded' };
     if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
     if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
     for (let pct = 0; pct <= 100; pct += 25) {
-      if (opts.threaded) {
-        publishMailboxProgress(pct, `slice ${pct}%`);
-        continue;
-      }
-      if (!progressCallback) continue;
-      const bytes = new TextEncoder().encode(`slice ${pct}%`);
-      const tp = malloc(bytes.length + 1);
-      HEAPU8.set(bytes, tp);
-      functionTable.get(progressCallback)?.(pct, tp);
+      publishProgress(pct, `slice ${pct}%`);
     }
     sliced = true;
     slicedPlateId = plateId;
@@ -711,6 +715,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_load_project(_ptr: number, len: number, geometryOnly: number, displayName: string) {
       if (len <= 0) return { error: 'no project bytes' };
+      publishProgress(0, geometryOnly ? 'Preparing geometry import' : 'Preparing project load');
+      publishProgress(10, 'Reading project metadata');
       if (!geometryOnly) {
         objectTransforms = [];
         objectVolumeTransforms = [];
@@ -719,7 +725,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         instanceMeta = [];
       }
       appendMockObject(displayName || undefined);
+      publishProgress(55, geometryOnly ? 'Preparing imported geometry' : 'Reading project settings');
       resetPlateSession();
+      publishProgress(75, geometryOnly ? 'Finalizing geometry import' : 'Applying project settings');
+      publishProgress(90, 'Finalizing project');
+      publishProgress(100, geometryOnly ? 'Geometry import complete' : 'Project load complete');
       return {
         ok: true, objects: objectTransforms.length,
         instances: objectTransforms.reduce((total, instances) => total + instances.length, 0),

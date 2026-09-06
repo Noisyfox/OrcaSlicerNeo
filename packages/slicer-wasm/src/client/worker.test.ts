@@ -78,13 +78,28 @@ describe('worker protocol', () => {
     const { workerClient, channel } = setup();
     await workerClient.init();
     await workerClient.addModel(new Uint8Array(4), 'stl');
-    const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf');
+    const events: number[] = [];
+    const loaded = await workerClient.loadProject(new Uint8Array([0x50, 0x4b]), 'project', 'saved.3mf', (percent) => events.push(percent));
     expect(loaded.ok).toBe(true);
+    expect(events).toContain(100);
     const exported = await workerClient.exportProject();
     expect(exported.ok).toBe(true);
     expect(exported.bytes.byteLength).toBeGreaterThan(0);
     const transfer = channel.transfers.find((items) => items.includes(exported.bytes.buffer));
     expect(transfer).toBeDefined();
+  });
+
+  it('forwards geometry-only project load progress through the threaded mailbox', async () => {
+    const module = createMockModule({ threaded: true });
+    const channel = new Channel();
+    const workerClient = createWorkerClient(channel);
+    void startWorker(async () => module, (msg) => channel.post(msg), (fn) => channel.onMessage(fn));
+    await workerClient.init();
+    const events: number[] = [];
+    const loaded = await workerClient.importProjectGeometry(new Uint8Array([0x50, 0x4b]), 'part.3mf', (percent) => events.push(percent));
+    expect(loaded.ok).toBe(true);
+    expect(events).toContain(100);
+    expect(module._functionRegistrations).toBe(0);
   });
 
   it('transfers each v2 result ArrayBuffer exactly once from the worker', async () => {

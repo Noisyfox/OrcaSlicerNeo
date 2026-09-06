@@ -55,7 +55,7 @@ export function startWorker(
 ): void {
   // Serial builds forward their permanent bridge callback. Threaded builds
   // send a SharedArrayBuffer mailbox; the renderer polls it independently
-  // while this worker is synchronously executing orc_slice().
+  // while this worker is synchronously executing a long native operation.
   const client = createClient(moduleFactory, (pct, text) => {
     post({ type: 'progress', percent: pct, text });
   }, (mailbox) => {
@@ -158,6 +158,22 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   return new Proxy({} as SlicerClient, {
     get(_target, prop) {
       if (typeof prop !== 'string' || prop === 'then') return undefined;
+      if (prop === 'loadProject' || prop === 'importProjectGeometry') {
+        const progressIndex = prop === 'loadProject' ? 3 : 2;
+        return (...args: unknown[]) => {
+          const onProgress = args[progressIndex];
+          const callArgs = typeof onProgress === 'function' ? args.slice(0, progressIndex) : args;
+          if (typeof onProgress !== 'function') return call(prop, callArgs);
+          const listener = onProgress as (pct: number, text: string) => void;
+          progressListeners.add(listener);
+          updateMailboxPolling();
+          return call(prop, callArgs).finally(() => {
+            emitMailboxProgress();
+            progressListeners.delete(listener);
+            updateMailboxPolling();
+          });
+        };
+      }
       if (prop === 'slice' || prop === 'slicePlate') {
         if (prop === 'slicePlate') {
           return (target: unknown, config: Record<string, string>, onProgress?: (percent: number, text: string) => void) => {

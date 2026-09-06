@@ -10,7 +10,7 @@ import type {
   InitResult, PresetSnapshotResult,
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
   ClearModelResult,
-  OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult,
+  OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
@@ -320,9 +320,10 @@ export function createClient(
       }
     },
 
-    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string): Promise<ProjectLoadResult> {
+    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
       const m = await module();
       const ptr = writeBytes(m, bytes);
+      if (onProgress) progressListeners.add(onProgress);
       try {
         const r = callJson(m, 'orc_load_project', ['pointer', 'number', 'number', 'string'],
           [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? '']) as Record<string, unknown>;
@@ -379,12 +380,14 @@ export function createClient(
         };
       } finally {
         m._free(ptr);
+        if (onProgress) progressListeners.delete(onProgress);
       }
     },
 
-    async importProjectGeometry(bytes: Uint8Array, displayName?: string): Promise<ProjectLoadResult> {
+    async importProjectGeometry(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
       const m = await module();
       const ptr = writeBytes(m, bytes);
+      if (onProgress) progressListeners.add(onProgress);
       try {
         const r = callJson(m, 'orc_import_project_geometry', ['pointer', 'number', 'string'],
           [ptr, bytes.length, displayName ?? '']) as Record<string, unknown>;
@@ -422,6 +425,7 @@ export function createClient(
         };
       } finally {
         m._free(ptr);
+        if (onProgress) progressListeners.delete(onProgress);
       }
     },
 

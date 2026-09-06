@@ -88,6 +88,16 @@ describe('transactional project actions', () => {
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', scope: 'project', dirty: false });
   });
 
+  it('subscribes the project operation to native load progress', async () => {
+    const { platform, runtime } = platformFor();
+    const result = await openProject(platform, { loadBehaviour: 'load_all' });
+    expect(result.status).toBe('ok');
+    const onProgress = (runtime.loadProject.mock.calls as unknown[][])[0]?.[3] as ((percent: number, message: string) => void) | undefined;
+    expect(onProgress).toEqual(expect.any(Function));
+    onProgress?.(42, 'Reading project settings');
+    expect(useProjectStore.getState().operation).toMatchObject({ phase: 'loading', progress: 42, message: 'Reading project settings' });
+  });
+
   it('geometry import never replaces active settings and makes the session dirty', async () => {
     const { platform } = platformFor();
     useSettingsStore.setState({ modelLoaded: true, selectedPrinter: 'Current printer', selectedPrint: 'Current process', selectedFilament: 'Current filament', values: { layer_height: '0.2' } });
@@ -199,7 +209,7 @@ describe('transactional project actions', () => {
     const result = await openProjectInputs(platform, files, { loadBehaviour: 'always_ask', chooseLoad: choose });
     expect(result.status).toBe('ok');
     expect(choose).toHaveBeenCalledWith(files[2]);
-    expect(runtime.loadProject).toHaveBeenCalledWith(files[2].bytes, 'project', 'a-project.3mf');
+    expect(runtime.loadProject).toHaveBeenCalledWith(files[2].bytes, 'project', 'a-project.3mf', expect.any(Function));
     expect(runtime.importProjectGeometry).toHaveBeenCalledTimes(2);
     expect(runtime.importProjectGeometry.mock.calls.map((call) => (call as unknown[])[1])).toEqual(['b-project.3mf', 'z-model.stl']);
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'a-project', dirty: true, location: files[2].location });
