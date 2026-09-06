@@ -18,7 +18,7 @@ export function PreviewPlateList({
   const disabled = pending || selecting !== null;
 
   async function handleSelect(plateId: string) {
-    if (disabled || plateId === snapshot.currentPlateId) return;
+    if (disabled) return;
     setSelecting(plateId);
     try {
       await onSelect(plateId);
@@ -41,7 +41,7 @@ export function PreviewPlateList({
             aria-label={`${item.label}, ${item.detail}${item.current ? ', current plate' : ''}`}
             data-testid={`preview-plate-${item.plate.plateId}`}
             data-plate-status={item.status}
-            disabled={disabled || item.current}
+            disabled={disabled}
             onClick={() => void handleSelect(item.plate.plateId)}
             className={`mb-1 flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm transition-colors ${item.current ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60'} disabled:cursor-default disabled:opacity-100`}
           >

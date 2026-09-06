@@ -25,7 +25,7 @@ import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { PreviewPlateList } from './PreviewPlateList';
-import { selectPlateSession } from './plateSessionActions';
+import { selectPlateSessionAndClearSelection } from './plateSessionActions';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -148,16 +148,16 @@ export function Workspace({
   }, [activeTab, currentPlateId, sliceCoordinator]);
 
   const selectPreviewPlate = useCallback(async (plateId: string) => {
-    if (previewPlateSelectionPending || plateId === usePlateSessionStore.getState().snapshot?.currentPlateId) return;
+    if (previewPlateSelectionPending) return;
     setPreviewPlateSelectionPending(true);
     try {
-      await selectPlateSession(platform, plateId);
+      await selectPlateSessionAndClearSelection(platform, plateId, () => sceneInteraction.clearSelection());
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
       setPreviewPlateSelectionPending(false);
     }
-  }, [platform, previewPlateSelectionPending]);
+  }, [platform, previewPlateSelectionPending, sceneInteraction]);
 
   useEffect(() => {
     let active = true;

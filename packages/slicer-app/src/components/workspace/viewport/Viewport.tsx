@@ -27,7 +27,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import type { PlateSessionSnapshot } from '@slicer/client';
 import { canAddPlate, canDeletePlate } from './plateControls';
 import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
-import { applyPlateSessionResponse } from '../plateSessionActions';
+import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
@@ -229,10 +229,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
   }, []);
 
   const selectPlate = useCallback(async (plateId: string) => {
-    if (plateActionPending || plateId === plateSession?.currentPlateId) return;
+    if (plateActionPending) return;
     setPlateActionPending(true);
     try {
-      applyPlateSessionResponse(platform, await platform.runtime.selectPlate(plateId));
+      await selectPlateSessionAndClearSelection(platform, plateId, () => sceneInteraction.clearSelection());
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {

@@ -60,6 +60,23 @@ export async function selectPlateSession(
   return applyPlateSessionResponse(platform, await platform.runtime.selectPlate(plateId));
 }
 
+/** Select a different plate and clear the shared object selection only after
+ * the authoritative transaction succeeds.  Plate clicks are navigation, so
+ * the selection must not follow the previous plate into the new context. */
+export async function selectPlateSessionAndClearSelection(
+  platform: PlatformCapabilities,
+  plateId: string,
+  clearSelection: () => void,
+): Promise<boolean> {
+  if (usePlateSessionStore.getState().snapshot?.currentPlateId === plateId) {
+    clearSelection();
+    return false;
+  }
+  const selected = await selectPlateSession(platform, plateId);
+  if (selected) clearSelection();
+  return selected;
+}
+
 /** Structural mutations retain the existing project dirty-state semantics. */
 export function recordPlateMutation(result: PlateSessionMutationResult): void {
   if (result.ok) useProjectStore.getState().recordPlateMutation(result);
