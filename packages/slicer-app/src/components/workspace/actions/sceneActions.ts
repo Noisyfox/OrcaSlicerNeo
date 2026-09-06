@@ -16,6 +16,7 @@ import { applyPlateSessionTransforms } from './syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
+import { resetSceneState } from './resetSceneState';
 
 export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 
@@ -171,9 +172,7 @@ export async function clearScene(
     const r = await platform.runtime.clearModel();
     if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
     applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
-    slicer.setStatus('idle');
-    slicer.setResultExported(false);
-    settings.setModelLoaded(false);
+    resetSceneState(sceneInteraction);
     useProjectStore.getState().setProject({ hasContent: false });
     if (r.plateSession) {
       const previousPlateSession = usePlateSessionStore.getState().snapshot;

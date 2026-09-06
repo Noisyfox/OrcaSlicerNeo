@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
-import type { PresetSnapshot } from '@slicer/client';
+import type { PlateSessionMutation, PresetSnapshot } from '@slicer/client';
 import { useProjectStore } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
+import { usePlateSessionStore } from './stores/usePlateSessionStore';
+import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, sortProjectInputs } from './projectActions';
 
 const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([80, 75, 3, 4]) };
@@ -13,6 +15,13 @@ const snapshot: PresetSnapshot = {
   prints: [{ name: 'Project process', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   filaments: [{ name: 'Project filament', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 }, filament: { name: 'Project filament', idx: 0 },
+};
+const freshPlateSession: PlateSessionMutation = {
+  ok: true,
+  version: 1,
+  currentPlateId: 'new-plate-1',
+  plates: [{ plateId: 'new-plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
+  instanceTransforms: [],
 };
 function platformFor(load: Record<string, unknown> = {}) {
   const runtime = {
@@ -35,6 +44,8 @@ function platformFor(load: Record<string, unknown> = {}) {
 describe('transactional project actions', () => {
   beforeEach(() => {
     useProjectStore.getState().reset();
+    usePlateSessionStore.getState().reset();
+    glVolumeCollection.clear();
     useSettingsStore.setState({ modelLoaded: false, selectedPrinter: 'System printer', selectedPrint: 'System process', selectedFilament: 'System filament', values: {} });
     useSlicerStore.getState().invalidateSliceResult();
   });
@@ -103,6 +114,78 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok'); expect(runtime.clearModel).toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: false, scope: 'system', hasContent: false });
     expect(runtime.selectPreset).toHaveBeenCalledWith('printer', 'System printer');
+  });
+
+  it('New clears the renderer projection and resets a multi-plate session after runtime success', async () => {
+    const { platform, runtime } = platformFor();
+    runtime.clearModel.mockResolvedValue({ ok: true, plateSession: freshPlateSession } as never);
+    const dispose = vi.fn();
+    glVolumeCollection.volumes = [{ dispose } as never];
+    const resetForModel = vi.fn();
+    useSettingsStore.setState({ modelLoaded: true, values: { modelPath: 'old.stl', layer_height: '0.2' } });
+    useSlicerStore.setState({
+      status: 'done', resultExported: true, sliceTarget: { plateId: 'old-plate-2', inputRevision: 4 },
+      plateResults: { 'old-plate-2': { target: { plateId: 'old-plate-2', inputRevision: 4 }, result: {} as never } },
+    });
+    usePlateSessionStore.getState().setSnapshot({
+      ...freshPlateSession,
+      currentPlateId: 'old-plate-2',
+      plates: [
+        { plateId: 'old-plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' },
+        { plateId: 'old-plate-2', displayIndex: 1, origin: [300, 0, 0], name: 'Plate 2' },
+      ],
+    });
+
+    const result = await newProject(platform, { sceneResetTarget: { resetForModel } });
+
+    expect(result.status).toBe('ok');
+    expect(dispose).toHaveBeenCalledOnce();
+    expect(resetForModel).toHaveBeenCalledOnce();
+    expect(useSettingsStore.getState()).toMatchObject({ modelLoaded: false, values: {} });
+    expect(useSlicerStore.getState()).toMatchObject({ status: 'idle', resultExported: false, sliceTarget: null, plateResults: {} });
+    expect(usePlateSessionStore.getState().snapshot).toMatchObject({ currentPlateId: 'new-plate-1', plates: [{ plateId: 'new-plate-1' }] });
+  });
+
+  it('does not clear the renderer projection when runtime New fails', async () => {
+    const { platform, runtime } = platformFor();
+    runtime.clearModel.mockResolvedValue({ ok: false, error: 'clear failed' } as never);
+    const dispose = vi.fn();
+    glVolumeCollection.volumes = [{ dispose } as never];
+    const resetForModel = vi.fn();
+    const oldSession = {
+      ...freshPlateSession,
+      currentPlateId: 'old-plate-1',
+      plates: [freshPlateSession.plates[0]],
+    };
+    usePlateSessionStore.getState().setSnapshot(oldSession);
+    useSettingsStore.setState({ modelLoaded: true, values: { modelPath: 'old.stl' } });
+    useSlicerStore.setState({ status: 'done', resultExported: true });
+
+    const result = await newProject(platform, { sceneResetTarget: { resetForModel } });
+
+    expect(result.status).toBe('failed');
+    expect(dispose).not.toHaveBeenCalled();
+    expect(resetForModel).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState()).toMatchObject({ modelLoaded: true, values: { modelPath: 'old.stl' } });
+    expect(useSlicerStore.getState()).toMatchObject({ status: 'done', resultExported: true });
+    expect(usePlateSessionStore.getState().snapshot).toBe(oldSession);
+  });
+
+  it('does not clear the renderer projection when the dirty gate is cancelled', async () => {
+    const { platform, runtime } = platformFor();
+    const dispose = vi.fn();
+    glVolumeCollection.volumes = [{ dispose } as never];
+    const resetForModel = vi.fn();
+    useProjectStore.getState().setProject({ dirty: true, hasContent: true });
+    useSettingsStore.setState({ modelLoaded: true });
+
+    const result = await newProject(platform, { decideDirty: () => 'cancel', sceneResetTarget: { resetForModel } });
+
+    expect(result.status).toBe('cancelled');
+    expect(runtime.clearModel).not.toHaveBeenCalled();
+    expect(dispose).not.toHaveBeenCalled();
+    expect(resetForModel).not.toHaveBeenCalled();
+    expect(useSettingsStore.getState().modelLoaded).toBe(true);
   });
 
   it('sorts a batch, asks only for the first 3MF, then appends every remainder', async () => {

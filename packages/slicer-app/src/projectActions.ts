@@ -7,6 +7,8 @@ import { useSlicerStore } from './stores/useSlicerStore';
 import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
+import type { SceneResetTarget } from './components/workspace/actions/resetSceneState';
+import { resetSceneState } from './components/workspace/actions/resetSceneState';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -19,6 +21,8 @@ export interface ProjectActionOptions {
   /** Legacy compatibility hook; multi-plate projects are now persisted natively. */
   confirmFlattenedSave?: () => Promise<boolean> | boolean;
   signal?: AbortSignal;
+  /** Renderer cleanup hook used after a successful New Project runtime reset. */
+  sceneResetTarget?: SceneResetTarget | null;
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
 type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel'>;
@@ -90,9 +94,10 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const runtime = runtimeOf(platform); const cleared = await runtime.clearModel(); if (!cleared.ok) throw new Error(cleared.error ?? 'new project failed');
-    if (cleared.plateSession) usePlateSessionStore.getState().setSnapshot(cleared.plateSession);
+    resetSceneState(options.sceneResetTarget, { clearSettings: true });
+    usePlateSessionStore.getState().setSnapshot(cleared.plateSession ?? null);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);
-    invalidateInput(); const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
+    const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 export async function importProjectGeometry(platform: PlatformCapabilities, input: ProjectInput, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
