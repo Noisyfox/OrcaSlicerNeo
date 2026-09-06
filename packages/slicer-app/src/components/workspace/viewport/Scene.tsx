@@ -77,7 +77,12 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
         selectionInstanceCount?: () => number;
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
         previewMarkerPresent?: () => boolean;
-        cameraState?: () => { position: [number, number, number]; target: [number, number, number] };
+        cameraState?: () => {
+          position: [number, number, number];
+          target: [number, number, number];
+          near: number;
+          far: number;
+        };
         bedPlateStates?: () => Array<{
           plateId?: string;
           current: boolean;
@@ -141,6 +146,8 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
       cameraState: () => ({
         position: [camera.position.x, camera.position.y, camera.position.z],
         target: controls?.target ? [controls.target.x, controls.target.y, controls.target.z] : [0, 0, 0],
+        near: camera.near,
+        far: camera.far,
       }),
       bedPlateStates: () => {
         const beds: Array<{

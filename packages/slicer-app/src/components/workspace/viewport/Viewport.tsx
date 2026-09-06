@@ -28,6 +28,7 @@ import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from './GLVolume';
 import type { PlateSessionMutationResult, PlateSessionSnapshotResult, PlateSessionSnapshot } from '@slicer/client';
 import { canAddPlate, canDeletePlate } from './plateControls';
+import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
@@ -513,6 +514,12 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, onS
               onEnd={() => setCameraGestureActive(false)}
             />
             <CameraFraming bounds={bedBounds} />
+            <CameraClipping
+              bedBounds={bedBounds}
+              plateSession={plateSession}
+              glVolumes={glVolumes}
+              includePlates={!previewTab}
+            />
             {/* Orientation gizmo (X/Y/Z axes), bottom-left corner. GizmoHelper
                 renders the gizmo into an orthographic overlay (Hud portal);
                 head clicks tween the main camera to look along that axis.
@@ -589,6 +596,48 @@ function CameraFraming({ bounds }: { bounds: PrintableAreaBounds }) {
       controls.update();
     }
   }, [bounds, camera, controls]);
+
+  return null;
+}
+
+/** Keep the complete visible multi-plate scene inside the perspective range. */
+function CameraClipping({
+  bedBounds,
+  plateSession,
+  glVolumes,
+  includePlates,
+}: {
+  bedBounds: PrintableAreaBounds;
+  plateSession: PlateSessionSnapshot | null | undefined;
+  glVolumes: LoadedObject[];
+  includePlates: boolean;
+}) {
+  const camera = useThree((state) => state.camera);
+  const lastPlanesRef = useRef<{ near: number; far: number } | null>(null);
+
+  useFrame(() => {
+    if (!(camera instanceof THREE.PerspectiveCamera)) return;
+
+    const sceneBounds = new THREE.Box3();
+    const plates = includePlates && plateSession?.plates?.length
+      ? plateSession.plates
+      : [{ origin: [0, 0, 0] as const }];
+    for (const plate of plates) {
+      expandCameraBoundsWithPlate(sceneBounds, bedBounds, plate.origin);
+    }
+    // getWorldBounds() is internally cached by the composing transform, so
+    // rebuilding this union per demand-rendered frame also catches a model
+    // transform changed in place without adding a second invalidation loop.
+    for (const volume of glVolumes) sceneBounds.union(volume.getWorldBounds());
+
+    const planes = deriveCameraClippingPlanes(camera, sceneBounds);
+    const previous = lastPlanesRef.current;
+    if (previous && Math.abs(previous.near - planes.near) < 1e-4 && Math.abs(previous.far - planes.far) < 1e-3) return;
+    camera.near = planes.near;
+    camera.far = planes.far;
+    camera.updateProjectionMatrix();
+    lastPlanesRef.current = planes;
+  });
 
   return null;
 }

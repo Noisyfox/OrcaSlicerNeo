@@ -184,6 +184,12 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
       const round = (n: number) => Math.round(n * 100) / 100;
       return { position: value.position.map(round), target: value.target.map(round) };
     });
+    const readCameraPlanes = () => page.evaluate(() => {
+      const value = (window as unknown as {
+        __orcaE2e?: { cameraState?: () => { near: number; far: number } }
+      }).__orcaE2e?.cameraState?.();
+      return value ? { near: value.near, far: value.far } : undefined;
+    });
     const clickWorld = async (point: [number, number, number]) => {
       const projected = await page.evaluate((p) =>
         (window as unknown as { __orcaE2e?: { projectWorldToScreen?: (q: [number, number, number]) => { x: number; y: number } | null } })
@@ -267,6 +273,11 @@ test('Prepare plate controls use the session snapshot and preserve the camera', 
     }
     await expect(page.getByTestId('add-plate')).toBeDisabled();
     await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 36 (36/36)');
+    const clipping = await readCameraPlanes();
+    expect(clipping).toBeDefined();
+    expect(clipping!.near).toBeGreaterThan(0);
+    expect(clipping!.far).toBeGreaterThanOrEqual(2000);
+    expect(clipping!.far).toBeGreaterThan(clipping!.near);
   } finally {
     await app.close();
   }
