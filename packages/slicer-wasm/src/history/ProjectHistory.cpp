@@ -295,6 +295,10 @@ void ProjectHistory::release_least_recently_used()
     if (m_impl->states.empty()) return;
     if (bytes_used() <= m_byte_budget) return;
     release_optional_data();
+    // A single operation may legitimately be larger than the normal budget.
+    // Keep both sides of that atomic operation so it remains undoable; the
+    // budget is a retention target, not permission to discard its predecessor.
+    if (m_impl->states.size() == 2 && bytes_used() > m_byte_budget) return;
     while (bytes_used() > m_byte_budget && m_impl->states.size() > 1) {
         // Keep the current state and remove the oldest retained state.  If the
         // current state is the oldest one, remove the oldest redo state instead.
@@ -310,7 +314,8 @@ void ProjectHistory::release_least_recently_used()
         m_impl->states.erase(m_impl->states.begin() + static_cast<std::ptrdiff_t>(remove));
         if (m_cursor > remove) --m_cursor;
         rebuild_intervals();
-        // A single atomic state/entry larger than the budget is retained.
+        // A single atomic state/entry larger than the budget is retained with
+        // its predecessor, so the successful operation can still be undone.
         if (m_impl->states.size() <= 2 && bytes_used() > m_byte_budget) break;
     }
 }

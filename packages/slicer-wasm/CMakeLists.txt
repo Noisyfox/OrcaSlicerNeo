@@ -348,6 +348,7 @@ if(NEO_PROJECT_HISTORY_TEST)
   add_executable(project_history_core_test
     "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.test.cpp")
+  target_link_options(project_history_core_test PRIVATE -m64 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
 endif()
 # The bridge's error contract leans on C++ exceptions (nlohmann type_error,
 # std::runtime_error from the slice path) being caught inside the bridge —
