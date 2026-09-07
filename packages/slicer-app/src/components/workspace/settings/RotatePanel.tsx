@@ -16,13 +16,10 @@ import {
 import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import type { Vec3 } from '../../../lib/vec3';
-import { persistSettledModelTransforms } from '../actions/persistModelTransforms';
-import { usePlatform } from '@orca/platform-contract';
 
 const AXES = ['x', 'y', 'z'] as const;
 
 export function RotatePanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
-  const platform = usePlatform();
   const version = useSceneInteractionVersion(sceneInteraction ?? undefined);
   const [draft, setDraft] = useState<[string, string, string] | null>(null);
   const multi = sceneInteraction ? sceneInteraction.selectionInstanceCount > 1 : false;
@@ -43,9 +40,7 @@ export function RotatePanel({ sceneInteraction }: { sceneInteraction: SceneInter
     }
     const delta = [0, 0, 0] as Vec3;
     delta[axis] = parsed - current[axis];
-    if (sceneInteraction.rotateSelectionBy(degreesToRadians(delta))) {
-      void persistSettledModelTransforms(platform.runtime);
-    }
+    sceneInteraction.rotateSelectionBy(degreesToRadians(delta));
   };
 
   return (
@@ -79,7 +74,7 @@ export function RotatePanel({ sceneInteraction }: { sceneInteraction: SceneInter
           variant="secondary"
           data-testid="rotate-reset"
           onClick={() => {
-            if (sceneInteraction.resetSelectionRotation()) void persistSettledModelTransforms(platform.runtime);
+            sceneInteraction.resetSelectionRotation();
           }}
         >
           Reset

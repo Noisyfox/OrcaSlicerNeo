@@ -12,13 +12,10 @@ import { formatPosition, parseNumberInput } from '../viewport/transformMath';
 import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import type { Vec3 } from '../../../lib/vec3';
-import { persistSettledModelTransforms } from '../actions/persistModelTransforms';
-import { usePlatform } from '@orca/platform-contract';
 
 const AXES = ['x', 'y', 'z'] as const;
 
 export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
-  const platform = usePlatform();
   const version = useSceneInteractionVersion(sceneInteraction ?? undefined);
   const pivot = sceneInteraction?.selectionPivot() ?? null;
   const current = pivot ? pivot.toArray() as Vec3 : null;
@@ -32,9 +29,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
   if (!sceneInteraction || sceneInteraction.gizmo !== 'move' || !current) return null;
 
   const moveTo = (next: Vec3) => {
-    if (sceneInteraction.moveSelectionToPivot(new THREE.Vector3(...next))) {
-      void persistSettledModelTransforms(platform.runtime);
-    }
+    sceneInteraction.moveSelectionToPivot(new THREE.Vector3(...next));
   };
 
   const submitAxis = (axis: number, text: string) => {
@@ -78,7 +73,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
           variant="secondary"
           data-testid="move-drop-bed"
           onClick={() => {
-            if (sceneInteraction.dropSelectionToBed()) void persistSettledModelTransforms(platform.runtime);
+            sceneInteraction.dropSelectionToBed();
           }}
         >
           Drop to bed
@@ -88,7 +83,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
           variant="secondary"
           data-testid="move-reset"
           onClick={() => {
-            if (sceneInteraction.resetSelection()) void persistSettledModelTransforms(platform.runtime);
+            sceneInteraction.resetSelection();
           }}
         >
           Reset

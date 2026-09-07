@@ -28,6 +28,7 @@ import { PreviewPlateList } from './PreviewPlateList';
 import { selectPlateSessionAndClearSelection } from './plateSessionActions';
 import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { isHistoryContextProjectionReady, type PendingHistoryContext } from '../../history/historyContextProjection';
+import { TransformHistoryCoordinator } from './actions/transformHistory';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -77,6 +78,11 @@ export function Workspace({
     sceneInteractionRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
   }
   const sceneInteraction = sceneInteractionRef.current;
+  const transformHistoryRef = useRef<TransformHistoryCoordinator | null>(null);
+  if (!transformHistoryRef.current) {
+    transformHistoryRef.current = new TransformHistoryCoordinator(platform.runtime, sceneInteraction);
+    sceneInteraction.setTransformHistoryPort(transformHistoryRef.current);
+  }
   useEffect(() => {
     const getSnapshot = platform.runtime?.getPlateSessionSnapshot;
     if (!getSnapshot) return;

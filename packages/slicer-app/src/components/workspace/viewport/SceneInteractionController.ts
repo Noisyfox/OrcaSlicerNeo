@@ -46,6 +46,14 @@ export interface DragSnapshot {
   readonly startTargets: DragTargetEntry[];
 }
 
+/** Narrow bridge adapter supplied by Workspace; the controller remains host
+ * and Worker agnostic and only owns local three.js draft transforms. */
+export interface TransformHistoryPort {
+  begin(label: string): void;
+  commit(): Promise<void>;
+  abort(): Promise<void>;
+}
+
 /**
  * The viewport scene's single owner for selection and interaction state.
  *
@@ -73,7 +81,14 @@ export class SceneInteractionController {
   private boxSelect: { start: BoxPoint; current: BoxPoint; additive: boolean } | null = null;
   private boxSelectProjector: ((world: THREE.Vector3) => BoxPoint | null) | null = null;
 
-  constructor(private readonly getVolumes: () => readonly GLVolume[]) {}
+  constructor(
+    private readonly getVolumes: () => readonly GLVolume[],
+    private transformHistory: TransformHistoryPort | null = null,
+  ) {}
+
+  setTransformHistoryPort(port: TransformHistoryPort | null): void {
+    this.transformHistory = port;
+  }
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -548,6 +563,7 @@ export class SceneInteractionController {
 
   endDrag(): boolean {
     if (!this.drag) return false;
+    const changed = this.dragHasChanged(this.drag);
     this.drag = null;
     this.pointerOwner = 'none';
     this.pointerOrigin = 'none';
@@ -556,6 +572,8 @@ export class SceneInteractionController {
     // click behind after mouseup. It is part of the completed gesture, not a
     // new selection request, even when the cursor ends over one group member.
     this.suppressPostDragClick = true;
+    if (changed) void this.transformHistory?.commit();
+    else void this.transformHistory?.abort();
     this.emit();
     return true;
   }
@@ -575,6 +593,7 @@ export class SceneInteractionController {
     this.pointerOwner = 'none';
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
+    void this.transformHistory?.abort();
     this.emit();
     return true;
   }
@@ -629,9 +648,9 @@ export class SceneInteractionController {
 
   moveSelectionBy(delta: THREE.Vector3): boolean {
     if (this.selection.empty) return false;
-    this.applySnapshotDelta(this.captureDragTargets(), delta);
-    this.emit();
-    return true;
+    return this.applyDiscreteTransform('Move', () => {
+      this.applySnapshotDelta(this.captureDragTargets(), delta);
+    });
   }
 
   dropSelectionToBed(): boolean {
@@ -643,13 +662,16 @@ export class SceneInteractionController {
     // scalar we need never builds the whole aggregate AABB. Both now agree
     // because the selection AABB is tight to those same vertices (see
     // GLVolume.getWorldBounds).
-    return this.moveSelectionBy(new THREE.Vector3(0, 0, -minZ));
+    return this.applyDiscreteTransform('Drop to Bed', () => {
+      this.applySnapshotDelta(this.captureDragTargets(), new THREE.Vector3(0, 0, -minZ));
+    });
   }
 
   /** Rotate every selected instance by a componentwise Euler delta (radians). */
   rotateSelectionBy(delta: Vec3): boolean {
     if (this.selection.empty) return false;
-    const next = this.captureDragTargets().map((entry) => {
+    return this.applyDiscreteTransform('Rotate', () => {
+      const next = this.captureDragTargets().map((entry) => {
       if (entry.kind === 'instance') {
         const rotated = cloneTransform(entry.transform);
         rotated.rotation = [
@@ -666,10 +688,9 @@ export class SceneInteractionController {
       const pivot = this.selectionPivot() ?? new THREE.Vector3();
       const newWorld = rotateMatrixAroundPivot(world, quatFromRotation(delta), pivot);
       return { ...entry, volumeTransform: transformFromMatrix(instance.clone().invert().multiply(newWorld), entry.volumeTransform) };
+      });
+      this.applyTargetTransforms(next);
     });
-    this.applyTargetTransforms(next);
-    this.emit();
-    return true;
   }
 
   /** Multiply every selected instance's scale by `factor` (clamped > 0). */
@@ -680,9 +701,9 @@ export class SceneInteractionController {
     // Rigidly scale the whole selection about the aggregate pivot (offsets
     // displace too), so the selection stays visually centered while its size
     // changes — the same semantics as the size edit and the gizmo drag.
-    this.applyScaleDeltaToSnapshot(this.captureDragTargets(), pivot, factor, new THREE.Quaternion());
-    this.emit();
-    return true;
+    return this.applyDiscreteTransform('Scale', () => {
+      this.applyScaleDeltaToSnapshot(this.captureDragTargets(), pivot, factor, new THREE.Quaternion());
+    });
   }
 
   /** Scale the selection so its bounding-box `axis` size becomes `size` mm. */
@@ -710,22 +731,23 @@ export class SceneInteractionController {
   resetSelection(): boolean {
     const selected = this.selectedVolumes();
     if (selected.length === 0) return false;
-    const next = this.captureDragTargets().map((entry) => {
+    return this.applyDiscreteTransform('Reset', () => {
+      const next = this.captureDragTargets().map((entry) => {
       if (entry.kind === 'instance') {
         const volume = this.getVolumes().find((v) => instanceKeyOf(v) === entry.instanceKey);
         return { ...entry, transform: volume ? cloneTransform(volume.buffer.instanceTransform) : entry.transform };
       }
       return { ...entry, volumeTransform: cloneTransform(entry.volume.buffer.volumeTransform) };
+      });
+      this.applyTargetTransforms(next);
     });
-    this.applyTargetTransforms(next);
-    this.emit();
-    return true;
   }
 
   private beginDrag(kind: 'gizmo' | 'body'): boolean {
     const pivot = this.selectionPivot();
     if (!pivot) return false;
     this.pointerOwner = kind;
+    this.transformHistory?.begin(kind === 'body' ? 'Move' : (this.openGizmo === 'move' ? 'Move' : this.openGizmo === 'rotate' ? 'Rotate' : 'Scale'));
     this.drag = {
       kind,
       startPivot: pivot,
@@ -761,6 +783,48 @@ export class SceneInteractionController {
       entries.push({ kind: 'instance', instanceKey: key, transform: cloneTransform(volume.instanceTransform) });
     }
     return entries;
+  }
+
+  private applyDiscreteTransform(label: string, apply: () => void): boolean {
+    const before = this.captureDragTargets();
+    if (before.length === 0) return false;
+    this.transformHistory?.begin(label);
+    apply();
+    if (this.targetsEqual(before)) void this.transformHistory?.abort();
+    else void this.transformHistory?.commit();
+    this.emit();
+    return true;
+  }
+
+  private dragHasChanged(drag: DragSnapshot): boolean {
+    return !this.targetsEqual(drag.startTargets);
+  }
+
+  private targetsEqual(before: readonly DragTargetEntry[]): boolean {
+    const epsilon = 1e-9;
+    const equalTransform = (a: ModelTransform, b: ModelTransform): boolean => {
+      if (Boolean(a.matrix) !== Boolean(b.matrix)) return false;
+      const fields: (keyof ModelTransform)[] = ['offset', 'rotation', 'scale', 'mirror'];
+      for (const field of fields) {
+        const av = a[field] as readonly number[];
+        const bv = b[field] as readonly number[];
+        if (av.length !== bv.length || av.some((value, index) => Math.abs(value - bv[index]) > epsilon)) return false;
+      }
+      if (a.matrix && b.matrix && a.matrix.some((value, index) => Math.abs(value - b.matrix![index]) > epsilon)) return false;
+      return true;
+    };
+    for (const entry of before) {
+      if (entry.kind === 'instance') {
+        const current = this.getVolumes().find((volume) => instanceKeyOf(volume) === entry.instanceKey)?.instanceTransform;
+        if (!current || !equalTransform(entry.transform, current)) return false;
+      } else {
+        const current = this.getVolumes().find((volume) => volume === entry.volume ||
+          (volume.buffer.objectIdx === entry.volume.buffer.objectIdx && volume.buffer.volumeIdx === entry.volume.buffer.volumeIdx &&
+            volume.buffer.instanceIdx === entry.volume.buffer.instanceIdx))?.volumeTransform;
+        if (!current || !equalTransform(entry.volumeTransform, current)) return false;
+      }
+    }
+    return true;
   }
 
   private applyBoxSelection(start: BoxPoint, current: BoxPoint, additive: boolean): boolean {
@@ -879,7 +943,8 @@ export class SceneInteractionController {
   private restoreSelectionProperty(property: 'rotation' | 'scale'): boolean {
     const selected = this.selectedVolumes();
     if (selected.length === 0) return false;
-    const next = this.captureDragTargets().map((entry) => {
+    return this.applyDiscreteTransform(property === 'rotation' ? 'Reset Rotation' : 'Reset Scale', () => {
+      const next = this.captureDragTargets().map((entry) => {
       if (entry.kind === 'instance') {
         const volume = this.getVolumes().find((v) => instanceKeyOf(v) === entry.instanceKey);
         const transform = cloneTransform(entry.transform);
@@ -893,10 +958,9 @@ export class SceneInteractionController {
       transform[property] = [...entry.volume.buffer.volumeTransform[property]] as Vec3;
       if (transform.matrix) delete transform.matrix;
       return { ...entry, volumeTransform: transform };
+      });
+      this.applyTargetTransforms(next);
     });
-    this.applyTargetTransforms(next);
-    this.emit();
-    return true;
   }
 
   /** True world min-Z over the actual vertices of every selected instance. */

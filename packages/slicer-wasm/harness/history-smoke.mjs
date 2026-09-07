@@ -51,4 +51,61 @@ const restored = callJson('orc_get_model_structure', [], []);
 if (!restored.ok || restored.objects.length !== 2 || restored.objects[0].printable !== false ||
     restored.objects[1].printable !== true)
   throw new Error(`redo did not rebuild the one-object edit: ${JSON.stringify(restored)}`);
+
+// Transform history uses the same transaction boundary as the shared app.
+// Exercise each semantic transform category against the real bridge and
+// verify that Undo/Redo restores the exact native model version.
+function modelMesh() {
+  const result = callJson('orc_get_model_mesh', [], []);
+  if (!result.ok || !result.objects?.length) throw new Error(`mesh unavailable: ${JSON.stringify(result)}`);
+  return result.objects[0];
+}
+function cloneTransform(transform) {
+  return JSON.parse(JSON.stringify(transform));
+}
+function assertTransformEqual(actual, expected, label) {
+  for (const field of ['offset', 'rotation', 'scale', 'mirror']) {
+    const values = actual[field];
+    const target = expected[field];
+    if (!Array.isArray(values) || values.length !== target.length ||
+        values.some((value, index) => Math.abs(value - target[index]) > 1e-9))
+      throw new Error(`${label} ${field} mismatch: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`);
+  }
+}
+function commitTransform(label, transform) {
+  const started = callJson('orc_history_begin', ['string', 'string', 'string'],
+    [label, 'project', JSON.stringify(context)]);
+  if (!started.ok || typeof started.transactionId !== 'string') throw new Error(JSON.stringify(started));
+  const result = callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'],
+    [0, 0, 0, JSON.stringify(transform), JSON.stringify(modelMesh().volume_transform)]);
+  if (!result.ok) throw new Error(`${label} transform failed: ${JSON.stringify(result)}`);
+  const status = callJson('orc_history_commit', ['string', 'string'],
+    [started.transactionId, JSON.stringify(context)]);
+  if (!status.canUndo || status.canRedo) throw new Error(`${label} commit failed: ${JSON.stringify(status)}`);
+}
+const transformCases = [
+  ['Move', (transform) => ({ ...transform, offset: [transform.offset[0] + 5, transform.offset[1], transform.offset[2]] })],
+  ['Rotate', (transform) => ({ ...transform, rotation: [transform.rotation[0], transform.rotation[1], transform.rotation[2] + 0.25] })],
+  ['Scale', (transform) => ({ ...transform, scale: [transform.scale[0] * 1.25, transform.scale[1], transform.scale[2]] })],
+  ['Drop to Bed', (transform) => ({ ...transform, offset: [transform.offset[0], transform.offset[1], transform.offset[2] - 2] })],
+  ['Reset', (transform) => ({ ...transform, offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] })],
+];
+for (const [label, edit] of transformCases) {
+  const before = modelMesh();
+  const base = cloneTransform(before.instance_transform);
+  // Matrix is authoritative when present; the category checks intentionally
+  // exercise the bridge's TRS transform payload.
+  delete base.matrix;
+  const next = edit(base);
+  commitTransform(label, next);
+  const committedTransform = modelMesh().instance_transform;
+  assertTransformEqual(committedTransform, next, `${label} final transform`);
+  const undoneTransform = callJson('orc_history_undo', [], []);
+  if (!undoneTransform.ok) throw new Error(`${label} undo failed: ${JSON.stringify(undoneTransform)}`);
+  const restoredTransform = modelMesh().instance_transform;
+  assertTransformEqual(restoredTransform, before.instance_transform, `${label} undo`);
+  const redoneTransform = callJson('orc_history_redo', [], []);
+  if (!redoneTransform.ok) throw new Error(`${label} redo failed: ${JSON.stringify(redoneTransform)}`);
+  assertTransformEqual(modelMesh().instance_transform, next, `${label} redo`);
+}
 console.log(`history smoke passed (${moduleArg})`);

@@ -9,9 +9,35 @@ import { applyPlateSessionTransforms, syncModelTransforms } from './syncModelTra
 
 type SyncResult = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };
 
-// Mouse and numeric move commits deliberately serialize. This preserves the
-// exact state at each settled edit and lets Add Model wait for an in-flight
-// release commit instead of performing a late, second synchronization.
+/** Apply the renderer-side consequences of a settled transform write.
+ *
+ * Transform history uses the same boundary as the legacy settle helper, but
+ * commits through the Worker transaction before invoking this projection.
+ * Keeping the projection here ensures the defensive pre-slice synchronizer
+ * and history-backed edits invalidate derived output identically.
+ */
+export function applySettledTransformSyncResult(result: SyncResult): void {
+  if (!result.ok) return;
+  if (result.plateSession)
+    applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
+  const slicer = useSlicerStore.getState();
+  slicer.setStatus('idle');
+  slicer.setResultExported(false);
+  slicer.setError(null);
+  slicer.setLayers(0);
+  slicer.setProgress(0);
+  if (result.plateSession) {
+    const previousPlateSession = usePlateSessionStore.getState().snapshot;
+    usePlateSessionStore.getState().setSnapshot(result.plateSession);
+    applyPlateResultMutation(result.plateSession, previousPlateSession);
+    useProjectStore.getState().recordPlateMutation(result.plateSession);
+  }
+  else useProjectStore.getState().markDirty('model-transform');
+}
+
+// Legacy settle synchronization is retained for the defensive pre-slice
+// consistency check. User-facing transforms use TransformHistoryCoordinator,
+// which performs the one final write inside its Worker transaction.
 let pendingSettledTransformSync: Promise<SyncResult> = Promise.resolve({ ok: true });
 
 /** Queue a snapshot after a move has settled (mouse release or panel commit). */
@@ -27,23 +53,7 @@ export function persistSettledModelTransforms(runtime: SlicerRuntime): Promise<S
     // renderer — the stale toolpath preview is cleared (useSliceResult)
     // and export is disabled until re-slicing. On sync failure nothing
     // was applied, so the prior result stays valid.
-    if (result.ok) {
-      if (result.plateSession)
-        applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
-      const slicer = useSlicerStore.getState();
-      slicer.setStatus('idle');
-      slicer.setResultExported(false);
-      slicer.setError(null);
-      slicer.setLayers(0);
-      slicer.setProgress(0);
-      if (result.plateSession) {
-        const previousPlateSession = usePlateSessionStore.getState().snapshot;
-        usePlateSessionStore.getState().setSnapshot(result.plateSession);
-        applyPlateResultMutation(result.plateSession, previousPlateSession);
-        useProjectStore.getState().recordPlateMutation(result.plateSession);
-      }
-      else useProjectStore.getState().markDirty('model-transform');
-    }
+    applySettledTransformSyncResult(result);
     return result;
   });
   pendingSettledTransformSync = pendingSettledTransformSync.catch((error) => ({
