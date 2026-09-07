@@ -71,7 +71,7 @@ template <class Mutex>
 class unique_lock {
 public:
   unique_lock() = default;
-  explicit unique_lock(Mutex& m) : m_(&m) { m_->lock(); }
+  explicit unique_lock(Mutex& m) : m_(&m) { m_->lock(); owns_ = true; }
   unique_lock(const unique_lock&) = delete;
   unique_lock& operator=(const unique_lock&) = delete;
   ~unique_lock() { if (m_ != nullptr && owns_) { m_->unlock(); } }
