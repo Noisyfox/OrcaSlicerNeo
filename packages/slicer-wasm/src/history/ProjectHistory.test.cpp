@@ -25,12 +25,12 @@ static ModelState model(std::uint8_t value, std::size_t count = 1)
     return state;
 }
 
-static ModelState model_with_restore(std::uint8_t value, std::size_t restore_bytes)
+static ModelState model_with_native_state(std::uint8_t value, std::size_t native_bytes)
 {
     auto state = model(value);
-    auto native_restore = std::make_shared<Bytes>(restore_bytes, value);
-    state.restore_handle = std::static_pointer_cast<const void>(std::move(native_restore));
-    state.restore_bytes = restore_bytes;
+    state.mutable_objects.front().data = bytes(value, native_bytes);
+    state.immutable_meshes.push_back({
+        "mesh-shared", std::make_shared<const Bytes>(bytes(value, native_bytes)), {}, false});
     return state;
 }
 
@@ -105,19 +105,48 @@ int main()
 
     // Native adapter storage is admitted to the same accounting and
     // retention lifecycle as the compact record. Eviction must remove an
-    // entire restore frame, never leave a retained entry without its model.
+    // entire restore frame, never leave a retained entry without its model
+    // object or immutable mesh data.
     ProjectHistory native(640);
-    CHECK(native.commit("base", Category::Project, model_with_restore(1, 256), {}));
-    CHECK(native.commit("move", Category::Project, model_with_restore(2, 256), {}));
+    CHECK(native.commit("base", Category::Project, model_with_native_state(1, 256), {}));
+    CHECK(native.commit("move", Category::Project, model_with_native_state(2, 256), {}));
     CHECK(native.bytes_used() >= 512);
-    CHECK(native.commit("latest", Category::Project, model_with_restore(3, 256), {}));
+    CHECK(native.commit("latest", Category::Project, model_with_native_state(3, 256), {}));
     for (const auto& entry : native.entries()) {
         CHECK(native.jump(entry.id, restored));
-        CHECK(restored.model.restore_handle != nullptr);
-        CHECK(restored.model.restore_bytes == 256);
+        CHECK(!restored.model.mutable_objects.empty());
+        CHECK(!restored.model.immutable_meshes.empty());
+        CHECK(restored.model.immutable_meshes.front().resident != nullptr);
     }
     CHECK(native.undo(restored));
-    CHECK(restored.model.restore_handle != nullptr);
-    CHECK(restored.model.restore_bytes == 256);
+    CHECK(!restored.model.mutable_objects.empty());
+    CHECK(!restored.model.immutable_meshes.empty());
+
+    // Object versions are keyed independently: changing object 7 must not
+    // duplicate object 9 or the unchanged immutable mesh in the next entry.
+    auto shared_mesh = std::make_shared<const Bytes>(bytes(6, 64));
+    ModelState shared_base;
+    shared_base.mutable_objects.push_back({7, 10, bytes(1, 32)});
+    shared_base.mutable_objects.push_back({9, 20, bytes(2, 32)});
+    shared_base.immutable_meshes.push_back({"shared-native-mesh", shared_mesh, {}, false});
+    ModelState shared_edit = shared_base;
+    shared_edit.mutable_objects[0] = {7, 11, bytes(3, 32)};
+    ProjectHistory shared(4096);
+    CHECK(shared.commit("base", Category::Project, shared_base, {}));
+    CHECK(shared.commit("one object", Category::Project, shared_edit, {}));
+    CHECK(shared.object_intervals().size() == 3);
+    const auto has_interval = [&shared](ObjectID id, std::size_t begin, std::size_t end) {
+        for (const auto& interval : shared.object_intervals())
+            if (interval.id == id && interval.begin == begin && interval.end == end) return true;
+        return false;
+    };
+    CHECK(has_interval(7, 0, 1));
+    CHECK(has_interval(7, 1, 2));
+    CHECK(has_interval(9, 0, 2));
+    CHECK(shared.current().model.immutable_meshes.front().resident.get() == shared_mesh.get());
+    CHECK(shared.undo(restored));
+    CHECK(restored.model.immutable_meshes.front().resident.get() == shared_mesh.get());
+    CHECK(restored.model.mutable_objects[1].data == bytes(2, 32));
+
     return 0;
 }

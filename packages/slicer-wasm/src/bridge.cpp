@@ -28,11 +28,21 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <set>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#define CEREAL_FUTURE_EXPERIMENTAL
+#include <cereal/archives/adapters.hpp>
+#include <cereal/archives/binary.hpp>
+#include <cereal/types/map.hpp>
+#include <cereal/types/memory.hpp>
+#include <cereal/types/optional.hpp>
+#include <cereal/types/string.hpp>
+#include <cereal/types/vector.hpp>
 
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/BuildVolume.hpp"
@@ -67,6 +77,98 @@
 
 using namespace Slic3r;
 using nlohmann::json;
+
+// The native adapter uses the same archive boundary as Orca's object history:
+// mutable ModelObject records contain references to immutable meshes, while
+// mesh bytes are retained once by ProjectHistory's immutable data store.
+struct NeoHistoryArchiveContext {
+    std::map<const TriangleMesh*, std::string> output_mesh_keys;
+    std::map<std::string, std::shared_ptr<const TriangleMesh>> input_meshes;
+};
+using NeoHistoryOutputArchive = cereal::UserDataAdapter<NeoHistoryArchiveContext, cereal::BinaryOutputArchive>;
+using NeoHistoryInputArchive = cereal::UserDataAdapter<NeoHistoryArchiveContext, cereal::BinaryInputArchive>;
+
+namespace cereal {
+
+inline void save(BinaryOutputArchive& archive,
+                 const std::shared_ptr<const Slic3r::TriangleMesh>& mesh)
+{
+    if (!mesh) {
+        archive(std::string{});
+        return;
+    }
+    const auto& keys = cereal::get_user_data<NeoHistoryArchiveContext>(archive).output_mesh_keys;
+    const auto it = keys.find(mesh.get());
+    if (it == keys.end()) throw std::runtime_error("history mesh reference is unavailable");
+    archive(it->second);
+}
+
+inline void load(BinaryInputArchive& archive,
+                 std::shared_ptr<const Slic3r::TriangleMesh>& mesh)
+{
+    std::string key;
+    archive(key);
+    if (key.empty()) {
+        mesh.reset();
+        return;
+    }
+    const auto& meshes = cereal::get_user_data<NeoHistoryArchiveContext>(archive).input_meshes;
+    const auto it = meshes.find(key);
+    if (it == meshes.end()) throw std::runtime_error("history mesh data is unavailable");
+    mesh = it->second;
+}
+
+template<class T>
+inline void save(BinaryOutputArchive& archive, T* const& object)
+{
+    const bool present = object != nullptr;
+    archive(present);
+    if (present) archive(*object);
+}
+
+template<class T>
+inline void load(BinaryInputArchive& archive, T*& object)
+{
+    bool present = false;
+    archive(present);
+    object = present ? cereal::access::construct<T>() : nullptr;
+    if (object) archive(*object);
+}
+
+template<class T>
+inline void save_by_value(BinaryOutputArchive& archive, const T& value)
+{
+    archive(value);
+}
+
+template<class T>
+inline void load_by_value(BinaryInputArchive& archive, T& value)
+{
+    archive(value);
+}
+
+template<class T>
+inline void save_optional(BinaryOutputArchive& archive, const std::shared_ptr<const T>&)
+{
+    // Optional native caches such as convex hulls are deliberately omitted;
+    // ModelVolume::load() reconstructs them from the retained mesh.
+    archive(false);
+}
+
+template<class T>
+inline void load_optional(BinaryInputArchive& archive, std::shared_ptr<const T>& value)
+{
+    bool present = false;
+    archive(present);
+    if (present) archive(value);
+    else value.reset();
+}
+
+template <class Archive> struct specialize<Archive, Slic3r::ModelInstance*, specialization::non_member_load_save> {};
+template <class Archive> struct specialize<Archive, Slic3r::ModelVolume*, specialization::non_member_load_save> {};
+template <class Archive> struct specialize<Archive, std::shared_ptr<const Slic3r::TriangleMesh>, specialization::non_member_load_save> {};
+
+} // namespace cereal
 
 namespace {
 
@@ -107,7 +209,7 @@ struct BridgeState {
     Model       model;
     Print       print;
     // Step 2 history is deliberately Worker/WASM owned. ProjectHistory owns
-    // the retained native restore handles alongside each compact record.
+    // keyed mutable object versions and shared immutable mesh data.
     Neo::History::ProjectHistory history;
     struct HistoryTransaction {
         std::string id;
@@ -1755,74 +1857,89 @@ static json parse_history_context(const char* context_cstr)
     return context;
 }
 
-static Neo::History::Bytes history_model_bytes()
+static Neo::History::Bytes history_mesh_bytes(const TriangleMesh& mesh)
 {
-    // The fingerprint includes all structural identity, names/flags, and the
-    // complete instance/volume transforms used by current bridge mutations.
-    // Mesh payloads remain in the shared native Model snapshot rather than
-    // being copied through a 3MF archive on every edit.
-    json model = model_structure_json();
-    for (std::size_t oi = 0; oi < state().model.objects.size(); ++oi) {
-        const auto& object = state().model.objects[oi];
-        json instances = json::array();
-        for (const auto* instance : object->instances)
-            instances.push_back(session_transform_json(instance->get_transformation()));
-        json volumes = json::array();
-        for (const auto* volume : object->volumes)
-            volumes.push_back(session_transform_json(volume->get_transformation()));
-        if (oi < model.size()) {
-            model[oi]["instanceTransforms"] = std::move(instances);
-            model[oi]["volumeTransforms"] = std::move(volumes);
-        }
-    }
-    const std::string serialized = model.dump();
-    return Neo::History::Bytes(serialized.begin(), serialized.end());
+    std::ostringstream stream(std::ios::binary | std::ios::out);
+    cereal::BinaryOutputArchive archive(stream);
+    archive(mesh);
+    const std::string encoded = stream.str();
+    return Neo::History::Bytes(encoded.begin(), encoded.end());
 }
 
-static std::size_t history_model_restore_bytes()
+static std::string history_mesh_key(const Neo::History::Bytes& bytes)
 {
-    // This is intentionally conservative: the retained native Model owns
-    // shared mesh storage and allocator capacity that is not represented by
-    // the compact fingerprint. Admission must therefore charge enough for
-    // the full restore graph, even where the upstream model shares buffers.
-    std::size_t total = sizeof(Model);
-    const auto add = [&total](std::size_t amount) {
-        if (amount > std::numeric_limits<std::size_t>::max() - total)
-            total = std::numeric_limits<std::size_t>::max();
-        else
-            total += amount;
-    };
-    const auto add_product = [&add](std::size_t count, std::size_t size) {
-        if (count != 0 && size > std::numeric_limits<std::size_t>::max() / count)
-            add(std::numeric_limits<std::size_t>::max());
-        else
-            add(count * size);
-    };
-    for (const auto* object : state().model.objects) {
-        add(sizeof(*object));
-        add(object->name.capacity());
-        add(object->module_name.capacity());
-        add_product(object->instances.capacity(), sizeof(ModelInstance));
-        add_product(object->volumes.capacity(), sizeof(ModelVolume));
-        for (const auto* volume : object->volumes) {
-            add(sizeof(*volume));
-            add(volume->name.capacity());
-            const auto& mesh = volume->mesh();
-            add_product(mesh.its.vertices.capacity(), sizeof(mesh.its.vertices.front()));
-            add_product(mesh.its.indices.capacity(), sizeof(mesh.its.indices.front()));
-        }
+    std::uint64_t hash = 1469598103934665603ULL;
+    for (const auto byte : bytes) {
+        hash ^= byte;
+        hash *= 1099511628211ULL;
     }
-    return std::max<std::size_t>(total, sizeof(Model));
+    return std::string("mesh-") + std::to_string(hash) + "-" + std::to_string(bytes.size());
 }
 
 static Neo::History::ModelState history_model_state()
 {
-    auto snapshot = std::make_shared<Model>(state().model);
+    NeoHistoryArchiveContext archive_context;
+    std::map<std::string, Neo::History::Bytes> mesh_bytes;
+    for (const auto* object : state().model.objects) {
+        for (const auto* volume : object->volumes) {
+            const auto mesh = volume->get_mesh_shared_ptr();
+            if (!mesh) continue;
+            if (archive_context.output_mesh_keys.count(mesh.get())) continue;
+            auto bytes = history_mesh_bytes(*mesh);
+            const auto key = history_mesh_key(bytes);
+            archive_context.output_mesh_keys.emplace(mesh.get(), key);
+            mesh_bytes.emplace(key, std::move(bytes));
+        }
+    }
+
     Neo::History::ModelState result;
-    result.serialized = history_model_bytes();
-    result.restore_handle = std::static_pointer_cast<const void>(std::move(snapshot));
-    result.restore_bytes = history_model_restore_bytes();
+    // Restoration is driven entirely by ObjectID-keyed mutable records and
+    // shared immutable mesh records. No complete-model archive is retained as
+    // a per-entry equality or restore payload.
+    result.mutable_objects.reserve(state().model.objects.size());
+    for (const auto* object : state().model.objects) {
+        std::ostringstream stream(std::ios::binary | std::ios::out);
+        NeoHistoryOutputArchive archive(archive_context, stream);
+        archive(*object);
+        const std::string encoded = stream.str();
+        result.mutable_objects.push_back({
+            object->id().id, object->timestamp(),
+            Neo::History::Bytes(encoded.begin(), encoded.end())});
+    }
+    result.immutable_meshes.reserve(mesh_bytes.size());
+    for (auto& [key, bytes] : mesh_bytes)
+        result.immutable_meshes.push_back({std::move(key), std::make_shared<const Neo::History::Bytes>(std::move(bytes)), {}, false});
     return result;
+}
+
+static void restore_history_model(const Neo::History::RestoreState& restored)
+{
+    NeoHistoryArchiveContext archive_context;
+    for (const auto& mesh : restored.model.immutable_meshes) {
+        const auto& encoded = mesh.resident ? *mesh.resident : (mesh.deferred ? *mesh.deferred : Neo::History::Bytes{});
+        if (encoded.empty()) throw std::runtime_error("history mesh data is unavailable");
+        std::string bytes(encoded.begin(), encoded.end());
+        std::istringstream stream(bytes, std::ios::binary | std::ios::in);
+        auto native_mesh = std::make_shared<TriangleMesh>();
+        cereal::BinaryInputArchive archive(stream);
+        archive(*native_mesh);
+        archive_context.input_meshes.emplace(mesh.key, std::move(native_mesh));
+    }
+
+    // Deserialize into a transient model and let Model's copy assignment
+    // rebuild ModelObject-owned volume/instance links. The transient is not
+    // retained by history; ProjectHistory owns only the keyed byte versions.
+    Model rebuilt_model = state().model;
+    rebuilt_model.clear_objects();
+    for (const auto& object : restored.model.mutable_objects) {
+        if (object.data.empty()) throw std::runtime_error("history object data is unavailable");
+        std::string bytes(object.data.begin(), object.data.end());
+        std::istringstream stream(bytes, std::ios::binary | std::ios::in);
+        ModelObject* native_object = rebuilt_model.add_object();
+        NeoHistoryInputArchive archive(archive_context, stream);
+        archive(*native_object);
+    }
+    state().model = rebuilt_model;
 }
 
 static json history_status_json()
@@ -1862,12 +1979,7 @@ static json history_status_json()
 
 static json history_restore_result(const Neo::History::RestoreState& restored)
 {
-    if (!restored.model.restore_handle)
-        throw std::runtime_error("history model version is unavailable");
-    const auto* model = static_cast<const Model*>(restored.model.restore_handle.get());
-    if (!model)
-        throw std::runtime_error("history model version is unavailable");
-    state().model = *model;
+    restore_history_model(restored);
     state().print.clear();
     invalidate_preview_source();
     state().history_revision++;
@@ -1993,11 +2105,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             return error_json("history transaction is stale or belongs to another writer");
         const auto tx = *state().active_history_transaction;
         const auto& current = state().history.current();
-        if (!current.model.restore_handle)
-            return error_json("history model version is unavailable");
-        const auto* model = static_cast<const Model*>(current.model.restore_handle.get());
-        if (!model) return error_json("history model version is unavailable");
-        state().model = *model;
+        restore_history_model(current);
         state().print.clear();
         invalidate_preview_source();
         state().active_history_transaction.reset();

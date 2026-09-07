@@ -39,8 +39,6 @@ struct StoredState {
     std::vector<StoredMutable> mutable_objects;
     std::vector<StoredMesh> immutable_meshes;
     Bytes context;
-    std::shared_ptr<const void> restore_handle;
-    std::size_t restore_bytes { 0 };
 };
 
 struct StoredEntry {
@@ -84,8 +82,6 @@ struct ProjectHistory::Impl {
         state.serialized = previous && bytes_equal(previous->serialized, model.serialized)
             ? previous->serialized : make_blob(model.serialized);
         state.context = context;
-        state.restore_handle = model.restore_handle;
-        state.restore_bytes = model.restore_bytes;
 
         state.mutable_objects.reserve(model.mutable_objects.size());
         for (const auto& object : model.mutable_objects) {
@@ -136,8 +132,6 @@ struct ProjectHistory::Impl {
         model.immutable_meshes.reserve(state.immutable_meshes.size());
         for (const auto& mesh : state.immutable_meshes)
             model.immutable_meshes.push_back({ mesh.key, mesh.resident, mesh.deferred, mesh.optional });
-        model.restore_handle = state.restore_handle;
-        model.restore_bytes = state.restore_bytes;
         return model;
     }
 };
@@ -288,7 +282,6 @@ void ProjectHistory::set_byte_budget(std::size_t byte_budget)
 std::size_t ProjectHistory::bytes_used() const
 {
     std::set<const void*> seen;
-    std::map<const void*, std::size_t> restore_sizes;
     std::size_t total = 0;
     for (const auto& state : m_impl->states) {
         auto count = [&seen, &total](const Blob& blob) {
@@ -300,23 +293,6 @@ std::size_t ProjectHistory::bytes_used() const
         for (const auto& mesh : state.state.immutable_meshes) {
             count(mesh.resident);
             count(mesh.deferred);
-        }
-        // Native restore state is admitted through the same retained entry as
-        // the compact model record. Shared handles are counted once, while a
-        // missing handle with an explicit estimate remains conservatively
-        // accounted until the malformed adapter state is evicted.
-        if (state.state.restore_bytes > 0) {
-            if (!state.state.restore_handle) {
-                total += state.state.restore_bytes;
-            } else {
-                const auto [it, inserted] = restore_sizes.emplace(
-                    state.state.restore_handle.get(), state.state.restore_bytes);
-                if (inserted) total += state.state.restore_bytes;
-                else if (state.state.restore_bytes > it->second) {
-                    total += state.state.restore_bytes - it->second;
-                    it->second = state.state.restore_bytes;
-                }
-            }
         }
     }
     total += m_impl->states.size() * sizeof(StoredEntry);
