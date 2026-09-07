@@ -300,11 +300,20 @@ void ProjectHistory::release_least_recently_used()
     // budget is a retention target, not permission to discard its predecessor.
     if (m_impl->states.size() == 2 && bytes_used() > m_byte_budget) return;
     while (bytes_used() > m_byte_budget && m_impl->states.size() > 1) {
-        // Keep the current state and remove the oldest retained state.  If the
-        // current state is the oldest one, remove the oldest redo state instead.
-        // State zero is the baseline.  Once the current state is the first
-        // entry, promote it to the baseline; never evict the live state.
-        const std::size_t remove = m_cursor > 1 ? 1 : (m_cursor == 1 ? 0 : 1);
+        // Keep the live state and its direct predecessor.  The predecessor is
+        // the atomic operation's before-state: evicting it would make undo
+        // jump over the immediately preceding operation.  Among all other
+        // states, remove the oldest one, including redo states only when no
+        // older unprotected history remains.  The retained predecessor is
+        // naturally promoted to the baseline when index zero is removed.
+        const std::size_t predecessor = m_cursor > 0 ? m_cursor - 1 : m_cursor;
+        std::size_t remove = m_impl->states.size();
+        for (std::size_t index = 0; index < m_impl->states.size(); ++index) {
+            if (index == m_cursor || index == predecessor) continue;
+            remove = index;
+            break;
+        }
+        if (remove == m_impl->states.size()) break;
         if (m_saved_checkpoint == remove) {
             m_saved_checkpoint = static_cast<std::size_t>(-1);
             m_saved_checkpoint_evicted = true;

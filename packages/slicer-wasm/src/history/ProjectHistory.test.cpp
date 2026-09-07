@@ -74,12 +74,23 @@ int main()
     CHECK(oversized.can_undo());
     CHECK(oversized.undo(restored));
 
+    // When older history is evicted, the current oversized operation still
+    // undoes to its direct predecessor rather than skipping over it.
+    ProjectHistory recent(1);
+    CHECK(recent.commit("base", Category::Project, model(1), {}));
+    CHECK(recent.commit("move", Category::Project, model(2), {}));
+    CHECK(recent.commit("large", Category::Project, model(3, 512), {}));
+    CHECK(recent.can_undo());
+    CHECK(recent.undo(restored));
+    CHECK(restored.model.serialized == bytes(2));
+
     // Evicting the saved checkpoint conservatively reports dirty state.
     ProjectHistory checkpoint(1);
     checkpoint.commit("base", Category::Project, model(1, 4), {});
     checkpoint.commit("saved", Category::Project, model(2, 4), {});
     checkpoint.mark_current_as_saved();
-    checkpoint.commit("large", Category::Project, model(3, 4), {});
+    checkpoint.commit("move", Category::Project, model(3, 4), {});
+    checkpoint.commit("large", Category::Project, model(4, 4), {});
     CHECK(checkpoint.saved_checkpoint_evicted());
     CHECK(checkpoint.project_modified());
     return 0;
