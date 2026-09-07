@@ -198,6 +198,24 @@ describe('transactional project actions', () => {
     expect(useSettingsStore.getState().modelLoaded).toBe(true);
   });
 
+  it('uses Worker history dirty status as the lifecycle gate authority', async () => {
+    const { platform, runtime } = platformFor();
+    const status = {
+      canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0,
+      savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false, bytesUsed: 0,
+      byteBudget: 256 * 1024 * 1024, disabled: false, activeTransactionId: null, revision: 1,
+    } as const;
+    const getHistoryStatus = vi.fn(async () => status);
+    (runtime as unknown as { getHistoryStatus: typeof getHistoryStatus }).getHistoryStatus = getHistoryStatus;
+    const decideDirty = vi.fn(() => 'cancel' as const);
+    useProjectStore.getState().setProject({ dirty: true, hasContent: true });
+    const result = await newProject(platform, { decideDirty });
+    expect(result.status).toBe('ok');
+    expect(getHistoryStatus).toHaveBeenCalledOnce();
+    expect(decideDirty).not.toHaveBeenCalled();
+    expect(useProjectStore.getState().dirty).toBe(false);
+  });
+
   it('sorts a batch, asks only for the first 3MF, then appends every remainder', async () => {
     const { platform, runtime } = platformFor();
     const files = [

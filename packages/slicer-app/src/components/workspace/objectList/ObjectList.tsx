@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import type { ModelObjectStructure } from '@slicer/client';
+import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import type { HistoryContext, ModelObjectStructure } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import { renameObjectInList, renamePartInList } from './actions';
 import { reorderObjectsInList, reorderVolumesInList } from './structuralActions';
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { recordHistoryContext } from '../../../projectActions';
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 
@@ -66,6 +67,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const [ctx, setCtx] = useState<{ target: ObjectListCtxTarget } | null>(null);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [lastSelectedKey, setLastSelectedKey] = useState<string | null>(null);
+  const lastHistoryContextRef = useRef<string | null>(null);
+  const historyContextQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const flatRows = useMemo(() => buildSelectableRows(structure), [structure]);
   const objectGroups = useMemo(
     () => projectObjectGroups(structure, plateSession),
@@ -93,12 +96,30 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
 
   useEffect(() => {
     if (!sceneInteraction) return;
-    const update = () => setProjection(
-      projectSelection(structure, sceneInteraction.selectedVolumes().map((v) => v.buffer), highlightLevel),
-    );
+    const update = () => {
+      const nextProjection = projectSelection(structure, sceneInteraction.selectedVolumes().map((v) => v.buffer), highlightLevel);
+      setProjection(nextProjection);
+      const context: HistoryContext = {
+        selection: {
+          mode: sceneInteraction.selectionMode === 'volume' ? 'part' : sceneInteraction.selectionMode,
+          objectIds: [...nextProjection.objectIds].sort((a, b) => a - b),
+          partIds: [...nextProjection.volumeIds].sort((a, b) => a - b),
+          instanceIds: [...nextProjection.instanceIds].sort((a, b) => a - b),
+        },
+        activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
+        gizmo: sceneInteraction.gizmo ? { type: sceneInteraction.gizmo } : null,
+        projectConfigOverlay: {},
+      };
+      const encoded = JSON.stringify(context);
+      if (encoded === lastHistoryContextRef.current) return;
+      lastHistoryContextRef.current = encoded;
+      historyContextQueueRef.current = historyContextQueueRef.current
+        .then(() => recordHistoryContext(platform, 'Selection', context))
+        .catch((error) => { console.warn('selection history context unavailable', error); });
+    };
     update();
     return sceneInteraction.subscribe(update);
-  }, [sceneInteraction, structure, highlightLevel, setProjection]);
+  }, [platform, sceneInteraction, structure, highlightLevel, setProjection]);
 
   function openContextMenu(event: ReactMouseEvent, target: ObjectListCtxTarget) {
     event.preventDefault();

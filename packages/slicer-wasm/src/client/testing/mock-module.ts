@@ -392,6 +392,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyCursor = historyEntries.length - 1;
     historyRevision++;
   }
+  function recordHistoryContext(label: string, context: any): void {
+    if (historyTransaction) throw new Error('history transaction is active');
+    if (historyEntries.length === 0) {
+      historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(context) });
+      historyCursor = 0;
+      savedHistoryCursor = 0;
+    }
+    const previous = historyEntries[historyCursor];
+    if (JSON.stringify(previous.context) === JSON.stringify(context)) return;
+    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
+      savedHistoryCheckpointEvicted = true;
+    historyEntries.splice(historyCursor + 1);
+    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
+      label, category: 'context', context: clone(context) });
+    historyCursor = historyEntries.length - 1;
+    historyRevision++;
+  }
 
   function plateStride(): number {
     const area = presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area;
@@ -815,6 +832,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         savedHistoryCursor = historyCursor;
         savedHistoryCheckpointEvicted = false;
       }
+      return historyStatus();
+    },
+    orc_history_record_context(label: string, contextJson: string) {
+      if (!label) return { error: 'history label is required' };
+      let context: any;
+      try { context = JSON.parse(contextJson); validateHistoryContext(context); recordHistoryContext(label, context); }
+      catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
       return historyStatus();
     },
     orc_history_reset(contextJson: string) {
@@ -1573,6 +1597,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_jump: { ret: 'number', args: ['string'] },
     orc_history_status: { ret: 'number', args: [] },
     orc_history_mark_saved: { ret: 'number', args: ['string'] },
+    orc_history_record_context: { ret: 'number', args: ['string', 'string'] },
     orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },

@@ -339,6 +339,11 @@ export function createClient(
     return normalizeHistoryStatus(callJson(m, 'orc_history_mark_saved', ['string'], [context ? JSON.stringify(context) : '']));
   }
 
+  async function recordHistoryContext(label: HistoryLabel, context: HistoryContext): Promise<HistoryStatus> {
+    const m = await module();
+    return normalizeHistoryStatus(callJson(m, 'orc_history_record_context', ['string', 'string'], [label, JSON.stringify(context)]));
+  }
+
   async function resetHistory(context: HistoryContext): Promise<HistoryStatus> {
     const m = await module();
     return normalizeHistoryStatus(callJson(m, 'orc_history_reset', ['string'], [JSON.stringify(context)]));
@@ -398,6 +403,7 @@ export function createClient(
     jumpHistory,
     getHistoryStatus,
     markHistorySaved,
+    recordHistoryContext,
     resetHistory,
     runProjectHistoryTransaction,
 

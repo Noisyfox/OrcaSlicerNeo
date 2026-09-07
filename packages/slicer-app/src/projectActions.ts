@@ -27,7 +27,7 @@ export interface ProjectActionOptions {
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
 type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel'> &
-  Partial<Pick<SlicerClient, 'markHistorySaved' | 'resetHistory'>>;
+  Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'>>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -53,13 +53,47 @@ function projectedHistoryContext(): HistoryContext {
     projectConfigOverlay: {},
   };
 }
+function syncHistoryStatus(status: HistoryStatus | null, clearLegacyReasons = true): HistoryStatus | null {
+  if (status) useProjectStore.getState().setProject({
+    dirty: status.dirty,
+    ...(clearLegacyReasons ? { dirtyReasons: [] } : {}),
+  });
+  return status;
+}
+async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus | null> {
+  if (!runtime.getHistoryStatus) return null;
+  try { return syncHistoryStatus(await runtime.getHistoryStatus(), false); }
+  catch (error) { console.warn('history status unavailable; using legacy dirty projection', error); return null; }
+}
+/** Read the Worker checkpoint state for lifecycle guards. The Zustand field is
+ * only a synchronous UI projection and remains the compatibility fallback for
+ * runtimes predating the history protocol. */
+export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
+  const projectedBeforeQuery = useProjectStore.getState();
+  const status = await currentHistoryStatus(runtimeOf(platform));
+  if (!status) return useProjectStore.getState().dirty;
+  // Ordinary editing commands are not all history-wrapped yet. Preserve their
+  // existing lifecycle protection until those commands begin committing Worker
+  // project entries; history-backed saves/resets clear this compatibility
+  // projection, and context-only records never populate dirtyReasons.
+  return status.dirty || projectedBeforeQuery.dirtyReasons.length > 0;
+}
 async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus | null> {
   if (!runtime.markHistorySaved) return null;
-  return runtime.markHistorySaved(projectedHistoryContext());
+  return syncHistoryStatus(await runtime.markHistorySaved(projectedHistoryContext()));
 }
 async function resetHistory(runtime: Runtime): Promise<HistoryStatus | null> {
   if (!runtime.resetHistory) return null;
-  return runtime.resetHistory(projectedHistoryContext());
+  return syncHistoryStatus(await runtime.resetHistory(projectedHistoryContext()));
+}
+export async function recordHistoryContext(
+  platform: PlatformCapabilities,
+  label: string,
+  context: HistoryContext,
+): Promise<HistoryStatus | null> {
+  const runtime = runtimeOf(platform);
+  if (!runtime.recordHistoryContext) return null;
+  return syncHistoryStatus(await runtime.recordHistoryContext(label, context), false);
 }
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
   if (!selections) return;
@@ -73,7 +107,7 @@ async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetS
   if (resolved?.ok) useSettingsStore.getState().hydratePresetSnapshot(resolved);
 }
 async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 'open', input: ProjectInput | undefined, options: ProjectActionOptions): Promise<ProjectActionResult | null> {
-  if (!useProjectStore.getState().dirty) return null;
+  if (!await projectDirtyStatus(platform)) return null;
   setOperation('waiting-for-dirty-decision');
   const decision = await options.decideDirty?.(operationName, input) ?? 'cancel';
   if (decision === 'cancel') { setOperation('cancelled'); return { status: 'cancelled' }; }

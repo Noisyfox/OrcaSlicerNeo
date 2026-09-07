@@ -26,7 +26,7 @@ import {
   ProjectPreferencesDialog,
   ProjectProgressDialog,
 } from './components/project/ProjectDialogs';
-import { cancelProjectOperation, newProject, openProject, saveProject, saveProjectAs } from './projectActions';
+import { cancelProjectOperation, newProject, openProject, projectDirtyStatus, saveProject, saveProjectAs } from './projectActions';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 import { registerProjectDropHandlers } from './dropHandling';
@@ -145,7 +145,7 @@ export default function App() {
   }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
     let allow = true;
-    if (useProjectStore.getState().dirty) {
+    if (await projectDirtyStatus(platform)) {
       const decision = await decideDirty('close');
       if (decision === 'cancel') allow = false;
       else if (decision === 'save') {

@@ -1952,25 +1952,20 @@ static json default_history_context()
     };
 }
 
-// Selection and active-plate changes are internal context records.  The
-// renderer can later provide the full projected context through the normal
-// transaction API; this bridge helper covers the Worker-owned active-plate
-// change and deliberately never records while a project transaction is open.
-static void record_active_plate_context()
+// Selection and active-plate changes are internal context records. They carry
+// no model mutation and are deliberately invisible to ordinary project
+// traversal, while a new context record still truncates a redo branch.
+static void record_history_context(const std::string& label, const json& requested)
 {
     if (state().active_history_transaction) return;
-    json context = default_history_context();
+    json context = requested;
     if (!state().history.entries().empty()) {
-        try {
-            const auto& current = state().history.current();
-            context = json::parse(std::string(current.context.begin(), current.context.end()));
-        } catch (...) {
-            context = default_history_context();
-        }
-        context["activePlateId"] = state().current_plate_id.empty()
-            ? json(nullptr) : json(state().current_plate_id);
+        // The renderer sends the complete projected context. Keeping this
+        // replacement explicit prevents stale selection fields when only the
+        // active plate changes.
     } else {
-        const std::string encoded = context.dump();
+        const json baseline = default_history_context();
+        const std::string encoded = baseline.dump();
         const Neo::History::Bytes context_bytes(encoded.begin(), encoded.end());
         state().history.commit("", Neo::History::Category::Project,
                                history_model_state(), context_bytes);
@@ -1978,9 +1973,23 @@ static void record_active_plate_context()
     }
     const std::string encoded = context.dump();
     const Neo::History::Bytes context_bytes(encoded.begin(), encoded.end());
-    if (state().history.commit("Active Plate", Neo::History::Category::Context,
+    if (state().history.commit(label, Neo::History::Category::Context,
                                history_model_state(), context_bytes))
         state().history_revision++;
+}
+
+static void record_active_plate_context()
+{
+    json context = default_history_context();
+    if (!state().history.entries().empty()) {
+        try {
+            const auto& current = state().history.current();
+            context = json::parse(std::string(current.context.begin(), current.context.end()));
+        } catch (...) { context = default_history_context(); }
+    }
+    context["activePlateId"] = state().current_plate_id.empty()
+        ? json(nullptr) : json(state().current_plate_id);
+    record_history_context("Active Plate", context);
 }
 
 static json history_status_json()
@@ -2238,6 +2247,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_mark_saved(const char* context_cstr
                 return error_json("could not establish history baseline");
         }
         state().history.mark_current_as_saved();
+        return dup_json(history_status_json().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_record_context(const char* label_cstr,
+                                                            const char* context_cstr) {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        if (state().active_history_transaction)
+            return error_json("history transaction is active");
+        const std::string label = label_cstr ? label_cstr : "";
+        if (label.empty()) return error_json("history label is required");
+        const json context = parse_history_context(context_cstr);
+        record_history_context(label, context);
         return dup_json(history_status_json().dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }

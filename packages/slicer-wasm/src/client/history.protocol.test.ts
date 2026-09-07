@@ -88,4 +88,39 @@ describe('Worker-owned project history protocol', () => {
     expect(reset.canRedo).toBe(false);
     expect(reset.dirty).toBe(false);
   });
+
+  it('restores complete selection context and truncates redo after a new context record', async () => {
+    const client = createClient(async () => createMockModule());
+    const before = context('plate-1');
+    const selected: HistoryContext = {
+      selection: { mode: 'part', objectIds: [11], partIds: [22], instanceIds: [33] },
+      activePlateId: 'plate-1', gizmo: { type: 'move' }, projectConfigOverlay: {},
+    };
+    await client.runProjectHistoryTransaction('Add Cube', 'project', before,
+      async () => client.addShape('Cube'), selected);
+    await client.markHistorySaved(selected);
+    const changed = await client.recordHistoryContext('Selection', {
+      ...selected,
+      selection: { ...selected.selection, partIds: [23] },
+    });
+    expect(changed.dirty).toBe(false);
+    expect(changed.undoEntries).toHaveLength(1);
+    const undone = await client.undoHistory();
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) throw new Error('missing restore');
+    expect(undone.context.selection.partIds).toEqual([22]);
+    expect(undone.context.activePlateId).toBe('plate-1');
+    const contextRestored = await client.jumpHistory('entry-2');
+    expect(contextRestored.ok).toBe(true);
+    if (!contextRestored.ok) throw new Error('missing context restore');
+    expect(contextRestored.context.selection.partIds).toEqual([23]);
+    const afterUndo = await client.undoHistory();
+    expect(afterUndo.ok).toBe(true);
+    const truncated = await client.recordHistoryContext('Selection', {
+      ...selected,
+      selection: { ...selected.selection, objectIds: [99] },
+    });
+    expect(truncated.canRedo).toBe(false);
+    expect(truncated.dirty).toBe(false);
+  });
 });

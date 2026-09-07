@@ -143,6 +143,8 @@ export interface HistoryRuntimeMethods {
   jumpHistory: (entryId: HistoryEntryId) => Promise<RestoreResult>;
   /** Advance the saved checkpoint without releasing history frames. */
   markHistorySaved: (context?: HistoryContext) => Promise<HistoryStatus>;
+  /** Record a renderer-projected selection/plate context without a model edit. */
+  recordHistoryContext: (label: HistoryLabel, context: HistoryContext) => Promise<HistoryStatus>;
   /** Replace the project session with a clean, one-frame history baseline. */
   resetHistory: (context: HistoryContext) => Promise<HistoryStatus>;
 }
