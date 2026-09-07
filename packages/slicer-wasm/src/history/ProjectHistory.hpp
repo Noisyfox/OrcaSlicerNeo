@@ -107,6 +107,7 @@ public:
     bool prepare_undo(RestorePlan& result) const;
     bool prepare_redo(RestorePlan& result) const;
     bool prepare_jump(std::uint64_t entry_id, RestorePlan& result) const;
+    bool can_commit_restore(const RestorePlan& plan) const;
     bool commit_restore(const RestorePlan& plan);
 
     // Standard navigation deliberately skips internal context records.  The

@@ -2041,6 +2041,11 @@ static json history_restore_result(const Neo::History::RestorePlan& plan)
     const auto context = json::parse(std::string(plan.state.context.begin(), plan.state.context.end()));
     const json validated_context = parse_history_context(context.dump().c_str());
     Model staged_model = stage_history_model(plan.state);
+    // Check the cursor fence before replacing the live model.  The Worker is
+    // serialized, but keeping this preflight makes a stale plan failure
+    // atomic even if another writer is introduced later.
+    if (!state().history.can_commit_restore(plan))
+        throw std::runtime_error("history restore became stale");
     state().model = std::move(staged_model);
     if (!state().history.commit_restore(plan))
         throw std::runtime_error("history restore became stale");

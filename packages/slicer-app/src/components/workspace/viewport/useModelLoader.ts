@@ -16,7 +16,7 @@ export function useModelLoader(): LoadedObject[] {
     let disposed = false;
     const requestedRevision = modelRevision;
     if (!modelLoaded) {
-      glVolumeCollection.clear();
+      glVolumeCollection.clear(requestedRevision);
       setObjects([]);
       return;
     }

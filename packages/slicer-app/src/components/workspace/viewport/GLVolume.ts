@@ -77,5 +77,5 @@ export const glVolumeCollection = {
     this.volumes = volumes;
     this.revision = revision ?? glVolumeCollection.revision + 1;
   },
-  clear() { this.replace([]); },
+  clear(revision?: number) { this.replace([], revision); },
 };

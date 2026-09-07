@@ -257,11 +257,16 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
 
 bool ProjectHistory::commit_restore(const RestorePlan& plan)
 {
-    if (plan.from_cursor != m_cursor || plan.target_cursor >= m_impl->states.size()) return false;
-    const auto& target = m_impl->states[plan.target_cursor];
-    if (target.info.id != plan.state.entry.id) return false;
+    if (!can_commit_restore(plan)) return false;
     m_cursor = plan.target_cursor;
     return true;
+}
+
+bool ProjectHistory::can_commit_restore(const RestorePlan& plan) const
+{
+    if (plan.from_cursor != m_cursor || plan.target_cursor >= m_impl->states.size()) return false;
+    const auto& target = m_impl->states[plan.target_cursor];
+    return target.info.id == plan.state.entry.id;
 }
 
 bool ProjectHistory::can_undo() const

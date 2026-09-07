@@ -27,6 +27,7 @@ import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { PreviewPlateList } from './PreviewPlateList';
 import { selectPlateSessionAndClearSelection } from './plateSessionActions';
 import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
+import { isHistoryContextProjectionReady, type PendingHistoryContext } from '../../history/historyContextProjection';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -65,6 +66,7 @@ export function Workspace({
   const plateSession = usePlateSessionStore((s) => s.snapshot);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
+  const modelRevision = useSettingsStore((s) => s.modelRevision);
   const glVolumes = useModelLoader();
   const sliceResult = useSliceResult();
   // Workspace is kept mounted by AppShell. Keep the controller here, beside
@@ -96,7 +98,8 @@ export function Workspace({
   }
   const sliceCoordinator = sliceCoordinatorRef.current;
   const historyRestoreRef = useRef<HistoryRestoreCoordinator | null>(null);
-  const pendingHistoryContextRef = useRef<{ context: import('@slicer/client').HistoryContext; revision: number } | null>(null);
+  const pendingHistoryContextRef = useRef<PendingHistoryContext | null>(null);
+  const projectionInFlightRef = useRef<number | null>(null);
   if (!historyRestoreRef.current) {
     historyRestoreRef.current = createHistoryRestoreCoordinator({
       runtime: platform.runtime,
@@ -110,29 +113,48 @@ export function Workspace({
         // the loader's modelLoaded gate aligned with the Worker model before
         // its revision-fenced mesh request runs.
         useSettingsStore.getState().setModelLoaded(structure.objects.length > 0);
-        pendingHistoryContextRef.current = { context, revision };
+        const modelRevision = useSettingsStore.getState().modelRevision;
+        pendingHistoryContextRef.current = {
+          context,
+          historyRevision: revision,
+          modelRevision,
+          expectedObjectCount: structure.objects.length,
+        };
         const session = usePlateSessionStore.getState().snapshot;
         if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
           usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
-        // Apply once the mesh loader has replaced renderer objects.  The
-        // viewport's normal replacement effect clears stale selection first.
-        if (glVolumeCollection.volumes.length > 0)
-          sceneInteraction.restoreHistoryContext(context, structure);
-        else
-          pendingHistoryContextRef.current = null;
       },
     });
   }
   const historyRestore = historyRestoreRef.current;
   useEffect(() => {
     const pending = pendingHistoryContextRef.current;
-    if (!pending || glVolumes.length === 0 || historyRestore.currentRevision() !== pending.revision) return;
-    pendingHistoryContextRef.current = null;
+    if (!pending) return;
+    if (!isHistoryContextProjectionReady(
+      pending,
+      historyRestore.currentRevision(),
+      modelRevision,
+      glVolumeCollection.revision,
+      glVolumes.length,
+    ) || projectionInFlightRef.current === pending.historyRevision) return;
+    projectionInFlightRef.current = pending.historyRevision;
     void platform.runtime.getModelStructure().then((structure) => {
-      if (structure.ok && historyRestore.currentRevision() === pending.revision)
+      const current = pendingHistoryContextRef.current;
+      if (structure.ok && current === pending && isHistoryContextProjectionReady(
+        current,
+        historyRestore.currentRevision(),
+        modelRevision,
+        glVolumeCollection.revision,
+        glVolumes.length,
+      )) {
+        pendingHistoryContextRef.current = null;
         sceneInteraction.restoreHistoryContext(pending.context, structure);
-    }).catch(() => undefined);
-  }, [glVolumes, historyRestore, platform.runtime, sceneInteraction]);
+      }
+    }).catch(() => undefined).finally(() => {
+      if (projectionInFlightRef.current === pending.historyRevision)
+        projectionInFlightRef.current = null;
+    });
+  }, [glVolumes, historyRestore, modelRevision, platform.runtime, sceneInteraction]);
   const [previewRenderPending, setPreviewRenderPending] = useState(false);
   const [previewPlateSelectionPending, setPreviewPlateSelectionPending] = useState(false);
   const previewFrameTokenRef = useRef(0);

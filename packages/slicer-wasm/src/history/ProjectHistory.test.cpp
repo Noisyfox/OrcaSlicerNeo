@@ -61,6 +61,10 @@ int main()
     CHECK(restore_commit.prepare_undo(committed));
     CHECK(restore_commit.commit_restore(committed));
     CHECK(restore_commit.cursor() == committed.target_cursor);
+    RestorePlan stale = committed;
+    stale.from_cursor = 123;
+    CHECK(!restore_commit.commit_restore(stale));
+    CHECK(restore_commit.cursor() == committed.target_cursor);
     CHECK(!restore_commit.commit_restore(committed));
 
     RestoreState restored;
