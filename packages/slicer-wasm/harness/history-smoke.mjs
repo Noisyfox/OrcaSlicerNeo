@@ -23,6 +23,8 @@ const added = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'History 
 if (!added.ok) throw new Error(JSON.stringify(added));
 const committed = callJson('orc_history_commit', ['string', 'string'], [tx.transactionId, JSON.stringify(context)]);
 if (!committed.canUndo) throw new Error(`commit did not enable undo: ${JSON.stringify(committed)}`);
+if (!Number.isFinite(committed.bytesUsed) || committed.bytesUsed <= 512)
+  throw new Error(`history accounting omitted native restore storage: ${JSON.stringify(committed)}`);
 const undone = callJson('orc_history_undo', [], []);
 if (!undone.ok || undone.status.canRedo !== true) throw new Error(`undo failed: ${JSON.stringify(undone)}`);
 const empty = callJson('orc_get_model_structure', [], []);

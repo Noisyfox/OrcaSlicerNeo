@@ -106,17 +106,14 @@ struct BridgeState {
     PresetBundle presets;
     Model       model;
     Print       print;
-    // Step 2 history is deliberately Worker/WASM owned.  The headless core
-    // stores the authoritative byte/context record; these model copies are a
-    // native restore adapter and are never exported as 3MF archives.
+    // Step 2 history is deliberately Worker/WASM owned. ProjectHistory owns
+    // the retained native restore handles alongside each compact record.
     Neo::History::ProjectHistory history;
-    std::map<std::uint64_t, std::shared_ptr<Model>> history_models;
     struct HistoryTransaction {
         std::string id;
         std::string label;
         Neo::History::Category category { Neo::History::Category::Project };
         json before_context;
-        std::shared_ptr<Model> before_model;
     };
     std::optional<HistoryTransaction> active_history_transaction;
     std::uint64_t next_history_transaction_id = 1;
@@ -1782,6 +1779,52 @@ static Neo::History::Bytes history_model_bytes()
     return Neo::History::Bytes(serialized.begin(), serialized.end());
 }
 
+static std::size_t history_model_restore_bytes()
+{
+    // This is intentionally conservative: the retained native Model owns
+    // shared mesh storage and allocator capacity that is not represented by
+    // the compact fingerprint. Admission must therefore charge enough for
+    // the full restore graph, even where the upstream model shares buffers.
+    std::size_t total = sizeof(Model);
+    const auto add = [&total](std::size_t amount) {
+        if (amount > std::numeric_limits<std::size_t>::max() - total)
+            total = std::numeric_limits<std::size_t>::max();
+        else
+            total += amount;
+    };
+    const auto add_product = [&add](std::size_t count, std::size_t size) {
+        if (count != 0 && size > std::numeric_limits<std::size_t>::max() / count)
+            add(std::numeric_limits<std::size_t>::max());
+        else
+            add(count * size);
+    };
+    for (const auto* object : state().model.objects) {
+        add(sizeof(*object));
+        add(object->name.capacity());
+        add(object->module_name.capacity());
+        add_product(object->instances.capacity(), sizeof(ModelInstance));
+        add_product(object->volumes.capacity(), sizeof(ModelVolume));
+        for (const auto* volume : object->volumes) {
+            add(sizeof(*volume));
+            add(volume->name.capacity());
+            const auto& mesh = volume->mesh();
+            add_product(mesh.its.vertices.capacity(), sizeof(mesh.its.vertices.front()));
+            add_product(mesh.its.indices.capacity(), sizeof(mesh.its.indices.front()));
+        }
+    }
+    return std::max<std::size_t>(total, sizeof(Model));
+}
+
+static Neo::History::ModelState history_model_state()
+{
+    auto snapshot = std::make_shared<Model>(state().model);
+    Neo::History::ModelState result;
+    result.serialized = history_model_bytes();
+    result.restore_handle = std::static_pointer_cast<const void>(std::move(snapshot));
+    result.restore_bytes = history_model_restore_bytes();
+    return result;
+}
+
 static json history_status_json()
 {
     const auto entries = state().history.entries();
@@ -1817,23 +1860,14 @@ static json history_status_json()
     };
 }
 
-static void synchronize_history_models()
-{
-    const auto entries = state().history.entries();
-    std::set<std::uint64_t> retained;
-    for (const auto& entry : entries) retained.insert(entry.id);
-    for (auto it = state().history_models.begin(); it != state().history_models.end();) {
-        if (!retained.count(it->first)) it = state().history_models.erase(it);
-        else ++it;
-    }
-}
-
 static json history_restore_result(const Neo::History::RestoreState& restored)
 {
-    const auto it = state().history_models.find(restored.entry.id);
-    if (it == state().history_models.end() || !it->second)
+    if (!restored.model.restore_handle)
         throw std::runtime_error("history model version is unavailable");
-    state().model = *it->second;
+    const auto* model = static_cast<const Model*>(restored.model.restore_handle.get());
+    if (!model)
+        throw std::runtime_error("history model version is unavailable");
+    state().model = *model;
     state().print.clear();
     invalidate_preview_source();
     state().history_revision++;
@@ -1867,7 +1901,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         const char* result = init_with_app_config(json::object());
         reset_plate_session_state();
         state().history.clear();
-        state().history_models.clear();
         state().active_history_transaction.reset();
         state().history_disabled = false;
         state().history_revision++;
@@ -1893,8 +1926,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
 
 // ---- Worker-owned project history transaction protocol ------------------
 // These calls are intentionally independent of 3MF persistence.  The core
-// tracks compact fingerprints/context bytes and the bridge keeps native Model
-// copies for atomic in-memory restoration.
+// tracks compact fingerprints/context bytes and retains native restore state
+// through the same budgeted ProjectHistory entries.
 EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr,
                                                    const char* category_cstr,
                                                    const char* before_context_cstr) {
@@ -1909,17 +1942,15 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr,
             return error_json("history category must be project or context");
         const json before_context = parse_history_context(before_context_cstr);
         if (state().history.entries().empty()) {
-            const auto model_bytes = history_model_bytes();
             const std::string context_text = before_context.dump();
             state().history.commit("", Neo::History::Category::Project,
-                                   Neo::History::ModelState{model_bytes},
+                                   history_model_state(),
                                    Neo::History::Bytes(context_text.begin(), context_text.end()));
-            state().history_models[0] = std::make_shared<Model>(state().model);
         }
         const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
         state().active_history_transaction = BridgeState::HistoryTransaction{
             id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
-            before_context, std::make_shared<Model>(state().model)};
+            before_context};
         return dup_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1938,18 +1969,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         if (requested != state().active_history_transaction->id)
             return error_json("history transaction is stale or belongs to another writer");
         const json after_context = parse_history_context(after_context_cstr);
-        const auto model_bytes = history_model_bytes();
         const auto tx = *state().active_history_transaction;
         const std::string context_text = after_context.dump();
         const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
         const bool changed = state().history.commit(tx.label, tx.category,
-                                                     Neo::History::ModelState{model_bytes}, context_bytes);
-        if (changed) {
-            const auto entry_id = state().history.current().entry.id;
-            state().history_models[entry_id] = std::make_shared<Model>(state().model);
-            synchronize_history_models();
-            state().history_revision++;
-        }
+                                                     history_model_state(), context_bytes);
+        if (changed) state().history_revision++;
         state().active_history_transaction.reset();
         return dup_json(history_status_json().dump());
     } catch (const std::exception& e) {
@@ -1967,7 +1992,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
         if (requested != state().active_history_transaction->id)
             return error_json("history transaction is stale or belongs to another writer");
         const auto tx = *state().active_history_transaction;
-        if (tx.before_model) state().model = *tx.before_model;
+        const auto& current = state().history.current();
+        if (!current.model.restore_handle)
+            return error_json("history model version is unavailable");
+        const auto* model = static_cast<const Model*>(current.model.restore_handle.get());
+        if (!model) return error_json("history model version is unavailable");
+        state().model = *model;
         state().print.clear();
         invalidate_preview_source();
         state().active_history_transaction.reset();

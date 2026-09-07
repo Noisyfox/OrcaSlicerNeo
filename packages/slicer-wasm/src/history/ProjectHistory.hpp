@@ -41,6 +41,11 @@ struct ModelState {
     Bytes serialized;
     std::vector<MutableObject> mutable_objects;
     std::vector<ImmutableMesh> immutable_meshes;
+    // Adapter-owned native restore state. ProjectHistory retains and accounts
+    // for this handle with the entry; eviction destroys it with the entry so
+    // a retained entry can never outlive its restore data.
+    std::shared_ptr<const void> restore_handle;
+    std::size_t restore_bytes { 0 };
 };
 
 enum class Category : std::uint8_t { Project, Context };
