@@ -1,7 +1,7 @@
 # Undo and Redo
 
 **Date:** 2026-09-07
-**Status:** Design in progress — restore reliability and command-coverage decisions accepted
+**Status:** Design in progress — Worker authority, transform, and configuration decisions accepted
 **Branch:** `dev/undo-redo-design`
 
 ## 1. Goal
@@ -97,6 +97,12 @@ Undo/Redo therefore never rewrites global preferences. When a restored project
 requires a compatible printing technology, normal preset compatibility/loading
 may run, but this is not an attempt to restore a historical global preset.
 
+Project-owned overrides are canonical Worker `ProjectConfigOverlay` state,
+scoped to the project, object, part, or plate as applicable. They are validated
+against the selected base preset, participate in slicing and supported 3MF
+project persistence, and are restored by history. A system preset switch
+changes the base configuration but does not discard a valid project overlay.
+
 ## 5. History Granularity
 
 History is transactional and semantic, matching upstream interaction behaviour:
@@ -164,11 +170,25 @@ that release. This is stricter than native Orca's distributed manual
 `take_snapshot()` call sites and prevents incomplete Undo/Redo coverage as the
 shared application grows.
 
+### 5.4 Setting-edit commit boundaries
+
+Text and numeric controls keep an uncommitted local draft. Enter or focus loss
+commits exactly one valid, effective `Change Option` transaction; Escape drops
+the draft without changing project state. Boolean and enum controls commit one
+transaction immediately. Future continuous controls use a begin/end gesture
+transaction.
+
+This prevents the current React `onChange` path from creating one Worker write
+and history entry per typed character. It is a deliberate shared-app
+coalescing policy; native Orca takes snapshots at individual configuration
+change callbacks and relies on its controls to determine their cadence.
+
 ## 6. Core Ownership and Atomicity
 
-- The history core is Worker/WASM-owned. React holds only the lightweight
-  `HistoryContext` needed to render a restored frame; it does not duplicate
-  geometry or model structure.
+- The history core and every persisted `HistoryContext` are Worker/WASM-owned.
+  React holds only the currently projected context and uncommitted gesture or
+  field-draft state; it does not retain a parallel history, geometry, or model
+  structure.
 - The adapted core must preserve native Orca's object-version semantics rather
   than re-executing commands. Undo restores an existing object version; Redo
   restores its later version. This prevents restore results from drifting when
@@ -176,7 +196,22 @@ shared application grows.
 - The core must retain the atomicity of a semantic command: an Undo or Redo
   applies the complete command frame, including its model and context state.
 
-### 6.1 Two-phase restore and failure handling
+### 6.1 Transform synchronization boundary
+
+During pointer or gizmo dragging, React/three.js retains temporary transform
+state for responsive rendering. At gesture start, the Worker captures the
+pre-change model version; at successful gesture end, React sends the final
+transform once to the Worker `Model` and commits the history transaction.
+Numeric transforms, Drop to Bed, and Reset use the same capture/sync/commit
+sequence. Cancelling a gesture restores its local pre-gesture transform and
+aborts the Worker transaction.
+
+The existing pre-slice full transform synchronization remains a defensive
+consistency check, not the first time a committed transform is written to the
+native model. This makes the Worker model authoritative at every history
+boundary without sacrificing drag performance.
+
+### 6.2 Two-phase restore and failure handling
 
 Neo restores through a prepare/commit protocol. The Worker first reconstructs
 and validates the requested model version and `HistoryContext` in a temporary

@@ -469,7 +469,7 @@ execution record.
 
 ### Milestone 16 — Undo and Redo
 
-> **Status: design in progress (state-boundary decisions accepted
+> **Status: design in progress (architecture decisions accepted
 > 2026-09-07).** The major specification is `spec/Undo and Redo.md`.
 
 Implement project-scoped, incremental Undo/Redo for the shared application.
@@ -480,6 +480,8 @@ context. It excludes global preset selection, global/system preferences, full
 - [ ] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
       approved 256 MiB cross-host budget and eviction policy.
 - [ ] Implement the Worker/WASM history contract and coherent restore path.
+- [ ] Make the Worker authoritative for history context, committed transforms,
+      and project configuration overlays.
 - [ ] Integrate semantic command/gesture/selection/active-plate transactions
       with the saved-checkpoint dirty-state model; every exposed project
       mutation must use that boundary. Then add UI/key bindings and directional

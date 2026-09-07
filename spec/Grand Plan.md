@@ -400,6 +400,8 @@ history entries.
 - [ ] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
       approved 256 MiB cross-host budget and eviction policy
 - [ ] Add the Worker/WASM project-history contract and shared restore flow
+- [ ] Make the Worker authoritative for history context, committed transforms,
+      and project configuration overlays
 - [ ] Integrate semantic command, gesture, selection, and active-plate
       transactions with the saved-checkpoint dirty-state model; every exposed
       project mutation must use that transaction boundary
