@@ -4,6 +4,7 @@ import type { WorkspaceSliceCoordinator } from '../components/workspace/sliceCoo
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
+import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
 
 export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string };
 
@@ -74,11 +75,13 @@ export function createHistoryRestoreCoordinator({
       }
       if (!result.ok) {
         // Worker prepare/validation failure preserves its old model/cursor.
+        if (result.status) useHistoryNavigationStore.getState().setStatus(result.status);
         state.setError(restoreError(result));
         state.setPhase('idle');
         return false;
       }
       // Do not project model or context before the Worker returns success.
+      useHistoryNavigationStore.getState().setStatus(result.status);
       useHistoryRestoreStore.getState().setSnapshotSuppressed(true);
       useSlicerStore.getState().invalidateSliceResult();
       refreshModel();

@@ -354,6 +354,25 @@ project save/load; changing a system preset never becomes a project Undo item.
 Electron and Web expose the same navigation semantics, including direct jump,
 without intercepting text-field Undo/Redo.
 
+**Execution record (2026-09-08)**
+
+- Added the shared primary-toolbar Undo/Redo controls and directional menus.
+  Labels, disabled state, menu contents, and direct jumps are projected from
+  the latest Worker `HistoryStatus`; context-only selection/plate entries are
+  filtered at the UI boundary and no frontend history list is retained.
+- Routed one-step and menu navigation through the existing restore
+  coordinator so drag cancellation, slice cancellation, atomic restore,
+  revision fencing, and retryable errors remain shared by Electron and Web.
+  Restore errors are announced in the toolbar and restoring/cancelling phases
+  disable navigation.
+- Added guarded Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl+Y handling. Editable
+  controls retain native text editing history, while unavailable, disabled, or
+  active-transaction Worker history is left untouched.
+- Focused navigation, toolbar, and restore-coordinator tests pass. Full
+  workspace tests (409 slicer-app tests), typecheck, dual-variant quick build
+  and smoke, Electron E2E (29 passed, 3 existing skips), and threaded/serial
+  Web E2E (4/4 each) pass. The existing E2E skip set is unchanged.
+
 **Agent self-verification**
 
 - Component tests cover labels, accessibility, disabled state, menu direction,

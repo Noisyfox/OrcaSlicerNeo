@@ -31,6 +31,9 @@ import { cancelProjectOperation, newProject, openProject, projectDirtyStatus, sa
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 import { registerProjectDropHandlers } from './dropHandling';
+import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
+import { historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
+import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 
 export function handleMenuKeyDown(
   event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'key' | 'shiftKey' | 'preventDefault'>,
@@ -111,8 +114,10 @@ export default function App() {
     workspaceSliceCoordinatorRef.current = coordinator;
   }, []);
   const historyRestoreCoordinatorRef = useRef<HistoryRestoreCoordinator | null>(null);
+  const [historyRestoreCoordinator, setHistoryRestoreCoordinator] = useState<HistoryRestoreCoordinator | null>(null);
   const handleHistoryRestoreCoordinatorChange = useCallback((coordinator: HistoryRestoreCoordinator | null) => {
     historyRestoreCoordinatorRef.current = coordinator;
+    setHistoryRestoreCoordinator(coordinator);
   }, []);
   const requestPreviewSlice = useCallback(() => {
     const coordinator = workspaceSliceCoordinatorRef.current;
@@ -274,16 +279,15 @@ export default function App() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [dispatcher]);
   useEffect(() => {
-    const isEditable = (target: EventTarget | null): boolean =>
-      target instanceof Element && !!target.closest('input, textarea, select, [role="textbox"], [contenteditable]:not([contenteditable="false"])');
     const onHistoryKeyDown = (event: KeyboardEvent) => {
-      if (isEditable(event.target) || !(event.ctrlKey || event.metaKey) || event.altKey) return;
-      const key = event.key.toLowerCase();
-      const action = key === 'z' ? (event.shiftKey ? 'redo' : 'undo')
-        : key === 'y' ? 'redo' : null;
+      if (isEditableHistoryTarget(event.target) || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const action = historyShortcutAction(event);
       if (!action) return;
       const coordinator = historyRestoreCoordinatorRef.current;
       if (!coordinator) return;
+      const historyStatus = useHistoryNavigationStore.getState().status;
+      if (!historyStatus || historyStatus.disabled || useHistoryRestoreStore.getState().phase !== 'idle' ||
+          (action === 'undo' ? !historyStatus.canUndo : !historyStatus.canRedo)) return;
       event.preventDefault();
       void coordinator.restore(action);
     };
@@ -451,7 +455,7 @@ export default function App() {
     <>
       <AppShell
         titleBar={titleBar}
-        toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />}
+        toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} historyRestoreCoordinator={historyRestoreCoordinator} />}
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
         home={<div data-testid="home-page" />}

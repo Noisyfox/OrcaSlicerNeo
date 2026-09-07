@@ -10,6 +10,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
+import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
 
 export type HistoryMutationResult<T> = {
   result: T;
@@ -122,6 +123,7 @@ export async function syncHistoryStatus(runtime: Partial<Pick<SlicerRuntime, 'ge
   if (typeof runtime.getHistoryStatus !== 'function') return null;
   try {
     const status = await runtime.getHistoryStatus();
+    useHistoryNavigationStore.getState().setStatus(status);
     useProjectStore.getState().setProject({ dirty: status.dirty, dirtyReasons: [] });
     return status;
   } catch {
