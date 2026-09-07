@@ -202,6 +202,18 @@ bool ProjectHistory::redo(RestoreState& result)
     return true;
 }
 
+bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
+{
+    auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
+        [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
+    if (it == m_impl->states.end()) return false;
+    m_cursor = static_cast<std::size_t>(std::distance(m_impl->states.begin(), it));
+    result.model = Impl::restore_model(it->state);
+    result.context = it->state.context;
+    result.entry = it->info;
+    return true;
+}
+
 bool ProjectHistory::can_undo() const { return !m_impl->states.empty() && m_cursor > 0; }
 bool ProjectHistory::can_redo() const { return !m_impl->states.empty() && m_cursor + 1 < m_impl->states.size(); }
 std::size_t ProjectHistory::entry_count() const { return m_impl->states.empty() ? 0 : m_impl->states.size() - 1; }
@@ -214,6 +226,14 @@ const EntryInfo* ProjectHistory::undo_entry() const
 const EntryInfo* ProjectHistory::redo_entry() const
 {
     return can_redo() ? &m_impl->states[m_cursor + 1].info : nullptr;
+}
+
+std::vector<EntryInfo> ProjectHistory::entries() const
+{
+    std::vector<EntryInfo> result;
+    result.reserve(m_impl->states.size());
+    for (const auto& state : m_impl->states) result.push_back(state.info);
+    return result;
 }
 
 const RestoreState& ProjectHistory::current() const

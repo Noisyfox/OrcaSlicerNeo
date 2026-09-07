@@ -48,6 +48,7 @@
 #include "libslic3r/Utils.hpp"
 
 #include "bridge_buffers.hpp"
+#include "history/ProjectHistory.hpp"
 // Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/; the brief's
 // PrintObject.hpp does not exist (class PrintObject is in Print.hpp, already
 // included above).
@@ -105,6 +106,22 @@ struct BridgeState {
     PresetBundle presets;
     Model       model;
     Print       print;
+    // Step 2 history is deliberately Worker/WASM owned.  The headless core
+    // stores the authoritative byte/context record; these model copies are a
+    // native restore adapter and are never exported as 3MF archives.
+    Neo::History::ProjectHistory history;
+    std::map<std::uint64_t, std::shared_ptr<Model>> history_models;
+    struct HistoryTransaction {
+        std::string id;
+        std::string label;
+        Neo::History::Category category { Neo::History::Category::Project };
+        json before_context;
+        std::shared_ptr<Model> before_model;
+    };
+    std::optional<HistoryTransaction> active_history_transaction;
+    std::uint64_t next_history_transaction_id = 1;
+    std::uint64_t history_revision = 0;
+    bool history_disabled = false;
     // The current completed preview owns the exported G-code in MEMFS. Keep
     // only its identity and file metadata here: full source text must never
     // be copied into the initial preview JSON or retained as a second string.
@@ -1692,6 +1709,139 @@ static json model_structure_json() {
     return objects;
 }
 
+static std::string history_entry_id(const std::uint64_t id)
+{
+    return std::string("entry-") + std::to_string(id);
+}
+
+static bool parse_history_entry_id(const char* value, std::uint64_t& id)
+{
+    if (!value) return false;
+    const std::string text(value);
+    if (text.rfind("entry-", 0) != 0 || text.size() == 6) return false;
+    try {
+        std::size_t consumed = 0;
+        id = std::stoull(text.substr(6), &consumed);
+        return consumed == text.size() - 6;
+    } catch (...) {
+        return false;
+    }
+}
+
+static json parse_history_context(const char* context_cstr)
+{
+    if (!context_cstr || !*context_cstr)
+        throw std::runtime_error("history context is required");
+    const json context = json::parse(context_cstr);
+    if (!context.is_object() || !context.contains("selection") ||
+        !context["selection"].is_object() ||
+        !context.contains("activePlateId") ||
+        !(context["activePlateId"].is_null() || context["activePlateId"].is_string()) ||
+        !context.contains("gizmo") ||
+        !(context["gizmo"].is_null() || context["gizmo"].is_object()) ||
+        !context.contains("projectConfigOverlay") ||
+        !context["projectConfigOverlay"].is_object())
+        throw std::runtime_error("invalid history context");
+    const auto& selection = context["selection"];
+    if (!selection.contains("mode") || !selection["mode"].is_string() ||
+        !selection.contains("objectIds") || !selection["objectIds"].is_array() ||
+        !selection.contains("partIds") || !selection["partIds"].is_array() ||
+        !selection.contains("instanceIds") || !selection["instanceIds"].is_array())
+        throw std::runtime_error("invalid history selection");
+    for (const char* key : {"objectIds", "partIds", "instanceIds"})
+        for (const auto& id : selection[key])
+            if (!id.is_number_integer() || id.get<std::int64_t>() < 0)
+                throw std::runtime_error("invalid history selection id");
+    if (context["gizmo"].is_object() &&
+        (!context["gizmo"].contains("type") || !context["gizmo"]["type"].is_string()))
+        throw std::runtime_error("invalid history gizmo");
+    return context;
+}
+
+static Neo::History::Bytes history_model_bytes()
+{
+    // The fingerprint includes all structural identity, names/flags, and the
+    // complete instance/volume transforms used by current bridge mutations.
+    // Mesh payloads remain in the shared native Model snapshot rather than
+    // being copied through a 3MF archive on every edit.
+    json model = model_structure_json();
+    for (std::size_t oi = 0; oi < state().model.objects.size(); ++oi) {
+        const auto& object = state().model.objects[oi];
+        json instances = json::array();
+        for (const auto* instance : object->instances)
+            instances.push_back(session_transform_json(instance->get_transformation()));
+        json volumes = json::array();
+        for (const auto* volume : object->volumes)
+            volumes.push_back(session_transform_json(volume->get_transformation()));
+        if (oi < model.size()) {
+            model[oi]["instanceTransforms"] = std::move(instances);
+            model[oi]["volumeTransforms"] = std::move(volumes);
+        }
+    }
+    const std::string serialized = model.dump();
+    return Neo::History::Bytes(serialized.begin(), serialized.end());
+}
+
+static json history_status_json()
+{
+    const auto entries = state().history.entries();
+    const std::size_t cursor = state().history.cursor();
+    json undo = json::array();
+    json redo = json::array();
+    for (std::size_t i = cursor; i > 0; --i) {
+        const auto& entry = entries[i];
+        undo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
+                            {"category", entry.category == Neo::History::Category::Project ? "project" : "context"}});
+    }
+    for (std::size_t i = cursor + 1; i < entries.size(); ++i) {
+        const auto& entry = entries[i];
+        redo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
+                            {"category", entry.category == Neo::History::Category::Project ? "project" : "context"}});
+    }
+    const auto* undo_entry = state().history.undo_entry();
+    const auto* redo_entry = state().history.redo_entry();
+    const auto saved = state().history.saved_checkpoint();
+    return json{
+        {"canUndo", state().history.can_undo()}, {"canRedo", state().history.can_redo()},
+        {"undoLabel", undo_entry ? json(undo_entry->label) : json(nullptr)},
+        {"redoLabel", redo_entry ? json(redo_entry->label) : json(nullptr)},
+        {"undoEntries", std::move(undo)}, {"redoEntries", std::move(redo)},
+        {"cursor", cursor},
+        {"savedCheckpoint", saved == std::numeric_limits<std::size_t>::max() ? json(nullptr) : json(saved)},
+        {"savedCheckpointEvicted", state().history.saved_checkpoint_evicted()},
+        {"dirty", state().history.project_modified()},
+        {"bytesUsed", state().history.bytes_used()}, {"byteBudget", state().history.byte_budget()},
+        {"disabled", state().history_disabled},
+        {"activeTransactionId", state().active_history_transaction ? json(state().active_history_transaction->id) : json(nullptr)},
+        {"revision", state().history_revision},
+    };
+}
+
+static void synchronize_history_models()
+{
+    const auto entries = state().history.entries();
+    std::set<std::uint64_t> retained;
+    for (const auto& entry : entries) retained.insert(entry.id);
+    for (auto it = state().history_models.begin(); it != state().history_models.end();) {
+        if (!retained.count(it->first)) it = state().history_models.erase(it);
+        else ++it;
+    }
+}
+
+static json history_restore_result(const Neo::History::RestoreState& restored)
+{
+    const auto it = state().history_models.find(restored.entry.id);
+    if (it == state().history_models.end() || !it->second)
+        throw std::runtime_error("history model version is unavailable");
+    state().model = *it->second;
+    state().print.clear();
+    invalidate_preview_source();
+    state().history_revision++;
+    const auto context = json::parse(std::string(restored.context.begin(), restored.context.end()));
+    return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
+                {"entryId", history_entry_id(restored.entry.id)}};
+}
+
 }  // namespace
 
 extern "C" {
@@ -1716,6 +1866,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
 
         const char* result = init_with_app_config(json::object());
         reset_plate_session_state();
+        state().history.clear();
+        state().history_models.clear();
+        state().active_history_transaction.reset();
+        state().history_disabled = false;
+        state().history_revision++;
         // First bridge log record — proves the sink pipeline end-to-end
         // (console + /tmp/orca.log).
         BOOST_LOG_TRIVIAL(info) << "orc_init: bridge ready, log level "
@@ -1734,6 +1889,137 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         fprintf(stderr, "orc_init caught (...) via catch-all\n");
         return error_json("unknown C++ exception");
     }
+}
+
+// ---- Worker-owned project history transaction protocol ------------------
+// These calls are intentionally independent of 3MF persistence.  The core
+// tracks compact fingerprints/context bytes and the bridge keeps native Model
+// copies for atomic in-memory restoration.
+EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr,
+                                                   const char* category_cstr,
+                                                   const char* before_context_cstr) {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        if (state().active_history_transaction)
+            return error_json("history transaction is already active");
+        const std::string label = label_cstr ? label_cstr : "";
+        const std::string category = category_cstr ? category_cstr : "";
+        if (label.empty()) return error_json("history label is required");
+        if (category != "project" && category != "context")
+            return error_json("history category must be project or context");
+        const json before_context = parse_history_context(before_context_cstr);
+        if (state().history.entries().empty()) {
+            const auto model_bytes = history_model_bytes();
+            const std::string context_text = before_context.dump();
+            state().history.commit("", Neo::History::Category::Project,
+                                   Neo::History::ModelState{model_bytes},
+                                   Neo::History::Bytes(context_text.begin(), context_text.end()));
+            state().history_models[0] = std::make_shared<Model>(state().model);
+        }
+        const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
+        state().active_history_transaction = BridgeState::HistoryTransaction{
+            id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
+            before_context, std::make_shared<Model>(state().model)};
+        return dup_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_cstr,
+                                                    const char* after_context_cstr) {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
+        if (!state().active_history_transaction)
+            return error_json("history transaction is not active");
+        if (requested != state().active_history_transaction->id)
+            return error_json("history transaction is stale or belongs to another writer");
+        const json after_context = parse_history_context(after_context_cstr);
+        const auto model_bytes = history_model_bytes();
+        const auto tx = *state().active_history_transaction;
+        const std::string context_text = after_context.dump();
+        const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
+        const bool changed = state().history.commit(tx.label, tx.category,
+                                                     Neo::History::ModelState{model_bytes}, context_bytes);
+        if (changed) {
+            const auto entry_id = state().history.current().entry.id;
+            state().history_models[entry_id] = std::make_shared<Model>(state().model);
+            synchronize_history_models();
+            state().history_revision++;
+        }
+        state().active_history_transaction.reset();
+        return dup_json(history_status_json().dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cstr) {
+    try {
+        const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
+        if (!state().active_history_transaction)
+            return error_json("history transaction is not active");
+        if (requested != state().active_history_transaction->id)
+            return error_json("history transaction is stale or belongs to another writer");
+        const auto tx = *state().active_history_transaction;
+        if (tx.before_model) state().model = *tx.before_model;
+        state().print.clear();
+        invalidate_preview_source();
+        state().active_history_transaction.reset();
+        state().history_revision++;
+        return dup_json(json{{"ok", true}, {"context", tx.before_context},
+                             {"status", history_status_json()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_undo() {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        if (state().active_history_transaction) return error_json("history transaction is active");
+        Neo::History::RestoreState restored;
+        if (!state().history.undo(restored)) return error_json("no undo history");
+        return dup_json(history_restore_result(restored).dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_redo() {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        if (state().active_history_transaction) return error_json("history transaction is active");
+        Neo::History::RestoreState restored;
+        if (!state().history.redo(restored)) return error_json("no redo history");
+        return dup_json(history_restore_result(restored).dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr) {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        if (state().active_history_transaction) return error_json("history transaction is active");
+        std::uint64_t entry_id = 0;
+        if (!parse_history_entry_id(entry_id_cstr, entry_id)) return error_json("invalid history entry id");
+        Neo::History::RestoreState restored;
+        if (!state().history.jump(entry_id, restored)) return error_json("history entry is stale or unavailable");
+        return dup_json(history_restore_result(restored).dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_status() {
+    try { return dup_json(history_status_json().dump()); }
+    catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
 }
 
 // Headless plate-session commands. Every successful mutation returns one

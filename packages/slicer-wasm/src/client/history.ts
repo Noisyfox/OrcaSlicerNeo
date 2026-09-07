@@ -119,25 +119,28 @@ export interface RestoreFailure {
 
 export type RestoreResult = RestoreSuccess | RestoreFailure;
 
+/** A transaction callback is given the opaque Worker transaction identity. */
+export type HistoryMutation<T> = (transactionId: HistoryTransactionId) => Promise<T>;
+
 /**
- * Optional Step-0 typing surface for mocks and future callers.  The actual
- * Worker methods are deliberately not implemented until Step 2.
+ * Worker-backed history methods.  These are required on the real client;
+ * callers cannot construct model patches or maintain a second history stack.
  */
 export interface HistoryRuntimeMethods {
-  beginHistory?: (
+  beginHistory: (
     label: HistoryLabel,
     category: HistoryKind,
     beforeContext: HistoryContext,
   ) => Promise<HistoryTransactionId>;
-  commitHistory?: (
+  commitHistory: (
     transactionId: HistoryTransactionId,
     afterContext: HistoryContext,
   ) => Promise<HistoryStatus>;
-  abortHistory?: (transactionId: HistoryTransactionId) => Promise<RestoreResult>;
-  undoHistory?: () => Promise<RestoreResult>;
-  redoHistory?: () => Promise<RestoreResult>;
-  getHistoryStatus?: () => Promise<HistoryStatus>;
-  jumpHistory?: (entryId: HistoryEntryId) => Promise<RestoreResult>;
+  abortHistory: (transactionId: HistoryTransactionId) => Promise<RestoreResult>;
+  undoHistory: () => Promise<RestoreResult>;
+  redoHistory: () => Promise<RestoreResult>;
+  getHistoryStatus: () => Promise<HistoryStatus>;
+  jumpHistory: (entryId: HistoryEntryId) => Promise<RestoreResult>;
 }
 
 /** A small structural type for unit-test runtime doubles. */

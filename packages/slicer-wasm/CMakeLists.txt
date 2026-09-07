@@ -333,9 +333,8 @@ target_compile_options(deps_core PRIVATE
 # alone until it lands (the bridge smoke then picks it up automatically).
 set(ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
                    "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp")
-# Neo-owned, headless project history.  Keep this source outside the pinned
-# Orca submodule; bridge/Worker entry points are intentionally deferred to the
-# next implementation step.
+# Neo-owned, headless project history. Keep this source outside the pinned
+# Orca submodule; the C bridge and Worker transaction adapters remain Neo code.
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp")
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
   list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")

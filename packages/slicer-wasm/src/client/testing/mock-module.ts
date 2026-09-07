@@ -290,6 +290,77 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let plateInputRevisions: Record<string, number> = {};
   let objectPlateIds: string[] = [];
 
+  type MockHistoryState = {
+    modelLoaded: boolean;
+    objectTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
+    objectVolumeTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
+    objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }>;
+    volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }>>;
+    instanceMeta: Array<Array<{ id: number; printable: boolean }>>;
+    objectPlateIds: string[];
+    currentPlateId: string;
+    plateIds: string[];
+    plateOrigins: Array<[number, number, number]>;
+    plateInputRevisions: Record<string, number>;
+  };
+  type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project' | 'context'; context: any };
+  let historyEntries: MockHistoryEntry[] = [];
+  let historyCursor = 0;
+  let historyTransaction: { id: string; label: string; category: 'project' | 'context'; before: MockHistoryState; beforeContext: any } | null = null;
+  let nextHistoryTransactionId = 1;
+  let nextHistoryEntryId = 1;
+  let historyRevision = 0;
+  let historyDisabled = false;
+
+  const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  function captureHistoryState(): MockHistoryState {
+    return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
+      instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions });
+  }
+  function restoreHistoryState(snapshot: MockHistoryState): void {
+    modelLoaded = snapshot.modelLoaded;
+    objectTransforms = clone(snapshot.objectTransforms);
+    objectVolumeTransforms = clone(snapshot.objectVolumeTransforms);
+    objectMeta = clone(snapshot.objectMeta);
+    volumeMeta = clone(snapshot.volumeMeta);
+    instanceMeta = clone(snapshot.instanceMeta);
+    objectPlateIds = clone(snapshot.objectPlateIds);
+    currentPlateId = snapshot.currentPlateId;
+    plateIds = clone(snapshot.plateIds);
+    plateOrigins = clone(snapshot.plateOrigins);
+    plateInputRevisions = clone(snapshot.plateInputRevisions);
+    sliced = false;
+  }
+  function historyStatus() {
+    const undoEntries = historyEntries.slice(1, historyCursor + 1).reverse().map(({ id, label, category }) => ({ id, label, category }));
+    const redoEntries = historyEntries.slice(historyCursor + 1).map(({ id, label, category }) => ({ id, label, category }));
+    const undo = historyEntries[historyCursor];
+    const redo = historyEntries[historyCursor + 1];
+    return {
+      canUndo: historyCursor > 0, canRedo: historyCursor + 1 < historyEntries.length,
+      ...(undo && historyCursor > 0 ? { undoLabel: undo.label } : {}),
+      ...(redo ? { redoLabel: redo.label } : {}), undoEntries, redoEntries,
+      cursor: historyCursor, savedCheckpoint: null, savedCheckpointEvicted: false,
+      dirty: historyCursor !== 0, bytesUsed: JSON.stringify(historyEntries).length,
+      byteBudget: 256 * 1024 * 1024, disabled: historyDisabled,
+      activeTransactionId: historyTransaction?.id ?? null, revision: historyRevision,
+    };
+  }
+  function validateHistoryContext(context: any): void {
+    if (!context || typeof context !== 'object' || !context.selection ||
+        !context.projectConfigOverlay || !('activePlateId' in context) || !('gizmo' in context))
+      throw new Error('invalid history context');
+  }
+  function resetHistory(): void {
+    historyEntries = []; historyCursor = 0; historyTransaction = null;
+    historyRevision++; historyDisabled = false;
+  }
+  function historyRestore(entry: MockHistoryEntry) {
+    restoreHistoryState(entry);
+    historyRevision++;
+    return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id };
+  }
+
   function plateStride(): number {
     const area = presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area;
     const width = area && area.length > 1 ? Math.max(...area.map((point) => point[0])) - Math.min(...area.map((point) => point[0])) : 200;
@@ -609,12 +680,82 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const bridge: Record<string, (...args: any[]) => unknown> = {
     orc_init(_legacyPreferencesJson?: string) {
       resetPlateSession();
+      resetHistory();
       return {
         ok: true,
         prints: presetFixtures.print.length,
         filaments: presetFixtures.filament.length,
         printers: presetFixtures.printer.length,
       };
+    },
+    orc_history_begin(label: string, category: string, beforeContextJson: string) {
+      if (historyDisabled) return { error: 'history is disabled' };
+      if (historyTransaction) return { error: 'history transaction is already active' };
+      if (typeof label !== 'string' || !label) return { error: 'history label is required' };
+      if (category !== 'project' && category !== 'context') return { error: 'history category must be project or context' };
+      let beforeContext: any;
+      try { beforeContext = JSON.parse(beforeContextJson); validateHistoryContext(beforeContext); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      if (historyEntries.length === 0) {
+        historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(beforeContext) });
+        historyCursor = 0;
+      }
+      const id = `tx-${nextHistoryTransactionId++}`;
+      historyTransaction = { id, label, category: category as 'project' | 'context', before: captureHistoryState(), beforeContext: clone(beforeContext) };
+      return { ok: true, transactionId: id, status: historyStatus() };
+    },
+    orc_history_commit(transactionId: string, afterContextJson: string) {
+      if (!historyTransaction) return { error: 'history transaction is not active' };
+      if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
+      let afterContext: any;
+      try { afterContext = JSON.parse(afterContextJson); validateHistoryContext(afterContext); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      const current = captureHistoryState();
+      const previous = historyEntries[historyCursor];
+      const previousState = previous ? { modelLoaded: previous.modelLoaded, objectTransforms: previous.objectTransforms,
+        objectVolumeTransforms: previous.objectVolumeTransforms, objectMeta: previous.objectMeta, volumeMeta: previous.volumeMeta,
+        instanceMeta: previous.instanceMeta, objectPlateIds: previous.objectPlateIds, currentPlateId: previous.currentPlateId,
+        plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions } : null;
+      const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
+        JSON.stringify(previous.context) !== JSON.stringify(afterContext);
+      if (changed) {
+        historyEntries.splice(historyCursor + 1);
+        historyEntries.push({ ...current, id: `entry-${nextHistoryEntryId++}`, label: historyTransaction.label,
+          category: historyTransaction.category, context: clone(afterContext) });
+        historyCursor = historyEntries.length - 1;
+        historyRevision++;
+      }
+      historyTransaction = null;
+      return historyStatus();
+    },
+    orc_history_abort(transactionId: string) {
+      if (!historyTransaction) return { error: 'history transaction is not active' };
+      if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
+      restoreHistoryState(historyTransaction.before);
+      const context = historyTransaction.beforeContext;
+      historyTransaction = null;
+      historyRevision++;
+      return { ok: true, context: clone(context), status: historyStatus() };
+    },
+    orc_history_undo() {
+      if (historyTransaction) return { error: 'history transaction is active' };
+      if (historyCursor <= 0) return { error: 'no undo history' };
+      historyCursor--;
+      return historyRestore(historyEntries[historyCursor]);
+    },
+    orc_history_redo() {
+      if (historyTransaction) return { error: 'history transaction is active' };
+      if (historyCursor + 1 >= historyEntries.length) return { error: 'no redo history' };
+      historyCursor++;
+      return historyRestore(historyEntries[historyCursor]);
+    },
+    orc_history_jump(entryId: string) {
+      if (historyTransaction) return { error: 'history transaction is active' };
+      const index = historyEntries.findIndex((entry) => entry.id === entryId);
+      if (index < 0) return { error: 'history entry is stale or unavailable' };
+      historyCursor = index;
+      return historyRestore(historyEntries[index]);
+    },
+    orc_history_status() {
+      return historyStatus();
     },
     orc_get_plate_session_snapshot() {
       return plateSessionSnapshot();
@@ -1352,6 +1493,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- ccall dispatch with per-function signature conversion ----
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
     orc_init: { ret: 'number', args: ['string'] },
+    orc_history_begin: { ret: 'number', args: ['string', 'string', 'string'] },
+    orc_history_commit: { ret: 'number', args: ['string', 'string'] },
+    orc_history_abort: { ret: 'number', args: ['string'] },
+    orc_history_undo: { ret: 'number', args: [] },
+    orc_history_redo: { ret: 'number', args: [] },
+    orc_history_jump: { ret: 'number', args: ['string'] },
+    orc_history_status: { ret: 'number', args: [] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_get_option_metadata: { ret: 'number', args: [] },

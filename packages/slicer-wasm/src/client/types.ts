@@ -629,6 +629,23 @@ export interface ReadLogResult {
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
+  /** Begin/commit/abort are serialized by the Worker; transaction IDs are opaque. */
+  beginHistory(label: import('./history').HistoryLabel, category: import('./history').HistoryCategory,
+               beforeContext: import('./history').HistoryContext): Promise<import('./history').HistoryTransactionId>;
+  commitHistory(transactionId: import('./history').HistoryTransactionId,
+                afterContext: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
+  abortHistory(transactionId: import('./history').HistoryTransactionId): Promise<import('./history').RestoreResult>;
+  undoHistory(): Promise<import('./history').RestoreResult>;
+  redoHistory(): Promise<import('./history').RestoreResult>;
+  jumpHistory(entryId: import('./history').HistoryEntryId): Promise<import('./history').RestoreResult>;
+  getHistoryStatus(): Promise<import('./history').HistoryStatus>;
+  runProjectHistoryTransaction<T>(
+    label: import('./history').HistoryLabel,
+    category: import('./history').HistoryCategory,
+    beforeContext: import('./history').HistoryContext,
+    mutation: import('./history').HistoryMutation<T>,
+    afterContext: import('./history').HistoryContext | (() => import('./history').HistoryContext | Promise<import('./history').HistoryContext>),
+  ): Promise<{ result: T; status: import('./history').HistoryStatus }>;
   /** Read the authoritative headless plate session snapshot. */
   getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult>;
   /** Reset to one fresh default Plate 1 and return its new runtime identity. */

@@ -87,6 +87,9 @@ public:
 
     bool undo(RestoreState& result);
     bool redo(RestoreState& result);
+    // Move directly to a retained entry.  The baseline (id 0) is a valid
+    // target for restore, while unknown/evicted ids are rejected.
+    bool jump(std::uint64_t entry_id, RestoreState& result);
 
     bool can_undo() const;
     bool can_redo() const;
@@ -94,6 +97,7 @@ public:
     std::size_t entry_count() const;
     const EntryInfo* undo_entry() const;
     const EntryInfo* redo_entry() const;
+    std::vector<EntryInfo> entries() const;
     const RestoreState& current() const;
 
     void mark_current_as_saved();
