@@ -22,6 +22,14 @@ export type {
   PreviewSourceKind, PreviewTextChunkRequest, PreviewTextChunk, PreviewTextLinesRequest, PreviewTextLines, PreviewSource,
   ExportGcodeResult, ExportProjectResult, CancelResult,
 } from './types';
+export type {
+  StableObjectId, StablePartId, StableInstanceId, StablePlateId,
+  HistorySelectionMode, HistorySelection, HistoryJsonValue, HistoryJsonObject,
+  HistoryGizmoContext, HistoryContext, HistoryCategory, HistoryEntryCategory, HistoryKind,
+  HistoryLabel, HistoryTransactionId, HistoryEntryId, HistoryEntrySummary,
+  HistoryStatus, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
+  RestoreResult, HistoryRuntimeMethods, MockHistoryRuntime,
+} from './history';
 export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 export { createMockModule } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';
