@@ -471,6 +471,8 @@ execution record.
 
 > **Status: approved design (2026-09-07).** The major specification is
 > `spec/Undo and Redo.md`.
+> Its sequential agent-gated execution plan is
+> `doc/2026-09-07-undo-redo-implementation-plan.md`.
 
 Implement project-scoped, incremental Undo/Redo for the shared application.
 History restores model/project changes plus selection, active plate, and gizmo

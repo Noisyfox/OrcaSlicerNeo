@@ -389,6 +389,8 @@ Release-gate commands (all passed on 2026-09-04):
 
 > [!success] Status: **approved design** (2026-09-07). Major specification:
 > [`Undo and Redo.md`](Undo%20and%20Redo.md).
+> Sequential execution plan:
+> [`2026-09-07-undo-redo-implementation-plan.md`](../doc/2026-09-07-undo-redo-implementation-plan.md).
 
 Add project-scoped, incremental Undo/Redo across the shared Electron/Web app.
 The history restores model/project changes and editing context (selection,

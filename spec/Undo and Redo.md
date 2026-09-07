@@ -383,4 +383,6 @@ measures history memory and calls least-recently-used release after restore.
   history; saved 3MF files do not contain the undo stack.
 - Resolves the Undo/Redo deferral in `spec/ObjectList-and-Parts.md` for a
   future implementation milestone.
+- The sequential agent-gated implementation plan is
+  `doc/2026-09-07-undo-redo-implementation-plan.md`.
 - Is tracked in `spec/Grand Plan.md` and `doc/high_level_dev_plan.md`.
