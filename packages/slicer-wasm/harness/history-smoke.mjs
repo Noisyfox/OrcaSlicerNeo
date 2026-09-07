@@ -82,6 +82,7 @@ function commitTransform(label, transform) {
   const status = callJson('orc_history_commit', ['string', 'string'],
     [started.transactionId, JSON.stringify(context)]);
   if (!status.canUndo || status.canRedo) throw new Error(`${label} commit failed: ${JSON.stringify(status)}`);
+  return status;
 }
 const transformCases = [
   ['Move', (transform) => ({ ...transform, offset: [transform.offset[0] + 5, transform.offset[1], transform.offset[2]] })],
@@ -108,4 +109,25 @@ for (const [label, edit] of transformCases) {
   if (!redoneTransform.ok) throw new Error(`${label} redo failed: ${JSON.stringify(redoneTransform)}`);
   assertTransformEqual(modelMesh().instance_transform, next, `${label} redo`);
 }
+// Branching after undo must truncate the old redo entry and preserve the new
+// transform as the sole redo target.
+const branchBase = cloneTransform(modelMesh().instance_transform);
+delete branchBase.matrix;
+const branchFirst = {
+  ...branchBase,
+  offset: [branchBase.offset[0] + 3, branchBase.offset[1], branchBase.offset[2]],
+};
+commitTransform('Branch Move', branchFirst);
+const branchUndo = callJson('orc_history_undo', [], []);
+if (!branchUndo.ok || branchUndo.status.canRedo !== true)
+  throw new Error(`branch undo did not expose redo: ${JSON.stringify(branchUndo)}`);
+assertTransformEqual(modelMesh().instance_transform, branchBase, 'branch undo');
+const branchReplacement = {
+  ...branchBase,
+  offset: [branchBase.offset[0] + 7, branchBase.offset[1], branchBase.offset[2]],
+};
+const branchCommit = commitTransform('Branch Replacement', branchReplacement);
+if (branchCommit.canRedo)
+  throw new Error(`branch commit retained stale redo: ${JSON.stringify(branchCommit)}`);
+assertTransformEqual(modelMesh().instance_transform, branchReplacement, 'branch replacement');
 console.log(`history smoke passed (${moduleArg})`);
