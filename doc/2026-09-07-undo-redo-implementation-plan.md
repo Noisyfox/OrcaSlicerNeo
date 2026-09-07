@@ -378,7 +378,7 @@ coalescing, and reproducible three-host release evidence.
 | 0 | `275e571` | Focused 3/3, workspace tests, typecheck, desktop E2E 29 passed/3 existing skips, threaded/serial Web E2E 4/4 each | Reviewed contract/import boundary; independently ran focused 3/3, import-direction 1/1, typecheck, desktop E2E 29 passed/3 existing skips | Accepted 2026-09-07 |
 | 1 | `d21ba51`, `7e24245`, `9ea33bd` | Release-safe core test; configured wasm64 test; dual quick build; threaded/serial smoke; workspace tests, typecheck, desktop E2E 29 passed/3 existing skips | Found and returned two budget-eviction defects; reviewed corrected retention/checkpoint logic; independently ran Release core test, dual quick build, threaded/serial smoke | Accepted 2026-09-07 |
 | 2 | `769b1cd`, `69e9ada`, `8fb3627` | Core/Worker protocol tests; dual quick build; real serial/threaded history + standard smoke; workspace tests, typecheck, desktop E2E 29 passed/3 existing skips | Returned unaccounted full-model frames and then non-incremental native frames; reviewed ObjectID archives/shared meshes; independently ran dual quick build, two-object real history smoke in both variants, protocol 3/3 | Accepted 2026-09-07 |
-| 3 | — | — | — | Not started |
+| 3 | `875df26`, `05cda8f` | Lifecycle/context regression tests; workspace tests, typecheck, dual quick build/smoke, desktop E2E 29 passed/3 existing skips | Returned renderer dirty authority and incomplete selection context; reviewed Worker-first lifecycle/context paths; independently ran lifecycle 16/16, protocol 5/5, dual quick build/history smoke, and dual 3MF round-trip clean-baseline regression | Accepted 2026-09-07 |
 | 4 | — | — | — | Not started |
 | 5 | — | — | — | Not started |
 | 6 | — | — | — | Not started |
