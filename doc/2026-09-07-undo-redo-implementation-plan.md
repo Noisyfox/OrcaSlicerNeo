@@ -372,6 +372,10 @@ without intercepting text-field Undo/Redo.
   workspace tests (409 slicer-app tests), typecheck, dual-variant quick build
   and smoke, Electron E2E (29 passed, 3 existing skips), and threaded/serial
   Web E2E (4/4 each) pass. The existing E2E skip set is unchanged.
+- Added practical host coverage for the shared toolbar, shortcut/input
+  precedence, directional menu direct jumps, and restore-time disabled state;
+  the focused Electron scenario passes, as does the focused real threaded-Web
+  scenario (the serial run uses the same shared test path).
 
 **Agent self-verification**
 

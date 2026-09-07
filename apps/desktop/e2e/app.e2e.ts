@@ -495,6 +495,46 @@ test('full v1 flow: add models → slice → preview → export gcode', async ()
   }
 });
 
+test('shared history toolbar supports buttons, shortcuts, menu jumps, and native input undo', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const undo = page.getByTestId('history-undo');
+    const redo = page.getByTestId('history-redo');
+    await expect(undo).toBeDisabled();
+    await expect(redo).toBeDisabled();
+
+    await page.getByTestId('btn-add-model').click();
+    await expect(undo).toBeEnabled({ timeout: 30_000 });
+    await expect(undo).toContainText('Undo');
+
+    // A focused settings editor keeps the browser's native text undo.
+    const layerHeight = page.locator('#layer_height');
+    if (await layerHeight.count()) {
+      const before = await layerHeight.inputValue();
+      await layerHeight.fill('0.21');
+      await layerHeight.press('Control+z');
+      await expect(layerHeight).toHaveValue(before);
+    }
+
+    await undo.click();
+    await expect(page.getByTestId('btn-slice')).toBeDisabled();
+    await page.keyboard.press('Control+y');
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+
+    // Two project actions create a directional menu; context-only records are
+    // never rendered as normal navigation entries.
+    await page.getByTestId('btn-add-model').click();
+    await expect(undo).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('history-undo-menu-trigger').click();
+    await expect(page.getByTestId(/history-undo-entry-/).first()).toBeVisible();
+    await page.getByTestId(/history-undo-entry-/).first().click();
+    await expect(undo).toBeEnabled({ timeout: 30_000 });
+  } finally {
+    await app.close();
+  }
+});
+
 test('preview overlay: legend, layer range, move end, marker, and theme tokens', async () => {
   const { app } = await launchApp();
   try {
