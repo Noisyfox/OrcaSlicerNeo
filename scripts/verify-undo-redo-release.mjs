@@ -31,11 +31,15 @@ for (const gate of gates) {
   const result = spawnSync(file, args, {
     cwd: root,
     encoding: 'utf8',
-    shell: false,
+    // Windows package-manager entry points are .cmd shims.  Node cannot
+    // execute those directly with shell:false, which yields status:null and
+    // an empty report on a clean Windows checkout.  Match the repository's
+    // other Windows runners and let cmd.exe resolve the shim.
+    shell: isWindows && file.toLowerCase().endsWith('.cmd'),
     env: process.env,
     maxBuffer: 32 * 1024 * 1024,
   });
-  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}${result.error ? `\n${result.error.stack ?? result.error.message}` : ''}`;
   results.push({
     name: gate.name,
     command: gate.args.join(' '),
