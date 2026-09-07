@@ -33,6 +33,24 @@ export function historyContextForScene(sceneInteraction: SceneInteractionControl
 }
 
 type GateCommand = 'commit' | 'abort';
+type TransactionResult = {
+  result: { ok: boolean; error?: string; plateSession?: import('@slicer/client').PlateSessionMutation };
+  status: import('@slicer/client').HistoryStatus;
+};
+
+type PendingTransformTransaction = {
+  label: string;
+  beforeContext: HistoryContext;
+  release: (command: GateCommand) => void;
+  gate: Promise<GateCommand>;
+  decision: GateCommand | null;
+  finalTransforms: Parameters<typeof syncModelTransforms>[1] | null;
+  started: boolean;
+  task: Promise<TransactionResult> | null;
+  result: TransactionResult | null;
+  resolve: () => void;
+  completion: Promise<void>;
+};
 
 /**
  * Owns one transform gesture/command transaction.  The transaction is
@@ -41,10 +59,8 @@ type GateCommand = 'commit' | 'abort';
  * Worker and cancellation never writes renderer draft transforms to it.
  */
 export class TransformHistoryCoordinator {
-  private active: {
-    release: (command: GateCommand) => void;
-    task: Promise<{ result: { ok: boolean; error?: string; plateSession?: import('@slicer/client').PlateSessionMutation }; status: import('@slicer/client').HistoryStatus }>;
-  } | null = null;
+  private readonly pending: PendingTransformTransaction[] = [];
+  private running: PendingTransformTransaction | null = null;
 
   constructor(
     private readonly runtime: TransformHistoryRuntime,
@@ -53,51 +69,109 @@ export class TransformHistoryCoordinator {
   ) {}
 
   begin(label: string): void {
-    if (this.active) return;
     const beforeContext = historyContextForScene(this.sceneInteraction);
     let release!: (command: GateCommand) => void;
     const gate = new Promise<GateCommand>((resolve) => { release = resolve; });
-    const task = this.runtime.runProjectHistoryTransaction(
+    let resolve!: () => void;
+    const completion = new Promise<void>((done) => { resolve = done; });
+    this.pending.push({
       label,
-      'project',
       beforeContext,
+      release,
+      gate,
+      decision: null,
+      finalTransforms: null,
+      started: false,
+      task: null,
+      result: null,
+      resolve,
+      completion,
+    });
+    this.pump();
+  }
+
+  async commit(): Promise<void> {
+    const current = this.latestOpenTransaction();
+    if (!current) return;
+    current.finalTransforms = this.captureTransforms();
+    current.decision = 'commit';
+    current.release('commit');
+    await current.completion;
+    if (current.result) {
+      // Transform edits are now history-authoritative; do not leave a legacy
+      // dirty reason competing with the saved-checkpoint projection.
+      useProjectStore.getState().setProject({ dirty: current.result.status.dirty, dirtyReasons: [] });
+    }
+  }
+
+  async abort(): Promise<void> {
+    const current = this.latestOpenTransaction();
+    if (!current) return;
+    current.decision = 'abort';
+    current.release('abort');
+    await current.completion;
+  }
+
+  private latestOpenTransaction(): PendingTransformTransaction | null {
+    for (let index = this.pending.length - 1; index >= 0; index--) {
+      const transaction = this.pending[index];
+      if (transaction.decision === null) return transaction;
+    }
+    return null;
+  }
+
+  /** Start at most one Worker transaction; later commands wait for its full
+   * settle before beginHistory, preserving each rapid discrete edit as its
+   * own native before/after pair. */
+  private pump(): void {
+    if (this.running) return;
+    const next = this.pending[0];
+    if (!next) return;
+    if (next.decision === 'abort' && !next.started) {
+      this.pending.shift();
+      next.resolve();
+      this.pump();
+      return;
+    }
+    if (next.started) return;
+    next.started = true;
+    this.running = next;
+    next.task = this.runtime.runProjectHistoryTransaction(
+      next.label,
+      'project',
+      next.beforeContext,
       async () => {
-        const command = await gate;
+        const command = await next.gate;
         if (command === 'abort') throw new TransformCancelledError();
-        const result = await syncModelTransforms(this.runtime, glVolumeCollection.volumes);
+        const result = await syncModelTransforms(this.runtime, next.finalTransforms ?? this.captureTransforms());
         if (!result.ok) throw new Error(result.error ?? 'model transform synchronization failed');
         applySettledTransformSyncResult(result);
         return result;
       },
       () => historyContextForScene(this.sceneInteraction),
     );
-    this.active = { release, task };
-    // Keep UI mutation APIs synchronous while preserving a visible error if a
-    // Worker transaction fails asynchronously.
-    void task.catch((error) => this.onError(error));
-  }
-
-  async commit(): Promise<void> {
-    const current = this.active;
-    if (!current) return;
-    this.active = null;
-    current.release('commit');
-    try {
-      const { status } = await current.task;
-      // Transform edits are now history-authoritative; do not leave a legacy
-      // dirty reason competing with the saved-checkpoint projection.
-      useProjectStore.getState().setProject({ dirty: status.dirty, dirtyReasons: [] });
-    } catch (error) {
+    void next.task.then((result) => {
+      next.result = result;
+    }).catch((error) => {
       this.onError(error);
-    }
+    }).finally(() => {
+      this.running = null;
+      this.pending.shift();
+      next.resolve();
+      this.pump();
+    });
   }
 
-  async abort(): Promise<void> {
-    const current = this.active;
-    if (!current) return;
-    this.active = null;
-    current.release('abort');
-    try { await current.task; } catch { /* the helper aborts the Worker tx */ }
+  private captureTransforms(): Parameters<typeof syncModelTransforms>[1] {
+    return glVolumeCollection.volumes.map((volume) => ({
+      buffer: {
+        objectIdx: volume.buffer.objectIdx,
+        volumeIdx: volume.buffer.volumeIdx,
+        instanceIdx: volume.buffer.instanceIdx,
+      },
+      instanceTransform: structuredClone(volume.instanceTransform),
+      volumeTransform: structuredClone(volume.volumeTransform),
+    }));
   }
 }
 

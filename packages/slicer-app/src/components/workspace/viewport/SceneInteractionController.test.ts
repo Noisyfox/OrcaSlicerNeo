@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import type { ModelObjectBuffer } from '@slicer/client';
+import type { ModelObjectBuffer, ModelTransform } from '@slicer/client';
 import { GLVolume } from './GLVolume';
 import { SceneInteractionController } from './SceneInteractionController';
 import { EULER_ORDER } from './transformDeltaMath';
@@ -87,6 +87,13 @@ describe('SceneInteractionController', () => {
       abort: vi.fn(async () => undefined),
     };
     controller.setTransformHistoryPort(port);
+    const sheared: NonNullable<ModelTransform['matrix']> = [
+      1, 0.2, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      0, 0, 0, 1,
+    ];
+    for (const volume of volumes.slice(0, 2)) volume.instanceTransform = { ...volume.instanceTransform, matrix: sheared };
     controller.selectFromHit(volumes[0], false);
     const before = structuredClone(volumes[0].instanceTransform);
     expect(controller.tryBeginBodyDrag()).toBe(true);

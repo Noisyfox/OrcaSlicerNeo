@@ -44,6 +44,13 @@ export interface DragSnapshot {
   readonly startQuaternion: THREE.Quaternion;
   readonly startScale: THREE.Vector3;
   readonly startTargets: DragTargetEntry[];
+  readonly startRendererTransforms: RendererTransformSnapshot[];
+}
+
+interface RendererTransformSnapshot {
+  readonly volume: GLVolume;
+  readonly instanceTransform: ModelTransform;
+  readonly volumeTransform: ModelTransform;
 }
 
 /** Narrow bridge adapter supplied by Workspace; the controller remains host
@@ -588,7 +595,13 @@ export class SceneInteractionController {
       }
       return false;
     }
-    this.applySnapshotDelta(this.drag.startTargets, new THREE.Vector3());
+    // Restore every rendered volume verbatim. Replaying a zero delta would
+    // re-solve transforms and can lose matrix-authoritative values; it would
+    // also miss unselected sibling copies changed by synchronization.
+    for (const snapshot of this.drag.startRendererTransforms) {
+      snapshot.volume.instanceTransform = cloneTransform(snapshot.instanceTransform);
+      snapshot.volume.volumeTransform = cloneTransform(snapshot.volumeTransform);
+    }
     this.drag = null;
     this.pointerOwner = 'none';
     this.pointerOrigin = 'none';
@@ -754,6 +767,7 @@ export class SceneInteractionController {
       startQuaternion: this.pivot?.quaternion.clone() ?? new THREE.Quaternion(),
       startScale: this.pivot?.scale.clone() ?? new THREE.Vector3(1, 1, 1),
       startTargets: this.captureDragTargets(),
+      startRendererTransforms: this.captureRendererTransforms(),
     };
     this.emit();
     return true;
@@ -783,6 +797,14 @@ export class SceneInteractionController {
       entries.push({ kind: 'instance', instanceKey: key, transform: cloneTransform(volume.instanceTransform) });
     }
     return entries;
+  }
+
+  private captureRendererTransforms(): RendererTransformSnapshot[] {
+    return this.getVolumes().map((volume) => ({
+      volume,
+      instanceTransform: cloneTransform(volume.instanceTransform),
+      volumeTransform: cloneTransform(volume.volumeTransform),
+    }));
   }
 
   private applyDiscreteTransform(label: string, apply: () => void): boolean {
