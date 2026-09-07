@@ -91,6 +91,10 @@ public:
     // target for restore, while unknown/evicted ids are rejected.
     bool jump(std::uint64_t entry_id, RestoreState& result);
 
+    // Standard navigation deliberately skips internal context records.  The
+    // records remain retained (and therefore still truncate redo when a new
+    // context is committed), but one-step Undo/Redo only lands on project
+    // modifying frames.
     bool can_undo() const;
     bool can_redo() const;
     std::size_t cursor() const { return m_cursor; }

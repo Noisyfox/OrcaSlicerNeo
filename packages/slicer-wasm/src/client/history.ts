@@ -141,6 +141,10 @@ export interface HistoryRuntimeMethods {
   redoHistory: () => Promise<RestoreResult>;
   getHistoryStatus: () => Promise<HistoryStatus>;
   jumpHistory: (entryId: HistoryEntryId) => Promise<RestoreResult>;
+  /** Advance the saved checkpoint without releasing history frames. */
+  markHistorySaved: (context?: HistoryContext) => Promise<HistoryStatus>;
+  /** Replace the project session with a clean, one-frame history baseline. */
+  resetHistory: (context: HistoryContext) => Promise<HistoryStatus>;
 }
 
 /** A small structural type for unit-test runtime doubles. */

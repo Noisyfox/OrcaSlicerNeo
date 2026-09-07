@@ -183,7 +183,17 @@ bool ProjectHistory::commit(std::string label, Category category, const ModelSta
 bool ProjectHistory::undo(RestoreState& result)
 {
     if (!can_undo()) return false;
-    --m_cursor;
+    // Selection and active-plate records are retained as part of the session
+    // timeline, but ordinary Undo jumps over them to the preceding project
+    // frame.  This keeps context records available for a later project
+    // restore without exposing them as separate user Undo steps.
+    std::size_t target = m_cursor;
+    while (target > 0) {
+        --target;
+        if (m_impl->states[target].info.category == Category::Project) break;
+    }
+    if (m_impl->states[target].info.category != Category::Project) return false;
+    m_cursor = target;
     const auto& state = m_impl->states[m_cursor];
     result.model = Impl::restore_model(state.state);
     result.context = state.state.context;
@@ -194,7 +204,15 @@ bool ProjectHistory::undo(RestoreState& result)
 bool ProjectHistory::redo(RestoreState& result)
 {
     if (!can_redo()) return false;
-    ++m_cursor;
+    std::size_t target = m_cursor;
+    while (target + 1 < m_impl->states.size()) {
+        ++target;
+        if (m_impl->states[target].info.id != 0 &&
+            m_impl->states[target].info.category == Category::Project) break;
+    }
+    if (m_impl->states[target].info.id == 0 ||
+        m_impl->states[target].info.category != Category::Project) return false;
+    m_cursor = target;
     const auto& state = m_impl->states[m_cursor];
     result.model = Impl::restore_model(state.state);
     result.context = state.state.context;
@@ -214,18 +232,41 @@ bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
     return true;
 }
 
-bool ProjectHistory::can_undo() const { return !m_impl->states.empty() && m_cursor > 0; }
-bool ProjectHistory::can_redo() const { return !m_impl->states.empty() && m_cursor + 1 < m_impl->states.size(); }
+bool ProjectHistory::can_undo() const
+{
+    if (m_impl->states.empty() || m_cursor == 0) return false;
+    for (std::size_t index = m_cursor; index > 0; --index)
+        if (m_impl->states[index].info.category == Category::Project) return true;
+    return false;
+}
+
+bool ProjectHistory::can_redo() const
+{
+    if (m_impl->states.empty() || m_cursor + 1 >= m_impl->states.size()) return false;
+    for (std::size_t index = m_cursor + 1; index < m_impl->states.size(); ++index)
+        if (m_impl->states[index].info.id != 0 &&
+            m_impl->states[index].info.category == Category::Project) return true;
+    return false;
+}
 std::size_t ProjectHistory::entry_count() const { return m_impl->states.empty() ? 0 : m_impl->states.size() - 1; }
 
 const EntryInfo* ProjectHistory::undo_entry() const
 {
-    return can_undo() ? &m_impl->states[m_cursor].info : nullptr;
+    if (!can_undo()) return nullptr;
+    for (std::size_t index = m_cursor; index > 0; --index)
+        if (m_impl->states[index].info.category == Category::Project)
+            return &m_impl->states[index].info;
+    return nullptr;
 }
 
 const EntryInfo* ProjectHistory::redo_entry() const
 {
-    return can_redo() ? &m_impl->states[m_cursor + 1].info : nullptr;
+    if (!can_redo()) return nullptr;
+    for (std::size_t index = m_cursor + 1; index < m_impl->states.size(); ++index)
+        if (m_impl->states[index].info.id != 0 &&
+            m_impl->states[index].info.category == Category::Project)
+            return &m_impl->states[index].info;
+    return nullptr;
 }
 
 std::vector<EntryInfo> ProjectHistory::entries() const

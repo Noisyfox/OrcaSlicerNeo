@@ -64,4 +64,28 @@ describe('Worker-owned project history protocol', () => {
     await client.abortHistory(active);
     await expect(client.undoHistory()).resolves.toMatchObject({ ok: true });
   });
+
+  it('keeps Save as a checkpoint and skips context-only records', async () => {
+    const client = createClient(async () => createMockModule());
+    const before = context('plate-1');
+    const first = await client.runProjectHistoryTransaction('Add Cube', 'project', before,
+      async () => client.addShape('Cube'), before);
+    expect(first.status.dirty).toBe(true);
+    const saved = await client.markHistorySaved(before);
+    expect(saved.dirty).toBe(false);
+    const contextAfter = context('plate-2');
+    const contextTx = await client.beginHistory('Active Plate', 'context', before);
+    const contextStatus = await client.commitHistory(contextTx, contextAfter);
+    expect(contextStatus.dirty).toBe(false);
+    expect(contextStatus.undoEntries).toHaveLength(1);
+    const undone = await client.undoHistory();
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) throw new Error('missing restore');
+    expect(undone.status.dirty).toBe(false);
+    expect(undone.context.activePlateId).toBe('plate-1');
+    const reset = await client.resetHistory(context('fresh'));
+    expect(reset.canUndo).toBe(false);
+    expect(reset.canRedo).toBe(false);
+    expect(reset.dirty).toBe(false);
+  });
 });

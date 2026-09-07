@@ -311,6 +311,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let nextHistoryEntryId = 1;
   let historyRevision = 0;
   let historyDisabled = false;
+  let savedHistoryCursor: number | null = null;
+  let savedHistoryCheckpointEvicted = false;
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
   function captureHistoryState(): MockHistoryState {
@@ -332,16 +334,31 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     sliced = false;
   }
   function historyStatus() {
-    const undoEntries = historyEntries.slice(1, historyCursor + 1).reverse().map(({ id, label, category }) => ({ id, label, category }));
-    const redoEntries = historyEntries.slice(historyCursor + 1).map(({ id, label, category }) => ({ id, label, category }));
-    const undo = historyEntries[historyCursor];
-    const redo = historyEntries[historyCursor + 1];
+    const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0' && entry.category === 'project';
+    const undoEntries = historyEntries.slice(1, historyCursor + 1).reverse()
+      .filter(project).map(({ id, label, category }) => ({ id, label, category }));
+    const redoEntries = historyEntries.slice(historyCursor + 1)
+      .filter(project).map(({ id, label, category }) => ({ id, label, category }));
+    let undoIndex = -1;
+    for (let index = historyCursor; index > 0; index--)
+      if (project(historyEntries[index])) { undoIndex = index; break; }
+    const redoIndex = historyEntries.findIndex((entry, index) => index > historyCursor && project(entry));
+    const undo = undoIndex >= 0 ? historyEntries[undoIndex] : undefined;
+    const redo = redoIndex >= 0 ? historyEntries[redoIndex] : undefined;
+    const checkpoint = savedHistoryCursor;
+    let dirty = savedHistoryCheckpointEvicted || checkpoint === null;
+    if (!dirty && checkpoint !== historyCursor) {
+      const checkpointValue = checkpoint as number;
+      const [lo, hi] = checkpointValue < historyCursor
+        ? [checkpointValue, historyCursor] : [historyCursor, checkpointValue];
+      dirty = historyEntries.slice(lo + 1, hi + 1).some(project);
+    }
     return {
-      canUndo: historyCursor > 0, canRedo: historyCursor + 1 < historyEntries.length,
-      ...(undo && historyCursor > 0 ? { undoLabel: undo.label } : {}),
+      canUndo: undoIndex >= 0, canRedo: redoIndex >= 0,
+      ...(undo ? { undoLabel: undo.label } : {}),
       ...(redo ? { redoLabel: redo.label } : {}), undoEntries, redoEntries,
-      cursor: historyCursor, savedCheckpoint: null, savedCheckpointEvicted: false,
-      dirty: historyCursor !== 0, bytesUsed: JSON.stringify(historyEntries).length,
+      cursor: historyCursor, savedCheckpoint: savedHistoryCursor, savedCheckpointEvicted: savedHistoryCheckpointEvicted,
+      dirty, bytesUsed: JSON.stringify(historyEntries).length,
       byteBudget: 256 * 1024 * 1024, disabled: historyDisabled,
       activeTransactionId: historyTransaction?.id ?? null, revision: historyRevision,
     };
@@ -353,12 +370,27 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
   function resetHistory(): void {
     historyEntries = []; historyCursor = 0; historyTransaction = null;
+    savedHistoryCursor = null; savedHistoryCheckpointEvicted = false;
     historyRevision++; historyDisabled = false;
   }
   function historyRestore(entry: MockHistoryEntry) {
     restoreHistoryState(entry);
     historyRevision++;
     return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id };
+  }
+  function recordActivePlateContext(): void {
+    if (historyTransaction || historyEntries.length === 0) return;
+    const previous = historyEntries[historyCursor];
+    const context = clone(previous.context);
+    if (context.activePlateId === currentPlateId) return;
+    context.activePlateId = currentPlateId;
+    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
+      savedHistoryCheckpointEvicted = true;
+    historyEntries.splice(historyCursor + 1);
+    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
+      label: 'Active Plate', category: 'context', context });
+    historyCursor = historyEntries.length - 1;
+    historyRevision++;
   }
 
   function plateStride(): number {
@@ -698,6 +730,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (historyEntries.length === 0) {
         historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(beforeContext) });
         historyCursor = 0;
+        savedHistoryCursor = 0;
       }
       const id = `tx-${nextHistoryTransactionId++}`;
       historyTransaction = { id, label, category: category as 'project' | 'context', before: captureHistoryState(), beforeContext: clone(beforeContext) };
@@ -717,6 +750,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
         JSON.stringify(previous.context) !== JSON.stringify(afterContext);
       if (changed) {
+        if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
+          savedHistoryCheckpointEvicted = true;
         historyEntries.splice(historyCursor + 1);
         historyEntries.push({ ...current, id: `entry-${nextHistoryEntryId++}`, label: historyTransaction.label,
           category: historyTransaction.category, context: clone(afterContext) });
@@ -737,15 +772,26 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_history_undo() {
       if (historyTransaction) return { error: 'history transaction is active' };
-      if (historyCursor <= 0) return { error: 'no undo history' };
-      historyCursor--;
-      return historyRestore(historyEntries[historyCursor]);
+      const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0' && entry.category === 'project';
+      let target = historyCursor - 1;
+      let hasUndoAction = false;
+      for (let index = historyCursor; index > 0; index--)
+        if (project(historyEntries[index])) { hasUndoAction = true; break; }
+      if (!hasUndoAction) return { error: 'no undo history' };
+      while (target >= 0 && !project(historyEntries[target])) target--;
+      // The baseline is the valid restore target for the first project edit.
+      if (target < 0) target = 0;
+      historyCursor = target;
+      return historyRestore(historyEntries[target]);
     },
     orc_history_redo() {
       if (historyTransaction) return { error: 'history transaction is active' };
-      if (historyCursor + 1 >= historyEntries.length) return { error: 'no redo history' };
-      historyCursor++;
-      return historyRestore(historyEntries[historyCursor]);
+      const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0' && entry.category === 'project';
+      let target = historyCursor + 1;
+      while (target < historyEntries.length && !project(historyEntries[target])) target++;
+      if (target >= historyEntries.length) return { error: 'no redo history' };
+      historyCursor = target;
+      return historyRestore(historyEntries[target]);
     },
     orc_history_jump(entryId: string) {
       if (historyTransaction) return { error: 'history transaction is active' };
@@ -755,6 +801,31 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return historyRestore(historyEntries[index]);
     },
     orc_history_status() {
+      return historyStatus();
+    },
+    orc_history_mark_saved(contextJson?: string) {
+      if (historyEntries.length === 0 && contextJson) {
+        let context: any;
+        try { context = JSON.parse(contextJson); validateHistoryContext(context); }
+        catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+        historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(context) });
+        historyCursor = 0;
+      }
+      if (historyEntries.length > 0) {
+        savedHistoryCursor = historyCursor;
+        savedHistoryCheckpointEvicted = false;
+      }
+      return historyStatus();
+    },
+    orc_history_reset(contextJson: string) {
+      let context: any;
+      try { context = JSON.parse(contextJson); validateHistoryContext(context); }
+      catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      resetHistory();
+      historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(context) });
+      historyCursor = 0;
+      savedHistoryCursor = 0;
+      historyRevision++;
       return historyStatus();
     },
     orc_get_plate_session_snapshot() {
@@ -768,6 +839,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (typeof plateId !== 'string' || plateId.length === 0) return { error: 'plateId is required' };
       if (!plateIds.includes(plateId)) return { error: 'plate not found' };
       currentPlateId = plateId;
+      recordActivePlateContext();
       return plateSessionSnapshot();
     },
     orc_add_plate() {
@@ -1500,6 +1572,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_redo: { ret: 'number', args: [] },
     orc_history_jump: { ret: 'number', args: ['string'] },
     orc_history_status: { ret: 'number', args: [] },
+    orc_history_mark_saved: { ret: 'number', args: ['string'] },
+    orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_get_option_metadata: { ret: 'number', args: [] },

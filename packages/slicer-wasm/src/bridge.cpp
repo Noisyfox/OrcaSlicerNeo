@@ -1942,6 +1942,47 @@ static void restore_history_model(const Neo::History::RestoreState& restored)
     state().model = rebuilt_model;
 }
 
+static json default_history_context()
+{
+    return json{
+        {"selection", {{"mode", "object"}, {"objectIds", json::array()},
+                        {"partIds", json::array()}, {"instanceIds", json::array()}}},
+        {"activePlateId", state().current_plate_id.empty() ? json(nullptr) : json(state().current_plate_id)},
+        {"gizmo", nullptr}, {"projectConfigOverlay", json::object()},
+    };
+}
+
+// Selection and active-plate changes are internal context records.  The
+// renderer can later provide the full projected context through the normal
+// transaction API; this bridge helper covers the Worker-owned active-plate
+// change and deliberately never records while a project transaction is open.
+static void record_active_plate_context()
+{
+    if (state().active_history_transaction) return;
+    json context = default_history_context();
+    if (!state().history.entries().empty()) {
+        try {
+            const auto& current = state().history.current();
+            context = json::parse(std::string(current.context.begin(), current.context.end()));
+        } catch (...) {
+            context = default_history_context();
+        }
+        context["activePlateId"] = state().current_plate_id.empty()
+            ? json(nullptr) : json(state().current_plate_id);
+    } else {
+        const std::string encoded = context.dump();
+        const Neo::History::Bytes context_bytes(encoded.begin(), encoded.end());
+        state().history.commit("", Neo::History::Category::Project,
+                               history_model_state(), context_bytes);
+        state().history.mark_current_as_saved();
+    }
+    const std::string encoded = context.dump();
+    const Neo::History::Bytes context_bytes(encoded.begin(), encoded.end());
+    if (state().history.commit("Active Plate", Neo::History::Category::Context,
+                               history_model_state(), context_bytes))
+        state().history_revision++;
+}
+
 static json history_status_json()
 {
     const auto entries = state().history.entries();
@@ -1950,11 +1991,13 @@ static json history_status_json()
     json redo = json::array();
     for (std::size_t i = cursor; i > 0; --i) {
         const auto& entry = entries[i];
+        if (entry.category != Neo::History::Category::Project || entry.id == 0) continue;
         undo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
                             {"category", entry.category == Neo::History::Category::Project ? "project" : "context"}});
     }
     for (std::size_t i = cursor + 1; i < entries.size(); ++i) {
         const auto& entry = entries[i];
+        if (entry.category != Neo::History::Category::Project || entry.id == 0) continue;
         redo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
                             {"category", entry.category == Neo::History::Category::Project ? "project" : "context"}});
     }
@@ -2160,6 +2203,46 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_status() {
     catch (...) { return error_json("unknown C++ exception"); }
 }
 
+// Project replacement is a hard history boundary.  The caller supplies the
+// freshly projected React context after the native model has been replaced;
+// the new model becomes one clean baseline and the old stack/checkpoint are
+// released together.  History metadata never enters the 3MF archive.
+EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr) {
+    try {
+        const json context = parse_history_context(context_cstr);
+        state().history.clear();
+        state().active_history_transaction.reset();
+        state().history_disabled = false;
+        const std::string context_text = context.dump();
+        const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
+        if (!state().history.commit("", Neo::History::Category::Project,
+                                    history_model_state(), context_bytes))
+            return error_json("could not establish history baseline");
+        state().history.mark_current_as_saved();
+        state().history_revision++;
+        return dup_json(history_status_json().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+// Save and Save As only advance the checkpoint; they do not clear retained
+// model/context entries, so Undo/Redo remains usable after a successful save.
+EMSCRIPTEN_KEEPALIVE const char* orc_history_mark_saved(const char* context_cstr) {
+    try {
+        if (state().history.entries().empty() && context_cstr && *context_cstr) {
+            const json context = parse_history_context(context_cstr);
+            const std::string context_text = context.dump();
+            const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
+            if (!state().history.commit("", Neo::History::Category::Project,
+                                        history_model_state(), context_bytes))
+                return error_json("could not establish history baseline");
+        }
+        state().history.mark_current_as_saved();
+        return dup_json(history_status_json().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
 // Headless plate-session commands. Every successful mutation returns one
 // coherent snapshot and the complete set of world transforms changed by grid
 // reflow. The frontend never derives membership, origins, or reflow deltas.
@@ -2192,6 +2275,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_plate(const char* plate_id_cstr) {
         if (find_plate(requested) == nullptr)
             return error_json("plate not found");
         state().current_plate_id = requested;
+        record_active_plate_context();
         return dup_json(plate_session_snapshot_json().dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -2771,6 +2855,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
             // is recomputed from the imported world geometry after the fresh
             // runtime identities and native plate order are established.
             rebuild_plate_membership(true);
+            // A successful project replacement starts a new clean Worker
+            // session.  Geometry-only imports intentionally remain ordinary
+            // current-project mutations and do not cross this boundary.
+            state().history.clear();
+            state().active_history_transaction.reset();
+            state().history_disabled = false;
+            const json context = default_history_context();
+            const std::string context_text = context.dump();
+            const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
+            if (!state().history.commit("", Neo::History::Category::Project,
+                                        history_model_state(), context_bytes))
+                throw Slic3r::RuntimeError("could not establish project history baseline");
+            state().history.mark_current_as_saved();
+            state().history_revision++;
         } else {
             rebuild_plate_membership(true);
         }

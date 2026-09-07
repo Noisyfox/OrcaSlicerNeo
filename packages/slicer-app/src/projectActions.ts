@@ -1,5 +1,6 @@
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
 import type { ProjectLoadResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
 import { useProjectStore, projectPresetTriple, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
@@ -25,7 +26,8 @@ export interface ProjectActionOptions {
   sceneResetTarget?: SceneResetTarget | null;
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel'>;
+type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel'> &
+  Partial<Pick<SlicerClient, 'markHistorySaved' | 'resetHistory'>>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -43,6 +45,22 @@ function setOperation(phase: Parameters<ReturnType<typeof useProjectStore.getSta
   useProjectStore.getState().setOperation({ phase, progress, message, cancellable: phase === 'loading' || phase === 'saving' });
 }
 function invalidateInput(): void { useSlicerStore.getState().invalidateSliceResult(); }
+function projectedHistoryContext(): HistoryContext {
+  return {
+    selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+    activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
+    gizmo: null,
+    projectConfigOverlay: {},
+  };
+}
+async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus | null> {
+  if (!runtime.markHistorySaved) return null;
+  return runtime.markHistorySaved(projectedHistoryContext());
+}
+async function resetHistory(runtime: Runtime): Promise<HistoryStatus | null> {
+  if (!runtime.resetHistory) return null;
+  return runtime.resetHistory(projectedHistoryContext());
+}
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
   if (!selections) return;
   let resolved: Awaited<ReturnType<Runtime['getPresetSnapshot']>> | null = null;
@@ -75,7 +93,8 @@ export async function saveProject(platform: PlatformCapabilities): Promise<Proje
     setOperation('saving', 70, 'Writing project');
     const saved = await platform.projects.save({ displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location });
     if (saved.status !== 'ok') { setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed'); return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error); }
-    useProjectStore.getState().setProject({ dirty: false, location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
+    const history = await markHistorySaved(runtimeOf(platform));
+    useProjectStore.getState().setProject({ dirty: history?.dirty ?? false, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 export async function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectActionResult> {
@@ -85,7 +104,8 @@ export async function saveProjectAs(platform: PlatformCapabilities): Promise<Pro
     const exported = await runtimeOf(platform).exportProject(); if (!exported.ok) throw new Error(exported.error ?? 'project export failed');
     const saved = await platform.projects.saveAs({ displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location });
     if (saved.status !== 'ok') { setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed'); return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error); }
-    useProjectStore.getState().setProject({ dirty: false, location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
+    const history = await markHistorySaved(runtimeOf(platform));
+    useProjectStore.getState().setProject({ dirty: history?.dirty ?? false, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 export async function newProject(platform: PlatformCapabilities, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
@@ -96,6 +116,7 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
     const runtime = runtimeOf(platform); const cleared = await runtime.clearModel(); if (!cleared.ok) throw new Error(cleared.error ?? 'new project failed');
     resetSceneState(options.sceneResetTarget, { clearSettings: true });
     usePlateSessionStore.getState().setSnapshot(cleared.plateSession ?? null);
+    await resetHistory(runtime);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);
     const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
@@ -140,7 +161,9 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     // the same replacement transaction. A second getPresetSnapshot call here
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
-    useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput(); useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: false, scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
+    useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput();
+    const history = await resetHistory(runtimeOf(platform));
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history?.dirty ?? false, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 

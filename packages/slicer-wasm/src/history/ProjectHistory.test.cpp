@@ -55,6 +55,27 @@ int main()
     CHECK(history.redo(restored));
     CHECK(restored.model.serialized == bytes(2));
 
+    // Context-only records remain in the retained timeline and truncate a
+    // redo branch, but standard one-step navigation skips them.  A session
+    // containing only a context change does not become undoable.
+    ProjectHistory context_only;
+    CHECK(context_only.commit("baseline", Category::Project, model(1), bytes(1)));
+    context_only.mark_current_as_saved();
+    CHECK(context_only.commit("selection", Category::Context, model(1), bytes(2)));
+    CHECK(!context_only.can_undo());
+    CHECK(!context_only.can_redo());
+    CHECK(!context_only.project_modified());
+    CHECK(context_only.commit("edit", Category::Project, model(2), bytes(3)));
+    CHECK(context_only.undo(restored));
+    CHECK(restored.model.serialized == bytes(1));
+    CHECK(!context_only.project_modified());
+    CHECK(context_only.redo(restored));
+    CHECK(restored.model.serialized == bytes(2));
+    CHECK(context_only.project_modified());
+    CHECK(context_only.undo(restored));
+    CHECK(context_only.commit("new selection", Category::Context, model(1), bytes(4)));
+    CHECK(!context_only.can_redo());
+
     // A new branch truncates redo, while equal model/context is a no-op.
     CHECK(history.commit("branch", Category::Project, model(3), bytes(6)));
     CHECK(!history.can_redo());

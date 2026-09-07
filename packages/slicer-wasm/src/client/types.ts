@@ -639,6 +639,10 @@ export interface SlicerClient {
   redoHistory(): Promise<import('./history').RestoreResult>;
   jumpHistory(entryId: import('./history').HistoryEntryId): Promise<import('./history').RestoreResult>;
   getHistoryStatus(): Promise<import('./history').HistoryStatus>;
+  /** Advance the saved checkpoint without clearing retained history. */
+  markHistorySaved(context?: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
+  /** Clear the prior project session and establish a clean baseline. */
+  resetHistory(context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
   runProjectHistoryTransaction<T>(
     label: import('./history').HistoryLabel,
     category: import('./history').HistoryCategory,

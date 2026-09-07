@@ -58,7 +58,7 @@ export interface ProjectSessionState {
   flattenedMultiPlate: boolean;
   notices: ProjectNotice[];
   operation: ProjectOperation;
-  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'scope' | 'systemPresets' | 'projectPresets' | 'flattenedMultiPlate' | 'notices'>>) => void;
+  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'scope' | 'systemPresets' | 'projectPresets' | 'flattenedMultiPlate' | 'notices'>>) => void;
   markDirty: (reason?: ProjectDirtyReason) => void;
   /** Advance every known plate input for one shared configuration commit. */
   recordSharedConfigurationMutation: () => void;
