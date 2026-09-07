@@ -271,6 +271,11 @@ undoable, while New/Open/Reload remain hard boundaries.
 - `pnpm test`, `pnpm typecheck`, slicer-app tests (401 passed), Electron E2E
   (29 passed, 3 existing skips), threaded Web E2E (4 passed), and serial Web
   E2E (4 passed) all passed. The dual-variant quick WASM build also passed.
+- A first threaded-Web run had one non-deterministic GPU-streaming failure
+  while waiting for Slice to enable. The isolated test passed 1/1, then 5/5
+  on both the Step 6 parent baseline (`56c4693`) and this implementation;
+  a clean full threaded-Web rerun passed 4/4. The initial failure is retained
+  as flaky test evidence, not reported as a product regression or a pass.
 
 **Root acceptance**
 
