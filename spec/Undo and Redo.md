@@ -193,6 +193,11 @@ may append internal changes within one outer transaction and publish one final
 semantic history entry, following Orca's `EnteringGizmo`/`GizmoAction`/
 `LeavingGizmo` compaction intent.
 
+The dormant implementation accepts an opt-in child transaction with
+`{coalesce: true, parentTransactionId}`. A child commit publishes no entry;
+the outer transaction remains the sole semantic history boundary. No paint or
+support-point UI uses this path in the current release.
+
 ### 5.6 Save and crash-recovery boundary
 
 Save and Save As retain the in-memory history and merely advance the saved
@@ -306,6 +311,13 @@ physical-memory estimate.
 - Reaching the retained-history boundary is represented by the disabled Undo
   control. The initial release has no disruptive notification.
 
+The Worker status contract exposes non-disruptive resource diagnostics:
+`bytesUsed`, `byteBudget`, cumulative `optionalBytesReleased`, cumulative
+`evictedEntryCount`, `lastEvictedEntryId`, `oldestRetainedEntryId`, and
+`oversizedEntryRetained`. These values describe the current project session
+for diagnostics and automation; they do not create a toast, interrupt an
+edit, or become a second history owner in React.
+
 This follows native Orca's byte-based, LRU-style policy while choosing a
 cross-host fixed ceiling appropriate for a browser/WASM memory environment.
 
@@ -370,6 +382,12 @@ Verification is layered across the shared application:
   256 MiB accounting/eviction, and safe traversal to the oldest retained frame;
 - Electron, threaded Web, and serial Web end-to-end tests exercise the shared
   interaction and host integration.
+
+The release handoff matrix is automated by `pnpm verify:undo-redo`. It runs
+`pnpm test`, `pnpm typecheck`, dual-variant WASM quick and smoke checks, then
+Desktop, threaded-Web, and serial-Web E2E sequentially so shared staged assets
+cannot race. It writes exact command output and exit codes to the configured
+report path for release evidence.
 
 Correctness, history-budget enforcement, and safe eviction are CI gates.
 Elapsed time and peak-memory measurements are recorded as diagnostic baselines

@@ -149,6 +149,9 @@ void ProjectHistory::clear()
     m_cursor = 0;
     m_saved_checkpoint = static_cast<std::size_t>(-1);
     m_saved_checkpoint_evicted = false;
+    m_optional_bytes_released = 0;
+    m_evicted_entry_count = 0;
+    m_last_evicted_entry_id = 0;
     m_object_intervals.clear();
 }
 
@@ -385,7 +388,27 @@ std::size_t ProjectHistory::release_optional_data()
             if (mesh.optional && mesh.resident && mesh.deferred) {
                 mesh.resident.reset();
             }
-    return before >= bytes_used() ? before - bytes_used() : 0;
+    const auto released = before >= bytes_used() ? before - bytes_used() : 0;
+    m_optional_bytes_released += released;
+    return released;
+}
+
+ResourceDiagnostics ProjectHistory::resource_diagnostics() const
+{
+    ResourceDiagnostics result;
+    result.bytes_used = bytes_used();
+    result.byte_budget = m_byte_budget;
+    result.optional_bytes_released = m_optional_bytes_released;
+    result.evicted_entry_count = m_evicted_entry_count;
+    result.last_evicted_entry_id = m_last_evicted_entry_id;
+    if (!m_impl->states.empty()) {
+        result.oldest_retained_entry_id = m_impl->states.front().info.id;
+        // A retained two-frame timeline whose accounting is still above the
+        // normal ceiling is the intentional oversized-operation exception.
+        result.oversized_entry_retained = result.bytes_used > m_byte_budget &&
+            m_impl->states.size() <= 2;
+    }
+    return result;
 }
 
 void ProjectHistory::release_least_recently_used()
@@ -418,6 +441,8 @@ void ProjectHistory::release_least_recently_used()
         } else if (m_saved_checkpoint != static_cast<std::size_t>(-1) && m_saved_checkpoint > remove) {
             --m_saved_checkpoint;
         }
+        m_last_evicted_entry_id = m_impl->states[remove].info.id;
+        ++m_evicted_entry_count;
         m_impl->states.erase(m_impl->states.begin() + static_cast<std::ptrdiff_t>(remove));
         if (m_cursor > remove) --m_cursor;
         rebuild_intervals();

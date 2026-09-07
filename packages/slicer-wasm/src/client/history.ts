@@ -78,6 +78,14 @@ export interface HistoryStatus {
   readonly dirty: boolean;
   readonly bytesUsed: number;
   readonly byteBudget: number;
+  /** Cumulative bytes released from optional/reconstructable history data. */
+  readonly optionalBytesReleased: number;
+  /** Cumulative whole-entry evictions for this project session. */
+  readonly evictedEntryCount: number;
+  readonly lastEvictedEntryId: HistoryEntryId | null;
+  readonly oldestRetainedEntryId: HistoryEntryId | null;
+  /** True only for the intentional single oversized atomic operation case. */
+  readonly oversizedEntryRetained: boolean;
   /** True when the session cannot safely accept or restore history. */
   readonly disabled: boolean;
   readonly activeTransactionId: HistoryTransactionId | null;
@@ -123,6 +131,15 @@ export type RestoreResult = RestoreSuccess | RestoreFailure;
 export type HistoryMutation<T> = (transactionId: HistoryTransactionId) => Promise<T>;
 
 /**
+ * Dormant foundation for high-frequency operations.  Coalescing is opt-in and
+ * has no current UI; a nested begin must name its active parent transaction.
+ */
+export interface HistoryTransactionOptions {
+  readonly coalesce?: boolean;
+  readonly parentTransactionId?: HistoryTransactionId;
+}
+
+/**
  * Worker-backed history methods.  These are required on the real client;
  * callers cannot construct model patches or maintain a second history stack.
  */
@@ -131,6 +148,7 @@ export interface HistoryRuntimeMethods {
     label: HistoryLabel,
     category: HistoryKind,
     beforeContext: HistoryContext,
+    options?: HistoryTransactionOptions,
   ) => Promise<HistoryTransactionId>;
   commitHistory: (
     transactionId: HistoryTransactionId,

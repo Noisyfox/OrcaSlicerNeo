@@ -75,6 +75,19 @@ struct ObjectVersionInterval {
     std::uint64_t end { 0 };
 };
 
+// Resource effects are deliberately data-only.  The bridge exposes these
+// counters through HistoryStatus for diagnostics; no history operation emits
+// a user-facing notification when the budget releases or evicts data.
+struct ResourceDiagnostics {
+    std::size_t bytes_used { 0 };
+    std::size_t byte_budget { 0 };
+    std::size_t optional_bytes_released { 0 };
+    std::size_t evicted_entry_count { 0 };
+    std::uint64_t last_evicted_entry_id { 0 };
+    std::uint64_t oldest_retained_entry_id { 0 };
+    bool oversized_entry_retained { false };
+};
+
 class ProjectHistory {
 public:
     static constexpr std::size_t kDefaultByteBudget = std::size_t(256) * 1024 * 1024;
@@ -134,6 +147,7 @@ public:
     // Public for deterministic diagnostics and for the later resource gate.
     void release_least_recently_used();
     std::size_t release_optional_data();
+    ResourceDiagnostics resource_diagnostics() const;
 
     const std::vector<ObjectVersionInterval>& object_intervals() const { return m_object_intervals; }
 
@@ -144,6 +158,9 @@ private:
     std::size_t m_cursor { 0 };
     std::size_t m_saved_checkpoint { static_cast<std::size_t>(-1) };
     bool m_saved_checkpoint_evicted { false };
+    std::size_t m_optional_bytes_released { 0 };
+    std::size_t m_evicted_entry_count { 0 };
+    std::uint64_t m_last_evicted_entry_id { 0 };
     std::vector<ObjectVersionInterval> m_object_intervals;
 
     friend struct Impl;

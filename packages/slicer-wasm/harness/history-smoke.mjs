@@ -17,7 +17,7 @@ const context = { selection: { mode: 'object', objectIds: [], partIds: [], insta
   activePlateId: null, gizmo: null, projectConfigOverlay: {} };
 const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
 if (!init.ok) throw new Error(JSON.stringify(init));
-const tx = callJson('orc_history_begin', ['string', 'string', 'string'], ['Add Cubes', 'project', JSON.stringify(context)]);
+const tx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'], ['Add Cubes', 'project', JSON.stringify(context), '']);
 if (!tx.ok || typeof tx.transactionId !== 'string') throw new Error(JSON.stringify(tx));
 for (const name of ['History Cube A', 'History Cube B']) {
   const added = callJson('orc_add_shape', ['string', 'string'], ['Cube', name]);
@@ -27,11 +27,49 @@ const committed = callJson('orc_history_commit', ['string', 'string'], [tx.trans
 if (!committed.canUndo) throw new Error(`commit did not enable undo: ${JSON.stringify(committed)}`);
 if (!Number.isFinite(committed.bytesUsed) || committed.bytesUsed <= 512)
   throw new Error(`history accounting omitted native restore storage: ${JSON.stringify(committed)}`);
+for (const key of ['optionalBytesReleased', 'evictedEntryCount', 'bytesUsed', 'byteBudget']) {
+  if (!Number.isSafeInteger(committed[key]) || committed[key] < 0)
+    throw new Error(`history resource diagnostic ${key} is not deterministic: ${JSON.stringify(committed)}`);
+}
+if (typeof committed.oldestRetainedEntryId !== 'string' ||
+    typeof committed.oversizedEntryRetained !== 'boolean')
+  throw new Error(`history retention diagnostics are incomplete: ${JSON.stringify(committed)}`);
 const beforeEdit = callJson('orc_get_model_structure', [], []);
 if (!beforeEdit.ok || beforeEdit.objects.length !== 2)
   throw new Error(`two-object baseline was not restored: ${JSON.stringify(beforeEdit)}`);
 
-const editTx = callJson('orc_history_begin', ['string', 'string', 'string'], ['Toggle One Cube', 'project', JSON.stringify(context)]);
+// The coalescing path is intentionally dormant in product UI, but the real
+// bridge must keep a nested child inside one semantic outer history entry.
+const outer = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Coalesced edit', 'project', JSON.stringify(context), '']);
+if (!outer.ok || typeof outer.transactionId !== 'string') throw new Error(JSON.stringify(outer));
+const outerEdit = callJson('orc_set_object_printable', ['number', 'number'], [beforeEdit.objects[0].id, 0]);
+if (!outerEdit.ok) throw new Error(JSON.stringify(outerEdit));
+const child = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Coalesced child', 'project', JSON.stringify(context),
+    JSON.stringify({ coalesce: true, parentTransactionId: outer.transactionId })]);
+if (!child.ok || typeof child.transactionId !== 'string') throw new Error(JSON.stringify(child));
+const childEdit = callJson('orc_set_object_printable', ['number', 'number'], [beforeEdit.objects[1].id, 0]);
+if (!childEdit.ok) throw new Error(JSON.stringify(childEdit));
+const childCommit = callJson('orc_history_commit', ['string', 'string'], [child.transactionId, JSON.stringify(context)]);
+if (childCommit.activeTransactionId !== outer.transactionId)
+  throw new Error(`coalesced child escaped outer transaction: ${JSON.stringify(childCommit)}`);
+const coalesced = callJson('orc_history_commit', ['string', 'string'], [outer.transactionId, JSON.stringify(context)]);
+if (!coalesced.canUndo || coalesced.undoEntries.length !== 2)
+  throw new Error(`coalesced outer did not publish one entry: ${JSON.stringify(coalesced)}`);
+const coalescedUndo = callJson('orc_history_undo', [], []);
+if (!coalescedUndo.ok) throw new Error(`coalesced undo failed: ${JSON.stringify(coalescedUndo)}`);
+const coalescedRestored = callJson('orc_get_model_structure', [], []);
+if (!coalescedRestored.ok || coalescedRestored.objects.some((object) => object.printable !== true))
+  throw new Error(`coalesced undo did not restore both objects: ${JSON.stringify(coalescedRestored)}`);
+const coalescedRedo = callJson('orc_history_redo', [], []);
+if (!coalescedRedo.ok) throw new Error(`coalesced redo failed: ${JSON.stringify(coalescedRedo)}`);
+// Leave the fixture at its pristine state for the remaining independent
+// transaction checks below.
+const coalescedReset = callJson('orc_history_undo', [], []);
+if (!coalescedReset.ok) throw new Error(`coalesced reset failed: ${JSON.stringify(coalescedReset)}`);
+
+const editTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'], ['Toggle One Cube', 'project', JSON.stringify(context), '']);
 if (!editTx.ok || typeof editTx.transactionId !== 'string') throw new Error(JSON.stringify(editTx));
 const targetId = beforeEdit.objects[0].id;
 const edited = callJson('orc_set_object_printable', ['number', 'number'], [targetId, 0]);
@@ -73,8 +111,8 @@ function assertTransformEqual(actual, expected, label) {
   }
 }
 function commitTransform(label, transform) {
-  const started = callJson('orc_history_begin', ['string', 'string', 'string'],
-    [label, 'project', JSON.stringify(context)]);
+  const started = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+    [label, 'project', JSON.stringify(context), '']);
   if (!started.ok || typeof started.transactionId !== 'string') throw new Error(JSON.stringify(started));
   const result = callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'],
     [0, 0, 0, JSON.stringify(transform), JSON.stringify(modelMesh().volume_transform)]);

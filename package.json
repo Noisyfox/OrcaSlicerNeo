@@ -15,7 +15,8 @@
     "build:wasm": "bash packages/slicer-wasm/build.sh",
     "build:wasm:dual": "bash scripts/build-wasm-dual.sh",
     "smoke": "node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json",
-    "stage:assets": "node scripts/stage.mjs"
+    "stage:assets": "node scripts/stage.mjs",
+    "verify:undo-redo": "node scripts/verify-undo-redo-release.mjs"
   },
   "volta": {
     "node": "24.19.0",

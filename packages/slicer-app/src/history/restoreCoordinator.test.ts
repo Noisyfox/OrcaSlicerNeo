@@ -11,7 +11,9 @@ const context: HistoryContext = {
 const status: HistoryStatus = {
   canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0,
   savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false,
-  bytesUsed: 0, byteBudget: 256 * 1024 * 1024, disabled: false,
+  bytesUsed: 0, byteBudget: 256 * 1024 * 1024, optionalBytesReleased: 0,
+  evictedEntryCount: 0, lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0',
+  oversizedEntryRetained: false, disabled: false,
   activeTransactionId: null, revision: 1,
 };
 const success = (revision = 1): RestoreResult => ({ ok: true, context,

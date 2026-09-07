@@ -62,7 +62,9 @@ export function startWorker(
     post({ type: 'progress-mailbox', mailbox });
   }, beforeInit);
 
-  let activeTransactionId: string | null = null;
+  // The default remains one writer.  A coalesced child may be nested under
+  // the active writer and is popped only after its commit/abort.
+  const activeTransactionIds: string[] = [];
   let transactionStarting = false;
   let restoreInFlight = false;
 
@@ -80,21 +82,26 @@ export function startWorker(
       if (typeof method !== 'function') throw new Error(`unknown op: ${op}`);
       const callArgs = args ?? [];
       if (op === 'beginHistory') {
-        if (transactionStarting || activeTransactionId)
+        const nested = activeTransactionIds.length > 0;
+        if (transactionStarting || (!nested && activeTransactionIds.length > 0))
           throw new Error('history transaction is already active');
-        if (callArgs.length !== 3 || typeof callArgs[0] !== 'string' ||
+        if ((callArgs.length !== 3 && callArgs.length !== 4) || typeof callArgs[0] !== 'string' ||
             (callArgs[1] !== 'project' && callArgs[1] !== 'context') ||
             !callArgs[2] || typeof callArgs[2] !== 'object')
           throw new Error('malformed history begin request');
+        if (nested && (!callArgs[3] || typeof callArgs[3] !== 'object' ||
+            (callArgs[3] as Record<string, unknown>).coalesce !== true ||
+            (callArgs[3] as Record<string, unknown>).parentTransactionId !== activeTransactionIds[activeTransactionIds.length - 1]))
+          throw new Error('history transaction is already active');
         transactionStarting = true;
       } else if (op === 'commitHistory' || op === 'abortHistory') {
         if (callArgs.length < 1 || typeof callArgs[0] !== 'string' ||
-            !activeTransactionId || callArgs[0] !== activeTransactionId)
+            activeTransactionIds.length === 0 || callArgs[0] !== activeTransactionIds[activeTransactionIds.length - 1])
           throw new Error('history transaction is stale or belongs to another writer');
         if (op === 'commitHistory' && (callArgs.length !== 2 || !callArgs[1] || typeof callArgs[1] !== 'object'))
           throw new Error('malformed history commit request');
       } else if (op === 'undoHistory' || op === 'redoHistory' || op === 'jumpHistory') {
-        if (activeTransactionId || transactionStarting)
+        if (activeTransactionIds.length > 0 || transactionStarting)
           throw new Error('history transaction is active');
         if (op === 'jumpHistory' && (callArgs.length !== 1 || typeof callArgs[0] !== 'string'))
           throw new Error('malformed history jump request');
@@ -103,10 +110,10 @@ export function startWorker(
       const result = await method(...callArgs);
       if (op === 'beginHistory') {
         if (typeof result !== 'string' || result.length === 0) throw new Error('malformed history transaction id');
-        activeTransactionId = result;
+        activeTransactionIds.push(result);
         transactionStarting = false;
       } else if (op === 'commitHistory' || op === 'abortHistory') {
-        activeTransactionId = null;
+        activeTransactionIds.pop();
       }
       post({ type: 'response', id, ok: true, result }, collectTransferables(result));
     } catch (err) {

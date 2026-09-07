@@ -26,7 +26,7 @@ import type {
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel,
-  HistoryCategory, RestoreResult,
+  HistoryCategory, HistoryTransactionOptions, RestoreResult,
 } from './history';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
@@ -219,6 +219,11 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
     savedCheckpoint: saved === null ? null : typeof saved === 'number' && Number.isSafeInteger(saved) ? saved : null,
     savedCheckpointEvicted: bool('savedCheckpointEvicted'), dirty: bool('dirty'),
     bytesUsed: integer('bytesUsed'), byteBudget: integer('byteBudget'), disabled: bool('disabled'),
+    optionalBytesReleased: integer('optionalBytesReleased'),
+    evictedEntryCount: integer('evictedEntryCount'),
+    lastEvictedEntryId: typeof value.lastEvictedEntryId === 'string' ? value.lastEvictedEntryId : null,
+    oldestRetainedEntryId: typeof value.oldestRetainedEntryId === 'string' ? value.oldestRetainedEntryId : null,
+    oversizedEntryRetained: bool('oversizedEntryRetained'),
     activeTransactionId: typeof value.activeTransactionId === 'string' ? value.activeTransactionId : null,
     revision: integer('revision'),
   };
@@ -311,10 +316,11 @@ export function createClient(
   }
 
   async function beginHistory(label: HistoryLabel, category: HistoryCategory,
-                              beforeContext: HistoryContext): Promise<HistoryTransactionId> {
+                              beforeContext: HistoryContext,
+                              options?: HistoryTransactionOptions): Promise<HistoryTransactionId> {
     const m = await module();
-    const raw = callJson(m, 'orc_history_begin', ['string', 'string', 'string'],
-      [label, category, JSON.stringify(beforeContext)]) as Record<string, unknown>;
+    const raw = callJson(m, 'orc_history_begin', ['string', 'string', 'string', 'string'],
+      [label, category, JSON.stringify(beforeContext), options ? JSON.stringify(options) : '']) as Record<string, unknown>;
     if (raw?.ok !== true || typeof raw.transactionId !== 'string')
       return historyFailure(raw, 'history begin failed');
     return raw.transactionId;

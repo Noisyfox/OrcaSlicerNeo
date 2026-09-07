@@ -28,6 +28,8 @@ const status: HistoryStatus = {
   dirty: true,
   bytesUsed: 128,
   byteBudget: 256 * 1024 * 1024,
+  optionalBytesReleased: 0, evictedEntryCount: 0, lastEvictedEntryId: null,
+  oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
   disabled: false,
   activeTransactionId: null,
   revision: 1,

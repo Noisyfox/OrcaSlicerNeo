@@ -426,6 +426,30 @@ coalescing, and reproducible three-host release evidence.
 - Review all commits against the normative design, inspect the final diff, and
   update `spec/Grand Plan.md` only when every gate has passed.
 
+**Execution record (2026-09-08)**
+
+- Added Worker-visible resource diagnostics for cumulative optional-byte
+  release, whole-entry eviction, oldest retained entry, and the intentional
+  oversized-entry exception. Diagnostics are status data only and never emit
+  a disruptive notification.
+- Added the opt-in `{coalesce, parentTransactionId}` nested transaction
+  foundation in the bridge, Worker, typed client, and mock protocol. Nested
+  commits publish no independent history entry; no paint/support UI uses it.
+- Added `fixtures/history-large-model.json` and deterministic core assertions
+  covering shared mesh retention, compact mutable deltas (no complete 3MF per
+  edit), budget/oversized retention, safe oldest traversal, and saved
+  checkpoint eviction. Added `pnpm verify:undo-redo`, which runs the required
+  gates sequentially and records exact output/exit codes in a JSON report.
+- Focused Worker/client tests passed (9/9), standalone native ProjectHistory
+  fixture passed, `pnpm test` passed (workspace: 8 packages; slicer-app 409
+  tests), and `pnpm typecheck` passed. `scripts\\build-windows.bat quick`
+  rebuilt both threaded and serial wasm64 artifacts, and the dual smoke gate
+  passed after the final bridge change (the redirected evidence is in the
+  local `.work/step9-smoke.log`). Desktop E2E passed 30 with 3 existing
+  skips; threaded Web E2E passed 5/5; serial Web E2E passed 5/5. Desktop's
+  existing skips are the real DRC flow, native-menu slice wait, and rejecting
+  model error scenario.
+
 ## 12. Root Acceptance Record
 
 | Step | luna-high implementation commit | Agent self-verification | Root acceptance | Status |
@@ -439,4 +463,4 @@ coalescing, and reproducible three-host release evidence.
 | 6 | `56c4693`, `13485e8`, `adbb697` | Structural/history context coverage 6/6; workspace tests/typecheck; Desktop E2E 29 passed/3 existing skips; threaded/serial Web E2E 4/4 each. The initial threaded GPU-streaming timeout was reproduced as non-deterministic and passed repeated current/baseline runs. | Reviewed all Step 6 diffs and stable-ID/context boundaries; independently ran focused 6/6, `pnpm test` (401 slicer-app tests), typecheck, Desktop E2E 29 passed/3 existing skips, and threaded/serial Web E2E 4/4 each. | Accepted 2026-09-07 |
 | 7 | `e593323` | Client overlay test, slicer-app suite, full `pnpm test`, `pnpm typecheck`, dual quick, dual smoke, Desktop E2E 29 passed/3 existing skips, and threaded/serial Web E2E 4/4 each | Reviewed overlay persistence/history, draft commit boundaries, preset exclusion, atomic rejected writes, and final host gates; independently reran focused client/settings coverage | Accepted 2026-09-07 |
 | 8 | `68fbb42`, `98afaaf` | Navigation/Toolbar component tests, full workspace checks, dual WASM smoke, Desktop E2E 29 passed/3 existing skips, threaded/serial Web E2E 4/4 each | Reviewed Worker-status navigation path, context-entry filtering, shortcut focus filtering, and direct jump; independently ran navigation/Toolbar 14/14 and desktop shared-history E2E 1/1 | Accepted 2026-09-08 |
-| 9 | — | — | — | Not started |
+| 9 | pending | Focused protocol 9/9, standalone native ProjectHistory fixture, workspace tests (409 slicer-app tests), typecheck, dual quick/smoke, Desktop E2E 30 passed/3 existing skips, threaded Web E2E 5/5, serial Web E2E 5/5 | Pending root acceptance/review of the final diff and complete matrix | Ready for acceptance |

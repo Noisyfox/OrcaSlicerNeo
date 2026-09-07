@@ -123,4 +123,23 @@ describe('Worker-owned project history protocol', () => {
     expect(truncated.canRedo).toBe(false);
     expect(truncated.dirty).toBe(false);
   });
+
+  it('keeps opt-in nested coalesced transactions dormant and publishes one entry', async () => {
+    const client = createClient(async () => createMockModule());
+    const before = context('plate-1');
+    const outer = await client.beginHistory('Paint stroke', 'project', before);
+    await client.addShape('Cube');
+    await expect(client.beginHistory('Rejected child', 'project', before, {
+      coalesce: true, parentTransactionId: 'stale',
+    })).rejects.toThrow('already active');
+    const inner = await client.beginHistory('Paint sample', 'project', before, {
+      coalesce: true, parentTransactionId: outer,
+    });
+    await client.addShape('Cube');
+    const nestedStatus = await client.commitHistory(inner, before);
+    expect(nestedStatus.activeTransactionId).toBe(outer);
+    const final = await client.commitHistory(outer, before);
+    expect(final.undoEntries).toHaveLength(1);
+    expect((await client.getModelStructure()).objects).toHaveLength(2);
+  });
 });

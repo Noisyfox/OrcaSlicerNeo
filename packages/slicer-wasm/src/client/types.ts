@@ -663,7 +663,8 @@ export interface SlicerClient {
   init(): Promise<InitResult>;
   /** Begin/commit/abort are serialized by the Worker; transaction IDs are opaque. */
   beginHistory(label: import('./history').HistoryLabel, category: import('./history').HistoryCategory,
-               beforeContext: import('./history').HistoryContext): Promise<import('./history').HistoryTransactionId>;
+               beforeContext: import('./history').HistoryContext,
+               options?: import('./history').HistoryTransactionOptions): Promise<import('./history').HistoryTransactionId>;
   commitHistory(transactionId: import('./history').HistoryTransactionId,
                 afterContext: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
   abortHistory(transactionId: import('./history').HistoryTransactionId): Promise<import('./history').RestoreResult>;

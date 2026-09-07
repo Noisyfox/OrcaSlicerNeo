@@ -52,7 +52,9 @@ const navigationStatus: HistoryStatus = {
     { id: 'redo-context', label: 'Active Plate', category: 'context' },
   ],
   cursor: 2, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
-  bytesUsed: 1, byteBudget: 256, disabled: false, activeTransactionId: null, revision: 2,
+  bytesUsed: 1, byteBudget: 256, optionalBytesReleased: 0, evictedEntryCount: 0,
+  lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
+  disabled: false, activeTransactionId: null, revision: 2,
 };
 
 describe('Toolbar send navigation', () => {

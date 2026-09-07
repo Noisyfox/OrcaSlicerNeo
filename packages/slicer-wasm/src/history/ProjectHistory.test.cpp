@@ -117,12 +117,21 @@ int main()
     CHECK(history.current().model.immutable_meshes.front().deferred != nullptr);
     CHECK(history.undo(restored));
 
+    // Resource effects are observable diagnostics, not notifications.  The
+    // released-byte counter is cumulative for this project session and the
+    // retained oldest entry remains a safe restore target.
+    const auto mesh_diagnostics = history.resource_diagnostics();
+    CHECK(mesh_diagnostics.optional_bytes_released > 0);
+    CHECK(mesh_diagnostics.bytes_used == history.bytes_used());
+    CHECK(mesh_diagnostics.byte_budget == history.byte_budget());
+
     // A single atomic entry larger than the budget remains available.
     ProjectHistory oversized(32);
     CHECK(oversized.commit("base", Category::Project, model(1), {}));
     CHECK(oversized.commit("large", Category::Project, model(2, 512), {}));
     CHECK(oversized.bytes_used() > oversized.byte_budget());
     CHECK(oversized.can_undo());
+    CHECK(oversized.resource_diagnostics().oversized_entry_retained);
     CHECK(oversized.undo(restored));
 
     // When older history is evicted, the current oversized operation still
@@ -132,6 +141,8 @@ int main()
     CHECK(recent.commit("move", Category::Project, model(2), {}));
     CHECK(recent.commit("large", Category::Project, model(3, 512), {}));
     CHECK(recent.can_undo());
+    CHECK(recent.resource_diagnostics().evicted_entry_count > 0);
+    CHECK(recent.resource_diagnostics().oldest_retained_entry_id != 0);
     CHECK(recent.undo(restored));
     CHECK(restored.model.serialized == bytes(2));
 
@@ -189,6 +200,32 @@ int main()
     CHECK(shared.undo(restored));
     CHECK(restored.model.immutable_meshes.front().resident.get() == shared_mesh.get());
     CHECK(restored.model.mutable_objects[1].data == bytes(2, 32));
+
+    // Deterministic large-model fixture (fixtures/history-large-model.json):
+    // 24 mutable objects share one immutable mesh while 12 edits touch only
+    // object 7.  A complete-model archive per edit would exceed this bound;
+    // object deltas plus one mesh remain comfortably below it.
+    ModelState large_base;
+    large_base.immutable_meshes.push_back({
+        "large-shared-mesh", std::make_shared<const Bytes>(bytes(0xA5, 64 * 1024)), {}, false});
+    for (ObjectID id = 1; id <= 24; ++id)
+        large_base.mutable_objects.push_back({id, 1, bytes(static_cast<std::uint8_t>(id), 4 * 1024)});
+    ProjectHistory large(256 * 1024);
+    CHECK(large.commit("large baseline", Category::Project, large_base, {}));
+    for (std::uint8_t edit = 1; edit <= 12; ++edit) {
+        auto next = large_base;
+        next.mutable_objects.front().timestamp = edit + 1;
+        next.mutable_objects.front().data = bytes(edit, 4 * 1024);
+        CHECK(large.commit("large edit", Category::Project, next, {}));
+        large_base = std::move(next);
+    }
+    CHECK(large.bytes_used() < 512 * 1024);
+    CHECK(large.current().model.immutable_meshes.front().resident);
+    const auto shared_resident = large.current().model.immutable_meshes.front().resident.get();
+    CHECK(large.undo(restored));
+    CHECK(restored.model.immutable_meshes.front().resident.get() == shared_resident);
+    CHECK(large.redo(restored));
+    CHECK(restored.model.immutable_meshes.front().resident.get() == shared_resident);
 
     return 0;
 }

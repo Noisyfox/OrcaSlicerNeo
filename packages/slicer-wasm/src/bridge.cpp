@@ -220,8 +220,15 @@ struct BridgeState {
         std::string label;
         Neo::History::Category category { Neo::History::Category::Project };
         json before_context;
+        Neo::History::ModelState before_model;
+        bool coalesced { false };
+        std::string parent_id;
     };
     std::optional<HistoryTransaction> active_history_transaction;
+    // Nested/coalesced transactions are intentionally dormant: they publish
+    // no independent history entry and have no UI.  Keeping a stack here
+    // gives future painting/support tools one safe outer transaction boundary.
+    std::vector<HistoryTransaction> nested_history_transactions;
     std::uint64_t next_history_transaction_id = 1;
     std::uint64_t history_revision = 0;
     bool history_disabled = false;
@@ -2078,6 +2085,7 @@ static json history_status_json()
     const auto* undo_entry = state().history.undo_entry();
     const auto* redo_entry = state().history.redo_entry();
     const auto saved = state().history.saved_checkpoint();
+    const auto resources = state().history.resource_diagnostics();
     return json{
         {"canUndo", state().history.can_undo()}, {"canRedo", state().history.can_redo()},
         {"undoLabel", undo_entry ? json(undo_entry->label) : json(nullptr)},
@@ -2088,6 +2096,13 @@ static json history_status_json()
         {"savedCheckpointEvicted", state().history.saved_checkpoint_evicted()},
         {"dirty", state().history.project_modified()},
         {"bytesUsed", state().history.bytes_used()}, {"byteBudget", state().history.byte_budget()},
+        {"optionalBytesReleased", resources.optional_bytes_released},
+        {"evictedEntryCount", resources.evicted_entry_count},
+        {"lastEvictedEntryId", resources.last_evicted_entry_id == 0
+            ? json(nullptr) : json(history_entry_id(resources.last_evicted_entry_id))},
+        {"oldestRetainedEntryId", state().history.entries().empty()
+            ? json(nullptr) : json(history_entry_id(resources.oldest_retained_entry_id))},
+        {"oversizedEntryRetained", resources.oversized_entry_retained},
         {"disabled", state().history_disabled},
         {"activeTransactionId", state().active_history_transaction ? json(state().active_history_transaction->id) : json(nullptr)},
         {"revision", state().history_revision},
@@ -2154,6 +2169,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         state().project_config_overlay = empty_project_config_overlay();
         state().history.clear();
         state().active_history_transaction.reset();
+        state().nested_history_transactions.clear();
         state().history_disabled = false;
         state().history_revision++;
         // First bridge log record — proves the sink pipeline end-to-end
@@ -2182,17 +2198,33 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
 // through the same budgeted ProjectHistory entries.
 EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr,
                                                    const char* category_cstr,
-                                                   const char* before_context_cstr) {
+                                                   const char* before_context_cstr,
+                                                   const char* options_cstr) {
     try {
         if (state().history_disabled) return error_json("history is disabled");
-        if (state().active_history_transaction)
-            return error_json("history transaction is already active");
         const std::string label = label_cstr ? label_cstr : "";
         const std::string category = category_cstr ? category_cstr : "";
         if (label.empty()) return error_json("history label is required");
         if (category != "project" && category != "context")
             return error_json("history category must be project or context");
         const json before_context = canonical_history_context(parse_history_context(before_context_cstr));
+        json options = json::object();
+        if (options_cstr && *options_cstr) options = json::parse(options_cstr);
+        const bool coalesce = options.is_object() && options.value("coalesce", false);
+        const std::string parent_id = options.is_object() && options.contains("parentTransactionId") &&
+            options["parentTransactionId"].is_string() ? options["parentTransactionId"].get<std::string>() : std::string{};
+        if (state().active_history_transaction) {
+            const std::string parent_target = state().nested_history_transactions.empty()
+                ? state().active_history_transaction->id : state().nested_history_transactions.back().id;
+            if (!coalesce || parent_id != parent_target)
+                return error_json("history transaction is already active");
+            const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
+            state().nested_history_transactions.push_back({
+                id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
+                before_context, history_model_state(), true,
+                parent_target});
+            return dup_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
+        }
         if (state().history.entries().empty()) {
             const std::string context_text = before_context.dump();
             state().history.commit("", Neo::History::Category::Project,
@@ -2202,7 +2234,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr,
         const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
         state().active_history_transaction = BridgeState::HistoryTransaction{
             id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
-            before_context};
+            before_context, history_model_state(), false, {}};
         return dup_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -2218,6 +2250,15 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
         if (!state().active_history_transaction)
             return error_json("history transaction is not active");
+        if (!state().nested_history_transactions.empty()) {
+            auto& nested = state().nested_history_transactions.back();
+            if (requested != nested.id)
+                return error_json("history transaction is stale or belongs to another writer");
+            // A coalesced child intentionally publishes no independent entry;
+            // its outer transaction owns the final semantic snapshot.
+            state().nested_history_transactions.pop_back();
+            return dup_json(history_status_json().dump());
+        }
         if (requested != state().active_history_transaction->id)
             return error_json("history transaction is stale or belongs to another writer");
         const json after_context = canonical_history_context(parse_history_context(after_context_cstr));
@@ -2228,6 +2269,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
                                                      history_model_state(), context_bytes);
         if (changed) state().history_revision++;
         state().active_history_transaction.reset();
+        state().nested_history_transactions.clear();
         return dup_json(history_status_json().dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -2241,16 +2283,30 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
         const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
         if (!state().active_history_transaction)
             return error_json("history transaction is not active");
+        if (!state().nested_history_transactions.empty()) {
+            auto tx = state().nested_history_transactions.back();
+            if (requested != tx.id)
+                return error_json("history transaction is stale or belongs to another writer");
+            restore_history_model({tx.before_model, {}, {}});
+            if (valid_project_config_overlay(tx.before_context["projectConfigOverlay"]))
+                state().project_config_overlay = tx.before_context["projectConfigOverlay"];
+            state().nested_history_transactions.pop_back();
+            state().print.clear();
+            invalidate_preview_source();
+            state().history_revision++;
+            return dup_json(json{{"ok", true}, {"context", tx.before_context},
+                                 {"status", history_status_json()}}.dump());
+        }
         if (requested != state().active_history_transaction->id)
             return error_json("history transaction is stale or belongs to another writer");
         const auto tx = *state().active_history_transaction;
-        const auto& current = state().history.current();
-        restore_history_model(current);
+        restore_history_model({tx.before_model, {}, {}});
         if (valid_project_config_overlay(tx.before_context["projectConfigOverlay"]))
             state().project_config_overlay = tx.before_context["projectConfigOverlay"];
         state().print.clear();
         invalidate_preview_source();
         state().active_history_transaction.reset();
+        state().nested_history_transactions.clear();
         state().history_revision++;
         return dup_json(json{{"ok", true}, {"context", tx.before_context},
                              {"status", history_status_json()}}.dump());
@@ -3077,6 +3133,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
             // current-project mutations and do not cross this boundary.
             state().history.clear();
             state().active_history_transaction.reset();
+            state().nested_history_transactions.clear();
             state().history_disabled = false;
             const json context = default_history_context();
             const std::string context_text = context.dump();

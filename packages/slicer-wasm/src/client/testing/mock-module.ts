@@ -317,12 +317,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let historyEntries: MockHistoryEntry[] = [];
   let historyCursor = 0;
   let historyTransaction: { id: string; label: string; category: 'project' | 'context'; before: MockHistoryState; beforeContext: any } | null = null;
+  const historyNestedTransactions: Array<{ id: string; before: MockHistoryState; beforeContext: any }> = [];
   let nextHistoryTransactionId = 1;
   let nextHistoryEntryId = 1;
   let historyRevision = 0;
   let historyDisabled = false;
   let savedHistoryCursor: number | null = null;
   let savedHistoryCheckpointEvicted = false;
+  let historyOptionalBytesReleased = 0;
+  let historyEvictedEntryCount = 0;
+  let historyLastEvictedEntryId: string | null = null;
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
   function captureHistoryState(): MockHistoryState {
@@ -371,6 +375,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       ...(redo ? { redoLabel: redo.label } : {}), undoEntries, redoEntries,
       cursor: historyCursor, savedCheckpoint: savedHistoryCursor, savedCheckpointEvicted: savedHistoryCheckpointEvicted,
       dirty, bytesUsed: JSON.stringify(historyEntries).length,
+      optionalBytesReleased: historyOptionalBytesReleased,
+      evictedEntryCount: historyEvictedEntryCount,
+      lastEvictedEntryId: historyLastEvictedEntryId,
+      oldestRetainedEntryId: historyEntries[0]?.id ?? null,
+      oversizedEntryRetained: false,
       byteBudget: 256 * 1024 * 1024, disabled: historyDisabled,
       activeTransactionId: historyTransaction?.id ?? null, revision: historyRevision,
     };
@@ -381,8 +390,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       throw new Error('invalid history context');
   }
   function resetHistory(): void {
-    historyEntries = []; historyCursor = 0; historyTransaction = null;
+    historyEntries = []; historyCursor = 0; historyTransaction = null; historyNestedTransactions.length = 0;
     savedHistoryCursor = null; savedHistoryCheckpointEvicted = false;
+    historyOptionalBytesReleased = 0;
+    historyEvictedEntryCount = 0;
+    historyLastEvictedEntryId = null;
     historyRevision++; historyDisabled = false;
   }
   function historyRestore(entry: MockHistoryEntry) {
@@ -749,13 +761,22 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         printers: presetFixtures.printer.length,
       };
     },
-    orc_history_begin(label: string, category: string, beforeContextJson: string) {
+    orc_history_begin(label: string, category: string, beforeContextJson: string, optionsJson?: string) {
       if (historyDisabled) return { error: 'history is disabled' };
-      if (historyTransaction) return { error: 'history transaction is already active' };
       if (typeof label !== 'string' || !label) return { error: 'history label is required' };
       if (category !== 'project' && category !== 'context') return { error: 'history category must be project or context' };
       let beforeContext: any;
       try { beforeContext = JSON.parse(beforeContextJson); validateHistoryContext(beforeContext); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      let options: any = {};
+      try { if (optionsJson) options = JSON.parse(optionsJson); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      if (historyTransaction && options?.coalesce === true &&
+          options.parentTransactionId === (historyNestedTransactions.length
+            ? historyNestedTransactions[historyNestedTransactions.length - 1].id : historyTransaction.id)) {
+        const id = `tx-${nextHistoryTransactionId++}`;
+        historyNestedTransactions.push({ id, before: captureHistoryState(), beforeContext: clone(beforeContext) });
+        return { ok: true, transactionId: id, status: historyStatus() };
+      }
+      if (historyTransaction) return { error: 'history transaction is already active' };
       if (historyEntries.length === 0) {
         historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(beforeContext) });
         historyCursor = 0;
@@ -767,6 +788,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_history_commit(transactionId: string, afterContextJson: string) {
       if (!historyTransaction) return { error: 'history transaction is not active' };
+      const nested = historyNestedTransactions.length
+        ? historyNestedTransactions[historyNestedTransactions.length - 1] : undefined;
+      if (nested) {
+        if (transactionId !== nested.id) return { error: 'history transaction is stale or belongs to another writer' };
+        historyNestedTransactions.pop();
+        return historyStatus();
+      }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
       let afterContext: any;
       try { afterContext = JSON.parse(afterContextJson); validateHistoryContext(afterContext); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
@@ -793,6 +821,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_history_abort(transactionId: string) {
       if (!historyTransaction) return { error: 'history transaction is not active' };
+      const nested = historyNestedTransactions.length
+        ? historyNestedTransactions[historyNestedTransactions.length - 1] : undefined;
+      if (nested) {
+        if (transactionId !== nested.id) return { error: 'history transaction is stale or belongs to another writer' };
+        restoreHistoryState(nested.before);
+        historyNestedTransactions.pop();
+        historyRevision++;
+        return { ok: true, context: clone(nested.beforeContext), status: historyStatus() };
+      }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
       restoreHistoryState(historyTransaction.before);
       const context = historyTransaction.beforeContext;
@@ -1636,7 +1673,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- ccall dispatch with per-function signature conversion ----
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
     orc_init: { ret: 'number', args: ['string'] },
-    orc_history_begin: { ret: 'number', args: ['string', 'string', 'string'] },
+    orc_history_begin: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
     orc_history_commit: { ret: 'number', args: ['string', 'string'] },
     orc_history_abort: { ret: 'number', args: ['string'] },
     orc_history_undo: { ret: 'number', args: [] },

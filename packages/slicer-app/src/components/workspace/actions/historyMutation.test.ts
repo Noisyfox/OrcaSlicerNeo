@@ -8,7 +8,9 @@ import { historyContextForStructure, runProjectHistoryMutation, syncHistoryStatu
 const status: HistoryStatus = {
   canUndo: true, canRedo: false, undoLabel: 'Delete', undoEntries: [], redoEntries: [],
   cursor: 1, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true,
-  bytesUsed: 1, byteBudget: 10, disabled: false, activeTransactionId: null, revision: 2,
+  bytesUsed: 1, byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+  lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
+  disabled: false, activeTransactionId: null, revision: 2,
 };
 
 function transactionRuntime() {
