@@ -170,7 +170,8 @@ for %%n in (%TBB_HEADERS%) do (
 >> "%SHIM_INCLUDE%\tbb\tbb.h" echo #include "_serial.hpp"
 > "%SHIM_INCLUDE%\oneapi\tbb.h" echo #pragma once
 >> "%SHIM_INCLUDE%\oneapi\tbb.h" echo #include "_serial.hpp"
-REM Serial boost::thread stand-in (Boost.Thread has no Emscripten backend).
+REM boost::thread compatibility shim. The threaded variant wraps
+REM std::thread/pthreads; the serial variant is a deferred serial stand-in.
 REM libslic3r references it from dead-but-compiled code. Same forwarding
 REM pattern as the TBB shim.
 if not exist "%SHIM_INCLUDE%\boost\thread" mkdir "%SHIM_INCLUDE%\boost\thread"
@@ -181,6 +182,11 @@ copy /y "%PKG_DIR%\shim\boost-thread.hpp" "%SHIM_INCLUDE%\boost-thread.hpp" >nul
 >> "%SHIM_INCLUDE%\boost\thread\mutex.hpp" echo #include "../../boost-thread.hpp"
 > "%SHIM_INCLUDE%\boost\thread\lock_guard.hpp" echo #pragma once
 >> "%SHIM_INCLUDE%\boost\thread\lock_guard.hpp" echo #include "../../boost-thread.hpp"
+> "%SHIM_INCLUDE%\boost\thread\condition_variable.hpp" echo #pragma once
+>> "%SHIM_INCLUDE%\boost\thread\condition_variable.hpp" echo #include "../../boost-thread.hpp"
+if not exist "%SHIM_INCLUDE%\boost\thread\detail" mkdir "%SHIM_INCLUDE%\boost\thread\detail"
+> "%SHIM_INCLUDE%\boost\thread\detail\thread.hpp" echo #pragma once
+>> "%SHIM_INCLUDE%\boost\thread\detail\thread.hpp" echo #include "../../../boost-thread.hpp"
 REM libnoise stand-in (FuzzySkin.cpp includes <libnoise/noise.h>).
 if not exist "%SHIM_INCLUDE%\libnoise" mkdir "%SHIM_INCLUDE%\libnoise"
 copy /y "%PKG_DIR%\shim\libnoise\noise.h" "%SHIM_INCLUDE%\libnoise\noise.h" >nul

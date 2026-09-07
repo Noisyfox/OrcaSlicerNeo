@@ -81,7 +81,8 @@ generate_shim() {
   done
   printf '#pragma once\n#include "_serial.hpp"\n' > "$SHIM_INCLUDE/tbb/tbb.h"
   printf '#pragma once\n#include "_serial.hpp"\n' > "$SHIM_INCLUDE/oneapi/tbb.h"
-  # Serial boost::thread stand-in (Boost.Thread has no Emscripten backend).
+  # boost::thread compatibility shim. In the threaded variant it wraps
+  # std::thread/pthreads; in the serial variant it is a deferred serial stand-in.
   # libslic3r references it from dead-but-compiled code (Print, GCodeSender,
   # Thread, ProjectTask, PrintConfig, MultiMaterialSegmentation,
   # TriangleMeshSlicer). Same forwarding pattern as the TBB shim.
@@ -90,6 +91,9 @@ generate_shim() {
   printf '#pragma once\n#include "../boost-thread.hpp"\n' > "$SHIM_INCLUDE/boost/thread.hpp"
   printf '#pragma once\n#include "../../boost-thread.hpp"\n' > "$SHIM_INCLUDE/boost/thread/mutex.hpp"
   printf '#pragma once\n#include "../../boost-thread.hpp"\n' > "$SHIM_INCLUDE/boost/thread/lock_guard.hpp"
+  printf '#pragma once\n#include "../../boost-thread.hpp"\n' > "$SHIM_INCLUDE/boost/thread/condition_variable.hpp"
+  mkdir -p "$SHIM_INCLUDE/boost/thread/detail"
+  printf '#pragma once\n#include "../../../boost-thread.hpp"\n' > "$SHIM_INCLUDE/boost/thread/detail/thread.hpp"
   # libnoise stand-in (FuzzySkin.cpp includes <libnoise/noise.h>).
   mkdir -p "$SHIM_INCLUDE/libnoise"
   cp "$PKG_DIR/shim/libnoise/noise.h" "$SHIM_INCLUDE/libnoise/noise.h"

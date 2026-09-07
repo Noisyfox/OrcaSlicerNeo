@@ -32,6 +32,10 @@ option(WASM_DEBUG "Build libslic3r + bridge with embedded DWARF (-g -O0); deps s
 # oneTBB and Emscripten use every logical core the runtime exposes.
 set(WASM_PTHREAD_POOL_SIZE "navigator.hardwareConcurrency" CACHE STRING "Pre-created Emscripten pthread workers")
 if(WASM_THREADING)
+  # The compatibility shim uses this to select its std::thread-backed
+  # implementation. Keep it global so every target that includes the shim sees
+  # the same thread semantics as the final module.
+  add_compile_definitions(ORCA_WASM_THREADING=1)
   if(NOT DEFINED TBB_ROOT OR "${TBB_ROOT}" STREQUAL "")
     message(FATAL_ERROR "TBB_ROOT must name the staged oneTBB build when WASM_THREADING=ON.")
   endif()
@@ -123,7 +127,8 @@ add_library(slic3r_core STATIC ${LIBSLIC3R_SRC} ${STUB_SRC})
 
 if(WASM_THREADING)
   # Real oneTBB must precede the generic compatibility shim. The shim still
-  # supplies boost::thread/libnoise/libjpeg stand-ins for dropped features.
+  # supplies the Boost.Thread compatibility surface, plus libnoise/libjpeg
+  # stand-ins for dropped features.
   target_include_directories(slic3r_core PUBLIC "${TBB_INCLUDE_DIR}")
 endif()
 target_include_directories(slic3r_core PUBLIC
@@ -169,11 +174,6 @@ target_compile_definitions(slic3r_core PUBLIC
   BOOST_HAS_PTHREADS
   BOOST_THREAD_PLATFORM_PTHREAD
 )
-if(WASM_THREADING)
-  target_compile_definitions(slic3r_core PUBLIC
-    ORCA_WASM_THREADING=1
-  )
-endif()
 # Boost.Log ABI tag: Boost.Log 2.x is a compiled library (no header-only
 # mode). The Boost archives were built with -pthread (build-boost-wasm64.sh),
 # so their symbols live in the v2s_mt_posix namespace. Emscripten's libc++
@@ -181,11 +181,12 @@ endif()
 # unless a threading API is recognized (BOOST_HAS_PTHREADS); without the
 # defines below every BOOST_LOG_TRIVIAL call site would compile with the
 # v2s_st namespace and fail to link. The define set opts our TUs into the
-# multithreaded ABI namespace while the runtime stays single-threaded: the
-# only real boost::thread user (GCodeSender) is dropped, and utils.cpp's
-# async_frontend.hpp include (which would pull in boost::thread) is guarded
-# out under __EMSCRIPTEN__ (patch 0007).
-# Single-threaded: no pthreads in v1 (serial TBB shim).
+# multithreaded ABI namespace while the serial artifact remains free of
+# pthreads. In the threaded artifact, retained Boost.Thread compatibility calls
+# use the std::thread-backed shim; the slice's primary parallel work remains
+# oneTBB-owned. The only real boost::thread user (GCodeSender) is dropped, and
+# utils.cpp's async_frontend.hpp include (which would pull in boost::thread) is
+# guarded out under __EMSCRIPTEN__ (patch 0007).
 # -Wno-missing-template-arg-list-after-template-kw: Boost 1.84 quat_traits.hpp
 # uses `quat_traits<Q>::template write_element_idx(...)` where the member is
 # not a template in the scalar specialization; clang 21 promotes the

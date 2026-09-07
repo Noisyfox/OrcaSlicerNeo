@@ -1,19 +1,17 @@
 // ----------------------------------------------------------------
-// ------------ Serial boost::thread shim for the WASM build -------
+// ------------ boost::thread compatibility shim for WASM --------
 // ----------------------------------------------------------------
-// libslic3r references boost::thread in code that is dead in the v1 WASM
-// slice path (GUI host control, cloud task API, thread-naming helpers) but
-// must still COMPILE: Print.cpp (boost::mutex/unique_lock), GCodeSender,
-// ProjectTask, Thread.{hpp,cpp}, PrintConfig.cpp, MultiMaterialSegmentation,
-// TriangleMeshSlicer. Boost.Thread has no Emscripten backend ("Boost threads
-// unavailable on this platform"), so — like the TBB shim — we provide serial
-// header-only stand-ins. v1 runs single-threaded; nothing here actually
-// spawns a thread: thread() stores the callable and runs it once on
-// join()/detach().
+// libslic3r references Boost.Thread APIs from code that is either retained for
+// compilation or outside the synchronous v1 bridge path. The Boost.Thread
+// headers are therefore replaced with this small source-compatible surface.
 //
-// This is intentionally a *subset* (thread, attributes, id, this_thread,
-// mutex, unique_lock, lock_guard). When a compile surfaces a missing
-// boost::thread symbol, add it here — expected iterative work.
+// The threaded artifact maps boost::thread to std::thread and Emscripten
+// pthreads. The serial artifact keeps the deferred serial behaviour used by
+// the fallback build. The real parallel slice work remains oneTBB-owned.
+//
+// This is intentionally a subset (thread, attributes, id, this_thread, mutex,
+// unique_lock, lock_guard, condition_variable). When a compile surfaces a
+// missing boost::thread symbol, add it here — expected iterative work.
 #pragma once
 
 #include <chrono>
@@ -25,19 +23,19 @@
 #include <utility>
 
 // Real (header-only) boost::posix_time for system_time/get_system_time and the
-// ptime arithmetic bbs_3mf.cpp's backup manager does (seconds() offsets,
-// comparisons). Resolves from the Emscripten-built Boost archive on the
-// include path — this file only lives in the shim include dir.
+// ptime arithmetic used by upstream callers. This file only lives in the shim
+// include directory, so the date_time header resolves from the staged Boost
+// include tree.
 #include <boost/date_time/posix_time/posix_time.hpp>
 
-// boost::ref / boost::is_reference_wrapper — bbs_3mf.cpp starts its backup
-// manager thread as boost::thread(boost::ref(*this)); the shim must unwrap
-// the reference_wrapper before stuffing the callable into std::function.
+// boost::ref / boost::is_reference_wrapper are used by upstream thread call
+// sites. The wrapper has get() but no call operator, so thread construction
+// unwraps it before handing the callable to std::thread/std::function.
 #include <boost/ref.hpp>
 
 namespace boost {
 
-// ---------------- mutex (serial: real std::mutex, but only one thread) ----
+// ---------------- mutex / lock types ---------------------------------------
 class mutex {
 public:
   mutex() = default;
@@ -54,47 +52,68 @@ private:
   std::mutex m_;
 };
 
-// ---------------- lock_guard / unique_lock (std-compatible) ----------------
 template <class Mutex>
 class lock_guard {
 public:
-  explicit lock_guard(Mutex& m) : m_(m) { m_.lock(); }
+  explicit lock_guard(Mutex& mutex) : mutex_(mutex) { mutex_.lock(); }
   lock_guard(const lock_guard&) = delete;
   lock_guard& operator=(const lock_guard&) = delete;
-  ~lock_guard() { m_.unlock(); }
+  ~lock_guard() { mutex_.unlock(); }
 
 private:
-  Mutex& m_;
+  Mutex& mutex_;
 };
 
 template <class Mutex>
 class unique_lock {
 public:
   unique_lock() = default;
-  explicit unique_lock(Mutex& m) : m_(&m) { m_->lock(); owns_ = true; }
+  explicit unique_lock(Mutex& mutex) : lock_(mutex) {}
+  unique_lock(std::defer_lock_t tag) : lock_(tag) {}
+  unique_lock(std::try_to_lock_t tag) : lock_(tag) {}
+  unique_lock(std::adopt_lock_t tag) : lock_(tag) {}
   unique_lock(const unique_lock&) = delete;
   unique_lock& operator=(const unique_lock&) = delete;
-  ~unique_lock() { if (m_ != nullptr && owns_) { m_->unlock(); } }
+  unique_lock(unique_lock&&) noexcept = default;
+  unique_lock& operator=(unique_lock&&) noexcept = default;
+  ~unique_lock() = default;
 
-  void lock() { if (m_ != nullptr) { m_->lock(); owns_ = true; } }
-  void unlock() { if (m_ != nullptr) { m_->unlock(); owns_ = false; } }
-  bool owns_lock() const { return owns_; }
-  Mutex* mutex() const { return m_; }
+  void lock() { lock_.lock(); }
+  bool try_lock() { return lock_.try_lock(); }
+  void unlock() { lock_.unlock(); }
+  bool owns_lock() const noexcept { return lock_.owns_lock(); }
+  explicit operator bool() const noexcept { return owns_lock(); }
+  Mutex* mutex() const noexcept { return lock_.mutex(); }
+  Mutex* release() noexcept { return lock_.release(); }
 
 private:
-  Mutex* m_ = nullptr;
-  bool owns_ = false;
+  std::unique_lock<Mutex> lock_;
 };
 
-// ---------------- condition_variable / system_time (bbs_3mf.cpp) -----------
-// _BBS_Backup_Manager (Format/bbs_3mf.cpp) uses boost::condition_variable with
-// timed_wait on a boost::system_time deadline plus posix_time arithmetic. The
-// real Boost.Thread is unavailable on Emscripten, so — like the rest of this
-// shim — provide serial stand-ins over std::condition_variable. Nothing
-// actually blocks: the whole module runs single-threaded.
+// ---------------- condition_variable --------------------------------------
+// condition_variable_any accepts the compatibility mutex and lock types. Its
+// wait implementation atomically unlocks the caller's lock while sleeping and
+// reacquires it before returning. The previous shim constructed a second
+// std::unique_lock on an already-owned mutex, which could deadlock.
 using system_time = boost::posix_time::ptime;
 
-inline system_time get_system_time() { return boost::posix_time::microsec_clock::universal_time(); }
+inline system_time get_system_time()
+{
+  return boost::posix_time::microsec_clock::universal_time();
+}
+
+inline std::chrono::microseconds to_std_duration(const boost::posix_time::time_duration& duration)
+{
+  return std::chrono::microseconds(duration.total_microseconds());
+}
+
+inline std::chrono::microseconds to_std_duration_until(const system_time& deadline)
+{
+  const auto now = boost::posix_time::microsec_clock::universal_time();
+  if (deadline <= now)
+    return std::chrono::microseconds::zero();
+  return to_std_duration(deadline - now);
+}
 
 class condition_variable {
 public:
@@ -102,27 +121,119 @@ public:
   condition_variable(const condition_variable&) = delete;
   condition_variable& operator=(const condition_variable&) = delete;
 
-  template <class Mutex> void wait(unique_lock<Mutex>& lk)
+  template <class Lock>
+  void wait(Lock& lock)
   {
-    std::unique_lock<std::mutex> ul(lk.mutex()->native_handle());
-    cv_.wait(ul);
+    cv_.wait(lock);
   }
 
-  template <class Mutex> bool timed_wait(unique_lock<Mutex>& lk, const system_time& abs_time)
+  template <class Lock, class Predicate>
+  void wait(Lock& lock, Predicate predicate)
   {
-    std::unique_lock<std::mutex> ul(lk.mutex()->native_handle());
-    return cv_.wait_until(ul, std::chrono::system_clock::from_time_t(boost::posix_time::to_time_t(abs_time))) ==
-           std::cv_status::no_timeout;
+    cv_.wait(lock, std::move(predicate));
+  }
+
+  template <class Lock>
+  bool timed_wait(Lock& lock, const system_time& deadline)
+  {
+    return cv_.wait_for(lock, to_std_duration_until(deadline)) != std::cv_status::timeout;
+  }
+
+  template <class Lock>
+  bool timed_wait(Lock& lock, const boost::posix_time::time_duration& duration)
+  {
+    return cv_.wait_for(lock, to_std_duration(duration)) != std::cv_status::timeout;
+  }
+
+  template <class Lock, class Predicate>
+  bool timed_wait(Lock& lock, const system_time& deadline, Predicate predicate)
+  {
+    return cv_.wait_for(lock, to_std_duration_until(deadline), std::move(predicate));
+  }
+
+  template <class Lock, class Predicate>
+  bool timed_wait(Lock& lock, const boost::posix_time::time_duration& duration, Predicate predicate)
+  {
+    return cv_.wait_for(lock, to_std_duration(duration), std::move(predicate));
+  }
+
+  template <class Lock, class Rep, class Period>
+  std::cv_status wait_for(Lock& lock, const std::chrono::duration<Rep, Period>& duration)
+  {
+    return cv_.wait_for(lock, duration);
+  }
+
+  template <class Lock, class Rep, class Period, class Predicate>
+  bool wait_for(Lock& lock, const std::chrono::duration<Rep, Period>& duration, Predicate predicate)
+  {
+    return cv_.wait_for(lock, duration, std::move(predicate));
   }
 
   void notify_one() noexcept { cv_.notify_one(); }
   void notify_all() noexcept { cv_.notify_all(); }
 
 private:
-  std::condition_variable cv_;
+  std::condition_variable_any cv_;
 };
 
-// ---------------- thread (serial: runs the callable once, on join/detach) --
+// ---------------- thread ---------------------------------------------------
+#ifdef ORCA_WASM_THREADING
+
+// Threaded artifact: preserve the Boost-facing API while using the standard
+// library's Emscripten-pthread implementation underneath. std::thread has no
+// portable stack-size API, so attributes are accepted for source compatibility
+// but the requested size is intentionally not applied here.
+class thread {
+public:
+  using id = std::thread::id;
+
+  class attributes {
+  public:
+    attributes() = default;
+    void set_stack_size(std::size_t size) { stack_size_ = size; }
+    std::size_t get_stack_size() const { return stack_size_; }
+
+  private:
+    std::size_t stack_size_ = 0;
+  };
+
+  thread() = default;
+  template <class Fn> explicit thread(Fn&& fn) : thread_(make_invoker(std::forward<Fn>(fn))) {}
+  template <class Fn> thread(attributes&, Fn&& fn) : thread_(make_invoker(std::forward<Fn>(fn))) {}
+  thread(const thread&) = delete;
+  thread& operator=(const thread&) = delete;
+  thread(thread&&) noexcept = default;
+  thread& operator=(thread&&) noexcept = default;
+  ~thread() = default;
+
+  id get_id() const noexcept { return thread_.get_id(); }
+  using native_handle_type = std::thread::native_handle_type;
+  native_handle_type native_handle() { return thread_.native_handle(); }
+  bool joinable() const noexcept { return thread_.joinable(); }
+  void join() { thread_.join(); }
+  void detach() { thread_.detach(); }
+  void swap(thread& other) noexcept { thread_.swap(other.thread_); }
+  static unsigned int hardware_concurrency() noexcept { return std::thread::hardware_concurrency(); }
+
+private:
+  template <class Fn>
+  static auto make_invoker(Fn&& fn)
+  {
+    using T = typename std::decay<Fn>::type;
+    if constexpr (boost::is_reference_wrapper<T>::value) {
+      return [fn = std::forward<Fn>(fn)]() mutable { fn.get()(); };
+    } else {
+      return std::forward<Fn>(fn);
+    }
+  }
+
+  std::thread thread_;
+};
+
+#else
+
+// Serial artifact: code that must compile but is outside the synchronous v1
+// slice path runs only when join() or detach() is called.
 class thread {
 public:
   using id = std::thread::id;
@@ -147,9 +258,6 @@ public:
   ~thread() { /* serial shim: never joins implicitly */ }
 
   id get_id() const { return id_; }
-  // Thread.cpp::set_thread_name (dead in the WASM slice — GUI thread naming)
-  // calls native_handle() and passes it to pthread_setname_np; a null handle
-  // is fine for the serial shim.
   using native_handle_type = std::thread::native_handle_type;
   native_handle_type native_handle() const { return native_handle_type{}; }
   bool joinable() const { return !joined_ && static_cast<bool>(fn_); }
@@ -159,26 +267,24 @@ public:
     std::swap(fn_, other.fn_);
     std::swap(joined_, other.joined_);
     std::swap(ran_, other.ran_);
+    std::swap(id_, other.id_);
   }
   static unsigned int hardware_concurrency() { return 1; }
 
 private:
-  // Unwrap boost::reference_wrapper (used by bbs_3mf.cpp as
-  // boost::thread(boost::ref(*this))): boost's wrapper has get()/conversion
-  // but no operator(), so std::function can't hold it directly. Call through
-  // get(); everything else goes into std::function as-is.
   template <class Fn>
   static std::function<void()> make_invoker(Fn&& fn)
   {
     using T = typename std::decay<Fn>::type;
     if constexpr (boost::is_reference_wrapper<T>::value) {
-      return [fn]() mutable { fn.get()(); };
+      return [fn = std::forward<Fn>(fn)]() mutable { fn.get()(); };
     } else {
       return std::function<void()>(std::forward<Fn>(fn));
     }
   }
 
-  void run_once() {
+  void run_once()
+  {
     if (fn_ && !ran_) {
       ran_ = true;
       fn_();
@@ -191,6 +297,8 @@ private:
   bool ran_ = false;
   id id_;
 };
+
+#endif
 
 namespace this_thread {
 inline thread::id get_id() { return std::this_thread::get_id(); }
