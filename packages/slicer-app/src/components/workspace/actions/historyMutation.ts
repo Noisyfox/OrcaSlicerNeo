@@ -8,6 +8,7 @@ import { useObjectListStore } from '../objectList/useObjectListStore';
 import { projectSelection } from '../objectList/projection';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 
 export type HistoryMutationResult<T> = {
@@ -41,7 +42,7 @@ export function historyContextForStructure(sceneInteraction?: SceneInteractionCo
     },
     activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
     gizmo: sceneInteraction?.gizmo ? { type: sceneInteraction.gizmo } : null,
-    projectConfigOverlay: {},
+    projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
   };
 }
 

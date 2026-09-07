@@ -2,18 +2,28 @@ import type { PlatformCapabilities } from '@orca/platform-contract';
 import type { PlateSessionMutation } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { runProjectHistoryMutation, syncHistoryStatus } from '../actions/historyMutation';
 
-/** Commit a shared configuration change through the WASM-owned plate session. */
-export async function commitSharedConfigurationMutation(
+let configurationMutationQueue: Promise<void> = Promise.resolve();
+
+/** Let actions that consume settings wait for a pending blur/selection commit. */
+export function waitForConfigurationMutations(): Promise<void> {
+  return configurationMutationQueue;
+}
+
+async function commitSharedConfigurationMutationNow(
   platform: PlatformCapabilities,
+  optionKey?: string,
+  value?: string,
 ): Promise<PlateSessionMutation> {
   const markConfiguration = platform.runtime.markSharedConfigurationMutation;
-  if (typeof markConfiguration !== 'function') {
+  const setOverride = platform.runtime.setProjectConfigOverride;
+  if (typeof markConfiguration !== 'function' && typeof setOverride !== 'function') {
     throw new Error('runtime does not support shared configuration mutations');
   }
   let mutation;
@@ -21,7 +31,15 @@ export async function commitSharedConfigurationMutation(
     mutation = (await runProjectHistoryMutation(
       platform.runtime,
       'Change Project Configuration',
-      () => markConfiguration.call(platform.runtime),
+      async () => {
+        if (optionKey !== undefined && typeof setOverride === 'function') {
+          const result = await setOverride.call(platform.runtime, { scope: 'project' }, optionKey, value ?? '');
+          if (!result.ok) throw new Error(result.error);
+          useSettingsStore.getState().setOverlay(result.overlay);
+          return result.plateSession ?? await markConfiguration.call(platform.runtime);
+        }
+        return markConfiguration.call(platform.runtime, optionKey, value);
+      },
     )).result;
   } catch (error) {
     throw new Error(errorText(error));
@@ -37,6 +55,34 @@ export async function commitSharedConfigurationMutation(
   useProjectStore.getState().recordPlateMutation(mutation);
   await syncHistoryStatus(platform.runtime);
   return mutation;
+}
+
+/** Commit a shared configuration change through the WASM-owned plate session. */
+export function commitSharedConfigurationMutation(
+  platform: PlatformCapabilities,
+  optionKey?: string,
+  value?: string,
+): Promise<PlateSessionMutation> {
+  const task = configurationMutationQueue.then(() =>
+    commitSharedConfigurationMutationNow(platform, optionKey, value));
+  configurationMutationQueue = task.then(() => undefined, () => undefined);
+  return task;
+}
+
+/** Preset selection is global/session state, so it advances slicing inputs
+ * without entering the project history stack. */
+export async function applyPresetConfigurationMutation(platform: PlatformCapabilities): Promise<PlateSessionMutation> {
+  const result = await platform.runtime.markSharedConfigurationMutation();
+  if (!result.ok) throw new Error(result.error ?? 'preset configuration transition failed');
+  const activeJob = useSlicerStore.getState().activeSliceTarget;
+  if (activeJob && (result.affectedPlateIds ?? []).includes(activeJob.plateId)) {
+    useSlicerStore.getState().invalidatePlateResults([activeJob.plateId]);
+    void platform.runtime.cancel().catch(() => undefined);
+  }
+  applyPlateSessionTransforms(result, glVolumeCollection.volumes);
+  usePlateSessionStore.getState().setSnapshot(result);
+  useProjectStore.getState().recordPlateMutation(result);
+  return result;
 }
 
 /** Clear stale slice UI after a successful shared configuration commit. */

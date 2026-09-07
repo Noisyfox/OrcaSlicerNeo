@@ -289,6 +289,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let currentPlateId = '';
   let plateInputRevisions: Record<string, number> = {};
   let objectPlateIds: string[] = [];
+  type MockOverlay = {
+    project: Record<string, string>;
+    objects: Record<string, Record<string, string>>;
+    parts: Record<string, Record<string, string>>;
+    plates: Record<string, Record<string, string>>;
+  };
+  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {}, plates: {} });
+  let projectConfigOverlay = emptyOverlay();
+  let exportedProjectConfigOverlay = emptyOverlay();
 
   type MockHistoryState = {
     modelLoaded: boolean;
@@ -302,6 +311,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateIds: string[];
     plateOrigins: Array<[number, number, number]>;
     plateInputRevisions: Record<string, number>;
+    projectConfigOverlay: MockOverlay;
   };
   type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project' | 'context'; context: any };
   let historyEntries: MockHistoryEntry[] = [];
@@ -317,7 +327,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
   function captureHistoryState(): MockHistoryState {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
-      instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions });
+      instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
+      projectConfigOverlay });
   }
   function restoreHistoryState(snapshot: MockHistoryState): void {
     modelLoaded = snapshot.modelLoaded;
@@ -331,6 +342,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateIds = clone(snapshot.plateIds);
     plateOrigins = clone(snapshot.plateOrigins);
     plateInputRevisions = clone(snapshot.plateInputRevisions);
+    projectConfigOverlay = clone(snapshot.projectConfigOverlay ?? emptyOverlay());
     sliced = false;
   }
   function historyStatus() {
@@ -763,7 +775,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       const previousState = previous ? { modelLoaded: previous.modelLoaded, objectTransforms: previous.objectTransforms,
         objectVolumeTransforms: previous.objectVolumeTransforms, objectMeta: previous.objectMeta, volumeMeta: previous.volumeMeta,
         instanceMeta: previous.instanceMeta, objectPlateIds: previous.objectPlateIds, currentPlateId: previous.currentPlateId,
-        plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions } : null;
+        plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions,
+        projectConfigOverlay: previous.projectConfigOverlay } : null;
       const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
         JSON.stringify(previous.context) !== JSON.stringify(afterContext);
       if (changed) {
@@ -905,6 +918,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       result.dirty_reasons = ['shared-configuration'];
       return result;
     },
+    orc_get_project_config_overlay() {
+      return { ok: true, overlay: clone(projectConfigOverlay) };
+    },
+    orc_set_project_config_override(scope: string, id: string, optionKey: string, value: string) {
+      if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
+      if (!optionKey) return { error: 'option key is required' };
+      if (scope !== 'project' && !id) return { error: 'scope id is required' };
+      const bucket = scope === 'project' ? projectConfigOverlay.project
+        : scope === 'object' ? (projectConfigOverlay.objects[id] ??= {})
+          : scope === 'part' ? (projectConfigOverlay.parts[id] ??= {})
+            : (projectConfigOverlay.plates[id] ??= {});
+      bucket[optionKey] = value;
+      const mutation = bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>;
+      return { ok: true, overlay: clone(projectConfigOverlay), plate_session: mutation };
+    },
+    orc_revalidate_project_config_overlay() {
+      // The native bridge validates against the current option metadata. The
+      // fixture exposes the same contract while retaining valid keys.
+      for (const key of Object.keys(projectConfigOverlay.project))
+        if (!(key in metadata)) delete projectConfigOverlay.project[key];
+      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts, projectConfigOverlay.plates]) {
+        for (const [id, values] of Object.entries(scope)) {
+          for (const key of Object.keys(values)) if (!(key in metadata)) delete values[key];
+          if (Object.keys(values).length === 0) delete scope[id];
+        }
+      }
+      return { ok: true, overlay: clone(projectConfigOverlay) };
+    },
     orc_get_preset_snapshot() {
       return snapshot();
     },
@@ -960,6 +1001,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectMeta = [];
         volumeMeta = [];
         instanceMeta = [];
+        projectConfigOverlay = emptyOverlay();
+        projectConfigOverlay = clone(exportedProjectConfigOverlay);
       }
       appendMockObject(displayName || undefined);
       publishProgress(55, geometryOnly ? 'Preparing imported geometry' : 'Reading project settings');
@@ -987,6 +1030,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
+        project_config_overlay: geometryOnly ? undefined : clone(projectConfigOverlay),
         plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(true),
       };
     },
@@ -1022,6 +1066,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta = [];
       volumeMeta = [];
       instanceMeta = [];
+      projectConfigOverlay = emptyOverlay();
       modelLoaded = false;
       sliced = false;
       resetPlateSession();
@@ -1502,8 +1547,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_export_project() {
       if (!modelLoaded) return { error: 'no model loaded' };
+      exportedProjectConfigOverlay = clone(projectConfigOverlay);
       const archive = new TextEncoder().encode(JSON.stringify({
         format: 'bbs-3mf', objects: buildStructure(), plate_count: 1,
+        project_config_overlay: exportedProjectConfigOverlay,
       }));
       const ptr = malloc(Math.max(1, archive.length));
       HEAPU8.set(archive, ptr);
@@ -1614,6 +1661,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_delete_plate: { ret: 'number', args: ['string'] },
     orc_recompute_plate_membership: { ret: 'number', args: [] },
     orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
+    orc_get_project_config_overlay: { ret: 'number', args: [] },
+    orc_set_project_config_override: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
+    orc_revalidate_project_config_overlay: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },
     orc_clone_objects: { ret: 'number', args: ['string'] },

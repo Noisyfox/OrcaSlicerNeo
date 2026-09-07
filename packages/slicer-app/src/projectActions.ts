@@ -51,7 +51,7 @@ function projectedHistoryContext(): HistoryContext {
     selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
     activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
     gizmo: null,
-    projectConfigOverlay: {},
+    projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
   };
 }
 function syncHistoryStatus(status: HistoryStatus | null, clearLegacyReasons = true): HistoryStatus | null {
@@ -203,7 +203,9 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     // the same replacement transaction. A second getPresetSnapshot call here
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
-    useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput();
+    useSettingsStore.getState().hydratePresetSnapshot(snapshot);
+    if (load.projectConfigOverlay) useSettingsStore.getState().setOverlay(load.projectConfigOverlay);
+    useSettingsStore.getState().setModelLoaded(true); invalidateInput();
     const history = await resetHistory(runtimeOf(platform));
     useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history?.dirty ?? false, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }

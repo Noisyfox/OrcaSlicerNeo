@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
-import { commitSharedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
+import { applyPresetConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import {
   Combobox,
   ComboboxContent,
@@ -44,6 +44,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
   const selectedFilament = useSettingsStore((s) => s.selectedFilament);
   const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
+  const setOverlay = useSettingsStore((s) => s.setOverlay);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
 
@@ -66,11 +67,15 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       // bridge owns the complete plate set and advances all revisions in one
       // typed transaction; its response is the sole source for revisions and
       // affected plates recorded by the shared action.
-      await commitSharedConfigurationMutation(platform);
+      await applyPresetConfigurationMutation(platform);
       // The bridge's arrays are already the complete picker-ready candidate
       // sets, in engine order. Replace every picker and resolved name together
       // rather than composing a selection with independently fetched lists.
       hydratePresetSnapshot(r);
+      if (typeof platform.runtime.revalidateProjectConfigOverlay === 'function') {
+        const revalidated = await platform.runtime.revalidateProjectConfigOverlay();
+        if (revalidated.ok) setOverlay(revalidated.overlay);
+      }
       // The result belongs to the old profile combination. One action clears
       // export, toolpath-layer state, progress, and completed status together.
       invalidateAfterSharedConfigurationMutation();

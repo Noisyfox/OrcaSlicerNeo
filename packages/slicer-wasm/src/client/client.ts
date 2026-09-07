@@ -9,6 +9,8 @@ import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, PresetSnapshotResult,
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError,
+  ProjectConfigOverlay,
   ClearModelResult,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
@@ -456,9 +458,36 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_recompute_plate_membership', [], []));
     },
 
-    async markSharedConfigurationMutation(): Promise<PlateSessionMutationResult> {
+    async markSharedConfigurationMutation(optionKey?: string, value?: string): Promise<PlateSessionMutationResult> {
       const m = await module();
+      // Legacy callers use this operation only to advance plate revisions;
+      // option overrides use setProjectConfigOverride below.
       return normalizePlateMutationResult(callJson(m, 'orc_mark_shared_configuration_mutation', [], []));
+    },
+
+    async getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
+      const m = await module();
+      return callJson(m, 'orc_get_project_config_overlay', [], []) as ProjectConfigOverlayResultOrError;
+    },
+
+    async setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError> {
+      const m = await module();
+      const scopeId = target.id === undefined ? '' : String(target.id);
+      const raw = callJson(m, 'orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+        [target.scope, scopeId, optionKey, value]) as Record<string, unknown>;
+      if (!raw || raw.ok !== true) return raw as unknown as ProjectConfigOverlayResultOrError;
+      const result: Record<string, unknown> = { ...raw };
+      if (raw.plate_session) {
+        const plateSession = normalizePlateMutationResult(raw.plate_session);
+        if (plateSession.ok) result.plateSession = plateSession;
+        delete result.plate_session;
+      }
+      return result as unknown as ProjectConfigOverlayResultOrError;
+    },
+
+    async revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
+      const m = await module();
+      return callJson(m, 'orc_revalidate_project_config_overlay', [], []) as ProjectConfigOverlayResultOrError;
     },
 
     async getPresetSnapshot(): Promise<PresetSnapshotResult> {
@@ -544,6 +573,8 @@ export function createClient(
             const plateSession = normalizePlateMutationResult(r.plate_session);
             return plateSession.ok ? { plateSession } : {};
           })() : {}),
+          ...(r.project_config_overlay && typeof r.project_config_overlay === 'object'
+            ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
         };
       } finally {
         m._free(ptr);

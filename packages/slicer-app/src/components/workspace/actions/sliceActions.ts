@@ -7,6 +7,7 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { syncModelTransforms } from './syncModelTransforms';
 import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
+import { waitForConfigurationMutations } from '../settings/configurationActions';
 
 /**
  * Run the shared slice flow. Toolbar buttons and menu commands must use this
@@ -14,6 +15,11 @@ import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
  */
 export async function sliceModel(platform: PlatformCapabilities): Promise<void> {
   if (useSlicerStore.getState().status === 'slicing') return;
+
+  // Numeric/text fields commit on blur. A Slice click can arrive in the same
+  // event turn, so wait for that Worker transaction before reading settings
+  // or starting native slicing.
+  await waitForConfigurationMutations();
 
   // Only send keys the metadata declares — UI-only keys (printer, print,
   // filament, modelPath) are not print options and would land in the

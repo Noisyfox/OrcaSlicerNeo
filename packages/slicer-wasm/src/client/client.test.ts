@@ -128,6 +128,25 @@ describe('SlicerClient bridge contract', () => {
     }
   });
 
+  it('keeps project configuration overrides in the Worker and scopes them by stable identity', async () => {
+    const c = makeClient();
+    const initial = await c.getProjectConfigOverlay();
+    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} } });
+    const project = await c.setProjectConfigOverride({ scope: 'project' }, 'layer_height', '0.16');
+    expect(project).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
+    await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
+    const structure = await c.getModelStructure();
+    const objectId = structure.objects[0]?.id;
+    const partId = structure.objects[0]?.volumes[0]?.id;
+    if (objectId === undefined || partId === undefined) throw new Error('mock structure missing IDs');
+    await expect(c.setProjectConfigOverride({ scope: 'object', id: objectId }, 'wall_loops', '3'))
+      .resolves.toMatchObject({ overlay: { objects: { [objectId]: { wall_loops: '3' } } } });
+    await expect(c.setProjectConfigOverride({ scope: 'part', id: partId }, 'enable_support', '1'))
+      .resolves.toMatchObject({ overlay: { parts: { [partId]: { enable_support: '1' } } } });
+    const revalidated = await c.revalidateProjectConfigOverlay();
+    expect(revalidated).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
+  });
+
   it('returns printer-bound reflow transforms for every member while preserving empty plates', async () => {
     const c = makeClient();
     const first = await c.getPlateSessionSnapshot();

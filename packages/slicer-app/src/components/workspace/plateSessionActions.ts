@@ -4,6 +4,7 @@ import { glVolumeCollection } from './viewport/GLVolume';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useProjectStore } from '../../stores/useProjectStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 
 /**
@@ -84,7 +85,7 @@ export async function selectPlateSessionAndClearSelection(
         selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
         activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? plateId,
         gizmo: null,
-        projectConfigOverlay: {},
+        projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
       };
       await record.call(platform.runtime, 'Active Plate', context).catch(() => undefined);
     }

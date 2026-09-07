@@ -29,6 +29,7 @@ import { selectPlateSessionAndClearSelection } from './plateSessionActions';
 import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { isHistoryContextProjectionReady, type PendingHistoryContext } from '../../history/historyContextProjection';
 import { TransformHistoryCoordinator } from './actions/transformHistory';
+import type { ProjectConfigOverlay } from '@slicer/client';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -121,6 +122,9 @@ export function Workspace({
       projectContext: async (context, revision) => {
         const structure = await platform.runtime.getModelStructure();
         if (!structure.ok || historyRestoreRef.current?.currentRevision() !== revision) return;
+        const overlay = context.projectConfigOverlay;
+        if (overlay && typeof overlay === 'object' && 'project' in overlay && 'objects' in overlay && 'parts' in overlay && 'plates' in overlay)
+          useSettingsStore.getState().setOverlay(overlay as unknown as ProjectConfigOverlay);
         // A valid restore may legitimately land on the empty baseline. Keep
         // the loader's modelLoaded gate aligned with the Worker model before
         // its revision-fenced mesh request runs.

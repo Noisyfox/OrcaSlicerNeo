@@ -193,6 +193,7 @@ int wasm_tbb_concurrency()
 // first orc_* call (after all TUs' statics, including print_config_def, have
 // run) — observed as "memory access out of bounds" at instantiation when
 // constructed eagerly.
+json empty_project_config_overlay();
 struct BridgeState {
 #ifdef ORCA_WASM_THREADING
     // Match the pre-created Emscripten pthread pool at runtime. This avoids a
@@ -208,6 +209,9 @@ struct BridgeState {
     PresetBundle presets;
     Model       model;
     Print       print;
+    // Project-owned overrides are kept in the Worker/WASM session. React only
+    // receives a render projection and never becomes their source of truth.
+    json project_config_overlay = empty_project_config_overlay();
     // Step 2 history is deliberately Worker/WASM owned. ProjectHistory owns
     // keyed mutable object versions and shared immutable mesh data.
     Neo::History::ProjectHistory history;
@@ -362,6 +366,33 @@ Vec3d parked_origin_for_count(const int count, const PlateBounds& bounds)
 
 constexpr const char* kNeoPlateMetadataEntry = "Metadata/orca_neo_plate_session_v1.json";
 constexpr const char* kNeoPlateMetadataSchema = "org.orcaslicerneo.plate-session";
+constexpr const char* kNeoConfigOverlayEntry = "Metadata/orca_neo_config_overlay_v1.json";
+constexpr const char* kNeoConfigOverlaySchema = "org.orcaslicerneo.config-overlay";
+
+json empty_project_config_overlay()
+{
+    return json{{"project", json::object()}, {"objects", json::object()},
+                {"parts", json::object()}, {"plates", json::object()}};
+}
+
+bool valid_project_config_overlay(const json& overlay)
+{
+    if (!overlay.is_object()) return false;
+    for (const char* scope : {"project", "objects", "parts", "plates"})
+        if (!overlay.contains(scope) || !overlay[scope].is_object()) return false;
+    for (const char* scope : {"project", "objects", "parts", "plates"}) {
+        for (auto it = overlay[scope].begin(); it != overlay[scope].end(); ++it) {
+            if (scope == std::string("project")) {
+                if (!it.value().is_string()) return false;
+                continue;
+            }
+            if (!it.value().is_object()) return false;
+            for (auto option = it.value().begin(); option != it.value().end(); ++option)
+                if (!option.value().is_string()) return false;
+        }
+    }
+    return true;
+}
 
 json config_metadata_json(const DynamicPrintConfig& config)
 {
@@ -1808,6 +1839,29 @@ static json model_structure_json() {
     return objects;
 }
 
+template <class Config>
+void apply_overlay_to_config(Config& config, const json& values)
+{
+    if (!values.is_object()) return;
+    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+    for (auto it = values.begin(); it != values.end(); ++it) {
+        if (!it.value().is_string()) continue;
+        try { config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions); }
+        catch (...) { /* invalid retained values are ignored at slice time */ }
+    }
+}
+
+json project_config_overlay_metadata()
+{
+    return json{{"schema", kNeoConfigOverlaySchema}, {"version", 1},
+                {"overlay", state().project_config_overlay}};
+}
+
+json project_config_overlay_result()
+{
+    return json{{"ok", true}, {"overlay", state().project_config_overlay}};
+}
+
 static std::string history_entry_id(const std::uint64_t id)
 {
     return std::string("entry-") + std::to_string(id);
@@ -1953,8 +2007,14 @@ static json default_history_context()
         {"selection", {{"mode", "object"}, {"objectIds", json::array()},
                         {"partIds", json::array()}, {"instanceIds", json::array()}}},
         {"activePlateId", state().current_plate_id.empty() ? json(nullptr) : json(state().current_plate_id)},
-        {"gizmo", nullptr}, {"projectConfigOverlay", json::object()},
+        {"gizmo", nullptr}, {"projectConfigOverlay", state().project_config_overlay},
     };
+}
+
+static json canonical_history_context(json context)
+{
+    context["projectConfigOverlay"] = state().project_config_overlay;
+    return context;
 }
 
 // Selection and active-plate changes are internal context records. They carry
@@ -2047,6 +2107,8 @@ static json history_restore_result(const Neo::History::RestorePlan& plan)
     if (!state().history.can_commit_restore(plan))
         throw std::runtime_error("history restore became stale");
     state().model = std::move(staged_model);
+    if (valid_project_config_overlay(validated_context["projectConfigOverlay"]))
+        state().project_config_overlay = validated_context["projectConfigOverlay"];
     if (!state().history.commit_restore(plan))
         throw std::runtime_error("history restore became stale");
     state().print.clear();
@@ -2089,6 +2151,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
 
         const char* result = init_with_app_config(json::object());
         reset_plate_session_state();
+        state().project_config_overlay = empty_project_config_overlay();
         state().history.clear();
         state().active_history_transaction.reset();
         state().history_disabled = false;
@@ -2129,7 +2192,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr,
         if (label.empty()) return error_json("history label is required");
         if (category != "project" && category != "context")
             return error_json("history category must be project or context");
-        const json before_context = parse_history_context(before_context_cstr);
+        const json before_context = canonical_history_context(parse_history_context(before_context_cstr));
         if (state().history.entries().empty()) {
             const std::string context_text = before_context.dump();
             state().history.commit("", Neo::History::Category::Project,
@@ -2157,7 +2220,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             return error_json("history transaction is not active");
         if (requested != state().active_history_transaction->id)
             return error_json("history transaction is stale or belongs to another writer");
-        const json after_context = parse_history_context(after_context_cstr);
+        const json after_context = canonical_history_context(parse_history_context(after_context_cstr));
         const auto tx = *state().active_history_transaction;
         const std::string context_text = after_context.dump();
         const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
@@ -2183,6 +2246,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
         const auto tx = *state().active_history_transaction;
         const auto& current = state().history.current();
         restore_history_model(current);
+        if (valid_project_config_overlay(tx.before_context["projectConfigOverlay"]))
+            state().project_config_overlay = tx.before_context["projectConfigOverlay"];
         state().print.clear();
         invalidate_preview_source();
         state().active_history_transaction.reset();
@@ -2243,7 +2308,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_status() {
 // released together.  History metadata never enters the 3MF archive.
 EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr) {
     try {
-        const json context = parse_history_context(context_cstr);
+        const json context = canonical_history_context(parse_history_context(context_cstr));
         state().history.clear();
         state().active_history_transaction.reset();
         state().history_disabled = false;
@@ -2264,7 +2329,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr) {
 EMSCRIPTEN_KEEPALIVE const char* orc_history_mark_saved(const char* context_cstr) {
     try {
         if (state().history.entries().empty() && context_cstr && *context_cstr) {
-            const json context = parse_history_context(context_cstr);
+            const json context = canonical_history_context(parse_history_context(context_cstr));
             const std::string context_text = context.dump();
             const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
             if (!state().history.commit("", Neo::History::Category::Project,
@@ -2285,7 +2350,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_record_context(const char* label_cs
             return error_json("history transaction is active");
         const std::string label = label_cstr ? label_cstr : "";
         if (label.empty()) return error_json("history label is required");
-        const json context = parse_history_context(context_cstr);
+        const json context = canonical_history_context(parse_history_context(context_cstr));
         record_history_context(label, context);
         return dup_json(history_status_json().dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
@@ -2485,6 +2550,84 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mark_shared_configuration_mutation() {
     } catch (...) {
         return error_json("unknown C++ exception");
     }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_project_config_overlay() {
+    try {
+        return dup_json(project_config_overlay_result().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* scope_cstr,
+                                                                  const char* id_cstr,
+                                                                  const char* option_key_cstr,
+                                                                  const char* value_cstr) {
+    try {
+        ensure_plate_session_state();
+        const std::string scope = scope_cstr ? scope_cstr : "";
+        const std::string id = id_cstr ? id_cstr : "";
+        const std::string key = option_key_cstr ? option_key_cstr : "";
+        const std::string value = value_cstr ? value_cstr : "";
+        if (scope != "project" && scope != "object" && scope != "part" && scope != "plate")
+            return error_json("invalid project configuration scope");
+        if (key.empty()) return error_json("option key is required");
+        if (print_config_def.options.find(key) == print_config_def.options.end())
+            return error_json("unsupported project configuration option: " + key);
+        if (scope != "project" && id.empty()) return error_json("scope id is required");
+        ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+        if (scope == "object") {
+            auto* object = find_object_by_id(static_cast<std::size_t>(std::stoull(id)));
+            if (!object) return error_json("object not found");
+            object->config.set_deserialize(key, value, substitutions);
+        } else if (scope == "part") {
+            auto* volume = find_volume_by_id(static_cast<std::size_t>(std::stoull(id)));
+            if (!volume) return error_json("part not found");
+            volume->config.set_deserialize(key, value, substitutions);
+        } else if (scope == "plate") {
+            auto* plate = const_cast<BridgeState::PlateSessionPlate*>(find_plate(id));
+            if (!plate) return error_json("plate not found");
+            plate->settings.set_deserialize(key, value, substitutions);
+            plate->settings_metadata = config_metadata_json(plate->settings);
+        }
+        json& bucket = scope == "project" ? state().project_config_overlay["project"]
+            : scope == "object" ? state().project_config_overlay["objects"][id]
+            : scope == "part" ? state().project_config_overlay["parts"][id]
+            : state().project_config_overlay["plates"][id];
+        bucket[key] = value;
+        const auto mutation = shared_configuration_mutation_snapshot();
+        json result = project_config_overlay_result();
+        result["plate_session"] = mutation;
+        return dup_json(result.dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_revalidate_project_config_overlay() {
+    try {
+        // Revalidation is deliberately conservative: retain only keys known
+        // by the current PrintConfig definition. Values are checked again at
+        // slice time against the selected base preset and invalid values are
+        // ignored without destroying the rest of the project overlay.
+        for (const char* scope : {"project", "objects", "parts", "plates"}) {
+            auto& values = state().project_config_overlay[scope];
+            for (auto it = values.begin(); it != values.end();) {
+                if (scope == std::string("project")) {
+                    if (print_config_def.options.find(it.key()) == print_config_def.options.end()) it = values.erase(it);
+                    else ++it;
+                } else {
+                    if (!it.value().is_object()) { it = values.erase(it); continue; }
+                    for (auto option = it.value().begin(); option != it.value().end();) {
+                        if (!option.value().is_string() || print_config_def.options.find(option.key()) == print_config_def.options.end()) option = it.value().erase(option);
+                        else ++option;
+                    }
+                    ++it;
+                }
+            }
+        }
+        return dup_json(project_config_overlay_result().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
 }
 
 // Read one atomic, picker-ready compatibility state. It contains only
@@ -2764,8 +2907,17 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
 
         const auto model_config = read_archive_entry(path, "Metadata/model_settings.config");
         const auto neo_entry = read_archive_entry(path, kNeoPlateMetadataEntry);
+        const auto overlay_entry = read_archive_entry(path, kNeoConfigOverlayEntry);
         std::optional<json> neo_metadata;
+        std::optional<json> overlay_metadata;
         if (neo_entry) neo_metadata = parse_neo_plate_metadata(*neo_entry);
+        if (overlay_entry) {
+            const json parsed = json::parse(*overlay_entry);
+            if (!parsed.is_object() || parsed.value("schema", "") != kNeoConfigOverlaySchema ||
+                parsed.value("version", 0) != 1 || !valid_project_config_overlay(parsed["overlay"]))
+                throw Slic3r::RuntimeError("corrupt Neo configuration overlay metadata");
+            overlay_metadata = parsed["overlay"];
+        }
         std::vector<ImportedPlateRecord> raw_records = model_config ? parse_plate_records(*model_config) : std::vector<ImportedPlateRecord>{};
         if (raw_records.size() > static_cast<size_t>(kMaxPlateCount) ||
             (neo_metadata && (*neo_metadata)["plates"].size() > static_cast<size_t>(kMaxPlateCount))) {
@@ -2895,11 +3047,27 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
         } else {
             state().model = std::move(imported);
             state().presets = candidate;
+            state().project_config_overlay = overlay_metadata.value_or(empty_project_config_overlay());
         }
         state().print.clear();
         invalidate_preview_source();
         if (!geometry_only) {
             initialize_plate_session_from_records(plate_data, raw_records, neo_metadata);
+            for (auto& object : state().model.objects) {
+                const auto it = state().project_config_overlay["objects"].find(std::to_string(object->id().id));
+                if (it != state().project_config_overlay["objects"].end()) apply_overlay_to_config(object->config, it.value());
+                for (auto& volume : object->volumes) {
+                    const auto part_it = state().project_config_overlay["parts"].find(std::to_string(volume->id().id));
+                    if (part_it != state().project_config_overlay["parts"].end()) apply_overlay_to_config(volume->config, part_it.value());
+                }
+            }
+            for (auto& plate : state().plate_session_plates) {
+                const auto it = state().project_config_overlay["plates"].find(plate.id);
+                if (it != state().project_config_overlay["plates"].end()) {
+                    apply_overlay_to_config(plate.settings, it.value());
+                    plate.settings_metadata = config_metadata_json(plate.settings);
+                }
+            }
             // Results are deliberately not loaded from PlateData. Membership
             // is recomputed from the imported world geometry after the fresh
             // runtime identities and native plate order are established.
@@ -2959,6 +3127,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
         // it never has to issue a second read after native replacement.
         if (!geometry_only)
             out["preset_snapshot"] = preset_snapshot_json();
+        if (!geometry_only)
+            out["project_config_overlay"] = state().project_config_overlay;
         if (geometry_only) {
             const auto mutation = plate_mutation_snapshot({}, {"model-import"},
                 reflow_instance_transforms(geometry_added_instances));
@@ -3083,6 +3253,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         const std::string metadata = plate_metadata_json(owned).dump();
         if (!append_archive_entry(path, kNeoPlateMetadataEntry, metadata))
             throw Slic3r::RuntimeError("Neo plate metadata append failed");
+        const std::string overlay = project_config_overlay_metadata().dump();
+        if (!append_archive_entry(path, kNeoConfigOverlayEntry, overlay))
+            throw Slic3r::RuntimeError("Neo configuration overlay metadata append failed");
 
         std::ifstream input(path, std::ios::binary | std::ios::ate);
         if (!input.good()) throw Slic3r::RuntimeError("BBS 3MF output could not be opened");
@@ -3856,6 +4029,14 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             // handle_legacy (Config.cpp:586-590) records every dropped key in
             // substitutions.unrecogized_keys, which we surface below.
             config.set_deserialize(key, value, substitutions);
+        }
+        // Project and plate overrides are canonical Worker state and win over
+        // any legacy renderer payload supplied for this slice request.
+        apply_overlay_to_config(config, state().project_config_overlay["project"]);
+        if (const auto* plate = find_plate(plate_id)) {
+            const auto plate_it = state().project_config_overlay["plates"].find(plate_id);
+            if (plate_it != state().project_config_overlay["plates"].end())
+                apply_overlay_to_config(config, plate_it.value());
         }
         config.normalize_fdm();
         // Fix round 3: validate() invariant guarantee. A Marlin flavor with

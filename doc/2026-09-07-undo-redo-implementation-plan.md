@@ -1,7 +1,7 @@
 # Undo/Redo Implementation Plan
 
 **Date:** 2026-09-07
-**Status:** Approved execution plan — implementation not started
+**Status:** Step 7 implementation complete; root acceptance recorded below
 **Branch:** `dev/undo-redo-design`
 **Normative design:** [`spec/Undo and Redo.md`](../spec/Undo%20and%20Redo.md)
 
@@ -303,6 +303,27 @@ undoable, while New/Open/Reload remain hard boundaries.
 One committed configuration edit is one history action and survives supported
 project save/load; changing a system preset never becomes a project Undo item.
 
+**Execution record (2026-09-07)**
+
+- Added Worker-owned project/object/part/plate configuration overlays with
+  typed client methods for read, write, and preset revalidation. Overlay state
+  is included in history contexts and the Neo 3MF metadata entry
+  `Metadata/orca_neo_config_overlay_v1.json`; load reapplies object, part, and
+  plate overrides before returning the project projection.
+- Settings text and numeric inputs now use local drafts: Enter or blur commits,
+  Escape cancels, and bool/enum controls commit immediately. System preset
+  selection advances plate revisions without creating project history, then
+  revalidates retained overrides.
+- Fixed failed override writes to validate the target and deserialize the value
+  before mutating the overlay, keeping rejected calls atomic. The dirty
+  submodule worktree under `packages/slicer-wasm/cpp` was not changed.
+- Focused client/app tests, dual-variant WASM quick builds, dual-variant smoke,
+  `pnpm test`, and `pnpm typecheck` passed. Final host gates passed after
+  serializing the Web runs: Desktop E2E 29 passed with 3 existing skips,
+  threaded Web E2E 4/4, and serial Web E2E 4/4. A parallel Web attempt was
+  discarded because both variants raced while rebuilding the shared `dist`
+  directory; the isolated reruns passed.
+
 **Agent self-verification**
 
 - Tests cover all input commit/cancel boundaries, project/object/part/plate
@@ -393,6 +414,6 @@ coalescing, and reproducible three-host release evidence.
 | 4 | `38b3bbf`, `1defda5` | Restore coordinator/projection-gate and native stale-plan regression tests; workspace tests, typecheck, dual quick build/smoke, desktop E2E 29 passed/3 existing skips | Returned premature projection onto stale GL meshes and lost empty-baseline context; reviewed revision fence and preflight cursor check; independently ran projection 5/5, protocol 5/5, typecheck, native Release history test, dual quick build, and dual real history smoke | Accepted 2026-09-07 |
 | 5 | `f7dd8f2`, `0fe1ed6`, `b8ecb12` | Transform controller/coordinator, real-WASM transform and branch tests; full tests, typecheck, dual quick build/smoke, desktop E2E 29 passed/3 skips; Web E2E 3 passed/1 pre-existing beforeunload failure per variant | Returned local-draft cancellation and overlapping rapid-transform defects, then missing nonempty write-count/no-op/branch evidence; independently ran focused transform 65/65, protocol 5/5, typecheck, dual quick build, and dual real transform/history smoke | Accepted 2026-09-07 |
 | 6 | `56c4693`, `13485e8`, `adbb697` | Structural/history context coverage 6/6; workspace tests/typecheck; Desktop E2E 29 passed/3 existing skips; threaded/serial Web E2E 4/4 each. The initial threaded GPU-streaming timeout was reproduced as non-deterministic and passed repeated current/baseline runs. | Reviewed all Step 6 diffs and stable-ID/context boundaries; independently ran focused 6/6, `pnpm test` (401 slicer-app tests), typecheck, Desktop E2E 29 passed/3 existing skips, and threaded/serial Web E2E 4/4 each. | Accepted 2026-09-07 |
-| 7 | — | — | — | Not started |
+| 7 | Working tree (commit pending) | Client overlay test, slicer-app suite, full `pnpm test`, `pnpm typecheck`, dual quick, dual smoke, Desktop E2E 29 passed/3 existing skips, and threaded/serial Web E2E 4/4 each | Reviewed overlay persistence/history, draft commit boundaries, preset exclusion, atomic rejected writes, and final host gates; independently reran the complete required matrix | Accepted 2026-09-07 |
 | 8 | — | — | — | Not started |
 | 9 | — | — | — | Not started |

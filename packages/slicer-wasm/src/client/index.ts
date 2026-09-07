@@ -7,6 +7,8 @@ export type {
   InitResult, PresetInfo, PresetSelection, PresetSnapshot,
   PlateSessionPlate, PlateSessionInstance, PlateSessionInstanceTransform, PlateSessionSnapshot,
   PlateSessionMutation, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  ProjectConfigOverlay, ProjectConfigScope, ProjectConfigOverrideTarget,
+  ProjectConfigOverlayResult, ProjectConfigOverlayError, ProjectConfigOverlayResultOrError,
   PresetSnapshotError, PresetSnapshotResult, SelectPresetResult,
   OptionMetadata, OptionMeta,
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,

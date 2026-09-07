@@ -116,7 +116,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
         },
         activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
         gizmo: sceneInteraction.gizmo ? { type: sceneInteraction.gizmo } : null,
-        projectConfigOverlay: {},
+        projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
       };
       const encoded = JSON.stringify(context);
       if (encoded === lastHistoryContextRef.current) return;

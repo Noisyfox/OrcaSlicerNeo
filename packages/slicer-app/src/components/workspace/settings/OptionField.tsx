@@ -1,6 +1,7 @@
 // packages/slicer-app/src/components/settings/OptionField.tsx
 import type { OptionMeta } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
+import { useEffect, useRef, useState } from 'react';
 import { errorText } from '@orca/slicer-runtime';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
@@ -15,24 +16,40 @@ export async function commitOptionFieldChange(
   optionKey: string,
   next: string,
 ): Promise<void> {
-  await commitSharedConfigurationMutation(platform);
-  useSettingsStore.getState().setValue(optionKey, next);
+  await commitSharedConfigurationMutation(platform, optionKey, next);
+  useSettingsStore.getState().setOverlayValue('project', undefined, optionKey, next);
   invalidateAfterSharedConfigurationMutation();
 }
 
 export function OptionField({ optionKey, meta }: { optionKey: string; meta: OptionMeta }) {
   const platform = usePlatform();
   const value = useSettingsStore((s) => s.values[optionKey] ?? meta.default ?? '');
+  const [draft, setDraft] = useState(value);
+  const focused = useRef(false);
+  const committing = useRef(false);
   const setError = useSlicerStore((s) => s.setError);
-  const change = async (next: string) => {
+  useEffect(() => { if (!focused.current) setDraft(value); }, [value]);
+  const commit = async (next: string) => {
+    if (committing.current) return;
+    committing.current = true;
     try {
-      // A settings override belongs to a new configuration. The shared
-      // helper commits the authoritative bridge transaction before changing
-      // the local value, so a rejection cannot look committed in the UI.
       await commitOptionFieldChange(platform, optionKey, next);
+      setDraft(next);
     } catch (error) {
       setError(errorText(error));
+    } finally {
+      committing.current = false;
     }
+  };
+  const commitDraft = () => {
+    if (draft === value) return;
+    void commit(draft);
+  };
+  const cancelDraft = () => setDraft(value);
+  const changeDiscrete = (next: string) => {
+    setDraft(next);
+    invalidateAfterSharedConfigurationMutation();
+    void commit(next);
   };
   const label = meta.label ?? optionKey;
 
@@ -48,7 +65,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
         <Checkbox
           id={optionKey}
           checked={value === '1'}
-          onCheckedChange={(checked) => change(checked ? '1' : '0')}
+          onCheckedChange={(checked) => changeDiscrete(checked ? '1' : '0')}
         />
       </div>
     );
@@ -58,7 +75,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
     return (
       <div className={row}>
         <Label className={labelCls} title={label}>{label}</Label>
-        <Select value={value} onValueChange={(v) => v != null && change(v)}>
+        <Select value={value} onValueChange={(v) => v != null && changeDiscrete(v)}>
           <SelectTrigger className="flex-1">
             <SelectValue placeholder={value} />
           </SelectTrigger>
@@ -79,12 +96,23 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
       <Label htmlFor={optionKey} className={labelCls} title={label}>{label}</Label>
       <Input
         id={optionKey}
-        value={value}
+        value={draft}
         min={meta.min}
         max={meta.max}
         type={numeric ? 'number' : 'text'}
         step={meta.type === 'int' ? 1 : 'any'}
-        onChange={(e) => change(e.target.value)}
+        onFocus={() => { focused.current = true; }}
+        onBlur={() => { focused.current = false; commitDraft(); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); focused.current = false; commitDraft(); }
+          else if (e.key === 'Escape') { e.preventDefault(); focused.current = false; cancelDraft(); e.currentTarget.blur(); }
+        }}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          // A draft must invalidate stale preview output immediately, while
+          // the Worker/history write remains deferred until commit.
+          invalidateAfterSharedConfigurationMutation();
+        }}
         className="flex-1"
       />
     </div>
