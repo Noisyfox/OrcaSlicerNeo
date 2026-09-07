@@ -64,10 +64,17 @@ export function startWorker(
 
   let activeTransactionId: string | null = null;
   let transactionStarting = false;
+  let restoreInFlight = false;
 
   onMessage(async (msg) => {
     if (msg.type !== 'request') return;
     const { id, op, args } = msg;
+    const isRestore = op === 'undoHistory' || op === 'redoHistory' || op === 'jumpHistory';
+    if (isRestore && restoreInFlight) {
+      post({ type: 'response', id, ok: false, result: undefined, error: 'history restore is already in progress' });
+      return;
+    }
+    if (isRestore) restoreInFlight = true;
     try {
       const method = (client as unknown as Record<string, (...a: unknown[]) => unknown>)[op];
       if (typeof method !== 'function') throw new Error(`unknown op: ${op}`);
@@ -105,6 +112,8 @@ export function startWorker(
     } catch (err) {
       if (op === 'beginHistory') transactionStarting = false;
       post({ type: 'response', id, ok: false, result: undefined, error: String(err) });
+    } finally {
+      if (isRestore) restoreInFlight = false;
     }
   });
 }

@@ -46,6 +46,23 @@ int main()
     CHECK(history.object_intervals()[0].begin == 0 && history.object_intervals()[0].end == 1);
     CHECK(history.object_intervals()[1].begin == 1 && history.object_intervals()[1].end == 3);
 
+    // Preparation is non-mutating: an adapter can reject the staged bytes
+    // without advancing the cursor, then retry the same target.
+    RestorePlan prepared;
+    const auto before_cursor = history.cursor();
+    CHECK(history.prepare_undo(prepared));
+    CHECK(history.cursor() == before_cursor);
+    CHECK(prepared.from_cursor == before_cursor);
+    CHECK(prepared.target_cursor == 1);
+    ProjectHistory restore_commit;
+    CHECK(restore_commit.commit("baseline", Category::Project, model(1), bytes(1)));
+    CHECK(restore_commit.commit("edit", Category::Project, model(2), bytes(2)));
+    RestorePlan committed;
+    CHECK(restore_commit.prepare_undo(committed));
+    CHECK(restore_commit.commit_restore(committed));
+    CHECK(restore_commit.cursor() == committed.target_cursor);
+    CHECK(!restore_commit.commit_restore(committed));
+
     RestoreState restored;
     CHECK(history.undo(restored));
     CHECK(restored.model.serialized == bytes(2));

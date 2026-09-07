@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ModelTransform } from '@slicer/client';
+import type { HistoryContext, ModelStructureResult } from '@slicer/client';
 import type { Vec3 } from '../../../lib/vec3';
 import { GLVolume } from './GLVolume';
 import { instanceKeyOf, Selection, type InstanceKey, type SelectionMode } from './Selection';
@@ -576,6 +577,35 @@ export class SceneInteractionController {
     this.gizmoGrabberHovered = false;
     this.emit();
     return true;
+  }
+
+  /** Project a Worker-owned stable-ID history context onto fresh GL volumes. */
+  restoreHistoryContext(context: HistoryContext, structure: ModelStructureResult): void {
+    this.cancelDrag();
+    const objectIds = new Set(context.selection.objectIds);
+    const partIds = new Set(context.selection.partIds);
+    const instanceIds = new Set(context.selection.instanceIds);
+    const selected = new Set<string>();
+    for (const object of structure.objects) {
+      const objectSelected = objectIds.has(object.id);
+      for (const volume of object.volumes) {
+        if (objectSelected || partIds.has(volume.id)) {
+          for (const instance of object.instances)
+            selected.add(`${object.index}:${volume.index}:${instance.index}`);
+        }
+      }
+      for (const instance of object.instances) {
+        if (!instanceIds.has(instance.id)) continue;
+        for (const volume of object.volumes)
+          selected.add(`${object.index}:${volume.index}:${instance.index}`);
+      }
+    }
+    this.selectionModeState = context.selection.mode === 'part' ? 'volume' : context.selection.mode;
+    this.selection.replaceIds([...selected]);
+    this.openGizmo = context.gizmo?.type === 'move' || context.gizmo?.type === 'rotate' || context.gizmo?.type === 'scale'
+      ? context.gizmo.type : null;
+    this.syncGizmoToSelection();
+    this.emit();
   }
 
   selectionBounds(): THREE.Box3 | null {

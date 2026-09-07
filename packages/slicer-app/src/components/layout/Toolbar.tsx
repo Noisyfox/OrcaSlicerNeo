@@ -9,6 +9,7 @@ import { exportGcode, sliceModel } from '../workspace/actions/sliceActions';
 import { usePlatform } from '@orca/platform-contract';
 import { SendGcodeDialog, type SendGcodeAction } from '../send/SendGcodeDialog';
 import { isAppTab, isWorkspaceTab, type AppTab } from './appTabs';
+import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 
 // The scene actions (Add Model / Clear Scene) live elsewhere now: Add Model
 // in the gizmo toolbar and Clear Scene in the scene right-click menu (see
@@ -24,6 +25,7 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
   const status = useSlicerStore((s) => s.status);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const busy = status === 'slicing';
+  const restoring = useHistoryRestoreStore((s) => s.phase !== 'idle');
   const hasCompletedResult = status === 'done';
   const [exporting, setExporting] = useState(false);
   const [sendAction, setSendAction] = useState<SendGcodeAction | null>(null);
@@ -62,16 +64,16 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
         </TabsList>
       </Tabs>
       {showActions && <div className="flex items-center gap-2" data-testid="toolbar-actions">
-        <Button size="xs" variant="secondary" onClick={slice} disabled={busy || !modelLoaded || hasCompletedResult} data-testid="btn-slice">
+        <Button size="xs" variant="secondary" onClick={slice} disabled={busy || restoring || !modelLoaded || hasCompletedResult} data-testid="btn-slice">
           <Slice className="h-4 w-4" /> {busy ? 'Slicing…' : 'Slice'}
         </Button>
-        <Button size="xs" variant="default" disabled={busy || exporting || !hasCompletedResult} onClick={saveExport} title="Export G-code" data-testid="btn-export">
+        <Button size="xs" variant="default" disabled={busy || restoring || exporting || !hasCompletedResult} onClick={saveExport} title="Export G-code" data-testid="btn-export">
           <Download className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export'}
         </Button>
-        <Button size="xs" variant="secondary" disabled={busy || !hasCompletedResult} onClick={() => setSendAction('send')} title="Send G-code to printer" data-testid="btn-send">
+        <Button size="xs" variant="secondary" disabled={busy || restoring || !hasCompletedResult} onClick={() => setSendAction('send')} title="Send G-code to printer" data-testid="btn-send">
           <SendIcon className="h-4 w-4" /> Send
         </Button>
-        <Button size="xs" variant="default" disabled={busy || !hasCompletedResult} onClick={() => setSendAction('send-and-print')} title="Send G-code and start printing" data-testid="btn-send-and-print">
+        <Button size="xs" variant="default" disabled={busy || restoring || !hasCompletedResult} onClick={() => setSendAction('send-and-print')} title="Send G-code and start printing" data-testid="btn-send-and-print">
           <Printer className="h-4 w-4" /> Send &amp; Print
         </Button>
       </div>}

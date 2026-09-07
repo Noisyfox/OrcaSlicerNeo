@@ -57,6 +57,16 @@ struct RestoreState {
     EntryInfo entry;
 };
 
+// A prepared restore is deliberately separate from the history cursor.  The
+// model adapter may fail while parsing/validating the retained bytes; in that
+// case the caller must be able to discard this plan without changing the
+// active model or navigation state.
+struct RestorePlan {
+    RestoreState state;
+    std::size_t from_cursor { 0 };
+    std::size_t target_cursor { 0 };
+};
+
 // Half-open version interval used by the object history implementation.  It
 // is public for diagnostics/tests, but callers do not need to manage it.
 struct ObjectVersionInterval {
@@ -90,6 +100,14 @@ public:
     // Move directly to a retained entry.  The baseline (id 0) is a valid
     // target for restore, while unknown/evicted ids are rejected.
     bool jump(std::uint64_t entry_id, RestoreState& result);
+
+    // Two-phase navigation used by the bridge.  Preparation never advances
+    // m_cursor.  commit_restore only succeeds for a plan prepared against the
+    // current cursor and a still-retained target.
+    bool prepare_undo(RestorePlan& result) const;
+    bool prepare_redo(RestorePlan& result) const;
+    bool prepare_jump(std::uint64_t entry_id, RestorePlan& result) const;
+    bool commit_restore(const RestorePlan& plan);
 
     // Standard navigation deliberately skips internal context records.  The
     // records remain retained (and therefore still truncate redo when a new

@@ -1,0 +1,87 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HistoryContext, HistoryStatus, RestoreResult } from '@slicer/client';
+import { createHistoryRestoreCoordinator } from './restoreCoordinator';
+import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
+import { useSlicerStore } from '../stores/useSlicerStore';
+
+const context: HistoryContext = {
+  selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
+};
+const status: HistoryStatus = {
+  canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0,
+  savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false,
+  bytesUsed: 0, byteBudget: 256 * 1024 * 1024, disabled: false,
+  activeTransactionId: null, revision: 1,
+};
+const success = (revision = 1): RestoreResult => ({ ok: true, context,
+  status: { ...status, revision } });
+
+function fakeScene(activeDrag = false) {
+  return {
+    activeDrag: activeDrag ? {} : null,
+    cancelDrag: vi.fn(),
+  } as never;
+}
+
+describe('history restore coordinator', () => {
+  beforeEach(() => {
+    useHistoryRestoreStore.getState().reset();
+    useSlicerStore.getState().invalidateSliceResult();
+  });
+
+  it('consumes the first shortcut by cancelling a draft drag', async () => {
+    const scene = fakeScene(true) as { activeDrag: object | null; cancelDrag: ReturnType<typeof vi.fn> };
+    const undoHistory = vi.fn(async () => success());
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      sceneInteraction: scene as never,
+      refreshModel: vi.fn(),
+    });
+    await expect(coordinator.restore('undo')).resolves.toBe(false);
+    expect(scene.cancelDrag).toHaveBeenCalledOnce();
+    expect(undoHistory).not.toHaveBeenCalled();
+  });
+
+  it('cancels and awaits slicing before restoring, then invalidates its output', async () => {
+    let releaseSlice!: () => void;
+    const slice = new Promise<void>((resolve) => { releaseSlice = resolve; });
+    useSlicerStore.getState().setStatus('slicing');
+    const cancelAndWait = vi.fn(async () => { releaseSlice(); await slice; });
+    const refreshModel = vi.fn();
+    const projectContext = vi.fn(async () => undefined);
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(async () => ({ ok: true })) },
+      sceneInteraction: fakeScene(),
+      sliceCoordinator: { cancelAndWait },
+      refreshModel,
+      projectContext,
+    });
+    const restore = coordinator.restore('undo');
+    await Promise.resolve();
+    expect(useHistoryRestoreStore.getState().phase).toBe('cancelling-slice');
+    expect(cancelAndWait).toHaveBeenCalledOnce();
+    releaseSlice();
+    await expect(restore).resolves.toBe(true);
+    expect(refreshModel).toHaveBeenCalledOnce();
+    expect(projectContext).toHaveBeenCalledOnce();
+    expect(useSlicerStore.getState().status).toBe('idle');
+    expect(useHistoryRestoreStore.getState().phase).toBe('idle');
+  });
+
+  it('keeps the old projection on retryable Worker restore failure', async () => {
+    const refreshModel = vi.fn();
+    const failed: RestoreResult = { ok: false, error: {
+      code: 'restore-failed', message: 'invalid staged model', retryable: true,
+    } };
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory: vi.fn(async () => failed), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      sceneInteraction: fakeScene(),
+      refreshModel,
+    });
+    await expect(coordinator.restore('undo')).resolves.toBe(false);
+    expect(refreshModel).not.toHaveBeenCalled();
+    expect(useHistoryRestoreStore.getState().error).toBe('invalid staged model');
+    expect(useHistoryRestoreStore.getState().phase).toBe('idle');
+  });
+});

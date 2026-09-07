@@ -13,6 +13,7 @@ import { useSlicerStore } from './stores/useSlicerStore';
 import { useProjectStore } from './stores/useProjectStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from './components/workspace/sliceCoordinator';
+import type { HistoryRestoreCoordinator } from './history/restoreCoordinator';
 import { usePlatform } from '@orca/platform-contract';
 import { persistRestoredSelections, restoreSelections } from './preferences';
 import { addModel, clearScene } from './components/workspace/actions/sceneActions';
@@ -107,6 +108,10 @@ export default function App() {
   const workspaceSliceCoordinatorRef = useRef<WorkspaceSliceCoordinator | null>(null);
   const handleSliceCoordinatorChange = useCallback((coordinator: WorkspaceSliceCoordinator | null) => {
     workspaceSliceCoordinatorRef.current = coordinator;
+  }, []);
+  const historyRestoreCoordinatorRef = useRef<HistoryRestoreCoordinator | null>(null);
+  const handleHistoryRestoreCoordinatorChange = useCallback((coordinator: HistoryRestoreCoordinator | null) => {
+    historyRestoreCoordinatorRef.current = coordinator;
   }, []);
   const requestPreviewSlice = useCallback(() => {
     const coordinator = workspaceSliceCoordinatorRef.current;
@@ -267,6 +272,23 @@ export default function App() {
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [dispatcher]);
+  useEffect(() => {
+    const isEditable = (target: EventTarget | null): boolean =>
+      target instanceof Element && !!target.closest('input, textarea, select, [role="textbox"], [contenteditable]:not([contenteditable="false"])');
+    const onHistoryKeyDown = (event: KeyboardEvent) => {
+      if (isEditable(event.target) || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      const action = key === 'z' ? (event.shiftKey ? 'redo' : 'undo')
+        : key === 'y' ? 'redo' : null;
+      if (!action) return;
+      const coordinator = historyRestoreCoordinatorRef.current;
+      if (!coordinator) return;
+      event.preventDefault();
+      void coordinator.restore(action);
+    };
+    document.addEventListener('keydown', onHistoryKeyDown);
+    return () => document.removeEventListener('keydown', onHistoryKeyDown);
+  }, []);
   useEffect(() => {
     if (projectState.notices.length > 0) setDialog('notice');
   }, [projectState.notices]);
@@ -430,7 +452,7 @@ export default function App() {
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
         home={<div data-testid="home-page" />}
-        workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={navigateToPreview} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
+        workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
         device={<DevicePanel />}
         status={<StatusBar />}
       />

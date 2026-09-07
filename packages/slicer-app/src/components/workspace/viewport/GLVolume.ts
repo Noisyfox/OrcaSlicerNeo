@@ -71,9 +71,11 @@ export class GLVolume {
 /** Renderer-only plate state. It is synchronized to WASM only before slice. */
 export const glVolumeCollection = {
   volumes: [] as GLVolume[],
-  replace(volumes: GLVolume[]) {
+  revision: 0,
+  replace(volumes: GLVolume[], revision?: number) {
     this.volumes.forEach((v) => v.dispose());
     this.volumes = volumes;
+    this.revision = revision ?? glVolumeCollection.revision + 1;
   },
   clear() { this.replace([]); },
 };

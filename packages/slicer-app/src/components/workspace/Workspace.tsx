@@ -26,6 +26,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { PreviewPlateList } from './PreviewPlateList';
 import { selectPlateSessionAndClearSelection } from './plateSessionActions';
+import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -43,6 +44,7 @@ export function Workspace({
   activeTab = 'prepare',
   onSceneInteractionChange,
   onSliceCoordinatorChange,
+  onHistoryRestoreCoordinatorChange,
   onRequestPreview,
   onPreviewRenderReady,
   onPreviewTransitionChange,
@@ -52,6 +54,7 @@ export function Workspace({
   // too; this hands it up without making the owner re-render on every change.
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
   onSliceCoordinatorChange?: (coordinator: WorkspaceSliceCoordinator | null) => void;
+  onHistoryRestoreCoordinatorChange?: (coordinator: HistoryRestoreCoordinator | null) => void;
   onRequestPreview?: () => void;
   // Home/Device → Preview first renders the Preview tree while this persistent
   // workspace panel is still hidden, then App reveals the panel on this signal.
@@ -88,9 +91,48 @@ export function Workspace({
       getStatus: () => useSlicerStore.getState().status,
       slice: () => sliceModel(platform),
       requestPreview: () => onRequestPreview?.(),
+      cancel: () => platform.runtime.cancel(),
     });
   }
   const sliceCoordinator = sliceCoordinatorRef.current;
+  const historyRestoreRef = useRef<HistoryRestoreCoordinator | null>(null);
+  const pendingHistoryContextRef = useRef<{ context: import('@slicer/client').HistoryContext; revision: number } | null>(null);
+  if (!historyRestoreRef.current) {
+    historyRestoreRef.current = createHistoryRestoreCoordinator({
+      runtime: platform.runtime,
+      sceneInteraction,
+      sliceCoordinator,
+      refreshModel: () => useSettingsStore.getState().refreshModel(),
+      projectContext: async (context, revision) => {
+        const structure = await platform.runtime.getModelStructure();
+        if (!structure.ok || historyRestoreRef.current?.currentRevision() !== revision) return;
+        // A valid restore may legitimately land on the empty baseline. Keep
+        // the loader's modelLoaded gate aligned with the Worker model before
+        // its revision-fenced mesh request runs.
+        useSettingsStore.getState().setModelLoaded(structure.objects.length > 0);
+        pendingHistoryContextRef.current = { context, revision };
+        const session = usePlateSessionStore.getState().snapshot;
+        if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
+          usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
+        // Apply once the mesh loader has replaced renderer objects.  The
+        // viewport's normal replacement effect clears stale selection first.
+        if (glVolumeCollection.volumes.length > 0)
+          sceneInteraction.restoreHistoryContext(context, structure);
+        else
+          pendingHistoryContextRef.current = null;
+      },
+    });
+  }
+  const historyRestore = historyRestoreRef.current;
+  useEffect(() => {
+    const pending = pendingHistoryContextRef.current;
+    if (!pending || glVolumes.length === 0 || historyRestore.currentRevision() !== pending.revision) return;
+    pendingHistoryContextRef.current = null;
+    void platform.runtime.getModelStructure().then((structure) => {
+      if (structure.ok && historyRestore.currentRevision() === pending.revision)
+        sceneInteraction.restoreHistoryContext(pending.context, structure);
+    }).catch(() => undefined);
+  }, [glVolumes, historyRestore, platform.runtime, sceneInteraction]);
   const [previewRenderPending, setPreviewRenderPending] = useState(false);
   const [previewPlateSelectionPending, setPreviewPlateSelectionPending] = useState(false);
   const previewFrameTokenRef = useRef(0);
@@ -110,6 +152,10 @@ export function Workspace({
     onSliceCoordinatorChange?.(sliceCoordinator);
     return () => onSliceCoordinatorChange?.(null);
   }, [onSliceCoordinatorChange, sliceCoordinator]);
+  useEffect(() => {
+    onHistoryRestoreCoordinatorChange?.(historyRestore);
+    return () => onHistoryRestoreCoordinatorChange?.(null);
+  }, [historyRestore, onHistoryRestoreCoordinatorChange]);
 
   const beginPreviewRender = useCallback(() => {
     if (isPreviewTab(activeTab)) return;

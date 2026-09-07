@@ -182,26 +182,47 @@ bool ProjectHistory::commit(std::string label, Category category, const ModelSta
 
 bool ProjectHistory::undo(RestoreState& result)
 {
+    RestorePlan plan;
+    if (!prepare_undo(plan) || !commit_restore(plan)) return false;
+    result = plan.state;
+    return true;
+}
+
+bool ProjectHistory::redo(RestoreState& result)
+{
+    RestorePlan plan;
+    if (!prepare_redo(plan) || !commit_restore(plan)) return false;
+    result = plan.state;
+    return true;
+}
+
+bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
+{
+    RestorePlan plan;
+    if (!prepare_jump(entry_id, plan) || !commit_restore(plan)) return false;
+    result = plan.state;
+    return true;
+}
+
+bool ProjectHistory::prepare_undo(RestorePlan& result) const
+{
     if (!can_undo()) return false;
-    // Selection and active-plate records are retained as part of the session
-    // timeline, but ordinary Undo jumps over them to the preceding project
-    // frame.  This keeps context records available for a later project
-    // restore without exposing them as separate user Undo steps.
     std::size_t target = m_cursor;
     while (target > 0) {
         --target;
         if (m_impl->states[target].info.category == Category::Project) break;
     }
     if (m_impl->states[target].info.category != Category::Project) return false;
-    m_cursor = target;
-    const auto& state = m_impl->states[m_cursor];
-    result.model = Impl::restore_model(state.state);
-    result.context = state.state.context;
-    result.entry = state.info;
+    result.from_cursor = m_cursor;
+    result.target_cursor = target;
+    const auto& state = m_impl->states[target];
+    result.state.model = Impl::restore_model(state.state);
+    result.state.context = state.state.context;
+    result.state.entry = state.info;
     return true;
 }
 
-bool ProjectHistory::redo(RestoreState& result)
+bool ProjectHistory::prepare_redo(RestorePlan& result) const
 {
     if (!can_redo()) return false;
     std::size_t target = m_cursor;
@@ -212,23 +233,34 @@ bool ProjectHistory::redo(RestoreState& result)
     }
     if (m_impl->states[target].info.id == 0 ||
         m_impl->states[target].info.category != Category::Project) return false;
-    m_cursor = target;
-    const auto& state = m_impl->states[m_cursor];
-    result.model = Impl::restore_model(state.state);
-    result.context = state.state.context;
-    result.entry = state.info;
+    result.from_cursor = m_cursor;
+    result.target_cursor = target;
+    const auto& state = m_impl->states[target];
+    result.state.model = Impl::restore_model(state.state);
+    result.state.context = state.state.context;
+    result.state.entry = state.info;
     return true;
 }
 
-bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
+bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) const
 {
     auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
         [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
     if (it == m_impl->states.end()) return false;
-    m_cursor = static_cast<std::size_t>(std::distance(m_impl->states.begin(), it));
-    result.model = Impl::restore_model(it->state);
-    result.context = it->state.context;
-    result.entry = it->info;
+    result.from_cursor = m_cursor;
+    result.target_cursor = static_cast<std::size_t>(std::distance(m_impl->states.begin(), it));
+    result.state.model = Impl::restore_model(it->state);
+    result.state.context = it->state.context;
+    result.state.entry = it->info;
+    return true;
+}
+
+bool ProjectHistory::commit_restore(const RestorePlan& plan)
+{
+    if (plan.from_cursor != m_cursor || plan.target_cursor >= m_impl->states.size()) return false;
+    const auto& target = m_impl->states[plan.target_cursor];
+    if (target.info.id != plan.state.entry.id) return false;
+    m_cursor = plan.target_cursor;
     return true;
 }
 

@@ -1912,7 +1912,7 @@ static Neo::History::ModelState history_model_state()
     return result;
 }
 
-static void restore_history_model(const Neo::History::RestoreState& restored)
+static Model stage_history_model(const Neo::History::RestoreState& restored)
 {
     NeoHistoryArchiveContext archive_context;
     for (const auto& mesh : restored.model.immutable_meshes) {
@@ -1939,7 +1939,12 @@ static void restore_history_model(const Neo::History::RestoreState& restored)
         NeoHistoryInputArchive archive(archive_context, stream);
         archive(*native_object);
     }
-    state().model = rebuilt_model;
+    return rebuilt_model;
+}
+
+static void restore_history_model(const Neo::History::RestoreState& restored)
+{
+    state().model = stage_history_model(restored);
 }
 
 static json default_history_context()
@@ -2029,15 +2034,30 @@ static json history_status_json()
     };
 }
 
-static json history_restore_result(const Neo::History::RestoreState& restored)
+static json history_restore_result(const Neo::History::RestorePlan& plan)
 {
-    restore_history_model(restored);
+    // Parse and rebuild into temporaries first.  Neither the live model nor
+    // the history cursor is touched until both validations have succeeded.
+    const auto context = json::parse(std::string(plan.state.context.begin(), plan.state.context.end()));
+    const json validated_context = parse_history_context(context.dump().c_str());
+    Model staged_model = stage_history_model(plan.state);
+    state().model = std::move(staged_model);
+    if (!state().history.commit_restore(plan))
+        throw std::runtime_error("history restore became stale");
     state().print.clear();
     invalidate_preview_source();
     state().history_revision++;
-    const auto context = json::parse(std::string(restored.context.begin(), restored.context.end()));
-    return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
-                {"entryId", history_entry_id(restored.entry.id)}};
+    return json{{"ok", true}, {"context", validated_context}, {"status", history_status_json()},
+                {"entryId", history_entry_id(plan.state.entry.id)}};
+}
+
+static const char* history_restore_failure(const std::string& message)
+{
+    return dup_json(json{
+        {"ok", false},
+        {"error", {{"code", "restore-failed"}, {"message", message}, {"retryable", true}}},
+        {"status", history_status_json()},
+    }.dump());
 }
 
 }  // namespace
@@ -2175,22 +2195,22 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_undo() {
     try {
         if (state().history_disabled) return error_json("history is disabled");
         if (state().active_history_transaction) return error_json("history transaction is active");
-        Neo::History::RestoreState restored;
-        if (!state().history.undo(restored)) return error_json("no undo history");
-        return dup_json(history_restore_result(restored).dump());
-    } catch (const std::exception& e) { return error_json(e.what()); }
-    catch (...) { return error_json("unknown C++ exception"); }
+        Neo::History::RestorePlan plan;
+        if (!state().history.prepare_undo(plan)) return error_json("no undo history");
+        return dup_json(history_restore_result(plan).dump());
+    } catch (const std::exception& e) { return history_restore_failure(e.what()); }
+    catch (...) { return history_restore_failure("unknown C++ exception"); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_history_redo() {
     try {
         if (state().history_disabled) return error_json("history is disabled");
         if (state().active_history_transaction) return error_json("history transaction is active");
-        Neo::History::RestoreState restored;
-        if (!state().history.redo(restored)) return error_json("no redo history");
-        return dup_json(history_restore_result(restored).dump());
-    } catch (const std::exception& e) { return error_json(e.what()); }
-    catch (...) { return error_json("unknown C++ exception"); }
+        Neo::History::RestorePlan plan;
+        if (!state().history.prepare_redo(plan)) return error_json("no redo history");
+        return dup_json(history_restore_result(plan).dump());
+    } catch (const std::exception& e) { return history_restore_failure(e.what()); }
+    catch (...) { return history_restore_failure("unknown C++ exception"); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr) {
@@ -2199,11 +2219,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr) {
         if (state().active_history_transaction) return error_json("history transaction is active");
         std::uint64_t entry_id = 0;
         if (!parse_history_entry_id(entry_id_cstr, entry_id)) return error_json("invalid history entry id");
-        Neo::History::RestoreState restored;
-        if (!state().history.jump(entry_id, restored)) return error_json("history entry is stale or unavailable");
-        return dup_json(history_restore_result(restored).dump());
-    } catch (const std::exception& e) { return error_json(e.what()); }
-    catch (...) { return error_json("unknown C++ exception"); }
+        Neo::History::RestorePlan plan;
+        if (!state().history.prepare_jump(entry_id, plan)) return error_json("history entry is stale or unavailable");
+        return dup_json(history_restore_result(plan).dump());
+    } catch (const std::exception& e) { return history_restore_failure(e.what()); }
+    catch (...) { return history_restore_failure("unknown C++ exception"); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_history_status() {

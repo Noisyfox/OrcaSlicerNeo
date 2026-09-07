@@ -225,6 +225,25 @@ function normalizeHistoryStatus(raw: unknown): HistoryStatus {
 function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (!raw || typeof raw !== 'object') return historyFailure(raw, 'invalid history restore response');
   const value = raw as Record<string, unknown>;
+  // Restore failures are deliberately data, not thrown protocol errors.  The
+  // Worker has preserved the old model/cursor and callers may retry after a
+  // transient parse, memory, or validation failure.
+  if (value.ok === false && value.error && typeof value.error === 'object') {
+    const error = value.error as Record<string, unknown>;
+    if (typeof error.message === 'string' && typeof error.code === 'string' &&
+        typeof error.retryable === 'boolean') {
+      return {
+        ok: false,
+        error: {
+          code: error.code as import('./history').HistoryErrorCode,
+          message: error.message,
+          retryable: error.retryable,
+          ...(typeof error.transactionId === 'string' ? { transactionId: error.transactionId } : {}),
+        },
+        ...(value.status ? { status: normalizeHistoryStatus(value.status) } : {}),
+      };
+    }
+  }
   if (value.ok !== true) return historyFailure(raw, 'history restore failed');
   if (!value.context || typeof value.context !== 'object' || !value.status)
     return historyFailure(raw, 'invalid history restore response');
