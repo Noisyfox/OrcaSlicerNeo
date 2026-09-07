@@ -10,6 +10,7 @@ import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { applyPlateSessionTransforms } from './syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
+import { runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
 
 export type DeleteSelectionResult = { ok: boolean; error?: string };
 
@@ -59,24 +60,25 @@ export async function deleteSelection(
     }
     const volumeScoped = sceneInteraction.isVolumeScopedSelection();
     let result: { ok: boolean; objects?: number; error?: string; plateSession?: PlateSessionMutation };
-    if (volumeScoped) {
+    const history = await runProjectHistoryMutation(runtime, 'Delete Selection', async () => {
+      if (volumeScoped) {
       const volumeIds = collectSelectedVolumeIds(structure.objects, selected);
       if (volumeIds.length === 0) {
-        const msg = 'selection no longer matches the model';
-        useSlicerStore.getState().setError(msg);
-        return { ok: false, error: msg };
+          return { ok: false, error: 'selection no longer matches the model' };
       }
-      result = await runtime.deleteVolumes(volumeIds);
-    } else {
+        return runtime.deleteVolumes(volumeIds);
+      }
       const objectIds = collectSelectedObjectIds(structure.objects, objectIndices);
       if (objectIds.length === 0) {
-        const msg = 'selection no longer matches the model';
-        useSlicerStore.getState().setError(msg);
-        return { ok: false, error: msg };
+        return { ok: false, error: 'selection no longer matches the model' };
       }
-      result = await runtime.deleteObjects(objectIds);
+      return runtime.deleteObjects(objectIds);
+    }, sceneInteraction);
+    result = history.result;
+    if (!result.ok) {
+      useSlicerStore.getState().setError(result.error ?? 'delete failed');
+      return { ok: false, error: result.error ?? 'delete failed' };
     }
-    if (!result.ok) throw new Error(result.error ?? 'delete failed');
     applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
     const slicer = useSlicerStore.getState();
     const settings = useSettingsStore.getState();
@@ -95,6 +97,7 @@ export async function deleteSelection(
       useProjectStore.getState().recordPlateMutation(result.plateSession);
     }
     else useProjectStore.getState().markDirty('model-delete');
+    await syncHistoryStatus(runtime);
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

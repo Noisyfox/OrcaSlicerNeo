@@ -10,6 +10,7 @@ import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import type { SceneResetTarget } from './components/workspace/actions/resetSceneState';
 import { resetSceneState } from './components/workspace/actions/resetSceneState';
+import { runProjectHistoryMutation, syncHistoryStatus as syncWorkerHistoryStatus } from './components/workspace/actions/historyMutation';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -159,7 +160,13 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
   setOperation('loading', 0, 'Importing geometry');
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
-    const load = await runtimeOf(platform).importProjectGeometry(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message)); if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
+    const runtime = runtimeOf(platform);
+    const load = (await runProjectHistoryMutation(
+      runtime,
+      'Import Geometry',
+      () => runtime.importProjectGeometry(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message)),
+    )).result;
+    if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     invalidateInput();
     const existing = useProjectStore.getState();
@@ -170,6 +177,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
       useProjectStore.getState().recordPlateMutation(load.plateSession);
     }
     else useProjectStore.getState().markDirty('model-import');
+    await syncWorkerHistoryStatus(runtime);
     useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
     useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }

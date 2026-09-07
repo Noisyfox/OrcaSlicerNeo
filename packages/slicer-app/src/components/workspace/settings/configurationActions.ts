@@ -6,6 +6,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import { runProjectHistoryMutation, syncHistoryStatus } from '../actions/historyMutation';
 
 /** Commit a shared configuration change through the WASM-owned plate session. */
 export async function commitSharedConfigurationMutation(
@@ -17,7 +18,11 @@ export async function commitSharedConfigurationMutation(
   }
   let mutation;
   try {
-    mutation = await markConfiguration.call(platform.runtime);
+    mutation = (await runProjectHistoryMutation(
+      platform.runtime,
+      'Change Project Configuration',
+      () => markConfiguration.call(platform.runtime),
+    )).result;
   } catch (error) {
     throw new Error(errorText(error));
   }
@@ -30,6 +35,7 @@ export async function commitSharedConfigurationMutation(
   applyPlateSessionTransforms(mutation, glVolumeCollection.volumes);
   usePlateSessionStore.getState().setSnapshot(mutation);
   useProjectStore.getState().recordPlateMutation(mutation);
+  await syncHistoryStatus(platform.runtime);
   return mutation;
 }
 

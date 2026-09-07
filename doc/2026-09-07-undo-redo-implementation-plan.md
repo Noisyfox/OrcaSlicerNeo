@@ -247,8 +247,10 @@ WASM traffic and no per-frame history growth.
 
 - Route Add Model/Cube/Handy Model, Clear Scene, and every ObjectList mutation
   through the transaction helper.
-- Route multi-plate add/remove/reorder/lock/configuration actions through the
-  same path; active-plate switching remains only an internal context record.
+- Route the currently exposed multi-plate add/delete and shared configuration
+  actions through the same path; active-plate switching remains only an
+  internal context record. Plate reorder and lock APIs/UI call sites do not
+  exist in this milestone and are not part of this migration.
 - Ensure restored model entities keep stable IDs and that ObjectList/viewport
   projections refresh from the restored structure instead of stale indices.
 
@@ -257,14 +259,16 @@ WASM traffic and no per-frame history growth.
 All currently exposed structural project edits are reversible; Clear Scene is
 undoable, while New/Open/Reload remain hard boundaries.
 
-**Agent self-verification**
+**Execution record (2026-09-07)**
 
-- Focused tests cover every listed structural action in both Undo and Redo
-  directions, including branch creation after Undo and stable-ID selection
-  fallback for deleted entities.
-- Real WASM smoke and Electron/Web E2E cover import, object tree operations,
-  Clear Scene, and multi-plate paths.
-- Required full checks pass.
+- Added the shared transaction/context helper and routed model imports, handy
+  models, Clear Scene, ObjectList mutations, selection deletion, plate
+  add/delete, and shared project configuration through Worker history.
+- Added focused transaction/context coverage and stable-ID selection fallback
+  coverage. Real dual-variant WASM smoke passed.
+- `pnpm test`, `pnpm typecheck`, slicer-app tests (400 passed), Electron E2E
+  (29 passed, 3 existing skips), threaded Web E2E (4 passed), and serial Web
+  E2E (4 passed) all passed. The dual-variant quick WASM build also passed.
 
 **Root acceptance**
 

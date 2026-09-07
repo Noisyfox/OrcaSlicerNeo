@@ -28,6 +28,7 @@ import type { PlateSessionSnapshot } from '@slicer/client';
 import { canAddPlate, canDeletePlate } from './plateControls';
 import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
 import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
+import { runProjectHistoryMutation, syncHistoryStatus } from '../actions/historyMutation';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
@@ -245,8 +246,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pre
     if (plateActionPending || !canAddPlate(plateSession)) return;
     setPlateActionPending(true);
     try {
-      const result = await platform.runtime.addPlate();
+      const result = (await runProjectHistoryMutation(platform.runtime, 'Add Plate', () => platform.runtime.addPlate())).result;
       if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+      await syncHistoryStatus(platform.runtime);
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
@@ -258,8 +260,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pre
     if (plateActionPending || !plateSession || !canDeletePlate(plateSession)) return;
     setPlateActionPending(true);
     try {
-      const result = await platform.runtime.deletePlate(plateSession.currentPlateId);
+      const result = (await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId))).result;
       if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+      await syncHistoryStatus(platform.runtime);
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {

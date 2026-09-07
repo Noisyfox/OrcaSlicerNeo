@@ -10,6 +10,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
+import { runProjectHistoryMutation, syncHistoryStatus } from '../actions/historyMutation';
 
 export interface MutationOutcome {
   ok: boolean;
@@ -81,6 +82,7 @@ export async function refreshAfterModelMutation(
       useProjectStore.getState().setProject({ hasContent: true });
     }
   }
+  await syncHistoryStatus(runtime);
 }
 
 export async function renameObjectInList(runtime: SlicerRuntime, objectId: number, name: string): Promise<MutationOutcome> {
@@ -89,12 +91,17 @@ export async function renameObjectInList(runtime: SlicerRuntime, objectId: numbe
   // Orca: renaming a single-volume object renames its only part too, keeping
   // the part name in sync with the object name.
   const obj = useObjectListStore.getState().structure.find((o) => o.id === objectId);
-  const r = await runtime.renameObject(objectId, name);
+  const history = await runProjectHistoryMutation(runtime, 'Rename Object', async () => {
+    const r = await runtime.renameObject(objectId, name);
+    if (!r.ok) return r;
+    if (obj && obj.volumes.length === 1) {
+      const v = await runtime.renameVolume(obj.volumes[0].id, name);
+      if (!v.ok) return v;
+    }
+    return r;
+  });
+  const r = history.result;
   if (!r.ok) return { ok: false, error: r.error };
-  if (obj && obj.volumes.length === 1) {
-    const v = await runtime.renameVolume(obj.volumes[0].id, name);
-    if (!v.ok) return { ok: false, error: v.error };
-  }
   await refreshAfterModelMutation(runtime);
   return { ok: true };
 }
@@ -102,7 +109,7 @@ export async function renameObjectInList(runtime: SlicerRuntime, objectId: numbe
 export async function renamePartInList(runtime: SlicerRuntime, volumeId: number, name: string): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = await runtime.renameVolume(volumeId, name);
+  const r = (await runProjectHistoryMutation(runtime, 'Rename Part', () => runtime.renameVolume(volumeId, name))).result;
   if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime);
   return { ok: true };
@@ -111,7 +118,7 @@ export async function renamePartInList(runtime: SlicerRuntime, volumeId: number,
 export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: number, type: VolumeType): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = await runtime.setVolumeType(volumeId, type);
+  const r = (await runProjectHistoryMutation(runtime, 'Change Part Type', () => runtime.setVolumeType(volumeId, type))).result;
   if (!r.ok) return { ok: false, error: r.error };
   // Changing a part's type alters which volumes compose the print mesh.
   await refreshAfterModelMutation(runtime, true);
@@ -125,10 +132,14 @@ export async function changePartTypeInList(runtime: SlicerRuntime, volumeId: num
 export async function setObjectPrintableInList(runtime: SlicerRuntime, objectIds: number[], printable: boolean): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  for (const objectId of objectIds) {
-    const r = await runtime.setObjectPrintable(objectId, printable);
-    if (!r.ok) return { ok: false, error: r.error };
-  }
+  const r = (await runProjectHistoryMutation(runtime, 'Change Printable', async () => {
+    for (const objectId of objectIds) {
+      const result = await runtime.setObjectPrintable(objectId, printable);
+      if (!result.ok) return result;
+    }
+    return { ok: true };
+  })).result;
+  if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime);
   return { ok: true };
 }
@@ -136,10 +147,14 @@ export async function setObjectPrintableInList(runtime: SlicerRuntime, objectIds
 export async function setInstancePrintableInList(runtime: SlicerRuntime, instanceIds: number[], printable: boolean): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  for (const instanceId of instanceIds) {
-    const r = await runtime.setInstancePrintable(instanceId, printable);
-    if (!r.ok) return { ok: false, error: r.error };
-  }
+  const r = (await runProjectHistoryMutation(runtime, 'Change Printable', async () => {
+    for (const instanceId of instanceIds) {
+      const result = await runtime.setInstancePrintable(instanceId, printable);
+      if (!result.ok) return result;
+    }
+    return { ok: true };
+  })).result;
+  if (!r.ok) return { ok: false, error: r.error };
   await refreshAfterModelMutation(runtime);
   return { ok: true };
 }

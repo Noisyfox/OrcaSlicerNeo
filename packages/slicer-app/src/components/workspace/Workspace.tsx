@@ -78,6 +78,12 @@ export function Workspace({
     sceneInteractionRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
   }
   const sceneInteraction = sceneInteractionRef.current;
+  // Structural edits replace the renderer collection asynchronously. Prune
+  // only after the fresh stable-ID mesh is installed so deleted entities do
+  // not remain selected through stale positional indices.
+  useEffect(() => {
+    sceneInteraction.pruneSelection();
+  }, [glVolumes, sceneInteraction]);
   const transformHistoryRef = useRef<TransformHistoryCoordinator | null>(null);
   if (!transformHistoryRef.current) {
     transformHistoryRef.current = new TransformHistoryCoordinator(platform.runtime, sceneInteraction);

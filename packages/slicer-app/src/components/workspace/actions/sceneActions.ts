@@ -17,6 +17,7 @@ import { glVolumeCollection } from '../viewport/GLVolume';
 import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 import { resetSceneState } from './resetSceneState';
+import { runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
 
 export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 
@@ -37,7 +38,8 @@ async function commitAdded(
   // that commit before the additive import refreshes the collection.
   const synced = await waitForSettledModelTransforms();
   if (!synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
-  const r = await add();
+  const history = await runProjectHistoryMutation(platform.runtime, `Add ${displayName}`, add, sceneInteraction);
+  const r = history.result;
   if (!r.ok) throw new Error(r.error ?? 'add failed');
   applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
   const slicer = useSlicerStore.getState();
@@ -56,6 +58,7 @@ async function commitAdded(
     useProjectStore.getState().recordPlateMutation(r.plateSession);
   }
   else useProjectStore.getState().markDirty('model-import');
+  await syncHistoryStatus(platform.runtime);
   sceneInteraction?.resetForModel();
   slicer.setError(null);
 }
@@ -169,7 +172,8 @@ export async function clearScene(
   const settings = useSettingsStore.getState();
   if (slicer.status === 'slicing' || !settings.modelLoaded) return;
   try {
-    const r = await platform.runtime.clearModel();
+    const history = await runProjectHistoryMutation(platform.runtime, 'Clear Scene', () => platform.runtime.clearModel(), sceneInteraction);
+    const r = history.result;
     if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
     applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
     resetSceneState(sceneInteraction);
@@ -181,6 +185,7 @@ export async function clearScene(
       useProjectStore.getState().recordPlateMutation(r.plateSession);
     }
     else useProjectStore.getState().markDirty('model-clear');
+    await syncHistoryStatus(platform.runtime);
     sceneInteraction?.resetForModel();
     slicer.setError(null);
   } catch (err) {

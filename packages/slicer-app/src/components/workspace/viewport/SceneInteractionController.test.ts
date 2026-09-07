@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import type { ModelObjectBuffer, ModelTransform } from '@slicer/client';
+import type { HistoryContext, ModelObjectBuffer, ModelTransform, ModelStructureResult } from '@slicer/client';
 import { GLVolume } from './GLVolume';
 import { SceneInteractionController } from './SceneInteractionController';
 import { EULER_ORDER } from './transformDeltaMath';
@@ -287,6 +287,24 @@ describe('SceneInteractionController', () => {
 
     c.clearSelection();
     expect(c.selectedObjectIndices()).toEqual([]);
+  });
+
+  it('restores only surviving stable IDs after a structural deletion', () => {
+    const structure: ModelStructureResult = {
+      ok: true,
+      objects: [{
+        id: 100, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
+        volumes: [{ id: 110, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+        instances: [{ id: 120, index: 0, printable: true }],
+      }],
+    };
+    const context: HistoryContext = {
+      selection: { mode: 'object', objectIds: [100, 999], partIds: [], instanceIds: [] },
+      activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
+    };
+    controller.restoreHistoryContext(context, structure);
+    expect(controller.selectedVolumes()).toEqual([volumes[0]]);
+    expect(controller.selectedVolumes().every((volume) => volume.buffer.objectIdx === 0)).toBe(true);
   });
 
   it('refuses a gizmo drag while the gizmo is not toggled on', () => {
