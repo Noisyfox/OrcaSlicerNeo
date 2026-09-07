@@ -730,9 +730,10 @@ const boxMesh = callJson('orc_get_model_mesh', [], []);
 if (boxMesh.ok && boxMesh.objects?.[0]) {
   Module._free(Number(boxMesh.objects[0].vertex_ptr));
   Module._free(Number(boxMesh.objects[0].index_ptr));
-  const floatZ = boxMesh.objects[0].offset[2] + 0.3;
+  const [offsetX, offsetY, offsetZ] = boxMesh.objects[0].offset;
+  const floatZ = offsetZ + 0.3;
   const boxLifted = callJson('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
-                             [0, 0, 0, 0, floatZ]);
+                             [0, 0, offsetX, offsetY, floatZ]);
   check('floating-box re-floated', boxLifted.ok === true, JSON.stringify(boxLifted));
 } else {
   check('floating-box mesh available', false, JSON.stringify(boxMesh).slice(0, 120));

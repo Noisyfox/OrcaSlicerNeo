@@ -32,3 +32,6 @@ the C++ standard threading primitives.
   join/detach, mutex locking, condition-variable wait, and timed wait.
 - The applicable WASM quick build and repository checks are run before
   handoff.
+- The bridge smoke's floating-box regression preserves the model's existing
+  X/Y placement while changing only Z, so its expected slicing error reaches
+  the slicer instead of being masked by an unrelated plate-boundary error.
