@@ -387,8 +387,7 @@ Release-gate commands (all passed on 2026-09-04):
 
 ## Milestone 16: Undo and Redo
 
-> [!info] Status: **design in progress** (state-boundary decisions accepted
-> 2026-09-07). Major specification:
+> [!success] Status: **approved design** (2026-09-07). Major specification:
 > [`Undo and Redo.md`](Undo%20and%20Redo.md).
 
 Add project-scoped, incremental Undo/Redo across the shared Electron/Web app.
@@ -407,6 +406,8 @@ history entries.
       project mutation must use that transaction boundary
 - [ ] Add directional history menus, direct jump, focus-aware keyboard
       bindings, and cross-host verification
+- [ ] Add unit, Worker/WASM, large-model budget/eviction, and three-host
+      end-to-end coverage; keep timing and peak memory as diagnostics initially
 
 ## Post-v1 Expansion (queued, not yet scheduled)
 

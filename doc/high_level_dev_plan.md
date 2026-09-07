@@ -469,8 +469,8 @@ execution record.
 
 ### Milestone 16 — Undo and Redo
 
-> **Status: design in progress (architecture decisions accepted
-> 2026-09-07).** The major specification is `spec/Undo and Redo.md`.
+> **Status: approved design (2026-09-07).** The major specification is
+> `spec/Undo and Redo.md`.
 
 Implement project-scoped, incremental Undo/Redo for the shared application.
 History restores model/project changes plus selection, active plate, and gizmo
@@ -486,6 +486,8 @@ context. It excludes global preset selection, global/system preferences, full
       with the saved-checkpoint dirty-state model; every exposed project
       mutation must use that boundary. Then add UI/key bindings and directional
       history menus/direct jump plus cross-host verification.
+- [ ] Add unit, Worker/WASM, large-model budget/eviction, and Electron/Web
+      verification; record timing and peak memory as diagnostics initially.
 
 ### Maintenance — Filament Library Selector Completeness
 

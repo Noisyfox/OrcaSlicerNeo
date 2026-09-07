@@ -1,7 +1,7 @@
 # Undo and Redo
 
 **Date:** 2026-09-07
-**Status:** Design in progress — Worker authority, transform, and configuration decisions accepted
+**Status:** Approved design — implementation not started
 **Branch:** `dev/undo-redo-design`
 
 ## 1. Goal
@@ -183,6 +183,28 @@ and history entry per typed character. It is a deliberate shared-app
 coalescing policy; native Orca takes snapshots at individual configuration
 change callbacks and relies on its controls to determine their cadence.
 
+### 5.5 Future high-frequency gizmos
+
+The Worker transaction API reserves `coalesce`/nested-transaction capability
+for future painting, support-point, and similar high-frequency gizmos. Current
+Move/Rotate/Scale operations use ordinary gesture transactions and do not
+implement a separate gizmo history stack or UI. A future high-frequency gizmo
+may append internal changes within one outer transaction and publish one final
+semantic history entry, following Orca's `EnteringGizmo`/`GizmoAction`/
+`LeavingGizmo` compaction intent.
+
+### 5.6 Save and crash-recovery boundary
+
+Save and Save As retain the in-memory history and merely advance the saved
+checkpoint. Users may Undo across a completed save, and dirty state is
+recalculated relative to that checkpoint. New/Open/Reload remain the only
+project-lifecycle actions that discard history.
+
+History is never persisted to 3MF, host preferences, browser storage, or an
+automatic-recovery file. Future crash recovery, if needed, is a separate,
+latest-project 3MF-style autosave feature; it must not retain history frames,
+mesh references, redo branches, selection/gizmo state, or field drafts.
+
 ## 6. Core Ownership and Atomicity
 
 - The history core and every persisted `HistoryContext` are Worker/WASM-owned.
@@ -196,7 +218,32 @@ change callbacks and relies on its controls to determine their cadence.
 - The core must retain the atomicity of a semantic command: an Undo or Redo
   applies the complete command frame, including its model and context state.
 
-### 6.1 Transform synchronization boundary
+### 6.1 Worker transaction contract and code placement
+
+The Worker exposes an explicit transaction contract:
+
+```text
+beginHistory(label, kind, beforeContext) -> transactionId
+commitHistory(transactionId, afterContext) -> HistoryStatus
+abortHistory(transactionId) -> RestoreResult
+undoHistory() / redoHistory() -> RestoreResult
+getHistoryStatus() -> HistoryStatus
+jumpHistory(targetId) -> RestoreResult
+```
+
+The shared TypeScript client exposes one `runProjectHistoryTransaction()`
+entrypoint that serializes begin, model mutation, and commit, aborting on
+error. Once migration is complete, every project-mutating bridge operation
+requires an active transaction ID.
+
+The adapted history core lives in Neo-owned
+`packages/slicer-wasm/src/history/ProjectHistory.{hpp,cpp}`. `bridge.cpp`
+exposes only the C API; the typed client, Worker RPC, shared runtime, and React
+controller are thin adapters. No `packages/slicer-wasm/cpp` submodule source is
+modified and no wx GUI source is compiled into WASM. Upstream history fixes are
+reviewed and ported deliberately as separate Neo changes.
+
+### 6.2 Transform synchronization boundary
 
 During pointer or gizmo dragging, React/three.js retains temporary transform
 state for responsive rendering. At gesture start, the Worker captures the
@@ -211,7 +258,7 @@ consistency check, not the first time a committed transform is written to the
 native model. This makes the Worker model authoritative at every history
 boundary without sacrificing drag performance.
 
-### 6.2 Two-phase restore and failure handling
+### 6.3 Two-phase restore and failure handling
 
 Neo restores through a prepare/commit protocol. The Worker first reconstructs
 and validates the requested model version and `HistoryContext` in a temporary
@@ -229,6 +276,18 @@ project.
 Native Orca assumes its self-generated in-memory snapshots are valid and
 restores its `Model` in place. The two-phase protocol is the Neo-specific
 reliability boundary required by the asynchronous Worker/WASM environment.
+
+### 6.4 Stable identity and stale-result isolation
+
+History context references object, part, and instance `ObjectID` values and
+stable plate IDs only, never positional indices. A restored entity retains the
+identity of that historical version. After each restore React re-reads complete
+model structure and mesh projections.
+
+Every renderer object, cached positional index, and asynchronous refresh result
+is associated with the active history revision/token. A result for another
+revision is discarded. Creating a new branch after Undo invalidates all
+discarded-Redo IDs and any UI reference to them.
 
 ## 7. Resource Budget and Eviction
 
@@ -299,7 +358,25 @@ Selection and plate context records are intentionally omitted from the default
 history menus and one-step navigation, while their saved state is restored with
 the selected project-modifying frame.
 
-## 10. Relationship to Other Documents
+## 10. Verification and Performance Gates
+
+Verification is layered across the shared application:
+
+- unit tests cover transactions, redo truncation, context restoration, saved
+  checkpoints, dirty calculation, and saved-checkpoint eviction;
+- Worker/WASM integration covers every exposed mutation category and confirms
+  history remains usable after 3MF save;
+- large-model fixtures verify no per-edit complete-3MF archive, mesh sharing,
+  256 MiB accounting/eviction, and safe traversal to the oldest retained frame;
+- Electron, threaded Web, and serial Web end-to-end tests exercise the shared
+  interaction and host integration.
+
+Correctness, history-budget enforcement, and safe eviction are CI gates.
+Elapsed time and peak-memory measurements are recorded as diagnostic baselines
+first, rather than flaky cross-hardware timing gates. Native Orca similarly
+measures history memory and calls least-recently-used release after restore.
+
+## 11. Relationship to Other Documents
 
 - Extends `spec/Web-Electron Shared Application Architecture.md`.
 - Extends `spec/3MF Project Persistence.md` with transient, project-session
