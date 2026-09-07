@@ -376,7 +376,7 @@ coalescing, and reproducible three-host release evidence.
 | Step | luna-high implementation commit | Agent self-verification | Root acceptance | Status |
 | --- | --- | --- | --- | --- |
 | 0 | `275e571` | Focused 3/3, workspace tests, typecheck, desktop E2E 29 passed/3 existing skips, threaded/serial Web E2E 4/4 each | Reviewed contract/import boundary; independently ran focused 3/3, import-direction 1/1, typecheck, desktop E2E 29 passed/3 existing skips | Accepted 2026-09-07 |
-| 1 | — | — | — | Not started |
+| 1 | `d21ba51`, `7e24245`, `9ea33bd` | Release-safe core test; configured wasm64 test; dual quick build; threaded/serial smoke; workspace tests, typecheck, desktop E2E 29 passed/3 existing skips | Found and returned two budget-eviction defects; reviewed corrected retention/checkpoint logic; independently ran Release core test, dual quick build, threaded/serial smoke | Accepted 2026-09-07 |
 | 2 | — | — | — | Not started |
 | 3 | — | — | — | Not started |
 | 4 | — | — | — | Not started |
