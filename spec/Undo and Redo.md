@@ -1,7 +1,7 @@
 # Undo and Redo
 
-**Date:** 2026-09-07  
-**Status:** Design in progress — lifecycle and user-navigation decisions accepted  
+**Date:** 2026-09-07
+**Status:** Design in progress — restore reliability and command-coverage decisions accepted
 **Branch:** `dev/undo-redo-design`
 
 ## 1. Goal
@@ -143,6 +143,27 @@ to deleting all models, not to opening a new project.
 This matches OrcaSlicer's `ProjectSeparator`, which clears its main history
 stack before recording a new/reset/loaded project state.
 
+### 5.3 Required command coverage
+
+Every exposed project mutation must enter the single Neo history transaction
+boundary. The initial release covers:
+
+- body drag and all Move/Rotate/Scale gizmo, numeric-panel, Drop-to-Bed, and
+  Reset transformations;
+- Add Model, Add Cube/Handy Model, and Clear Scene;
+- every current ObjectList structural action: rename, delete, clone, split,
+  assemble, reorder, add/remove instance, part-type change, and printable
+  change;
+- multi-plate add/remove/reorder/lock actions and project-owned plate
+  configuration; active-plate switching remains an internal context record;
+- object-, part-, and plate-owned temporary project-configuration overrides.
+
+An unintegrated project mutation must not silently bypass history. It must be
+connected to the transaction boundary before release or remain unavailable in
+that release. This is stricter than native Orca's distributed manual
+`take_snapshot()` call sites and prevents incomplete Undo/Redo coverage as the
+shared application grows.
+
 ## 6. Core Ownership and Atomicity
 
 - The history core is Worker/WASM-owned. React holds only the lightweight
@@ -154,6 +175,25 @@ stack before recording a new/reset/loaded project state.
   operation implementations, indices, or compatibility state change.
 - The core must retain the atomicity of a semantic command: an Undo or Redo
   applies the complete command frame, including its model and context state.
+
+### 6.1 Two-phase restore and failure handling
+
+Neo restores through a prepare/commit protocol. The Worker first reconstructs
+and validates the requested model version and `HistoryContext` in a temporary
+restore container, retaining shared immutable meshes where possible. Only a
+successful preparation atomically replaces the active model and moves the
+history cursor.
+
+On preparation or validation failure, the active model, cursor, selection,
+plate, and gizmo remain unchanged, and the UI reports a retryable restore
+failure. If a severe WASM memory failure prevents preservation of a safe active
+state, history is disabled for that session and the user is offered reloading
+the last saved 3MF; Neo must never continue editing a partially restored
+project.
+
+Native Orca assumes its self-generated in-memory snapshots are valid and
+restores its `Model` in place. The two-phase protocol is the Neo-specific
+reliability boundary required by the asynchronous Worker/WASM environment.
 
 ## 7. Resource Budget and Eviction
 

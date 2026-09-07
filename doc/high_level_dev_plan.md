@@ -481,8 +481,9 @@ context. It excludes global preset selection, global/system preferences, full
       approved 256 MiB cross-host budget and eviction policy.
 - [ ] Implement the Worker/WASM history contract and coherent restore path.
 - [ ] Integrate semantic command/gesture/selection/active-plate transactions
-      with the saved-checkpoint dirty-state model, then add UI/key bindings and
-      directional history menus/direct jump plus cross-host verification.
+      with the saved-checkpoint dirty-state model; every exposed project
+      mutation must use that boundary. Then add UI/key bindings and directional
+      history menus/direct jump plus cross-host verification.
 
 ### Maintenance — Filament Library Selector Completeness
 

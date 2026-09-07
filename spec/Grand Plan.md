@@ -401,7 +401,8 @@ history entries.
       approved 256 MiB cross-host budget and eviction policy
 - [ ] Add the Worker/WASM project-history contract and shared restore flow
 - [ ] Integrate semantic command, gesture, selection, and active-plate
-      transactions with the saved-checkpoint dirty-state model
+      transactions with the saved-checkpoint dirty-state model; every exposed
+      project mutation must use that transaction boundary
 - [ ] Add directional history menus, direct jump, focus-aware keyboard
       bindings, and cross-host verification
 
