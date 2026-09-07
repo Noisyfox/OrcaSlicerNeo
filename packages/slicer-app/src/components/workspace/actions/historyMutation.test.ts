@@ -55,6 +55,48 @@ describe('structural history transaction boundary', () => {
     expect(response.result).toEqual({ ok: false, error: 'rejected' });
   });
 
+  it('filters deleted stable IDs and reads the authoritative active plate for after-context', async () => {
+    const committed: { context?: HistoryContext } = {};
+    const runtime = {
+      runProjectHistoryTransaction: async (
+        _label: string,
+        _category: 'project',
+        _before: HistoryContext,
+        mutation: (id: string) => Promise<{ ok: boolean }>,
+        after: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
+      ) => {
+        const result = await mutation('tx-1');
+        committed.context = typeof after === 'function' ? await after() : after;
+        return { result, status };
+      },
+      getModelStructure: async () => ({
+        ok: true,
+        objects: [{
+          id: 43, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
+          volumes: [{ id: 430, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+          instances: [{ id: 4300, index: 0, printable: true }],
+        }],
+      }),
+      getPlateSessionSnapshot: async () => ({
+        ok: true, version: 2, currentPlateId: 'plate-b',
+        plates: [{ plateId: 'plate-b', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 2' }],
+      }),
+    };
+    useObjectListStore.setState({
+      structure: [{
+        id: 42, index: 0, name: 'Deleted', printable: true, instanceCount: 1,
+        volumes: [{ id: 420, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+        instances: [{ id: 4200, index: 0, printable: true }],
+      }],
+      projection: { objectIds: new Set([42]), volumeIds: new Set([420]), instanceIds: new Set([4200]) },
+    });
+
+    await runProjectHistoryMutation(runtime as never, 'Delete Objects', async () => ({ ok: true }));
+
+    expect(committed.context?.selection).toEqual({ mode: 'part', objectIds: [], partIds: [], instanceIds: [] });
+    expect(committed.context?.activePlateId).toBe('plate-b');
+  });
+
   it('projects Worker dirty state after a plate or configuration mutation', async () => {
     const runtime = transactionRuntime();
     await syncHistoryStatus(runtime);

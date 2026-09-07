@@ -265,8 +265,10 @@ undoable, while New/Open/Reload remain hard boundaries.
   models, Clear Scene, ObjectList mutations, selection deletion, plate
   add/delete, and shared project configuration through Worker history.
 - Added focused transaction/context coverage and stable-ID selection fallback
-  coverage. Real dual-variant WASM smoke passed.
-- `pnpm test`, `pnpm typecheck`, slicer-app tests (400 passed), Electron E2E
+  coverage. Post-mutation contexts now filter deleted IDs and read the
+  authoritative active plate identity; active-plate navigation records a
+  context-only history entry. Real dual-variant WASM smoke passed.
+- `pnpm test`, `pnpm typecheck`, slicer-app tests (401 passed), Electron E2E
   (29 passed, 3 existing skips), threaded Web E2E (4 passed), and serial Web
   E2E (4 passed) all passed. The dual-variant quick WASM build also passed.
 

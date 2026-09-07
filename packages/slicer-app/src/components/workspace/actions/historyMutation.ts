@@ -15,6 +15,10 @@ export type HistoryMutationResult<T> = {
   status: HistoryStatus | null;
 };
 
+type HistoryMutationRuntime = Partial<Pick<SlicerRuntime,
+  'runProjectHistoryTransaction' | 'getHistoryStatus' | 'getModelStructure' |
+  'getPlateSessionSnapshot'>>;
+
 /** Build a JSON-safe context from the current stable-ID ObjectList projection. */
 export function historyContextForStructure(sceneInteraction?: SceneInteractionController | null): HistoryContext {
   const objectList = useObjectListStore.getState();
@@ -41,6 +45,23 @@ export function historyContextForStructure(sceneInteraction?: SceneInteractionCo
   };
 }
 
+/** Remove IDs that a structural mutation deleted before its renderer refresh. */
+function projectContextOntoStructure(context: HistoryContext, structure: Awaited<ReturnType<SlicerRuntime['getModelStructure']>>): HistoryContext {
+  if (!structure.ok || !structure.objects) return context;
+  const objectIds = new Set(structure.objects.map((object) => object.id));
+  const partIds = new Set(structure.objects.flatMap((object) => object.volumes.map((volume) => volume.id)));
+  const instanceIds = new Set(structure.objects.flatMap((object) => object.instances.map((instance) => instance.id)));
+  return {
+    ...context,
+    selection: {
+      ...context.selection,
+      objectIds: context.selection.objectIds.filter((id) => objectIds.has(id)),
+      partIds: context.selection.partIds.filter((id) => partIds.has(id)),
+      instanceIds: context.selection.instanceIds.filter((id) => instanceIds.has(id)),
+    },
+  };
+}
+
 type MutationResponse = { ok?: boolean; error?: string };
 
 /**
@@ -49,7 +70,7 @@ type MutationResponse = { ok?: boolean; error?: string };
  * implement the method through SlicerRuntime's required HistoryRuntimeMethods.
  */
 export async function runProjectHistoryMutation<T extends MutationResponse>(
-  runtime: Partial<Pick<SlicerRuntime, 'runProjectHistoryTransaction' | 'getHistoryStatus'>>,
+  runtime: HistoryMutationRuntime,
   label: string,
   mutation: () => Promise<T>,
   sceneInteraction?: SceneInteractionController | null,
@@ -70,7 +91,18 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
         if (result.ok !== true) throw new Error(result.error ?? `${label} failed`);
         return result;
       },
-      () => historyContextForStructure(sceneInteraction),
+      async () => {
+        let context = historyContextForStructure(sceneInteraction);
+        const structure = typeof runtime.getModelStructure === 'function'
+          ? await runtime.getModelStructure().catch(() => null)
+          : null;
+        if (structure) context = projectContextOntoStructure(context, structure);
+        const plateSession = typeof runtime.getPlateSessionSnapshot === 'function'
+          ? await runtime.getPlateSessionSnapshot().catch(() => null)
+          : null;
+        if (plateSession?.ok) context = { ...context, activePlateId: plateSession.currentPlateId };
+        return context;
+      },
     ) as unknown as HistoryMutationResult<T>;
     return response;
   } catch (error) {
