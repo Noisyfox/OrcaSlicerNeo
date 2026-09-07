@@ -385,6 +385,26 @@ Release-gate commands (all passed on 2026-09-04):
 `pnpm --filter @orca/web test:e2e:threaded`, and
 `pnpm --filter @orca/web test:e2e:serial`.
 
+## Milestone 16: Undo and Redo
+
+> [!info] Status: **design in progress** (state-boundary decisions accepted
+> 2026-09-07). Major specification:
+> [`Undo and Redo.md`](Undo%20and%20Redo.md).
+
+Add project-scoped, incremental Undo/Redo across the shared Electron/Web app.
+The history restores model/project changes and editing context (selection,
+active plate, and gizmo) without recording global preset selection or system
+preferences. Complete 3MF archives and derived slice/preview output are not
+history entries.
+
+- [ ] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
+      approved 256 MiB cross-host budget and eviction policy
+- [ ] Add the Worker/WASM project-history contract and shared restore flow
+- [ ] Integrate semantic command, gesture, selection, and active-plate
+      transactions with the saved-checkpoint dirty-state model
+- [ ] Add directional history menus, direct jump, focus-aware keyboard
+      bindings, and cross-host verification
+
 ## Post-v1 Expansion (queued, not yet scheduled)
 
 ### G-code preview GPU streaming renderer

@@ -467,6 +467,23 @@ then run `pnpm --filter @orca/desktop test:e2e`,
 results are recorded in `spec/3MF Project Persistence.md` and the Step 9
 execution record.
 
+### Milestone 16 — Undo and Redo
+
+> **Status: design in progress (state-boundary decisions accepted
+> 2026-09-07).** The major specification is `spec/Undo and Redo.md`.
+
+Implement project-scoped, incremental Undo/Redo for the shared application.
+History restores model/project changes plus selection, active plate, and gizmo
+context. It excludes global preset selection, global/system preferences, full
+3MF archives, and derived slice/preview output.
+
+- [ ] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
+      approved 256 MiB cross-host budget and eviction policy.
+- [ ] Implement the Worker/WASM history contract and coherent restore path.
+- [ ] Integrate semantic command/gesture/selection/active-plate transactions
+      with the saved-checkpoint dirty-state model, then add UI/key bindings and
+      directional history menus/direct jump plus cross-host verification.
+
 ### Maintenance — Filament Library Selector Completeness
 
 > **Status: implemented 2026-08-30.** The full bundled filament library is
