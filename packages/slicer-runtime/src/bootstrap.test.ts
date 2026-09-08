@@ -64,4 +64,34 @@ describe('portable runtime bootstrap', () => {
       plates: [{ plateId: 'plate-session-1-plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
     });
   });
+
+  it('preserves the typed filament-session projection through the runtime worker boundary', async () => {
+    let receive!: (message: import('../../slicer-wasm/src/client').WorkerMessage) => void;
+    const transport: WorkerTransport = {
+      post(message) {
+        if (message.type === 'request' && message.op === 'getFilamentSessionSnapshot') {
+          receive({ type: 'response', id: message.id, ok: true, result: {
+            ok: true, version: 1,
+            slots: [{ slot: 1, preset: { id: 'Generic PLA', name: 'Generic PLA' },
+              colour: { effective: '#F2754E', provenance: 'preset' } }],
+            mappings: { filament: [1], volume: [0], nozzle: [0], filament2: [0], physicalExtruder: [0] },
+            flushing: { matrix: [0], vector: [], matrixDimension: 1, source: 'native' },
+            capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, canAdd: true, canDelete: false, canMerge: false },
+            assignments: { objects: [], parts: [], modifiers: [] },
+            revisions: { session: 0, project: 0, result: 0, plates: {} },
+            status: { state: 'ready', error: null },
+          } });
+        }
+      },
+      onMessage(listener) { receive = listener; },
+    };
+    const runtime = createRuntimeBootstrap({
+      transport,
+      capabilities: { webgl2: true, wasm64: true, threadedWasm: false },
+    });
+    await expect(runtime.getFilamentSessionSnapshot()).resolves.toMatchObject({
+      ok: true, version: 1, slots: [{ slot: 1, preset: { id: 'Generic PLA' } }],
+      mappings: { physicalExtruder: [0] }, flushing: { matrixDimension: 1 },
+    });
+  });
 });

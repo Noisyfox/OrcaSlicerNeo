@@ -11,6 +11,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const fixtureDir = join(here, '..', 'fixtures', 'multi-filament');
 const manifest = JSON.parse(await readFile(join(fixtureDir, 'manifest.json'), 'utf8'));
 const schema = JSON.parse(await readFile(join(fixtureDir, 'schema.json'), 'utf8'));
+const sessionSchema = JSON.parse(await readFile(join(fixtureDir, 'session-snapshot.schema.json'), 'utf8'));
+const commandSchema = JSON.parse(await readFile(join(fixtureDir, 'atomic-command-envelope.schema.json'), 'utf8'));
 const decoder = new TextDecoder();
 
 function exactKeys(value, required, context) {
@@ -56,7 +58,40 @@ function validateInventory() {
   assert.equal(readers[0].provenance, 'independent-low-level-3mf-builder');
 }
 
+function validateSnapshotSchemaExamples() {
+  const success = {
+    ok: true, version: 1,
+    slots: [{ slot: 1, preset: { id: 'p', name: 'p' }, colour: { effective: '#000000', provenance: 'preset' } }],
+    mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
+    flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
+    capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: false, can_merge: false },
+    assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 0, project: 0, result: 0, plates: {} },
+    status: { state: 'ready', error: null },
+  };
+  const failure = {
+    ok: false, version: 1, error: 'flush matrix is malformed', error_code: 'flush_matrix_malformed',
+    status: { state: 'error', error: 'flush matrix is malformed' },
+  };
+  for (const [name, example, definition] of [['success', success, sessionSchema.$defs.success], ['error', failure, sessionSchema.$defs.error]]) {
+    for (const key of definition.required) assert.ok(Object.prototype.hasOwnProperty.call(example, key), `${name} example missing ${key}`);
+    assert.equal(example.ok, definition.properties.ok.const, `${name} discriminator`);
+    assert.equal(example.version, definition.properties.version.const, `${name} version discriminator`);
+    assert.equal(typeof example.status, 'object', `${name} status object`);
+  }
+  assert.equal(success.slots.length, success.mappings.filament.length);
+  assert.equal(success.flushing.matrix.length, success.flushing.matrix_dimension ** 2 * success.flushing.plane_count);
+  assert.equal(success.flushing.plane_count, success.capabilities.nozzle_count);
+  assert.equal(failure.error_code, 'flush_matrix_malformed');
+  assert.equal(failure.status.state, 'error');
+}
+
 assert.equal(schema.$id, 'orca://slicer-wasm/multi-filament-fixture-manifest/v1');
+assert.equal(sessionSchema.$id, 'orca://slicer-wasm/filament-session-snapshot/v1');
+assert.equal(sessionSchema.oneOf.length, 2);
+assert.deepEqual(sessionSchema.$defs.success.required, ['ok', 'version', 'slots', 'mappings', 'flushing', 'capabilities', 'assignments', 'revisions', 'status']);
+assert.deepEqual(sessionSchema.$defs.error.required, ['ok', 'version', 'error', 'error_code', 'status']);
+assert.equal(commandSchema.$id, 'orca://slicer-wasm/filament-atomic-command-envelope/v1');
+assert.equal(commandSchema.oneOf.length, 2);
 assert.equal(manifest.schema, schema.properties.schema.const);
 assert.equal(manifest.schemaVersion, schema.properties.schemaVersion.const);
 assert.equal(manifest.nativeCore.commit, 'b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde');
@@ -65,6 +100,7 @@ assert.equal(manifest.builder.path, 'packages/slicer-wasm/harness/multi-filament
 assert.equal(manifest.builder.export, 'buildIndependentReader3mf');
 assert.equal(manifest.builder.callsExporter, false);
 validateInventory();
+validateSnapshotSchemaExamples();
 const reader = manifest.fixtures.find(({ kind }) => kind === 'reader-3mf');
 assert.ok(reader, 'manifest must contain an executable reader fixture');
 assert.equal(reader.status, 'executable');

@@ -20,6 +20,135 @@ describe('SlicerClient bridge contract', () => {
     expect(r.printers).toBeGreaterThan(0);
   });
 
+  it('projects the authoritative filament session with one-based slots and Default maps', async () => {
+    const c = makeClient();
+    const snapshot = await c.getFilamentSessionSnapshot();
+    expect(snapshot).toMatchObject({ ok: true, version: 1, status: { state: 'ready', error: null } });
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    expect(snapshot.slots).toEqual([{
+      slot: 1,
+      preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
+      colour: { effective: '#F2754E', provenance: 'preset' },
+    }]);
+    expect(snapshot.mappings).toEqual({ filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] });
+    expect(snapshot.assignments.objects).toEqual([]);
+    expect(snapshot.flushing).toMatchObject({ matrix: [0], matrixDimension: 1, planeCount: 1, source: 'default' });
+    expect(snapshot.capabilities).toMatchObject({ minSlots: 1, maxSlots: 64, flexible: true, canAdd: true, canDelete: false, canMerge: false });
+  });
+
+  it('rejects malformed and unsupported filament session payloads at the client boundary', async () => {
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: true, version: 1, slots: [] } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'invalid filament session slots' });
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: true, version: 2 } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'unsupported filament session version' });
+  });
+
+  it('requires the versioned native failure envelope', async () => {
+    const failure = { ok: false, version: 1, error: 'native projection failed', error_code: 'native_failure',
+      status: { state: 'error', error: 'native projection failed' } };
+    await expect(createClient(async () => createMockModule({ filamentSession: failure }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'native projection failed', errorCode: 'native_failure',
+        status: { state: 'error', error: 'native projection failed' } });
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: false, error: 'unversioned' } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'unsupported filament session version' });
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: false, version: 2, error: 'future', error_code: 'future', status: { state: 'error', error: 'future' } } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'unsupported filament session version' });
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: false, version: 1, error: 'missing code' } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'invalid filament session error envelope' });
+  });
+
+  it('preserves native preset-equivalent and user colour provenance', async () => {
+    const payload = {
+      ok: true, version: 1,
+      slots: [
+        { slot: 1, preset: { id: 'preset-a', name: 'preset-a' }, colour: { effective: '#26A69A', provenance: 'preset' } },
+        { slot: 2, preset: { id: 'preset-b', name: 'preset-b' }, colour: { effective: '#112233', provenance: 'user' } },
+      ],
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
+      flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'native' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 0, project: 0, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    };
+    const result = await createClient(async () => createMockModule({ filamentSession: payload })).getFilamentSessionSnapshot();
+    expect(result).toMatchObject({ ok: true, slots: [
+      { colour: { effective: '#26A69A', provenance: 'preset' } },
+      { colour: { effective: '#112233', provenance: 'user' } },
+    ] });
+  });
+
+  it('rejects a flush plane count that does not match native nozzle count', async () => {
+    const payload = {
+      ok: true, version: 1,
+      slots: [1, 2].map((slot) => ({ slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
+      flushing: { matrix: [0, 0, 0, 0, 0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 2, source: 'native' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 0, project: 0, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    };
+    await expect(createClient(async () => createMockModule({ filamentSession: payload })).getFilamentSessionSnapshot())
+      .resolves.toEqual({ ok: false, error: 'inconsistent filament session flushing planes' });
+  });
+
+  it.each([
+    ['reversed', [{ slot: 2 }, { slot: 1 }]],
+    ['duplicate', [{ slot: 1 }, { slot: 1 }]],
+    ['gap', [{ slot: 1 }, { slot: 3 }]],
+  ])('rejects %s native slot ordering without sorting', async (_label, slots) => {
+    const payload = {
+      ok: true, version: 1, slots: slots.map((entry) => ({ ...entry,
+        preset: { id: 'p', name: 'p' }, colour: { effective: '#000000', provenance: 'preset' } })),
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
+      flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'default' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 0, project: 0, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    };
+    await expect(createClient(async () => createMockModule({ filamentSession: payload }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'invalid filament session slot ordering' });
+  });
+
+  it('enforces flexible and fixed-device capability semantics', async () => {
+    const base = await makeClient().getFilamentSessionSnapshot();
+    if (!base.ok) throw new Error(base.error);
+    const withSlots = (capabilities: Record<string, unknown>) => ({ ...base,
+      slots: [1, 2].map((slot) => ({ slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: (capabilities.nozzle_count === 2 ? [0, 1] : [0]) },
+      flushing: { matrix: Array.from({ length: 4 * Number(capabilities.nozzle_count) }, () => 0), vector: [], matrix_dimension: 2,
+        plane_count: Number(capabilities.nozzle_count), source: 'default' },
+      capabilities,
+      assignments: { objects: [], parts: [], modifiers: [] },
+      revisions: { session: 0, project: 0, result: 0, plates: {} },
+    });
+    await expect(createClient(async () => createMockModule({ filamentSession: withSlots({
+      min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true,
+    }) })).getFilamentSessionSnapshot()).resolves.toMatchObject({ ok: true });
+    await expect(createClient(async () => createMockModule({ filamentSession: withSlots({
+      min_slots: 2, max_slots: 64, nozzle_count: 2, flexible: false, can_add: false, can_delete: false, can_merge: false,
+    }) })).getFilamentSessionSnapshot()).resolves.toMatchObject({ ok: true });
+    await expect(createClient(async () => createMockModule({ filamentSession: withSlots({
+      min_slots: 2, max_slots: 64, nozzle_count: 2, flexible: false, can_add: true, can_delete: false, can_merge: false,
+    }) })).getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'inconsistent filament session capabilities' });
+  });
+
+  it('rejects assignment slots outside the ordered slot projection and inconsistent inheritance', async () => {
+    const c = makeClient();
+    const base = await c.getFilamentSessionSnapshot();
+    if (!base.ok) throw new Error(base.error);
+    const payload = { ...base,
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
+      flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: false, can_merge: false },
+      revisions: { session: 0, project: 0, result: 0, plates: {} },
+      assignments: {
+      objects: [{ target: 'object', id: 1, object_id: 1, explicit_slot: 0, effective_slot: 1, inherited: false }],
+      parts: [], modifiers: [],
+    }};
+    await expect(createClient(async () => createMockModule({ filamentSession: payload }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'invalid filament session assignments' });
+  });
+
   it('exposes one deterministic default plate and opaque runtime identity', async () => {
     const c = makeClient();
     const first = await c.getPlateSessionSnapshot();

@@ -1693,6 +1693,220 @@ json preset_snapshot_json() {
                 {"printable_area", selected_printer_printable_area_json()}};
 }
 
+// Step 1 filament-session projection.  This is deliberately a read-only
+// native projection: slot numbering, maps, colours, assignments, and
+// capability limits are all read from the active PresetBundle/Model session.
+// The wire keys stay snake_case at the C ABI, just like the other bridge
+// snapshots; client.ts owns the only normalization to application types.
+std::vector<std::string> config_strings(const DynamicPrintConfig& config, const char* key)
+{
+    if (const auto* option = config.opt<ConfigOptionStrings>(key)) return option->values;
+    return {};
+}
+std::vector<int> config_ints(const DynamicPrintConfig& config, const char* key)
+{
+    if (const auto* option = config.opt<ConfigOptionInts>(key)) return option->values;
+    return {};
+}
+std::vector<double> config_floats(const DynamicPrintConfig& config, const char* key)
+{
+    if (const auto* option = config.opt<ConfigOptionFloats>(key)) return option->values;
+    return {};
+}
+
+json filament_session_error_json(const char* code, const char* message)
+{
+    return { {"ok", false}, {"version", 1}, {"error", message}, {"error_code", code},
+             {"status", {{"state", "error"}, {"error", message}}} };
+}
+
+bool effective_filament_int_map(const DynamicPrintConfig& primary, const char* key,
+                                const DynamicPrintConfig& fallback, size_t slot_count,
+                                int default_value, std::vector<int>& out)
+{
+    out = config_ints(primary, key);
+    if (out.empty()) out = config_ints(fallback, key);
+    if (out.size() > slot_count) return false;
+    out.resize(slot_count, default_value);
+    return true;
+}
+
+json filament_session_snapshot_json()
+{
+    PresetBundle& bundle = state().presets;
+    const DynamicPrintConfig& project = bundle.project_config;
+    const DynamicPrintConfig& printer = bundle.printers.get_edited_preset().config;
+    const DynamicPrintConfig& filament = bundle.filaments.get_edited_preset().config;
+
+    std::vector<std::string> preset_names = bundle.filament_presets;
+    std::vector<std::string> colours = config_strings(project, "filament_colour");
+    if (colours.empty()) colours = config_strings(filament, "filament_colour");
+    if (preset_names.empty()) {
+        const std::string selected = bundle.filaments.get_selected_preset_name();
+        preset_names.push_back(selected.empty() ? "Default" : selected);
+    }
+    const size_t slot_count = std::max<size_t>(1, std::max(preset_names.size(), colours.size()));
+    if (preset_names.size() < slot_count) {
+        const std::string fallback = bundle.filaments.get_selected_preset_name();
+        preset_names.resize(slot_count, fallback.empty() ? "Default" : fallback);
+    }
+    std::vector<std::string> preset_colours(slot_count);
+    const auto native_default_colours = state().profile_config.get_filament_colors();
+    // PresetBundle materializes this same native fallback when a selected
+    // filament preset has no explicit filament_colour (the common Generic
+    // PLA/default session). Keep the projection aligned with that native
+    // effective colour rather than treating the materialized project value as
+    // a user edit.
+    constexpr const char* native_filament_colour_fallback = "#26A69A";
+    for (size_t i = 0; i < slot_count; ++i) {
+        if (const Preset* real_preset = bundle.filaments.find_preset(preset_names[i], false, true)) {
+            const auto native_colours = config_strings(real_preset->config, "filament_colour");
+            if (!native_colours.empty()) preset_colours[i] = native_colours.front();
+            else {
+                const auto default_colours = config_strings(real_preset->config, "default_filament_colour");
+                if (!default_colours.empty()) preset_colours[i] = default_colours.front();
+            }
+        }
+        if (preset_colours[i].empty() && i < native_default_colours.size())
+            preset_colours[i] = native_default_colours[i];
+        if (preset_colours[i].empty())
+            preset_colours[i] = native_filament_colour_fallback;
+    }
+    if (colours.size() < slot_count) {
+        const auto defaults = state().profile_config.get_filament_colors();
+        for (size_t i = colours.size(); i < slot_count; ++i)
+            colours.push_back(!preset_colours[i].empty() ? preset_colours[i] :
+                              (i < defaults.size() ? defaults[i] : std::string("#000000")));
+    }
+
+    json slots = json::array();
+    for (size_t i = 0; i < slot_count; ++i) {
+        const std::string& name = preset_names[i];
+        // project_config.filament_colour is materialized during init even for
+        // pristine sessions. Provenance therefore uses effective equivalence
+        // with the real selected preset colour. An explicit override equal to
+        // that colour is intentionally reported as preset-equivalent because a
+        // read-only native projection cannot recover edit history.
+        const bool preset_equivalent = !preset_colours[i].empty() && colours[i] == preset_colours[i];
+        slots.push_back({
+            {"slot", i + 1},
+            {"preset", {{"id", name}, {"name", name}}},
+            {"colour", {{"effective", colours[i]}, {"provenance", preset_equivalent ? "preset" : "user"}}},
+        });
+    }
+
+    std::vector<int> filament_map;
+    std::vector<int> volume_map;
+    std::vector<int> nozzle_map;
+    std::vector<int> filament_map_2;
+    if (!effective_filament_int_map(project, "filament_map", printer, slot_count, 1, filament_map))
+        return filament_session_error_json("filament_map_too_long", "filament_map exceeds slot count");
+    if (!effective_filament_int_map(project, "filament_volume_map", printer, slot_count, 0, volume_map))
+        return filament_session_error_json("filament_volume_map_too_long", "filament_volume_map exceeds slot count");
+    if (!effective_filament_int_map(project, "filament_nozzle_map", printer, slot_count, 1, nozzle_map))
+        return filament_session_error_json("filament_nozzle_map_too_long", "filament_nozzle_map exceeds slot count");
+    if (!effective_filament_int_map(project, "filament_map_2", printer, slot_count, 1, filament_map_2))
+        return filament_session_error_json("filament_map_2_too_long", "filament_map_2 exceeds slot count");
+
+    const int printer_nozzles = std::max(1, bundle.get_printer_extruder_count());
+    std::vector<int> physical_map;
+    if (!effective_filament_int_map(printer, "physical_extruder_map", printer,
+                                    static_cast<size_t>(printer_nozzles), 0, physical_map))
+        return filament_session_error_json("physical_extruder_map_too_long", "physical_extruder_map exceeds nozzle count");
+    json mappings = {
+        {"filament", filament_map}, {"volume", volume_map}, {"nozzle", nozzle_map},
+        {"filament2", filament_map_2}, {"physical_extruder", physical_map},
+    };
+
+    auto matrix = config_floats(project, "flush_volumes_matrix");
+    if (matrix.empty()) matrix = config_floats(printer, "flush_volumes_matrix");
+    const bool matrix_is_native = !matrix.empty();
+    size_t matrix_dimension = slot_count;
+    size_t matrix_plane_count = 1;
+    if (matrix.empty()) {
+        matrix_plane_count = static_cast<size_t>(printer_nozzles);
+        matrix.assign(matrix_dimension * matrix_dimension * matrix_plane_count, 0.0);
+    } else {
+        const size_t plane_size = matrix_dimension * matrix_dimension;
+        if (plane_size == 0 || matrix.size() % plane_size != 0)
+            return filament_session_error_json("flush_matrix_malformed", "flush_volumes_matrix is not a whole native plane");
+        matrix_plane_count = matrix.size() / plane_size;
+        // Native get_flush_volumes_matrix() treats the raw vector as one
+        // complete slot matrix per physical nozzle. Preserve every plane;
+        // reject a count that cannot be selected by that native API.
+        if (matrix_plane_count == 0 || matrix_plane_count != static_cast<size_t>(printer_nozzles))
+            return filament_session_error_json("flush_matrix_plane_count_mismatch", "flush_volumes_matrix plane count does not match nozzle count");
+        if (std::any_of(matrix.begin(), matrix.end(), [](double value) { return !std::isfinite(value); }))
+            return filament_session_error_json("flush_matrix_malformed", "flush_volumes_matrix contains invalid values");
+    }
+    auto flush_vector = config_floats(project, "flush_volumes_vector");
+    if (flush_vector.empty()) flush_vector = config_floats(printer, "flush_volumes_vector");
+    json flushing = {{"matrix", matrix}, {"vector", flush_vector},
+                     {"matrix_dimension", matrix_dimension}, {"plane_count", matrix_plane_count},
+                     {"source", matrix_is_native ? "native" : "default"}};
+
+    const bool flexible_slots = printer.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
+    const int min_slots = flexible_slots ? 1 : printer_nozzles;
+    json capabilities = {
+        {"min_slots", min_slots}, {"max_slots", 64}, {"nozzle_count", printer_nozzles},
+        {"flexible", flexible_slots},
+        {"can_add", flexible_slots && slot_count < 64},
+        {"can_delete", flexible_slots && slot_count > 1},
+        {"can_merge", flexible_slots && slot_count > 1},
+    };
+
+    struct Assignment { std::string target; uint32_t id; uint32_t object_id; int explicit_slot; int effective_slot; bool inherited; };
+    std::vector<Assignment> objects;
+    std::vector<Assignment> parts;
+    std::vector<Assignment> modifiers;
+    auto explicit_extruder = [](const auto& config) {
+        if (const auto* option = dynamic_cast<const ConfigOptionInt*>(config.option("extruder")))
+            return std::max(0, option->value);
+        return 0;
+    };
+    for (const ModelObject* object : state().model.objects) {
+        if (object == nullptr) continue;
+        const int object_explicit = std::max(1, explicit_extruder(object->config));
+        const int object_effective = object_explicit;
+        if (object_effective > static_cast<int>(slot_count))
+            return filament_session_error_json("assignment_slot_out_of_range", "object assignment exceeds slot count");
+        objects.push_back({"object", static_cast<uint32_t>(object->id().id), static_cast<uint32_t>(object->id().id), object_explicit, object_effective, false});
+        for (const ModelVolume* volume : object->volumes) {
+            if (volume == nullptr) continue;
+            const auto type = volume->type();
+            if (type != ModelVolumeType::MODEL_PART && type != ModelVolumeType::PARAMETER_MODIFIER) continue;
+            const int explicit_slot = explicit_extruder(volume->config);
+            const int effective_slot = std::max(1, volume->extruder_id());
+            const bool inherited = explicit_slot == 0;
+            if (explicit_slot > static_cast<int>(slot_count) || effective_slot > static_cast<int>(slot_count) ||
+                (!inherited && effective_slot != explicit_slot))
+                return filament_session_error_json("assignment_slot_out_of_range", "volume assignment exceeds slot count");
+            Assignment item{type == ModelVolumeType::MODEL_PART ? "model-part" : "parameter-modifier",
+                            static_cast<uint32_t>(volume->id().id), static_cast<uint32_t>(object->id().id), explicit_slot, effective_slot, inherited};
+            (type == ModelVolumeType::MODEL_PART ? parts : modifiers).push_back(item);
+        }
+    }
+    auto assignment_json = [](const std::vector<Assignment>& values) {
+        json out = json::array();
+        for (const Assignment& item : values)
+            out.push_back({{"target", item.target}, {"id", item.id}, {"object_id", item.object_id},
+                           {"explicit_slot", item.explicit_slot}, {"effective_slot", item.effective_slot},
+                           {"inherited", item.inherited}});
+        return out;
+    };
+    std::sort(objects.begin(), objects.end(), [](const Assignment& a, const Assignment& b) { return a.id < b.id; });
+    std::sort(parts.begin(), parts.end(), [](const Assignment& a, const Assignment& b) { return a.id < b.id; });
+    std::sort(modifiers.begin(), modifiers.end(), [](const Assignment& a, const Assignment& b) { return a.id < b.id; });
+
+    json revisions = {{"session", state().history_revision}, {"project", state().history_revision},
+                      {"result", state().preview_result_id}, {"plates", plate_revisions_json()}};
+    return {{"ok", true}, {"version", 1}, {"slots", slots}, {"mappings", mappings},
+            {"flushing", flushing}, {"capabilities", capabilities},
+            {"assignments", {{"objects", assignment_json(objects)}, {"parts", assignment_json(parts)},
+                             {"modifiers", assignment_json(modifiers)}}},
+            {"revisions", revisions}, {"status", {{"state", "ready"}, {"error", nullptr}}}};
+}
+
 // Shared initialization body. The incoming JSON is ignored legacy input.
 // the renderer's whole config — REPLACE the previous state, never merge:
 // a stale presets.machine from an earlier init could point at a printer that
@@ -2633,6 +2847,16 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_plate_session_snapshot() {
         return error_json(e.what());
     } catch (...) {
         return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_filament_session_snapshot() {
+    try {
+        return dup_json(filament_session_snapshot_json().dump());
+    } catch (const std::exception& e) {
+        return dup_json(filament_session_error_json("native_exception", e.what()).dump());
+    } catch (...) {
+        return dup_json(filament_session_error_json("unknown_exception", "unknown C++ exception").dump());
     }
 }
 

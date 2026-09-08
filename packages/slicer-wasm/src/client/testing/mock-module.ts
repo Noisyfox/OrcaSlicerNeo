@@ -74,6 +74,8 @@ export interface MockModuleOptions {
   threaded?: boolean;
   /** Warning metadata returned by the native BBS project-load bridge. */
   embeddedPresetWarnings?: Partial<NonNullable<ProjectLoadResult['embeddedPresetWarnings']>>;
+  /** Optional wire snapshot override for malformed/unsupported-version tests. */
+  filamentSession?: unknown;
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -493,6 +495,30 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         }));
     }
     return result;
+  }
+
+  function filamentSessionSnapshot(): unknown {
+    if (opts.filamentSession !== undefined) return clone(opts.filamentSession);
+    const objects = objectMeta.map((object) => ({
+      target: 'object', id: object.id, object_id: object.id,
+      explicit_slot: 1, effective_slot: 1, inherited: false,
+    }));
+    const parts = objectMeta.flatMap((object, index) => (volumeMeta[index] ?? [])
+      .filter((volume) => volume.type === 'model_part')
+      .map((volume) => ({ target: 'model-part', id: volume.id, object_id: object.id,
+        explicit_slot: 0, effective_slot: 1, inherited: true })));
+    return {
+      ok: true, version: 1,
+      slots: [{ slot: 1, preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
+        colour: { effective: '#F2754E', provenance: 'preset' } }],
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
+      flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true,
+        can_add: true, can_delete: false, can_merge: false },
+      assignments: { objects, parts, modifiers: [] },
+      revisions: { session: historyRevision, project: historyRevision, result: 0, plates: { ...plateInputRevisions } },
+      status: { state: 'ready', error: null },
+    };
   }
   function plateMutation(
     reason: string,
@@ -922,6 +948,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_get_plate_session_snapshot() {
       return plateSessionSnapshot();
+    },
+    orc_get_filament_session_snapshot() {
+      return filamentSessionSnapshot();
     },
     orc_reset_plate_session() {
       resetPlateSession();
@@ -1710,6 +1739,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
     orc_get_plate_session_snapshot: { ret: 'number', args: [] },
+    orc_get_filament_session_snapshot: { ret: 'number', args: [] },
     orc_reset_plate_session: { ret: 'number', args: [] },
     orc_select_plate: { ret: 'number', args: ['string'] },
     orc_add_plate: { ret: 'number', args: [] },

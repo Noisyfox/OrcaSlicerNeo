@@ -109,6 +109,53 @@ Pass requires snapshot schema/normalization tests, mock-module coverage, and ser
 
 **Commit boundary:** One contract/projection commit. The dirty submodule remains uncommitted and untouched.
 
+**Step 1 self-verification record (2026-09-08):** The read-only version-1
+projection is implemented at the native bridge/client/runtime boundary. Native
+capabilities now derive flexible-slot support from
+`single_extruder_multi_material || is_bbl_vendor()`; fixed multi-extruder
+devices expose their nozzle minimum and no Add/Delete/Merge capability. Each
+mapping uses its native default (`filament_map`/`filament_map_2` = 1,
+`filament_volume_map` = 0, `filament_nozzle_map` = 1,
+`physical_extruder_map` = 0), fills only missing trailing entries, and rejects
+overlong native arrays. Slot order is validated without sorting. Native
+flushing matrices preserve all valid nozzle planes, require exactly one square
+plane per native nozzle, identify default versus native data, and return
+explicit versioned error/status metadata for malformed state. Native colour
+provenance compares effective colour with the selected preset's effective
+native colour (including the documented `#26A69A` fallback); equal effective
+colour is preset-equivalent because a read-only projection cannot recover
+explicit-edit history, while imported differing colours remain user overrides.
+The client rejects unsupported versions, malformed/versionless failure
+envelopes, reversed/duplicate/gapped
+slots, inconsistent capabilities, out-of-range assignments, and invalid
+inheritance. Versioned snapshot and reusable atomic command envelope schemas
+are checked in under `packages/slicer-wasm/fixtures/multi-filament/`.
+
+No TypeScript fallback or mutation endpoint was added. `@orca/slicer-wasm`
+tests (122) and typecheck, `@orca/slicer-runtime` tests (32) and typecheck,
+the independent fixture/schema self-test, serial quick build, serial bridge
+smoke, and the updated independent-reader smoke all pass. The reader smoke
+proves two ordered slots, per-key mapping/default projection, preserved flush
+matrix plane data, and object/model-part effective assignment to slot 2.
+Final remediation rerun on 2026-09-08: `pnpm --filter @orca/slicer-wasm test`
+(122 passed), WASM typecheck, runtime tests (32 passed), runtime typecheck,
+fixture self-test, serial quick build, serial smoke, reader smoke, and
+`git diff --check` all exited 0; the serial reader additionally proves the
+default Generic PLA colour is `preset` while imported red/green overrides are
+`user`.
+
+**Root acceptance record (2026-09-08):** Accepted after two remediation
+rounds. Root independently reviewed native Orca capability and flush-matrix
+semantics, the C ABI, TypeScript normalization, schemas, mocks, and runtime
+boundary. Root reran `@orca/slicer-wasm` tests (122 passed) and typecheck,
+`@orca/slicer-runtime` tests (32 passed) and typecheck, the 13-entry fixture
+self-test with the unchanged deterministic SHA-256, serial quick build, serial
+smoke, the independent serial reader smoke, and `git diff --check`; every
+command exited 0. The checked-in paths match the Step 1 allowlist, no mutation
+endpoint or application-side Emscripten access was introduced, and the pinned
+submodule remains at `b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with only the
+same seven pre-existing user-owned dirty paths.
+
 ### Step 2 — Atomic slot commands
 
 **Dispatch:** Root starts a fresh Luna High subagent for Step 2 only after Step 1 is accepted. It performs the atomic command implementation and complete self-verification; root independently accepts or blocks the step.

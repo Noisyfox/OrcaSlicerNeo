@@ -658,9 +658,126 @@ export interface ReadLogResult {
   error?: string;
 }
 
+/**
+ * Provenance for the colour currently shown for a material slot. This is
+ * native effective-equivalence provenance: an explicit colour equal to the
+ * selected preset is reported as preset because the read-only bridge cannot
+ * recover edit history.
+ */
+export type FilamentColourProvenance = 'preset' | 'user';
+
+/** One ordered, one-based material slot owned by the native session. */
+export interface FilamentSessionSlot {
+  readonly slot: number;
+  readonly preset: { readonly id: string; readonly name: string };
+  readonly colour: {
+    readonly effective: string;
+    readonly provenance: FilamentColourProvenance;
+  };
+}
+
+export interface FilamentNativeMapping {
+  readonly filament: readonly number[];
+  readonly volume: readonly number[];
+  readonly nozzle: readonly number[];
+  readonly filament2: readonly number[];
+  readonly physicalExtruder: readonly number[];
+}
+
+export interface FilamentFlushingState {
+  readonly matrix: readonly number[];
+  readonly vector: readonly number[];
+  readonly matrixDimension: number;
+  /** Number of native nozzle planes stored in matrix (matrix is not truncated). */
+  readonly planeCount: number;
+  readonly source: 'native' | 'default';
+}
+
+export interface FilamentSessionCapabilities {
+  readonly minSlots: number;
+  readonly maxSlots: number;
+  readonly nozzleCount: number;
+  /** Native SEMM/Bambu flexible-slot capability, not inferred from counts. */
+  readonly flexible: boolean;
+  readonly canAdd: boolean;
+  readonly canDelete: boolean;
+  readonly canMerge: boolean;
+}
+
+export type FilamentAssignmentTarget = 'object' | 'model-part' | 'parameter-modifier';
+
+export interface FilamentAssignmentProjection {
+  readonly target: FilamentAssignmentTarget;
+  readonly id: number;
+  readonly objectId: number;
+  readonly explicitSlot: number;
+  readonly effectiveSlot: number;
+  readonly inherited: boolean;
+}
+
+export interface FilamentAssignmentProjectionSet {
+  readonly objects: readonly FilamentAssignmentProjection[];
+  readonly parts: readonly FilamentAssignmentProjection[];
+  readonly modifiers: readonly FilamentAssignmentProjection[];
+}
+
+export interface FilamentSessionRevisions {
+  readonly session: number;
+  readonly project: number;
+  readonly result: number;
+  readonly plates: Readonly<Record<string, number>>;
+}
+
+export interface FilamentSessionStatus {
+  readonly state: 'ready';
+  readonly error: null;
+}
+
+/** Versioned, read-only authoritative projection of the native filament session. */
+export interface FilamentSessionSnapshot {
+  readonly ok: true;
+  readonly version: 1;
+  readonly slots: readonly FilamentSessionSlot[];
+  readonly mappings: FilamentNativeMapping;
+  readonly flushing: FilamentFlushingState;
+  readonly capabilities: FilamentSessionCapabilities;
+  readonly assignments: FilamentAssignmentProjectionSet;
+  readonly revisions: FilamentSessionRevisions;
+  readonly status: FilamentSessionStatus;
+}
+
+export interface FilamentSessionSnapshotError {
+  readonly ok?: false;
+  readonly error: string;
+  readonly errorCode?: string;
+  readonly status?: { readonly state: 'error'; readonly error: string };
+}
+
+export type FilamentSessionSnapshotResult = FilamentSessionSnapshot | FilamentSessionSnapshotError;
+
+/** Reusable versioned envelope reserved for Step 2 atomic commands. */
+export interface AtomicCommandSuccessEnvelope<T> {
+  readonly ok: true;
+  readonly version: 1;
+  readonly result: T;
+}
+
+/** Reusable versioned envelope reserved for Step 2 atomic command failures. */
+export interface AtomicCommandErrorEnvelope {
+  readonly ok: false;
+  readonly version: 1;
+  readonly error: string;
+  readonly errorCode: string;
+  readonly status?: { readonly state: 'error'; readonly error: string };
+}
+
+export type AtomicCommandResult<T> = AtomicCommandSuccessEnvelope<T> | AtomicCommandErrorEnvelope;
+
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
+  /** Read the complete native filament session; no renderer-side fallback is allowed. */
+  getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult>;
   /** Begin/commit/abort are serialized by the Worker; transaction IDs are opaque. */
   beginHistory(label: import('./history').HistoryLabel, category: import('./history').HistoryCategory,
                beforeContext: import('./history').HistoryContext,

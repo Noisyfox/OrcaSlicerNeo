@@ -5,6 +5,12 @@ export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
   InitResult, PresetInfo, PresetSelection, PresetSnapshot,
+  FilamentColourProvenance, FilamentSessionSlot, FilamentNativeMapping,
+  FilamentFlushingState, FilamentSessionCapabilities, FilamentAssignmentTarget,
+  FilamentAssignmentProjection, FilamentAssignmentProjectionSet,
+  FilamentSessionRevisions, FilamentSessionStatus, FilamentSessionSnapshot,
+  FilamentSessionSnapshotError, FilamentSessionSnapshotResult,
+  AtomicCommandSuccessEnvelope, AtomicCommandErrorEnvelope, AtomicCommandResult,
   PlateSessionPlate, PlateSessionInstance, PlateSessionInstanceTransform, PlateSessionSnapshot,
   PlateSessionMutation, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult,
   ProjectConfigOverlay, ProjectConfigScope, ProjectConfigOverrideTarget,

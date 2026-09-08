@@ -23,6 +23,8 @@ import type {
   PreviewAnalysis, PreviewMetricKey,
   PreviewTextChunk, PreviewTextChunkRequest,
   PreviewTextLines, PreviewTextLinesRequest,
+  FilamentSessionSnapshotResult, FilamentSessionSnapshot, FilamentSessionSlot,
+  FilamentAssignmentProjection,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -30,6 +32,167 @@ import type {
 } from './history';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
+
+function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid filament session response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) {
+    if (value.version !== 1) return { ok: false, error: 'unsupported filament session version' };
+    if (value.ok !== false || typeof value.error !== 'string' || typeof value.error_code !== 'string')
+      return { ok: false, error: 'invalid filament session error envelope' };
+    const error = typeof value.error === 'string' ? value.error : 'filament session request failed';
+    const status = value.status;
+    const errorStatus = status && typeof status === 'object' &&
+      (status as Record<string, unknown>).state === 'error' &&
+      typeof (status as Record<string, unknown>).error === 'string'
+      ? { state: 'error' as const, error: (status as Record<string, unknown>).error as string }
+      : undefined;
+    if (!errorStatus) return { ok: false, error: 'invalid filament session error envelope' };
+    return { ok: false, error,
+      ...(typeof value.error_code === 'string' ? { errorCode: value.error_code } : {}),
+      ...(errorStatus ? { status: errorStatus } : {}),
+    };
+  }
+  if (value.version !== 1) return { ok: false, error: 'unsupported filament session version' };
+  const integer = (entry: unknown, min = 0): entry is number =>
+    typeof entry === 'number' && Number.isSafeInteger(entry) && entry >= min;
+  const numberArray = (entry: unknown): number[] | null =>
+    Array.isArray(entry) && entry.every((item) => typeof item === 'number' && Number.isFinite(item))
+      ? entry as number[] : null;
+  const integerArray = (entry: unknown): number[] | null =>
+    Array.isArray(entry) && entry.every((item) => integer(item)) ? entry as number[] : null;
+  if (!Array.isArray(value.slots)) return { ok: false, error: 'invalid filament session slots' };
+  const slots = value.slots.map((entry): FilamentSessionSlot | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const item = entry as Record<string, unknown>;
+    const preset = item.preset;
+    const colour = item.colour;
+    if (!integer(item.slot, 1) || !preset || typeof preset !== 'object' ||
+        !colour || typeof colour !== 'object') return null;
+    const p = preset as Record<string, unknown>;
+    const c = colour as Record<string, unknown>;
+    if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof c.effective !== 'string' ||
+        (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
+    return { slot: item.slot as number, preset: { id: p.id, name: p.name },
+      colour: { effective: c.effective, provenance: c.provenance } };
+  });
+  if (slots.some((slot) => slot === null)) return { ok: false, error: 'invalid filament session slots' };
+  const orderedSlots = slots as FilamentSessionSlot[];
+  if (orderedSlots.length === 0) return { ok: false, error: 'invalid filament session slots' };
+  if (orderedSlots.some((slot, index) => slot.slot !== index + 1))
+    return { ok: false, error: 'invalid filament session slot ordering' };
+
+  const mappings = value.mappings;
+  if (!mappings || typeof mappings !== 'object') return { ok: false, error: 'invalid filament session mappings' };
+  const m = mappings as Record<string, unknown>;
+  const filament = integerArray(m.filament);
+  const volume = integerArray(m.volume);
+  const nozzle = integerArray(m.nozzle);
+  const filament2 = integerArray(m.filament2);
+  const physicalExtruder = integerArray(m.physical_extruder);
+  if (!filament || !volume || !nozzle || !filament2 || !physicalExtruder ||
+      filament.length !== orderedSlots.length || volume.length !== orderedSlots.length ||
+      nozzle.length !== orderedSlots.length || filament2.length !== orderedSlots.length)
+    return { ok: false, error: 'invalid filament session mappings' };
+
+  const flushing = value.flushing;
+  if (!flushing || typeof flushing !== 'object') return { ok: false, error: 'invalid filament session flushing state' };
+  const f = flushing as Record<string, unknown>;
+  const matrix = numberArray(f.matrix);
+  const vector = numberArray(f.vector);
+  if (!matrix || !vector || !integer(f.matrix_dimension, 1) || !integer(f.plane_count, 1) ||
+      (f.source !== 'native' && f.source !== 'default') ||
+      f.matrix_dimension !== orderedSlots.length ||
+      matrix.length !== f.matrix_dimension * f.matrix_dimension * f.plane_count)
+    return { ok: false, error: 'invalid filament session flushing state' };
+
+  const capabilities = value.capabilities;
+  if (!capabilities || typeof capabilities !== 'object') return { ok: false, error: 'invalid filament session capabilities' };
+  const cap = capabilities as Record<string, unknown>;
+  if (!integer(cap.min_slots, 1) || !integer(cap.max_slots, cap.min_slots) ||
+      !integer(cap.nozzle_count, 1) || typeof cap.can_add !== 'boolean' ||
+      typeof cap.can_delete !== 'boolean' || typeof cap.can_merge !== 'boolean' ||
+      typeof cap.flexible !== 'boolean')
+    return { ok: false, error: 'invalid filament session capabilities' };
+  const slotCount = orderedSlots.length;
+  const minSlots = cap.min_slots as number;
+  const maxSlots = cap.max_slots as number;
+  const nozzleCount = cap.nozzle_count as number;
+  const flexible = cap.flexible as boolean;
+  if (maxSlots !== 64 || slotCount < minSlots || slotCount > maxSlots ||
+      (flexible
+        ? (minSlots !== 1 || cap.can_add !== (slotCount < maxSlots) ||
+           cap.can_delete !== (slotCount > 1) || cap.can_merge !== (slotCount > 1))
+        : (minSlots !== nozzleCount || slotCount < nozzleCount ||
+           cap.can_add !== false || cap.can_delete !== false || cap.can_merge !== false)))
+    return { ok: false, error: 'inconsistent filament session capabilities' };
+  if (physicalExtruder.length !== nozzleCount)
+    return { ok: false, error: 'invalid filament session mappings' };
+  if (f.plane_count !== nozzleCount)
+    return { ok: false, error: 'inconsistent filament session flushing planes' };
+
+  const assignments = value.assignments;
+  if (!assignments || typeof assignments !== 'object') return { ok: false, error: 'invalid filament session assignments' };
+  const assignmentSet = assignments as Record<string, unknown>;
+  const assignmentArray = (entry: unknown, target: FilamentAssignmentProjection['target']): FilamentAssignmentProjection[] | null => {
+    if (!Array.isArray(entry)) return null;
+    const result = entry.map((candidate): FilamentAssignmentProjection | null => {
+      if (!candidate || typeof candidate !== 'object') return null;
+      const item = candidate as Record<string, unknown>;
+      if (item.target !== target || !integer(item.id) || !integer(item.object_id) ||
+          !integer(item.explicit_slot) || !integer(item.effective_slot, 1) || typeof item.inherited !== 'boolean') return null;
+      const explicitSlot = item.explicit_slot as number;
+      const effectiveSlot = item.effective_slot as number;
+      if (effectiveSlot > slotCount || (target === 'object' && (item.inherited !== false || explicitSlot < 1)) ||
+          (target !== 'object' && explicitSlot > slotCount) ||
+          (target !== 'object' && item.inherited !== (explicitSlot === 0)) ||
+          (target === 'object' && effectiveSlot !== explicitSlot) ||
+          (target !== 'object' && explicitSlot > 0 && effectiveSlot !== explicitSlot)) return null;
+      return { target, id: item.id as number, objectId: item.object_id as number,
+        explicitSlot, effectiveSlot,
+        inherited: item.inherited as boolean };
+    });
+    return result.some((item) => item === null) ? null : (result as FilamentAssignmentProjection[]);
+  };
+  const objects = assignmentArray(assignmentSet.objects, 'object');
+  const parts = assignmentArray(assignmentSet.parts, 'model-part');
+  const modifiers = assignmentArray(assignmentSet.modifiers, 'parameter-modifier');
+  if (!objects || !parts || !modifiers) return { ok: false, error: 'invalid filament session assignments' };
+  for (const entries of [objects, parts, modifiers]) {
+    const ids = new Set(entries.map((entry) => `${entry.objectId}:${entry.id}`));
+    if (ids.size !== entries.length) return { ok: false, error: 'invalid filament session assignments' };
+  }
+
+  const revisions = value.revisions;
+  if (!revisions || typeof revisions !== 'object') return { ok: false, error: 'invalid filament session revisions' };
+  const rev = revisions as Record<string, unknown>;
+  if (!integer(rev.session) || !integer(rev.project) || !integer(rev.result) ||
+      !rev.plates || typeof rev.plates !== 'object' || Array.isArray(rev.plates))
+    return { ok: false, error: 'invalid filament session revisions' };
+  const plates: Record<string, number> = {};
+  for (const [id, revision] of Object.entries(rev.plates as Record<string, unknown>)) {
+    if (!integer(revision)) return { ok: false, error: 'invalid filament session revisions' };
+    plates[id] = revision;
+  }
+  const status = value.status;
+  if (!status || typeof status !== 'object') return { ok: false, error: 'invalid filament session status' };
+  const s = status as Record<string, unknown>;
+  if (s.state !== 'ready' || s.error !== null) return { ok: false, error: 'invalid filament session status' };
+  const result: FilamentSessionSnapshot = {
+    ok: true, version: 1, slots: orderedSlots,
+    mappings: { filament, volume, nozzle, filament2, physicalExtruder },
+    flushing: { matrix, vector, matrixDimension: f.matrix_dimension as number,
+      planeCount: f.plane_count as number, source: f.source as 'native' | 'default' },
+    capabilities: { minSlots, maxSlots, nozzleCount, flexible,
+      canAdd: cap.can_add as boolean,
+      canDelete: cap.can_delete as boolean, canMerge: cap.can_merge as boolean },
+    assignments: { objects, parts, modifiers },
+    revisions: { session: rev.session as number, project: rev.project as number,
+      result: rev.result as number, plates },
+    status: { state: 'ready', error: null },
+  };
+  return result;
+}
 
 function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid plate session response' };
@@ -420,6 +583,11 @@ export function createClient(
         log_level: (globalThis as { ORCA_LOG_LEVEL?: unknown }).ORCA_LOG_LEVEL,
       };
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
+    },
+
+    async getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult> {
+      const m = await module();
+      return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
     },
 
     beginHistory,
