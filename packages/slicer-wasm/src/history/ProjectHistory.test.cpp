@@ -218,12 +218,35 @@ int main()
     ProjectHistory recent(1);
     CHECK(recent.commit("base", Category::Project, model(1), {}));
     CHECK(recent.commit("move", Category::Project, model(2), {}));
+    const auto entries_before_eviction = recent.entries();
     CHECK(recent.commit("large", Category::Project, model(3, 512), {}));
+    CHECK(recent.commit("tail", Category::Project, model(4), {}));
     CHECK(recent.can_undo());
+    const auto entries_after_eviction = recent.entries();
+    std::uint64_t evicted_entry_id = 0;
+    for (const auto& before : entries_before_eviction) {
+        bool retained = false;
+        for (const auto& after : entries_after_eviction)
+            if (after.id == before.id) retained = true;
+        if (!retained && before.category == Category::Project)
+            evicted_entry_id = before.id;
+    }
+    CHECK(evicted_entry_id != 0);
     CHECK(recent.resource_diagnostics().evicted_entry_count > 0);
+    CHECK(recent.resource_diagnostics().last_evicted_entry_id == evicted_entry_id);
     CHECK(recent.resource_diagnostics().oldest_retained_entry_id != 0);
+    RestorePlan evicted_plan;
+    CHECK(!recent.prepare_jump(evicted_entry_id, JumpDirection::Undo, evicted_plan));
+    CHECK(!recent.prepare_jump(evicted_entry_id, JumpDirection::Redo, evicted_plan));
+    CHECK(!recent.jump(evicted_entry_id, JumpDirection::Undo, restored));
+    CHECK(!recent.jump(evicted_entry_id, JumpDirection::Redo, restored));
     CHECK(recent.undo(restored));
-    CHECK(restored.model.serialized == bytes(2));
+    CHECK(restored.model.serialized == bytes(3, 512));
+    const auto retained_entry_id = recent.entries().back().id;
+    RestorePlan retained_plan;
+    CHECK(recent.prepare_jump(retained_entry_id, JumpDirection::Redo, retained_plan));
+    CHECK(recent.jump(retained_entry_id, JumpDirection::Redo, restored));
+    CHECK(restored.model.serialized == bytes(4));
 
     // Evicting the saved checkpoint conservatively reports dirty state.
     ProjectHistory checkpoint(1);

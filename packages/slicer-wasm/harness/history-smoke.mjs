@@ -442,4 +442,68 @@ historyCheck('Reorder Plate redo succeeds', callJson('orc_history_redo', [], [])
 restoreAndCompare('Reorder Plate redo', reorderAfter);
 historyCheck('locked plate state survives reorder Undo/Redo',
   reorderAfter.plates.find((plate) => plate.plate_id === lockedPlateId)?.locked === true);
+
+// Repair 5 directional menu-jump matrix.  Isolate the real bridge exercise
+// from the structural fixture above: the reset gives the scenario a known
+// empty baseline, and the final reset prevents this diagnostic from leaking
+// state into any future checks added below.
+historyCheck('reset directional jump fixture',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+const jumpFirstTransaction = beginHistory('Jump First');
+const jumpFirstAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Jump first']);
+historyCheck('directional jump first edit applies', jumpFirstAdded.ok === true, JSON.stringify(jumpFirstAdded));
+const jumpFirstCommit = commitHistory('Jump First', jumpFirstTransaction);
+const jumpFirstId = jumpFirstCommit.undoEntries[0]?.id;
+historyCheck('capture first directional jump ID', typeof jumpFirstId === 'string', JSON.stringify(jumpFirstCommit));
+
+const jumpContext = callJson('orc_history_record_context',
+  ['string', 'string'], ['Jump selection', JSON.stringify({ ...context,
+    selection: { ...context.selection, mode: 'object', objectIds: [jumpFirstAdded.objectId ?? 1] } })]);
+historyCheck('interleave context record', jumpContext.dirty === true && jumpContext.undoEntries.length === 1,
+  JSON.stringify(jumpContext));
+
+const jumpSecondTransaction = beginHistory('Jump Second');
+const jumpSecondAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Jump second']);
+historyCheck('directional jump second edit applies', jumpSecondAdded.ok === true, JSON.stringify(jumpSecondAdded));
+const jumpSecondCommit = commitHistory('Jump Second', jumpSecondTransaction);
+const jumpSecondId = jumpSecondCommit.undoEntries[0]?.id;
+historyCheck('capture second directional jump ID', typeof jumpSecondId === 'string', JSON.stringify(jumpSecondCommit));
+
+const topUndoJump = callJson('orc_history_jump', ['string', 'string'], [jumpSecondId, 'undo']);
+const afterTopUndoJump = callJson('orc_get_model_structure', [], []);
+historyCheck('top Undo jump changes the model', topUndoJump.ok === true && afterTopUndoJump.objects.length === 1,
+  JSON.stringify({ topUndoJump, afterTopUndoJump }));
+
+const olderUndoJump = callJson('orc_history_jump', ['string', 'string'], [jumpFirstId, 'undo']);
+const afterOlderUndoJump = callJson('orc_get_model_structure', [], []);
+historyCheck('older Undo removes selected and later project edits',
+  olderUndoJump.ok === true && afterOlderUndoJump.objects.length === 0,
+  JSON.stringify({ olderUndoJump, afterOlderUndoJump }));
+
+const firstRedoJump = callJson('orc_history_jump', ['string', 'string'], [jumpFirstId, 'redo']);
+const secondRedoJump = callJson('orc_history_jump', ['string', 'string'], [jumpSecondId, 'redo']);
+const afterRedoJump = callJson('orc_get_model_structure', [], []);
+historyCheck('Redo restores the selected after-state',
+  firstRedoJump.ok === true && secondRedoJump.ok === true && afterRedoJump.objects.length === 2,
+  JSON.stringify({ firstRedoJump, secondRedoJump, afterRedoJump }));
+
+const oppositeDirection = callJson('orc_history_jump', ['string', 'string'], [jumpSecondId, 'redo']);
+historyCheck('opposite-direction jump is rejected', typeof oppositeDirection.error === 'string',
+  JSON.stringify(oppositeDirection));
+historyCheck('stale jump is rejected after branching',
+  typeof callJson('orc_history_jump', ['string', 'string'], ['entry-999999', 'undo']).error === 'string',
+  JSON.stringify(callJson('orc_history_status', [], [])));
+const branchForStale = callJson('orc_history_jump', ['string', 'string'], [jumpFirstId, 'undo']);
+historyCheck('prepare branch point for stale jump', branchForStale.ok === true, JSON.stringify(branchForStale));
+const staleTransaction = beginHistory('Jump Replacement');
+const staleAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Jump replacement']);
+historyCheck('stale replacement edit applies', staleAdded.ok === true, JSON.stringify(staleAdded));
+const staleCommit = commitHistory('Jump Replacement', staleTransaction);
+historyCheck('evicted branch jump is rejected',
+  typeof callJson('orc_history_jump', ['string', 'string'], [jumpSecondId, 'redo']).error === 'string',
+  JSON.stringify(staleCommit));
+historyCheck('restore directional fixture baseline',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
 console.log(`history smoke passed (${moduleArg})`);

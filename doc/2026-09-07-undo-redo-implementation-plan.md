@@ -609,6 +609,13 @@ repair sequence is complete prematurely.
   tests), and `pnpm typecheck` passed. The dual `scripts\\build-windows.bat
   quick --variant both` build and dual `scripts\\build-windows.bat smoke
   --variant both` smoke suite passed. Desktop/Web E2E remains a root gate.
+- Supplemental eviction coverage now captures a real retained project entry
+  ID before a deterministic small-budget eviction, and proves both directional
+  prepare/jump calls reject that evicted ID while a retained ID still jumps.
+  The real bridge smoke now exercises the complete directional matrix in both
+  serial and threaded WASM artifacts: top Undo changes the model, an older
+  Undo crosses an interleaved context record, Redo restores the selected
+  after-state, and opposite-direction plus branched stale IDs are rejected.
 - Root acceptance is intentionally not recorded in this execution record.
 
 ### Repair 3 execution record — canonical dirty projection after restore
