@@ -3,6 +3,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import type { FilamentMutationResultOrError } from '@slicer/client';
+import { publishRememberedFilamentRack } from '../../preferences';
 import { filamentImpactSummary, compatiblePresetNames, type FilamentImpactSummary } from './filamentRackProjection';
 import { Button } from '@/components/ui/button';
 import {
@@ -120,7 +121,10 @@ export function FilamentRack() {
   const pending = pendingKind !== null;
 
   async function updateSlot(request: () => Promise<FilamentMutationResultOrError>) {
-    await run(platform.runtime, request);
+    const result = await run(platform.runtime, request);
+    if (result.ok) {
+      await publishRememberedFilamentRack(platform.preferences, useSettingsStore.getState().selectedPrinter, result.result.snapshot);
+    }
   }
 
   function revision() { return snapshot?.revisions.session ?? 0; }
@@ -135,9 +139,9 @@ export function FilamentRack() {
   async function confirmMutation(kind: 'delete' | 'merge', slot: number, destination: number | null) {
     setImpact(null);
     if (kind === 'delete') {
-      await run(platform.runtime, () => platform.runtime.deleteFilamentSlot({ version: 1, revision: revision(), slot }));
+      await updateSlot(() => platform.runtime.deleteFilamentSlot({ version: 1, revision: revision(), slot }));
     } else if (destination !== null) {
-      await run(platform.runtime, () => platform.runtime.mergeFilamentSlots({ version: 1, revision: revision(), source: slot, destination }));
+      await updateSlot(() => platform.runtime.mergeFilamentSlots({ version: 1, revision: revision(), source: slot, destination }));
     }
   }
 
@@ -161,7 +165,7 @@ export function FilamentRack() {
           <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Filament</h2>
           <span className="text-[0.65rem] text-muted-foreground">{snapshot.slots.length}/{snapshot.capabilities.maxSlots}</span>
           <Button className="ml-auto" variant="ghost" size="icon-xs" data-testid="filament-rack-toggle" onClick={() => setExpanded((value) => !value)} aria-expanded={expanded}>{expanded ? '−' : '+'}</Button>
-          <Button variant="outline" size="xs" data-testid="filament-add" disabled={pending || !snapshot.capabilities.canAdd} onClick={() => void run(platform.runtime, () => platform.runtime.addFilamentSlot({ version: 1, revision: revision() }))}>Add</Button>
+          <Button variant="outline" size="xs" data-testid="filament-add" disabled={pending || !snapshot.capabilities.canAdd} onClick={() => void updateSlot(() => platform.runtime.addFilamentSlot({ version: 1, revision: revision() }))}>Add</Button>
         </div>
         {rejected && <div className="mt-2 flex items-center gap-2 rounded border border-destructive/50 p-2 text-xs text-destructive" role="alert" data-testid="filament-rejected"><span className="min-w-0 flex-1">{rejected}</span><Button variant="ghost" size="icon-xs" onClick={clearRejected} aria-label="Dismiss rejection">×</Button></div>}
         {expanded && <div className="filament-slot-grid mt-2 grid grid-cols-1 gap-2" data-testid="filament-slot-grid">

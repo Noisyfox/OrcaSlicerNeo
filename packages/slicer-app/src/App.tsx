@@ -27,9 +27,10 @@ import {
   ProjectPreferencesDialog,
   ProjectProgressDialog,
 } from './components/project/ProjectDialogs';
-import { cancelProjectOperation, newProject, openProject, projectDirtyStatus, saveProject, saveProjectAs } from './projectActions';
+import { cancelProjectOperation, newProject, noticesFor, openProject, projectDirtyStatus, saveProject, saveProjectAs } from './projectActions';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
+import type { ProjectLoadResult } from '@slicer/client';
 import { registerProjectDropHandlers } from './dropHandling';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
 import { historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
@@ -67,14 +68,16 @@ export default function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [prewarmingWorkspace, setPrewarmingWorkspace] = useState(false);
-  const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'flatten' | 'notice' | null>(null);
+  const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'flatten' | 'notice' | 'project-confirm' | null>(null);
   const [loadInput, setLoadInput] = useState<ProjectInput | null>(null);
   const [dirtyOperation, setDirtyOperation] = useState<'new' | 'open' | 'close'>('open');
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [extraNotice, setExtraNotice] = useState<string | null>(null);
+  const [projectConfirmation, setProjectConfirmation] = useState<ProjectLoadResult | null>(null);
   const loadChoiceResolver = useRef<((choice: ProjectLoadChoice) => void) | null>(null);
   const dirtyResolver = useRef<((decision: DirtyProjectDecision) => void) | null>(null);
   const flattenResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  const projectConfirmationResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const previewTransitionRef = useRef<PreviewRenderTransition | null>(null);
   const handleTabChange = useCallback((tab: AppTab) => {
     if (tab !== 'preview') {
@@ -137,6 +140,11 @@ export default function App() {
   const confirmFlatten = useCallback(() => new Promise<boolean>((resolve) => {
     flattenResolver.current = resolve; setDialog('flatten');
   }), []);
+  const confirmProjectLoad = useCallback((load: ProjectLoadResult) => new Promise<boolean>((resolve) => {
+    setProjectConfirmation(load);
+    projectConfirmationResolver.current = resolve;
+    setDialog('project-confirm');
+  }), []);
   const reportProjectFailure = useCallback((result: { status: string; error?: unknown }) => {
     if (result.status === 'failed') {
       const message = result.error instanceof Error ? result.error.message : String(result.error ?? '');
@@ -150,10 +158,10 @@ export default function App() {
     if (result.status === 'ok') setActiveTab('prepare');
   }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);
   const runOpenProject = useCallback(async () => {
-    const result = await openProject(platform, { chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten });
+    const result = await openProject(platform, { chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten, confirmProjectLoad });
     reportProjectFailure(result);
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
-  }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
     let allow = true;
     if (await projectDirtyStatus(platform)) {
@@ -408,13 +416,13 @@ export default function App() {
           }))) };
       if (dropped.status === 'cancelled') return;
       if (dropped.status === 'failed') { reportProjectFailure(dropped); return; }
-      const result = await openProject(platform, { inputs: dropped.inputs, chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten });
+       const result = await openProject(platform, { inputs: dropped.inputs, chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten, confirmProjectLoad });
       reportProjectFailure(result);
       if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
     } catch (error) {
       reportProjectFailure({ status: 'failed', error });
     }
-  }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   useEffect(() => {
     if (boot !== 'ready') return;
     // Capture file drops before nested object-list handlers can stop
@@ -481,6 +489,16 @@ export default function App() {
         preferences={preferences}
         onSave={savePreferences}
         onClose={() => setDialog(null)}
+      />
+      <ProjectNoticeDialog
+        open={dialog === 'project-confirm' && projectConfirmation !== null}
+        notices={projectConfirmation ? (noticesFor(projectConfirmation).length
+          ? noticesFor(projectConfirmation)
+          : [{ kind: 'compatibility-fallback' as const, message: 'Review this project before replacing the current session.' }]) : []}
+        title="Review project compatibility"
+        testId="project-load-confirmation-dialog"
+        onClose={() => { projectConfirmationResolver.current?.(false); projectConfirmationResolver.current = null; setProjectConfirmation(null); setDialog(null); }}
+        onContinue={() => { projectConfirmationResolver.current?.(true); projectConfirmationResolver.current = null; setProjectConfirmation(null); setDialog(null); }}
       />
       <ProjectNoticeDialog
         open={dialog === 'notice' && notices.length > 0}

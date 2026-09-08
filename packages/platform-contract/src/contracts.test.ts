@@ -29,6 +29,17 @@ describe('user preferences', () => {
     expect(normalizeUserPreferences({ version: 1, ui: {} }).ui.switchToDeviceAfterSend).toBe(true);
   });
 
+  it('keeps only valid printer-namespaced remembered racks', () => {
+    const normalized = normalizeUserPreferences({ version: 1, rememberedFilamentRacks: {
+      'Printer A': { version: 1, slots: [{ preset: 'PLA', colour: '#112233' }] },
+      'Printer B': { version: 1, slots: [{ preset: '', colour: '#112233' }] },
+      'Printer C': { version: 2, slots: [{ preset: 'PLA', colour: '#112233' }] },
+    } });
+    expect(normalized.rememberedFilamentRacks).toEqual({
+      'Printer A': { version: 1, slots: [{ preset: 'PLA', colour: '#112233' }] },
+    });
+  });
+
   it('keeps a complete finite G-code window geometry and rejects malformed values', () => {
     const geometry = { left: 12, top: 24, width: 560, height: 424 };
     expect(normalizeGcodeTextWindowGeometry(geometry)).toEqual(geometry);

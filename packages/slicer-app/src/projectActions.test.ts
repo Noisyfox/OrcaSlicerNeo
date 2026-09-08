@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
-import type { FilamentSessionSnapshot, PlateSessionMutation, PresetSnapshot } from '@slicer/client';
+import type { FilamentSessionSnapshot, PlateSessionMutation, PresetSnapshot, ProjectLoadResult } from '@slicer/client';
 import { useProjectStore } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
@@ -55,6 +55,17 @@ function platformFor(load: Record<string, unknown> = {}) {
   };
   return { runtime, projects, platform: { runtime, projects } as unknown as PlatformCapabilities };
 }
+function addPreflight(runtime: ReturnType<typeof platformFor>['runtime'], result: ProjectLoadResult, commitResult: ProjectLoadResult = result) {
+  const preflightRuntime = runtime as typeof runtime & {
+    preflightProject: ReturnType<typeof vi.fn>;
+    commitProjectPreflight: ReturnType<typeof vi.fn>;
+    cancelProjectPreflight: ReturnType<typeof vi.fn>;
+  };
+  preflightRuntime.preflightProject = vi.fn(async () => result);
+  preflightRuntime.commitProjectPreflight = vi.fn(async () => commitResult);
+  preflightRuntime.cancelProjectPreflight = vi.fn(async () => ({ ok: true }));
+  return preflightRuntime;
+}
 
 describe('transactional project actions', () => {
   beforeEach(() => {
@@ -102,6 +113,49 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok');
     expect(runtime.getPresetSnapshot).not.toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', scope: 'project', dirty: false });
+  });
+
+  it('auto-commits a clean preflight without opening a confirmation dialog', async () => {
+    const { platform, runtime } = platformFor();
+    const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, preflightToken: 'clean-token', presetSnapshot: snapshot,
+      embeddedPresetWarnings: { present: false, count: 0, printerCount: 0, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: false, filamentSlotChanges: [] } };
+    const preflight = addPreflight(runtime, result);
+    const confirm = vi.fn(() => true);
+    expect((await openProject(platform, { loadBehaviour: 'load_all', confirmProjectLoad: confirm })).status).toBe('ok');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(preflight.commitProjectPreflight).toHaveBeenCalledWith('clean-token', expect.any(Function));
+    expect(preflight.cancelProjectPreflight).not.toHaveBeenCalled();
+  });
+
+  it('shows warning confirmation and leaves project state untouched on rejection', async () => {
+    const { platform, runtime } = platformFor();
+    useProjectStore.getState().setProject({ projectName: 'Prior', hasContent: true, dirty: true });
+    const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, preflightToken: 'warning-token', presetSnapshot: snapshot,
+      embeddedPresetWarnings: { present: true, count: 1, printerCount: 1, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: true, filamentSlotChanges: [{ slot: 1, before: 'A', after: 'B', reason: 'native-compatibility' }] } };
+    const preflight = addPreflight(runtime, result);
+    const before = useProjectStore.getState();
+    const cancelled = await openProject(platform, { loadBehaviour: 'load_all', decideDirty: () => 'dont-save', confirmProjectLoad: () => false });
+    expect(cancelled.status).toBe('cancelled');
+    expect(preflight.cancelProjectPreflight).toHaveBeenCalledWith('warning-token');
+    expect(preflight.commitProjectPreflight).not.toHaveBeenCalled();
+    expect(useProjectStore.getState()).toMatchObject({ projectName: before.projectName, hasContent: before.hasContent, dirty: before.dirty });
+  });
+
+  it('cleans the pending token when confirmation throws or commit fails', async () => {
+    const thrown = platformFor();
+    const warning: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, preflightToken: 'throw-token', presetSnapshot: snapshot,
+      embeddedPresetWarnings: { present: true, count: 1, printerCount: 1, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: true } };
+    const thrownRuntime = addPreflight(thrown.runtime, warning);
+    const confirmationError = new Error('dialog closed');
+    expect((await openProject(thrown.platform, { loadBehaviour: 'load_all', confirmProjectLoad: () => { throw confirmationError; } })).status).toBe('failed');
+    expect(thrownRuntime.cancelProjectPreflight).toHaveBeenCalledWith('throw-token');
+
+    const failed = platformFor();
+    const failedResult = { ...warning, preflightToken: 'commit-token' };
+    const failedRuntime = addPreflight(failed.runtime, failedResult, { ok: false, error: 'commit failed', objects: 0, instances: 0 });
+    const failedResultAction = await openProject(failed.platform, { loadBehaviour: 'load_all', confirmProjectLoad: () => true });
+    expect(failedResultAction.status).toBe('failed');
+    expect(failedRuntime.cancelProjectPreflight).toHaveBeenCalledWith('commit-token');
   });
 
   it('refreshes the filament mirror after open-project history reset', async () => {

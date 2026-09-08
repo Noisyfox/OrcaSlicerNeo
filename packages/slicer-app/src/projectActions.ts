@@ -12,6 +12,7 @@ import type { SceneResetTarget } from './components/workspace/actions/resetScene
 import { resetSceneState } from './components/workspace/actions/resetSceneState';
 import { runProjectHistoryMutation, syncHistoryStatus as syncWorkerHistoryStatus } from './components/workspace/actions/historyMutation';
 import { refreshFilamentSession } from './stores/useFilamentSessionStore';
+import { restoreRememberedFilamentRack } from './preferences';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -20,6 +21,8 @@ export interface ProjectActionOptions {
   preserveSessionIdentity?: boolean;
   loadBehaviour?: 'load_all' | 'ask_when_relevant' | 'always_ask' | 'load_geometry_only';
   chooseLoad?: (input: ProjectInput) => Promise<ProjectLoadChoice> | ProjectLoadChoice;
+  /** Explicit acceptance after native project preflight warnings are shown. */
+  confirmProjectLoad?: (load: ProjectLoadResult) => Promise<boolean> | boolean;
   decideDirty?: (operation: 'new' | 'open' | 'close', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
   /** Legacy compatibility hook; multi-plate projects are now persisted natively. */
   confirmFlattenedSave?: () => Promise<boolean> | boolean;
@@ -29,7 +32,7 @@ export interface ProjectActionOptions {
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
 type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel' | 'getFilamentSessionSnapshot'> &
-  Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'>>;
+  Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory' | 'restoreFilamentRack' | 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -37,7 +40,7 @@ function runtimeOf(platform: PlatformCapabilities): Runtime { return platform.ru
 function currentPresets(): ProjectPresetSelections {
   const s = useSettingsStore.getState(); return { printer: s.selectedPrinter, print: s.selectedPrint, filament: s.selectedFilament };
 }
-function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
+export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   const notices: ProjectNotice[] = [];
   const fallback = compatibilityFallback(load); if (fallback) notices.push({ kind: 'compatibility-fallback', message: fallback });
   if (load.embeddedPresetWarnings?.present) notices.push({ kind: 'embedded-presets', message: 'This project contains embedded preset settings that may differ from system presets.', details: load.embeddedPresetWarnings });
@@ -154,6 +157,17 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
     usePlateSessionStore.getState().setSnapshot(cleared.plateSession ?? null);
     await resetHistory(runtime);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);
+    try {
+      const preferences = await platform.preferences.load();
+      if (runtime.restoreFilamentRack) {
+        const seeded = await restoreRememberedFilamentRack(runtime as Required<Pick<Runtime, 'getFilamentSessionSnapshot' | 'restoreFilamentRack'>>, preferences, useSettingsStore.getState().selectedPrinter);
+        // Remembered state is a new-project seed, not an edit. Establish the
+        // clean checkpoint only after the seed has completed.
+        if (seeded) await resetHistory(runtime);
+      }
+    } catch (error) {
+      console.warn('remembered filament rack unavailable; keeping native defaults', error);
+    }
     await refreshFilamentSession(runtimeOf(platform));
     const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
@@ -199,7 +213,39 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
-    const load = await runtimeOf(platform).loadProject(input.bytes, 'project', input.displayName, (percent, message) => setOperation('loading', percent, message)); if (!load.ok) throw new Error(load.error ?? 'project load failed');
+    const runtime = runtimeOf(platform);
+    let load: ProjectLoadResult;
+    if (runtime.preflightProject && runtime.commitProjectPreflight && runtime.cancelProjectPreflight) {
+      const preflight = await runtime.preflightProject(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message));
+      if (!preflight.ok || !preflight.preflightToken) throw new Error(preflight.error ?? 'project preflight failed');
+      const warning = preflight.embeddedPresetWarnings;
+      const needsConfirmation = warning?.requiresConfirmation === true ||
+        (warning?.filamentSlotChanges?.length ?? 0) > 0;
+      try {
+        if (options.signal?.aborted) throw new DOMException('project load aborted', 'AbortError');
+        let accepted = true;
+        if (needsConfirmation) {
+          setOperation('waiting-for-project-confirmation', 100, 'Review project compatibility');
+          accepted = await options.confirmProjectLoad?.(preflight) ?? false;
+        }
+        if (!accepted || options.signal?.aborted) {
+          await runtime.cancelProjectPreflight(preflight.preflightToken);
+          setOperation('cancelled');
+          return { status: 'cancelled', load: preflight };
+        }
+        load = await runtime.commitProjectPreflight(preflight.preflightToken, (percent, message) => setOperation('loading', percent, message));
+        if (!load.ok) throw new Error(load.error ?? 'project load failed');
+      } catch (error) {
+        // Confirmation cancellation, UI teardown, aborts, and commit errors
+        // all consume the native token.  Cleanup is best effort because the
+        // native commit path also clears a token after any terminal failure.
+        try { await runtime.cancelProjectPreflight(preflight.preflightToken); } catch { /* already consumed */ }
+        throw error;
+      }
+    } else {
+      load = await runtime.loadProject(input.bytes, 'project', input.displayName, (percent, message) => setOperation('loading', percent, message));
+    }
+    if (!load.ok) throw new Error(load.error ?? 'project load failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     if (load.plateSession) usePlateSessionStore.getState().setSnapshot(load.plateSession);
     // The native load response contains the candidate preset snapshot from
@@ -209,7 +255,6 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     useSettingsStore.getState().hydratePresetSnapshot(snapshot);
     if (load.projectConfigOverlay) useSettingsStore.getState().setOverlay(load.projectConfigOverlay);
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
-    const runtime = runtimeOf(platform);
     const history = await resetHistory(runtime);
     // resetHistory establishes the new native history revision. Read the
     // filament projection only after that fence so the mirror cannot retain

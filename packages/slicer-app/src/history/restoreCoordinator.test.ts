@@ -158,4 +158,16 @@ describe('history restore coordinator', () => {
       phase: 'idle', error: 'mesh projection failed', snapshotSuppressed: false,
     });
   });
+
+  it('keeps a successful native restore successful when rack publication fails', async () => {
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      sceneInteraction: fakeScene(),
+      refreshModel: vi.fn(async () => undefined),
+      publishRestoredFilamentRack: vi.fn(async () => { throw new Error('preference read failed'); }),
+    });
+    await expect(coordinator.restore('undo')).resolves.toBe(true);
+    expect(useHistoryRestoreStore.getState().phase).toBe('idle');
+    expect(useHistoryRestoreStore.getState().error).toBeNull();
+  });
 });

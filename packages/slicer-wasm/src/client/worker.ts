@@ -226,8 +226,8 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
           }
         };
       }
-      if (prop === 'loadProject' || prop === 'importProjectGeometry') {
-        const progressIndex = prop === 'loadProject' ? 3 : 2;
+      if (prop === 'loadProject' || prop === 'importProjectGeometry' || prop === 'preflightProject' || prop === 'commitProjectPreflight') {
+        const progressIndex = prop === 'loadProject' ? 3 : prop === 'commitProjectPreflight' ? 1 : 2;
         return (...args: unknown[]) => {
           const onProgress = args[progressIndex];
           const callArgs = typeof onProgress === 'function' ? args.slice(0, progressIndex) : args;

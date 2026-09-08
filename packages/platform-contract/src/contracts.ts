@@ -106,6 +106,13 @@ export interface UserPreferences {
     print?: string;
     filament?: string;
   };
+  /**
+   * Last successfully published effective rack, namespaced by printer
+   * identity. This is a seed for a new project only; the open project's
+   * native PresetBundle remains authoritative and history never snapshots
+   * this preference.
+   */
+  rememberedFilamentRacks?: Record<string, RememberedFilamentRack>;
   ui: {
     sidebarWidth?: number;
     deviceSidebarWidth?: number;
@@ -114,6 +121,14 @@ export interface UserPreferences {
     /** Last usable G-code text overlay geometry. */
     gcodeTextWindow?: GcodeTextWindowGeometry;
   };
+}
+
+export interface RememberedFilamentRack {
+  version: 1;
+  slots: Array<{
+    preset: string;
+    colour: string;
+  }>;
 }
 
 export interface UserPreferencesRepository {
@@ -227,10 +242,24 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || (value as { version?: unknown }).version !== 1) {
     return { ...DEFAULT_USER_PREFERENCES, selectedProfiles: {}, ui: { switchToDeviceAfterSend: true } };
   }
-  const v = value as { projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown> };
+  const v = value as { projectLoadBehaviour?: unknown; selectedProfiles?: Record<string, unknown>; ui?: Record<string, unknown>; rememberedFilamentRacks?: unknown };
   const selectedProfiles = v.selectedProfiles ?? {};
   const ui = v.ui ?? {};
   const gcodeTextWindow = normalizeGcodeTextWindowGeometry(ui.gcodeTextWindow);
+  const rememberedFilamentRacks: Record<string, RememberedFilamentRack> = {};
+  if (v.rememberedFilamentRacks && typeof v.rememberedFilamentRacks === 'object') {
+    for (const [printer, candidate] of Object.entries(v.rememberedFilamentRacks as Record<string, unknown>)) {
+      if (!printer || !candidate || typeof candidate !== 'object') continue;
+      const rack = candidate as { version?: unknown; slots?: unknown };
+      if (rack.version !== 1 || !Array.isArray(rack.slots) || rack.slots.length === 0 || rack.slots.length > 64) continue;
+      const slots = rack.slots.filter((slot): slot is { preset: string; colour: string } => {
+        if (!slot || typeof slot !== 'object') return false;
+        const item = slot as { preset?: unknown; colour?: unknown };
+        return typeof item.preset === 'string' && item.preset.length > 0 && typeof item.colour === 'string' && /^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/.test(item.colour);
+      }).map((slot) => ({ preset: slot.preset, colour: slot.colour }));
+      if (slots.length === rack.slots.length) rememberedFilamentRacks[printer] = { version: 1, slots };
+    }
+  }
   return {
     version: 1,
     projectLoadBehaviour: PROJECT_LOAD_BEHAVIOURS.includes(v.projectLoadBehaviour as ProjectLoadBehaviour)
@@ -241,6 +270,7 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
       ...(typeof selectedProfiles.print === 'string' ? { print: selectedProfiles.print } : {}),
       ...(typeof selectedProfiles.filament === 'string' ? { filament: selectedProfiles.filament } : {}),
     },
+    ...(Object.keys(rememberedFilamentRacks).length > 0 ? { rememberedFilamentRacks } : {}),
     ui: {
       ...(typeof ui.sidebarWidth === 'number' && Number.isFinite(ui.sidebarWidth)
         ? { sidebarWidth: ui.sidebarWidth } : {}),

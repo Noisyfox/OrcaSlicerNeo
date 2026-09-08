@@ -5,6 +5,7 @@ export type ProjectPresetScope = 'system' | 'project';
 export type ProjectOperationPhase =
   | 'idle'
   | 'waiting-for-load-choice'
+  | 'waiting-for-project-confirmation'
   | 'waiting-for-dirty-decision'
   | 'loading'
   | 'saving'

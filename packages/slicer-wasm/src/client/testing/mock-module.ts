@@ -1132,6 +1132,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_merge_filament_slots(requestJson: string) {
       return filamentMutation(requestJson, 'merge');
     },
+    orc_restore_filament_rack(requestJson: string) {
+      return filamentMutation(requestJson, 'restore-rack');
+    },
     orc_assign_filament(requestJson: string) {
       return filamentAssignmentMutation(requestJson, 'assign');
     },
@@ -1307,6 +1310,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(true),
       };
     },
+    orc_preflight_project(_ptr: number, len: number, displayName: string) {
+      if (len <= 0) return { error: 'no project bytes' };
+      return {
+        ok: true, preflight: true, preflight_token: 'mock-preflight', objects: objectTransforms.length,
+        instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), mode: 'project',
+        display_name: displayName || '', compatibility: 'bambu', project_settings_available: true,
+        is_bbl_3mf: true, is_orca_3mf: false, file_version: '1.0.0', multi_plate: false, plate_count: 1,
+        embedded_preset_warnings: { present: true, count: 1, printer_count: 1, process_count: 1, filament_count: 1,
+          modified_printer_gcode: false, modified_filament_gcode: false, missing_system_preset: false,
+          modified_gcode_keys: [], missing_system_preset_types: [], preset_evidence: [], requires_confirmation: true,
+          filament_slot_changes: [] },
+      };
+    },
+    orc_commit_project_preflight(_token: string) {
+      return bridge.orc_load_project(0, 2, 0, 'preflight.3mf');
+    },
+    orc_cancel_project_preflight(_token: string) { return { ok: true }; },
     orc_import_project_geometry(_ptr: number, len: number, displayName: string) {
       return bridge.orc_load_project(_ptr, len, 1, displayName);
     },
@@ -1924,6 +1944,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string', 'string'] },
     orc_load_project: { ret: 'number', args: ['pointer', 'number', 'number', 'string'] },
+    orc_preflight_project: { ret: 'number', args: ['pointer', 'number', 'string'] },
+    orc_commit_project_preflight: { ret: 'number', args: ['string'] },
+    orc_cancel_project_preflight: { ret: 'number', args: ['string'] },
     orc_import_project_geometry: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
@@ -1934,6 +1957,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_add_filament_slot: { ret: 'number', args: ['string'] },
     orc_delete_filament_slot: { ret: 'number', args: ['string'] },
     orc_merge_filament_slots: { ret: 'number', args: ['string'] },
+    orc_restore_filament_rack: { ret: 'number', args: ['string'] },
     orc_assign_filament: { ret: 'number', args: ['string'] },
     orc_set_filament_routing: { ret: 'number', args: ['string'] },
     orc_reset_plate_session: { ret: 'number', args: [] },

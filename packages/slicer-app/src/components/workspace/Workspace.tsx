@@ -33,6 +33,8 @@ import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import type { ProjectConfigOverlay } from '@slicer/client';
 import { FilamentRack } from './FilamentRack';
 import { refreshFilamentSession } from '../../stores/useFilamentSessionStore';
+import { publishRememberedFilamentRack } from '../../preferences';
+import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -157,6 +159,17 @@ export function Workspace({
         if (historyRestoreRef.current?.currentRevision() !== revision) return;
 
         sceneInteraction.restoreHistoryContext(context, structure);
+      },
+      publishRestoredFilamentRack: async (revision) => {
+        if (useHistoryRestoreStore.getState().revision !== revision) return;
+        const snapshot = await platform.runtime.getFilamentSessionSnapshot();
+        if (snapshot.ok && useHistoryRestoreStore.getState().revision === revision) {
+          await publishRememberedFilamentRack(
+            platform.preferences,
+            useSettingsStore.getState().selectedPrinter,
+            snapshot,
+          );
+        }
       },
     });
   }

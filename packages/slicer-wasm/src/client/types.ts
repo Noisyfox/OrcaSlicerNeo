@@ -272,9 +272,17 @@ export interface EmbeddedPresetEvidence {
   modifiedGcodeKeys: string[];
 }
 
+export interface FilamentSlotChange {
+  slot: number;
+  before: string;
+  after: string;
+  reason: 'native-compatibility';
+}
+
 /** Result metadata from the native BBS 3MF reader. */
 export interface ProjectLoadResult {
   ok: boolean;
+  preflightToken?: string;
   objects: number;
   instances: number;
   mode?: ProjectLoadMode;
@@ -299,6 +307,7 @@ export interface ProjectLoadResult {
     modifiedGcodeKeys?: string[];
     missingSystemPresetTypes?: Array<'printer' | 'filament'>;
     presetEvidence?: EmbeddedPresetEvidence[];
+    filamentSlotChanges?: FilamentSlotChange[];
   };
   /** Candidate picker state captured in the same native load response. */
   presetSnapshot?: PresetSnapshot;
@@ -844,6 +853,10 @@ export interface FilamentSlotMergeRequest extends FilamentCommandRequest {
   readonly destination: number;
 }
 
+export interface FilamentRackRestoreRequest extends FilamentCommandRequest {
+  readonly slots: readonly { preset: string; colour: string }[];
+}
+
 export interface FilamentAssignmentTargetRequest {
   readonly kind: 'object' | 'instance' | 'instance-as-object' | 'model-part' | 'parameter-modifier';
   readonly id: number;
@@ -897,6 +910,7 @@ export interface SlicerClient {
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
   deleteFilamentSlot(request: FilamentSlotDeleteRequest): Promise<FilamentMutationResultOrError>;
   mergeFilamentSlots(request: FilamentSlotMergeRequest): Promise<FilamentMutationResultOrError>;
+  restoreFilamentRack(request: FilamentRackRestoreRequest): Promise<FilamentMutationResultOrError>;
   assignFilament(request: FilamentAssignmentRequest): Promise<FilamentMutationResultOrError>;
   setFilamentRouting(request: FilamentRoutingRequest): Promise<FilamentMutationResultOrError>;
   /** Begin/commit/abort are serialized by the Worker; transaction IDs are opaque. */
@@ -947,6 +961,12 @@ export interface SlicerClient {
   addModel(bytes: Uint8Array, ext: string, displayName?: string): Promise<LoadModelResult>;
   /** Load a BBS 3MF as a project (replace) or geometry-only append. */
   loadProject(bytes: Uint8Array, mode?: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
+  /** Parse and stage a project without changing the live Worker session. */
+  preflightProject(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
+  /** Commit a previously accepted project preflight. */
+  commitProjectPreflight(token: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
+  /** Discard a staged project preflight without changing the live session. */
+  cancelProjectPreflight(token: string): Promise<{ ok: boolean; error?: string }>;
   /** Explicit geometry-only alias used by Add Model/project fallback callers. */
   importProjectGeometry(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
   /** Add an OrcaSlicer primitive to the current scene, exactly like its

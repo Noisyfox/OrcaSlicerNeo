@@ -471,6 +471,75 @@ Pass requires matrix replacement timing, full-matrix atomicity, per-plate prime-
 
 Pass requires independent reader fixture, bridge writer/round-trip fixture, complete mutation Undo/Redo, rejected restore invariance, embedded preset lifetime, and remembered-rack priority evidence.
 
+**Step 6 remediation self-verification record (2026-09-09, final):** Added a
+bound two-phase native project restore. Preflight retains a revision/cursor
+fence plus model, overlay, and complete filament-state provenance; intervening
+native edits reject the token before publication. The commit path stages all
+inputs, including the imported plate session and overlay/Neo plate settings,
+and uses a move-based rollback covering model, PresetBundle, plate session,
+history cursor/revision, overlays, membership maps, derived preview/result
+validity, and session revisions; an injected post-publication failure proves
+the active project remains unchanged. Final sidecar validation now requires
+every present slot vector and every flush-matrix plane to have complete,
+finite, slot-consistent dimensions (including empty-vector rejection). Sidecar
+state is validated losslessly before native compatibility selection, so native
+fallback remains authoritative and requested-vs-effective slot changes carry a
+truthful provenance reason. Non-sidecar BBS/Orca provenance is read from the
+raw project-settings entry before native config normalization. Malformed
+sidecar vectors/matrices and out-of-range staged plate references reject
+atomically.
+Clean compatible projects auto-commit; only embedded-preset warnings or slot
+changes open confirmation. Confirmation throws, aborts, cancellation, commit
+failure, and UI cleanup consume the pending token. Remembered-rack seeding
+remains one native all-or-nothing command, and history restore preference
+publication remains best effort without turning a successful restore into a
+failure. Geometry-only imports and project-session embedded-preset lifetime are
+unchanged.
+
+Passed checks: `pnpm --filter @orca/platform-contract test` (14 tests) and
+typecheck; `pnpm --filter @orca/slicer-wasm test` (126 tests) and typecheck;
+`pnpm --filter @orca/slicer-runtime test` (32 tests) and typecheck;
+`pnpm --filter @orca/slicer-app test` (68 files, 450 tests) and typecheck;
+focused client history tests (12 tests); serial quick and serial smoke;
+`git diff --check`; `history-smoke.mjs`; `project-roundtrip.mjs`; independent
+`multi-filament-reader-smoke.mjs`; assignment/routing and flushing/prime-tower
+smokes; `multi-filament-command-smoke.mjs`; and
+`project-preflight-smoke.mjs`. The preflight harness covers malformed and
+unavailable sidecar rejection/invariance, malformed matrix/vector rejection,
+staged plate-reference rejection, cancel and stale-token invariance,
+raw-project compatibility delta with exact before/after/reason and accepted
+effective state (`AliZ PA-CF @P1-X1` → `AliZ PA-CF @System`), post-publication
+commit rollback including derived result and all session revisions, accepted
+commit, incompatible/valid/injected rack restore, and history preservation. The app
+tests cover clean auto-commit, warning accept/cancel invariance, confirmation
+throw cleanup, commit-failure cleanup, and no React mutation before acceptance.
+Electron/Web E2E and the full release matrix were not run at this step. The
+pinned `packages/slicer-wasm/cpp` submodule remained at
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with its seven pre-existing dirty
+paths; no commit was created.
+
+**Root acceptance record (2026-09-09):** Accepted after three remediation
+rounds. Root rejected the initial implementation for a non-atomic remembered
+rack seed, an unapplied Neo sidecar, and project warnings produced only after
+live-state replacement; the second review rejected an unbound preflight,
+post-publication partial-failure exposure, compatibility ordering, and disabled
+slot-array validation; the final narrow review required staged plate validation
+and exact raw-project fallback evidence. Root independently reran all four
+affected package suites and typechecks (platform contract 14/14, WASM 126/126,
+runtime 32/32, app 68 files and 450/450), focused history tests (12/12), harness
+syntax, the native project-preflight/rack harness, history smoke, bridge writer
+round-trip, independent multi-filament reader, serial quick, serial smoke, and
+`git diff --check`; all passed. The native preflight evidence proves malformed
+vector/matrix and plate-reference rejection, cancel/stale-token invariance,
+exact `AliZ PA-CF @P1-X1` to `AliZ PA-CF @System` fallback reporting, accepted
+effective state, complete rollback after injected post-publication failure,
+derived-result preservation, and atomic remembered-rack restore. The changed
+paths are limited to the Step 6 history/persistence bridge, typed client/worker,
+shared application confirmation and preference integration, contracts, tests,
+harnesses, and this living plan. The pinned submodule remains at
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with exactly its seven pre-existing
+user-owned dirty paths unchanged. Step 7 is unblocked.
+
 **Root independent acceptance:** Re-run all affected package checks and both independent 3MF reader/writer fixture paths; run `pnpm --filter @orca/slicer-wasm exec vitest run src/client/history.test.ts src/client/history.protocol.test.ts` plus relevant harnesses; inspect history cursor/rack/project state across failure and undo; run serial quick/smoke. Failure blocks Step 7.
 
 **Commit boundary:** One history/persistence commit.

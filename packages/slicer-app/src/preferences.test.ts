@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { persistRestoredSelections, restoreSelections } from './preferences';
+import { rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreSelections } from './preferences';
 import type { UserPreferences } from '@orca/platform-contract';
 import type { PresetSnapshot } from '@slicer/client';
 
@@ -105,5 +105,42 @@ describe('selection restoration', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     repository.save.mockRejectedValueOnce(new Error('storage unavailable'));
     await expect(persistRestoredSelections(repository, preferences)).resolves.toBeUndefined();
+  });
+
+  it('projects and namespaces the effective rack without duplicating slot 1 preferences', async () => {
+    const snapshot = {
+      ok: true as const,
+      version: 1 as const,
+      slots: [
+        { slot: 1, preset: { id: 'p1', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset' as const } },
+        { slot: 2, preset: { id: 'p2', name: 'PETG' }, colour: { effective: '#445566', provenance: 'user' as const } },
+      ],
+      mappings: { filament: [1, 2], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physicalExtruder: [0, 0] },
+      flushing: { matrix: [0, 1, 2, 0], vector: [0, 0], matrixDimension: 2, planeCount: 1, source: 'native' as const },
+      capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
+      assignments: { objects: [], parts: [], modifiers: [] },
+      revisions: { session: 1, project: 1, result: 0, plates: {} },
+      status: { state: 'ready' as const, error: null },
+    };
+    const rack = rememberedRackFromSnapshot(snapshot);
+    expect(rack).toEqual({ version: 1, slots: [{ preset: 'PLA', colour: '#112233' }, { preset: 'PETG', colour: '#445566' }] });
+    const repository = { load: vi.fn(async () => prefs), save: vi.fn(async () => {}) };
+    await publishRememberedFilamentRack(repository, 'Printer A', snapshot);
+    expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({ rememberedFilamentRacks: { 'Printer A': rack } }));
+    expect(rememberedFilamentRack({ ...prefs, rememberedFilamentRacks: { 'Printer A': rack } }, 'Printer A')).toEqual(rack);
+    expect(rememberedFilamentRack({ ...prefs, rememberedFilamentRacks: { 'Printer A': rack } }, 'Printer B')).toBeNull();
+  });
+
+  it('treats remembered-rack persistence failure as non-fatal', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const repository = { load: vi.fn(async () => prefs), save: vi.fn(async () => { throw new Error('storage unavailable'); }) };
+    const snapshot = ({
+      ok: true, version: 1, slots: [{ slot: 1, preset: { id: 'p', name: 'PLA' }, colour: { effective: '#112233', provenance: 'preset' } }],
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
+      flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
+      capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 1, project: 1, result: 0, plates: {} }, status: { state: 'ready', error: null },
+    }) as never;
+    await expect(publishRememberedFilamentRack(repository, 'Printer A', snapshot)).resolves.toBeUndefined();
   });
 });

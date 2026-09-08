@@ -192,7 +192,15 @@ export function ProjectNoticeDialog({
   return (
     <Modal title={title} testId={testId}>
       <div className="flex flex-col gap-2 text-sm" role="status" aria-live="polite">
-        {notices.map((notice, index) => <p key={`${notice.kind}-${index}`} data-testid={`project-notice-${notice.kind}`}>{notice.message}</p>)}
+        {notices.map((notice, index) => {
+          const details = notice.details as { filamentSlotChanges?: readonly { slot: number; before: string; after: string; reason: string }[] } | undefined;
+          return <div key={`${notice.kind}-${index}`} data-testid={`project-notice-${notice.kind}`}>
+            <p>{notice.message}</p>
+            {details?.filamentSlotChanges?.length ? <ul className="ml-4 list-disc text-muted-foreground">
+              {details.filamentSlotChanges.map((change) => <li key={`${change.slot}-${change.before}-${change.after}`}>Slot {change.slot}: {change.before || '(empty)'} → {change.after || '(empty)'} ({change.reason})</li>)}
+            </ul> : null}
+          </div>;
+        })}
       </div>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="ghost" onClick={onClose} data-testid={`${testId}-close`}>{onContinue ? 'Cancel' : 'Close'}</Button>

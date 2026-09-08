@@ -26,6 +26,8 @@ export interface HistoryRestoreCoordinatorOptions {
    * for editing; the coordinator keeps the restoring phase until then.
    */
   refreshModel: (context: HistoryContext, revision: number) => Promise<void>;
+  /** Best-effort preference mirror after a successful native restore. */
+  publishRestoredFilamentRack?: (revision: number) => Promise<void>;
 }
 
 function restoreError(result: RestoreResult): string {
@@ -42,6 +44,7 @@ export function createHistoryRestoreCoordinator({
   sceneInteraction,
   sliceCoordinator,
   refreshModel,
+  publishRestoredFilamentRack,
 }: HistoryRestoreCoordinatorOptions): HistoryRestoreCoordinator {
   let inFlight: Promise<boolean> | null = null;
 
@@ -91,6 +94,16 @@ export function createHistoryRestoreCoordinator({
       await refreshModel(result.context, revision);
       // A newer restore supersedes this projection; never leave the UI in a
       // restoring state for an obsolete request.
+      if (useHistoryRestoreStore.getState().revision !== revision) return false;
+      try {
+        await publishRestoredFilamentRack?.(revision);
+      } catch (error) {
+        // Preference mirroring is deliberately outside the native restore
+        // success boundary. A throwing snapshot read or repository callback
+        // must not turn an already committed history navigation into a failed
+        // restore or publish an obsolete request.
+        console.warn('remembered filament rack publication failed after history restore', error);
+      }
       if (useHistoryRestoreStore.getState().revision !== revision) return false;
       state.setPhase('idle');
       return true;
