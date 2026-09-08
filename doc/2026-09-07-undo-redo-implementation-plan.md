@@ -494,7 +494,7 @@ repair sequence is complete prematurely.
 
 | Repair | luna-high implementation commit | Agent self-verification | Root acceptance | Status |
 | --- | --- | --- | --- | --- |
-| 1 | pending | `history-smoke.mjs` passed in serial/threaded WASM; plate-session smoke passed in serial/threaded WASM; project round-trip passed in serial/threaded WASM; `pnpm test` (409 slicer-app tests), `pnpm typecheck`, Desktop E2E (30 passed, 3 existing skips), threaded Web E2E 5/5, serial Web E2E 5/5 | — | Awaiting root acceptance |
+| 1 | `e3978a0`, `f14cef9` | `history-smoke.mjs` passed in serial/threaded WASM; plate-session smoke passed in serial/threaded WASM; project round-trip passed in serial/threaded WASM; `pnpm test` (409 slicer-app tests), `pnpm typecheck`, Desktop E2E (30 passed, 3 existing skips), threaded Web E2E 5/5, serial Web E2E 5/5 | Returned the first submission for missing Delete/Reorder/Lock/membership history coverage; reviewed the complete plate-session capture/validation/restore path and supplemental matrix; independently ran serial/threaded real history smoke, serial/threaded plate-session smoke, protocol 6/6, and `pnpm typecheck` | Accepted 2026-09-08 |
 | 2 | — | — | — | Not started |
 | 3 | — | — | — | Not started |
 | 4 | — | — | — | Not started |
