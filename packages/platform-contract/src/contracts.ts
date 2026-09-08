@@ -1,4 +1,5 @@
 import type { SlicerClient } from '@slicer/client';
+import type { HistoryRuntimeMethods } from '@slicer/client';
 import type { PrinterConfigurationDocument, PrinterTransport } from '@orca/printer-control';
 import type { MenuCommandId, MenuModel, MenuStateSnapshot, PlatformMenu, TitlebarMenuMode } from './menu';
 
@@ -256,7 +257,7 @@ export type RuntimePhase = 'checking-capabilities' | 'loading-runtime' | 'instal
 export interface RuntimeStatus { phase: RuntimePhase; message?: string; }
 
 /** The existing typed client, with lifecycle status added at the host boundary. */
-export interface SlicerRuntime extends SlicerClient {
+export interface SlicerRuntime extends SlicerClient, HistoryRuntimeMethods {
   readonly status?: RuntimeStatus;
 }
 

@@ -289,6 +289,150 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let currentPlateId = '';
   let plateInputRevisions: Record<string, number> = {};
   let objectPlateIds: string[] = [];
+  type MockOverlay = {
+    project: Record<string, string>;
+    objects: Record<string, Record<string, string>>;
+    parts: Record<string, Record<string, string>>;
+    plates: Record<string, Record<string, string>>;
+  };
+  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {}, plates: {} });
+  let projectConfigOverlay = emptyOverlay();
+  let exportedProjectConfigOverlay = emptyOverlay();
+
+  type MockHistoryState = {
+    modelLoaded: boolean;
+    objectTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
+    objectVolumeTransforms: Array<Array<ReturnType<typeof identityTransform>>>;
+    objectMeta: Array<{ id: number; name: string; printable: boolean; primitive?: string }>;
+    volumeMeta: Array<Array<{ id: number; name: string; type: VolumeType; isSplittable: boolean }>>;
+    instanceMeta: Array<Array<{ id: number; printable: boolean }>>;
+    objectPlateIds: string[];
+    currentPlateId: string;
+    plateIds: string[];
+    plateOrigins: Array<[number, number, number]>;
+    plateInputRevisions: Record<string, number>;
+    projectConfigOverlay: MockOverlay;
+  };
+  type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project' | 'context'; context: any };
+  let historyEntries: MockHistoryEntry[] = [];
+  let historyCursor = 0;
+  let historyTransaction: { id: string; label: string; category: 'project' | 'context'; before: MockHistoryState; beforeContext: any } | null = null;
+  const historyNestedTransactions: Array<{ id: string; before: MockHistoryState; beforeContext: any }> = [];
+  let nextHistoryTransactionId = 1;
+  let nextHistoryEntryId = 1;
+  let historyRevision = 0;
+  let historyDisabled = false;
+  let savedHistoryCursor: number | null = null;
+  let savedHistoryCheckpointEvicted = false;
+  let historyOptionalBytesReleased = 0;
+  let historyEvictedEntryCount = 0;
+  let historyLastEvictedEntryId: string | null = null;
+
+  const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  function captureHistoryState(): MockHistoryState {
+    return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
+      instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
+      projectConfigOverlay });
+  }
+  function restoreHistoryState(snapshot: MockHistoryState): void {
+    modelLoaded = snapshot.modelLoaded;
+    objectTransforms = clone(snapshot.objectTransforms);
+    objectVolumeTransforms = clone(snapshot.objectVolumeTransforms);
+    objectMeta = clone(snapshot.objectMeta);
+    volumeMeta = clone(snapshot.volumeMeta);
+    instanceMeta = clone(snapshot.instanceMeta);
+    objectPlateIds = clone(snapshot.objectPlateIds);
+    currentPlateId = snapshot.currentPlateId;
+    plateIds = clone(snapshot.plateIds);
+    plateOrigins = clone(snapshot.plateOrigins);
+    plateInputRevisions = clone(snapshot.plateInputRevisions);
+    projectConfigOverlay = clone(snapshot.projectConfigOverlay ?? emptyOverlay());
+    sliced = false;
+  }
+  function historyStatus() {
+    const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0' && entry.category === 'project';
+    const undoEntries = historyEntries.slice(1, historyCursor + 1).reverse()
+      .filter(project).map(({ id, label, category }) => ({ id, label, category }));
+    const redoEntries = historyEntries.slice(historyCursor + 1)
+      .filter(project).map(({ id, label, category }) => ({ id, label, category }));
+    let undoIndex = -1;
+    for (let index = historyCursor; index > 0; index--)
+      if (project(historyEntries[index])) { undoIndex = index; break; }
+    const redoIndex = historyEntries.findIndex((entry, index) => index > historyCursor && project(entry));
+    const undo = undoIndex >= 0 ? historyEntries[undoIndex] : undefined;
+    const redo = redoIndex >= 0 ? historyEntries[redoIndex] : undefined;
+    const checkpoint = savedHistoryCursor;
+    let dirty = savedHistoryCheckpointEvicted || checkpoint === null;
+    if (!dirty && checkpoint !== historyCursor) {
+      const checkpointValue = checkpoint as number;
+      const [lo, hi] = checkpointValue < historyCursor
+        ? [checkpointValue, historyCursor] : [historyCursor, checkpointValue];
+      dirty = historyEntries.slice(lo + 1, hi + 1).some(project);
+    }
+    return {
+      canUndo: undoIndex >= 0, canRedo: redoIndex >= 0,
+      ...(undo ? { undoLabel: undo.label } : {}),
+      ...(redo ? { redoLabel: redo.label } : {}), undoEntries, redoEntries,
+      cursor: historyCursor, savedCheckpoint: savedHistoryCursor, savedCheckpointEvicted: savedHistoryCheckpointEvicted,
+      dirty, bytesUsed: JSON.stringify(historyEntries).length,
+      optionalBytesReleased: historyOptionalBytesReleased,
+      evictedEntryCount: historyEvictedEntryCount,
+      lastEvictedEntryId: historyLastEvictedEntryId,
+      oldestRetainedEntryId: historyEntries[0]?.id ?? null,
+      oversizedEntryRetained: false,
+      byteBudget: 256 * 1024 * 1024, disabled: historyDisabled,
+      activeTransactionId: historyTransaction?.id ?? null, revision: historyRevision,
+    };
+  }
+  function validateHistoryContext(context: any): void {
+    if (!context || typeof context !== 'object' || !context.selection ||
+        !context.projectConfigOverlay || !('activePlateId' in context) || !('gizmo' in context))
+      throw new Error('invalid history context');
+  }
+  function resetHistory(): void {
+    historyEntries = []; historyCursor = 0; historyTransaction = null; historyNestedTransactions.length = 0;
+    savedHistoryCursor = null; savedHistoryCheckpointEvicted = false;
+    historyOptionalBytesReleased = 0;
+    historyEvictedEntryCount = 0;
+    historyLastEvictedEntryId = null;
+    historyRevision++; historyDisabled = false;
+  }
+  function historyRestore(entry: MockHistoryEntry) {
+    restoreHistoryState(entry);
+    historyRevision++;
+    return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id };
+  }
+  function recordActivePlateContext(): void {
+    if (historyTransaction || historyEntries.length === 0) return;
+    const previous = historyEntries[historyCursor];
+    const context = clone(previous.context);
+    if (context.activePlateId === currentPlateId) return;
+    context.activePlateId = currentPlateId;
+    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
+      savedHistoryCheckpointEvicted = true;
+    historyEntries.splice(historyCursor + 1);
+    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
+      label: 'Active Plate', category: 'context', context });
+    historyCursor = historyEntries.length - 1;
+    historyRevision++;
+  }
+  function recordHistoryContext(label: string, context: any): void {
+    if (historyTransaction) throw new Error('history transaction is active');
+    if (historyEntries.length === 0) {
+      historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(context) });
+      historyCursor = 0;
+      savedHistoryCursor = 0;
+    }
+    const previous = historyEntries[historyCursor];
+    if (JSON.stringify(previous.context) === JSON.stringify(context)) return;
+    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
+      savedHistoryCheckpointEvicted = true;
+    historyEntries.splice(historyCursor + 1);
+    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
+      label, category: 'context', context: clone(context) });
+    historyCursor = historyEntries.length - 1;
+    historyRevision++;
+  }
 
   function plateStride(): number {
     const area = presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area;
@@ -609,12 +753,172 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   const bridge: Record<string, (...args: any[]) => unknown> = {
     orc_init(_legacyPreferencesJson?: string) {
       resetPlateSession();
+      resetHistory();
       return {
         ok: true,
         prints: presetFixtures.print.length,
         filaments: presetFixtures.filament.length,
         printers: presetFixtures.printer.length,
       };
+    },
+    orc_history_begin(label: string, category: string, beforeContextJson: string, optionsJson?: string) {
+      if (historyDisabled) return { error: 'history is disabled' };
+      if (typeof label !== 'string' || !label) return { error: 'history label is required' };
+      if (category !== 'project' && category !== 'context') return { error: 'history category must be project or context' };
+      let beforeContext: any;
+      try { beforeContext = JSON.parse(beforeContextJson); validateHistoryContext(beforeContext); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      let options: any = {};
+      try { if (optionsJson) options = JSON.parse(optionsJson); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      if (historyTransaction && options?.coalesce === true &&
+          options.parentTransactionId === (historyNestedTransactions.length
+            ? historyNestedTransactions[historyNestedTransactions.length - 1].id : historyTransaction.id)) {
+        const id = `tx-${nextHistoryTransactionId++}`;
+        historyNestedTransactions.push({ id, before: captureHistoryState(), beforeContext: clone(beforeContext) });
+        return { ok: true, transactionId: id, status: historyStatus() };
+      }
+      if (historyTransaction) return { error: 'history transaction is already active' };
+      if (historyEntries.length === 0) {
+        historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(beforeContext) });
+        historyCursor = 0;
+        savedHistoryCursor = 0;
+      }
+      const id = `tx-${nextHistoryTransactionId++}`;
+      historyTransaction = { id, label, category: category as 'project' | 'context', before: captureHistoryState(), beforeContext: clone(beforeContext) };
+      return { ok: true, transactionId: id, status: historyStatus() };
+    },
+    orc_history_commit(transactionId: string, afterContextJson: string) {
+      if (!historyTransaction) return { error: 'history transaction is not active' };
+      const nested = historyNestedTransactions.length
+        ? historyNestedTransactions[historyNestedTransactions.length - 1] : undefined;
+      if (nested) {
+        if (transactionId !== nested.id) return { error: 'history transaction is stale or belongs to another writer' };
+        historyNestedTransactions.pop();
+        return historyStatus();
+      }
+      if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
+      let afterContext: any;
+      try { afterContext = JSON.parse(afterContextJson); validateHistoryContext(afterContext); } catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      const current = captureHistoryState();
+      const previous = historyEntries[historyCursor];
+      const previousState = previous ? { modelLoaded: previous.modelLoaded, objectTransforms: previous.objectTransforms,
+        objectVolumeTransforms: previous.objectVolumeTransforms, objectMeta: previous.objectMeta, volumeMeta: previous.volumeMeta,
+        instanceMeta: previous.instanceMeta, objectPlateIds: previous.objectPlateIds, currentPlateId: previous.currentPlateId,
+        plateIds: previous.plateIds, plateOrigins: previous.plateOrigins, plateInputRevisions: previous.plateInputRevisions,
+        projectConfigOverlay: previous.projectConfigOverlay } : null;
+      const changed = !previous || JSON.stringify(previousState) !== JSON.stringify(current) ||
+        JSON.stringify(previous.context) !== JSON.stringify(afterContext);
+      if (changed) {
+        if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
+          savedHistoryCheckpointEvicted = true;
+        historyEntries.splice(historyCursor + 1);
+        historyEntries.push({ ...current, id: `entry-${nextHistoryEntryId++}`, label: historyTransaction.label,
+          category: historyTransaction.category, context: clone(afterContext) });
+        historyCursor = historyEntries.length - 1;
+        historyRevision++;
+      }
+      historyTransaction = null;
+      return historyStatus();
+    },
+    orc_history_abort(transactionId: string) {
+      if (!historyTransaction) return { error: 'history transaction is not active' };
+      const nested = historyNestedTransactions.length
+        ? historyNestedTransactions[historyNestedTransactions.length - 1] : undefined;
+      if (nested) {
+        if (transactionId !== nested.id) return { error: 'history transaction is stale or belongs to another writer' };
+        restoreHistoryState(nested.before);
+        historyNestedTransactions.pop();
+        historyRevision++;
+        return { ok: true, context: clone(nested.beforeContext), status: historyStatus() };
+      }
+      if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
+      restoreHistoryState(historyTransaction.before);
+      const context = historyTransaction.beforeContext;
+      historyTransaction = null;
+      historyRevision++;
+      return { ok: true, context: clone(context), status: historyStatus() };
+    },
+    orc_history_undo() {
+      if (historyTransaction) return { error: 'history transaction is active' };
+      const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0' && entry.category === 'project';
+      let currentProject = historyCursor;
+      while (currentProject >= 0 && currentProject < historyEntries.length &&
+             !project(historyEntries[currentProject])) currentProject--;
+      if (currentProject < 1) return { error: 'no undo history' };
+      let target = currentProject - 1;
+      while (target > 0 && !project(historyEntries[target])) target--;
+      // The baseline is the valid restore target for the first project edit.
+      if (!historyEntries[target] || (target > 0 && !project(historyEntries[target])))
+        target = 0;
+      historyCursor = target;
+      return historyRestore(historyEntries[target]);
+    },
+    orc_history_redo() {
+      if (historyTransaction) return { error: 'history transaction is active' };
+      const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0' && entry.category === 'project';
+      let target = historyCursor + 1;
+      while (target < historyEntries.length && !project(historyEntries[target])) target++;
+      if (target >= historyEntries.length) return { error: 'no redo history' };
+      historyCursor = target;
+      return historyRestore(historyEntries[target]);
+    },
+    orc_history_jump(entryId: string, direction: 'undo' | 'redo') {
+      if (historyTransaction) return { error: 'history transaction is active' };
+      if (direction !== 'undo' && direction !== 'redo') return { error: 'invalid history jump direction' };
+      const index = historyEntries.findIndex((entry) => entry.id === entryId);
+      if (index < 0) return { error: 'history entry is stale or unavailable' };
+      if (historyEntries[index].category !== 'project' || historyEntries[index].id === 'entry-0')
+        return { error: 'history entry is not a directional project operation' };
+      if (direction === 'undo') {
+        if (index > historyCursor)
+          return { error: 'history entry is outside the requested direction' };
+        let target = index;
+        if (historyEntries[index].id !== 'entry-0') {
+          do { target--; } while (target > 0 && historyEntries[target].category !== 'project');
+          if (!historyEntries[target] || historyEntries[target].category !== 'project')
+            return { error: 'history entry has no prior project state' };
+        }
+        historyCursor = target;
+      } else {
+        if (index <= historyCursor && historyEntries[index].id !== 'entry-0')
+          return { error: 'history entry is outside the requested direction' };
+        historyCursor = index;
+      }
+      return historyRestore(historyEntries[historyCursor]);
+    },
+    orc_history_status() {
+      return historyStatus();
+    },
+    orc_history_mark_saved(contextJson?: string) {
+      if (historyEntries.length === 0 && contextJson) {
+        let context: any;
+        try { context = JSON.parse(contextJson); validateHistoryContext(context); }
+        catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+        historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(context) });
+        historyCursor = 0;
+      }
+      if (historyEntries.length > 0) {
+        savedHistoryCursor = historyCursor;
+        savedHistoryCheckpointEvicted = false;
+      }
+      return historyStatus();
+    },
+    orc_history_record_context(label: string, contextJson: string) {
+      if (!label) return { error: 'history label is required' };
+      let context: any;
+      try { context = JSON.parse(contextJson); validateHistoryContext(context); recordHistoryContext(label, context); }
+      catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      return historyStatus();
+    },
+    orc_history_reset(contextJson: string) {
+      let context: any;
+      try { context = JSON.parse(contextJson); validateHistoryContext(context); }
+      catch (error) { return { error: String(error instanceof Error ? error.message : error) }; }
+      resetHistory();
+      historyEntries.push({ ...captureHistoryState(), id: 'entry-0', label: '', category: 'project', context: clone(context) });
+      historyCursor = 0;
+      savedHistoryCursor = 0;
+      historyRevision++;
+      return historyStatus();
     },
     orc_get_plate_session_snapshot() {
       return plateSessionSnapshot();
@@ -627,6 +931,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (typeof plateId !== 'string' || plateId.length === 0) return { error: 'plateId is required' };
       if (!plateIds.includes(plateId)) return { error: 'plate not found' };
       currentPlateId = plateId;
+      recordActivePlateContext();
       return plateSessionSnapshot();
     },
     orc_add_plate() {
@@ -667,6 +972,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       result.affected_plate_ids = affected;
       result.dirty_reasons = ['shared-configuration'];
       return result;
+    },
+    orc_get_project_config_overlay() {
+      return { ok: true, overlay: clone(projectConfigOverlay) };
+    },
+    orc_set_project_config_override(scope: string, id: string, optionKey: string, value: string) {
+      if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
+      if (!optionKey) return { error: 'option key is required' };
+      if (scope !== 'project' && !id) return { error: 'scope id is required' };
+      const bucket = scope === 'project' ? projectConfigOverlay.project
+        : scope === 'object' ? (projectConfigOverlay.objects[id] ??= {})
+          : scope === 'part' ? (projectConfigOverlay.parts[id] ??= {})
+            : (projectConfigOverlay.plates[id] ??= {});
+      bucket[optionKey] = value;
+      const mutation = bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>;
+      return { ok: true, overlay: clone(projectConfigOverlay), plate_session: mutation };
+    },
+    orc_revalidate_project_config_overlay() {
+      // The native bridge validates against the current option metadata. The
+      // fixture exposes the same contract while retaining valid keys.
+      for (const key of Object.keys(projectConfigOverlay.project))
+        if (!(key in metadata)) delete projectConfigOverlay.project[key];
+      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts, projectConfigOverlay.plates]) {
+        for (const [id, values] of Object.entries(scope)) {
+          for (const key of Object.keys(values)) if (!(key in metadata)) delete values[key];
+          if (Object.keys(values).length === 0) delete scope[id];
+        }
+      }
+      return { ok: true, overlay: clone(projectConfigOverlay) };
     },
     orc_get_preset_snapshot() {
       return snapshot();
@@ -723,6 +1056,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         objectMeta = [];
         volumeMeta = [];
         instanceMeta = [];
+        projectConfigOverlay = emptyOverlay();
+        projectConfigOverlay = clone(exportedProjectConfigOverlay);
       }
       appendMockObject(displayName || undefined);
       publishProgress(55, geometryOnly ? 'Preparing imported geometry' : 'Reading project settings');
@@ -750,6 +1085,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
+        project_config_overlay: geometryOnly ? undefined : clone(projectConfigOverlay),
         plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(true),
       };
     },
@@ -785,6 +1121,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectMeta = [];
       volumeMeta = [];
       instanceMeta = [];
+      projectConfigOverlay = emptyOverlay();
       modelLoaded = false;
       sliced = false;
       resetPlateSession();
@@ -1265,8 +1602,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_export_project() {
       if (!modelLoaded) return { error: 'no model loaded' };
+      exportedProjectConfigOverlay = clone(projectConfigOverlay);
       const archive = new TextEncoder().encode(JSON.stringify({
         format: 'bbs-3mf', objects: buildStructure(), plate_count: 1,
+        project_config_overlay: exportedProjectConfigOverlay,
       }));
       const ptr = malloc(Math.max(1, archive.length));
       HEAPU8.set(archive, ptr);
@@ -1352,6 +1691,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- ccall dispatch with per-function signature conversion ----
   const SIGNATURES: Record<string, { ret: string; args: string[] }> = {
     orc_init: { ret: 'number', args: ['string'] },
+    orc_history_begin: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
+    orc_history_commit: { ret: 'number', args: ['string', 'string'] },
+    orc_history_abort: { ret: 'number', args: ['string'] },
+    orc_history_undo: { ret: 'number', args: [] },
+    orc_history_redo: { ret: 'number', args: [] },
+    orc_history_jump: { ret: 'number', args: ['string', 'string'] },
+    orc_history_status: { ret: 'number', args: [] },
+    orc_history_mark_saved: { ret: 'number', args: ['string'] },
+    orc_history_record_context: { ret: 'number', args: ['string', 'string'] },
+    orc_history_reset: { ret: 'number', args: ['string'] },
     orc_select_preset: { ret: 'number', args: ['string', 'string'] },
     orc_get_preset_snapshot: { ret: 'number', args: [] },
     orc_get_option_metadata: { ret: 'number', args: [] },
@@ -1367,6 +1716,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_delete_plate: { ret: 'number', args: ['string'] },
     orc_recompute_plate_membership: { ret: 'number', args: [] },
     orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
+    orc_get_project_config_overlay: { ret: 'number', args: [] },
+    orc_set_project_config_override: { ret: 'number', args: ['string', 'string', 'string', 'string'] },
+    orc_revalidate_project_config_overlay: { ret: 'number', args: [] },
     orc_delete_objects: { ret: 'number', args: ['string'] },
     orc_delete_volumes: { ret: 'number', args: ['string'] },
     orc_clone_objects: { ret: 'number', args: ['string'] },

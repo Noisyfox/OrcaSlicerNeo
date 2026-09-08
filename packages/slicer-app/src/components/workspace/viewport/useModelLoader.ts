@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { GLVolume, glVolumeCollection } from './GLVolume';
+import { GLVolume, glVolumeCollection, rejectGLVolumeRevision } from './GLVolume';
 
 export type LoadedObject = GLVolume;
 
@@ -14,8 +14,9 @@ export function useModelLoader(): LoadedObject[] {
 
   useEffect(() => {
     let disposed = false;
+    const requestedRevision = modelRevision;
     if (!modelLoaded) {
-      glVolumeCollection.clear();
+      glVolumeCollection.clear(requestedRevision);
       setObjects([]);
       return;
     }
@@ -24,7 +25,7 @@ export function useModelLoader(): LoadedObject[] {
         const res = await platform.runtime.getModelMesh();
         if (!res.ok) throw new Error(res.error ?? 'getModelMesh failed');
         const loaded: LoadedObject[] = res.objects.map((buf) => new GLVolume(buf));
-        if (disposed) {
+        if (disposed || useSettingsStore.getState().modelRevision !== requestedRevision) {
           // The load finished after unmount/change — nothing consumes these
           // geometries; dispose them instead of leaking (review Minor 1).
           loaded.forEach((o) => o.dispose());
@@ -32,10 +33,12 @@ export function useModelLoader(): LoadedObject[] {
           // replace() disposes the outgoing volumes, so the swap lands in one
           // render — the previous scene stays visible while the fetch is in
           // flight, instead of flashing empty on every revision bump.
-          glVolumeCollection.replace(loaded);
+          glVolumeCollection.replace(loaded, requestedRevision);
           setObjects(loaded);
         }
       } catch (err) {
+        if (!disposed && useSettingsStore.getState().modelRevision === requestedRevision)
+          rejectGLVolumeRevision(requestedRevision, err);
         console.error('model load failed:', err);
       }
     })();

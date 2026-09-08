@@ -1,5 +1,6 @@
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
 import type { ProjectLoadResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
 import { useProjectStore, projectPresetTriple, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
@@ -9,6 +10,7 @@ import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import type { SceneResetTarget } from './components/workspace/actions/resetSceneState';
 import { resetSceneState } from './components/workspace/actions/resetSceneState';
+import { runProjectHistoryMutation, syncHistoryStatus as syncWorkerHistoryStatus } from './components/workspace/actions/historyMutation';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -25,7 +27,8 @@ export interface ProjectActionOptions {
   sceneResetTarget?: SceneResetTarget | null;
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel'>;
+type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel'> &
+  Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'>>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -43,6 +46,56 @@ function setOperation(phase: Parameters<ReturnType<typeof useProjectStore.getSta
   useProjectStore.getState().setOperation({ phase, progress, message, cancellable: phase === 'loading' || phase === 'saving' });
 }
 function invalidateInput(): void { useSlicerStore.getState().invalidateSliceResult(); }
+function projectedHistoryContext(): HistoryContext {
+  return {
+    selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+    activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? null,
+    gizmo: null,
+    projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
+  };
+}
+function syncHistoryStatus(status: HistoryStatus | null, clearLegacyReasons = true): HistoryStatus | null {
+  if (status) useProjectStore.getState().setProject({
+    dirty: status.dirty,
+    ...(clearLegacyReasons ? { dirtyReasons: [] } : {}),
+  });
+  return status;
+}
+async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus | null> {
+  if (!runtime.getHistoryStatus) return null;
+  try { return syncHistoryStatus(await runtime.getHistoryStatus(), false); }
+  catch (error) { console.warn('history status unavailable; using legacy dirty projection', error); return null; }
+}
+/** Read the Worker checkpoint state for lifecycle guards. The Zustand field is
+ * only a synchronous UI projection and remains the compatibility fallback for
+ * runtimes predating the history protocol. */
+export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
+  const projectedBeforeQuery = useProjectStore.getState();
+  const status = await currentHistoryStatus(runtimeOf(platform));
+  if (!status) return useProjectStore.getState().dirty;
+  // Ordinary editing commands are not all history-wrapped yet. Preserve their
+  // existing lifecycle protection until those commands begin committing Worker
+  // project entries; history-backed saves/resets clear this compatibility
+  // projection, and context-only records never populate dirtyReasons.
+  return status.dirty || projectedBeforeQuery.dirtyReasons.length > 0;
+}
+async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus | null> {
+  if (!runtime.markHistorySaved) return null;
+  return syncHistoryStatus(await runtime.markHistorySaved(projectedHistoryContext()));
+}
+async function resetHistory(runtime: Runtime): Promise<HistoryStatus | null> {
+  if (!runtime.resetHistory) return null;
+  return syncHistoryStatus(await runtime.resetHistory(projectedHistoryContext()));
+}
+export async function recordHistoryContext(
+  platform: PlatformCapabilities,
+  label: string,
+  context: HistoryContext,
+): Promise<HistoryStatus | null> {
+  const runtime = runtimeOf(platform);
+  if (!runtime.recordHistoryContext) return null;
+  return syncHistoryStatus(await runtime.recordHistoryContext(label, context), false);
+}
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
   if (!selections) return;
   let resolved: Awaited<ReturnType<Runtime['getPresetSnapshot']>> | null = null;
@@ -55,7 +108,7 @@ async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetS
   if (resolved?.ok) useSettingsStore.getState().hydratePresetSnapshot(resolved);
 }
 async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 'open', input: ProjectInput | undefined, options: ProjectActionOptions): Promise<ProjectActionResult | null> {
-  if (!useProjectStore.getState().dirty) return null;
+  if (!await projectDirtyStatus(platform)) return null;
   setOperation('waiting-for-dirty-decision');
   const decision = await options.decideDirty?.(operationName, input) ?? 'cancel';
   if (decision === 'cancel') { setOperation('cancelled'); return { status: 'cancelled' }; }
@@ -75,7 +128,8 @@ export async function saveProject(platform: PlatformCapabilities): Promise<Proje
     setOperation('saving', 70, 'Writing project');
     const saved = await platform.projects.save({ displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location });
     if (saved.status !== 'ok') { setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed'); return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error); }
-    useProjectStore.getState().setProject({ dirty: false, location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
+    const history = await markHistorySaved(runtimeOf(platform));
+    useProjectStore.getState().setProject({ dirty: history?.dirty ?? false, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 export async function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectActionResult> {
@@ -85,7 +139,8 @@ export async function saveProjectAs(platform: PlatformCapabilities): Promise<Pro
     const exported = await runtimeOf(platform).exportProject(); if (!exported.ok) throw new Error(exported.error ?? 'project export failed');
     const saved = await platform.projects.saveAs({ displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location });
     if (saved.status !== 'ok') { setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed'); return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error); }
-    useProjectStore.getState().setProject({ dirty: false, location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
+    const history = await markHistorySaved(runtimeOf(platform));
+    useProjectStore.getState().setProject({ dirty: history?.dirty ?? false, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 export async function newProject(platform: PlatformCapabilities, options: ProjectActionOptions = {}): Promise<ProjectActionResult> {
@@ -96,6 +151,7 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
     const runtime = runtimeOf(platform); const cleared = await runtime.clearModel(); if (!cleared.ok) throw new Error(cleared.error ?? 'new project failed');
     resetSceneState(options.sceneResetTarget, { clearSettings: true });
     usePlateSessionStore.getState().setSnapshot(cleared.plateSession ?? null);
+    await resetHistory(runtime);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);
     const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
@@ -104,7 +160,13 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
   setOperation('loading', 0, 'Importing geometry');
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
-    const load = await runtimeOf(platform).importProjectGeometry(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message)); if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
+    const runtime = runtimeOf(platform);
+    const load = (await runProjectHistoryMutation(
+      runtime,
+      'Import Geometry',
+      () => runtime.importProjectGeometry(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message)),
+    )).result;
+    if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     invalidateInput();
     const existing = useProjectStore.getState();
@@ -115,6 +177,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
       useProjectStore.getState().recordPlateMutation(load.plateSession);
     }
     else useProjectStore.getState().markDirty('model-import');
+    await syncWorkerHistoryStatus(runtime);
     useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
     useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
@@ -140,7 +203,11 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     // the same replacement transaction. A second getPresetSnapshot call here
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
-    useSettingsStore.getState().hydratePresetSnapshot(snapshot); useSettingsStore.getState().setModelLoaded(true); invalidateInput(); useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: false, scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
+    useSettingsStore.getState().hydratePresetSnapshot(snapshot);
+    if (load.projectConfigOverlay) useSettingsStore.getState().setOverlay(load.projectConfigOverlay);
+    useSettingsStore.getState().setModelLoaded(true); invalidateInput();
+    const history = await resetHistory(runtimeOf(platform));
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history?.dirty ?? false, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 

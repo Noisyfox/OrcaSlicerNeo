@@ -5,6 +5,8 @@ export interface WorkspaceSliceCoordinator {
   ensureSlice(): Promise<void>;
   /** Request the Preview tab and then ensure the current model has a slice. */
   requestPreviewSlice(): Promise<void>;
+  /** Cancel an active Worker slice and await its terminal cleanup. */
+  cancelAndWait(): Promise<void>;
 }
 
 interface WorkspaceSliceCoordinatorDeps {
@@ -12,6 +14,7 @@ interface WorkspaceSliceCoordinatorDeps {
   getStatus: () => SliceStatus;
   slice: () => Promise<void>;
   requestPreview: () => void;
+  cancel?: () => Promise<unknown>;
 }
 
 /**
@@ -27,6 +30,7 @@ export function createWorkspaceSliceCoordinator({
   getStatus,
   slice,
   requestPreview,
+  cancel,
 }: WorkspaceSliceCoordinatorDeps): WorkspaceSliceCoordinator {
   let inFlight: Promise<void> | null = null;
 
@@ -52,6 +56,13 @@ export function createWorkspaceSliceCoordinator({
     requestPreviewSlice: () => {
       requestPreview();
       return ensureSlice();
+    },
+    cancelAndWait: async () => {
+      const task = inFlight;
+      // Keep the cancellation request even when the local promise has not
+      // been assigned yet; the store's slicing state is the authoritative
+      // signal and the Worker must receive the cancel before restore starts.
+      await Promise.allSettled([task ?? Promise.resolve(), cancel ? cancel() : Promise.resolve()]);
     },
   };
 }

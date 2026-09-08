@@ -1,9 +1,10 @@
 import type { PlatformCapabilities } from '@orca/platform-contract';
-import type { PlateSessionMutationResult, PlateSessionSnapshotResult } from '@slicer/client';
+import type { HistoryContext, PlateSessionMutationResult, PlateSessionSnapshotResult } from '@slicer/client';
 import { glVolumeCollection } from './viewport/GLVolume';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useProjectStore } from '../../stores/useProjectStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 
 /**
@@ -73,7 +74,22 @@ export async function selectPlateSessionAndClearSelection(
     return false;
   }
   const selected = await selectPlateSession(platform, plateId);
-  if (selected) clearSelection();
+  if (selected) {
+    clearSelection();
+    // Plate navigation is a context-only history record. It must not create a
+    // project step or dirty the project, but restored project frames should
+    // retain the active stable plate identity.
+    const record = platform.runtime.recordHistoryContext;
+    if (typeof record === 'function') {
+      const context: HistoryContext = {
+        selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+        activePlateId: usePlateSessionStore.getState().snapshot?.currentPlateId ?? plateId,
+        gizmo: null,
+        projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
+      };
+      await record.call(platform.runtime, 'Active Plate', context).catch(() => undefined);
+    }
+  }
   return selected;
 }
 

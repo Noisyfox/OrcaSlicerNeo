@@ -15,7 +15,7 @@ import { ObjectList } from './objectList/ObjectList';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { Viewport } from './viewport/Viewport';
 import { SceneInteractionController } from './viewport/SceneInteractionController';
-import { glVolumeCollection } from './viewport/GLVolume';
+import { glVolumeCollection, waitForGLVolumeRevision } from './viewport/GLVolume';
 import { useModelLoader } from './viewport/useModelLoader';
 import { useSliceResult } from './viewport/useSliceResult';
 import { hasEnteredPreview, isPreviewTab, type AppTab } from '../layout/appTabs';
@@ -24,8 +24,13 @@ import { sliceModel } from './actions/sliceActions';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
+import { useObjectListStore } from './objectList/useObjectListStore';
 import { PreviewPlateList } from './PreviewPlateList';
 import { selectPlateSessionAndClearSelection } from './plateSessionActions';
+import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
+import { TransformHistoryCoordinator } from './actions/transformHistory';
+import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
+import type { ProjectConfigOverlay } from '@slicer/client';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -43,6 +48,7 @@ export function Workspace({
   activeTab = 'prepare',
   onSceneInteractionChange,
   onSliceCoordinatorChange,
+  onHistoryRestoreCoordinatorChange,
   onRequestPreview,
   onPreviewRenderReady,
   onPreviewTransitionChange,
@@ -52,6 +58,7 @@ export function Workspace({
   // too; this hands it up without making the owner re-render on every change.
   onSceneInteractionChange?: (controller: SceneInteractionController | null) => void;
   onSliceCoordinatorChange?: (coordinator: WorkspaceSliceCoordinator | null) => void;
+  onHistoryRestoreCoordinatorChange?: (coordinator: HistoryRestoreCoordinator | null) => void;
   onRequestPreview?: () => void;
   // Home/Device → Preview first renders the Preview tree while this persistent
   // workspace panel is still hidden, then App reveals the panel on this signal.
@@ -72,6 +79,17 @@ export function Workspace({
     sceneInteractionRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
   }
   const sceneInteraction = sceneInteractionRef.current;
+  // Structural edits replace the renderer collection asynchronously. Prune
+  // only after the fresh stable-ID mesh is installed so deleted entities do
+  // not remain selected through stale positional indices.
+  useEffect(() => {
+    sceneInteraction.pruneSelection();
+  }, [glVolumes, sceneInteraction]);
+  const transformHistoryRef = useRef<TransformHistoryCoordinator | null>(null);
+  if (!transformHistoryRef.current) {
+    transformHistoryRef.current = new TransformHistoryCoordinator(platform.runtime, sceneInteraction);
+    sceneInteraction.setTransformHistoryPort(transformHistoryRef.current);
+  }
   useEffect(() => {
     const getSnapshot = platform.runtime?.getPlateSessionSnapshot;
     if (!getSnapshot) return;
@@ -88,9 +106,54 @@ export function Workspace({
       getStatus: () => useSlicerStore.getState().status,
       slice: () => sliceModel(platform),
       requestPreview: () => onRequestPreview?.(),
+      cancel: () => platform.runtime.cancel(),
     });
   }
   const sliceCoordinator = sliceCoordinatorRef.current;
+  const historyRestoreRef = useRef<HistoryRestoreCoordinator | null>(null);
+  if (!historyRestoreRef.current) {
+    historyRestoreRef.current = createHistoryRestoreCoordinator({
+      runtime: platform.runtime,
+      sceneInteraction,
+      sliceCoordinator,
+      refreshModel: async (context, revision) => {
+        const structure = await platform.runtime.getModelStructure();
+        if (!structure.ok || !structure.objects)
+          throw new Error(structure.error ?? 'getModelStructure failed during history restore');
+        if (historyRestoreRef.current?.currentRevision() !== revision) return;
+        const overlay = context.projectConfigOverlay;
+        if (overlay && typeof overlay === 'object' && 'project' in overlay && 'objects' in overlay && 'parts' in overlay && 'plates' in overlay)
+          useSettingsStore.getState().setOverlay(overlay as unknown as ProjectConfigOverlay);
+        // A valid restore may legitimately land on the empty baseline. Keep
+        // the loader's modelLoaded gate aligned with the Worker model before
+        // its revision-fenced mesh request runs.
+        useSettingsStore.getState().setModelLoaded(structure.objects.length > 0);
+        const modelRevision = useSettingsStore.getState().modelRevision;
+        await waitForGLVolumeRevision(modelRevision);
+        if (historyRestoreRef.current?.currentRevision() !== revision) return;
+
+        useObjectListStore.getState().setStructure(structure.objects);
+        useObjectListStore.getState().setLoaded(structure.objects.length > 0);
+
+        const getPlateSessionSnapshot = platform.runtime.getPlateSessionSnapshot;
+        if (typeof getPlateSessionSnapshot === 'function') {
+          const session = await getPlateSessionSnapshot.call(platform.runtime);
+          if (!session.ok) throw new Error(session.error ?? 'getPlateSessionSnapshot failed during history restore');
+          if (historyRestoreRef.current?.currentRevision() !== revision) return;
+          usePlateSessionStore.getState().setSnapshot(session);
+          if (session.instanceTransforms)
+            applyPlateSessionTransforms({ instanceTransforms: session.instanceTransforms }, glVolumeCollection.volumes);
+        } else {
+          const session = usePlateSessionStore.getState().snapshot;
+          if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
+            usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
+        }
+
+        sceneInteraction.restoreHistoryContext(context, structure);
+      },
+    });
+  }
+  const historyRestore = historyRestoreRef.current;
   const [previewRenderPending, setPreviewRenderPending] = useState(false);
   const [previewPlateSelectionPending, setPreviewPlateSelectionPending] = useState(false);
   const previewFrameTokenRef = useRef(0);
@@ -110,6 +173,10 @@ export function Workspace({
     onSliceCoordinatorChange?.(sliceCoordinator);
     return () => onSliceCoordinatorChange?.(null);
   }, [onSliceCoordinatorChange, sliceCoordinator]);
+  useEffect(() => {
+    onHistoryRestoreCoordinatorChange?.(historyRestore);
+    return () => onHistoryRestoreCoordinatorChange?.(null);
+  }, [historyRestore, onHistoryRestoreCoordinatorChange]);
 
   const beginPreviewRender = useCallback(() => {
     if (isPreviewTab(activeTab)) return;

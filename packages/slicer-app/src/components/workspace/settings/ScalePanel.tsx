@@ -15,13 +15,10 @@ import { formatPercent, formatPosition, parseNumberInput } from '../viewport/tra
 import { useSceneInteractionVersion } from '../viewport/SceneInteractionContext';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import type { Vec3 } from '../../../lib/vec3';
-import { persistSettledModelTransforms } from '../actions/persistModelTransforms';
-import { usePlatform } from '@orca/platform-contract';
 
 const AXES = ['x', 'y', 'z'] as const;
 
 export function ScalePanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
-  const platform = usePlatform();
   const version = useSceneInteractionVersion(sceneInteraction ?? undefined);
   const [factorDraft, setFactorDraft] = useState<[string, string, string] | null>(null);
   const [sizeDraft, setSizeDraft] = useState<[string, string, string] | null>(null);
@@ -57,9 +54,7 @@ export function ScalePanel({ sceneInteraction }: { sceneInteraction: SceneIntera
     // absolute factor, multi-selection scales by the entered percent.
     const factorDelta = [1, 1, 1] as Vec3;
     factorDelta[axis] = (parsed / 100) / displayedFactor[axis];
-    if (sceneInteraction.scaleSelectionBy(factorDelta)) {
-      void persistSettledModelTransforms(platform.runtime);
-    }
+    sceneInteraction.scaleSelectionBy(factorDelta);
   };
 
   const commitSize = (axis: number, text: string) => {
@@ -68,9 +63,7 @@ export function ScalePanel({ sceneInteraction }: { sceneInteraction: SceneIntera
       setSizeDraft(null);
       return;
     }
-    if (sceneInteraction.scaleSelectionToSize(axis as 0 | 1 | 2, parsed)) {
-      void persistSettledModelTransforms(platform.runtime);
-    }
+    sceneInteraction.scaleSelectionToSize(axis as 0 | 1 | 2, parsed);
   };
 
   const factorInput = (axis: 'x' | 'y' | 'z', i: number) => (
@@ -152,7 +145,7 @@ export function ScalePanel({ sceneInteraction }: { sceneInteraction: SceneIntera
           variant="secondary"
           data-testid="scale-reset"
           onClick={() => {
-            if (sceneInteraction.resetSelectionScale()) void persistSettledModelTransforms(platform.runtime);
+            sceneInteraction.resetSelectionScale();
           }}
         >
           Reset

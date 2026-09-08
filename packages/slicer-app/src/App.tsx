@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar } from './components/layout/Toolbar';
-import { isWorkspaceTab, type AppTab } from './components/layout/appTabs';
+import { isPrepareTab, isWorkspaceTab, type AppTab } from './components/layout/appTabs';
 import { Workspace, type PreviewRenderTransition } from './components/workspace/Workspace';
 import { DevicePanel } from './components/device/DevicePanel';
 import { StatusBar } from './components/layout/StatusBar';
@@ -13,6 +13,7 @@ import { useSlicerStore } from './stores/useSlicerStore';
 import { useProjectStore } from './stores/useProjectStore';
 import type { SceneInteractionController } from './components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from './components/workspace/sliceCoordinator';
+import type { HistoryRestoreCoordinator } from './history/restoreCoordinator';
 import { usePlatform } from '@orca/platform-contract';
 import { persistRestoredSelections, restoreSelections } from './preferences';
 import { addModel, clearScene } from './components/workspace/actions/sceneActions';
@@ -26,10 +27,13 @@ import {
   ProjectPreferencesDialog,
   ProjectProgressDialog,
 } from './components/project/ProjectDialogs';
-import { cancelProjectOperation, newProject, openProject, saveProject, saveProjectAs } from './projectActions';
+import { cancelProjectOperation, newProject, openProject, projectDirtyStatus, saveProject, saveProjectAs } from './projectActions';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 import { registerProjectDropHandlers } from './dropHandling';
+import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
+import { historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
+import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 
 export function handleMenuKeyDown(
   event: Pick<KeyboardEvent, 'ctrlKey' | 'metaKey' | 'altKey' | 'key' | 'shiftKey' | 'preventDefault'>,
@@ -51,6 +55,7 @@ export default function App() {
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
   const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
+  const setOverlay = useSettingsStore((s) => s.setOverlay);
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
   const status = useSlicerStore((s) => s.status);
@@ -108,6 +113,12 @@ export default function App() {
   const handleSliceCoordinatorChange = useCallback((coordinator: WorkspaceSliceCoordinator | null) => {
     workspaceSliceCoordinatorRef.current = coordinator;
   }, []);
+  const historyRestoreCoordinatorRef = useRef<HistoryRestoreCoordinator | null>(null);
+  const [historyRestoreCoordinator, setHistoryRestoreCoordinator] = useState<HistoryRestoreCoordinator | null>(null);
+  const handleHistoryRestoreCoordinatorChange = useCallback((coordinator: HistoryRestoreCoordinator | null) => {
+    historyRestoreCoordinatorRef.current = coordinator;
+    setHistoryRestoreCoordinator(coordinator);
+  }, []);
   const requestPreviewSlice = useCallback(() => {
     const coordinator = workspaceSliceCoordinatorRef.current;
     if (coordinator) return coordinator.requestPreviewSlice();
@@ -145,7 +156,7 @@ export default function App() {
   }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
     let allow = true;
-    if (useProjectStore.getState().dirty) {
+    if (await projectDirtyStatus(platform)) {
       const decision = await decideDirty('close');
       if (decision === 'cancel') allow = false;
       else if (decision === 'save') {
@@ -268,6 +279,24 @@ export default function App() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [dispatcher]);
   useEffect(() => {
+    const onHistoryKeyDown = (event: KeyboardEvent) => {
+      // Project history is an editing operation. Preview/Device/Home retain
+      // their own interaction semantics and must not consume this shortcut.
+      if (!isPrepareTab(activeTab) || isEditableHistoryTarget(event.target) || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const action = historyShortcutAction(event);
+      if (!action) return;
+      const coordinator = historyRestoreCoordinatorRef.current;
+      if (!coordinator) return;
+      const historyStatus = useHistoryNavigationStore.getState().status;
+      if (!historyStatus || historyStatus.disabled || useHistoryRestoreStore.getState().phase !== 'idle' ||
+          (action === 'undo' ? !historyStatus.canUndo : !historyStatus.canRedo)) return;
+      event.preventDefault();
+      void coordinator.restore(action);
+    };
+    document.addEventListener('keydown', onHistoryKeyDown);
+    return () => document.removeEventListener('keydown', onHistoryKeyDown);
+  }, [activeTab]);
+  useEffect(() => {
     if (projectState.notices.length > 0) setDialog('notice');
   }, [projectState.notices]);
   const titleBar = (
@@ -312,6 +341,8 @@ export default function App() {
         const init = await platform.runtime.init();
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
         const metadata = await platform.runtime.getOptionMetadata();
+        const overlay = await platform.runtime.getProjectConfigOverlay();
+        if (overlay.ok) setOverlay(overlay.overlay);
         // Restore only names; compatibility and defaults remain authoritative
         // in the C++ preset bundle. The bridge response is written back so a
         // missing/corrupt selection is healed for the next boot.
@@ -339,7 +370,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [hydratePresetSnapshot, setMetadata, setError, platform.preferences, platform.runtime]);
+  }, [hydratePresetSnapshot, setMetadata, setOverlay, setError, platform.preferences, platform.runtime]);
 
   useEffect(() => {
     if (platform.chrome.kind !== 'web') return;
@@ -426,11 +457,11 @@ export default function App() {
     <>
       <AppShell
         titleBar={titleBar}
-        toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} />}
+        toolbar={<Toolbar activeTab={activeTab} onTabChange={handleTabChange} onNavigateToDevice={() => handleTabChange('device')} onSlice={requestPreviewSlice} historyRestoreCoordinator={historyRestoreCoordinator} />}
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
         home={<div data-testid="home-page" />}
-        workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onRequestPreview={navigateToPreview} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
+        workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
         device={<DevicePanel />}
         status={<StatusBar />}
       />

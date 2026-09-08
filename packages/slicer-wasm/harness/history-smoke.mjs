@@ -1,0 +1,552 @@
+// Step 2 real bridge history round trip.  Deliberately does not export 3MF.
+import { resolve } from 'node:path';
+import { argv } from 'node:process';
+import { readFile } from 'node:fs/promises';
+import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
+import { loadModuleFactory } from './run-slice.mjs';
+
+const [moduleArg, profileRootArg] = argv.slice(2);
+if (!moduleArg) throw new Error('usage: node history-smoke.mjs <out/orca_slice.js> [profile-package-root]');
+const repoRoot = resolve(import.meta.dirname, '../../..');
+const Module = await (await loadModuleFactory(moduleArg))({ noInitialRun: true, printErr: console.error });
+await installProfilePackages(Module, createNodeProfileSource(resolve(profileRootArg ?? `${repoRoot}/packages/profile-resources/dist`)));
+function callJson(name, argTypes, args) {
+  const ptr = Number(Module.ccall(name, 'number', argTypes, args));
+  try { return JSON.parse(Module.UTF8ToString(ptr)); } finally { Module._free(ptr); }
+}
+function writeBytes(bytes) {
+  const ptr = Number(Module._malloc(bytes.byteLength));
+  Module.HEAPU8.set(bytes, ptr);
+  return ptr;
+}
+function historyCheck(label, condition, detail = '') {
+  if (!condition) throw new Error(`${label}${detail ? `: ${detail}` : ''}`);
+  console.log(`history PASS ${label}`);
+}
+function sessionShape(snapshot) {
+  const records = new Map((snapshot.instances ?? []).map((item) =>
+    [`${item.object_index}:${item.instance_index}`, item]));
+  const keyForId = new Map((snapshot.instances ?? []).map((item) => [item.instance_id,
+    `${item.object_index}:${item.instance_index}`]));
+  const plateMembers = (ids) => ids.map((id) => keyForId.get(id) ?? `missing:${id}`).sort();
+  return {
+    current_plate_id: snapshot.current_plate_id,
+    input_revisions: snapshot.input_revisions,
+    plates: (snapshot.plates ?? []).map((plate) => ({
+      plate_id: plate.plate_id, display_index: plate.display_index, origin: plate.origin,
+      name: plate.name, locked: plate.locked, settings: plate.settings,
+      opaque_metadata: plate.opaque_metadata, future_metadata: plate.future_metadata,
+      instance_keys: plateMembers(plate.instance_ids ?? []),
+      out_of_bounds_keys: plateMembers(plate.out_of_bounds_instance_ids ?? []),
+    })),
+    instances: [...records.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => ({
+      key, plate_id: item.plate_id, member: item.member, parked: item.parked,
+      out_of_bounds: item.out_of_bounds,
+    })),
+  };
+}
+function assertLiveSessionIntegrity(snapshot, label) {
+  const model = callJson('orc_get_model_structure', [], []);
+  const modelKeys = new Set((model.objects ?? []).flatMap((object) =>
+    (object.instances ?? []).map((instance) => `${object.index}:${instance.index}`)));
+  const snapshotKeys = new Set((snapshot.instances ?? []).map((item) =>
+    `${item.object_index}:${item.instance_index}`));
+  const ids = new Set((snapshot.instances ?? []).map((item) => item.instance_id));
+  const listedIds = new Set((snapshot.plates ?? []).flatMap((plate) => plate.instance_ids ?? []));
+  const memberIds = new Set((snapshot.instances ?? []).filter((item) => item.member).map((item) => item.instance_id));
+  const validCurrent = (snapshot.plates ?? []).some((plate) => plate.plate_id === snapshot.current_plate_id);
+  const complete = model.ok === true && modelKeys.size === snapshotKeys.size &&
+    [...modelKeys].every((key) => snapshotKeys.has(key)) &&
+    [...ids].every((id) => Number.isSafeInteger(id) && id > 0) &&
+    [...listedIds].every((id) => memberIds.has(id)) && listedIds.size === memberIds.size &&
+    validCurrent && (snapshot.plates ?? []).every((plate, index) => plate.display_index === index &&
+      (snapshot.input_revisions ?? {})[plate.plate_id] !== undefined);
+  historyCheck(`${label} has complete live instance IDs and membership`, complete,
+    JSON.stringify({ model, snapshot }));
+}
+const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
+if (!init.ok) throw new Error(JSON.stringify(init));
+const tx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'], ['Add Cubes', 'project', JSON.stringify(context), '']);
+if (!tx.ok || typeof tx.transactionId !== 'string') throw new Error(JSON.stringify(tx));
+for (const name of ['History Cube A', 'History Cube B']) {
+  const added = callJson('orc_add_shape', ['string', 'string'], ['Cube', name]);
+  if (!added.ok) throw new Error(JSON.stringify(added));
+}
+const committed = callJson('orc_history_commit', ['string', 'string'], [tx.transactionId, JSON.stringify(context)]);
+if (!committed.canUndo) throw new Error(`commit did not enable undo: ${JSON.stringify(committed)}`);
+if (!Number.isFinite(committed.bytesUsed) || committed.bytesUsed <= 512)
+  throw new Error(`history accounting omitted native restore storage: ${JSON.stringify(committed)}`);
+for (const key of ['optionalBytesReleased', 'evictedEntryCount', 'bytesUsed', 'byteBudget']) {
+  if (!Number.isSafeInteger(committed[key]) || committed[key] < 0)
+    throw new Error(`history resource diagnostic ${key} is not deterministic: ${JSON.stringify(committed)}`);
+}
+if (typeof committed.oldestRetainedEntryId !== 'string' ||
+    typeof committed.oversizedEntryRetained !== 'boolean')
+  throw new Error(`history retention diagnostics are incomplete: ${JSON.stringify(committed)}`);
+const beforeEdit = callJson('orc_get_model_structure', [], []);
+if (!beforeEdit.ok || beforeEdit.objects.length !== 2)
+  throw new Error(`two-object baseline was not restored: ${JSON.stringify(beforeEdit)}`);
+
+// Standalone selection records are retained in the linear branch but one
+// ordinary Undo must skip all of them and restore the preceding project
+// frame. Redo must symmetrically restore the project frame and its context.
+const selectionOne = { ...context,
+  selection: { ...context.selection, mode: 'part', objectIds: [1] } };
+const selectionTwo = { ...selectionOne,
+  selection: { ...selectionOne.selection, partIds: [2] } };
+const contextOne = callJson('orc_history_record_context',
+  ['string', 'string'], ['Selection 1', JSON.stringify(selectionOne)]);
+if (contextOne.dirty !== true || contextOne.undoEntries.length !== 1)
+  throw new Error(`first context record changed project navigation unexpectedly: ${JSON.stringify(contextOne)}`);
+const contextTwo = callJson('orc_history_record_context',
+  ['string', 'string'], ['Selection 2', JSON.stringify(selectionTwo)]);
+if (contextTwo.dirty !== true || contextTwo.undoEntries.length !== 1)
+  throw new Error(`second context record changed project navigation unexpectedly: ${JSON.stringify(contextTwo)}`);
+const contextUndo = callJson('orc_history_undo', [], []);
+const contextUndoModel = callJson('orc_get_model_structure', [], []);
+if (!contextUndo.ok || !contextUndoModel.ok || contextUndoModel.objects.length !== 0 ||
+    contextUndo.context.selection.objectIds.length !== 0)
+  throw new Error(`context-only records were not skipped by Undo: ${JSON.stringify({ contextUndo, contextUndoModel })}`);
+const contextRedo = callJson('orc_history_redo', [], []);
+const contextRedoModel = callJson('orc_get_model_structure', [], []);
+if (!contextRedo.ok || !contextRedoModel.ok || contextRedoModel.objects.length !== 2 ||
+    contextRedo.context.selection.objectIds.length !== 0)
+  throw new Error(`context-only records were not skipped by Redo: ${JSON.stringify({ contextRedo, contextRedoModel })}`);
+
+// Plate-session state is part of the same history frame as the model.  This
+// is intentionally exercised before the model-only edits below: the old
+// bridge restored the model but left the live plate collection untouched.
+const plateBefore = callJson('orc_get_plate_session_snapshot', [], []);
+if (!plateBefore.ok || plateBefore.plates.length !== 1)
+  throw new Error(`single-plate history baseline was not restored: ${JSON.stringify(plateBefore)}`);
+const plateTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Add Plate', 'project', JSON.stringify(context), '']);
+if (!plateTx.ok || typeof plateTx.transactionId !== 'string') throw new Error(JSON.stringify(plateTx));
+const plateAdded = callJson('orc_add_plate', [], []);
+if (!plateAdded.ok || plateAdded.plates.length !== 2)
+  throw new Error(`plate add did not create two plates: ${JSON.stringify(plateAdded)}`);
+const plateCommitted = callJson('orc_history_commit', ['string', 'string'],
+  [plateTx.transactionId, JSON.stringify(context)]);
+if (!plateCommitted.canUndo) throw new Error(`plate history commit failed: ${JSON.stringify(plateCommitted)}`);
+const plateUndone = callJson('orc_history_undo', [], []);
+const plateAfterUndo = callJson('orc_get_plate_session_snapshot', [], []);
+if (!plateUndone.ok || !plateAfterUndo.ok || plateAfterUndo.plates.length !== 1)
+  throw new Error(`plate undo did not restore one plate: ${JSON.stringify({ plateUndone, plateAfterUndo })}`);
+const plateRedone = callJson('orc_history_redo', [], []);
+const plateAfterRedo = callJson('orc_get_plate_session_snapshot', [], []);
+if (!plateRedone.ok || !plateAfterRedo.ok || plateAfterRedo.plates.length !== 2)
+  throw new Error(`plate redo did not restore two plates: ${JSON.stringify({ plateRedone, plateAfterRedo })}`);
+if (plateAfterRedo.current_plate_id !== plateAdded.current_plate_id ||
+    plateAfterRedo.plates.map((plate) => plate.plate_id).join(',') !==
+      plateAdded.plates.map((plate) => plate.plate_id).join(',') ||
+    JSON.stringify(plateAfterRedo.input_revisions) !== JSON.stringify(plateAdded.input_revisions))
+  throw new Error(`plate redo did not restore stable IDs/revisions: ${JSON.stringify({ plateAdded, plateAfterRedo })}`);
+
+const configuredPlateId = plateAfterRedo.current_plate_id;
+const configTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Plate Config', 'project', JSON.stringify(context), '']);
+if (!configTx.ok || typeof configTx.transactionId !== 'string') throw new Error(JSON.stringify(configTx));
+const configured = callJson('orc_set_project_config_override',
+  ['string', 'string', 'string', 'string'], ['plate', configuredPlateId, 'layer_height', '0.3']);
+if (!configured.ok || configured.plate_session?.plates?.every((plate) =>
+    plate.plate_id !== configuredPlateId || plate.settings.layer_height !== '0.3'))
+  throw new Error(`plate configuration did not update the authoritative session: ${JSON.stringify(configured)}`);
+const configuredCommit = callJson('orc_history_commit', ['string', 'string'],
+  [configTx.transactionId, JSON.stringify(context)]);
+const configuredAfter = callJson('orc_get_plate_session_snapshot', [], []);
+if (!configuredCommit.canUndo || configuredAfter.plates.find((plate) => plate.plate_id === configuredPlateId)?.settings?.layer_height !== '0.3')
+  throw new Error(`plate configuration history commit failed: ${JSON.stringify({ configuredCommit, configuredAfter })}`);
+const configUndo = callJson('orc_history_undo', [], []);
+const configAfterUndo = callJson('orc_get_plate_session_snapshot', [], []);
+if (!configUndo.ok || configAfterUndo.plates.find((plate) => plate.plate_id === configuredPlateId)?.settings?.layer_height === '0.3')
+  throw new Error(`plate configuration undo did not restore the prior session: ${JSON.stringify({ configUndo, configAfterUndo })}`);
+const configRedo = callJson('orc_history_redo', [], []);
+const configAfterRedo = callJson('orc_get_plate_session_snapshot', [], []);
+if (!configRedo.ok || configAfterRedo.plates.find((plate) => plate.plate_id === configuredPlateId)?.settings?.layer_height !== '0.3')
+  throw new Error(`plate configuration redo did not restore the session: ${JSON.stringify({ configRedo, configAfterRedo })}`);
+const projectHistoryCountBeforeCoalesced = configRedo.status.undoEntries.length;
+
+// The coalescing path is intentionally dormant in product UI, but the real
+// bridge must keep a nested child inside one semantic outer history entry.
+const outer = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Coalesced edit', 'project', JSON.stringify(context), '']);
+if (!outer.ok || typeof outer.transactionId !== 'string') throw new Error(JSON.stringify(outer));
+const outerEdit = callJson('orc_set_object_printable', ['number', 'number'], [beforeEdit.objects[0].id, 0]);
+if (!outerEdit.ok) throw new Error(JSON.stringify(outerEdit));
+const child = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Coalesced child', 'project', JSON.stringify(context),
+    JSON.stringify({ coalesce: true, parentTransactionId: outer.transactionId })]);
+if (!child.ok || typeof child.transactionId !== 'string') throw new Error(JSON.stringify(child));
+const childEdit = callJson('orc_set_object_printable', ['number', 'number'], [beforeEdit.objects[1].id, 0]);
+if (!childEdit.ok) throw new Error(JSON.stringify(childEdit));
+const childCommit = callJson('orc_history_commit', ['string', 'string'], [child.transactionId, JSON.stringify(context)]);
+if (childCommit.activeTransactionId !== outer.transactionId)
+  throw new Error(`coalesced child escaped outer transaction: ${JSON.stringify(childCommit)}`);
+const coalesced = callJson('orc_history_commit', ['string', 'string'], [outer.transactionId, JSON.stringify(context)]);
+if (!coalesced.canUndo || coalesced.undoEntries.length !== projectHistoryCountBeforeCoalesced + 1)
+  throw new Error(`coalesced outer did not publish one entry: ${JSON.stringify(coalesced)}`);
+const coalescedUndo = callJson('orc_history_undo', [], []);
+if (!coalescedUndo.ok) throw new Error(`coalesced undo failed: ${JSON.stringify(coalescedUndo)}`);
+const coalescedRestored = callJson('orc_get_model_structure', [], []);
+if (!coalescedRestored.ok || coalescedRestored.objects.some((object) => object.printable !== true))
+  throw new Error(`coalesced undo did not restore both objects: ${JSON.stringify(coalescedRestored)}`);
+const coalescedRedo = callJson('orc_history_redo', [], []);
+if (!coalescedRedo.ok) throw new Error(`coalesced redo failed: ${JSON.stringify(coalescedRedo)}`);
+// Leave the fixture at its pristine state for the remaining independent
+// transaction checks below.
+const coalescedReset = callJson('orc_history_undo', [], []);
+if (!coalescedReset.ok) throw new Error(`coalesced reset failed: ${JSON.stringify(coalescedReset)}`);
+
+const editTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'], ['Toggle One Cube', 'project', JSON.stringify(context), '']);
+if (!editTx.ok || typeof editTx.transactionId !== 'string') throw new Error(JSON.stringify(editTx));
+const targetId = beforeEdit.objects[0].id;
+const edited = callJson('orc_set_object_printable', ['number', 'number'], [targetId, 0]);
+if (!edited.ok) throw new Error(JSON.stringify(edited));
+const editedCommit = callJson('orc_history_commit', ['string', 'string'], [editTx.transactionId, JSON.stringify(context)]);
+if (!editedCommit.canUndo || editedCommit.canRedo)
+  throw new Error(`one-object edit did not commit: ${JSON.stringify(editedCommit)}`);
+const undone = callJson('orc_history_undo', [], []);
+if (!undone.ok || undone.status.canRedo !== true) throw new Error(`undo failed: ${JSON.stringify(undone)}`);
+const restoredBeforeEdit = callJson('orc_get_model_structure', [], []);
+if (!restoredBeforeEdit.ok || restoredBeforeEdit.objects.length !== 2 ||
+    restoredBeforeEdit.objects.some((object) => object.printable !== true))
+  throw new Error(`undo did not rebuild the exact two-object model: ${JSON.stringify(restoredBeforeEdit)}`);
+const redone = callJson('orc_history_redo', [], []);
+if (!redone.ok || !redone.status.canUndo) throw new Error(`redo failed: ${JSON.stringify(redone)}`);
+const restored = callJson('orc_get_model_structure', [], []);
+if (!restored.ok || restored.objects.length !== 2 || restored.objects[0].printable !== false ||
+    restored.objects[1].printable !== true)
+  throw new Error(`redo did not rebuild the one-object edit: ${JSON.stringify(restored)}`);
+
+// Transform history uses the same transaction boundary as the shared app.
+// Exercise each semantic transform category against the real bridge and
+// verify that Undo/Redo restores the exact native model version.
+function modelMesh() {
+  const result = callJson('orc_get_model_mesh', [], []);
+  if (!result.ok || !result.objects?.length) throw new Error(`mesh unavailable: ${JSON.stringify(result)}`);
+  return result.objects[0];
+}
+function cloneTransform(transform) {
+  return JSON.parse(JSON.stringify(transform));
+}
+function assertTransformEqual(actual, expected, label) {
+  for (const field of ['offset', 'rotation', 'scale', 'mirror']) {
+    const values = actual[field];
+    const target = expected[field];
+    if (!Array.isArray(values) || values.length !== target.length ||
+        values.some((value, index) => Math.abs(value - target[index]) > 1e-9))
+      throw new Error(`${label} ${field} mismatch: ${JSON.stringify(actual)} != ${JSON.stringify(expected)}`);
+  }
+}
+function commitTransform(label, transform) {
+  const started = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+    [label, 'project', JSON.stringify(context), '']);
+  if (!started.ok || typeof started.transactionId !== 'string') throw new Error(JSON.stringify(started));
+  const result = callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'],
+    [0, 0, 0, JSON.stringify(transform), JSON.stringify(modelMesh().volume_transform)]);
+  if (!result.ok) throw new Error(`${label} transform failed: ${JSON.stringify(result)}`);
+  const status = callJson('orc_history_commit', ['string', 'string'],
+    [started.transactionId, JSON.stringify(context)]);
+  if (!status.canUndo || status.canRedo) throw new Error(`${label} commit failed: ${JSON.stringify(status)}`);
+  return status;
+}
+const transformCases = [
+  ['Move', (transform) => ({ ...transform, offset: [transform.offset[0] + 5, transform.offset[1], transform.offset[2]] })],
+  ['Rotate', (transform) => ({ ...transform, rotation: [transform.rotation[0], transform.rotation[1], transform.rotation[2] + 0.25] })],
+  ['Scale', (transform) => ({ ...transform, scale: [transform.scale[0] * 1.25, transform.scale[1], transform.scale[2]] })],
+  ['Drop to Bed', (transform) => ({ ...transform, offset: [transform.offset[0], transform.offset[1], transform.offset[2] - 2] })],
+  ['Reset', (transform) => ({ ...transform, offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] })],
+];
+for (const [label, edit] of transformCases) {
+  const before = modelMesh();
+  const base = cloneTransform(before.instance_transform);
+  // Matrix is authoritative when present; the category checks intentionally
+  // exercise the bridge's TRS transform payload.
+  delete base.matrix;
+  const next = edit(base);
+  commitTransform(label, next);
+  const committedTransform = modelMesh().instance_transform;
+  assertTransformEqual(committedTransform, next, `${label} final transform`);
+  const undoneTransform = callJson('orc_history_undo', [], []);
+  if (!undoneTransform.ok) throw new Error(`${label} undo failed: ${JSON.stringify(undoneTransform)}`);
+  const restoredTransform = modelMesh().instance_transform;
+  assertTransformEqual(restoredTransform, before.instance_transform, `${label} undo`);
+  const redoneTransform = callJson('orc_history_redo', [], []);
+  if (!redoneTransform.ok) throw new Error(`${label} redo failed: ${JSON.stringify(redoneTransform)}`);
+  assertTransformEqual(modelMesh().instance_transform, next, `${label} redo`);
+}
+// Branching after undo must truncate the old redo entry and preserve the new
+// transform as the sole redo target.
+const branchBase = cloneTransform(modelMesh().instance_transform);
+delete branchBase.matrix;
+const branchFirst = {
+  ...branchBase,
+  offset: [branchBase.offset[0] + 3, branchBase.offset[1], branchBase.offset[2]],
+};
+commitTransform('Branch Move', branchFirst);
+const branchUndo = callJson('orc_history_undo', [], []);
+if (!branchUndo.ok || branchUndo.status.canRedo !== true)
+  throw new Error(`branch undo did not expose redo: ${JSON.stringify(branchUndo)}`);
+assertTransformEqual(modelMesh().instance_transform, branchBase, 'branch undo');
+const branchReplacement = {
+  ...branchBase,
+  offset: [branchBase.offset[0] + 7, branchBase.offset[1], branchBase.offset[2]],
+};
+const branchCommit = commitTransform('Branch Replacement', branchReplacement);
+if (branchCommit.canRedo)
+  throw new Error(`branch commit retained stale redo: ${JSON.stringify(branchCommit)}`);
+assertTransformEqual(modelMesh().instance_transform, branchReplacement, 'branch replacement');
+
+// Repair 1 regression matrix: use the pinned native Orca fixture so a locked
+// plate is present, then make a real structural history edit around members
+// that cover every live membership state.  The current release has no direct
+// plate-reorder command; deleting an intermediate plate is the native grid
+// compaction/reorder path and exercises the same ordered session snapshot.
+const fixtureArchive = await readFile(resolve(repoRoot,
+  'packages/slicer-wasm/fixtures/native-interoperability/orca-native-multi-plate.3mf'));
+// The pinned Neo metadata intentionally records both locks as false for the
+// interoperability fixture.  Change only the in-memory fixture copy so the
+// history baseline contains a real imported locked plate.
+const fixtureEntries = readZipEntries(fixtureArchive);
+const fixtureMetadata = {
+  schema: 'org.orcaslicerneo.plate-session', version: 1, current_plate_index: 0,
+  plates: [
+    { plate_index: 0, origin: [0, 0, 0], name: 'Native Plate 1', locked: false,
+      settings: {}, opaque_metadata: [{ key: 'native_future_key', value: 'native-future-value' }] },
+    { plate_index: 1, origin: [248.4, 0, 0], name: 'Native Plate 2', locked: true,
+      settings: {}, opaque_metadata: [{ key: 'native_second_key', value: 'native-second-value' }] },
+  ],
+};
+fixtureEntries.push({ name: 'Metadata/orca_neo_plate_session_v1.json',
+  content: new TextEncoder().encode(JSON.stringify(fixtureMetadata)) });
+const fixtureBytes = writeStoredZip(fixtureEntries);
+let fixturePtr = writeBytes(fixtureBytes);
+const loadedFixture = callJson('orc_load_project',
+  ['pointer', 'number', 'number', 'string'], [fixturePtr, fixtureBytes.length, 0, 'history-plate-fixture.3mf']);
+Module._free(fixturePtr);
+historyCheck('load locked multi-plate fixture', loadedFixture.ok === true && loadedFixture.plate_count === 2,
+  JSON.stringify(loadedFixture));
+let fixtureSession = callJson('orc_get_plate_session_snapshot', [], []);
+const lockedPlateId = fixtureSession.plates.find((plate) => plate.locked)?.plate_id;
+historyCheck('fixture retains locked plate state', typeof lockedPlateId === 'string', JSON.stringify(fixtureSession));
+
+const fixturePlateOne = fixtureSession.plates[0].plate_id;
+const fixturePlateTwo = fixtureSession.plates[1].plate_id;
+const addedHistoryPlate = callJson('orc_add_plate', [], []);
+const fixturePlateThree = addedHistoryPlate.current_plate_id;
+historyCheck('history fixture has three ordered plates', addedHistoryPlate.plates.length === 3 &&
+  addedHistoryPlate.plates.map((plate) => plate.display_index).join(',') === '0,1,2');
+historyCheck('select plate two for parked fixture', callJson('orc_select_plate', ['string'], [fixturePlateTwo]).ok === true);
+const parkedAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'History parked member']);
+historyCheck('add parked-member fixture', parkedAdded.ok === true);
+historyCheck('select plate three for out-of-bounds fixture',
+  callJson('orc_select_plate', ['string'], [fixturePlateThree]).ok === true);
+const outOfBoundsAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'History out-of-bounds member']);
+historyCheck('add out-of-bounds fixture', outOfBoundsAdded.ok === true);
+
+const fixtureMesh = callJson('orc_get_model_mesh', [], []);
+const outOfBoundsObject = (fixtureMesh.objects ?? []).find((object) => object.object_idx === 3);
+historyCheck('locate out-of-bounds fixture instance', outOfBoundsObject?.instance_idx === 0,
+  JSON.stringify(fixtureMesh));
+const outOfBoundsTransform = JSON.stringify({
+  offset: [fixturePlateThree ? addedHistoryPlate.plates[2].origin[0] + 120 : 120,
+    addedHistoryPlate.plates[2].origin[1], 10],
+  rotation: [0, 0, 0], scale: [30, 30, 30], mirror: [1, 1, 1],
+});
+const movedOutOfBounds = callJson('orc_set_model_transform',
+  ['number', 'number', 'number', 'string', 'string'],
+  [3, 0, 0, outOfBoundsTransform, JSON.stringify(outOfBoundsObject.volume_transform)]);
+historyCheck('move member partially outside plate three', movedOutOfBounds.ok === true,
+  JSON.stringify(movedOutOfBounds));
+const recomputedFixture = callJson('orc_recompute_plate_membership', [], []);
+const outOfBoundsRecord = recomputedFixture.instances?.find((item) => item.object_index === 3);
+historyCheck('fixture records member and out-of-bounds independently',
+  outOfBoundsRecord?.plate_id === fixturePlateThree && outOfBoundsRecord.out_of_bounds === true,
+  JSON.stringify(recomputedFixture));
+historyCheck('select plate three before structural history',
+  callJson('orc_select_plate', ['string'], [fixturePlateThree]).current_plate_id === fixturePlateThree);
+
+const resetFixtureHistory = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);
+historyCheck('establish structural fixture history baseline',
+  resetFixtureHistory.canUndo === false, JSON.stringify(resetFixtureHistory));
+const structuralBaseline = callJson('orc_get_plate_session_snapshot', [], []);
+assertLiveSessionIntegrity(structuralBaseline, 'structural baseline');
+historyCheck('structural baseline contains locked plate and all memberships',
+  structuralBaseline.plates.some((plate) => plate.plate_id === lockedPlateId && plate.locked) &&
+  structuralBaseline.instances.some((item) => item.object_index === 2 && item.plate_id === fixturePlateTwo && item.parked === false) &&
+  structuralBaseline.instances.some((item) => item.object_index === 3 && item.plate_id === fixturePlateThree && item.out_of_bounds === true));
+
+function beginHistory(label) {
+  const started = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+    [label, 'project', JSON.stringify(context), '']);
+  if (!started.ok || typeof started.transactionId !== 'string') throw new Error(`${label} begin failed: ${JSON.stringify(started)}`);
+  return started.transactionId;
+}
+function commitHistory(label, transactionId) {
+  const committedHistory = callJson('orc_history_commit', ['string', 'string'],
+    [transactionId, JSON.stringify(context)]);
+  if (!committedHistory.canUndo || committedHistory.canRedo)
+    throw new Error(`${label} commit failed: ${JSON.stringify(committedHistory)}`);
+  return committedHistory;
+}
+function restoreAndCompare(label, expected) {
+  const restoredSession = callJson('orc_get_plate_session_snapshot', [], []);
+  assertLiveSessionIntegrity(restoredSession, label);
+  historyCheck(`${label} restores complete session`,
+    JSON.stringify(sessionShape(restoredSession)) === JSON.stringify(sessionShape(expected)),
+    JSON.stringify({ expected: sessionShape(expected), actual: sessionShape(restoredSession) }));
+  return restoredSession;
+}
+
+// Delete Plate Undo/Redo parks the deleted plate's member and must preserve
+// the surviving plate's out-of-bounds member and current identity.
+const deleteTransaction = beginHistory('Delete Plate');
+const deletedPlate = callJson('orc_delete_plate', ['string'], [fixturePlateTwo]);
+historyCheck('delete plate creates parked member and preserves current plate',
+  deletedPlate.ok === true && deletedPlate.current_plate_id === fixturePlateThree &&
+  deletedPlate.instances.some((item) => item.object_index === 2 && item.plate_id === '' && item.parked) &&
+  deletedPlate.instances.some((item) => item.object_index === 3 && item.plate_id === fixturePlateThree && item.out_of_bounds),
+  JSON.stringify(deletedPlate));
+const deleteAfter = callJson('orc_get_plate_session_snapshot', [], []);
+commitHistory('Delete Plate', deleteTransaction);
+const deleteUndo = callJson('orc_history_undo', [], []);
+historyCheck('Delete Plate undo succeeds', deleteUndo.ok === true, JSON.stringify(deleteUndo));
+const deleteUndoSession = restoreAndCompare('Delete Plate undo', structuralBaseline);
+historyCheck('Delete Plate undo restores current plate and member flags',
+  deleteUndoSession.current_plate_id === fixturePlateThree &&
+  deleteUndoSession.instances.some((item) => item.object_index === 2 && item.plate_id === fixturePlateTwo && !item.parked) &&
+  deleteUndoSession.instances.some((item) => item.object_index === 3 && item.plate_id === fixturePlateThree && item.out_of_bounds));
+const deleteRedo = callJson('orc_history_redo', [], []);
+historyCheck('Delete Plate redo succeeds', deleteRedo.ok === true, JSON.stringify(deleteRedo));
+restoreAndCompare('Delete Plate redo', deleteAfter);
+
+// Return to the baseline, then exercise the release's plate-order change
+// path explicitly.  Intermediate deletion compacts the ordered collection;
+// the history frame must restore the original order and current identity.
+historyCheck('return to structural baseline before reorder check', callJson('orc_history_undo', [], []).ok === true);
+restoreAndCompare('reorder precondition', structuralBaseline);
+const reorderTransaction = beginHistory('Reorder Plate');
+const reordered = callJson('orc_delete_plate', ['string'], [fixturePlateOne]);
+historyCheck('reorder plate compaction changes ordered collection',
+  reordered.ok === true && reordered.plates.map((plate) => plate.plate_id).join(',') ===
+    `${fixturePlateTwo},${fixturePlateThree}` && reordered.current_plate_id === fixturePlateThree,
+  JSON.stringify(reordered));
+const reorderAfter = callJson('orc_get_plate_session_snapshot', [], []);
+commitHistory('Reorder Plate', reorderTransaction);
+historyCheck('Reorder Plate undo succeeds', callJson('orc_history_undo', [], []).ok === true);
+restoreAndCompare('Reorder Plate undo', structuralBaseline);
+historyCheck('Reorder Plate redo succeeds', callJson('orc_history_redo', [], []).ok === true);
+restoreAndCompare('Reorder Plate redo', reorderAfter);
+historyCheck('locked plate state survives reorder Undo/Redo',
+  reorderAfter.plates.find((plate) => plate.plate_id === lockedPlateId)?.locked === true);
+
+// Repair 5 directional menu-jump matrix.  Isolate the real bridge exercise
+// from the structural fixture above: the reset gives the scenario a known
+// empty baseline, and the final reset prevents this diagnostic from leaking
+// state into any future checks added below.
+historyCheck('reset directional jump fixture',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+const jumpFirstTransaction = beginHistory('Jump First');
+const jumpFirstAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Jump first']);
+historyCheck('directional jump first edit applies', jumpFirstAdded.ok === true, JSON.stringify(jumpFirstAdded));
+const jumpFirstCommit = commitHistory('Jump First', jumpFirstTransaction);
+const jumpFirstId = jumpFirstCommit.undoEntries[0]?.id;
+historyCheck('capture first directional jump ID', typeof jumpFirstId === 'string', JSON.stringify(jumpFirstCommit));
+
+const jumpContext = callJson('orc_history_record_context',
+  ['string', 'string'], ['Jump selection', JSON.stringify({ ...context,
+    selection: { ...context.selection, mode: 'object', objectIds: [jumpFirstAdded.objectId ?? 1] } })]);
+historyCheck('interleave context record', jumpContext.dirty === true && jumpContext.undoEntries.length === 1,
+  JSON.stringify(jumpContext));
+
+const jumpSecondTransaction = beginHistory('Jump Second');
+const jumpSecondAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Jump second']);
+historyCheck('directional jump second edit applies', jumpSecondAdded.ok === true, JSON.stringify(jumpSecondAdded));
+const jumpSecondCommit = commitHistory('Jump Second', jumpSecondTransaction);
+const jumpSecondId = jumpSecondCommit.undoEntries[0]?.id;
+historyCheck('capture second directional jump ID', typeof jumpSecondId === 'string', JSON.stringify(jumpSecondCommit));
+
+const topUndoJump = callJson('orc_history_jump', ['string', 'string'], [jumpSecondId, 'undo']);
+const afterTopUndoJump = callJson('orc_get_model_structure', [], []);
+historyCheck('top Undo jump changes the model', topUndoJump.ok === true && afterTopUndoJump.objects.length === 1,
+  JSON.stringify({ topUndoJump, afterTopUndoJump }));
+
+const olderUndoJump = callJson('orc_history_jump', ['string', 'string'], [jumpFirstId, 'undo']);
+const afterOlderUndoJump = callJson('orc_get_model_structure', [], []);
+historyCheck('older Undo removes selected and later project edits',
+  olderUndoJump.ok === true && afterOlderUndoJump.objects.length === 0,
+  JSON.stringify({ olderUndoJump, afterOlderUndoJump }));
+
+const firstRedoJump = callJson('orc_history_jump', ['string', 'string'], [jumpFirstId, 'redo']);
+const secondRedoJump = callJson('orc_history_jump', ['string', 'string'], [jumpSecondId, 'redo']);
+const afterRedoJump = callJson('orc_get_model_structure', [], []);
+historyCheck('Redo restores the selected after-state',
+  firstRedoJump.ok === true && secondRedoJump.ok === true && afterRedoJump.objects.length === 2,
+  JSON.stringify({ firstRedoJump, secondRedoJump, afterRedoJump }));
+
+const oppositeDirection = callJson('orc_history_jump', ['string', 'string'], [jumpSecondId, 'redo']);
+historyCheck('opposite-direction jump is rejected', typeof oppositeDirection.error === 'string',
+  JSON.stringify(oppositeDirection));
+historyCheck('stale jump is rejected after branching',
+  typeof callJson('orc_history_jump', ['string', 'string'], ['entry-999999', 'undo']).error === 'string',
+  JSON.stringify(callJson('orc_history_status', [], [])));
+const branchForStale = callJson('orc_history_jump', ['string', 'string'], [jumpFirstId, 'undo']);
+historyCheck('prepare branch point for stale jump', branchForStale.ok === true, JSON.stringify(branchForStale));
+const staleTransaction = beginHistory('Jump Replacement');
+const staleAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Jump replacement']);
+historyCheck('stale replacement edit applies', staleAdded.ok === true, JSON.stringify(staleAdded));
+const staleCommit = commitHistory('Jump Replacement', staleTransaction);
+historyCheck('evicted branch jump is rejected',
+  typeof callJson('orc_history_jump', ['string', 'string'], [jumpSecondId, 'redo']).error === 'string',
+  JSON.stringify(staleCommit));
+historyCheck('restore directional fixture baseline',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+
+// Repair 6 real-bridge accounting diagnostic.  The long context and label
+// must increase the same retained-resource status that the restore path uses;
+// the delta must exceed the context payload itself, proving that canonical
+// entry/container metadata is included.  Native fixture tests cover budget
+// eviction and oversized retention deterministically; this real-WASM check
+// keeps its focus on accounting and a valid retained restore.
+const accountingTransaction = beginHistory('Accounting restore');
+const accountingAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Accounting restore']);
+historyCheck('accounting restore fixture edit applies', accountingAdded.ok === true,
+  JSON.stringify(accountingAdded));
+commitHistory('Accounting restore', accountingTransaction);
+const accountingBaseline = callJson('orc_history_status', [], []);
+const accountingShort = callJson('orc_history_record_context',
+  ['string', 'string'], ['Accounting short', JSON.stringify(context)]);
+const accountingLabel = 'Accounting long label '.repeat(16);
+const accountingContext = { ...context,
+  selection: { ...context.selection,
+    objectIds: Array.from({ length: 512 }, (_, index) => index) } };
+const accountingContextJson = JSON.stringify(accountingContext);
+const accountingLong = callJson('orc_history_record_context',
+  ['string', 'string'], [accountingLabel, accountingContextJson]);
+historyCheck('history accounting exposes deterministic bridge diagnostics',
+  Number.isSafeInteger(accountingBaseline.bytesUsed) &&
+  Number.isSafeInteger(accountingShort.bytesUsed) &&
+  Number.isSafeInteger(accountingLong.bytesUsed),
+  JSON.stringify({ accountingBaseline, accountingShort, accountingLong }));
+const accountingDelta = accountingLong.bytesUsed - accountingShort.bytesUsed;
+historyCheck('long label/context growth includes canonical metadata overhead',
+  accountingDelta > accountingContextJson.length && accountingLong.bytesUsed > accountingShort.bytesUsed,
+  JSON.stringify({ accountingDelta, contextBytes: accountingContextJson.length,
+    labelBytes: accountingLabel.length, accountingShort, accountingLong }));
+const accountingUndo = callJson('orc_history_undo', [], []);
+const accountingUndoModel = callJson('orc_get_model_structure', [], []);
+historyCheck('accounting status remains valid through retained restore',
+  accountingUndo.ok === true && accountingUndo.status?.bytesUsed === accountingLong.bytesUsed &&
+  accountingUndoModel.ok === true && accountingUndoModel.objects.length === 0,
+  JSON.stringify({ accountingUndo, accountingUndoModel }));
+const accountingRedo = callJson('orc_history_redo', [], []);
+historyCheck('accounting diagnostic restore redoes successfully',
+  accountingRedo.ok === true && accountingRedo.status?.bytesUsed === accountingLong.bytesUsed &&
+  callJson('orc_get_model_structure', [], []).objects.length === 1,
+  JSON.stringify({ accountingRedo, model: callJson('orc_get_model_structure', [], []) }));
+console.log(`history smoke passed (${moduleArg})`);

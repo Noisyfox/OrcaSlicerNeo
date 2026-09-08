@@ -7,8 +7,6 @@ import { useThree } from '@react-three/fiber';
 import { useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import type { GLVolume } from './GLVolume';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
-import { persistSettledModelTransforms } from '../actions/persistModelTransforms';
-import { usePlatform } from '@orca/platform-contract';
 import { EULER_ORDER } from './transformDeltaMath';
 import { acceleratedRaycast } from 'three-mesh-bvh';
 
@@ -33,7 +31,6 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
   interactive?: boolean;
   preview?: boolean;
 }) {
-  const platform = usePlatform();
   const groupRef = useRef<THREE.Group>(null);
   const volumeGroupRef = useRef<THREE.Group>(null);
   const bodyStartRef = useRef(new THREE.Vector3());
@@ -128,9 +125,7 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
         invalidate();
       }}
       onDragEnd={() => {
-        if (sceneInteraction.owner === 'body' && sceneInteraction.endDrag()) {
-          void persistSettledModelTransforms(platform.runtime);
-        }
+        if (sceneInteraction.owner === 'body') sceneInteraction.endDrag();
       }}
     >
       {modelMesh}

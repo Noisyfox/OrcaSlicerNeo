@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
-import type { ModelObjectBuffer } from '@slicer/client';
+import type { HistoryContext, ModelObjectBuffer, ModelTransform, ModelStructureResult } from '@slicer/client';
 import { GLVolume } from './GLVolume';
 import { SceneInteractionController } from './SceneInteractionController';
 import { EULER_ORDER } from './transformDeltaMath';
@@ -60,6 +60,71 @@ describe('SceneInteractionController', () => {
   function registerFlatProjector(): void {
     controller.registerBoxSelectProjector((world) => ({ x: world.x, y: world.y }));
   }
+
+  it('starts one history transaction for a drag and commits only on release', async () => {
+    const port = {
+      begin: vi.fn(),
+      commit: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    };
+    controller.setTransformHistoryPort(port);
+    controller.selectFromHit(volumes[0], false);
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    controller.updateDragPivot(new THREE.Vector3(1, 0, 0));
+    controller.updateDragPivot(new THREE.Vector3(2, 0, 0));
+    expect(port.begin).toHaveBeenCalledTimes(1);
+    expect(port.commit).not.toHaveBeenCalled();
+    expect(controller.endDrag()).toBe(true);
+    await Promise.resolve();
+    expect(port.commit).toHaveBeenCalledTimes(1);
+    expect(port.abort).not.toHaveBeenCalled();
+  });
+
+  it('restores a cancelled drag locally without a commit or Worker write', async () => {
+    const port = {
+      begin: vi.fn(),
+      commit: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    };
+    controller.setTransformHistoryPort(port);
+    const sheared: NonNullable<ModelTransform['matrix']> = [
+      1, 0.2, 0, 0,
+      0, 1, 0, 0,
+      0, 0, 1, 0,
+      0, 0, 0, 1,
+    ];
+    for (const volume of volumes.slice(0, 2)) volume.instanceTransform = { ...volume.instanceTransform, matrix: sheared };
+    controller.selectFromHit(volumes[0], false);
+    const before = structuredClone(volumes[0].instanceTransform);
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    controller.updateDragPivot(new THREE.Vector3(8, 4, 0));
+    expect(controller.cancelDrag()).toBe(true);
+    await Promise.resolve();
+    expect(volumes[0].instanceTransform).toEqual(before);
+    expect(port.begin).toHaveBeenCalledTimes(1);
+    expect(port.commit).not.toHaveBeenCalled();
+    expect(port.abort).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses semantic labels for discrete transform commands', async () => {
+    const port = {
+      begin: vi.fn(),
+      commit: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    };
+    controller.setTransformHistoryPort(port);
+    controller.selectFromHit(volumes[0], false);
+    controller.moveSelectionBy(new THREE.Vector3(1, 0, 0));
+    controller.rotateSelectionBy([0, 0, 0.2]);
+    controller.scaleSelectionBy([2, 1, 1]);
+    controller.dropSelectionToBed();
+    controller.resetSelection();
+    await Promise.resolve();
+    expect(port.begin.mock.calls.map(([label]) => label)).toEqual([
+      'Move', 'Rotate', 'Scale', 'Drop to Bed', 'Reset',
+    ]);
+    expect(port.commit).toHaveBeenCalledTimes(5);
+  });
 
   it('never auto-opens the gizmo on selection — the toggle is its only opener', () => {
     controller.selectFromHit(volumes[0], false);
@@ -222,6 +287,24 @@ describe('SceneInteractionController', () => {
 
     c.clearSelection();
     expect(c.selectedObjectIndices()).toEqual([]);
+  });
+
+  it('restores only surviving stable IDs after a structural deletion', () => {
+    const structure: ModelStructureResult = {
+      ok: true,
+      objects: [{
+        id: 100, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
+        volumes: [{ id: 110, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+        instances: [{ id: 120, index: 0, printable: true }],
+      }],
+    };
+    const context: HistoryContext = {
+      selection: { mode: 'object', objectIds: [100, 999], partIds: [], instanceIds: [] },
+      activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
+    };
+    controller.restoreHistoryContext(context, structure);
+    expect(controller.selectedVolumes()).toEqual([volumes[0]]);
+    expect(controller.selectedVolumes().every((volume) => volume.buffer.objectIdx === 0)).toBe(true);
   });
 
   it('refuses a gizmo drag while the gizmo is not toggled on', () => {

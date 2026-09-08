@@ -28,14 +28,18 @@ describe('plate selection actions', () => {
     useSlicerStore.getState().clearPlateResults();
   });
 
-  it('clears selection only after an authoritative switch succeeds', async () => {
+  it('clears selection only after an authoritative switch succeeds and records plate context', async () => {
     usePlateSessionStore.getState().setSnapshot(plateA);
     const clearSelection = vi.fn();
+    const recordHistoryContext = vi.fn(async () => ({ dirty: false }));
+    const platform = platformFor(plateB);
+    (platform.runtime as unknown as { recordHistoryContext: typeof recordHistoryContext }).recordHistoryContext = recordHistoryContext;
 
-    await expect(selectPlateSessionAndClearSelection(platformFor(plateB), 'b', clearSelection)).resolves.toBe(true);
+    await expect(selectPlateSessionAndClearSelection(platform, 'b', clearSelection)).resolves.toBe(true);
 
     expect(clearSelection).toHaveBeenCalledOnce();
     expect(usePlateSessionStore.getState().snapshot?.currentPlateId).toBe('b');
+    expect(recordHistoryContext).toHaveBeenCalledWith('Active Plate', expect.objectContaining({ activePlateId: 'b' }));
   });
 
   it('clears locally without a runtime call for the current plate, and preserves selection when switching fails', async () => {

@@ -62,17 +62,66 @@ export function startWorker(
     post({ type: 'progress-mailbox', mailbox });
   }, beforeInit);
 
+  // The default remains one writer.  A coalesced child may be nested under
+  // the active writer and is popped only after its commit/abort.
+  const activeTransactionIds: string[] = [];
+  let transactionStarting = false;
+  let restoreInFlight = false;
+
   onMessage(async (msg) => {
     if (msg.type !== 'request') return;
     const { id, op, args } = msg;
+    const isRestore = op === 'undoHistory' || op === 'redoHistory' || op === 'jumpHistory';
+    if (isRestore && restoreInFlight) {
+      post({ type: 'response', id, ok: false, result: undefined, error: 'history restore is already in progress' });
+      return;
+    }
+    if (isRestore) restoreInFlight = true;
     try {
       const method = (client as unknown as Record<string, (...a: unknown[]) => unknown>)[op];
       if (typeof method !== 'function') throw new Error(`unknown op: ${op}`);
-      await beforeRequest?.(op, args ?? []);
-      const result = await method(...(args ?? []));
+      const callArgs = args ?? [];
+      if (op === 'beginHistory') {
+        const nested = activeTransactionIds.length > 0;
+        if (transactionStarting || (!nested && activeTransactionIds.length > 0))
+          throw new Error('history transaction is already active');
+        if ((callArgs.length !== 3 && callArgs.length !== 4) || typeof callArgs[0] !== 'string' ||
+            (callArgs[1] !== 'project' && callArgs[1] !== 'context') ||
+            !callArgs[2] || typeof callArgs[2] !== 'object')
+          throw new Error('malformed history begin request');
+        if (nested && (!callArgs[3] || typeof callArgs[3] !== 'object' ||
+            (callArgs[3] as Record<string, unknown>).coalesce !== true ||
+            (callArgs[3] as Record<string, unknown>).parentTransactionId !== activeTransactionIds[activeTransactionIds.length - 1]))
+          throw new Error('history transaction is already active');
+        transactionStarting = true;
+      } else if (op === 'commitHistory' || op === 'abortHistory') {
+        if (callArgs.length < 1 || typeof callArgs[0] !== 'string' ||
+            activeTransactionIds.length === 0 || callArgs[0] !== activeTransactionIds[activeTransactionIds.length - 1])
+          throw new Error('history transaction is stale or belongs to another writer');
+        if (op === 'commitHistory' && (callArgs.length !== 2 || !callArgs[1] || typeof callArgs[1] !== 'object'))
+          throw new Error('malformed history commit request');
+      } else if (op === 'undoHistory' || op === 'redoHistory' || op === 'jumpHistory') {
+        if (activeTransactionIds.length > 0 || transactionStarting)
+          throw new Error('history transaction is active');
+        if (op === 'jumpHistory' && (callArgs.length !== 2 || typeof callArgs[0] !== 'string' ||
+            (callArgs[1] !== 'undo' && callArgs[1] !== 'redo')))
+          throw new Error('malformed history jump request');
+      }
+      await beforeRequest?.(op, callArgs);
+      const result = await method(...callArgs);
+      if (op === 'beginHistory') {
+        if (typeof result !== 'string' || result.length === 0) throw new Error('malformed history transaction id');
+        activeTransactionIds.push(result);
+        transactionStarting = false;
+      } else if (op === 'commitHistory' || op === 'abortHistory') {
+        activeTransactionIds.pop();
+      }
       post({ type: 'response', id, ok: true, result }, collectTransferables(result));
     } catch (err) {
+      if (op === 'beginHistory') transactionStarting = false;
       post({ type: 'response', id, ok: false, result: undefined, error: String(err) });
+    } finally {
+      if (isRestore) restoreInFlight = false;
     }
   });
 }
@@ -158,6 +207,25 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   return new Proxy({} as SlicerClient, {
     get(_target, prop) {
       if (typeof prop !== 'string' || prop === 'then') return undefined;
+      if (prop === 'runProjectHistoryTransaction') {
+        return async (
+          label: string, category: 'project' | 'context', beforeContext: unknown,
+          mutation: (transactionId: string) => Promise<unknown>,
+          afterContext: unknown | (() => unknown | Promise<unknown>),
+        ) => {
+          const transactionId = await call('beginHistory', [label, category, beforeContext]);
+          try {
+            const result = await mutation(String(transactionId));
+            const context = typeof afterContext === 'function'
+              ? await (afterContext as () => unknown | Promise<unknown>)() : afterContext;
+            const status = await call('commitHistory', [transactionId, context]);
+            return { result, status };
+          } catch (error) {
+            try { await call('abortHistory', [transactionId]); } catch { /* preserve mutation error */ }
+            throw error;
+          }
+        };
+      }
       if (prop === 'loadProject' || prop === 'importProjectGeometry') {
         const progressIndex = prop === 'loadProject' ? 3 : 2;
         return (...args: unknown[]) => {

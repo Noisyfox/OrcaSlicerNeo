@@ -3,6 +3,52 @@ import type { ModelObjectBuffer, ModelTransform } from '@slicer/client';
 import { matrixFromTransform, normalizeTransform } from './transformDeltaMath';
 import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 
+type RevisionWaiter = {
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
+
+const revisionWaiters = new Map<number, Set<RevisionWaiter>>();
+
+/**
+ * Wait for the renderer to publish the mesh replacement for one model
+ * revision.  History restore uses this instead of guessing when React's
+ * loader effect has finished; an older revision is rejected as soon as a
+ * newer replacement wins.
+ */
+export function waitForGLVolumeRevision(revision: number): Promise<void> {
+  if (glVolumeCollection.revision === revision) return Promise.resolve();
+  if (glVolumeCollection.revision > revision)
+    return Promise.reject(new Error(`GL mesh revision ${revision} was superseded`));
+  return new Promise<void>((resolve, reject) => {
+    const waiters = revisionWaiters.get(revision) ?? new Set<RevisionWaiter>();
+    waiters.add({ resolve, reject });
+    revisionWaiters.set(revision, waiters);
+  });
+}
+
+function settleRevisionWaiters(revision: number): void {
+  for (const [waitedRevision, waiters] of revisionWaiters) {
+    if (waitedRevision > revision) continue;
+    revisionWaiters.delete(waitedRevision);
+    const error = waitedRevision === revision
+      ? null
+      : new Error(`GL mesh revision ${waitedRevision} was superseded`);
+    for (const waiter of waiters) {
+      if (error) waiter.reject(error);
+      else waiter.resolve();
+    }
+  }
+}
+
+export function rejectGLVolumeRevision(revision: number, error: unknown): void {
+  const waiters = revisionWaiters.get(revision);
+  if (!waiters) return;
+  revisionWaiters.delete(revision);
+  const normalized = error instanceof Error ? error : new Error(String(error));
+  for (const waiter of waiters) waiter.reject(normalized);
+}
+
 /** JavaScript equivalent of the native canvas GLVolume. */
 export class GLVolume {
   readonly buffer: ModelObjectBuffer;
@@ -71,9 +117,12 @@ export class GLVolume {
 /** Renderer-only plate state. It is synchronized to WASM only before slice. */
 export const glVolumeCollection = {
   volumes: [] as GLVolume[],
-  replace(volumes: GLVolume[]) {
+  revision: 0,
+  replace(volumes: GLVolume[], revision?: number) {
     this.volumes.forEach((v) => v.dispose());
     this.volumes = volumes;
+    this.revision = revision ?? glVolumeCollection.revision + 1;
+    settleRevisionWaiters(this.revision);
   },
-  clear() { this.replace([]); },
+  clear(revision?: number) { this.replace([], revision); },
 };

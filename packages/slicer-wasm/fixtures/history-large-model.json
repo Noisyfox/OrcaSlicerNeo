@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "history-large-model",
+  "objects": 24,
+  "mutableObjectBytes": 4096,
+  "sharedMeshBytes": 65536,
+  "edits": 12,
+  "budgetBytes": 262144,
+  "purpose": "Deterministic resource-gate fixture: mutable object deltas share one immutable mesh and never retain a complete 3MF archive per edit."
+}

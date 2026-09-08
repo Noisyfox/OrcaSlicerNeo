@@ -47,8 +47,10 @@ export interface ProjectSessionState {
   /** Host-private token, opaque to shared code and UI. */
   location?: OpaqueProjectLocation;
   hasContent: boolean;
+  /** Synchronous UI projection of Worker HistoryStatus.dirty when history is available. */
   dirty: boolean;
-  /** Reasons from committed mutations; selection and preview changes never add one. */
+  /** Legacy mutation reasons for the pre-history editing surface; lifecycle
+   * guards must query Worker HistoryStatus and history-backed flows clear this. */
   dirtyReasons: readonly ProjectDirtyReason[];
   /** Runtime-only plate input generations used by later result ownership. */
   plateInputRevisions: Readonly<Record<string, number>>;
@@ -58,10 +60,12 @@ export interface ProjectSessionState {
   flattenedMultiPlate: boolean;
   notices: ProjectNotice[];
   operation: ProjectOperation;
-  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'scope' | 'systemPresets' | 'projectPresets' | 'flattenedMultiPlate' | 'notices'>>) => void;
+  setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'scope' | 'systemPresets' | 'projectPresets' | 'flattenedMultiPlate' | 'notices'>>) => void;
+  /** Compatibility projection for ordinary edits not yet migrated to history. */
   markDirty: (reason?: ProjectDirtyReason) => void;
   /** Advance every known plate input for one shared configuration commit. */
   recordSharedConfigurationMutation: () => void;
+  /** Compatibility projection; Worker history remains authoritative for lifecycle state. */
   recordPlateMutation: (mutation: {
     inputRevisions?: Readonly<Record<string, number>>;
     dirtyReasons?: readonly string[];

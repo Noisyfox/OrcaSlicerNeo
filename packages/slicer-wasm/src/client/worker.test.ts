@@ -119,4 +119,10 @@ describe('worker protocol', () => {
     const { workerClient } = setup();
     await expect((workerClient as unknown as { nope(): Promise<unknown> }).nope()).rejects.toThrow();
   });
+
+  it('rejects a directional jump request without an explicit direction', async () => {
+    const { workerClient } = setup();
+    await expect((workerClient as unknown as { jumpHistory(id: string): Promise<unknown> }).jumpHistory('entry-1'))
+      .rejects.toThrow('malformed history jump request');
+  });
 });

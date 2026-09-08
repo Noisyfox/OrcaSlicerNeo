@@ -28,11 +28,21 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <sstream>
 #include <set>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#define CEREAL_FUTURE_EXPERIMENTAL
+#include <cereal/archives/adapters.hpp>
+#include <cereal/archives/binary.hpp>
+#include <cereal/types/map.hpp>
+#include <cereal/types/memory.hpp>
+#include <cereal/types/optional.hpp>
+#include <cereal/types/string.hpp>
+#include <cereal/types/vector.hpp>
 
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/BuildVolume.hpp"
@@ -48,6 +58,7 @@
 #include "libslic3r/Utils.hpp"
 
 #include "bridge_buffers.hpp"
+#include "history/ProjectHistory.hpp"
 // Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/; the brief's
 // PrintObject.hpp does not exist (class PrintObject is in Print.hpp, already
 // included above).
@@ -66,6 +77,98 @@
 
 using namespace Slic3r;
 using nlohmann::json;
+
+// The native adapter uses the same archive boundary as Orca's object history:
+// mutable ModelObject records contain references to immutable meshes, while
+// mesh bytes are retained once by ProjectHistory's immutable data store.
+struct NeoHistoryArchiveContext {
+    std::map<const TriangleMesh*, std::string> output_mesh_keys;
+    std::map<std::string, std::shared_ptr<const TriangleMesh>> input_meshes;
+};
+using NeoHistoryOutputArchive = cereal::UserDataAdapter<NeoHistoryArchiveContext, cereal::BinaryOutputArchive>;
+using NeoHistoryInputArchive = cereal::UserDataAdapter<NeoHistoryArchiveContext, cereal::BinaryInputArchive>;
+
+namespace cereal {
+
+inline void save(BinaryOutputArchive& archive,
+                 const std::shared_ptr<const Slic3r::TriangleMesh>& mesh)
+{
+    if (!mesh) {
+        archive(std::string{});
+        return;
+    }
+    const auto& keys = cereal::get_user_data<NeoHistoryArchiveContext>(archive).output_mesh_keys;
+    const auto it = keys.find(mesh.get());
+    if (it == keys.end()) throw std::runtime_error("history mesh reference is unavailable");
+    archive(it->second);
+}
+
+inline void load(BinaryInputArchive& archive,
+                 std::shared_ptr<const Slic3r::TriangleMesh>& mesh)
+{
+    std::string key;
+    archive(key);
+    if (key.empty()) {
+        mesh.reset();
+        return;
+    }
+    const auto& meshes = cereal::get_user_data<NeoHistoryArchiveContext>(archive).input_meshes;
+    const auto it = meshes.find(key);
+    if (it == meshes.end()) throw std::runtime_error("history mesh data is unavailable");
+    mesh = it->second;
+}
+
+template<class T>
+inline void save(BinaryOutputArchive& archive, T* const& object)
+{
+    const bool present = object != nullptr;
+    archive(present);
+    if (present) archive(*object);
+}
+
+template<class T>
+inline void load(BinaryInputArchive& archive, T*& object)
+{
+    bool present = false;
+    archive(present);
+    object = present ? cereal::access::construct<T>() : nullptr;
+    if (object) archive(*object);
+}
+
+template<class T>
+inline void save_by_value(BinaryOutputArchive& archive, const T& value)
+{
+    archive(value);
+}
+
+template<class T>
+inline void load_by_value(BinaryInputArchive& archive, T& value)
+{
+    archive(value);
+}
+
+template<class T>
+inline void save_optional(BinaryOutputArchive& archive, const std::shared_ptr<const T>&)
+{
+    // Optional native caches such as convex hulls are deliberately omitted;
+    // ModelVolume::load() reconstructs them from the retained mesh.
+    archive(false);
+}
+
+template<class T>
+inline void load_optional(BinaryInputArchive& archive, std::shared_ptr<const T>& value)
+{
+    bool present = false;
+    archive(present);
+    if (present) archive(value);
+    else value.reset();
+}
+
+template <class Archive> struct specialize<Archive, Slic3r::ModelInstance*, specialization::non_member_load_save> {};
+template <class Archive> struct specialize<Archive, Slic3r::ModelVolume*, specialization::non_member_load_save> {};
+template <class Archive> struct specialize<Archive, std::shared_ptr<const Slic3r::TriangleMesh>, specialization::non_member_load_save> {};
+
+} // namespace cereal
 
 namespace {
 
@@ -90,6 +193,7 @@ int wasm_tbb_concurrency()
 // first orc_* call (after all TUs' statics, including print_config_def, have
 // run) — observed as "memory access out of bounds" at instantiation when
 // constructed eagerly.
+json empty_project_config_overlay();
 struct BridgeState {
 #ifdef ORCA_WASM_THREADING
     // Match the pre-created Emscripten pthread pool at runtime. This avoids a
@@ -105,6 +209,29 @@ struct BridgeState {
     PresetBundle presets;
     Model       model;
     Print       print;
+    // Project-owned overrides are kept in the Worker/WASM session. React only
+    // receives a render projection and never becomes their source of truth.
+    json project_config_overlay = empty_project_config_overlay();
+    // Step 2 history is deliberately Worker/WASM owned. ProjectHistory owns
+    // keyed mutable object versions and shared immutable mesh data.
+    Neo::History::ProjectHistory history;
+    struct HistoryTransaction {
+        std::string id;
+        std::string label;
+        Neo::History::Category category { Neo::History::Category::Project };
+        json before_context;
+        Neo::History::ModelState before_model;
+        bool coalesced { false };
+        std::string parent_id;
+    };
+    std::optional<HistoryTransaction> active_history_transaction;
+    // Nested/coalesced transactions are intentionally dormant: they publish
+    // no independent history entry and have no UI.  Keeping a stack here
+    // gives future painting/support tools one safe outer transaction boundary.
+    std::vector<HistoryTransaction> nested_history_transactions;
+    std::uint64_t next_history_transaction_id = 1;
+    std::uint64_t history_revision = 0;
+    bool history_disabled = false;
     // The current completed preview owns the exported G-code in MEMFS. Keep
     // only its identity and file metadata here: full source text must never
     // be copied into the initial preview JSON or retained as a second string.
@@ -246,6 +373,33 @@ Vec3d parked_origin_for_count(const int count, const PlateBounds& bounds)
 
 constexpr const char* kNeoPlateMetadataEntry = "Metadata/orca_neo_plate_session_v1.json";
 constexpr const char* kNeoPlateMetadataSchema = "org.orcaslicerneo.plate-session";
+constexpr const char* kNeoConfigOverlayEntry = "Metadata/orca_neo_config_overlay_v1.json";
+constexpr const char* kNeoConfigOverlaySchema = "org.orcaslicerneo.config-overlay";
+
+json empty_project_config_overlay()
+{
+    return json{{"project", json::object()}, {"objects", json::object()},
+                {"parts", json::object()}, {"plates", json::object()}};
+}
+
+bool valid_project_config_overlay(const json& overlay)
+{
+    if (!overlay.is_object()) return false;
+    for (const char* scope : {"project", "objects", "parts", "plates"})
+        if (!overlay.contains(scope) || !overlay[scope].is_object()) return false;
+    for (const char* scope : {"project", "objects", "parts", "plates"}) {
+        for (auto it = overlay[scope].begin(); it != overlay[scope].end(); ++it) {
+            if (scope == std::string("project")) {
+                if (!it.value().is_string()) return false;
+                continue;
+            }
+            if (!it.value().is_object()) return false;
+            for (auto option = it.value().begin(); option != it.value().end(); ++option)
+                if (!option.value().is_string()) return false;
+        }
+    }
+    return true;
+}
 
 json config_metadata_json(const DynamicPrintConfig& config)
 {
@@ -613,7 +767,7 @@ json instance_membership_json()
                 {"instance_id", id}, {"object_id", object->id().id},
                 {"object_index", object_index}, {"instance_index", instance_index},
                 {"plate_id", plate_id}, {"member", !plate_id.empty()},
-                {"unprintable", parked || plate_id.empty()},
+                {"parked", parked}, {"unprintable", parked || plate_id.empty()},
                 {"out_of_bounds", out_of_bounds},
             });
         }
@@ -645,6 +799,7 @@ json plate_session_snapshot_json(const json& instance_transforms = json::array()
             {"valid", plate_valid}, {"locked", plate.locked},
             {"settings", plate.settings_metadata},
             {"opaque_metadata", plate.opaque_metadata},
+            {"future_metadata", plate.future_metadata},
         });
     }
     json result{
@@ -1692,6 +1847,505 @@ static json model_structure_json() {
     return objects;
 }
 
+template <class Config>
+void apply_overlay_to_config(Config& config, const json& values)
+{
+    if (!values.is_object()) return;
+    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+    for (auto it = values.begin(); it != values.end(); ++it) {
+        if (!it.value().is_string()) continue;
+        try { config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions); }
+        catch (...) { /* invalid retained values are ignored at slice time */ }
+    }
+}
+
+json project_config_overlay_metadata()
+{
+    return json{{"schema", kNeoConfigOverlaySchema}, {"version", 1},
+                {"overlay", state().project_config_overlay}};
+}
+
+json project_config_overlay_result()
+{
+    return json{{"ok", true}, {"overlay", state().project_config_overlay}};
+}
+
+static std::string history_entry_id(const std::uint64_t id)
+{
+    return std::string("entry-") + std::to_string(id);
+}
+
+static bool parse_history_entry_id(const char* value, std::uint64_t& id)
+{
+    if (!value) return false;
+    const std::string text(value);
+    if (text.rfind("entry-", 0) != 0 || text.size() == 6) return false;
+    try {
+        std::size_t consumed = 0;
+        id = std::stoull(text.substr(6), &consumed);
+        return consumed == text.size() - 6;
+    } catch (...) {
+        return false;
+    }
+}
+
+static bool parse_history_jump_direction(const char* value, Neo::History::JumpDirection& direction)
+{
+    if (!value) return false;
+    const std::string text(value);
+    if (text == "undo") { direction = Neo::History::JumpDirection::Undo; return true; }
+    if (text == "redo") { direction = Neo::History::JumpDirection::Redo; return true; }
+    return false;
+}
+
+static json parse_history_context(const char* context_cstr)
+{
+    if (!context_cstr || !*context_cstr)
+        throw std::runtime_error("history context is required");
+    const json context = json::parse(context_cstr);
+    if (!context.is_object() || !context.contains("selection") ||
+        !context["selection"].is_object() ||
+        !context.contains("activePlateId") ||
+        !(context["activePlateId"].is_null() || context["activePlateId"].is_string()) ||
+        !context.contains("gizmo") ||
+        !(context["gizmo"].is_null() || context["gizmo"].is_object()) ||
+        !context.contains("projectConfigOverlay") ||
+        !context["projectConfigOverlay"].is_object())
+        throw std::runtime_error("invalid history context");
+    const auto& selection = context["selection"];
+    if (!selection.contains("mode") || !selection["mode"].is_string() ||
+        !selection.contains("objectIds") || !selection["objectIds"].is_array() ||
+        !selection.contains("partIds") || !selection["partIds"].is_array() ||
+        !selection.contains("instanceIds") || !selection["instanceIds"].is_array())
+        throw std::runtime_error("invalid history selection");
+    for (const char* key : {"objectIds", "partIds", "instanceIds"})
+        for (const auto& id : selection[key])
+            if (!id.is_number_integer() || id.get<std::int64_t>() < 0)
+                throw std::runtime_error("invalid history selection id");
+    if (context["gizmo"].is_object() &&
+        (!context["gizmo"].contains("type") || !context["gizmo"]["type"].is_string()))
+        throw std::runtime_error("invalid history gizmo");
+    return context;
+}
+
+// Plate session state is deliberately kept beside the model version in the
+// history context.  The model archive cannot carry the headless session's
+// current plate, runtime plate IDs, membership, or input revisions, so
+// restoring only Model leaves the renderer observing a different project than
+// the Worker.  Validate the complete wire snapshot before replacing either
+// live state.  Object/instance IDs are resolved by their saved structural
+// position because libslic3r's deserialization constructors allocate fresh
+// instance IDs; the immutable plate IDs themselves are restored verbatim.
+static void validate_history_plate_session(const json& session, const Model& model)
+{
+    if (!session.is_object() || session.value("version", 0) != 1 ||
+        !session.contains("current_plate_id") || !session["current_plate_id"].is_string() ||
+        !session.contains("plates") || !session["plates"].is_array() || session["plates"].empty() ||
+        session["plates"].size() > static_cast<std::size_t>(kMaxPlateCount) ||
+        !session.contains("instances") || !session["instances"].is_array() ||
+        !session.contains("input_revisions") || !session["input_revisions"].is_object())
+        throw std::runtime_error("invalid history plate session");
+
+    std::set<std::string> plate_ids;
+    for (std::size_t index = 0; index < session["plates"].size(); ++index) {
+        const auto& plate = session["plates"][index];
+        if (!plate.is_object() || !plate.contains("plate_id") || !plate["plate_id"].is_string() ||
+            plate["plate_id"].get<std::string>().empty() ||
+            !plate_ids.insert(plate["plate_id"].get<std::string>()).second ||
+            !plate.contains("display_index") || !plate["display_index"].is_number_integer() ||
+            plate["display_index"].get<int>() != static_cast<int>(index) ||
+            !plate.contains("origin") || !plate["origin"].is_array() || plate["origin"].size() != 3 ||
+            !std::all_of(plate["origin"].begin(), plate["origin"].end(),
+                         [](const json& coordinate) { return coordinate.is_number(); }) ||
+            !plate.contains("name") || !plate["name"].is_string() ||
+            !plate.contains("locked") || !plate["locked"].is_boolean() ||
+            !plate.contains("settings") || !plate["settings"].is_object() ||
+            !plate.contains("opaque_metadata") || !plate["opaque_metadata"].is_array() ||
+            !plate.contains("future_metadata") || !plate["future_metadata"].is_object() ||
+            !plate.contains("instance_ids") || !plate["instance_ids"].is_array() ||
+            !plate.contains("out_of_bounds_instance_ids") || !plate["out_of_bounds_instance_ids"].is_array())
+            throw std::runtime_error("invalid history plate record");
+    }
+    if (plate_ids.find(session["current_plate_id"].get<std::string>()) == plate_ids.end())
+        throw std::runtime_error("history current plate is not present");
+
+    std::set<std::size_t> model_instance_ids;
+    for (const auto* object : model.objects)
+        for (const auto* instance : object->instances)
+            model_instance_ids.insert(instance->id().id);
+
+    std::map<std::size_t, std::pair<std::size_t, std::size_t>> saved_instances;
+    std::set<std::pair<std::size_t, std::size_t>> saved_positions;
+    std::set<std::size_t> membership_ids;
+    std::set<std::size_t> out_of_bounds_ids;
+    for (const auto& instance : session["instances"]) {
+        if (!instance.is_object() || !instance.contains("instance_id") ||
+            !instance["instance_id"].is_number_integer() || instance["instance_id"].get<std::int64_t>() < 0 ||
+            !instance.contains("object_index") || !instance["object_index"].is_number_integer() ||
+            !instance.contains("instance_index") || !instance["instance_index"].is_number_integer() ||
+            !instance.contains("plate_id") || !instance["plate_id"].is_string() ||
+            !instance.contains("member") || !instance["member"].is_boolean() ||
+            !instance.contains("parked") || !instance["parked"].is_boolean() ||
+            !instance.contains("out_of_bounds") || !instance["out_of_bounds"].is_boolean())
+            throw std::runtime_error("invalid history instance membership");
+        const auto saved_id = instance["instance_id"].get<std::size_t>();
+        const auto object_index = instance["object_index"].get<std::size_t>();
+        const auto instance_index = instance["instance_index"].get<std::size_t>();
+        if (!saved_instances.emplace(saved_id, std::make_pair(object_index, instance_index)).second ||
+            !saved_positions.emplace(object_index, instance_index).second ||
+            object_index >= model.objects.size() || instance_index >= model.objects[object_index]->instances.size())
+            throw std::runtime_error("history instance membership does not match model");
+        const std::string plate_id = instance["plate_id"].get<std::string>();
+        if (plate_id.empty() != !instance["member"].get<bool>() ||
+            (!plate_id.empty() && plate_ids.find(plate_id) == plate_ids.end()) ||
+            (instance["parked"].get<bool>() && !plate_id.empty()) ||
+            (instance["out_of_bounds"].get<bool>() && plate_id.empty()))
+            throw std::runtime_error("inconsistent history instance membership");
+        if (!plate_id.empty()) membership_ids.insert(saved_id);
+        if (instance["out_of_bounds"].get<bool>()) out_of_bounds_ids.insert(saved_id);
+    }
+    if (saved_instances.size() != model_instance_ids.size())
+        throw std::runtime_error("history plate session is missing model instances");
+
+    std::set<std::size_t> listed_members;
+    std::set<std::size_t> listed_out_of_bounds;
+    for (const auto& plate : session["plates"]) {
+        for (const auto& value : plate["instance_ids"]) {
+            if (!value.is_number_integer() || value.get<std::int64_t>() < 0 ||
+                !listed_members.insert(value.get<std::size_t>()).second)
+                throw std::runtime_error("duplicate history plate membership");
+            const auto instance = std::find_if(session["instances"].begin(), session["instances"].end(),
+                                               [&](const json& candidate) {
+                                                   return candidate["instance_id"] == value;
+                                               });
+            if (instance == session["instances"].end() || instance->at("plate_id") != plate["plate_id"])
+                throw std::runtime_error("history plate membership does not match instances");
+        }
+        for (const auto& value : plate["out_of_bounds_instance_ids"]) {
+            if (!value.is_number_integer() || value.get<std::int64_t>() < 0 ||
+                !listed_out_of_bounds.insert(value.get<std::size_t>()).second)
+                throw std::runtime_error("duplicate history out-of-bounds membership");
+            const auto instance = std::find_if(session["instances"].begin(), session["instances"].end(),
+                                               [&](const json& candidate) {
+                                                   return candidate["instance_id"] == value;
+                                               });
+            if (instance == session["instances"].end() || instance->at("plate_id") != plate["plate_id"] ||
+                !instance->at("out_of_bounds").get<bool>())
+                throw std::runtime_error("history out-of-bounds membership does not match instances");
+        }
+    }
+    if (listed_members != membership_ids || listed_out_of_bounds != out_of_bounds_ids)
+        throw std::runtime_error("history plate membership is incomplete");
+
+    for (const auto& [plate_id, revision] : session["input_revisions"].items()) {
+        if (plate_ids.find(plate_id) == plate_ids.end() || !revision.is_number_unsigned())
+            throw std::runtime_error("invalid history plate revision");
+    }
+    for (const auto& plate_id : plate_ids)
+        if (!session["input_revisions"].contains(plate_id))
+            throw std::runtime_error("history plate revision is missing");
+}
+
+static void restore_history_plate_session(const json& session, const Model& restored_model)
+{
+    validate_history_plate_session(session, restored_model);
+
+    std::vector<BridgeState::PlateSessionPlate> restored_plates;
+    restored_plates.reserve(session["plates"].size());
+    for (const auto& record : session["plates"]) {
+        BridgeState::PlateSessionPlate plate;
+        plate.id = record["plate_id"].get<std::string>();
+        plate.name = record["name"].get<std::string>();
+        plate.display_index = record["display_index"].get<int>();
+        const auto& origin = record["origin"];
+        plate.origin = Vec3d(origin[0].get<double>(), origin[1].get<double>(), origin[2].get<double>());
+        plate.locked = record["locked"].get<bool>();
+        plate.settings_metadata = record["settings"];
+        plate.opaque_metadata = record["opaque_metadata"];
+        plate.future_metadata = record["future_metadata"];
+        apply_overlay_to_config(plate.settings, plate.settings_metadata);
+        restored_plates.push_back(std::move(plate));
+    }
+
+    state().plate_session_plates = std::move(restored_plates);
+    state().current_plate_id = session["current_plate_id"].get<std::string>();
+    state().instance_plate_ids.clear();
+    state().plate_out_of_bounds_ids.clear();
+    state().parked_instance_ids.clear();
+    state().plate_input_revisions.clear();
+
+    for (const auto& instance : session["instances"]) {
+        const auto object_index = instance["object_index"].get<std::size_t>();
+        const auto instance_index = instance["instance_index"].get<std::size_t>();
+        const std::size_t restored_id = restored_model.objects[object_index]->instances[instance_index]->id().id;
+        const std::string plate_id = instance["plate_id"].get<std::string>();
+        if (!plate_id.empty()) state().instance_plate_ids[restored_id] = plate_id;
+        if (instance["parked"].get<bool>()) state().parked_instance_ids.insert(restored_id);
+        if (instance["out_of_bounds"].get<bool>()) state().plate_out_of_bounds_ids[plate_id].insert(restored_id);
+    }
+    for (const auto& [plate_id, revision] : session["input_revisions"].items())
+        state().plate_input_revisions[plate_id] = revision.get<std::uint64_t>();
+}
+
+static Neo::History::Bytes history_mesh_bytes(const TriangleMesh& mesh)
+{
+    std::ostringstream stream(std::ios::binary | std::ios::out);
+    cereal::BinaryOutputArchive archive(stream);
+    archive(mesh);
+    const std::string encoded = stream.str();
+    return Neo::History::Bytes(encoded.begin(), encoded.end());
+}
+
+static std::string history_mesh_key(const Neo::History::Bytes& bytes)
+{
+    std::uint64_t hash = 1469598103934665603ULL;
+    for (const auto byte : bytes) {
+        hash ^= byte;
+        hash *= 1099511628211ULL;
+    }
+    return std::string("mesh-") + std::to_string(hash) + "-" + std::to_string(bytes.size());
+}
+
+static Neo::History::ModelState history_model_state()
+{
+    NeoHistoryArchiveContext archive_context;
+    std::map<std::string, Neo::History::Bytes> mesh_bytes;
+    for (const auto* object : state().model.objects) {
+        for (const auto* volume : object->volumes) {
+            const auto mesh = volume->get_mesh_shared_ptr();
+            if (!mesh) continue;
+            if (archive_context.output_mesh_keys.count(mesh.get())) continue;
+            auto bytes = history_mesh_bytes(*mesh);
+            const auto key = history_mesh_key(bytes);
+            archive_context.output_mesh_keys.emplace(mesh.get(), key);
+            mesh_bytes.emplace(key, std::move(bytes));
+        }
+    }
+
+    Neo::History::ModelState result;
+    // Restoration is driven entirely by ObjectID-keyed mutable records and
+    // shared immutable mesh records. No complete-model archive is retained as
+    // a per-entry equality or restore payload.
+    result.mutable_objects.reserve(state().model.objects.size());
+    for (const auto* object : state().model.objects) {
+        std::ostringstream stream(std::ios::binary | std::ios::out);
+        NeoHistoryOutputArchive archive(archive_context, stream);
+        archive(*object);
+        const std::string encoded = stream.str();
+        result.mutable_objects.push_back({
+            object->id().id, object->timestamp(),
+            Neo::History::Bytes(encoded.begin(), encoded.end())});
+    }
+    result.immutable_meshes.reserve(mesh_bytes.size());
+    for (auto& [key, bytes] : mesh_bytes)
+        result.immutable_meshes.push_back({std::move(key), std::make_shared<const Neo::History::Bytes>(std::move(bytes)), {}, false});
+    return result;
+}
+
+static Model stage_history_model(const Neo::History::RestoreState& restored)
+{
+    NeoHistoryArchiveContext archive_context;
+    for (const auto& mesh : restored.model.immutable_meshes) {
+        const auto& encoded = mesh.resident ? *mesh.resident : (mesh.deferred ? *mesh.deferred : Neo::History::Bytes{});
+        if (encoded.empty()) throw std::runtime_error("history mesh data is unavailable");
+        std::string bytes(encoded.begin(), encoded.end());
+        std::istringstream stream(bytes, std::ios::binary | std::ios::in);
+        auto native_mesh = std::make_shared<TriangleMesh>();
+        cereal::BinaryInputArchive archive(stream);
+        archive(*native_mesh);
+        archive_context.input_meshes.emplace(mesh.key, std::move(native_mesh));
+    }
+
+    // Deserialize into a transient model and let Model's copy assignment
+    // rebuild ModelObject-owned volume/instance links. The transient is not
+    // retained by history; ProjectHistory owns only the keyed byte versions.
+    Model rebuilt_model = state().model;
+    rebuilt_model.clear_objects();
+    for (const auto& object : restored.model.mutable_objects) {
+        if (object.data.empty()) throw std::runtime_error("history object data is unavailable");
+        std::string bytes(object.data.begin(), object.data.end());
+        std::istringstream stream(bytes, std::ios::binary | std::ios::in);
+        ModelObject* native_object = rebuilt_model.add_object();
+        NeoHistoryInputArchive archive(archive_context, stream);
+        archive(*native_object);
+
+        // Native ModelInstance deserialization intentionally constructs with
+        // an invalid ObjectID because Orca restores into an existing object
+        // graph.  Neo stages a fresh Model instead, so materialize each
+        // decoded instance through ModelObject::add_instance() to allocate a
+        // valid runtime identity before the plate-session membership map is
+        // applied.  The structural order remains unchanged.
+        const std::size_t decoded_instance_count = native_object->instances.size();
+        for (std::size_t index = 0; index < decoded_instance_count; ++index) {
+            ModelInstance* decoded = native_object->instances[index];
+            ModelInstance* materialized = native_object->add_instance();
+            materialized->set_transformation(decoded->get_transformation());
+            if (decoded->is_assemble_initialized())
+                materialized->set_assemble_transformation(decoded->get_assemble_transformation());
+            materialized->set_offset_to_assembly(decoded->get_offset_to_assembly());
+            materialized->print_volume_state = decoded->print_volume_state;
+            materialized->printable = decoded->printable;
+            materialized->auto_drop = decoded->auto_drop;
+            materialized->use_loaded_id_for_label = decoded->use_loaded_id_for_label;
+            materialized->arrange_order = decoded->arrange_order;
+            materialized->loaded_id = decoded->loaded_id;
+        }
+        for (std::size_t index = 0; index < decoded_instance_count; ++index)
+            native_object->delete_instance(0);
+    }
+    return rebuilt_model;
+}
+
+static void restore_history_model(const Neo::History::RestoreState& restored)
+{
+    state().model = stage_history_model(restored);
+}
+
+static json default_history_context()
+{
+    return json{
+        {"selection", {{"mode", "object"}, {"objectIds", json::array()},
+                        {"partIds", json::array()}, {"instanceIds", json::array()}}},
+        {"activePlateId", state().current_plate_id.empty() ? json(nullptr) : json(state().current_plate_id)},
+        {"gizmo", nullptr}, {"projectConfigOverlay", state().project_config_overlay},
+        {"plateSession", plate_session_snapshot_json()},
+    };
+}
+
+static json canonical_history_context(json context)
+{
+    if (!context.is_object()) context = default_history_context();
+    // The Worker is authoritative for plate identity, collection, membership,
+    // and revisions. React contributes only the projected editing context.
+    context["activePlateId"] = state().current_plate_id.empty()
+        ? json(nullptr) : json(state().current_plate_id);
+    context["plateSession"] = plate_session_snapshot_json();
+    context["projectConfigOverlay"] = state().project_config_overlay;
+    return context;
+}
+
+// Selection and active-plate changes are internal context records. They carry
+// no model mutation and are deliberately invisible to ordinary project
+// traversal, while a new context record still truncates a redo branch.
+static void record_history_context(const std::string& label, const json& requested)
+{
+    if (state().active_history_transaction) return;
+    json context = canonical_history_context(requested);
+    if (!state().history.entries().empty()) {
+        // The renderer sends the complete projected context. Keeping this
+        // replacement explicit prevents stale selection fields when only the
+        // active plate changes.
+    } else {
+        const json baseline = default_history_context();
+        const std::string encoded = baseline.dump();
+        const Neo::History::Bytes context_bytes(encoded.begin(), encoded.end());
+        state().history.commit("", Neo::History::Category::Project,
+                               history_model_state(), context_bytes);
+        state().history.mark_current_as_saved();
+    }
+    const std::string encoded = context.dump();
+    const Neo::History::Bytes context_bytes(encoded.begin(), encoded.end());
+    if (state().history.commit(label, Neo::History::Category::Context,
+                               history_model_state(), context_bytes))
+        state().history_revision++;
+}
+
+static void record_active_plate_context()
+{
+    json context = default_history_context();
+    if (!state().history.entries().empty()) {
+        try {
+            const auto& current = state().history.current();
+            context = json::parse(std::string(current.context.begin(), current.context.end()));
+        } catch (...) { context = default_history_context(); }
+    }
+    context["activePlateId"] = state().current_plate_id.empty()
+        ? json(nullptr) : json(state().current_plate_id);
+    record_history_context("Active Plate", context);
+}
+
+static json history_status_json()
+{
+    const auto entries = state().history.entries();
+    const std::size_t cursor = state().history.cursor();
+    json undo = json::array();
+    json redo = json::array();
+    for (std::size_t i = cursor; i > 0; --i) {
+        const auto& entry = entries[i];
+        if (entry.category != Neo::History::Category::Project || entry.id == 0) continue;
+        undo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
+                            {"category", entry.category == Neo::History::Category::Project ? "project" : "context"}});
+    }
+    for (std::size_t i = cursor + 1; i < entries.size(); ++i) {
+        const auto& entry = entries[i];
+        if (entry.category != Neo::History::Category::Project || entry.id == 0) continue;
+        redo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
+                            {"category", entry.category == Neo::History::Category::Project ? "project" : "context"}});
+    }
+    const auto* undo_entry = state().history.undo_entry();
+    const auto* redo_entry = state().history.redo_entry();
+    const auto saved = state().history.saved_checkpoint();
+    const auto resources = state().history.resource_diagnostics();
+    return json{
+        {"canUndo", state().history.can_undo()}, {"canRedo", state().history.can_redo()},
+        {"undoLabel", undo_entry ? json(undo_entry->label) : json(nullptr)},
+        {"redoLabel", redo_entry ? json(redo_entry->label) : json(nullptr)},
+        {"undoEntries", std::move(undo)}, {"redoEntries", std::move(redo)},
+        {"cursor", cursor},
+        {"savedCheckpoint", saved == std::numeric_limits<std::size_t>::max() ? json(nullptr) : json(saved)},
+        {"savedCheckpointEvicted", state().history.saved_checkpoint_evicted()},
+        {"dirty", state().history.project_modified()},
+        {"bytesUsed", state().history.bytes_used()}, {"byteBudget", state().history.byte_budget()},
+        {"optionalBytesReleased", resources.optional_bytes_released},
+        {"evictedEntryCount", resources.evicted_entry_count},
+        {"lastEvictedEntryId", resources.last_evicted_entry_id == 0
+            ? json(nullptr) : json(history_entry_id(resources.last_evicted_entry_id))},
+        {"oldestRetainedEntryId", state().history.entries().empty()
+            ? json(nullptr) : json(history_entry_id(resources.oldest_retained_entry_id))},
+        {"oversizedEntryRetained", resources.oversized_entry_retained},
+        {"disabled", state().history_disabled},
+        {"activeTransactionId", state().active_history_transaction ? json(state().active_history_transaction->id) : json(nullptr)},
+        {"revision", state().history_revision},
+    };
+}
+
+static json history_restore_result(const Neo::History::RestorePlan& plan)
+{
+    // Parse and rebuild into temporaries first.  Neither the live model nor
+    // the history cursor is touched until both validations have succeeded.
+    const auto context = json::parse(std::string(plan.state.context.begin(), plan.state.context.end()));
+    const json validated_context = parse_history_context(context.dump().c_str());
+    Model staged_model = stage_history_model(plan.state);
+    if (validated_context.contains("plateSession"))
+        validate_history_plate_session(validated_context["plateSession"], staged_model);
+    // Check the cursor fence before replacing the live model.  The Worker is
+    // serialized, but keeping this preflight makes a stale plan failure
+    // atomic even if another writer is introduced later.
+    if (!state().history.can_commit_restore(plan))
+        throw std::runtime_error("history restore became stale");
+    state().model = std::move(staged_model);
+    if (validated_context.contains("plateSession"))
+        restore_history_plate_session(validated_context["plateSession"], state().model);
+    if (valid_project_config_overlay(validated_context["projectConfigOverlay"]))
+        state().project_config_overlay = validated_context["projectConfigOverlay"];
+    if (!state().history.commit_restore(plan))
+        throw std::runtime_error("history restore became stale");
+    state().print.clear();
+    invalidate_preview_source();
+    state().history_revision++;
+    return json{{"ok", true}, {"context", validated_context}, {"status", history_status_json()},
+                {"entryId", history_entry_id(plan.state.entry.id)}};
+}
+
+static const char* history_restore_failure(const std::string& message)
+{
+    return dup_json(json{
+        {"ok", false},
+        {"error", {{"code", "restore-failed"}, {"message", message}, {"retryable", true}}},
+        {"status", history_status_json()},
+    }.dump());
+}
+
 }  // namespace
 
 extern "C" {
@@ -1716,6 +2370,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
 
         const char* result = init_with_app_config(json::object());
         reset_plate_session_state();
+        state().project_config_overlay = empty_project_config_overlay();
+        state().history.clear();
+        state().active_history_transaction.reset();
+        state().nested_history_transactions.clear();
+        state().history_disabled = false;
+        state().history_revision++;
         // First bridge log record — proves the sink pipeline end-to-end
         // (console + /tmp/orca.log).
         BOOST_LOG_TRIVIAL(info) << "orc_init: bridge ready, log level "
@@ -1734,6 +2394,233 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         fprintf(stderr, "orc_init caught (...) via catch-all\n");
         return error_json("unknown C++ exception");
     }
+}
+
+// ---- Worker-owned project history transaction protocol ------------------
+// These calls are intentionally independent of 3MF persistence.  The core
+// tracks compact fingerprints/context bytes and retains native restore state
+// through the same budgeted ProjectHistory entries.
+EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr,
+                                                   const char* category_cstr,
+                                                   const char* before_context_cstr,
+                                                   const char* options_cstr) {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        const std::string label = label_cstr ? label_cstr : "";
+        const std::string category = category_cstr ? category_cstr : "";
+        if (label.empty()) return error_json("history label is required");
+        if (category != "project" && category != "context")
+            return error_json("history category must be project or context");
+        const json before_context = canonical_history_context(parse_history_context(before_context_cstr));
+        json options = json::object();
+        if (options_cstr && *options_cstr) options = json::parse(options_cstr);
+        const bool coalesce = options.is_object() && options.value("coalesce", false);
+        const std::string parent_id = options.is_object() && options.contains("parentTransactionId") &&
+            options["parentTransactionId"].is_string() ? options["parentTransactionId"].get<std::string>() : std::string{};
+        if (state().active_history_transaction) {
+            const std::string parent_target = state().nested_history_transactions.empty()
+                ? state().active_history_transaction->id : state().nested_history_transactions.back().id;
+            if (!coalesce || parent_id != parent_target)
+                return error_json("history transaction is already active");
+            const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
+            state().nested_history_transactions.push_back({
+                id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
+                before_context, history_model_state(), true,
+                parent_target});
+            return dup_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
+        }
+        if (state().history.entries().empty()) {
+            const std::string context_text = before_context.dump();
+            state().history.commit("", Neo::History::Category::Project,
+                                   history_model_state(),
+                                   Neo::History::Bytes(context_text.begin(), context_text.end()));
+        }
+        const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
+        state().active_history_transaction = BridgeState::HistoryTransaction{
+            id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
+            before_context, history_model_state(), false, {}};
+        return dup_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_cstr,
+                                                    const char* after_context_cstr) {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
+        if (!state().active_history_transaction)
+            return error_json("history transaction is not active");
+        if (!state().nested_history_transactions.empty()) {
+            auto& nested = state().nested_history_transactions.back();
+            if (requested != nested.id)
+                return error_json("history transaction is stale or belongs to another writer");
+            // A coalesced child intentionally publishes no independent entry;
+            // its outer transaction owns the final semantic snapshot.
+            state().nested_history_transactions.pop_back();
+            return dup_json(history_status_json().dump());
+        }
+        if (requested != state().active_history_transaction->id)
+            return error_json("history transaction is stale or belongs to another writer");
+        const json after_context = canonical_history_context(parse_history_context(after_context_cstr));
+        const auto tx = *state().active_history_transaction;
+        const std::string context_text = after_context.dump();
+        const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
+        const bool changed = state().history.commit(tx.label, tx.category,
+                                                     history_model_state(), context_bytes);
+        if (changed) state().history_revision++;
+        state().active_history_transaction.reset();
+        state().nested_history_transactions.clear();
+        return dup_json(history_status_json().dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cstr) {
+    try {
+        const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
+        if (!state().active_history_transaction)
+            return error_json("history transaction is not active");
+        if (!state().nested_history_transactions.empty()) {
+            auto tx = state().nested_history_transactions.back();
+            if (requested != tx.id)
+                return error_json("history transaction is stale or belongs to another writer");
+            restore_history_model({tx.before_model, {}, {}});
+            if (tx.before_context.contains("plateSession"))
+                restore_history_plate_session(tx.before_context["plateSession"], state().model);
+            if (valid_project_config_overlay(tx.before_context["projectConfigOverlay"]))
+                state().project_config_overlay = tx.before_context["projectConfigOverlay"];
+            state().nested_history_transactions.pop_back();
+            state().print.clear();
+            invalidate_preview_source();
+            state().history_revision++;
+            return dup_json(json{{"ok", true}, {"context", tx.before_context},
+                                 {"status", history_status_json()}}.dump());
+        }
+        if (requested != state().active_history_transaction->id)
+            return error_json("history transaction is stale or belongs to another writer");
+        const auto tx = *state().active_history_transaction;
+        restore_history_model({tx.before_model, {}, {}});
+        if (tx.before_context.contains("plateSession"))
+            restore_history_plate_session(tx.before_context["plateSession"], state().model);
+        if (valid_project_config_overlay(tx.before_context["projectConfigOverlay"]))
+            state().project_config_overlay = tx.before_context["projectConfigOverlay"];
+        state().print.clear();
+        invalidate_preview_source();
+        state().active_history_transaction.reset();
+        state().nested_history_transactions.clear();
+        state().history_revision++;
+        return dup_json(json{{"ok", true}, {"context", tx.before_context},
+                             {"status", history_status_json()}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_undo() {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        if (state().active_history_transaction) return error_json("history transaction is active");
+        Neo::History::RestorePlan plan;
+        if (!state().history.prepare_undo(plan)) return error_json("no undo history");
+        return dup_json(history_restore_result(plan).dump());
+    } catch (const std::exception& e) { return history_restore_failure(e.what()); }
+    catch (...) { return history_restore_failure("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_redo() {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        if (state().active_history_transaction) return error_json("history transaction is active");
+        Neo::History::RestorePlan plan;
+        if (!state().history.prepare_redo(plan)) return error_json("no redo history");
+        return dup_json(history_restore_result(plan).dump());
+    } catch (const std::exception& e) { return history_restore_failure(e.what()); }
+    catch (...) { return history_restore_failure("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, const char* direction_cstr) {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        if (state().active_history_transaction) return error_json("history transaction is active");
+        std::uint64_t entry_id = 0;
+        if (!parse_history_entry_id(entry_id_cstr, entry_id)) return error_json("invalid history entry id");
+        Neo::History::JumpDirection direction;
+        if (!parse_history_jump_direction(direction_cstr, direction)) return error_json("invalid history jump direction");
+        Neo::History::RestorePlan plan;
+        if (!state().history.prepare_jump(entry_id, direction, plan)) return error_json("history entry is stale, unavailable, or outside the requested direction");
+        return dup_json(history_restore_result(plan).dump());
+    } catch (const std::exception& e) { return history_restore_failure(e.what()); }
+    catch (...) { return history_restore_failure("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_status() {
+    try { return dup_json(history_status_json().dump()); }
+    catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+// Project replacement is a hard history boundary.  The caller supplies the
+// freshly projected React context after the native model has been replaced;
+// the new model becomes one clean baseline and the old stack/checkpoint are
+// released together.  History metadata never enters the 3MF archive.
+EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr) {
+    try {
+        const json context = canonical_history_context(parse_history_context(context_cstr));
+        state().history.clear();
+        state().active_history_transaction.reset();
+        state().history_disabled = false;
+        const std::string context_text = context.dump();
+        const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
+        if (!state().history.commit("", Neo::History::Category::Project,
+                                    history_model_state(), context_bytes))
+            return error_json("could not establish history baseline");
+        state().history.mark_current_as_saved();
+        state().history_revision++;
+        return dup_json(history_status_json().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+// Save and Save As only advance the checkpoint; they do not clear retained
+// model/context entries, so Undo/Redo remains usable after a successful save.
+EMSCRIPTEN_KEEPALIVE const char* orc_history_mark_saved(const char* context_cstr) {
+    try {
+        if (state().history.entries().empty() && context_cstr && *context_cstr) {
+            const json context = canonical_history_context(parse_history_context(context_cstr));
+            const std::string context_text = context.dump();
+            const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
+            if (!state().history.commit("", Neo::History::Category::Project,
+                                        history_model_state(), context_bytes))
+                return error_json("could not establish history baseline");
+        }
+        state().history.mark_current_as_saved();
+        return dup_json(history_status_json().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_history_record_context(const char* label_cstr,
+                                                            const char* context_cstr) {
+    try {
+        if (state().history_disabled) return error_json("history is disabled");
+        if (state().active_history_transaction)
+            return error_json("history transaction is active");
+        const std::string label = label_cstr ? label_cstr : "";
+        if (label.empty()) return error_json("history label is required");
+        const json context = canonical_history_context(parse_history_context(context_cstr));
+        record_history_context(label, context);
+        return dup_json(history_status_json().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
 }
 
 // Headless plate-session commands. Every successful mutation returns one
@@ -1768,6 +2655,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_plate(const char* plate_id_cstr) {
         if (find_plate(requested) == nullptr)
             return error_json("plate not found");
         state().current_plate_id = requested;
+        record_active_plate_context();
         return dup_json(plate_session_snapshot_json().dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -1928,6 +2816,84 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mark_shared_configuration_mutation() {
     } catch (...) {
         return error_json("unknown C++ exception");
     }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_get_project_config_overlay() {
+    try {
+        return dup_json(project_config_overlay_result().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* scope_cstr,
+                                                                  const char* id_cstr,
+                                                                  const char* option_key_cstr,
+                                                                  const char* value_cstr) {
+    try {
+        ensure_plate_session_state();
+        const std::string scope = scope_cstr ? scope_cstr : "";
+        const std::string id = id_cstr ? id_cstr : "";
+        const std::string key = option_key_cstr ? option_key_cstr : "";
+        const std::string value = value_cstr ? value_cstr : "";
+        if (scope != "project" && scope != "object" && scope != "part" && scope != "plate")
+            return error_json("invalid project configuration scope");
+        if (key.empty()) return error_json("option key is required");
+        if (print_config_def.options.find(key) == print_config_def.options.end())
+            return error_json("unsupported project configuration option: " + key);
+        if (scope != "project" && id.empty()) return error_json("scope id is required");
+        ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+        if (scope == "object") {
+            auto* object = find_object_by_id(static_cast<std::size_t>(std::stoull(id)));
+            if (!object) return error_json("object not found");
+            object->config.set_deserialize(key, value, substitutions);
+        } else if (scope == "part") {
+            auto* volume = find_volume_by_id(static_cast<std::size_t>(std::stoull(id)));
+            if (!volume) return error_json("part not found");
+            volume->config.set_deserialize(key, value, substitutions);
+        } else if (scope == "plate") {
+            auto* plate = const_cast<BridgeState::PlateSessionPlate*>(find_plate(id));
+            if (!plate) return error_json("plate not found");
+            plate->settings.set_deserialize(key, value, substitutions);
+            plate->settings_metadata = config_metadata_json(plate->settings);
+        }
+        json& bucket = scope == "project" ? state().project_config_overlay["project"]
+            : scope == "object" ? state().project_config_overlay["objects"][id]
+            : scope == "part" ? state().project_config_overlay["parts"][id]
+            : state().project_config_overlay["plates"][id];
+        bucket[key] = value;
+        const auto mutation = shared_configuration_mutation_snapshot();
+        json result = project_config_overlay_result();
+        result["plate_session"] = mutation;
+        return dup_json(result.dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_revalidate_project_config_overlay() {
+    try {
+        // Revalidation is deliberately conservative: retain only keys known
+        // by the current PrintConfig definition. Values are checked again at
+        // slice time against the selected base preset and invalid values are
+        // ignored without destroying the rest of the project overlay.
+        for (const char* scope : {"project", "objects", "parts", "plates"}) {
+            auto& values = state().project_config_overlay[scope];
+            for (auto it = values.begin(); it != values.end();) {
+                if (scope == std::string("project")) {
+                    if (print_config_def.options.find(it.key()) == print_config_def.options.end()) it = values.erase(it);
+                    else ++it;
+                } else {
+                    if (!it.value().is_object()) { it = values.erase(it); continue; }
+                    for (auto option = it.value().begin(); option != it.value().end();) {
+                        if (!option.value().is_string() || print_config_def.options.find(option.key()) == print_config_def.options.end()) option = it.value().erase(option);
+                        else ++option;
+                    }
+                    ++it;
+                }
+            }
+        }
+        return dup_json(project_config_overlay_result().dump());
+    } catch (const std::exception& e) { return error_json(e.what()); }
+    catch (...) { return error_json("unknown C++ exception"); }
 }
 
 // Read one atomic, picker-ready compatibility state. It contains only
@@ -2207,8 +3173,17 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
 
         const auto model_config = read_archive_entry(path, "Metadata/model_settings.config");
         const auto neo_entry = read_archive_entry(path, kNeoPlateMetadataEntry);
+        const auto overlay_entry = read_archive_entry(path, kNeoConfigOverlayEntry);
         std::optional<json> neo_metadata;
+        std::optional<json> overlay_metadata;
         if (neo_entry) neo_metadata = parse_neo_plate_metadata(*neo_entry);
+        if (overlay_entry) {
+            const json parsed = json::parse(*overlay_entry);
+            if (!parsed.is_object() || parsed.value("schema", "") != kNeoConfigOverlaySchema ||
+                parsed.value("version", 0) != 1 || !valid_project_config_overlay(parsed["overlay"]))
+                throw Slic3r::RuntimeError("corrupt Neo configuration overlay metadata");
+            overlay_metadata = parsed["overlay"];
+        }
         std::vector<ImportedPlateRecord> raw_records = model_config ? parse_plate_records(*model_config) : std::vector<ImportedPlateRecord>{};
         if (raw_records.size() > static_cast<size_t>(kMaxPlateCount) ||
             (neo_metadata && (*neo_metadata)["plates"].size() > static_cast<size_t>(kMaxPlateCount))) {
@@ -2338,15 +3313,46 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
         } else {
             state().model = std::move(imported);
             state().presets = candidate;
+            state().project_config_overlay = overlay_metadata.value_or(empty_project_config_overlay());
         }
         state().print.clear();
         invalidate_preview_source();
         if (!geometry_only) {
             initialize_plate_session_from_records(plate_data, raw_records, neo_metadata);
+            for (auto& object : state().model.objects) {
+                const auto it = state().project_config_overlay["objects"].find(std::to_string(object->id().id));
+                if (it != state().project_config_overlay["objects"].end()) apply_overlay_to_config(object->config, it.value());
+                for (auto& volume : object->volumes) {
+                    const auto part_it = state().project_config_overlay["parts"].find(std::to_string(volume->id().id));
+                    if (part_it != state().project_config_overlay["parts"].end()) apply_overlay_to_config(volume->config, part_it.value());
+                }
+            }
+            for (auto& plate : state().plate_session_plates) {
+                const auto it = state().project_config_overlay["plates"].find(plate.id);
+                if (it != state().project_config_overlay["plates"].end()) {
+                    apply_overlay_to_config(plate.settings, it.value());
+                    plate.settings_metadata = config_metadata_json(plate.settings);
+                }
+            }
             // Results are deliberately not loaded from PlateData. Membership
             // is recomputed from the imported world geometry after the fresh
             // runtime identities and native plate order are established.
             rebuild_plate_membership(true);
+            // A successful project replacement starts a new clean Worker
+            // session.  Geometry-only imports intentionally remain ordinary
+            // current-project mutations and do not cross this boundary.
+            state().history.clear();
+            state().active_history_transaction.reset();
+            state().nested_history_transactions.clear();
+            state().history_disabled = false;
+            const json context = default_history_context();
+            const std::string context_text = context.dump();
+            const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
+            if (!state().history.commit("", Neo::History::Category::Project,
+                                        history_model_state(), context_bytes))
+                throw Slic3r::RuntimeError("could not establish project history baseline");
+            state().history.mark_current_as_saved();
+            state().history_revision++;
         } else {
             rebuild_plate_membership(true);
         }
@@ -2388,6 +3394,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_load_project(const char* data, int len,
         // it never has to issue a second read after native replacement.
         if (!geometry_only)
             out["preset_snapshot"] = preset_snapshot_json();
+        if (!geometry_only)
+            out["project_config_overlay"] = state().project_config_overlay;
         if (geometry_only) {
             const auto mutation = plate_mutation_snapshot({}, {"model-import"},
                 reflow_instance_transforms(geometry_added_instances));
@@ -2512,6 +3520,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         const std::string metadata = plate_metadata_json(owned).dump();
         if (!append_archive_entry(path, kNeoPlateMetadataEntry, metadata))
             throw Slic3r::RuntimeError("Neo plate metadata append failed");
+        const std::string overlay = project_config_overlay_metadata().dump();
+        if (!append_archive_entry(path, kNeoConfigOverlayEntry, overlay))
+            throw Slic3r::RuntimeError("Neo configuration overlay metadata append failed");
 
         std::ifstream input(path, std::ios::binary | std::ios::ate);
         if (!input.good()) throw Slic3r::RuntimeError("BBS 3MF output could not be opened");
@@ -3285,6 +4296,14 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             // handle_legacy (Config.cpp:586-590) records every dropped key in
             // substitutions.unrecogized_keys, which we surface below.
             config.set_deserialize(key, value, substitutions);
+        }
+        // Project and plate overrides are canonical Worker state and win over
+        // any legacy renderer payload supplied for this slice request.
+        apply_overlay_to_config(config, state().project_config_overlay["project"]);
+        if (const auto* plate = find_plate(plate_id)) {
+            const auto plate_it = state().project_config_overlay["plates"].find(plate_id);
+            if (plate_it != state().project_config_overlay["plates"].end())
+                apply_overlay_to_config(config, plate_it.value());
         }
         config.normalize_fdm();
         // Fix round 3: validate() invariant guarantee. A Marlin flavor with

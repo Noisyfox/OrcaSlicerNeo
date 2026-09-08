@@ -7,8 +7,6 @@ import * as THREE from 'three';
 import { TransformControls } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useSceneInteraction } from '../SceneInteractionContext';
-import { persistSettledModelTransforms } from '../../actions/persistModelTransforms';
-import { usePlatform } from '@orca/platform-contract';
 
 export type TransformGizmoMode = 'translate' | 'rotate' | 'scale';
 
@@ -16,7 +14,6 @@ export function TransformGizmo({ target, mode }: {
   target: THREE.Object3D;
   mode: TransformGizmoMode;
 }) {
-  const platform = usePlatform();
   const sceneInteraction = useSceneInteraction();
   const invalidate = useThree((s) => s.invalidate);
   const domElement = useThree((s) => s.gl.domElement);
@@ -123,9 +120,7 @@ export function TransformGizmo({ target, mode }: {
         invalidate();
       }}
       onMouseUp={() => {
-        if (sceneInteraction.owner === 'gizmo' && sceneInteraction.endDrag()) {
-          void persistSettledModelTransforms(platform.runtime);
-        }
+        if (sceneInteraction.owner === 'gizmo') sceneInteraction.endDrag();
       }}
     />
   );

@@ -7,6 +7,8 @@ export type {
   InitResult, PresetInfo, PresetSelection, PresetSnapshot,
   PlateSessionPlate, PlateSessionInstance, PlateSessionInstanceTransform, PlateSessionSnapshot,
   PlateSessionMutation, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  ProjectConfigOverlay, ProjectConfigScope, ProjectConfigOverrideTarget,
+  ProjectConfigOverlayResult, ProjectConfigOverlayError, ProjectConfigOverlayResultOrError,
   PresetSnapshotError, PresetSnapshotResult, SelectPresetResult,
   OptionMetadata, OptionMeta,
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
@@ -22,6 +24,14 @@ export type {
   PreviewSourceKind, PreviewTextChunkRequest, PreviewTextChunk, PreviewTextLinesRequest, PreviewTextLines, PreviewSource,
   ExportGcodeResult, ExportProjectResult, CancelResult,
 } from './types';
+export type {
+  StableObjectId, StablePartId, StableInstanceId, StablePlateId,
+  HistorySelectionMode, HistorySelection, HistoryJsonValue, HistoryJsonObject,
+  HistoryGizmoContext, HistoryContext, HistoryCategory, HistoryEntryCategory, HistoryKind,
+  HistoryLabel, HistoryTransactionId, HistoryEntryId, HistoryJumpDirection, HistoryEntrySummary,
+  HistoryStatus, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
+  RestoreResult, HistoryRuntimeMethods, MockHistoryRuntime, HistoryMutation,
+} from './history';
 export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 export { createMockModule } from './testing/mock-module';
 export type { MockModule, MockModuleOptions, MockSliceFixture } from './testing/mock-module';

@@ -112,6 +112,36 @@ export interface PlateSessionMutation extends PlateSessionSnapshot {
   readonly instanceTransforms: readonly PlateSessionInstanceTransform[];
 }
 
+/** Worker-owned project configuration overrides. Keys are native option names;
+ * values are their native serialized representations. IDs are stable object /
+ * part IDs or runtime plate IDs, never renderer indices. */
+export interface ProjectConfigOverlay {
+  readonly project: Readonly<Record<string, string>>;
+  readonly objects: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  readonly parts: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  readonly plates: Readonly<Record<string, Readonly<Record<string, string>>>>;
+}
+
+export type ProjectConfigScope = 'project' | 'object' | 'part' | 'plate';
+
+export interface ProjectConfigOverrideTarget {
+  readonly scope: ProjectConfigScope;
+  readonly id?: number | string;
+}
+
+export interface ProjectConfigOverlayResult {
+  readonly ok: true;
+  readonly overlay: ProjectConfigOverlay;
+  readonly plateSession?: PlateSessionMutation;
+}
+
+export interface ProjectConfigOverlayError {
+  readonly ok?: false;
+  readonly error: string;
+}
+
+export type ProjectConfigOverlayResultOrError = ProjectConfigOverlayResult | ProjectConfigOverlayError;
+
 /** A malformed or rejected plate-session command has no partial state. */
 export interface PlateSessionSnapshotError {
   readonly ok?: false;
@@ -250,6 +280,8 @@ export interface ProjectLoadResult {
   presetSnapshot?: PresetSnapshot;
   /** Authoritative plate membership returned by the native model transaction. */
   plateSession?: PlateSessionMutation;
+  /** Project/object/part/plate overrides retained by the Worker. */
+  projectConfigOverlay?: ProjectConfigOverlay;
   error?: string;
 }
 
@@ -629,6 +661,30 @@ export interface ReadLogResult {
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
+  /** Begin/commit/abort are serialized by the Worker; transaction IDs are opaque. */
+  beginHistory(label: import('./history').HistoryLabel, category: import('./history').HistoryCategory,
+               beforeContext: import('./history').HistoryContext,
+               options?: import('./history').HistoryTransactionOptions): Promise<import('./history').HistoryTransactionId>;
+  commitHistory(transactionId: import('./history').HistoryTransactionId,
+                afterContext: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
+  abortHistory(transactionId: import('./history').HistoryTransactionId): Promise<import('./history').RestoreResult>;
+  undoHistory(): Promise<import('./history').RestoreResult>;
+  redoHistory(): Promise<import('./history').RestoreResult>;
+  jumpHistory(entryId: import('./history').HistoryEntryId, direction: import('./history').HistoryJumpDirection): Promise<import('./history').RestoreResult>;
+  getHistoryStatus(): Promise<import('./history').HistoryStatus>;
+  /** Advance the saved checkpoint without clearing retained history. */
+  markHistorySaved(context?: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
+  recordHistoryContext(label: import('./history').HistoryLabel,
+                       context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
+  /** Clear the prior project session and establish a clean baseline. */
+  resetHistory(context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
+  runProjectHistoryTransaction<T>(
+    label: import('./history').HistoryLabel,
+    category: import('./history').HistoryCategory,
+    beforeContext: import('./history').HistoryContext,
+    mutation: import('./history').HistoryMutation<T>,
+    afterContext: import('./history').HistoryContext | (() => import('./history').HistoryContext | Promise<import('./history').HistoryContext>),
+  ): Promise<{ result: T; status: import('./history').HistoryStatus }>;
   /** Read the authoritative headless plate session snapshot. */
   getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult>;
   /** Reset to one fresh default Plate 1 and return its new runtime identity. */
@@ -639,7 +695,13 @@ export interface SlicerClient {
   deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;
   /** Advance every existing plate for a committed shared configuration edit. */
-  markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
+  markSharedConfigurationMutation(optionKey?: string, value?: string): Promise<PlateSessionMutationResult>;
+  /** Read the canonical Worker-owned project/object/part/plate overrides. */
+  getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
+  /** Set one supported override and return the affected plate projection. */
+  setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError>;
+  /** Revalidate retained overrides after a base preset transition. */
+  revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
   getPresetSnapshot(): Promise<PresetSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;

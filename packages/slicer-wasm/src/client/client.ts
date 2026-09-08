@@ -9,6 +9,8 @@ import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, PresetSnapshotResult,
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError,
+  ProjectConfigOverlay,
   ClearModelResult,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
@@ -22,6 +24,10 @@ import type {
   PreviewTextChunk, PreviewTextChunkRequest,
   PreviewTextLines, PreviewTextLinesRequest,
 } from './types';
+import type {
+  HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
+  HistoryCategory, HistoryTransactionOptions, RestoreResult,
+} from './history';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
 
@@ -178,6 +184,84 @@ function normalizeClearResult(raw: unknown): ClearModelResult {
   return { ok: true, ...(plateSession?.ok ? { plateSession } : {}) };
 }
 
+function historyFailure(raw: unknown, fallback: string): never {
+  const value = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
+  const error = value.error;
+  const message = typeof error === 'string' ? error
+    : error && typeof error === 'object' && typeof (error as Record<string, unknown>).message === 'string'
+      ? String((error as Record<string, unknown>).message) : fallback;
+  throw new Error(message);
+}
+
+function normalizeHistoryStatus(raw: unknown): HistoryStatus {
+  if (!raw || typeof raw !== 'object') return historyFailure(raw, 'invalid history status');
+  const value = raw as Record<string, unknown>;
+  const bool = (key: string): boolean => typeof value[key] === 'boolean' ? value[key] as boolean : false;
+  const integer = (key: string, fallback = 0): number =>
+    typeof value[key] === 'number' && Number.isSafeInteger(value[key]) ? value[key] as number : fallback;
+  const entries = (key: string): HistoryStatus['undoEntries'] => {
+    if (!Array.isArray(value[key])) return [];
+    return value[key].flatMap((entry) => {
+      if (!entry || typeof entry !== 'object') return [];
+      const item = entry as Record<string, unknown>;
+      return typeof item.id === 'string' && typeof item.label === 'string' &&
+        (item.category === 'project' || item.category === 'context')
+        ? [{ id: item.id, label: item.label, category: item.category }] : [];
+    });
+  };
+  const saved = value.savedCheckpoint;
+  return {
+    canUndo: bool('canUndo'), canRedo: bool('canRedo'),
+    ...(typeof value.undoLabel === 'string' ? { undoLabel: value.undoLabel } : {}),
+    ...(typeof value.redoLabel === 'string' ? { redoLabel: value.redoLabel } : {}),
+    undoEntries: entries('undoEntries'), redoEntries: entries('redoEntries'),
+    cursor: integer('cursor'),
+    savedCheckpoint: saved === null ? null : typeof saved === 'number' && Number.isSafeInteger(saved) ? saved : null,
+    savedCheckpointEvicted: bool('savedCheckpointEvicted'), dirty: bool('dirty'),
+    bytesUsed: integer('bytesUsed'), byteBudget: integer('byteBudget'), disabled: bool('disabled'),
+    optionalBytesReleased: integer('optionalBytesReleased'),
+    evictedEntryCount: integer('evictedEntryCount'),
+    lastEvictedEntryId: typeof value.lastEvictedEntryId === 'string' ? value.lastEvictedEntryId : null,
+    oldestRetainedEntryId: typeof value.oldestRetainedEntryId === 'string' ? value.oldestRetainedEntryId : null,
+    oversizedEntryRetained: bool('oversizedEntryRetained'),
+    activeTransactionId: typeof value.activeTransactionId === 'string' ? value.activeTransactionId : null,
+    revision: integer('revision'),
+  };
+}
+
+function normalizeHistoryRestore(raw: unknown): RestoreResult {
+  if (!raw || typeof raw !== 'object') return historyFailure(raw, 'invalid history restore response');
+  const value = raw as Record<string, unknown>;
+  // Restore failures are deliberately data, not thrown protocol errors.  The
+  // Worker has preserved the old model/cursor and callers may retry after a
+  // transient parse, memory, or validation failure.
+  if (value.ok === false && value.error && typeof value.error === 'object') {
+    const error = value.error as Record<string, unknown>;
+    if (typeof error.message === 'string' && typeof error.code === 'string' &&
+        typeof error.retryable === 'boolean') {
+      return {
+        ok: false,
+        error: {
+          code: error.code as import('./history').HistoryErrorCode,
+          message: error.message,
+          retryable: error.retryable,
+          ...(typeof error.transactionId === 'string' ? { transactionId: error.transactionId } : {}),
+        },
+        ...(value.status ? { status: normalizeHistoryStatus(value.status) } : {}),
+      };
+    }
+  }
+  if (value.ok !== true) return historyFailure(raw, 'history restore failed');
+  if (!value.context || typeof value.context !== 'object' || !value.status)
+    return historyFailure(raw, 'invalid history restore response');
+  return {
+    ok: true,
+    context: value.context as HistoryContext,
+    status: normalizeHistoryStatus(value.status),
+    ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
+  };
+}
+
 export function createClient(
   moduleFactory: OrcaModuleFactory,
   onBridgeProgress?: (percent: number, text: string) => void,
@@ -231,6 +315,85 @@ export function createClient(
     return modulePromise;
   }
 
+  async function beginHistory(label: HistoryLabel, category: HistoryCategory,
+                              beforeContext: HistoryContext,
+                              options?: HistoryTransactionOptions): Promise<HistoryTransactionId> {
+    const m = await module();
+    const raw = callJson(m, 'orc_history_begin', ['string', 'string', 'string', 'string'],
+      [label, category, JSON.stringify(beforeContext), options ? JSON.stringify(options) : '']) as Record<string, unknown>;
+    if (raw?.ok !== true || typeof raw.transactionId !== 'string')
+      return historyFailure(raw, 'history begin failed');
+    return raw.transactionId;
+  }
+
+  async function commitHistory(transactionId: HistoryTransactionId,
+                               afterContext: HistoryContext): Promise<HistoryStatus> {
+    const m = await module();
+    const raw = callJson(m, 'orc_history_commit', ['string', 'string'],
+      [transactionId, JSON.stringify(afterContext)]);
+    if (raw && typeof raw === 'object' && 'error' in (raw as Record<string, unknown>))
+      return historyFailure(raw, 'history commit failed');
+    return normalizeHistoryStatus(raw);
+  }
+
+  async function abortHistory(transactionId: HistoryTransactionId): Promise<RestoreResult> {
+    const m = await module();
+    return normalizeHistoryRestore(callJson(m, 'orc_history_abort', ['string'], [transactionId]));
+  }
+
+  async function undoHistory(): Promise<RestoreResult> {
+    const m = await module();
+    return normalizeHistoryRestore(callJson(m, 'orc_history_undo', [], []));
+  }
+
+  async function redoHistory(): Promise<RestoreResult> {
+    const m = await module();
+    return normalizeHistoryRestore(callJson(m, 'orc_history_redo', [], []));
+  }
+
+  async function jumpHistory(entryId: HistoryEntryId, direction: HistoryJumpDirection): Promise<RestoreResult> {
+    const m = await module();
+    return normalizeHistoryRestore(callJson(m, 'orc_history_jump', ['string', 'string'], [entryId, direction]));
+  }
+
+  async function getHistoryStatus(): Promise<HistoryStatus> {
+    const m = await module();
+    return normalizeHistoryStatus(callJson(m, 'orc_history_status', [], []));
+  }
+
+  async function markHistorySaved(context?: HistoryContext): Promise<HistoryStatus> {
+    const m = await module();
+    return normalizeHistoryStatus(callJson(m, 'orc_history_mark_saved', ['string'], [context ? JSON.stringify(context) : '']));
+  }
+
+  async function recordHistoryContext(label: HistoryLabel, context: HistoryContext): Promise<HistoryStatus> {
+    const m = await module();
+    return normalizeHistoryStatus(callJson(m, 'orc_history_record_context', ['string', 'string'], [label, JSON.stringify(context)]));
+  }
+
+  async function resetHistory(context: HistoryContext): Promise<HistoryStatus> {
+    const m = await module();
+    return normalizeHistoryStatus(callJson(m, 'orc_history_reset', ['string'], [JSON.stringify(context)]));
+  }
+
+  async function runProjectHistoryTransaction<T>(
+    label: HistoryLabel,
+    category: HistoryCategory,
+    beforeContext: HistoryContext,
+    mutation: (transactionId: HistoryTransactionId) => Promise<T>,
+    afterContext: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
+  ): Promise<{ result: T; status: HistoryStatus }> {
+    const transactionId = await beginHistory(label, category, beforeContext);
+    try {
+      const result = await mutation(transactionId);
+      const context = typeof afterContext === 'function' ? await afterContext() : afterContext;
+      return { result, status: await commitHistory(transactionId, context) };
+    } catch (error) {
+      try { await abortHistory(transactionId); } catch { /* preserve the mutation error */ }
+      throw error;
+    }
+  }
+
   return {
     async init(): Promise<InitResult> {
       const m = await module();
@@ -258,6 +421,18 @@ export function createClient(
       };
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
     },
+
+    beginHistory,
+    commitHistory,
+    abortHistory,
+    undoHistory,
+    redoHistory,
+    jumpHistory,
+    getHistoryStatus,
+    markHistorySaved,
+    recordHistoryContext,
+    resetHistory,
+    runProjectHistoryTransaction,
 
     async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {
       const m = await module();
@@ -289,9 +464,36 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_recompute_plate_membership', [], []));
     },
 
-    async markSharedConfigurationMutation(): Promise<PlateSessionMutationResult> {
+    async markSharedConfigurationMutation(optionKey?: string, value?: string): Promise<PlateSessionMutationResult> {
       const m = await module();
+      // Legacy callers use this operation only to advance plate revisions;
+      // option overrides use setProjectConfigOverride below.
       return normalizePlateMutationResult(callJson(m, 'orc_mark_shared_configuration_mutation', [], []));
+    },
+
+    async getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
+      const m = await module();
+      return callJson(m, 'orc_get_project_config_overlay', [], []) as ProjectConfigOverlayResultOrError;
+    },
+
+    async setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError> {
+      const m = await module();
+      const scopeId = target.id === undefined ? '' : String(target.id);
+      const raw = callJson(m, 'orc_set_project_config_override', ['string', 'string', 'string', 'string'],
+        [target.scope, scopeId, optionKey, value]) as Record<string, unknown>;
+      if (!raw || raw.ok !== true) return raw as unknown as ProjectConfigOverlayResultOrError;
+      const result: Record<string, unknown> = { ...raw };
+      if (raw.plate_session) {
+        const plateSession = normalizePlateMutationResult(raw.plate_session);
+        if (plateSession.ok) result.plateSession = plateSession;
+        delete result.plate_session;
+      }
+      return result as unknown as ProjectConfigOverlayResultOrError;
+    },
+
+    async revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
+      const m = await module();
+      return callJson(m, 'orc_revalidate_project_config_overlay', [], []) as ProjectConfigOverlayResultOrError;
     },
 
     async getPresetSnapshot(): Promise<PresetSnapshotResult> {
@@ -377,6 +579,8 @@ export function createClient(
             const plateSession = normalizePlateMutationResult(r.plate_session);
             return plateSession.ok ? { plateSession } : {};
           })() : {}),
+          ...(r.project_config_overlay && typeof r.project_config_overlay === 'object'
+            ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
         };
       } finally {
         m._free(ptr);

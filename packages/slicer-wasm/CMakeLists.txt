@@ -21,6 +21,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
+option(NEO_PROJECT_HISTORY_TEST "Build the standalone headless ProjectHistory test" OFF)
 # Debug build (build.sh/build.bat --debug or WASM_DEBUG=1): only the
 # libslic3r part (slic3r_core + bridge/CLI TUs) is rebuilt with -g -O0 so the
 # final module embeds DWARF for interactive source-level debugging in Chrome
@@ -332,6 +333,9 @@ target_compile_options(deps_core PRIVATE
 # alone until it lands (the bridge smoke then picks it up automatically).
 set(ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
                    "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp")
+# Neo-owned, headless project history. Keep this source outside the pinned
+# Orca submodule; the C bridge and Worker transaction adapters remain Neo code.
+list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp")
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
   list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
 endif()
@@ -339,6 +343,12 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp")
   list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp")
 endif()
 add_executable(orca_slice ${ORCA_SLICE_SRC})
+if(NEO_PROJECT_HISTORY_TEST)
+  add_executable(project_history_core_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.test.cpp")
+  target_link_options(project_history_core_test PRIVATE -m64 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+endif()
 # The bridge's error contract leans on C++ exceptions (nlohmann type_error,
 # std::runtime_error from the slice path) being caught inside the bridge —
 # emcc's default is -fignore-exceptions, which compiles try/catch blocks

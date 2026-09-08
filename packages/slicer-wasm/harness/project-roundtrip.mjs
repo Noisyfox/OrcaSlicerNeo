@@ -263,6 +263,11 @@ Module._free(projectPtr);
 check('reload exported project', loaded.ok === true && loaded.mode === 'project' && loaded.objects === 2
       && loaded.compatibility === 'bambu' && loaded.project_settings_available === true,
       JSON.stringify(loaded));
+const freshHistory = callJson('orc_history_status', [], []);
+check('3MF reload starts a clean history baseline', freshHistory.ok !== false &&
+      freshHistory.canUndo === false && freshHistory.canRedo === false &&
+      freshHistory.dirty === false,
+      JSON.stringify(freshHistory));
 
 const afterSession = callJson('orc_get_plate_session_snapshot', [], []);
 check('reload preserves plate order and current identity', afterSession.ok === true && afterSession.plates?.length === 2

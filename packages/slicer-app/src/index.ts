@@ -11,3 +11,7 @@ export * from './stores/useProjectStore';
 export * from './stores/usePlateSessionStore';
 export * from './projectActions';
 export * from './components/project/ProjectDialogs';
+export * from './history/restoreCoordinator';
+export * from './stores/useHistoryRestoreStore';
+export * from './stores/useHistoryNavigationStore';
+export * from './history/historyNavigation';
