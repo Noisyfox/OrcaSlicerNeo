@@ -1,0 +1,44 @@
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { usePlatform } from '@orca/platform-contract';
+import { assignmentForRow, assignmentSlotOptions } from './filamentAssignment';
+import type { FilamentSessionSnapshot, FilamentAssignmentTargetRequest } from '@slicer/client';
+
+export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, allowDefault = false, onAssign }: {
+  snapshot: FilamentSessionSnapshot | null;
+  kind: 'object' | 'part';
+  id: number;
+  assignable?: boolean;
+  allowDefault?: boolean;
+  onAssign?: (slot: number) => void;
+}) {
+  const assignment = assignmentForRow(snapshot, kind, id);
+  if (!snapshot || !assignable || !assignment) return <span className="w-16 shrink-0 text-center text-[0.65rem] text-muted-foreground" data-testid={`filament-cell-${kind}-${id}`}>—</span>;
+  const label = assignment.effectiveSlot > 0 ? `Slot ${assignment.effectiveSlot}${assignment.inherited ? ' · inherited' : ''}` : 'Default';
+  return (
+    <select
+      aria-label={`${kind === 'object' ? 'Object' : 'Part'} ${id} filament`}
+      data-testid={`filament-cell-${kind}-${id}`}
+      className={`h-5 w-16 shrink-0 rounded border bg-input/20 px-1 text-[0.65rem] ${assignment.inherited ? 'italic text-muted-foreground' : ''}`}
+      value={String(allowDefault ? assignment.effectiveSlot : Math.max(1, assignment.effectiveSlot))}
+      onChange={(event) => onAssign?.(Number(event.target.value))}
+      title={label}
+      onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {allowDefault && <option value="0">Default</option>}
+      {assignmentSlotOptions(snapshot).map((slot) => <option key={slot} value={slot}>Slot {slot}{assignment.inherited && slot === assignment.effectiveSlot ? ' · inherited' : ''}</option>)}
+    </select>
+  );
+}
+
+export function useFilamentAssignmentAction() {
+  const platform = usePlatform();
+  const snapshot = useFilamentSessionStore((state) => state.snapshot);
+  const run = useFilamentSessionStore((state) => state.run);
+  return (slot: number, targets: readonly FilamentAssignmentTargetRequest[]) => {
+    if (!snapshot || targets.length === 0) return Promise.resolve(null);
+    return run(platform.runtime, () => platform.runtime.assignFilament({
+      version: 1, revision: snapshot.revisions.session, slot, targets,
+    }));
+  };
+}

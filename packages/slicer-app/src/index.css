@@ -1,5 +1,11 @@
 @source "./**/*.{ts,tsx}";
 
+/* The rack responds to the sidebar's inline size, not the host viewport. */
+[data-testid="filament-rack"] { container-type: inline-size; }
+@container (min-width: 410px) {
+  [data-testid="filament-slot-grid"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 /* Native Tailwind v4 theme: palette values live directly in @theme as design
    tokens, so utilities reference var(--color-*) and opacity modifiers go
    through color-mix. The app is dark-only (color-scheme: dark below), so the

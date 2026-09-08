@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
 import { applyPresetConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
+import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 import {
   Combobox,
   ComboboxContent,
@@ -63,6 +64,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
     try {
       const r = await platform.runtime.selectPreset(kind, name);
       if (!r.ok) throw new Error(r.error ?? 'selectPreset failed');
+      await refreshFilamentSession(platform.runtime);
       // Preset selection changes the shared slice input for every plate. The
       // bridge owns the complete plate set and advances all revisions in one
       // typed transaction; its response is the sole source for revisions and

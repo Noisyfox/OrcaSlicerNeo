@@ -14,4 +14,8 @@ export * from './components/project/ProjectDialogs';
 export * from './history/restoreCoordinator';
 export * from './stores/useHistoryRestoreStore';
 export * from './stores/useHistoryNavigationStore';
+export * from './stores/useFilamentSessionStore';
+export * from './components/workspace/filamentRackProjection';
+export * from './components/workspace/FilamentRack';
+export * from './components/workspace/viewport/prepareColourProjection';
 export * from './history/historyNavigation';

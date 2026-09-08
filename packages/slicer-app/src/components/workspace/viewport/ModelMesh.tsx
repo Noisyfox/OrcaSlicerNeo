@@ -9,6 +9,9 @@ import type { GLVolume } from './GLVolume';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import { EULER_ORDER } from './transformDeltaMath';
 import { acceleratedRaycast } from 'three-mesh-bvh';
+import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { prepareColourForVolume, resolvePrepareMaterial } from './prepareColourProjection';
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
   if (transform.matrix) {
@@ -26,10 +29,12 @@ function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransfo
   group.updateMatrix();
 }
 
-export function GLVolumeMesh({ data, interactive = true, preview = false }: {
+export function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession }: {
   data: GLVolume;
   interactive?: boolean;
   preview?: boolean;
+  structure?: readonly ModelObjectStructure[];
+  plateSession?: PlateSessionSnapshot | null;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const volumeGroupRef = useRef<THREE.Group>(null);
@@ -38,7 +43,12 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
   const invalidate = useThree((s) => s.invalidate);
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
+  const filamentSnapshot = useFilamentSessionStore((state) => state.snapshot);
   const selected = !preview && sceneInteraction.selection.has(data);
+  const prepareColour = !preview
+    ? prepareColourForVolume(data, structure, filamentSnapshot, plateSession)
+    : '#cbd5e1';
+  const material = resolvePrepareMaterial({ baseColour: prepareColour, selected, transparent: preview });
   const scratch = useMemo(() => new THREE.Vector3(), []);
 
   const applySceneTransforms = useCallback(() => {
@@ -89,13 +99,13 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
         } : undefined}
       >
         <meshStandardMaterial
-          color={selected ? '#3b82f6' : '#cbd5e1'}
+          color={material.colour}
           roughness={0.6}
           metalness={0.1}
           side={THREE.DoubleSide}
-          transparent={preview}
-          opacity={preview ? 0.15 : 1}
-          depthWrite={!preview}
+          transparent={material.transparent}
+          opacity={material.opacity}
+          depthWrite={material.depthWrite}
         />
       </mesh>
     </group>

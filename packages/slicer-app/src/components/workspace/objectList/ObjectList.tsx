@@ -20,6 +20,9 @@ import { reorderObjectsInList, reorderVolumesInList } from './structuralActions'
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { recordHistoryContext } from '../../../projectActions';
+import { FilamentAssignmentCell } from './FilamentAssignmentCell';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { assignmentTargetsForSelection } from './filamentAssignment';
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 
@@ -56,6 +59,8 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const collapsedInstances = useObjectListStore((s) => s.collapsedInstances);
   const projection = useObjectListStore((s) => s.projection);
   const plateSession = usePlateSessionStore((s) => s.snapshot);
+  const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
+  const runFilament = useFilamentSessionStore((s) => s.run);
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
@@ -77,6 +82,17 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     () => projectObjectGroups(structure, plateSession),
     [structure, plateSession],
   );
+
+  function assignRow(kind: 'object' | 'part', id: number, slot: number) {
+    if (!filamentSnapshot) return;
+    const targets = assignmentTargetsForSelection({ kind, id }, projection);
+    void runFilament(platform.runtime, () => platform.runtime.assignFilament({
+      version: 1,
+      revision: filamentSnapshot.revisions.session,
+      slot,
+      targets,
+    }));
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -376,10 +392,11 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               if (row) handleRowContextMenu(e, row, { kind: 'object', object: obj });
             }}
           >
+            <div className="flex items-center gap-0.5">
             <Button
               variant="ghost"
               size="xs"
-              className={`w-full justify-start ${objectSelected ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
+              className={`flex-1 justify-start ${objectSelected ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
               data-state={objectSelected ? 'selected' : 'idle'}
               onClick={(e) => {
                 const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
@@ -408,6 +425,13 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               ) : obj.name}
               {validity !== 'valid' && <ObjectValidityBadge validity={validity} objectId={obj.id} />}
             </Button>
+            <FilamentAssignmentCell
+              snapshot={filamentSnapshot}
+              kind="object"
+              id={obj.id}
+              onAssign={(slot) => assignRow('object', obj.id, slot)}
+            />
+            </div>
             {isExpanded && (
               <div className="ml-4">
                 {obj.volumes.length > 1 && obj.volumes.map((vol) => (
@@ -462,6 +486,14 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         />
                       ) : vol.name}
                     </Button>
+                    <FilamentAssignmentCell
+                      snapshot={filamentSnapshot}
+                      kind="part"
+                      id={vol.id}
+                      assignable={vol.type === 'model_part'}
+                      allowDefault={vol.type === 'model_part'}
+                      onAssign={(slot) => assignRow('part', vol.id, slot)}
+                    />
                   </div>
                 ))}
                 {obj.instanceCount > 1 && (

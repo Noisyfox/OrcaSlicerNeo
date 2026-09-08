@@ -301,6 +301,61 @@ pre-existing user-owned dirty paths unchanged. Step 4 is unblocked.
 
 Pass requires semantic assertions for command dispatch/result rendering and import-direction tests; CSS-only or pixel-change assertions are insufficient.
 
+**Step 4 subagent self-verification record (2026-09-09, remediation):** Implemented the
+host-neutral `useFilamentSessionStore` snapshot mirror, responsive container-
+based rack, native compatible-preset/colour selectors, capability-driven
+Add/Delete/Merge commands, impact confirmation with cancel-before-dispatch,
+Object List effective/inherited assignment cells and context command, and
+Prepare-only printable-volume colour projection. The store publishes only
+complete Worker snapshots and never edits slot arrays optimistically. The
+remediation also refreshes the complete projection after new/clear/import/open
+model operations, preset transitions, and history restoration with a history
+revision fence; object contexts now expose Change Filament, part contexts
+expose Default/inherit, and object controls never expose Default. Added real
+component/store interaction tests for rack dispatch/returned snapshot,
+cancelled destructive confirmation, pending/rejected/capability state, object
+and part context dispatch with instance de-duplication, inherited/default
+legality, and material overlay precedence. Green checks:
+
+- `pnpm --filter @orca/slicer-app test` — 68 files, 440 tests passed;
+- `pnpm --filter @orca/slicer-app typecheck` — passed;
+- focused `vitest` run for import-direction plus eight Step 4 interaction/helper
+  test files — 8 files, 21 tests passed;
+- `pnpm --filter @orca/slicer-wasm typecheck` — passed after public client type
+  exports were completed;
+- `pnpm --filter @orca/desktop test` — 10 files, 67 tests passed;
+- `git diff --check` — passed.
+
+Serial WASM quick/smoke is owned by the native command steps and was not
+required for this shared-app-only step. The pinned `packages/slicer-wasm/cpp`
+submodule remains untouched, including its seven pre-existing dirty paths.
+
+The follow-up lifecycle remediation moved open-project filament refresh after
+native history reset, added a regression proving the stored session revision
+comes from the post-reset snapshot, and made thrown or rejected external
+refreshes clear the prior-project mirror while exposing a rejected rack state.
+Rack loading and history restoration now absorb refresh failures after the
+native mutation has committed; atomic filament command rejection still keeps
+the last valid snapshot. Focused store/rack/project tests cover these paths.
+
+**Root acceptance record (2026-09-09):** Accepted after two remediation rounds.
+Root independently rejected the initial result for a missing object context
+command, missing part Default action, illegal object Default option, stale
+project/history projections, and projection-only tests; a second review caught
+the open-project refresh occurring before native history reset. The final diff
+uses the complete Worker snapshot as the only filament truth, refreshes it after
+the post-reset revision fence, clears stale cross-project state on read failure,
+and proves the rack, object/part commands, instance de-duplication, inherited
+display, cancellation, and Prepare material-overlay precedence through semantic
+component/store tests. Root reran `pnpm --filter @orca/slicer-app test` (68
+files, 440/440), slicer-app and slicer-wasm typechecks, `pnpm --filter
+@orca/desktop test` (10 files, 67/67), an explicit eight-file focused run (35
+tests), host-import scans, and `git diff --check`; all passed. Native quick/smoke
+was intentionally not repeated because this step changes only shared React and
+client type exports. The pinned submodule remains at
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with exactly its seven pre-existing
+user-owned dirty paths unchanged. Step 5 is unblocked.
+
 **Root independent acceptance:** Re-run the full slicer-app suite/typecheck and selected desktop seam tests; inspect shared-app imports for host leakage; run focused Electron E2E if rendered interaction cannot be proved by component tests; verify unchanged dirty submodule and allowlist. Failure blocks Step 5.
 
 **Commit boundary:** One shared Prepare UI commit; no Web/Electron-specific duplicate component.

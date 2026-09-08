@@ -31,6 +31,8 @@ import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from 
 import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import type { ProjectConfigOverlay } from '@slicer/client';
+import { FilamentRack } from './FilamentRack';
+import { refreshFilamentSession } from '../../stores/useFilamentSessionStore';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -67,6 +69,7 @@ export function Workspace({
 }) {
   const platform = usePlatform();
   const plateSession = usePlateSessionStore((s) => s.snapshot);
+  const structure = useObjectListStore((s) => s.structure);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
   const glVolumes = useModelLoader();
@@ -148,6 +151,10 @@ export function Workspace({
           if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
             usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
         }
+        const filament = await refreshFilamentSession(platform.runtime, () => historyRestoreRef.current?.currentRevision() === revision);
+        if (filament && !filament.ok)
+          console.warn('filament projection refresh failed after committed history restore', filament.error);
+        if (historyRestoreRef.current?.currentRevision() !== revision) return;
 
         sceneInteraction.restoreHistoryContext(context, structure);
       },
@@ -350,6 +357,7 @@ export function Workspace({
             ::-webkit-scrollbar chrome as a rectangle, ignoring the
             scroller's rounded corners). */}
         <div className="h-full overflow-y-auto">
+          {activeTab === 'prepare' && <FilamentRack />}
           {isPreviewTab(activeTab) && plateSession && (
             <PreviewPlateList
               snapshot={plateSession}
@@ -380,6 +388,7 @@ export function Workspace({
           sceneInteraction={sceneInteraction}
           activeTab={isPreviewTab(activeTab) || previewRenderPending ? 'preview' : 'prepare'}
           glVolumes={glVolumes}
+          structure={structure}
           toolpath={sliceResult.toolpath}
           previewFrameRequest={previewFrameRequest}
           onSceneFrameRendered={handleSceneFrameRendered}

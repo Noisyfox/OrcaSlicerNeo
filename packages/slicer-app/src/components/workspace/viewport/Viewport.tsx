@@ -24,7 +24,7 @@ import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, prev
 import { GcodeTextWindow } from './GcodeTextWindow';
 import { Button } from '@/components/ui/button';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import type { PlateSessionSnapshot } from '@slicer/client';
+import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { canAddPlate, canDeletePlate } from './plateControls';
 import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
 import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
@@ -71,11 +71,12 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, previewFrameRequest, onSceneFrameRendered }: {
+export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, structure = [], previewFrameRequest, onSceneFrameRendered }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   sceneInteraction: SceneInteractionController;
+  structure?: readonly ModelObjectStructure[];
   previewFrameRequest?: { plateId: string; token: number } | null;
   onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
 }) {
@@ -454,6 +455,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pre
               glVolumes={glVolumes}
               toolpath={toolpath}
               plateSession={plateSession}
+              structure={structure}
               onEmptyBedClick={selectPlate}
             />
             <ViewportFrameGate mode={activeTab} onRendered={() => onSceneFrameRendered?.(activeTab)} />

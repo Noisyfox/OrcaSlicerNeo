@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
-import type { PlateSessionMutation, PresetSnapshot } from '@slicer/client';
+import type { FilamentSessionSnapshot, PlateSessionMutation, PresetSnapshot } from '@slicer/client';
 import { useProjectStore } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
+import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, sortProjectInputs } from './projectActions';
 
@@ -23,6 +24,18 @@ const freshPlateSession: PlateSessionMutation = {
   plates: [{ plateId: 'new-plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
   instanceTransforms: [],
 };
+function filamentSnapshot(revision: number): FilamentSessionSnapshot {
+  return {
+    ok: true, version: 1,
+    slots: [{ slot: 1, preset: { id: 'pla', name: `PLA ${revision}` }, colour: { effective: '#112233', provenance: 'preset' } }],
+    mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
+    flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' },
+    capabilities: { minSlots: 1, maxSlots: 8, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
+    assignments: { objects: [], parts: [], modifiers: [] },
+    revisions: { session: revision, project: revision, result: 0, plates: {} },
+    status: { state: 'ready', error: null },
+  };
+}
 function platformFor(load: Record<string, unknown> = {}) {
   const runtime = {
     loadProject: vi.fn(async () => ({ ok: true, objects: 1, instances: 1, mode: 'project' as const, compatibility: 'bambu' as const, projectSettingsAvailable: true, presetSnapshot: snapshot, ...load })),
@@ -31,6 +44,8 @@ function platformFor(load: Record<string, unknown> = {}) {
     exportProject: vi.fn(async () => ({ ok: true, path: '/tmp/project.3mf', bytes: new Uint8Array([1, 2]) })),
     getPresetSnapshot: vi.fn(async () => snapshot),
     selectPreset: vi.fn(async () => snapshot),
+    getFilamentSessionSnapshot: vi.fn(async () => filamentSnapshot(0)),
+    resetHistory: vi.fn(async () => null),
     cancel: vi.fn(async () => ({ ok: true })),
   };
   const projects = {
@@ -47,6 +62,7 @@ describe('transactional project actions', () => {
     usePlateSessionStore.getState().reset();
     glVolumeCollection.clear();
     useSettingsStore.setState({ modelLoaded: false, selectedPrinter: 'System printer', selectedPrint: 'System process', selectedFilament: 'System filament', values: {} });
+    useFilamentSessionStore.getState().reset();
     useSlicerStore.getState().invalidateSliceResult();
   });
 
@@ -86,6 +102,25 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok');
     expect(runtime.getPresetSnapshot).not.toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', scope: 'project', dirty: false });
+  });
+
+  it('refreshes the filament mirror after open-project history reset', async () => {
+    const { platform, runtime } = platformFor();
+    const beforeReset = filamentSnapshot(4);
+    const afterReset = filamentSnapshot(9);
+    useFilamentSessionStore.setState({ snapshot: beforeReset, rejected: null });
+    runtime.getFilamentSessionSnapshot.mockResolvedValue(afterReset);
+    runtime.resetHistory.mockImplementation(async () => {
+      // The refresh must not run against the pre-reset history fence.
+      expect(useFilamentSessionStore.getState().snapshot).toBe(beforeReset);
+      return null;
+    });
+
+    const result = await openProject(platform, { loadBehaviour: 'load_all' });
+
+    expect(result.status).toBe('ok');
+    expect(runtime.resetHistory.mock.invocationCallOrder[0]).toBeLessThan(runtime.getFilamentSessionSnapshot.mock.invocationCallOrder[0]);
+    expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(afterReset.revisions.session);
   });
 
   it('subscribes the project operation to native load progress', async () => {

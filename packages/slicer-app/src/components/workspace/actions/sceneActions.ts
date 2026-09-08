@@ -18,6 +18,7 @@ import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 import { resetSceneState } from './resetSceneState';
 import { runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
+import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 
 export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 
@@ -50,6 +51,7 @@ async function commitAdded(
   // paths must never cross the platform boundary.
   settings.setValue('modelPath', displayName);
   settings.setModelLoaded(true);
+  await refreshFilamentSession(platform.runtime);
   useProjectStore.getState().setProject({ hasContent: true });
   if (r.plateSession) {
     const previousPlateSession = usePlateSessionStore.getState().snapshot;
@@ -186,6 +188,7 @@ export async function clearScene(
     }
     else useProjectStore.getState().markDirty('model-clear');
     await syncHistoryStatus(platform.runtime);
+    await refreshFilamentSession(platform.runtime);
     sceneInteraction?.resetForModel();
     slicer.setError(null);
   } catch (err) {

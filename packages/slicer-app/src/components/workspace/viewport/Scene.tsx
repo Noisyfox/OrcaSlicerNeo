@@ -13,30 +13,32 @@ import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import { SelectionBoundsBox } from './SelectionBoundsBox';
 import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
-import type { PlateSessionSnapshot } from '@slicer/client';
+import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 import { currentPreviewPlate, previewToolpathOrigin, previewVolumesForCurrentPlate } from './previewSceneProjection';
 
-export function Scene({ activeTab, controller, glVolumes, toolpath, plateSession, onEmptyBedClick }: {
+export function Scene({ activeTab, controller, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
   controller: SceneInteractionController;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateSession?: PlateSessionSnapshot | null;
+  structure?: readonly ModelObjectStructure[];
   onEmptyBedClick?: (plateId: string) => void;
 }) {
   return (
     <SceneInteractionProvider controller={controller}>
-      <SceneContents activeTab={activeTab} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} onEmptyBedClick={onEmptyBedClick} />
+      <SceneContents activeTab={activeTab} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} structure={structure} onEmptyBedClick={onEmptyBedClick} />
     </SceneInteractionProvider>
   );
 }
 
-function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBedClick }: {
+function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateSession?: PlateSessionSnapshot | null;
+  structure?: readonly ModelObjectStructure[];
   onEmptyBedClick?: (plateId: string) => void;
 }) {
   const sceneInteraction = useSceneInteraction();
@@ -241,9 +243,11 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
           glVolumes={previewVolumes}
           toolpath={toolpath}
           plateOrigin={previewToolpathOrigin(plateSession)}
+          structure={structure}
+          plateSession={plateSession}
         />
       ) : (
-        <PrepareScene glVolumes={glVolumes} toolpath={toolpath} />
+        <PrepareScene glVolumes={glVolumes} toolpath={toolpath} structure={structure} plateSession={plateSession} />
       )}
     </>
   );
@@ -255,32 +259,38 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
  * mode-specific rendering/interaction policy is intentionally layered here
  * by the later Preview implementation step.
  */
-function PrepareScene({ glVolumes, toolpath }: {
+function PrepareScene({ glVolumes, toolpath, structure, plateSession }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
+  structure: readonly ModelObjectStructure[];
+  plateSession?: PlateSessionSnapshot | null;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive structure={structure} plateSession={plateSession} />;
 }
 
-function PreviewScene({ glVolumes, toolpath, plateOrigin }: {
+function PreviewScene({ glVolumes, toolpath, plateOrigin, structure, plateSession }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateOrigin: readonly [number, number, number];
+  structure?: readonly ModelObjectStructure[];
+  plateSession?: PlateSessionSnapshot | null;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview plateOrigin={plateOrigin} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview plateOrigin={plateOrigin} structure={structure} plateSession={plateSession} />;
 }
 
-function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, plateOrigin = [0, 0, 0] }: {
+function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, plateOrigin = [0, 0, 0], structure = [], plateSession }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   interactive: boolean;
   preview?: boolean;
   plateOrigin?: readonly [number, number, number];
+  structure?: readonly ModelObjectStructure[];
+  plateSession?: PlateSessionSnapshot | null;
 }) {
   return (
     <>
       {glVolumes.map((volume) => (
-        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} />
+        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession} />
       ))}
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}

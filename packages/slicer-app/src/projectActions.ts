@@ -11,6 +11,7 @@ import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import type { SceneResetTarget } from './components/workspace/actions/resetSceneState';
 import { resetSceneState } from './components/workspace/actions/resetSceneState';
 import { runProjectHistoryMutation, syncHistoryStatus as syncWorkerHistoryStatus } from './components/workspace/actions/historyMutation';
+import { refreshFilamentSession } from './stores/useFilamentSessionStore';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -27,7 +28,7 @@ export interface ProjectActionOptions {
   sceneResetTarget?: SceneResetTarget | null;
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel'> &
+type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel' | 'getFilamentSessionSnapshot'> &
   Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'>>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
@@ -153,6 +154,7 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
     usePlateSessionStore.getState().setSnapshot(cleared.plateSession ?? null);
     await resetHistory(runtime);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);
+    await refreshFilamentSession(runtimeOf(platform));
     const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
@@ -177,6 +179,7 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
       useProjectStore.getState().recordPlateMutation(load.plateSession);
     }
     else useProjectStore.getState().markDirty('model-import');
+    await refreshFilamentSession(runtimeOf(platform));
     await syncWorkerHistoryStatus(runtime);
     useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
     useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
@@ -206,7 +209,12 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     useSettingsStore.getState().hydratePresetSnapshot(snapshot);
     if (load.projectConfigOverlay) useSettingsStore.getState().setOverlay(load.projectConfigOverlay);
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
-    const history = await resetHistory(runtimeOf(platform));
+    const runtime = runtimeOf(platform);
+    const history = await resetHistory(runtime);
+    // resetHistory establishes the new native history revision. Read the
+    // filament projection only after that fence so the mirror cannot retain
+    // a pre-reset revision and reject the first user command as stale.
+    await refreshFilamentSession(runtime);
     useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history?.dirty ?? false, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
