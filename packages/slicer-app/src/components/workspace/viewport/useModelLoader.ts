@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { GLVolume, glVolumeCollection } from './GLVolume';
+import { GLVolume, glVolumeCollection, rejectGLVolumeRevision } from './GLVolume';
 
 export type LoadedObject = GLVolume;
 
@@ -37,6 +37,8 @@ export function useModelLoader(): LoadedObject[] {
           setObjects(loaded);
         }
       } catch (err) {
+        if (!disposed && useSettingsStore.getState().modelRevision === requestedRevision)
+          rejectGLVolumeRevision(requestedRevision, err);
         console.error('model load failed:', err);
       }
     })();

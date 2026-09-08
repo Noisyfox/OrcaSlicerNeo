@@ -20,10 +20,12 @@ export interface HistoryRestoreCoordinatorOptions {
   runtime: Pick<SlicerClient, 'undoHistory' | 'redoHistory' | 'jumpHistory' | 'cancel'>;
   sceneInteraction: SceneInteractionController;
   sliceCoordinator?: Pick<WorkspaceSliceCoordinator, 'cancelAndWait'>;
-  /** Called after a successful Worker restore to trigger model projections. */
-  refreshModel: () => void;
-  /** Applies the stable-ID context after model structure/mesh refresh. */
-  projectContext?: (context: HistoryContext, revision: number) => Promise<void> | void;
+  /**
+   * Projects one successful Worker restore. The promise must settle only
+   * after structure, mesh, plate, selection, and gizmo projections are safe
+   * for editing; the coordinator keeps the restoring phase until then.
+   */
+  refreshModel: (context: HistoryContext, revision: number) => Promise<void>;
 }
 
 function restoreError(result: RestoreResult): string {
@@ -40,7 +42,6 @@ export function createHistoryRestoreCoordinator({
   sceneInteraction,
   sliceCoordinator,
   refreshModel,
-  projectContext,
 }: HistoryRestoreCoordinatorOptions): HistoryRestoreCoordinator {
   let inFlight: Promise<boolean> | null = null;
 
@@ -71,6 +72,7 @@ export function createHistoryRestoreCoordinator({
             : await runtime.jumpHistory(action.jump);
       } catch (error) {
         state.setError(error instanceof Error ? error.message : String(error));
+        useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
         state.setPhase('idle');
         return false;
       }
@@ -78,6 +80,7 @@ export function createHistoryRestoreCoordinator({
         // Worker prepare/validation failure preserves its old model/cursor.
         if (result.status) useHistoryNavigationStore.getState().setStatus(result.status);
         state.setError(restoreError(result));
+        useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
         state.setPhase('idle');
         return false;
       }
@@ -85,8 +88,7 @@ export function createHistoryRestoreCoordinator({
       projectHistoryStatus(result.status);
       useHistoryRestoreStore.getState().setSnapshotSuppressed(true);
       useSlicerStore.getState().invalidateSliceResult();
-      refreshModel();
-      await projectContext?.(result.context, revision);
+      await refreshModel(result.context, revision);
       // A newer restore supersedes this projection; never leave the UI in a
       // restoring state for an obsolete request.
       if (useHistoryRestoreStore.getState().revision !== revision) return false;
@@ -94,6 +96,7 @@ export function createHistoryRestoreCoordinator({
       return true;
     })().catch((error) => {
       useHistoryRestoreStore.getState().setError(error instanceof Error ? error.message : String(error));
+      useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
       useHistoryRestoreStore.getState().setPhase('idle');
       return false;
     });

@@ -15,7 +15,7 @@ import { ObjectList } from './objectList/ObjectList';
 import { SettingsPanel } from './settings/SettingsPanel';
 import { Viewport } from './viewport/Viewport';
 import { SceneInteractionController } from './viewport/SceneInteractionController';
-import { glVolumeCollection } from './viewport/GLVolume';
+import { glVolumeCollection, waitForGLVolumeRevision } from './viewport/GLVolume';
 import { useModelLoader } from './viewport/useModelLoader';
 import { useSliceResult } from './viewport/useSliceResult';
 import { hasEnteredPreview, isPreviewTab, type AppTab } from '../layout/appTabs';
@@ -24,11 +24,12 @@ import { sliceModel } from './actions/sliceActions';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
+import { useObjectListStore } from './objectList/useObjectListStore';
 import { PreviewPlateList } from './PreviewPlateList';
 import { selectPlateSessionAndClearSelection } from './plateSessionActions';
 import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
-import { isHistoryContextProjectionReady, type PendingHistoryContext } from '../../history/historyContextProjection';
 import { TransformHistoryCoordinator } from './actions/transformHistory';
+import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import type { ProjectConfigOverlay } from '@slicer/client';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
@@ -68,7 +69,6 @@ export function Workspace({
   const plateSession = usePlateSessionStore((s) => s.snapshot);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
-  const modelRevision = useSettingsStore((s) => s.modelRevision);
   const glVolumes = useModelLoader();
   const sliceResult = useSliceResult();
   // Workspace is kept mounted by AppShell. Keep the controller here, beside
@@ -111,17 +111,16 @@ export function Workspace({
   }
   const sliceCoordinator = sliceCoordinatorRef.current;
   const historyRestoreRef = useRef<HistoryRestoreCoordinator | null>(null);
-  const pendingHistoryContextRef = useRef<PendingHistoryContext | null>(null);
-  const projectionInFlightRef = useRef<number | null>(null);
   if (!historyRestoreRef.current) {
     historyRestoreRef.current = createHistoryRestoreCoordinator({
       runtime: platform.runtime,
       sceneInteraction,
       sliceCoordinator,
-      refreshModel: () => useSettingsStore.getState().refreshModel(),
-      projectContext: async (context, revision) => {
+      refreshModel: async (context, revision) => {
         const structure = await platform.runtime.getModelStructure();
-        if (!structure.ok || historyRestoreRef.current?.currentRevision() !== revision) return;
+        if (!structure.ok || !structure.objects)
+          throw new Error(structure.error ?? 'getModelStructure failed during history restore');
+        if (historyRestoreRef.current?.currentRevision() !== revision) return;
         const overlay = context.projectConfigOverlay;
         if (overlay && typeof overlay === 'object' && 'project' in overlay && 'objects' in overlay && 'parts' in overlay && 'plates' in overlay)
           useSettingsStore.getState().setOverlay(overlay as unknown as ProjectConfigOverlay);
@@ -130,47 +129,31 @@ export function Workspace({
         // its revision-fenced mesh request runs.
         useSettingsStore.getState().setModelLoaded(structure.objects.length > 0);
         const modelRevision = useSettingsStore.getState().modelRevision;
-        pendingHistoryContextRef.current = {
-          context,
-          historyRevision: revision,
-          modelRevision,
-          expectedObjectCount: structure.objects.length,
-        };
-        const session = usePlateSessionStore.getState().snapshot;
-        if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
-          usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
+        await waitForGLVolumeRevision(modelRevision);
+        if (historyRestoreRef.current?.currentRevision() !== revision) return;
+
+        useObjectListStore.getState().setStructure(structure.objects);
+        useObjectListStore.getState().setLoaded(structure.objects.length > 0);
+
+        const getPlateSessionSnapshot = platform.runtime.getPlateSessionSnapshot;
+        if (typeof getPlateSessionSnapshot === 'function') {
+          const session = await getPlateSessionSnapshot.call(platform.runtime);
+          if (!session.ok) throw new Error(session.error ?? 'getPlateSessionSnapshot failed during history restore');
+          if (historyRestoreRef.current?.currentRevision() !== revision) return;
+          usePlateSessionStore.getState().setSnapshot(session);
+          if (session.instanceTransforms)
+            applyPlateSessionTransforms({ instanceTransforms: session.instanceTransforms }, glVolumeCollection.volumes);
+        } else {
+          const session = usePlateSessionStore.getState().snapshot;
+          if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
+            usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
+        }
+
+        sceneInteraction.restoreHistoryContext(context, structure);
       },
     });
   }
   const historyRestore = historyRestoreRef.current;
-  useEffect(() => {
-    const pending = pendingHistoryContextRef.current;
-    if (!pending) return;
-    if (!isHistoryContextProjectionReady(
-      pending,
-      historyRestore.currentRevision(),
-      modelRevision,
-      glVolumeCollection.revision,
-      glVolumes.length,
-    ) || projectionInFlightRef.current === pending.historyRevision) return;
-    projectionInFlightRef.current = pending.historyRevision;
-    void platform.runtime.getModelStructure().then((structure) => {
-      const current = pendingHistoryContextRef.current;
-      if (structure.ok && current === pending && isHistoryContextProjectionReady(
-        current,
-        historyRestore.currentRevision(),
-        modelRevision,
-        glVolumeCollection.revision,
-        glVolumes.length,
-      )) {
-        pendingHistoryContextRef.current = null;
-        sceneInteraction.restoreHistoryContext(pending.context, structure);
-      }
-    }).catch(() => undefined).finally(() => {
-      if (projectionInFlightRef.current === pending.historyRevision)
-        projectionInFlightRef.current = null;
-    });
-  }, [glVolumes, historyRestore, modelRevision, platform.runtime, sceneInteraction]);
   const [previewRenderPending, setPreviewRenderPending] = useState(false);
   const [previewPlateSelectionPending, setPreviewPlateSelectionPending] = useState(false);
   const previewFrameTokenRef = useRef(0);

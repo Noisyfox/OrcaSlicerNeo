@@ -561,6 +561,30 @@ repair sequence is complete prematurely.
   traversal changes and no unrelated E2E behavior was modified here.
 - Root acceptance is intentionally not recorded in this execution record.
 
+### Repair 4 execution record — asynchronous restore projection barrier
+
+- Changed the restore coordinator contract so its projection callback returns a
+  Promise and the shared `restoring` phase remains active until that Promise
+  completes. Snapshot suppression and slice invalidation now cover the whole
+  model/renderer projection window, and projection failures clear suppression,
+  return to `idle`, and retain the surfaced error.
+- Replaced the Workspace's effect-only pending context handoff with one
+  revision-fenced projection path: it reads the restored structure, refreshes
+  the model revision, awaits the actual `GLVolume` replacement/clear for that
+  revision, updates the Object List and complete plate session, applies plate
+  transforms, and only then projects selection and gizmo state.
+- Added a GL mesh revision waiter resolved by the real `useModelLoader` replace
+  or clear point and rejected on load failure or supersession. Deterministic
+  coordinator tests cover the old early-idle failure, joined second restore,
+  superseded revisions, and projection failure cleanup.
+- Focused restore tests passed (7/7), full `pnpm test` passed (workspace:
+  8 packages; 414 slicer-app tests), and `pnpm typecheck` passed. Desktop E2E
+  passed 30 with 3 existing skips; threaded Web E2E passed 5/5; serial Web
+  E2E passed 5/5. No WASM quick build was required because this repair changes
+  only shared TypeScript restore/viewport projection code and leaves the C++
+  submodule's pre-existing dirty state untouched.
+- Root acceptance is intentionally not recorded in this execution record.
+
 ### Repair 3 execution record — canonical dirty projection after restore
 
 - Centralized Worker `HistoryStatus` projection in `projectHistoryStatus()` so

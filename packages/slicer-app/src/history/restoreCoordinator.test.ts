@@ -40,7 +40,7 @@ describe('history restore coordinator', () => {
     const coordinator = createHistoryRestoreCoordinator({
       runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
       sceneInteraction: scene as never,
-      refreshModel: vi.fn(),
+      refreshModel: vi.fn(async () => undefined),
     });
     await expect(coordinator.restore('undo')).resolves.toBe(false);
     expect(scene.cancelDrag).toHaveBeenCalledOnce();
@@ -52,14 +52,12 @@ describe('history restore coordinator', () => {
     const slice = new Promise<void>((resolve) => { releaseSlice = resolve; });
     useSlicerStore.getState().setStatus('slicing');
     const cancelAndWait = vi.fn(async () => { releaseSlice(); await slice; });
-    const refreshModel = vi.fn();
-    const projectContext = vi.fn(async () => undefined);
+    const refreshModel = vi.fn(async () => undefined);
     const coordinator = createHistoryRestoreCoordinator({
       runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(async () => ({ ok: true })) },
       sceneInteraction: fakeScene(),
       sliceCoordinator: { cancelAndWait },
       refreshModel,
-      projectContext,
     });
     const restore = coordinator.restore('undo');
     await Promise.resolve();
@@ -68,14 +66,13 @@ describe('history restore coordinator', () => {
     releaseSlice();
     await expect(restore).resolves.toBe(true);
     expect(refreshModel).toHaveBeenCalledOnce();
-    expect(projectContext).toHaveBeenCalledOnce();
     expect(useSlicerStore.getState().status).toBe('idle');
     expect(useHistoryRestoreStore.getState().phase).toBe('idle');
   });
 
   it('keeps the old projection on retryable Worker restore failure', async () => {
     useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
-    const refreshModel = vi.fn();
+    const refreshModel = vi.fn(async () => undefined);
     const failed: RestoreResult = { ok: false, error: {
       code: 'restore-failed', message: 'invalid staged model', retryable: true,
     } };
@@ -99,7 +96,7 @@ describe('history restore coordinator', () => {
     const coordinator = createHistoryRestoreCoordinator({
       runtime: { undoHistory, redoHistory, jumpHistory: vi.fn(), cancel: vi.fn() },
       sceneInteraction: fakeScene(),
-      refreshModel: vi.fn(),
+      refreshModel: vi.fn(async () => undefined),
     });
 
     useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
@@ -108,5 +105,57 @@ describe('history restore coordinator', () => {
 
     await expect(coordinator.restore('redo')).resolves.toBe(true);
     expect(useProjectStore.getState()).toMatchObject({ dirty: true, dirtyReasons: [] });
+  });
+
+  it('keeps the restoring phase until the asynchronous projection barrier settles', async () => {
+    let releaseProjection!: () => void;
+    const projection = new Promise<void>((resolve) => { releaseProjection = resolve; });
+    const refreshModel = vi.fn(async () => projection);
+    const undoHistory = vi.fn(async () => success());
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      sceneInteraction: fakeScene(),
+      refreshModel,
+    });
+
+    const restore = coordinator.restore('undo');
+    await vi.waitFor(() => expect(refreshModel).toHaveBeenCalledOnce());
+    expect(useHistoryRestoreStore.getState().phase).toBe('restoring');
+    expect(useHistoryRestoreStore.getState().snapshotSuppressed).toBe(true);
+    expect(coordinator.restore('redo')).toBe(restore);
+
+    releaseProjection();
+    await expect(restore).resolves.toBe(true);
+    expect(useHistoryRestoreStore.getState().phase).toBe('idle');
+  });
+
+  it('does not let a superseded projection return the newer restore to idle', async () => {
+    let releaseProjection!: () => void;
+    const projection = new Promise<void>((resolve) => { releaseProjection = resolve; });
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      sceneInteraction: fakeScene(),
+      refreshModel: vi.fn(async () => projection),
+    });
+
+    const restore = coordinator.restore('undo');
+    await Promise.resolve();
+    useHistoryRestoreStore.getState().advanceRevision();
+    releaseProjection();
+    await expect(restore).resolves.toBe(false);
+    expect(useHistoryRestoreStore.getState().phase).toBe('restoring');
+  });
+
+  it('cleans up the restore barrier when mesh/context projection fails', async () => {
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      sceneInteraction: fakeScene(),
+      refreshModel: vi.fn(async () => { throw new Error('mesh projection failed'); }),
+    });
+
+    await expect(coordinator.restore('undo')).resolves.toBe(false);
+    expect(useHistoryRestoreStore.getState()).toMatchObject({
+      phase: 'idle', error: 'mesh projection failed', snapshotSuppressed: false,
+    });
   });
 });
