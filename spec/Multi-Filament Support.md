@@ -2,7 +2,8 @@
 
 **Date:** 2026-09-08
 
-**Status:** Living specification; product decisions are being clarified.
+**Status:** Clarification complete; pending final review; implementation has
+not started.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -238,8 +239,7 @@ owns material-rack operations. Each slot presents:
 - its one-based slot number and effective colour;
 - the selected filament preset;
 - a searchable compatible-preset picker;
-- an action menu containing the applicable Edit, Merge with, and Delete
-  commands; and
+- an action menu containing the applicable Merge with and Delete commands; and
 - enough state to identify incompatible fallback, pending work, or a rejected
   mutation without constructing a partial optimistic session.
 
@@ -251,6 +251,13 @@ Web render the same component and command model.
 Add, Delete, and other commands are enabled from the capability fields in the
 Worker-provided filament-session snapshot. The UI does not infer device type
 or native slot-count constraints.
+
+The first release does not expose OrcaSlicer's slot **Edit** action. That
+action opens the full Filament Settings preset editor in native OrcaSlicer;
+Neo's initial multi-filament scope supports compatible-preset selection and
+slot-colour editing only. Imported project-embedded filament preset edits stay
+active and round-trip unchanged. A future complete preset-editor specification
+may add Edit without changing the slot command model.
 
 ### 9.2 Object List assignment surface
 
@@ -515,9 +522,124 @@ Preference persistence failure is non-fatal. The restored project state remains
 active, the failure is reported through the existing preference-error channel,
 and a later new project may fall back to the last successfully stored rack.
 
-## 12. Decisions Still to Be Clarified
+## 12. Feasibility and Implementation Sequence
 
-The living specification will be extended in coherent batches after decisions
-are made for:
+The feature is feasible without porting wxWidgets or changing the pinned C++
+submodule. The pinned core already provides native multi-material preset
+composition, slot-count updates, assignment configuration, flushing
+calculation, validation, painting/tool-change persistence, slicing, and G-code
+preview attribution. The principal work is exposing those facilities as an
+atomic typed Worker session and integrating that session with the shared React
+application, project persistence, and history.
 
-- acceptance fixtures and verification scope.
+Implementation is divided into independently testable pieces. The dated living
+implementation document created when coding begins must refine file lists and
+commands, but must not reopen accepted product behaviour silently.
+
+1. **Filament session projection.** Add one authoritative bridge snapshot for
+   ordered slots, presets, effective colours, maps, flushing state,
+   capabilities, effective assignments, and relevant revisions. Extend the
+   client/runtime types and mock module before application code consumes it.
+2. **Atomic slot commands.** Expose preset selection by slot, colour change,
+   Add, Delete, and Merge with as explicit JSON commands. Stage and validate
+   the complete `PresetBundle`, model, plate, custom-G-code, painting, support,
+   and routing remap before commit.
+3. **Assignment and routing commands.** Add object/instance-as-object,
+   `MODEL_PART`, and `PARAMETER_MODIFIER` assignment plus support and six
+   feature-path selectors. Return effective and inherited values rather than
+   reconstructing inheritance in React.
+4. **Shared Prepare UI.** Build the responsive rack, Object List filament
+   column and context command, impact confirmation, selectors, and Prepare
+   colour projection in `packages/slicer-app`. Both hosts consume the same
+   components and platform-neutral commands.
+5. **Flushing and prime tower.** Wire unconditional native recalculation after
+   accepted flushing inputs, imported-matrix preservation before the first
+   such edit, basic prime-tower controls, and native error projection.
+6. **History and persistence.** Extend the native history context and two-phase
+   restore to include the complete filament session. Verify project dirty
+   checkpoints, per-printer remembered-rack publication, embedded presets, and
+   lossless unsupported-state round-trip.
+7. **Slice and Preview integration.** Bind invalidation to configuration scope,
+   keep result revisions plate-safe, and project the generated tool/extruder
+   palette into Preview without synthesizing it from Prepare state.
+8. **Acceptance closure.** Run focused checks after each piece and the complete
+   approved release matrix only after all pieces pass their local gates.
+
+No implementation step edits `packages/slicer-wasm/cpp/` ad hoc. If exploration
+later proves a core change unavoidable, it requires a documented patch under
+`packages/slicer-wasm/patches/` or an intentional pinned-submodule update and a
+separate review of that scope.
+
+## 13. Acceptance and Verification
+
+### 13.1 Fixture policy
+
+The first-release compatibility suite uses deterministic synthetic fixtures
+only. It does not download or pin external real-world OrcaSlicer projects and
+therefore does not claim external-corpus compatibility evidence. Compatibility
+means that the project follows the native state and 3MF behaviour of the pinned
+`libslic3r` core.
+
+Synthetic fixtures must not rely solely on exporting and reopening with the
+same path under test. At least one independently assembled multi-filament 3MF
+fixture exercises the reader, and bridge-generated projects exercise the
+writer and round-trip path.
+
+### 13.2 Required behavioural fixtures
+
+The deterministic fixture set covers at least:
+
+- ordinary one-slot printing as a regression baseline;
+- single-nozzle two-material printing, including object and part assignment,
+  manual/native tool changes, flushing recalculation, and prime tower;
+- fixed multi-nozzle printing, including minimum slot count and native mapping;
+- support base/interface and all six feature-path filament selectors;
+- inherited part values, explicit overrides, parameter modifiers, and
+  instance-as-object assignment;
+- Add through 64 slots, rejection of slot 65, complete 64-slot matrix and 3MF
+  persistence, and Delete/Merge remapping at the first, middle, and last slot;
+- imported painting and per-layer colour/tool-change preservation and remap;
+- imported custom flushing-matrix preservation followed by automatic
+  replacement after the first flushing-input edit;
+- project save/open, embedded preset retention, compatible fallback reporting,
+  remembered-rack priority, and Undo/Redo of every exposed mutation;
+- mixed-temperature rejection for used slots and non-rejection for otherwise
+  incompatible but unreferenced rack slots;
+- command rejection with an unsupported reference or injected failure,
+  proving no partial project, history, preference, or result mutation; and
+- multi-plate invalidation scope, in-flight revision rejection, cancellation,
+  and retained unaffected results.
+
+The 64-slot state boundary is tested separately from representative slicing.
+Release acceptance does not require a plate that actively prints all 64
+materials.
+
+### 13.3 G-code and Preview assertions
+
+Tests do not compare complete G-code byte-for-byte. They parse generated output
+and assert stable multi-filament semantics, including applicable tool or
+filament-change order, per-feature slot use, temperature commands, flushing and
+prime-tower structure, and the Preview result's tool IDs and filament palette.
+This avoids coupling acceptance to unrelated comments, timestamps, or pinned-
+core formatting changes while still proving that assignments affect output.
+
+### 13.4 Layered release gates
+
+During implementation, each piece runs the smallest deterministic bridge,
+client/runtime, store, component, or native fixture checks that cover its
+changed boundary. Before an independently testable piece is committed, its
+affected package tests and typecheck plus applicable WASM quick build, smoke,
+or boundary guard must pass.
+
+Final milestone acceptance follows
+[`testing_guidelines.md`](../doc/testing_guidelines.md) Level 4 and includes:
+
+- root `pnpm test` and `pnpm typecheck`;
+- threaded and serial WASM quick builds and smoke suites;
+- the complete synthetic multi-filament bridge/3MF/G-code fixture suite;
+- Electron E2E; and
+- real Web E2E with both threaded and serial wasm64 runtimes.
+
+The final acceptance record names the exact commands and results, including
+every unavailable, intentionally skipped, or failing gate. Roadmap documents
+may mark the milestone delivered only after this complete matrix passes.
