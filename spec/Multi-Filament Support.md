@@ -379,6 +379,50 @@ state: Neo must preserve, slice, preview, save, and atomically remap them during
 slot Delete or Merge with. Their absence from the UI must never clear or
 normalize them merely by opening and saving a project.
 
+### 10.6 Slice lifecycle and native validation
+
+Multi-filament edits use the existing slice lifecycle defined by
+[`Workspace Prepare and Preview Modes.md`](Workspace%20Prepare%20and%20Preview%20Modes.md)
+and [`Multi-Plate Support.md`](Multi-Plate%20Support.md). They do not introduce
+eager auto-slicing or a separate progress, cancellation, Preview-overlay, or
+error-presentation system.
+
+- Slot preset, colour, Add, Delete, and Merge with operations invalidate every
+  plate because they change the shared full configuration or flushing matrix.
+- Process-scoped support, feature-path, and prime-tower settings invalidate
+  every plate.
+- Object- or volume-scoped assignment, support, and feature-path changes
+  invalidate only plates that contained an affected instance immediately
+  before or after the edit.
+- A prime-tower X or Y change invalidates only the plate whose position entry
+  changed.
+- An invalidating edit cancels an in-flight slice only when that job's plate is
+  affected. A new slice begins only through the existing Slice command or by
+  entering Preview for a plate without a valid result.
+
+The existing compatible-preset projection remains the only candidate list for
+ordinary slot selection. React does not add a second printer-compatibility
+filter or attempt to reproduce cross-filament validation.
+
+Before processing a slice, the bridge applies the authoritative configuration
+and calls native `Print::validate()`. For a single-nozzle task that actually
+uses multiple filaments, the first release retains the core's default mixed-
+temperature restriction:
+
+- invalid recommended temperature ranges and incompatible mixed-temperature
+  combinations block slicing;
+- Neo does not expose OrcaSlicer's global option for removing that restriction
+  in the first release; and
+- only filament slots actually used by the current plate, or by each object in
+  by-object printing, participate in the check. Unreferenced rack slots do not
+  block slicing.
+
+The native validation message is surfaced through the existing slice error
+status. Neo does not parse that text to make a second decision, show a modal,
+or convert the error into a bypassable warning. Slot fallback caused by project
+load or a Printer/Process transition continues to use the rack and project-load
+reporting rules defined elsewhere in this specification.
+
 ## 11. Project Persistence and History
 
 ### 11.1 3MF project authority
@@ -457,7 +501,5 @@ and a later new project may fall back to the last successfully stored rack.
 The living specification will be extended in coherent batches after decisions
 are made for:
 
-- slice scheduling, stale-result presentation, and progress/cancellation;
-- error and warning presentation for incompatible material combinations;
 - Web and Electron resource limits and recovery behaviour; and
 - acceptance fixtures and verification scope.
