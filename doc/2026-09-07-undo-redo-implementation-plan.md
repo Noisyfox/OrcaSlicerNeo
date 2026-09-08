@@ -537,3 +537,26 @@ repair sequence is complete prematurely.
   slicer-app tests, 108 slicer-wasm tests) and `pnpm typecheck`.
 - This supplemental harness-only commit does not change the C++ implementation
   or the root acceptance status.
+
+### Repair 2 execution record — context-only traversal
+
+- Changed the headless `ProjectHistory` traversal so one-step Undo first skips
+  any trailing context records, then moves from the current project frame to
+  its preceding project frame. Redo uses the symmetric next-project-frame
+  traversal. `canUndo`, `canRedo`, toolbar labels, and returned contexts now
+  describe the same project-frame targets.
+- Updated the mock Worker protocol and added regression coverage for multiple
+  consecutive context records, baseline-only context records, saved-checkpoint
+  dirty behavior, symmetric Undo/Redo, and context-branch redo truncation.
+- Added the same regression to `history-smoke.mjs`; it passed against both the
+  serial and threaded real WASM artifacts. The existing native ProjectHistory
+  fixture also passed after rebuilding its serial test target.
+- Focused Worker/client tests passed 10/10. Full `pnpm test` passed (workspace:
+  8 packages; 109 slicer-wasm tests; 409 slicer-app tests), and `pnpm typecheck`
+  passed. `scripts\\build-windows.bat quick --variant both` and the dual
+  `scripts\\build-windows.bat smoke --variant both` passed.
+- Desktop E2E completed with 29 passed and 3 existing skips, plus one failing
+  Add Primitive geometry assertion. Re-running that single test failed at the
+  same `selectionBoundsWorld()` wait; the failure is outside the Worker/core
+  traversal changes and no unrelated E2E behavior was modified here.
+- Root acceptance is intentionally not recorded in this execution record.

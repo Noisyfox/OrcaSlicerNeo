@@ -81,12 +81,55 @@ describe('Worker-owned project history protocol', () => {
     const undone = await client.undoHistory();
     expect(undone.ok).toBe(true);
     if (!undone.ok) throw new Error('missing restore');
-    expect(undone.status.dirty).toBe(false);
+    // The saved checkpoint is the post-project frame. Skipping the context
+    // record still undoes that project operation, so the baseline is dirty
+    // relative to the saved frame.
+    expect(undone.status.dirty).toBe(true);
     expect(undone.context.activePlateId).toBe('plate-1');
+    const redone = await client.redoHistory();
+    expect(redone.ok).toBe(true);
+    if (!redone.ok) throw new Error('missing saved-frame redo');
+    expect(redone.status.dirty).toBe(false);
     const reset = await client.resetHistory(context('fresh'));
     expect(reset.canUndo).toBe(false);
     expect(reset.canRedo).toBe(false);
     expect(reset.dirty).toBe(false);
+  });
+
+  it('skips consecutive context records in one-step navigation and truncates their branch', async () => {
+    const client = createClient(async () => createMockModule());
+    const baseline = context('plate-1');
+    const first = await client.runProjectHistoryTransaction('Add Cube', 'project', baseline,
+      async () => client.addShape('Cube'), baseline);
+    expect(first.status.dirty).toBe(true);
+    const saved = await client.markHistorySaved(baseline);
+    expect(saved.dirty).toBe(false);
+
+    const contextOne = await client.recordHistoryContext('Selection 1', context('plate-2'));
+    expect(contextOne.dirty).toBe(false);
+    const contextTwo = await client.recordHistoryContext('Selection 2', context('plate-3'));
+    expect(contextTwo.dirty).toBe(false);
+    expect(contextTwo.undoEntries).toHaveLength(1);
+
+    const undone = await client.undoHistory();
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) throw new Error('missing context-skipping restore');
+    expect((await client.getModelStructure()).objects).toHaveLength(0);
+    expect(undone.context.activePlateId).toBe('plate-1');
+    expect(undone.status.dirty).toBe(true);
+    expect(undone.status.canRedo).toBe(true);
+
+    const redone = await client.redoHistory();
+    expect(redone.ok).toBe(true);
+    if (!redone.ok) throw new Error('missing symmetric redo restore');
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+    expect(redone.context.activePlateId).toBe('plate-1');
+    expect(redone.status.dirty).toBe(false);
+    expect(redone.status.canRedo).toBe(false);
+
+    await client.undoHistory();
+    const branched = await client.recordHistoryContext('New Selection', context('plate-branch'));
+    expect(branched.canRedo).toBe(false);
   });
 
   it('restores complete selection context and truncates redo after a new context record', async () => {
@@ -108,7 +151,7 @@ describe('Worker-owned project history protocol', () => {
     const undone = await client.undoHistory();
     expect(undone.ok).toBe(true);
     if (!undone.ok) throw new Error('missing restore');
-    expect(undone.context.selection.partIds).toEqual([22]);
+    expect(undone.context.selection.partIds).toEqual([]);
     expect(undone.context.activePlateId).toBe('plate-1');
     const contextRestored = await client.jumpHistory('entry-2');
     expect(contextRestored.ok).toBe(true);
@@ -116,12 +159,16 @@ describe('Worker-owned project history protocol', () => {
     expect(contextRestored.context.selection.partIds).toEqual([23]);
     const afterUndo = await client.undoHistory();
     expect(afterUndo.ok).toBe(true);
+    if (!afterUndo.ok) throw new Error('missing baseline restore');
+    expect(afterUndo.context.selection.partIds).toEqual([]);
     const truncated = await client.recordHistoryContext('Selection', {
       ...selected,
       selection: { ...selected.selection, objectIds: [99] },
     });
     expect(truncated.canRedo).toBe(false);
-    expect(truncated.dirty).toBe(false);
+    // This branch discards the saved checkpoint itself, so the conservative
+    // dirty rule applies even though the new record is context-only.
+    expect(truncated.dirty).toBe(true);
   });
 
   it('keeps opt-in nested coalesced transactions dormant and publishes one entry', async () => {

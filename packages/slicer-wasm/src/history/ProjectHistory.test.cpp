@@ -53,7 +53,9 @@ int main()
     CHECK(history.prepare_undo(prepared));
     CHECK(history.cursor() == before_cursor);
     CHECK(prepared.from_cursor == before_cursor);
-    CHECK(prepared.target_cursor == 1);
+    // The current state is a context-only record after `move`; one Undo must
+    // skip it and restore the preceding project frame's predecessor.
+    CHECK(prepared.target_cursor == 0);
     ProjectHistory restore_commit;
     CHECK(restore_commit.commit("baseline", Category::Project, model(1), bytes(1)));
     CHECK(restore_commit.commit("edit", Category::Project, model(2), bytes(2)));
@@ -69,12 +71,55 @@ int main()
 
     RestoreState restored;
     CHECK(history.undo(restored));
-    CHECK(restored.model.serialized == bytes(2));
-    CHECK(restored.context == bytes(8));
-    CHECK(history.undo(restored));
     CHECK(restored.model.serialized == bytes(1));
+    CHECK(restored.context == bytes(9));
+    CHECK(!history.can_undo());
     CHECK(history.redo(restored));
     CHECK(restored.model.serialized == bytes(2));
+    CHECK(restored.context == bytes(8));
+    CHECK(!history.can_redo());
+
+    // Multiple consecutive context records after a project operation are
+    // skipped as one navigation unit. Redo is symmetric and restores the
+    // next project frame, not the context records themselves.
+    ProjectHistory consecutive_context;
+    CHECK(consecutive_context.commit("baseline", Category::Project, model(1), bytes(10)));
+    CHECK(consecutive_context.commit("edit", Category::Project, model(2), bytes(11)));
+    CHECK(consecutive_context.commit("selection 1", Category::Context, model(2), bytes(12)));
+    CHECK(consecutive_context.commit("selection 2", Category::Context, model(2), bytes(13)));
+    CHECK(consecutive_context.can_undo());
+    CHECK(consecutive_context.undo(restored));
+    CHECK(consecutive_context.cursor() == 0);
+    CHECK(restored.model.serialized == bytes(1));
+    CHECK(restored.context == bytes(10));
+    CHECK(consecutive_context.can_redo());
+    CHECK(consecutive_context.redo(restored));
+    CHECK(consecutive_context.cursor() == 1);
+    CHECK(restored.model.serialized == bytes(2));
+    CHECK(restored.context == bytes(11));
+    CHECK(!consecutive_context.can_redo());
+
+    // A context-only branch after Undo still discards all redo project
+    // entries, while context-only history at the baseline remains non-dirty
+    // and non-navigable.
+    ProjectHistory context_branch;
+    CHECK(context_branch.commit("baseline", Category::Project, model(1), bytes(20)));
+    context_branch.mark_current_as_saved();
+    CHECK(context_branch.commit("edit", Category::Project, model(2), bytes(21)));
+    CHECK(context_branch.commit("selection 1", Category::Context, model(2), bytes(22)));
+    CHECK(context_branch.commit("selection 2", Category::Context, model(2), bytes(23)));
+    CHECK(context_branch.undo(restored));
+    CHECK(!context_branch.project_modified());
+    CHECK(context_branch.commit("new selection", Category::Context, model(1), bytes(24)));
+    CHECK(!context_branch.can_redo());
+    CHECK(!context_branch.project_modified());
+    ProjectHistory baseline_context;
+    CHECK(baseline_context.commit("baseline", Category::Project, model(1), bytes(30)));
+    baseline_context.mark_current_as_saved();
+    CHECK(baseline_context.commit("selection", Category::Context, model(1), bytes(31)));
+    CHECK(!baseline_context.can_undo());
+    CHECK(!baseline_context.can_redo());
+    CHECK(!baseline_context.project_modified());
 
     // Context-only records remain in the retained timeline and truncate a
     // redo branch, but standard one-step navigation skips them.  A session

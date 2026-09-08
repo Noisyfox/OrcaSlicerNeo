@@ -90,6 +90,32 @@ const beforeEdit = callJson('orc_get_model_structure', [], []);
 if (!beforeEdit.ok || beforeEdit.objects.length !== 2)
   throw new Error(`two-object baseline was not restored: ${JSON.stringify(beforeEdit)}`);
 
+// Standalone selection records are retained in the linear branch but one
+// ordinary Undo must skip all of them and restore the preceding project
+// frame. Redo must symmetrically restore the project frame and its context.
+const selectionOne = { ...context,
+  selection: { ...context.selection, mode: 'part', objectIds: [1] } };
+const selectionTwo = { ...selectionOne,
+  selection: { ...selectionOne.selection, partIds: [2] } };
+const contextOne = callJson('orc_history_record_context',
+  ['string', 'string'], ['Selection 1', JSON.stringify(selectionOne)]);
+if (contextOne.dirty !== true || contextOne.undoEntries.length !== 1)
+  throw new Error(`first context record changed project navigation unexpectedly: ${JSON.stringify(contextOne)}`);
+const contextTwo = callJson('orc_history_record_context',
+  ['string', 'string'], ['Selection 2', JSON.stringify(selectionTwo)]);
+if (contextTwo.dirty !== true || contextTwo.undoEntries.length !== 1)
+  throw new Error(`second context record changed project navigation unexpectedly: ${JSON.stringify(contextTwo)}`);
+const contextUndo = callJson('orc_history_undo', [], []);
+const contextUndoModel = callJson('orc_get_model_structure', [], []);
+if (!contextUndo.ok || !contextUndoModel.ok || contextUndoModel.objects.length !== 0 ||
+    contextUndo.context.selection.objectIds.length !== 0)
+  throw new Error(`context-only records were not skipped by Undo: ${JSON.stringify({ contextUndo, contextUndoModel })}`);
+const contextRedo = callJson('orc_history_redo', [], []);
+const contextRedoModel = callJson('orc_get_model_structure', [], []);
+if (!contextRedo.ok || !contextRedoModel.ok || contextRedoModel.objects.length !== 2 ||
+    contextRedo.context.selection.objectIds.length !== 0)
+  throw new Error(`context-only records were not skipped by Redo: ${JSON.stringify({ contextRedo, contextRedoModel })}`);
+
 // Plate-session state is part of the same history frame as the model.  This
 // is intentionally exercised before the model-only edits below: the old
 // bridge restored the model but left the live plate collection untouched.

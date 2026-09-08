@@ -840,14 +840,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_undo() {
       if (historyTransaction) return { error: 'history transaction is active' };
       const project = (entry: MockHistoryEntry): boolean => entry.id !== 'entry-0' && entry.category === 'project';
-      let target = historyCursor - 1;
-      let hasUndoAction = false;
-      for (let index = historyCursor; index > 0; index--)
-        if (project(historyEntries[index])) { hasUndoAction = true; break; }
-      if (!hasUndoAction) return { error: 'no undo history' };
-      while (target >= 0 && !project(historyEntries[target])) target--;
+      let currentProject = historyCursor;
+      while (currentProject >= 0 && currentProject < historyEntries.length &&
+             !project(historyEntries[currentProject])) currentProject--;
+      if (currentProject < 1) return { error: 'no undo history' };
+      let target = currentProject - 1;
+      while (target > 0 && !project(historyEntries[target])) target--;
       // The baseline is the valid restore target for the first project edit.
-      if (target < 0) target = 0;
+      if (!historyEntries[target] || (target > 0 && !project(historyEntries[target])))
+        target = 0;
       historyCursor = target;
       return historyRestore(historyEntries[target]);
     },

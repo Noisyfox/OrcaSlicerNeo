@@ -46,6 +46,37 @@ struct StoredEntry {
     StoredState state;
 };
 
+constexpr std::size_t kNoProject = std::numeric_limits<std::size_t>::max();
+
+std::size_t project_at_or_before(const std::vector<StoredEntry>& states, std::size_t start)
+{
+    if (states.empty() || start >= states.size()) return kNoProject;
+    std::size_t index = start;
+    while (true) {
+        if (states[index].info.category == Category::Project) return index;
+        if (index == 0) break;
+        --index;
+    }
+    return kNoProject;
+}
+
+std::size_t previous_project(const std::vector<StoredEntry>& states, std::size_t start)
+{
+    while (start > 0) {
+        --start;
+        if (states[start].info.category == Category::Project) return start;
+    }
+    return kNoProject;
+}
+
+std::size_t next_project(const std::vector<StoredEntry>& states, std::size_t start)
+{
+    for (std::size_t index = start + 1; index < states.size(); ++index)
+        if (states[index].info.category == Category::Project && states[index].info.id != 0)
+            return index;
+    return kNoProject;
+}
+
 } // namespace
 
 struct ProjectHistory::Impl {
@@ -209,13 +240,10 @@ bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
 
 bool ProjectHistory::prepare_undo(RestorePlan& result) const
 {
-    if (!can_undo()) return false;
-    std::size_t target = m_cursor;
-    while (target > 0) {
-        --target;
-        if (m_impl->states[target].info.category == Category::Project) break;
-    }
-    if (m_impl->states[target].info.category != Category::Project) return false;
+    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    const std::size_t target = current_project == kNoProject
+        ? kNoProject : previous_project(m_impl->states, current_project);
+    if (target == kNoProject) return false;
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
@@ -227,15 +255,10 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
 
 bool ProjectHistory::prepare_redo(RestorePlan& result) const
 {
-    if (!can_redo()) return false;
-    std::size_t target = m_cursor;
-    while (target + 1 < m_impl->states.size()) {
-        ++target;
-        if (m_impl->states[target].info.id != 0 &&
-            m_impl->states[target].info.category == Category::Project) break;
-    }
-    if (m_impl->states[target].info.id == 0 ||
-        m_impl->states[target].info.category != Category::Project) return false;
+    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    if (current_project == kNoProject) return false;
+    const std::size_t target = next_project(m_impl->states, current_project);
+    if (target == kNoProject) return false;
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
@@ -274,39 +297,31 @@ bool ProjectHistory::can_commit_restore(const RestorePlan& plan) const
 
 bool ProjectHistory::can_undo() const
 {
-    if (m_impl->states.empty() || m_cursor == 0) return false;
-    for (std::size_t index = m_cursor; index > 0; --index)
-        if (m_impl->states[index].info.category == Category::Project) return true;
-    return false;
+    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    return current_project != kNoProject && previous_project(m_impl->states, current_project) != kNoProject;
 }
 
 bool ProjectHistory::can_redo() const
 {
-    if (m_impl->states.empty() || m_cursor + 1 >= m_impl->states.size()) return false;
-    for (std::size_t index = m_cursor + 1; index < m_impl->states.size(); ++index)
-        if (m_impl->states[index].info.id != 0 &&
-            m_impl->states[index].info.category == Category::Project) return true;
-    return false;
+    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    return current_project != kNoProject && next_project(m_impl->states, current_project) != kNoProject;
 }
 std::size_t ProjectHistory::entry_count() const { return m_impl->states.empty() ? 0 : m_impl->states.size() - 1; }
 
 const EntryInfo* ProjectHistory::undo_entry() const
 {
     if (!can_undo()) return nullptr;
-    for (std::size_t index = m_cursor; index > 0; --index)
-        if (m_impl->states[index].info.category == Category::Project)
-            return &m_impl->states[index].info;
-    return nullptr;
+    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    return current_project == kNoProject ? nullptr : &m_impl->states[current_project].info;
 }
 
 const EntryInfo* ProjectHistory::redo_entry() const
 {
     if (!can_redo()) return nullptr;
-    for (std::size_t index = m_cursor + 1; index < m_impl->states.size(); ++index)
-        if (m_impl->states[index].info.id != 0 &&
-            m_impl->states[index].info.category == Category::Project)
-            return &m_impl->states[index].info;
-    return nullptr;
+    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    const std::size_t target = current_project == kNoProject
+        ? kNoProject : next_project(m_impl->states, current_project);
+    return target == kNoProject ? nullptr : &m_impl->states[target].info;
 }
 
 std::vector<EntryInfo> ProjectHistory::entries() const
