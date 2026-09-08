@@ -77,6 +77,131 @@ describe('SlicerClient bridge contract', () => {
     ] });
   });
 
+  it('executes atomic filament commands and rejects stale or injected mutations without changing the snapshot', async () => {
+    const c = makeClient();
+    const before = await c.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const selected = await c.selectFilamentSlotPreset({
+      version: 1, revision: before.revisions.session, slot: 1, preset: 'Bambu PLA Matte @BBL X1C',
+    });
+    expect(selected).toMatchObject({ ok: true, result: { mutation: {
+      kind: 'select-preset', historyEntryDelta: 1, revisionBefore: before.revisions.session,
+    }, snapshot: { slots: [{ preset: { name: 'Bambu PLA Matte @BBL X1C' } }] } } });
+    if (!selected.ok) throw new Error(selected.error);
+    const added = await c.addFilamentSlot({ version: 1, revision: selected.result.snapshot.revisions.session });
+    expect(added).toMatchObject({ ok: true, result: { mutation: {
+      kind: 'add', historyEntryDelta: 1, revisionBefore: selected.result.snapshot.revisions.session,
+      dirty: true, allPlateResultsInvalidated: true,
+    } } });
+    if (!added.ok) throw new Error(added.error);
+    expect(added.result.snapshot.slots).toHaveLength(2);
+    const edited = await c.setFilamentSlotColour({ version: 1, revision: added.result.snapshot.revisions.session, slot: 2, colour: '#112233' });
+    expect(edited).toMatchObject({ ok: true, result: { snapshot: { slots: [
+      {}, { colour: { effective: '#112233', provenance: 'user' } },
+    ] } } });
+    if (!edited.ok) throw new Error(edited.error);
+    const beforeInjected = edited.result.snapshot;
+    await expect(c.deleteFilamentSlot({ version: 1, revision: beforeInjected.revisions.session, slot: 1, inject_failure: true } as any))
+      .resolves.toMatchObject({ ok: false, errorCode: 'native_validation_failure' });
+    await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(beforeInjected);
+    await expect(c.deleteFilamentSlot({ version: 1, revision: beforeInjected.revisions.session - 1, slot: 1 }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(beforeInjected);
+  });
+
+  it('rejects kind-specific mutation response fields and post-mutation ranges', async () => {
+    const base = await makeClient().getFilamentSessionSnapshot();
+    if (!base.ok) throw new Error(base.error);
+    const toWire = (snapshot: typeof base) => ({ ...snapshot,
+      mappings: { ...snapshot.mappings, physical_extruder: snapshot.mappings.physicalExtruder },
+      flushing: { ...snapshot.flushing, matrix_dimension: snapshot.flushing.matrixDimension, plane_count: snapshot.flushing.planeCount },
+      capabilities: { min_slots: snapshot.capabilities.minSlots, max_slots: snapshot.capabilities.maxSlots,
+        nozzle_count: snapshot.capabilities.nozzleCount, flexible: snapshot.capabilities.flexible,
+        can_add: snapshot.capabilities.canAdd, can_delete: snapshot.capabilities.canDelete, can_merge: snapshot.capabilities.canMerge },
+      assignments: Object.fromEntries(Object.entries(snapshot.assignments).map(([key, entries]) => [key,
+        entries.map((entry: { objectId: number; [name: string]: unknown }) => ({ ...entry, object_id: entry.objectId }))])),
+    });
+    const validSnapshot = { ...base, revisions: { ...base.revisions, session: 1 } };
+    const response = (mutation: Record<string, unknown>, snapshot = validSnapshot) => ({
+      ok: true, version: 1, result: { snapshot: toWire(snapshot), mutation: {
+        kind: 'select-preset', history_entry_delta: 1, revision_before: 0,
+        revision_after: 1, dirty: true, all_plate_results_invalidated: true,
+        slot: 1, preset: 'p', ...mutation,
+      } },
+    });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: response({ slot_count: 1 }),
+    })).selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'extraneous filament mutation field', errorCode: 'invalid_response' });
+
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: response({ revision_after: 2 }),
+    })).selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: response({}, { ...validSnapshot, revisions: { ...validSnapshot.revisions, session: 2 } }),
+    })).selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: response({ dirty: false }),
+    })).selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' });
+
+    const twoSlot = { ...base,
+      slots: [base.slots[0], { ...base.slots[0], slot: 2 }],
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physicalExtruder: [0] },
+      flushing: { matrix: [0, 0, 0, 0], matrixDimension: 2, planeCount: 1, vector: [], source: 'native' as const },
+      capabilities: { ...base.capabilities, canDelete: true, canMerge: true },
+      revisions: { ...base.revisions, session: 1 },
+    };
+    const oneSlot = { ...twoSlot,
+      slots: [twoSlot.slots[0]],
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
+      flushing: { ...twoSlot.flushing, matrix: [0], matrixDimension: 1 },
+      capabilities: { ...twoSlot.capabilities, canDelete: false, canMerge: false },
+    };
+    const deleteMutation = (fields: Record<string, unknown>) => ({
+      ok: true, version: 1, result: { snapshot: toWire(oneSlot), mutation: {
+        kind: 'delete', history_entry_delta: 1, revision_before: 0, revision_after: 1,
+        dirty: true, all_plate_results_invalidated: true, source: 2, destination: null,
+        slot_count: 1, ...fields,
+      } },
+    });
+    await expect(createClient(async () => createMockModule({ filamentMutation: deleteMutation({ destination: 1 }) }))
+      .deleteFilamentSlot({ version: 1, revision: 0, slot: 2 }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament delete destination', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({ filamentMutation: deleteMutation({ slot_count: 2 }) }))
+      .deleteFilamentSlot({ version: 1, revision: 0, slot: 2 }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation slot count', errorCode: 'invalid_response' });
+
+    const mergeResponse = {
+      ok: true, version: 1, result: { snapshot: toWire(oneSlot), mutation: {
+        kind: 'merge', history_entry_delta: 1, revision_before: 0, revision_after: 1,
+        dirty: true, all_plate_results_invalidated: true, source: 2, destination: 2, slot_count: 1,
+      } },
+    };
+    await expect(createClient(async () => createMockModule({ filamentMutation: mergeResponse }))
+      .mergeFilamentSlots({ version: 1, revision: 0, source: 2, destination: 1 }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament merge destination range', errorCode: 'invalid_response' });
+  });
+
+  it('remaps middle merge and preserves destination colour in the atomic client contract', async () => {
+    const payload = {
+      ok: true, version: 1,
+      slots: [1, 2, 3].map((slot) => ({ slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: `#00000${slot}`, provenance: slot === 2 ? 'user' : 'preset' } })),
+      mappings: { filament: [1, 1, 1], volume: [0, 0, 0], nozzle: [1, 1, 1], filament2: [1, 1, 1], physical_extruder: [0] },
+      flushing: { matrix: Array(9).fill(0), vector: [], matrix_dimension: 3, plane_count: 1, source: 'native' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 4, project: 4, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    };
+    const c = createClient(async () => createMockModule({ filamentSession: payload }));
+    const merged = await c.mergeFilamentSlots({ version: 1, revision: 4, source: 2, destination: 1 });
+    expect(merged).toMatchObject({ ok: true, result: { snapshot: { slots: [
+      { slot: 1, colour: { effective: '#000001' } }, { slot: 2, colour: { effective: '#000003' } },
+    ] } } });
+  });
+
   it('rejects a flush plane count that does not match native nozzle count', async () => {
     const payload = {
       ok: true, version: 1,

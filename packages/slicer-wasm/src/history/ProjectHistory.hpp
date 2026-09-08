@@ -131,6 +131,13 @@ public:
     // subsequent commit stores the new state.  A commit with identical model
     // and context bytes is a no-op and does not consume a history entry.
     bool commit(std::string label, Category category, const ModelState& model, const Bytes& context);
+    // Publish the initial baseline and its first project mutation as one
+    // history operation.  The bridge uses this when a freshly initialized
+    // session receives its first atomic command; a failed command must not
+    // leave a baseline behind without the corresponding mutation.
+    bool commit_with_baseline(std::string label, Category category,
+                              const ModelState& baseline_model, const Bytes& baseline_context,
+                              const ModelState& model, const Bytes& context);
     bool record(std::string label, Category category, const ModelState& model, const Bytes& context)
     { return commit(std::move(label), category, model, context); }
 

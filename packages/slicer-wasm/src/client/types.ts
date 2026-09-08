@@ -755,6 +755,52 @@ export interface FilamentSessionSnapshotError {
 
 export type FilamentSessionSnapshotResult = FilamentSessionSnapshot | FilamentSessionSnapshotError;
 
+export interface FilamentMutationSummary {
+  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge';
+  readonly slot?: number;
+  readonly source?: number;
+  readonly destination?: number | null;
+  readonly preset?: string;
+  readonly colour?: string;
+  readonly slotCount?: number;
+  readonly historyEntryDelta: 1;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly dirty: true;
+  readonly allPlateResultsInvalidated: true;
+}
+
+export interface FilamentMutationResult {
+  readonly snapshot: FilamentSessionSnapshot;
+  readonly mutation: FilamentMutationSummary;
+}
+
+export interface FilamentCommandRequest {
+  readonly revision: number;
+  readonly version: 1;
+}
+
+export interface FilamentSlotPresetRequest extends FilamentCommandRequest {
+  readonly slot: number;
+  readonly preset: string;
+}
+
+export interface FilamentSlotColourRequest extends FilamentCommandRequest {
+  readonly slot: number;
+  readonly colour: string;
+}
+
+export interface FilamentSlotDeleteRequest extends FilamentCommandRequest {
+  readonly slot: number;
+}
+
+export interface FilamentSlotMergeRequest extends FilamentCommandRequest {
+  readonly source: number;
+  readonly destination: number;
+}
+
+export type FilamentMutationResultOrError = AtomicCommandResult<FilamentMutationResult>;
+
 /** Reusable versioned envelope reserved for Step 2 atomic commands. */
 export interface AtomicCommandSuccessEnvelope<T> {
   readonly ok: true;
@@ -778,6 +824,11 @@ export interface SlicerClient {
   init(): Promise<InitResult>;
   /** Read the complete native filament session; no renderer-side fallback is allowed. */
   getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult>;
+  selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
+  setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
+  addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
+  deleteFilamentSlot(request: FilamentSlotDeleteRequest): Promise<FilamentMutationResultOrError>;
+  mergeFilamentSlots(request: FilamentSlotMergeRequest): Promise<FilamentMutationResultOrError>;
   /** Begin/commit/abort are serialized by the Worker; transaction IDs are opaque. */
   beginHistory(label: import('./history').HistoryLabel, category: import('./history').HistoryCategory,
                beforeContext: import('./history').HistoryContext,

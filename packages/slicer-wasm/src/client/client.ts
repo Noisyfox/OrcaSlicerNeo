@@ -25,6 +25,9 @@ import type {
   PreviewTextLines, PreviewTextLinesRequest,
   FilamentSessionSnapshotResult, FilamentSessionSnapshot, FilamentSessionSlot,
   FilamentAssignmentProjection,
+  FilamentMutationResultOrError, FilamentMutationResult,
+  FilamentSlotPresetRequest, FilamentSlotColourRequest,
+  FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -192,6 +195,95 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
     status: { state: 'ready', error: null },
   };
   return result;
+}
+
+function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOrError {
+  if (!raw || typeof raw !== 'object') return { ok: false, version: 1, error: 'invalid filament mutation response', errorCode: 'invalid_response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) {
+    if (value.version !== 1 || value.ok !== false || typeof value.error !== 'string' || typeof value.error_code !== 'string')
+      return { ok: false, version: 1, error: 'invalid filament mutation error envelope', errorCode: 'invalid_response' };
+    if (!value.status || typeof value.status !== 'object' ||
+        (value.status as Record<string, unknown>).state !== 'error' ||
+        typeof (value.status as Record<string, unknown>).error !== 'string')
+      return { ok: false, version: 1, error: 'invalid filament mutation error status', errorCode: 'invalid_response' };
+    return { ok: false, version: 1, error: value.error, errorCode: value.error_code,
+      ...(value.status && typeof value.status === 'object' ? {
+        status: { state: 'error' as const, error: String((value.status as Record<string, unknown>).error ?? value.error) },
+      } : {}) };
+  }
+  if (value.version !== 1 || !value.result || typeof value.result !== 'object')
+    return { ok: false, version: 1, error: 'invalid filament mutation result envelope', errorCode: 'invalid_response' };
+  const result = value.result as Record<string, unknown>;
+  const snapshot = normalizeFilamentSessionResult(result.snapshot);
+  if (!snapshot.ok || !result.mutation || typeof result.mutation !== 'object')
+    return { ok: false, version: 1, error: snapshot.ok ? 'invalid filament mutation summary' : snapshot.error,
+      errorCode: 'invalid_response' };
+  const mutation = result.mutation as Record<string, unknown>;
+  if (typeof mutation.kind !== 'string' || mutation.history_entry_delta !== 1 ||
+      !Number.isSafeInteger(mutation.revision_before) || !Number.isSafeInteger(mutation.revision_after) ||
+      Number(mutation.revision_after) !== Number(mutation.revision_before) + 1 ||
+      Number(mutation.revision_after) !== snapshot.revisions.session ||
+      mutation.dirty !== true || mutation.all_plate_results_invalidated !== true)
+    return { ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' };
+  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge']);
+  if (!validMutationKinds.has(String(mutation.kind)))
+    return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
+  const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(mutation, key);
+  const commonKeys = new Set(['kind', 'history_entry_delta', 'revision_before', 'revision_after',
+    'dirty', 'all_plate_results_invalidated']);
+  const kindKeys: Record<string, string[]> = {
+    'select-preset': ['slot', 'preset'],
+    'set-colour': ['slot', 'colour'],
+    add: ['slot'],
+    delete: ['source', 'destination', 'slot_count'],
+    merge: ['source', 'destination', 'slot_count'],
+  };
+  const allowedKeys = new Set([...commonKeys, ...(kindKeys[String(mutation.kind)] ?? [])]);
+  if (Object.keys(mutation).some((key) => !allowedKeys.has(key)))
+    return { ok: false, version: 1, error: 'extraneous filament mutation field', errorCode: 'invalid_response' };
+  const requireSlot = mutation.kind === 'select-preset' || mutation.kind === 'set-colour' || mutation.kind === 'add';
+  if (requireSlot && (!Number.isSafeInteger(mutation.slot) || Number(mutation.slot) < 1))
+    return { ok: false, version: 1, error: 'invalid filament mutation slot', errorCode: 'invalid_response' };
+  if (requireSlot && Number(mutation.slot) > snapshot.slots.length)
+    return { ok: false, version: 1, error: 'invalid filament mutation slot range', errorCode: 'invalid_response' };
+  if (mutation.kind === 'add' && Number(mutation.slot) !== snapshot.slots.length)
+    return { ok: false, version: 1, error: 'invalid filament add slot', errorCode: 'invalid_response' };
+  if (mutation.kind === 'select-preset' && (!has('preset') || typeof mutation.preset !== 'string' || mutation.preset.length === 0))
+    return { ok: false, version: 1, error: 'invalid filament mutation preset', errorCode: 'invalid_response' };
+  if (mutation.kind === 'set-colour' && (!has('colour') || typeof mutation.colour !== 'string' ||
+      !/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(mutation.colour)))
+    return { ok: false, version: 1, error: 'invalid filament mutation colour', errorCode: 'invalid_response' };
+  if (mutation.kind === 'delete' || mutation.kind === 'merge') {
+    if (!has('slot_count') || !Number.isSafeInteger(mutation.slot_count) ||
+        Number(mutation.slot_count) !== snapshot.slots.length)
+      return { ok: false, version: 1, error: 'invalid filament mutation slot count', errorCode: 'invalid_response' };
+    if (!has('source') || !Number.isSafeInteger(mutation.source) || Number(mutation.source) < 1 ||
+        Number(mutation.source) > snapshot.slots.length + 1)
+      return { ok: false, version: 1, error: 'invalid filament mutation source range', errorCode: 'invalid_response' };
+    if (mutation.kind === 'delete') {
+      if (!has('destination') || mutation.destination !== null)
+        return { ok: false, version: 1, error: 'invalid filament delete destination', errorCode: 'invalid_response' };
+    } else if (!has('destination') || !Number.isSafeInteger(mutation.destination) ||
+        Number(mutation.destination) < 1 || Number(mutation.destination) > snapshot.slots.length)
+      return { ok: false, version: 1, error: 'invalid filament merge destination range', errorCode: 'invalid_response' };
+  }
+  const summary = {
+    kind: mutation.kind as FilamentMutationResult['mutation']['kind'],
+    ...(Number.isSafeInteger(mutation.slot) ? { slot: mutation.slot as number } : {}),
+    ...(Number.isSafeInteger(mutation.source) ? { source: mutation.source as number } : {}),
+    ...(mutation.destination === null || Number.isSafeInteger(mutation.destination)
+      ? { destination: mutation.destination as number | null } : {}),
+    ...(typeof mutation.preset === 'string' ? { preset: mutation.preset } : {}),
+    ...(typeof mutation.colour === 'string' ? { colour: mutation.colour } : {}),
+    ...(Number.isSafeInteger(mutation.slot_count) ? { slotCount: mutation.slot_count as number } : {}),
+    historyEntryDelta: 1 as const,
+    revisionBefore: mutation.revision_before as number,
+    revisionAfter: mutation.revision_after as number,
+    dirty: true as const,
+    allPlateResultsInvalidated: true as const,
+  };
+  return { ok: true, version: 1, result: { snapshot, mutation: summary } };
 }
 
 function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
@@ -588,6 +680,31 @@ export function createClient(
     async getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult> {
       const m = await module();
       return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
+    },
+
+    async selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_select_filament_slot_preset', ['string'], [JSON.stringify(request)]));
+    },
+
+    async setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_set_filament_slot_colour', ['string'], [JSON.stringify(request)]));
+    },
+
+    async addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_add_filament_slot', ['string'], [JSON.stringify(request)]));
+    },
+
+    async deleteFilamentSlot(request: FilamentSlotDeleteRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_delete_filament_slot', ['string'], [JSON.stringify(request)]));
+    },
+
+    async mergeFilamentSlots(request: FilamentSlotMergeRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_merge_filament_slots', ['string'], [JSON.stringify(request)]));
     },
 
     beginHistory,

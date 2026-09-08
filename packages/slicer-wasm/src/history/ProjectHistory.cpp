@@ -231,21 +231,81 @@ bool ProjectHistory::commit(std::string label, Category category, const ModelSta
 
     if (Impl::equal(m_impl->states[m_cursor].state, model, context)) return false;
 
-    // A new branch invalidates all redo IDs and any saved checkpoint that was
-    // only reachable through the discarded branch.
-    if (m_cursor + 1 < m_impl->states.size()) {
-        if (m_saved_checkpoint != static_cast<std::size_t>(-1) && m_saved_checkpoint > m_cursor)
-            m_saved_checkpoint_evicted = true;
-        m_impl->states.erase(m_impl->states.begin() + static_cast<std::ptrdiff_t>(m_cursor + 1), m_impl->states.end());
-    }
+    // Keep a cheap shared-payload copy until the operation has completed. The
+    // retained blobs are immutable/shared, so this protects the branch,
+    // cursor, saved checkpoint, and resource counters if interval rebuilding
+    // or budget accounting throws after the branch has been changed.
+    ProjectHistory backup(m_byte_budget);
+    backup.m_impl->states = m_impl->states;
+    backup.m_impl->next_entry_id = m_impl->next_entry_id;
+    backup.m_cursor = m_cursor;
+    backup.m_saved_checkpoint = m_saved_checkpoint;
+    backup.m_saved_checkpoint_evicted = m_saved_checkpoint_evicted;
+    backup.m_optional_bytes_released = m_optional_bytes_released;
+    backup.m_evicted_entry_count = m_evicted_entry_count;
+    backup.m_last_evicted_entry_id = m_last_evicted_entry_id;
+    backup.m_object_intervals = m_object_intervals;
 
-    const StoredState* previous = &m_impl->states.back().state;
-    EntryInfo info { m_impl->next_entry_id++, std::move(label), category };
-    m_impl->states.push_back({ std::move(info), Impl::store(model, context, previous) });
-    ++m_cursor;
-    rebuild_intervals();
-    release_least_recently_used();
-    return true;
+    try {
+        // Build the complete retained state before touching the current branch.
+        // Serialization/allocation failures must not discard redo entries or move
+        // the cursor; the bridge relies on this when a published mutation's
+        // history commit throws.
+        StoredState prepared = Impl::store(model, context, &m_impl->states[m_cursor].state);
+        m_impl->states.reserve(m_impl->states.size() + 1);
+
+        // A new branch invalidates all redo IDs and any saved checkpoint that was
+        // only reachable through the discarded branch.
+        if (m_cursor + 1 < m_impl->states.size()) {
+            if (m_saved_checkpoint != static_cast<std::size_t>(-1) && m_saved_checkpoint > m_cursor)
+                m_saved_checkpoint_evicted = true;
+            m_impl->states.erase(m_impl->states.begin() + static_cast<std::ptrdiff_t>(m_cursor + 1), m_impl->states.end());
+        }
+
+        EntryInfo info { m_impl->next_entry_id++, std::move(label), category };
+        m_impl->states.push_back({ std::move(info), std::move(prepared) });
+        ++m_cursor;
+        rebuild_intervals();
+        release_least_recently_used();
+        return true;
+    } catch (...) {
+        m_impl->states = std::move(backup.m_impl->states);
+        m_impl->next_entry_id = backup.m_impl->next_entry_id;
+        m_cursor = backup.m_cursor;
+        m_saved_checkpoint = backup.m_saved_checkpoint;
+        m_saved_checkpoint_evicted = backup.m_saved_checkpoint_evicted;
+        m_optional_bytes_released = backup.m_optional_bytes_released;
+        m_evicted_entry_count = backup.m_evicted_entry_count;
+        m_last_evicted_entry_id = backup.m_last_evicted_entry_id;
+        m_object_intervals = std::move(backup.m_object_intervals);
+        throw;
+    }
+}
+
+bool ProjectHistory::commit_with_baseline(std::string label, Category category,
+                                          const ModelState& baseline_model, const Bytes& baseline_context,
+                                          const ModelState& model, const Bytes& context)
+{
+    if (!m_impl->states.empty()) return commit(std::move(label), category, model, context);
+    try {
+        // Seed the baseline directly, then mark it as the saved checkpoint
+        // before appending the first project state.  No caller-visible
+        // intermediate state exists, and the guard restores the empty
+        // history if allocation/serialization fails while constructing it.
+        m_impl->states.push_back({ { 0, {}, Category::Project },
+                                   Impl::store(baseline_model, baseline_context, nullptr) });
+        m_cursor = 0;
+        rebuild_intervals();
+        mark_current_as_saved();
+        if (!commit(std::move(label), category, model, context)) {
+            clear();
+            return false;
+        }
+        return true;
+    } catch (...) {
+        clear();
+        throw;
+    }
 }
 
 bool ProjectHistory::undo(RestoreState& result)

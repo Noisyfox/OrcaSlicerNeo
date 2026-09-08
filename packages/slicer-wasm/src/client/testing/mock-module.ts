@@ -76,6 +76,8 @@ export interface MockModuleOptions {
   embeddedPresetWarnings?: Partial<NonNullable<ProjectLoadResult['embeddedPresetWarnings']>>;
   /** Optional wire snapshot override for malformed/unsupported-version tests. */
   filamentSession?: unknown;
+  /** Optional raw mutation response override for client normalization tests. */
+  filamentMutation?: unknown;
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -498,7 +500,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
 
   function filamentSessionSnapshot(): unknown {
-    if (opts.filamentSession !== undefined) return clone(opts.filamentSession);
+    if (filamentSessionState !== undefined) return clone(filamentSessionState);
     const objects = objectMeta.map((object) => ({
       target: 'object', id: object.id, object_id: object.id,
       explicit_slot: 1, effective_slot: 1, inherited: false,
@@ -519,6 +521,104 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       revisions: { session: historyRevision, project: historyRevision, result: 0, plates: { ...plateInputRevisions } },
       status: { state: 'ready', error: null },
     };
+  }
+  let filamentSessionState: any = opts.filamentSession !== undefined ? clone(opts.filamentSession) : undefined;
+  function filamentMutation(requestJson: string, kind: string): unknown {
+    if (opts.filamentMutation !== undefined) return clone(opts.filamentMutation);
+    let request: any;
+    try { request = JSON.parse(requestJson); } catch { return { ok: false, version: 1, error: 'invalid command', error_code: 'invalid_command',
+      status: { state: 'error', error: 'invalid command' } }; }
+    const snapshot: any = filamentSessionSnapshot();
+    const errorEnvelope = (error: string, code: string) => ({ ok: false, version: 1, error, error_code: code,
+      status: { state: 'error', error } });
+    if (!request || request.version !== 1)
+      return errorEnvelope('unsupported filament command version', 'invalid_command');
+    if (!Number.isSafeInteger(request.revision) || request.revision !== snapshot.revisions.session)
+      return errorEnvelope('filament session revision is stale', 'stale_revision');
+    if (request.inject_failure)
+      return errorEnvelope('injected native validation failure', 'native_validation_failure');
+    const next: any = clone(snapshot);
+    const fail = (error: string, code: string) => errorEnvelope(error, code);
+    const slot = (value: unknown): number | null => Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= next.slots.length ? (value as number) - 1 : null;
+    if (kind === 'select-preset' || kind === 'set-colour') {
+      const index = slot(request.slot);
+      if (index === null) return fail('unsupported filament slot reference', 'unsupported_reference');
+      if (kind === 'select-preset') {
+        if (typeof request.preset !== 'string') return fail('preset is required', 'invalid_command');
+        next.slots[index].preset = { id: request.preset, name: request.preset };
+      } else {
+        if (typeof request.colour !== 'string' || !/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(request.colour))
+          return fail('native filament colour validation failed', 'native_validation_failure');
+        next.slots[index].colour = { effective: request.colour, provenance: 'user' };
+      }
+    } else if (kind === 'add') {
+      if (next.slots.length >= next.capabilities.max_slots || !next.capabilities.flexible)
+        return fail('filament slot capacity or capability rejected', 'capability_rejected');
+      const colour = next.slots.at(-1)?.colour?.effective ?? '#26A69A';
+      next.slots.push({ slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: { effective: colour, provenance: 'preset' } });
+      for (const key of ['filament', 'volume', 'nozzle', 'filament2']) next.mappings[key].push(key === 'volume' ? 0 : 1);
+      const n = next.slots.length;
+      const planes = next.flushing.plane_count;
+      const oldN = n - 1;
+      const matrix: number[] = Array(n * n * planes).fill(0);
+      for (let p = 0; p < planes; p++) for (let r = 0; r < oldN; r++) for (let c = 0; c < oldN; c++)
+        matrix[p * n * n + r * n + c] = next.flushing.matrix[p * oldN * oldN + r * oldN + c];
+      next.flushing.matrix = matrix; next.flushing.matrix_dimension = n;
+    } else {
+      const source = slot(kind === 'merge' ? request.source : request.slot);
+      if (source === null || next.slots.length <= next.capabilities.min_slots)
+        return fail('filament slot capability rejected', 'capability_rejected');
+      let replacement: number | null = null;
+      if (kind === 'merge') {
+        const destination = slot(request.destination);
+        if (destination === null || destination === source) return fail('unsupported filament reference', 'unsupported_reference');
+        replacement = destination > source ? destination - 1 : destination;
+      }
+      next.slots.splice(source, 1);
+      next.slots.forEach((entry: any, index: number) => { entry.slot = index + 1; });
+      for (const key of ['filament', 'volume', 'nozzle', 'filament2']) next.mappings[key].splice(source, 1);
+      const n = next.slots.length;
+      const planes = next.flushing.plane_count;
+      const oldN = n + 1;
+      const oldMatrix = next.flushing.matrix;
+      const matrix: number[] = Array(n * n * planes).fill(0);
+      const mapIndex = (old: number) => old === source ? (replacement ?? 0) : (old > source ? old - 1 : old);
+      for (let p = 0; p < planes; p++) for (let r = 0; r < oldN; r++) for (let c = 0; c < oldN; c++) {
+        if (r === source || c === source) continue;
+        matrix[p * n * n + mapIndex(r) * n + mapIndex(c)] = oldMatrix[p * oldN * oldN + r * oldN + c];
+      }
+      next.flushing.matrix = matrix; next.flushing.matrix_dimension = n;
+      for (const group of ['objects', 'parts', 'modifiers']) for (const item of next.assignments[group]) {
+        const value = item.effective_slot - 1;
+        item.effective_slot = (value === source ? (replacement ?? 0) : value > source ? value - 1 : value) + 1;
+        if (item.explicit_slot > 0) {
+          const explicit = item.explicit_slot - 1;
+          item.explicit_slot = (explicit === source ? (replacement ?? 0) : explicit > source ? explicit - 1 : explicit) + 1;
+        }
+      }
+    }
+    next.capabilities.can_add = next.capabilities.flexible && next.slots.length < next.capabilities.max_slots;
+    next.capabilities.can_delete = next.capabilities.flexible && next.slots.length > next.capabilities.min_slots;
+    next.capabilities.can_merge = next.capabilities.can_delete;
+    next.revisions.session += 1; next.revisions.project = next.revisions.session;
+    filamentSessionState = next;
+    const mutation: Record<string, unknown> = {
+      kind, history_entry_delta: 1, revision_before: request.revision,
+      revision_after: next.revisions.session, dirty: true, all_plate_results_invalidated: true,
+    };
+    if (kind === 'add') mutation.slot = next.slots.length;
+    else if (kind === 'select-preset' || kind === 'set-colour') {
+      mutation.slot = request.slot;
+      if (kind === 'select-preset') mutation.preset = request.preset;
+      else mutation.colour = request.colour;
+    } else {
+      mutation.source = request.source ?? request.slot;
+      mutation.destination = kind === 'merge'
+        ? (request.destination > request.source ? request.destination - 1 : request.destination)
+        : null;
+      mutation.slot_count = next.slots.length;
+    }
+    return { ok: true, version: 1, result: { snapshot: clone(next), mutation } };
   }
   function plateMutation(
     reason: string,
@@ -951,6 +1051,21 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_get_filament_session_snapshot() {
       return filamentSessionSnapshot();
+    },
+    orc_select_filament_slot_preset(requestJson: string) {
+      return filamentMutation(requestJson, 'select-preset');
+    },
+    orc_set_filament_slot_colour(requestJson: string) {
+      return filamentMutation(requestJson, 'set-colour');
+    },
+    orc_add_filament_slot(requestJson: string) {
+      return filamentMutation(requestJson, 'add');
+    },
+    orc_delete_filament_slot(requestJson: string) {
+      return filamentMutation(requestJson, 'delete');
+    },
+    orc_merge_filament_slots(requestJson: string) {
+      return filamentMutation(requestJson, 'merge');
     },
     orc_reset_plate_session() {
       resetPlateSession();
@@ -1740,6 +1855,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_clear_model: { ret: 'number', args: [] },
     orc_get_plate_session_snapshot: { ret: 'number', args: [] },
     orc_get_filament_session_snapshot: { ret: 'number', args: [] },
+    orc_select_filament_slot_preset: { ret: 'number', args: ['string'] },
+    orc_set_filament_slot_colour: { ret: 'number', args: ['string'] },
+    orc_add_filament_slot: { ret: 'number', args: ['string'] },
+    orc_delete_filament_slot: { ret: 'number', args: ['string'] },
+    orc_merge_filament_slots: { ret: 'number', args: ['string'] },
     orc_reset_plate_session: { ret: 'number', args: [] },
     orc_select_plate: { ret: 'number', args: ['string'] },
     orc_add_plate: { ret: 'number', args: [] },
