@@ -229,12 +229,12 @@ int main()
     const auto long_label_capacity = long_string_history.current().entry.label.capacity();
     const auto short_key_capacity = short_string_history.current().model.immutable_meshes.front().key.capacity();
     const auto long_key_capacity = long_string_history.current().model.immutable_meshes.front().key.capacity();
-    const auto string_bytes = [](std::size_t capacity) {
-        return capacity > ResourceAccounting::kInlineStringCapacity
+    const auto string_bytes = [](std::size_t size, std::size_t capacity) {
+        return size > ResourceAccounting::kInlineStringCapacity
             ? capacity + ResourceAccounting::kStringTerminatorBytes : std::size_t(0);
     };
-    const auto label_delta = string_bytes(long_label_capacity) - string_bytes(short_label_capacity);
-    const auto key_delta = string_bytes(long_key_capacity) - string_bytes(short_key_capacity);
+    const auto label_delta = string_bytes(80, long_label_capacity) - string_bytes(5, short_label_capacity);
+    const auto key_delta = string_bytes(80, long_key_capacity) - string_bytes(4, short_key_capacity);
     if (long_string_history.bytes_used() - short_string_history.bytes_used() != label_delta + key_delta) {
         std::cerr << "string accounting: actual=" << (long_string_history.bytes_used() - short_string_history.bytes_used())
                   << " expected=" << (label_delta + key_delta) << " label=" << label_delta << " key=" << key_delta
@@ -242,6 +242,17 @@ int main()
                   << short_key_capacity << "," << long_key_capacity << "\n";
         return 1;
     }
+
+    // Empty and short strings use the canonical inline threshold rather than
+    // the implementation-reported SSO capacity. This remains identical on
+    // native and wasm even when their string capacity layouts differ.
+    ProjectHistory empty_label_history(1u << 20);
+    ProjectHistory short_label_history(1u << 20);
+    CHECK(empty_label_history.commit("baseline", Category::Project, model(1), {}));
+    CHECK(short_label_history.commit("baseline", Category::Project, model(1), {}));
+    CHECK(empty_label_history.commit("", Category::Project, model(2), {}));
+    CHECK(short_label_history.commit("short", Category::Project, model(2), {}));
+    CHECK(empty_label_history.bytes_used() == short_label_history.bytes_used());
 
     // Identical shared payloads are charged once even when two retained
     // states use different keys and therefore cannot reuse by key matching.

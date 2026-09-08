@@ -97,18 +97,20 @@ struct ResourceDiagnostics {
 // ProjectHistory reports a deterministic retained-allocation estimate rather
 // than the host allocator's live heap usage.  Payload/vector capacities are
 // observed from the retained containers; metadata and shared-control-block
-// costs use fixed units so native and wasm64 runs use the same budget scale.
+// costs use canonical fixed upper-bound slots so native and wasm64 runs use
+// the same budget scale without depending on ABI or allocator telemetry.
 struct ResourceAccounting {
-    static constexpr std::size_t kImplAllocationBytes = 128;
-    static constexpr std::size_t kStoredEntryBytes = 128;
-    static constexpr std::size_t kMutableObjectSlotBytes = 32;
-    static constexpr std::size_t kImmutableMeshSlotBytes = 64;
+    static constexpr std::size_t kImplAllocationBytes = 256;
+    static constexpr std::size_t kStoredEntryBytes = 512;
+    static constexpr std::size_t kMutableObjectSlotBytes = 64;
+    static constexpr std::size_t kImmutableMeshSlotBytes = 128;
     static constexpr std::size_t kObjectIntervalSlotBytes = 32;
     static constexpr std::size_t kSharedBlobAllocationBytes = 64;
     static constexpr std::size_t kStringTerminatorBytes = 1;
-    // Canonical short-string storage unit.  Values at or below this size are
-    // covered by the fixed StoredEntry/StoredMesh slot; longer strings charge
-    // their observed capacity plus one terminator byte.
+    // Canonical short-string threshold, independent of the implementation's
+    // actual SSO capacity. Values at or below this size are covered by the
+    // fixed StoredEntry/StoredMesh slot; longer strings charge their observed
+    // retained capacity plus one terminator byte.
     static constexpr std::size_t kInlineStringCapacity = 15;
 };
 

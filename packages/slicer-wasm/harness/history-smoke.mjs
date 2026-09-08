@@ -506,4 +506,47 @@ historyCheck('evicted branch jump is rejected',
 historyCheck('restore directional fixture baseline',
   callJson('orc_clear_model', [], []).ok === true &&
   callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+
+// Repair 6 real-bridge accounting diagnostic.  The long context and label
+// must increase the same retained-resource status that the restore path uses;
+// the delta must exceed the context payload itself, proving that canonical
+// entry/container metadata is included.  Native fixture tests cover budget
+// eviction and oversized retention deterministically; this real-WASM check
+// keeps its focus on accounting and a valid retained restore.
+const accountingTransaction = beginHistory('Accounting restore');
+const accountingAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Accounting restore']);
+historyCheck('accounting restore fixture edit applies', accountingAdded.ok === true,
+  JSON.stringify(accountingAdded));
+commitHistory('Accounting restore', accountingTransaction);
+const accountingBaseline = callJson('orc_history_status', [], []);
+const accountingShort = callJson('orc_history_record_context',
+  ['string', 'string'], ['Accounting short', JSON.stringify(context)]);
+const accountingLabel = 'Accounting long label '.repeat(16);
+const accountingContext = { ...context,
+  selection: { ...context.selection,
+    objectIds: Array.from({ length: 512 }, (_, index) => index) } };
+const accountingContextJson = JSON.stringify(accountingContext);
+const accountingLong = callJson('orc_history_record_context',
+  ['string', 'string'], [accountingLabel, accountingContextJson]);
+historyCheck('history accounting exposes deterministic bridge diagnostics',
+  Number.isSafeInteger(accountingBaseline.bytesUsed) &&
+  Number.isSafeInteger(accountingShort.bytesUsed) &&
+  Number.isSafeInteger(accountingLong.bytesUsed),
+  JSON.stringify({ accountingBaseline, accountingShort, accountingLong }));
+const accountingDelta = accountingLong.bytesUsed - accountingShort.bytesUsed;
+historyCheck('long label/context growth includes canonical metadata overhead',
+  accountingDelta > accountingContextJson.length && accountingLong.bytesUsed > accountingShort.bytesUsed,
+  JSON.stringify({ accountingDelta, contextBytes: accountingContextJson.length,
+    labelBytes: accountingLabel.length, accountingShort, accountingLong }));
+const accountingUndo = callJson('orc_history_undo', [], []);
+const accountingUndoModel = callJson('orc_get_model_structure', [], []);
+historyCheck('accounting status remains valid through retained restore',
+  accountingUndo.ok === true && accountingUndo.status?.bytesUsed === accountingLong.bytesUsed &&
+  accountingUndoModel.ok === true && accountingUndoModel.objects.length === 0,
+  JSON.stringify({ accountingUndo, accountingUndoModel }));
+const accountingRedo = callJson('orc_history_redo', [], []);
+historyCheck('accounting diagnostic restore redoes successfully',
+  accountingRedo.ok === true && accountingRedo.status?.bytesUsed === accountingLong.bytesUsed &&
+  callJson('orc_get_model_structure', [], []).objects.length === 1,
+  JSON.stringify({ accountingRedo, model: callJson('orc_get_model_structure', [], []) }));
 console.log(`history smoke passed (${moduleArg})`);

@@ -499,7 +499,7 @@ repair sequence is complete prematurely.
 | 3 | `7bb48de` | Focused restore/history mutation 9/9, `pnpm test` (411 slicer-app tests), `pnpm typecheck`, Desktop E2E 30 passed/3 skips, threaded Web 5/5, and serial Web 5/5 | Reviewed canonical Worker-status projection for successful restore and abort plus failure preservation; independently ran focused 9/9, project lifecycle 16/16, and shared import-direction 1/1 | Accepted 2026-09-08 |
 | 4 | `7a7826e` | Focused restore/GL barrier 9/9, `pnpm test` (414 slicer-app tests), `pnpm typecheck`, Desktop E2E 30 passed/3 existing skips, threaded Web 5/5, and serial Web 5/5 | Reviewed the Worker-success-to-renderer-ready barrier, revision fencing, empty-scene clear, mesh failure cleanup, plate/context projection ordering, and joined restore behavior; independently ran focused restore/GL barrier 9/9, Workspace 5/5, `pnpm typecheck`, and diff hygiene | Accepted 2026-09-08 |
 | 5 | `a27a915`, `c79b56d`, `d87a3ac` | Native ProjectHistory fixture; focused protocol/Worker 19/19 and Toolbar/restore 17/17; `pnpm test` (112 slicer-wasm and 416 slicer-app tests); `pnpm typecheck`; dual WASM quick/smoke; Desktop E2E 30 passed/3 existing skips; threaded and serial Web E2E 5/5; real serial/threaded directional history smoke | Returned the first submission for a context-entry/default-direction bypass, then required actual evicted-ID and real-WASM bridge coverage; reviewed the explicit directional contract and project-frame resolution; independently ran native ProjectHistory, focused protocol/Worker 19/19, Toolbar/restore 17/17, serial/threaded real history smoke, `pnpm typecheck`, and diff hygiene | Accepted 2026-09-08 |
-| 6 | — | — | — | Not started |
+| 6 | `f655bb1` + supplemental correction | Native ProjectHistory fixture, focused protocol, dual quick, serial/threaded history smoke, `pnpm test`, and `pnpm typecheck` passed; real-WASM smoke covers accounting diagnostics and retained restore, while native fixture covers deterministic eviction/oversized boundaries | — | Self-verified; awaiting independent root acceptance |
 
 ### Repair 1 execution record — complete plate session in history frames
 
@@ -627,15 +627,15 @@ repair sequence is complete prematurely.
   labels and mesh keys, shared payload vector capacity, and a fixed
   cross-native/WASM unit for each unique `shared_ptr` payload/control block.
   Shared payloads are deduplicated by retained `Bytes` identity, so repeated
-  references do not double count. Fixed metadata units avoid allocator headers,
-  `sizeof`/ABI drift, and host heap telemetry; observed capacities remain the
-  only variable component.
-- Added exact native fixture assertions for payload deltas, long label/key
-  deltas, shared-payload de-duplication, mutable/interval slot deltas, context
-  capacity, optional release, budget boundaries, oldest-first eviction, and
-  oversized-operation predecessor retention. The same diagnostics are
-  surfaced through the existing Worker status and therefore drive optional
-  release and eviction with the identical estimate.
+  references do not double count. Canonical fixed upper-bound slots are
+  compile-time asserted against the private retained record sizes; observed
+  capacities remain the exact variable component, without allocator telemetry.
+- Added exact native fixture assertions for payload deltas, empty/short and
+  long label/key deltas, shared-payload de-duplication, mutable/interval slot
+  deltas, context capacity, optional release, budget boundaries, oldest-first
+  eviction, and oversized-operation predecessor retention. The same
+  diagnostics are surfaced through the existing Worker status and therefore
+  drive optional release and eviction with the identical estimate.
 - Orca comparison: upstream `src/slic3r/Utils/UndoRedo.cpp` estimates each
   history object's native representation (`sizeof(*this)`, serialized bytes,
   interval storage) and only charges an immutable shared object while the
@@ -644,12 +644,16 @@ repair sequence is complete prematurely.
   for a cross-host contract by charging all history-retained capacities,
   context/labels/keys, and one fixed shared allocation/control-block unit per
   unique payload without allocator-dependent measurements.
-- Native ProjectHistory, focused protocol, dual WASM quick/smoke, workspace
-  tests, typecheck, Desktop E2E, and threaded/serial Web E2E were run after
-  this repair. Exact command results are recorded in the agent handoff; the
-  pre-existing dirty C++ submodule was not modified. The already synchronized
-  `doc/high_level_dev_plan.md` and `spec/Grand Plan.md` Undo/Redo entries
-  remain marked implemented and accepted.
+- The real serial/threaded history smoke now compares short versus long
+  context/label diagnostics, proves metadata overhead beyond the retained
+  context payload, and performs Undo/Redo through that same status path.
+  Deterministic budget eviction and oversized-entry predecessor coverage
+  remains in the native fixture because forcing a 256 MiB boundary in a real
+  smoke is impractical. Native ProjectHistory, focused protocol, dual WASM
+  quick/history smoke, workspace tests, and typecheck were run after this
+  correction; the pre-existing dirty C++ submodule was not modified. The
+  already synchronized `doc/high_level_dev_plan.md` and `spec/Grand Plan.md`
+  Undo/Redo entries remain marked implemented and accepted.
 - Root acceptance is intentionally not recorded in this execution record.
 
 ### Repair 3 execution record — canonical dirty projection after restore

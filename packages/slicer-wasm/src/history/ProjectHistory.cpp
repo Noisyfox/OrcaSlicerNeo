@@ -25,10 +25,12 @@ void add_product(std::size_t& total, std::size_t count, std::size_t unit)
 
 void add_string_storage(std::size_t& total, const std::string& value)
 {
-    // capacity() is the portable observable retained character capacity.  A
-    // fixed terminator unit covers the null character without consulting the
-    // implementation allocator or SSO threshold.
-    if (value.capacity() > ResourceAccounting::kInlineStringCapacity) {
+    // The size threshold is canonical; implementations expose different SSO
+    // capacities (including on wasm), so capacity() must not decide whether a
+    // short value owns an external allocation. For a canonical long value,
+    // capacity() is the retained allocation observable to the container and a
+    // fixed terminator unit completes the estimate.
+    if (value.size() > ResourceAccounting::kInlineStringCapacity) {
         const auto max = std::numeric_limits<std::size_t>::max();
         add_bytes(total, value.capacity() == max ? max : value.capacity() + ResourceAccounting::kStringTerminatorBytes);
     }
@@ -68,6 +70,15 @@ struct StoredEntry {
     EntryInfo info;
     StoredState state;
 };
+
+static_assert(ResourceAccounting::kMutableObjectSlotBytes >= sizeof(StoredMutable),
+              "mutable-object accounting slot must cover StoredMutable");
+static_assert(ResourceAccounting::kImmutableMeshSlotBytes >= sizeof(StoredMesh),
+              "immutable-mesh accounting slot must cover StoredMesh");
+static_assert(ResourceAccounting::kStoredEntryBytes >= sizeof(StoredEntry),
+              "entry accounting slot must cover StoredEntry");
+static_assert(ResourceAccounting::kObjectIntervalSlotBytes >= sizeof(ObjectVersionInterval),
+              "interval accounting slot must cover ObjectVersionInterval");
 
 constexpr std::size_t kNoProject = std::numeric_limits<std::size_t>::max();
 
@@ -437,6 +448,8 @@ void ProjectHistory::set_byte_budget(std::size_t byte_budget)
 
 std::size_t ProjectHistory::bytes_used() const
 {
+    static_assert(ResourceAccounting::kImplAllocationBytes >= sizeof(Impl),
+                  "impl accounting slot must cover ProjectHistory::Impl");
     std::set<const Bytes*> seen;
     std::size_t total = 0;
     add_bytes(total, ResourceAccounting::kImplAllocationBytes);
