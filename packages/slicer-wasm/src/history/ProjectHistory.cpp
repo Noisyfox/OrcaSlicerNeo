@@ -230,6 +230,14 @@ bool ProjectHistory::redo(RestoreState& result)
     return true;
 }
 
+bool ProjectHistory::jump(std::uint64_t entry_id, JumpDirection direction, RestoreState& result)
+{
+    RestorePlan plan;
+    if (!prepare_jump(entry_id, direction, plan) || !commit_restore(plan)) return false;
+    result = plan.state;
+    return true;
+}
+
 bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
 {
     RestorePlan plan;
@@ -278,6 +286,34 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
     result.state.model = Impl::restore_model(it->state);
     result.state.context = it->state.context;
     result.state.entry = it->info;
+    return true;
+}
+
+bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection direction, RestorePlan& result) const
+{
+    auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
+        [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
+    if (it == m_impl->states.end()) return false;
+    const auto selected = static_cast<std::size_t>(std::distance(m_impl->states.begin(), it));
+    // The menu is projected from the current Worker cursor.  Reject a stale
+    // list item that has crossed the cursor instead of allowing a directional
+    // jump to silently move through the opposite menu.
+    if (direction == JumpDirection::Undo) {
+        if (selected > m_cursor || it->info.category != Category::Project || it->info.id == 0) return false;
+    } else if (selected <= m_cursor && it->info.category == Category::Project && it->info.id != 0) {
+        return false;
+    }
+    std::size_t target = selected;
+    if (direction == JumpDirection::Undo && it->info.id != 0) {
+        target = previous_project(m_impl->states, selected);
+        if (target == kNoProject) return false;
+    }
+    result.from_cursor = m_cursor;
+    result.target_cursor = target;
+    const auto& target_entry = m_impl->states[target];
+    result.state.model = Impl::restore_model(target_entry.state);
+    result.state.context = target_entry.state.context;
+    result.state.entry = target_entry.info;
     return true;
 }
 

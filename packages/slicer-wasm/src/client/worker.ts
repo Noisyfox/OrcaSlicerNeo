@@ -103,7 +103,8 @@ export function startWorker(
       } else if (op === 'undoHistory' || op === 'redoHistory' || op === 'jumpHistory') {
         if (activeTransactionIds.length > 0 || transactionStarting)
           throw new Error('history transaction is active');
-        if (op === 'jumpHistory' && (callArgs.length !== 1 || typeof callArgs[0] !== 'string'))
+        if (op === 'jumpHistory' && (callArgs.length !== 2 || typeof callArgs[0] !== 'string' ||
+            (callArgs[1] !== 'undo' && callArgs[1] !== 'redo')))
           throw new Error('malformed history jump request');
       }
       await beforeRequest?.(op, callArgs);

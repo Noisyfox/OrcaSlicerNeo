@@ -45,6 +45,12 @@ struct ModelState {
 
 enum class Category : std::uint8_t { Project, Context };
 
+// A menu jump is directional: Undo selects an operation and restores the
+// project frame immediately before it; Redo selects an operation and restores
+// that operation's after-state.  The direction is part of the Worker/core
+// contract so the renderer never has to derive a fragile adjacent entry id.
+enum class JumpDirection : std::uint8_t { Undo, Redo };
+
 struct EntryInfo {
     std::uint64_t id { 0 };
     std::string label;
@@ -112,6 +118,7 @@ public:
     bool redo(RestoreState& result);
     // Move directly to a retained entry.  The baseline (id 0) is a valid
     // target for restore, while unknown/evicted ids are rejected.
+    bool jump(std::uint64_t entry_id, JumpDirection direction, RestoreState& result);
     bool jump(std::uint64_t entry_id, RestoreState& result);
 
     // Two-phase navigation used by the bridge.  Preparation never advances
@@ -119,6 +126,7 @@ public:
     // current cursor and a still-retained target.
     bool prepare_undo(RestorePlan& result) const;
     bool prepare_redo(RestorePlan& result) const;
+    bool prepare_jump(std::uint64_t entry_id, JumpDirection direction, RestorePlan& result) const;
     bool prepare_jump(std::uint64_t entry_id, RestorePlan& result) const;
     bool can_commit_restore(const RestorePlan& plan) const;
     bool commit_restore(const RestorePlan& plan);

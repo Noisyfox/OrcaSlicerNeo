@@ -498,7 +498,7 @@ repair sequence is complete prematurely.
 | 2 | `907cef9` | Native ProjectHistory fixture, focused protocol 10/10, `pnpm test` (109 slicer-wasm and 409 slicer-app tests), `pnpm typecheck`, dual quick/smoke, and Desktop E2E 29 passed/3 skips with one transient Add Primitive failure | Reviewed project-frame traversal, labels, context return, checkpoint dirty behavior, and branch truncation; independently ran the native fixture, protocol 7/7, serial/threaded real history smoke, and Desktop E2E 30 passed/3 existing skips (the reported Add Primitive failure did not reproduce) | Accepted 2026-09-08 |
 | 3 | `7bb48de` | Focused restore/history mutation 9/9, `pnpm test` (411 slicer-app tests), `pnpm typecheck`, Desktop E2E 30 passed/3 skips, threaded Web 5/5, and serial Web 5/5 | Reviewed canonical Worker-status projection for successful restore and abort plus failure preservation; independently ran focused 9/9, project lifecycle 16/16, and shared import-direction 1/1 | Accepted 2026-09-08 |
 | 4 | `7a7826e` | Focused restore/GL barrier 9/9, `pnpm test` (414 slicer-app tests), `pnpm typecheck`, Desktop E2E 30 passed/3 existing skips, threaded Web 5/5, and serial Web 5/5 | Reviewed the Worker-success-to-renderer-ready barrier, revision fencing, empty-scene clear, mesh failure cleanup, plate/context projection ordering, and joined restore behavior; independently ran focused restore/GL barrier 9/9, Workspace 5/5, `pnpm typecheck`, and diff hygiene | Accepted 2026-09-08 |
-| 5 | — | — | — | Not started |
+| 5 | pending local commit | Focused core/protocol/UI tests, native ProjectHistory fixture, full workspace tests/typecheck, dual WASM quick/smoke | — | Implemented; awaiting root acceptance |
 | 6 | — | — | — | Not started |
 
 ### Repair 1 execution record — complete plate session in history frames
@@ -583,6 +583,30 @@ repair sequence is complete prematurely.
   E2E passed 5/5. No WASM quick build was required because this repair changes
   only shared TypeScript restore/viewport projection code and leaves the C++
   submodule's pre-existing dirty state untouched.
+- Root acceptance is intentionally not recorded in this execution record.
+
+### Repair 5 execution record — directional menu jump targets
+
+- Added an explicit `undo`/`redo` direction to the Worker jump contract. The
+  renderer now passes the menu direction with the opaque entry ID; it no longer
+  performs adjacent-entry arithmetic that could cross context records or stale
+  evictions.
+- Core Undo jumps resolve the selected project operation to the nearest prior
+  project frame, while Redo jumps restore the selected operation's after-state.
+  Directional requests reject opposite-side project IDs, context IDs, and
+  unknown/evicted IDs. The legacy headless exact-jump helper remains available
+  only for native fixture diagnostics; the bridge requires an explicit
+  direction.
+- Added native and Worker protocol regressions for top Undo changing the model,
+  older Undo removing the selected and later operations, Redo across an
+  interleaved context frame, and stale/opposite-direction rejection. Toolbar
+  coverage verifies that Undo and Redo menu items send their matching
+  direction.
+- Focused protocol/UI tests passed, the standalone native ProjectHistory test
+  passed, full `pnpm test` passed (416 slicer-app tests and 110 slicer-wasm
+  tests), and `pnpm typecheck` passed. The dual `scripts\\build-windows.bat
+  quick --variant both` build and dual `scripts\\build-windows.bat smoke
+  --variant both` smoke suite passed. Desktop/Web E2E remains a root gate.
 - Root acceptance is intentionally not recorded in this execution record.
 
 ### Repair 3 execution record — canonical dirty projection after restore

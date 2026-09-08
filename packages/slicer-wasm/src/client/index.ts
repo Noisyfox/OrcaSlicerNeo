@@ -28,7 +28,7 @@ export type {
   StableObjectId, StablePartId, StableInstanceId, StablePlateId,
   HistorySelectionMode, HistorySelection, HistoryJsonValue, HistoryJsonObject,
   HistoryGizmoContext, HistoryContext, HistoryCategory, HistoryEntryCategory, HistoryKind,
-  HistoryLabel, HistoryTransactionId, HistoryEntryId, HistoryEntrySummary,
+  HistoryLabel, HistoryTransactionId, HistoryEntryId, HistoryJumpDirection, HistoryEntrySummary,
   HistoryStatus, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
   RestoreResult, HistoryRuntimeMethods, MockHistoryRuntime, HistoryMutation,
 } from './history';

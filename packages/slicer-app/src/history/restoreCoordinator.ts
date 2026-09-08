@@ -7,7 +7,7 @@ import { useSlicerStore } from '../stores/useSlicerStore';
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
 import { projectHistoryStatus } from '../components/workspace/actions/historyMutation';
 
-export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string };
+export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string; direction: 'undo' | 'redo' };
 
 export interface HistoryRestoreCoordinator {
   /** Returns false when the first shortcut only cancelled an active drag. */
@@ -69,7 +69,7 @@ export function createHistoryRestoreCoordinator({
       try {
         result = action === 'undo' ? await runtime.undoHistory()
           : action === 'redo' ? await runtime.redoHistory()
-            : await runtime.jumpHistory(action.jump);
+            : await runtime.jumpHistory(action.jump, action.direction);
       } catch (error) {
         state.setError(error instanceof Error ? error.message : String(error));
         useHistoryRestoreStore.getState().setSnapshotSuppressed(false);

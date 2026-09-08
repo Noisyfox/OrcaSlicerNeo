@@ -1889,6 +1889,15 @@ static bool parse_history_entry_id(const char* value, std::uint64_t& id)
     }
 }
 
+static bool parse_history_jump_direction(const char* value, Neo::History::JumpDirection& direction)
+{
+    if (!value) return false;
+    const std::string text(value);
+    if (text == "undo") { direction = Neo::History::JumpDirection::Undo; return true; }
+    if (text == "redo") { direction = Neo::History::JumpDirection::Redo; return true; }
+    return false;
+}
+
 static json parse_history_context(const char* context_cstr)
 {
     if (!context_cstr || !*context_cstr)
@@ -2538,14 +2547,16 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_redo() {
     catch (...) { return history_restore_failure("unknown C++ exception"); }
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr) {
+EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, const char* direction_cstr) {
     try {
         if (state().history_disabled) return error_json("history is disabled");
         if (state().active_history_transaction) return error_json("history transaction is active");
         std::uint64_t entry_id = 0;
         if (!parse_history_entry_id(entry_id_cstr, entry_id)) return error_json("invalid history entry id");
+        Neo::History::JumpDirection direction;
+        if (!parse_history_jump_direction(direction_cstr, direction)) return error_json("invalid history jump direction");
         Neo::History::RestorePlan plan;
-        if (!state().history.prepare_jump(entry_id, plan)) return error_json("history entry is stale or unavailable");
+        if (!state().history.prepare_jump(entry_id, direction, plan)) return error_json("history entry is stale, unavailable, or outside the requested direction");
         return dup_json(history_restore_result(plan).dump());
     } catch (const std::exception& e) { return history_restore_failure(e.what()); }
     catch (...) { return history_restore_failure("unknown C++ exception"); }

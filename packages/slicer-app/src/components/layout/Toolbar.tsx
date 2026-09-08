@@ -70,7 +70,7 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
 
   const navigate = (direction: 'undo' | 'redo', entryId?: string) => {
     if (!historyRestoreCoordinator) return;
-    void historyRestoreCoordinator.restore(entryId ? { jump: entryId } : direction);
+    void historyRestoreCoordinator.restore(entryId ? { jump: entryId, direction } : direction);
   };
 
   async function slice() { await (onSlice?.() ?? sliceModel(platform)); }

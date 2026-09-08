@@ -35,6 +35,39 @@ describe('Worker-owned project history protocol', () => {
     expect((await client.jumpHistory('entry-0')).ok).toBe(true);
     expect((await client.getModelStructure()).objects).toHaveLength(0);
     expect((await client.jumpHistory(redone.entryId)).ok).toBe(true);
+    expect((await client.jumpHistory(redone.entryId, 'undo')).ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(0);
+    expect((await client.jumpHistory(redone.entryId, 'redo')).ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+  });
+
+  it('uses directional targets for menu jumps and rejects stale/opposite entries', async () => {
+    const client = createClient(async () => createMockModule());
+    const baseline = context('plate-1');
+    const first = await client.runProjectHistoryTransaction('First', 'project', baseline,
+      async () => client.addShape('Cube'), baseline);
+    const firstId = first.status.undoEntries[0]?.id;
+    if (!firstId) throw new Error('missing first entry id');
+    await client.recordHistoryContext('Selection', context('plate-2'));
+    const second = await client.runProjectHistoryTransaction('Second', 'project', context('plate-2'),
+      async () => client.addShape('Cube'), context('plate-2'));
+    const secondId = second.status.undoEntries[0]?.id;
+    if (!secondId) throw new Error('missing second entry id');
+
+    const topUndo = await client.jumpHistory(secondId, 'undo');
+    expect(topUndo.ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+    const olderUndo = await client.jumpHistory(firstId, 'undo');
+    expect(olderUndo.ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(0);
+    const redoFirst = await client.jumpHistory(firstId, 'redo');
+    expect(redoFirst.ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+    const redoSecond = await client.jumpHistory(secondId, 'redo');
+    expect(redoSecond.ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(2);
+    await expect(client.jumpHistory(secondId, 'redo')).rejects.toThrow('outside the requested direction');
+    await expect(client.jumpHistory('entry-999999', 'undo')).rejects.toThrow('stale or unavailable');
   });
 
   it('does not create a no-op entry and abort restores the model', async () => {

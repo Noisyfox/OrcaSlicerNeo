@@ -191,7 +191,7 @@ describe('Toolbar send navigation', () => {
     await act(async () => {
       (document.querySelector('[data-testid="history-undo-entry-undo-move"]') as HTMLElement).click();
     });
-    expect(coordinator.restore).toHaveBeenCalledWith({ jump: 'undo-move' });
+    expect(coordinator.restore).toHaveBeenCalledWith({ jump: 'undo-move', direction: 'undo' });
   });
 
   it('surfaces retryable restore errors without fabricating a history entry', async () => {

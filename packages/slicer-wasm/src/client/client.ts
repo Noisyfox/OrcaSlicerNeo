@@ -25,7 +25,7 @@ import type {
   PreviewTextLines, PreviewTextLinesRequest,
 } from './types';
 import type {
-  HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel,
+  HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
   HistoryCategory, HistoryTransactionOptions, RestoreResult,
 } from './history';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
@@ -351,9 +351,9 @@ export function createClient(
     return normalizeHistoryRestore(callJson(m, 'orc_history_redo', [], []));
   }
 
-  async function jumpHistory(entryId: HistoryEntryId): Promise<RestoreResult> {
+  async function jumpHistory(entryId: HistoryEntryId, direction: HistoryJumpDirection = 'redo'): Promise<RestoreResult> {
     const m = await module();
-    return normalizeHistoryRestore(callJson(m, 'orc_history_jump', ['string'], [entryId]));
+    return normalizeHistoryRestore(callJson(m, 'orc_history_jump', ['string', 'string'], [entryId, direction]));
   }
 
   async function getHistoryStatus(): Promise<HistoryStatus> {

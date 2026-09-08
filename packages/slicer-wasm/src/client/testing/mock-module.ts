@@ -861,12 +861,26 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       historyCursor = target;
       return historyRestore(historyEntries[target]);
     },
-    orc_history_jump(entryId: string) {
+    orc_history_jump(entryId: string, direction: 'undo' | 'redo' = 'redo') {
       if (historyTransaction) return { error: 'history transaction is active' };
       const index = historyEntries.findIndex((entry) => entry.id === entryId);
       if (index < 0) return { error: 'history entry is stale or unavailable' };
-      historyCursor = index;
-      return historyRestore(historyEntries[index]);
+      if (direction === 'undo') {
+        if (index > historyCursor || historyEntries[index].category !== 'project' || historyEntries[index].id === 'entry-0')
+          return { error: 'history entry is outside the requested direction' };
+        let target = index;
+        if (historyEntries[index].id !== 'entry-0') {
+          do { target--; } while (target > 0 && historyEntries[target].category !== 'project');
+          if (!historyEntries[target] || historyEntries[target].category !== 'project')
+            return { error: 'history entry has no prior project state' };
+        }
+        historyCursor = target;
+      } else {
+        if (index <= historyCursor && historyEntries[index].id !== 'entry-0')
+          return { error: 'history entry is outside the requested direction' };
+        historyCursor = index;
+      }
+      return historyRestore(historyEntries[historyCursor]);
     },
     orc_history_status() {
       return historyStatus();
@@ -1679,7 +1693,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_history_abort: { ret: 'number', args: ['string'] },
     orc_history_undo: { ret: 'number', args: [] },
     orc_history_redo: { ret: 'number', args: [] },
-    orc_history_jump: { ret: 'number', args: ['string'] },
+    orc_history_jump: { ret: 'number', args: ['string', 'string'] },
     orc_history_status: { ret: 'number', args: [] },
     orc_history_mark_saved: { ret: 'number', args: ['string'] },
     orc_history_record_context: { ret: 'number', args: ['string', 'string'] },

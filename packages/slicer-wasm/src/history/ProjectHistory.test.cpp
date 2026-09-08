@@ -142,6 +142,36 @@ int main()
     CHECK(context_only.commit("new selection", Category::Context, model(1), bytes(4)));
     CHECK(!context_only.can_redo());
 
+    // Directional menu jumps resolve the selected operation, not the entry
+    // itself: Undo lands before the named project operation, while Redo lands
+    // on its after-state. Context records between project frames are skipped,
+    // and a stale/opposite-direction menu item is rejected by the core.
+    ProjectHistory directional;
+    CHECK(directional.commit("baseline", Category::Project, model(1), bytes(40)));
+    CHECK(directional.commit("first", Category::Project, model(2), bytes(41)));
+    CHECK(directional.commit("selection", Category::Context, model(2), bytes(42)));
+    CHECK(directional.commit("second", Category::Project, model(3), bytes(43)));
+    const auto directional_entries = directional.entries();
+    CHECK(directional_entries.size() == 4);
+    const auto baseline_id = directional_entries[0].id;
+    const auto first_id = directional_entries[1].id;
+    const auto second_id = directional_entries[3].id;
+    CHECK(directional.jump(second_id, JumpDirection::Undo, restored));
+    CHECK(restored.model.serialized == bytes(2));
+    CHECK(directional.cursor() == 1);
+    CHECK(directional.jump(first_id, JumpDirection::Undo, restored));
+    CHECK(restored.model.serialized == bytes(1));
+    CHECK(directional.cursor() == 0);
+    CHECK(directional.jump(first_id, JumpDirection::Redo, restored));
+    CHECK(restored.model.serialized == bytes(2));
+    CHECK(directional.cursor() == 1);
+    CHECK(directional.jump(second_id, JumpDirection::Redo, restored));
+    CHECK(restored.model.serialized == bytes(3));
+    CHECK(directional.cursor() == 3);
+    CHECK(!directional.jump(second_id, JumpDirection::Redo, restored));
+    CHECK(!directional.jump(999999, JumpDirection::Undo, restored));
+    CHECK(!directional.jump(baseline_id, JumpDirection::Undo, restored));
+
     // A new branch truncates redo, while equal model/context is a no-op.
     CHECK(history.commit("branch", Category::Project, model(3), bytes(6)));
     CHECK(!history.can_redo());
