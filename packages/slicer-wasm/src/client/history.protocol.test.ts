@@ -32,9 +32,6 @@ describe('Worker-owned project history protocol', () => {
     expect(redone.ok).toBe(true);
     expect((await client.getModelStructure()).objects).toHaveLength(1);
     if (!redone.ok || !redone.entryId) throw new Error('missing entry id');
-    expect((await client.jumpHistory('entry-0')).ok).toBe(true);
-    expect((await client.getModelStructure()).objects).toHaveLength(0);
-    expect((await client.jumpHistory(redone.entryId)).ok).toBe(true);
     expect((await client.jumpHistory(redone.entryId, 'undo')).ok).toBe(true);
     expect((await client.getModelStructure()).objects).toHaveLength(0);
     expect((await client.jumpHistory(redone.entryId, 'redo')).ok).toBe(true);
@@ -165,7 +162,7 @@ describe('Worker-owned project history protocol', () => {
     expect(branched.canRedo).toBe(false);
   });
 
-  it('restores complete selection context and truncates redo after a new context record', async () => {
+  it('restores project selection context and truncates redo after a new context record', async () => {
     const client = createClient(async () => createMockModule());
     const before = context('plate-1');
     const selected: HistoryContext = {
@@ -186,10 +183,14 @@ describe('Worker-owned project history protocol', () => {
     if (!undone.ok) throw new Error('missing restore');
     expect(undone.context.selection.partIds).toEqual([]);
     expect(undone.context.activePlateId).toBe('plate-1');
-    const contextRestored = await client.jumpHistory('entry-2');
-    expect(contextRestored.ok).toBe(true);
-    if (!contextRestored.ok) throw new Error('missing context restore');
-    expect(contextRestored.context.selection.partIds).toEqual([23]);
+    const projectRestored = await client.redoHistory();
+    expect(projectRestored.ok).toBe(true);
+    if (!projectRestored.ok) throw new Error('missing project restore');
+    expect(projectRestored.context.selection.partIds).toEqual([22]);
+    await client.recordHistoryContext('Selection', {
+      ...selected,
+      selection: { ...selected.selection, partIds: [23] },
+    });
     const afterUndo = await client.undoHistory();
     expect(afterUndo.ok).toBe(true);
     if (!afterUndo.ok) throw new Error('missing baseline restore');
@@ -202,6 +203,17 @@ describe('Worker-owned project history protocol', () => {
     // This branch discards the saved checkpoint itself, so the conservative
     // dirty rule applies even though the new record is context-only.
     expect(truncated.dirty).toBe(true);
+  });
+
+  it('rejects future and past context IDs from the directional jump API', async () => {
+    const client = createClient(async () => createMockModule());
+    const baseline = context('plate-1');
+    await client.runProjectHistoryTransaction('Add Cube', 'project', baseline,
+      async () => client.addShape('Cube'), baseline);
+    await client.recordHistoryContext('Selection', context('plate-2'));
+    await expect(client.jumpHistory('entry-2', 'undo')).rejects.toThrow('not a directional project operation');
+    await client.undoHistory();
+    await expect(client.jumpHistory('entry-2', 'redo')).rejects.toThrow('not a directional project operation');
   });
 
   it('keeps opt-in nested coalesced transactions dormant and publishes one entry', async () => {

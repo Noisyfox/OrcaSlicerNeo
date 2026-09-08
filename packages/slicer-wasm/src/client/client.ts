@@ -351,7 +351,7 @@ export function createClient(
     return normalizeHistoryRestore(callJson(m, 'orc_history_redo', [], []));
   }
 
-  async function jumpHistory(entryId: HistoryEntryId, direction: HistoryJumpDirection = 'redo'): Promise<RestoreResult> {
+  async function jumpHistory(entryId: HistoryEntryId, direction: HistoryJumpDirection): Promise<RestoreResult> {
     const m = await module();
     return normalizeHistoryRestore(callJson(m, 'orc_history_jump', ['string', 'string'], [entryId, direction]));
   }

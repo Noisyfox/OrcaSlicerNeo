@@ -298,9 +298,10 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
     // The menu is projected from the current Worker cursor.  Reject a stale
     // list item that has crossed the cursor instead of allowing a directional
     // jump to silently move through the opposite menu.
+    if (it->info.category != Category::Project || it->info.id == 0) return false;
     if (direction == JumpDirection::Undo) {
-        if (selected > m_cursor || it->info.category != Category::Project || it->info.id == 0) return false;
-    } else if (selected <= m_cursor && it->info.category == Category::Project && it->info.id != 0) {
+        if (selected > m_cursor) return false;
+    } else if (selected <= m_cursor) {
         return false;
     }
     std::size_t target = selected;

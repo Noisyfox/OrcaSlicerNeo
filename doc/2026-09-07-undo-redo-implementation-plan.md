@@ -593,14 +593,16 @@ repair sequence is complete prematurely.
   evictions.
 - Core Undo jumps resolve the selected project operation to the nearest prior
   project frame, while Redo jumps restore the selected operation's after-state.
-  Directional requests reject opposite-side project IDs, context IDs, and
-  unknown/evicted IDs. The legacy headless exact-jump helper remains available
-  only for native fixture diagnostics; the bridge requires an explicit
-  direction.
+  Both directions require a retained, non-baseline project operation and
+  reject opposite-side IDs, context IDs, and unknown/evicted IDs. The public
+  Worker/client jump method requires its direction; the legacy headless
+  exact-jump helper remains available only for native fixture diagnostics, and
+  the bridge requires an explicit direction.
 - Added native and Worker protocol regressions for top Undo changing the model,
   older Undo removing the selected and later operations, Redo across an
-  interleaved context frame, and stale/opposite-direction rejection. Toolbar
-  coverage verifies that Undo and Redo menu items send their matching
+  interleaved context frame, context-ID rejection on both sides of the cursor,
+  missing-direction rejection, and stale/opposite-direction rejection.
+  Toolbar coverage verifies that Undo and Redo menu items send their matching
   direction.
 - Focused protocol/UI tests passed, the standalone native ProjectHistory test
   passed, full `pnpm test` passed (416 slicer-app tests and 110 slicer-wasm

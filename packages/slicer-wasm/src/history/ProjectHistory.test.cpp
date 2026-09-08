@@ -155,6 +155,7 @@ int main()
     CHECK(directional_entries.size() == 4);
     const auto baseline_id = directional_entries[0].id;
     const auto first_id = directional_entries[1].id;
+    const auto context_id = directional_entries[2].id;
     const auto second_id = directional_entries[3].id;
     CHECK(directional.jump(second_id, JumpDirection::Undo, restored));
     CHECK(restored.model.serialized == bytes(2));
@@ -169,6 +170,9 @@ int main()
     CHECK(restored.model.serialized == bytes(3));
     CHECK(directional.cursor() == 3);
     CHECK(!directional.jump(second_id, JumpDirection::Redo, restored));
+    CHECK(!directional.jump(context_id, JumpDirection::Undo, restored));
+    CHECK(directional.jump(first_id, JumpDirection::Undo, restored));
+    CHECK(!directional.jump(context_id, JumpDirection::Redo, restored));
     CHECK(!directional.jump(999999, JumpDirection::Undo, restored));
     CHECK(!directional.jump(baseline_id, JumpDirection::Undo, restored));
 

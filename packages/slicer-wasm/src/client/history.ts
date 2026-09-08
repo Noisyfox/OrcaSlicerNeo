@@ -159,7 +159,7 @@ export interface HistoryRuntimeMethods {
   undoHistory: () => Promise<RestoreResult>;
   redoHistory: () => Promise<RestoreResult>;
   getHistoryStatus: () => Promise<HistoryStatus>;
-  jumpHistory: (entryId: HistoryEntryId, direction?: HistoryJumpDirection) => Promise<RestoreResult>;
+  jumpHistory: (entryId: HistoryEntryId, direction: HistoryJumpDirection) => Promise<RestoreResult>;
   /** Advance the saved checkpoint without releasing history frames. */
   markHistorySaved: (context?: HistoryContext) => Promise<HistoryStatus>;
   /** Record a renderer-projected selection/plate context without a model edit. */

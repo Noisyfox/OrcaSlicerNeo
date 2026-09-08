@@ -861,12 +861,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       historyCursor = target;
       return historyRestore(historyEntries[target]);
     },
-    orc_history_jump(entryId: string, direction: 'undo' | 'redo' = 'redo') {
+    orc_history_jump(entryId: string, direction: 'undo' | 'redo') {
       if (historyTransaction) return { error: 'history transaction is active' };
+      if (direction !== 'undo' && direction !== 'redo') return { error: 'invalid history jump direction' };
       const index = historyEntries.findIndex((entry) => entry.id === entryId);
       if (index < 0) return { error: 'history entry is stale or unavailable' };
+      if (historyEntries[index].category !== 'project' || historyEntries[index].id === 'entry-0')
+        return { error: 'history entry is not a directional project operation' };
       if (direction === 'undo') {
-        if (index > historyCursor || historyEntries[index].category !== 'project' || historyEntries[index].id === 'entry-0')
+        if (index > historyCursor)
           return { error: 'history entry is outside the requested direction' };
         let target = index;
         if (historyEntries[index].id !== 'entry-0') {

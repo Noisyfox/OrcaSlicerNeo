@@ -670,7 +670,7 @@ export interface SlicerClient {
   abortHistory(transactionId: import('./history').HistoryTransactionId): Promise<import('./history').RestoreResult>;
   undoHistory(): Promise<import('./history').RestoreResult>;
   redoHistory(): Promise<import('./history').RestoreResult>;
-  jumpHistory(entryId: import('./history').HistoryEntryId, direction?: import('./history').HistoryJumpDirection): Promise<import('./history').RestoreResult>;
+  jumpHistory(entryId: import('./history').HistoryEntryId, direction: import('./history').HistoryJumpDirection): Promise<import('./history').RestoreResult>;
   getHistoryStatus(): Promise<import('./history').HistoryStatus>;
   /** Advance the saved checkpoint without clearing retained history. */
   markHistorySaved(context?: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
