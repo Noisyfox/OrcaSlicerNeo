@@ -494,9 +494,29 @@ repair sequence is complete prematurely.
 
 | Repair | luna-high implementation commit | Agent self-verification | Root acceptance | Status |
 | --- | --- | --- | --- | --- |
-| 1 | — | — | — | Not started |
+| 1 | pending | `history-smoke.mjs` passed in serial/threaded WASM; plate-session smoke passed in serial/threaded WASM; project round-trip passed in serial/threaded WASM; `pnpm test` (409 slicer-app tests), `pnpm typecheck`, Desktop E2E (30 passed, 3 existing skips), threaded Web E2E 5/5, serial Web E2E 5/5 | — | Awaiting root acceptance |
 | 2 | — | — | — | Not started |
 | 3 | — | — | — | Not started |
 | 4 | — | — | — | Not started |
 | 5 | — | — | — | Not started |
 | 6 | — | — | — | Not started |
+
+### Repair 1 execution record — complete plate session in history frames
+
+- Added the authoritative plate session to every canonical Worker history
+  context, including stable runtime plate IDs, ordered collection, current
+  plate, origins, membership, parked/out-of-bounds state, lock state, opaque
+  and future metadata, per-plate configuration metadata, and input revisions.
+- Restore validates the session against the staged model before cursor commit,
+  then replaces the Worker session atomically with the model. Because native
+  `ModelInstance` history deserialization constructs invalid IDs, staged
+  instances are materialized through `ModelObject::add_instance()` and the
+  saved structural positions are used to rebind membership to their fresh
+  runtime IDs. Transaction abort restores the same complete session.
+- The real history harness now covers Add Plate Undo/Redo, stable IDs and
+  revisions, and plate-scoped configuration Undo/Redo. The initial harness
+  failure (Add Plate Undo left two plates live) was reproduced before the
+  implementation and passes after the repair.
+- The C++ submodule under `packages/slicer-wasm/cpp` remained untouched and
+  retains its pre-existing dirty state. Root acceptance is intentionally not
+  recorded here.

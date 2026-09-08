@@ -38,6 +38,59 @@ const beforeEdit = callJson('orc_get_model_structure', [], []);
 if (!beforeEdit.ok || beforeEdit.objects.length !== 2)
   throw new Error(`two-object baseline was not restored: ${JSON.stringify(beforeEdit)}`);
 
+// Plate-session state is part of the same history frame as the model.  This
+// is intentionally exercised before the model-only edits below: the old
+// bridge restored the model but left the live plate collection untouched.
+const plateBefore = callJson('orc_get_plate_session_snapshot', [], []);
+if (!plateBefore.ok || plateBefore.plates.length !== 1)
+  throw new Error(`single-plate history baseline was not restored: ${JSON.stringify(plateBefore)}`);
+const plateTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Add Plate', 'project', JSON.stringify(context), '']);
+if (!plateTx.ok || typeof plateTx.transactionId !== 'string') throw new Error(JSON.stringify(plateTx));
+const plateAdded = callJson('orc_add_plate', [], []);
+if (!plateAdded.ok || plateAdded.plates.length !== 2)
+  throw new Error(`plate add did not create two plates: ${JSON.stringify(plateAdded)}`);
+const plateCommitted = callJson('orc_history_commit', ['string', 'string'],
+  [plateTx.transactionId, JSON.stringify(context)]);
+if (!plateCommitted.canUndo) throw new Error(`plate history commit failed: ${JSON.stringify(plateCommitted)}`);
+const plateUndone = callJson('orc_history_undo', [], []);
+const plateAfterUndo = callJson('orc_get_plate_session_snapshot', [], []);
+if (!plateUndone.ok || !plateAfterUndo.ok || plateAfterUndo.plates.length !== 1)
+  throw new Error(`plate undo did not restore one plate: ${JSON.stringify({ plateUndone, plateAfterUndo })}`);
+const plateRedone = callJson('orc_history_redo', [], []);
+const plateAfterRedo = callJson('orc_get_plate_session_snapshot', [], []);
+if (!plateRedone.ok || !plateAfterRedo.ok || plateAfterRedo.plates.length !== 2)
+  throw new Error(`plate redo did not restore two plates: ${JSON.stringify({ plateRedone, plateAfterRedo })}`);
+if (plateAfterRedo.current_plate_id !== plateAdded.current_plate_id ||
+    plateAfterRedo.plates.map((plate) => plate.plate_id).join(',') !==
+      plateAdded.plates.map((plate) => plate.plate_id).join(',') ||
+    JSON.stringify(plateAfterRedo.input_revisions) !== JSON.stringify(plateAdded.input_revisions))
+  throw new Error(`plate redo did not restore stable IDs/revisions: ${JSON.stringify({ plateAdded, plateAfterRedo })}`);
+
+const configuredPlateId = plateAfterRedo.current_plate_id;
+const configTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Plate Config', 'project', JSON.stringify(context), '']);
+if (!configTx.ok || typeof configTx.transactionId !== 'string') throw new Error(JSON.stringify(configTx));
+const configured = callJson('orc_set_project_config_override',
+  ['string', 'string', 'string', 'string'], ['plate', configuredPlateId, 'layer_height', '0.3']);
+if (!configured.ok || configured.plate_session?.plates?.every((plate) =>
+    plate.plate_id !== configuredPlateId || plate.settings.layer_height !== '0.3'))
+  throw new Error(`plate configuration did not update the authoritative session: ${JSON.stringify(configured)}`);
+const configuredCommit = callJson('orc_history_commit', ['string', 'string'],
+  [configTx.transactionId, JSON.stringify(context)]);
+const configuredAfter = callJson('orc_get_plate_session_snapshot', [], []);
+if (!configuredCommit.canUndo || configuredAfter.plates.find((plate) => plate.plate_id === configuredPlateId)?.settings?.layer_height !== '0.3')
+  throw new Error(`plate configuration history commit failed: ${JSON.stringify({ configuredCommit, configuredAfter })}`);
+const configUndo = callJson('orc_history_undo', [], []);
+const configAfterUndo = callJson('orc_get_plate_session_snapshot', [], []);
+if (!configUndo.ok || configAfterUndo.plates.find((plate) => plate.plate_id === configuredPlateId)?.settings?.layer_height === '0.3')
+  throw new Error(`plate configuration undo did not restore the prior session: ${JSON.stringify({ configUndo, configAfterUndo })}`);
+const configRedo = callJson('orc_history_redo', [], []);
+const configAfterRedo = callJson('orc_get_plate_session_snapshot', [], []);
+if (!configRedo.ok || configAfterRedo.plates.find((plate) => plate.plate_id === configuredPlateId)?.settings?.layer_height !== '0.3')
+  throw new Error(`plate configuration redo did not restore the session: ${JSON.stringify({ configRedo, configAfterRedo })}`);
+const projectHistoryCountBeforeCoalesced = configRedo.status.undoEntries.length;
+
 // The coalescing path is intentionally dormant in product UI, but the real
 // bridge must keep a nested child inside one semantic outer history entry.
 const outer = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
@@ -55,7 +108,7 @@ const childCommit = callJson('orc_history_commit', ['string', 'string'], [child.
 if (childCommit.activeTransactionId !== outer.transactionId)
   throw new Error(`coalesced child escaped outer transaction: ${JSON.stringify(childCommit)}`);
 const coalesced = callJson('orc_history_commit', ['string', 'string'], [outer.transactionId, JSON.stringify(context)]);
-if (!coalesced.canUndo || coalesced.undoEntries.length !== 2)
+if (!coalesced.canUndo || coalesced.undoEntries.length !== projectHistoryCountBeforeCoalesced + 1)
   throw new Error(`coalesced outer did not publish one entry: ${JSON.stringify(coalesced)}`);
 const coalescedUndo = callJson('orc_history_undo', [], []);
 if (!coalescedUndo.ok) throw new Error(`coalesced undo failed: ${JSON.stringify(coalescedUndo)}`);

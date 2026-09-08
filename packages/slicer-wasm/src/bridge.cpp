@@ -767,7 +767,7 @@ json instance_membership_json()
                 {"instance_id", id}, {"object_id", object->id().id},
                 {"object_index", object_index}, {"instance_index", instance_index},
                 {"plate_id", plate_id}, {"member", !plate_id.empty()},
-                {"unprintable", parked || plate_id.empty()},
+                {"parked", parked}, {"unprintable", parked || plate_id.empty()},
                 {"out_of_bounds", out_of_bounds},
             });
         }
@@ -799,6 +799,7 @@ json plate_session_snapshot_json(const json& instance_transforms = json::array()
             {"valid", plate_valid}, {"locked", plate.locked},
             {"settings", plate.settings_metadata},
             {"opaque_metadata", plate.opaque_metadata},
+            {"future_metadata", plate.future_metadata},
         });
     }
     json result{
@@ -1918,6 +1919,165 @@ static json parse_history_context(const char* context_cstr)
     return context;
 }
 
+// Plate session state is deliberately kept beside the model version in the
+// history context.  The model archive cannot carry the headless session's
+// current plate, runtime plate IDs, membership, or input revisions, so
+// restoring only Model leaves the renderer observing a different project than
+// the Worker.  Validate the complete wire snapshot before replacing either
+// live state.  Object/instance IDs are resolved by their saved structural
+// position because libslic3r's deserialization constructors allocate fresh
+// instance IDs; the immutable plate IDs themselves are restored verbatim.
+static void validate_history_plate_session(const json& session, const Model& model)
+{
+    if (!session.is_object() || session.value("version", 0) != 1 ||
+        !session.contains("current_plate_id") || !session["current_plate_id"].is_string() ||
+        !session.contains("plates") || !session["plates"].is_array() || session["plates"].empty() ||
+        session["plates"].size() > static_cast<std::size_t>(kMaxPlateCount) ||
+        !session.contains("instances") || !session["instances"].is_array() ||
+        !session.contains("input_revisions") || !session["input_revisions"].is_object())
+        throw std::runtime_error("invalid history plate session");
+
+    std::set<std::string> plate_ids;
+    for (std::size_t index = 0; index < session["plates"].size(); ++index) {
+        const auto& plate = session["plates"][index];
+        if (!plate.is_object() || !plate.contains("plate_id") || !plate["plate_id"].is_string() ||
+            plate["plate_id"].get<std::string>().empty() ||
+            !plate_ids.insert(plate["plate_id"].get<std::string>()).second ||
+            !plate.contains("display_index") || !plate["display_index"].is_number_integer() ||
+            plate["display_index"].get<int>() != static_cast<int>(index) ||
+            !plate.contains("origin") || !plate["origin"].is_array() || plate["origin"].size() != 3 ||
+            !std::all_of(plate["origin"].begin(), plate["origin"].end(),
+                         [](const json& coordinate) { return coordinate.is_number(); }) ||
+            !plate.contains("name") || !plate["name"].is_string() ||
+            !plate.contains("locked") || !plate["locked"].is_boolean() ||
+            !plate.contains("settings") || !plate["settings"].is_object() ||
+            !plate.contains("opaque_metadata") || !plate["opaque_metadata"].is_array() ||
+            !plate.contains("future_metadata") || !plate["future_metadata"].is_object() ||
+            !plate.contains("instance_ids") || !plate["instance_ids"].is_array() ||
+            !plate.contains("out_of_bounds_instance_ids") || !plate["out_of_bounds_instance_ids"].is_array())
+            throw std::runtime_error("invalid history plate record");
+    }
+    if (plate_ids.find(session["current_plate_id"].get<std::string>()) == plate_ids.end())
+        throw std::runtime_error("history current plate is not present");
+
+    std::set<std::size_t> model_instance_ids;
+    for (const auto* object : model.objects)
+        for (const auto* instance : object->instances)
+            model_instance_ids.insert(instance->id().id);
+
+    std::map<std::size_t, std::pair<std::size_t, std::size_t>> saved_instances;
+    std::set<std::pair<std::size_t, std::size_t>> saved_positions;
+    std::set<std::size_t> membership_ids;
+    std::set<std::size_t> out_of_bounds_ids;
+    for (const auto& instance : session["instances"]) {
+        if (!instance.is_object() || !instance.contains("instance_id") ||
+            !instance["instance_id"].is_number_integer() || instance["instance_id"].get<std::int64_t>() < 0 ||
+            !instance.contains("object_index") || !instance["object_index"].is_number_integer() ||
+            !instance.contains("instance_index") || !instance["instance_index"].is_number_integer() ||
+            !instance.contains("plate_id") || !instance["plate_id"].is_string() ||
+            !instance.contains("member") || !instance["member"].is_boolean() ||
+            !instance.contains("parked") || !instance["parked"].is_boolean() ||
+            !instance.contains("out_of_bounds") || !instance["out_of_bounds"].is_boolean())
+            throw std::runtime_error("invalid history instance membership");
+        const auto saved_id = instance["instance_id"].get<std::size_t>();
+        const auto object_index = instance["object_index"].get<std::size_t>();
+        const auto instance_index = instance["instance_index"].get<std::size_t>();
+        if (!saved_instances.emplace(saved_id, std::make_pair(object_index, instance_index)).second ||
+            !saved_positions.emplace(object_index, instance_index).second ||
+            object_index >= model.objects.size() || instance_index >= model.objects[object_index]->instances.size())
+            throw std::runtime_error("history instance membership does not match model");
+        const std::string plate_id = instance["plate_id"].get<std::string>();
+        if (plate_id.empty() != !instance["member"].get<bool>() ||
+            (!plate_id.empty() && plate_ids.find(plate_id) == plate_ids.end()) ||
+            (instance["parked"].get<bool>() && !plate_id.empty()) ||
+            (instance["out_of_bounds"].get<bool>() && plate_id.empty()))
+            throw std::runtime_error("inconsistent history instance membership");
+        if (!plate_id.empty()) membership_ids.insert(saved_id);
+        if (instance["out_of_bounds"].get<bool>()) out_of_bounds_ids.insert(saved_id);
+    }
+    if (saved_instances.size() != model_instance_ids.size())
+        throw std::runtime_error("history plate session is missing model instances");
+
+    std::set<std::size_t> listed_members;
+    std::set<std::size_t> listed_out_of_bounds;
+    for (const auto& plate : session["plates"]) {
+        for (const auto& value : plate["instance_ids"]) {
+            if (!value.is_number_integer() || value.get<std::int64_t>() < 0 ||
+                !listed_members.insert(value.get<std::size_t>()).second)
+                throw std::runtime_error("duplicate history plate membership");
+            const auto instance = std::find_if(session["instances"].begin(), session["instances"].end(),
+                                               [&](const json& candidate) {
+                                                   return candidate["instance_id"] == value;
+                                               });
+            if (instance == session["instances"].end() || instance->at("plate_id") != plate["plate_id"])
+                throw std::runtime_error("history plate membership does not match instances");
+        }
+        for (const auto& value : plate["out_of_bounds_instance_ids"]) {
+            if (!value.is_number_integer() || value.get<std::int64_t>() < 0 ||
+                !listed_out_of_bounds.insert(value.get<std::size_t>()).second)
+                throw std::runtime_error("duplicate history out-of-bounds membership");
+            const auto instance = std::find_if(session["instances"].begin(), session["instances"].end(),
+                                               [&](const json& candidate) {
+                                                   return candidate["instance_id"] == value;
+                                               });
+            if (instance == session["instances"].end() || instance->at("plate_id") != plate["plate_id"] ||
+                !instance->at("out_of_bounds").get<bool>())
+                throw std::runtime_error("history out-of-bounds membership does not match instances");
+        }
+    }
+    if (listed_members != membership_ids || listed_out_of_bounds != out_of_bounds_ids)
+        throw std::runtime_error("history plate membership is incomplete");
+
+    for (const auto& [plate_id, revision] : session["input_revisions"].items()) {
+        if (plate_ids.find(plate_id) == plate_ids.end() || !revision.is_number_unsigned())
+            throw std::runtime_error("invalid history plate revision");
+    }
+    for (const auto& plate_id : plate_ids)
+        if (!session["input_revisions"].contains(plate_id))
+            throw std::runtime_error("history plate revision is missing");
+}
+
+static void restore_history_plate_session(const json& session, const Model& restored_model)
+{
+    validate_history_plate_session(session, restored_model);
+
+    std::vector<BridgeState::PlateSessionPlate> restored_plates;
+    restored_plates.reserve(session["plates"].size());
+    for (const auto& record : session["plates"]) {
+        BridgeState::PlateSessionPlate plate;
+        plate.id = record["plate_id"].get<std::string>();
+        plate.name = record["name"].get<std::string>();
+        plate.display_index = record["display_index"].get<int>();
+        const auto& origin = record["origin"];
+        plate.origin = Vec3d(origin[0].get<double>(), origin[1].get<double>(), origin[2].get<double>());
+        plate.locked = record["locked"].get<bool>();
+        plate.settings_metadata = record["settings"];
+        plate.opaque_metadata = record["opaque_metadata"];
+        plate.future_metadata = record["future_metadata"];
+        apply_overlay_to_config(plate.settings, plate.settings_metadata);
+        restored_plates.push_back(std::move(plate));
+    }
+
+    state().plate_session_plates = std::move(restored_plates);
+    state().current_plate_id = session["current_plate_id"].get<std::string>();
+    state().instance_plate_ids.clear();
+    state().plate_out_of_bounds_ids.clear();
+    state().parked_instance_ids.clear();
+    state().plate_input_revisions.clear();
+
+    for (const auto& instance : session["instances"]) {
+        const auto object_index = instance["object_index"].get<std::size_t>();
+        const auto instance_index = instance["instance_index"].get<std::size_t>();
+        const std::size_t restored_id = restored_model.objects[object_index]->instances[instance_index]->id().id;
+        const std::string plate_id = instance["plate_id"].get<std::string>();
+        if (!plate_id.empty()) state().instance_plate_ids[restored_id] = plate_id;
+        if (instance["parked"].get<bool>()) state().parked_instance_ids.insert(restored_id);
+        if (instance["out_of_bounds"].get<bool>()) state().plate_out_of_bounds_ids[plate_id].insert(restored_id);
+    }
+    for (const auto& [plate_id, revision] : session["input_revisions"].items())
+        state().plate_input_revisions[plate_id] = revision.get<std::uint64_t>();
+}
+
 static Neo::History::Bytes history_mesh_bytes(const TriangleMesh& mesh)
 {
     std::ostringstream stream(std::ios::binary | std::ios::out);
@@ -1999,6 +2159,30 @@ static Model stage_history_model(const Neo::History::RestoreState& restored)
         ModelObject* native_object = rebuilt_model.add_object();
         NeoHistoryInputArchive archive(archive_context, stream);
         archive(*native_object);
+
+        // Native ModelInstance deserialization intentionally constructs with
+        // an invalid ObjectID because Orca restores into an existing object
+        // graph.  Neo stages a fresh Model instead, so materialize each
+        // decoded instance through ModelObject::add_instance() to allocate a
+        // valid runtime identity before the plate-session membership map is
+        // applied.  The structural order remains unchanged.
+        const std::size_t decoded_instance_count = native_object->instances.size();
+        for (std::size_t index = 0; index < decoded_instance_count; ++index) {
+            ModelInstance* decoded = native_object->instances[index];
+            ModelInstance* materialized = native_object->add_instance();
+            materialized->set_transformation(decoded->get_transformation());
+            if (decoded->is_assemble_initialized())
+                materialized->set_assemble_transformation(decoded->get_assemble_transformation());
+            materialized->set_offset_to_assembly(decoded->get_offset_to_assembly());
+            materialized->print_volume_state = decoded->print_volume_state;
+            materialized->printable = decoded->printable;
+            materialized->auto_drop = decoded->auto_drop;
+            materialized->use_loaded_id_for_label = decoded->use_loaded_id_for_label;
+            materialized->arrange_order = decoded->arrange_order;
+            materialized->loaded_id = decoded->loaded_id;
+        }
+        for (std::size_t index = 0; index < decoded_instance_count; ++index)
+            native_object->delete_instance(0);
     }
     return rebuilt_model;
 }
@@ -2015,11 +2199,18 @@ static json default_history_context()
                         {"partIds", json::array()}, {"instanceIds", json::array()}}},
         {"activePlateId", state().current_plate_id.empty() ? json(nullptr) : json(state().current_plate_id)},
         {"gizmo", nullptr}, {"projectConfigOverlay", state().project_config_overlay},
+        {"plateSession", plate_session_snapshot_json()},
     };
 }
 
 static json canonical_history_context(json context)
 {
+    if (!context.is_object()) context = default_history_context();
+    // The Worker is authoritative for plate identity, collection, membership,
+    // and revisions. React contributes only the projected editing context.
+    context["activePlateId"] = state().current_plate_id.empty()
+        ? json(nullptr) : json(state().current_plate_id);
+    context["plateSession"] = plate_session_snapshot_json();
     context["projectConfigOverlay"] = state().project_config_overlay;
     return context;
 }
@@ -2030,7 +2221,7 @@ static json canonical_history_context(json context)
 static void record_history_context(const std::string& label, const json& requested)
 {
     if (state().active_history_transaction) return;
-    json context = requested;
+    json context = canonical_history_context(requested);
     if (!state().history.entries().empty()) {
         // The renderer sends the complete projected context. Keeping this
         // replacement explicit prevents stale selection fields when only the
@@ -2116,12 +2307,16 @@ static json history_restore_result(const Neo::History::RestorePlan& plan)
     const auto context = json::parse(std::string(plan.state.context.begin(), plan.state.context.end()));
     const json validated_context = parse_history_context(context.dump().c_str());
     Model staged_model = stage_history_model(plan.state);
+    if (validated_context.contains("plateSession"))
+        validate_history_plate_session(validated_context["plateSession"], staged_model);
     // Check the cursor fence before replacing the live model.  The Worker is
     // serialized, but keeping this preflight makes a stale plan failure
     // atomic even if another writer is introduced later.
     if (!state().history.can_commit_restore(plan))
         throw std::runtime_error("history restore became stale");
     state().model = std::move(staged_model);
+    if (validated_context.contains("plateSession"))
+        restore_history_plate_session(validated_context["plateSession"], state().model);
     if (valid_project_config_overlay(validated_context["projectConfigOverlay"]))
         state().project_config_overlay = validated_context["projectConfigOverlay"];
     if (!state().history.commit_restore(plan))
@@ -2288,6 +2483,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             if (requested != tx.id)
                 return error_json("history transaction is stale or belongs to another writer");
             restore_history_model({tx.before_model, {}, {}});
+            if (tx.before_context.contains("plateSession"))
+                restore_history_plate_session(tx.before_context["plateSession"], state().model);
             if (valid_project_config_overlay(tx.before_context["projectConfigOverlay"]))
                 state().project_config_overlay = tx.before_context["projectConfigOverlay"];
             state().nested_history_transactions.pop_back();
@@ -2301,6 +2498,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             return error_json("history transaction is stale or belongs to another writer");
         const auto tx = *state().active_history_transaction;
         restore_history_model({tx.before_model, {}, {}});
+        if (tx.before_context.contains("plateSession"))
+            restore_history_plate_session(tx.before_context["plateSession"], state().model);
         if (valid_project_config_overlay(tx.before_context["projectConfigOverlay"]))
             state().project_config_overlay = tx.before_context["projectConfigOverlay"];
         state().print.clear();
