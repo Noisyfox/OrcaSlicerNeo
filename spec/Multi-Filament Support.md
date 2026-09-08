@@ -155,7 +155,74 @@ Selecting the inherit value for a `MODEL_PART` removes its explicit `extruder`
 configuration and resolves the effective slot from the object. Object targets
 cannot select inherit because there is no higher model assignment level.
 
-## 8. Decisions Still to Be Clarified
+## 8. Slot Addition, Deletion, and Remapping
+
+Slot-count mutations follow OrcaSlicer's device capabilities and native data
+updates. They execute as one Worker-side project transaction; React never
+renumbers assignments or edits flush arrays independently.
+
+### 8.1 Device constraints
+
+- A project always retains at least one filament slot.
+- Single-extruder multi-material and supported material-switcher/AMS printer
+  configurations may add and remove slots up to OrcaSlicer's native maximum of
+  64.
+- A fixed multi-extruder printer retains at least the number of slots required
+  by its physical extruders. Neo does not expose a deletion command that would
+  violate that requirement.
+- Command availability comes from the authoritative session snapshot. React
+  does not infer a printer category from profile names or vendors.
+
+### 8.2 Adding a slot
+
+Adding a slot matches native OrcaSlicer:
+
+1. copy the final existing slot's filament preset into the new slot;
+2. assign the next colour from the native filament colour sequence;
+3. extend filament colour, multi-colour, colour-type, extruder/nozzle/volume
+   mapping, and related project arrays through the native preset bundle;
+4. calculate the new slot's default flushing volumes; and
+5. return the complete updated slot and plate-session projection.
+
+The new slot is immediately editable. Creation does not wait for a separate
+preset-selection dialog.
+
+### 8.3 Delete and Merge with
+
+Neo exposes the same two semantic operations as native OrcaSlicer:
+
+- **Delete** removes the slot without choosing a destination. Direct object and
+  part assignments to the deleted slot fall back to slot 1. Painting marks and
+  custom tool-change events that cannot exist without that slot are removed.
+- **Merge with** removes the slot while remapping its assignments, painting
+  marks, and eligible tool-change events to a user-selected surviving slot.
+
+Both commands show a pre-operation impact summary when the slot is referenced.
+The summary distinguishes assignments that will be remapped from data that
+will be removed. Cancelling the confirmation leaves the complete project and
+history unchanged.
+
+After either operation, every reference above the deleted slot is decremented
+to preserve its logical material. The atomic native mutation covers at least:
+
+- `PresetBundle::filament_presets`, slot colours, filament maps, nozzle maps,
+  volume maps, flush multipliers, vectors, and matrices;
+- object, `MODEL_PART`, and `PARAMETER_MODIFIER` configurations;
+- multi-material painting state, including imported painting that Neo cannot
+  yet edit;
+- global and object-scoped support filament references;
+- per-plate filament maps and first/other-layer print sequences; and
+- custom per-plate tool-change events.
+
+Imported but unsupported state must not be silently corrupted. If the Worker
+cannot prove that all known references can be updated, it rejects the command
+atomically and reports the blocking reference rather than performing a partial
+delete.
+
+Every add, Delete, or Merge with operation marks the project dirty, invalidates
+all plate slice results, and creates one Undo/Redo entry.
+
+## 9. Decisions Still to Be Clarified
 
 The living specification will be extended in coherent batches after decisions
 are made for:
