@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orca://slicer-wasm/multi-filament-fixture-manifest/v1",
+  "title": "Orca Neo multi-filament fixture manifest",
+  "type": "object",
+  "required": ["schema", "schemaVersion", "nativeCore", "sourcePolicy", "builder", "fixtures"],
+  "properties": {
+    "schema": { "const": "orca-multi-filament-fixture-manifest" },
+    "schemaVersion": { "const": 1 },
+    "nativeCore": {
+      "type": "object",
+      "required": ["repository", "commit"],
+      "properties": {
+        "repository": { "const": "Noisyfox/OrcaSlicer" },
+        "commit": { "const": "b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde" }
+      },
+      "additionalProperties": false
+    },
+    "sourcePolicy": {
+      "type": "object",
+      "required": ["kind", "externalDownloadsAllowed", "readerFixtureProvenance"],
+      "properties": {
+        "kind": { "const": "deterministic-synthetic-only" },
+        "externalDownloadsAllowed": { "const": false },
+        "readerFixtureProvenance": { "const": "independent-low-level-3mf-builder" }
+      },
+      "additionalProperties": false
+    },
+    "builder": {
+      "type": "object",
+      "required": ["path", "export", "callsExporter"],
+      "properties": {
+        "path": { "const": "packages/slicer-wasm/harness/multi-filament-fixture-builder.mjs" },
+        "export": { "const": "buildIndependentReader3mf" },
+        "callsExporter": { "const": false }
+      },
+      "additionalProperties": false
+    },
+    "fixtures": {
+      "type": "array",
+      "minItems": 12,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "status", "provenance", "expected"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^mf\\.[a-z0-9-]+$" },
+          "kind": { "enum": ["reader-3mf", "state-matrix", "writer-roundtrip-matrix"] },
+          "status": { "enum": ["executable", "matrix-only"] },
+          "provenance": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "expected": { "type": "object" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

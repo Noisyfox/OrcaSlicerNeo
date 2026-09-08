@@ -30,6 +30,20 @@ The repository structure used by this plan is the one described in [`project_str
 
 **Dispatch:** Root starts a fresh Luna High subagent for Step 0. It performs the inventory and fixture work and its complete self-verification; root independently accepts or blocks the step.
 
+**Self-verification record (2026-09-08):** Added the 13-entry deterministic
+fixture inventory/schema and a dependency-free low-level 3MF reader fixture
+builder. The executable fixture is independently assembled (not exporter- or
+bridge-generated), carries native BBS project/model/filament records and a
+closed cube, and has SHA-256
+`d15f956c50e70d1368033528e49e835330e74cd007196f66a094277a09a91785`;
+future writer/round-trip and behavioural cases are matrix-only until their
+owning steps add executable assertions. The fixture self-test, optional serial
+native-reader smoke (`objects=1`), `@orca/slicer-wasm` test suite (112 tests),
+and typecheck pass. Root independently reviewed the native archive entries and
+fixture provenance, reran all four checks with the same results, and accepted
+Step 0. Slot-count and assignment observation remain correctly gated on Step
+1's new read-only projection contract.
+
 **Normative mapping:** preparation only; establishes the evidence needed before Sequence 1.
 
 **Functional boundary:** Record the clean implementation baseline, enumerate current bridge/client/runtime/app/history/project/preview seams, and define deterministic fixture names and schemas. This step does not add a user-visible feature or alter product code.
