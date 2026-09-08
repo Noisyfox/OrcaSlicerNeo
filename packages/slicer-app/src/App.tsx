@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar } from './components/layout/Toolbar';
-import { isWorkspaceTab, type AppTab } from './components/layout/appTabs';
+import { isPrepareTab, isWorkspaceTab, type AppTab } from './components/layout/appTabs';
 import { Workspace, type PreviewRenderTransition } from './components/workspace/Workspace';
 import { DevicePanel } from './components/device/DevicePanel';
 import { StatusBar } from './components/layout/StatusBar';
@@ -280,7 +280,9 @@ export default function App() {
   }, [dispatcher]);
   useEffect(() => {
     const onHistoryKeyDown = (event: KeyboardEvent) => {
-      if (isEditableHistoryTarget(event.target) || !(event.ctrlKey || event.metaKey) || event.altKey) return;
+      // Project history is an editing operation. Preview/Device/Home retain
+      // their own interaction semantics and must not consume this shortcut.
+      if (!isPrepareTab(activeTab) || isEditableHistoryTarget(event.target) || !(event.ctrlKey || event.metaKey) || event.altKey) return;
       const action = historyShortcutAction(event);
       if (!action) return;
       const coordinator = historyRestoreCoordinatorRef.current;
@@ -293,7 +295,7 @@ export default function App() {
     };
     document.addEventListener('keydown', onHistoryKeyDown);
     return () => document.removeEventListener('keydown', onHistoryKeyDown);
-  }, []);
+  }, [activeTab]);
   useEffect(() => {
     if (projectState.notices.length > 0) setDialog('notice');
   }, [projectState.notices]);

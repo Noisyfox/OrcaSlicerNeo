@@ -384,6 +384,12 @@ Undo/Redo toolbar behaviour:
 - when an editable text control owns keyboard focus, its native text
   Undo/Redo takes precedence and project shortcuts do not run.
 
+Project-history navigation is available only on the **Prepare** tab. On Home,
+Preview, and Device, the toolbar buttons and their directional-menu triggers
+remain visible but disabled, and the shared app neither consumes nor dispatches
+project Undo/Redo shortcuts. Returning to Prepare re-enables them solely from
+the current Worker `HistoryStatus`; navigating away never discards history.
+
 Selection and plate context records are intentionally omitted from the default
 history menus and one-step navigation, while their saved state is restored with
 the selected project-modifying frame.

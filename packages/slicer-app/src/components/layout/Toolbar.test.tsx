@@ -147,7 +147,7 @@ describe('Toolbar send navigation', () => {
     document.body.append(container);
     root = createRoot(container);
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar historyRestoreCoordinator={coordinator} /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
     });
     const undo = container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement;
     expect(undo.textContent).toContain('Undo Move');
@@ -166,11 +166,26 @@ describe('Toolbar send navigation', () => {
     document.body.append(container);
     root = createRoot(container);
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar historyRestoreCoordinator={coordinator} /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
     });
     await act(async () => { useHistoryRestoreStore.getState().setPhase('restoring'); });
     expect((container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement).disabled).toBe(true);
     expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it.each(['home', 'preview', 'device'] as const)('disables history controls outside Prepare on %s', async (activeTab) => {
+    const { platform } = makePlatform();
+    const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
+    useHistoryNavigationStore.getState().setStatus(navigationStatus);
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab={activeTab} historyRestoreCoordinator={coordinator} /></PlatformProvider>);
+    });
+
+    for (const testId of ['history-undo', 'history-redo', 'history-undo-menu-trigger', 'history-redo-menu-trigger'])
+      expect((container.querySelector(`[data-testid="${testId}"]`) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('opens directional project-only menus and jumps directly to the Worker entry', async () => {
@@ -181,7 +196,7 @@ describe('Toolbar send navigation', () => {
     document.body.append(container);
     root = createRoot(container);
     await act(async () => {
-      root?.render(<PlatformProvider value={platform}><Toolbar historyRestoreCoordinator={coordinator} /></PlatformProvider>);
+      root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
     });
     await act(async () => {
       (container.querySelector('[data-testid="history-undo-menu-trigger"]') as HTMLButtonElement).click();

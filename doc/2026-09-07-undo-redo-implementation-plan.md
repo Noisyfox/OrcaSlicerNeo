@@ -561,6 +561,17 @@ repair sequence is complete prematurely.
   traversal changes and no unrelated E2E behavior was modified here.
 - Root acceptance is intentionally not recorded in this execution record.
 
+### Repair 7 scope — Prepare-only history navigation
+
+- Project Undo/Redo navigation is enabled only while the shared application is
+  on the Prepare tab. Home, Preview, and Device retain visible toolbar
+  controls but disable both buttons and directional history menus.
+- The global project shortcut handler must not consume or dispatch
+  `Ctrl/Cmd+Z`, `Ctrl/Cmd+Shift+Z`, or `Ctrl+Y` outside Prepare. Native text
+  editing precedence remains unchanged.
+- Returning to Prepare reuses the current Worker `HistoryStatus`; changing
+  tabs must not reset, truncate, or otherwise mutate project history.
+
 ### Repair 4 execution record — asynchronous restore projection barrier
 
 - Changed the restore coordinator contract so its projection callback returns a

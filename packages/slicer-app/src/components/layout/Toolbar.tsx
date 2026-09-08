@@ -8,7 +8,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { exportGcode, sliceModel } from '../workspace/actions/sliceActions';
 import { usePlatform } from '@orca/platform-contract';
 import { SendGcodeDialog, type SendGcodeAction } from '../send/SendGcodeDialog';
-import { isAppTab, isWorkspaceTab, type AppTab } from './appTabs';
+import { isAppTab, isPrepareTab, isWorkspaceTab, type AppTab } from './appTabs';
 import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 import { useHistoryNavigationStore } from '../../stores/useHistoryNavigationStore';
 import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
@@ -43,6 +43,7 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
   const [exporting, setExporting] = useState(false);
   const [sendAction, setSendAction] = useState<SendGcodeAction | null>(null);
   const showActions = isWorkspaceTab(activeTab);
+  const historyNavigationAvailable = isPrepareTab(activeTab);
 
   // Keep the controls projected from Worker status even when a mutation was
   // initiated outside this toolbar (ObjectList, settings, or a native menu).
@@ -63,13 +64,16 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
 
   const undoEntries = projectHistoryEntries(historyStatus, 'undo');
   const redoEntries = projectHistoryEntries(historyStatus, 'redo');
-  const undoDisabled = historyNavigationDisabled(historyStatus, 'undo', restoring, !!historyRestoreCoordinator);
-  const redoDisabled = historyNavigationDisabled(historyStatus, 'redo', restoring, !!historyRestoreCoordinator);
+  const undoDisabled = !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'undo', restoring, !!historyRestoreCoordinator);
+  const redoDisabled = !historyNavigationAvailable || historyNavigationDisabled(historyStatus, 'redo', restoring, !!historyRestoreCoordinator);
   const undoLabel = historyNextOperationLabel(historyStatus, 'undo');
   const redoLabel = historyNextOperationLabel(historyStatus, 'redo');
 
   const navigate = (direction: 'undo' | 'redo', entryId?: string) => {
-    if (!historyRestoreCoordinator) return;
+    // A menu can remain mounted during a tab switch. Guard the command as
+    // well as its disabled trigger so a stale menu item cannot restore outside
+    // Prepare.
+    if (!historyNavigationAvailable || !historyRestoreCoordinator) return;
     void historyRestoreCoordinator.restore(entryId ? { jump: entryId, direction } : direction);
   };
 

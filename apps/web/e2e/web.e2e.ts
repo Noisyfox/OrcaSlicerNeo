@@ -235,6 +235,15 @@ test('shared history toolbar keeps shortcuts and direct navigation host-neutral'
   await (await chooser).setFiles(resolve(here, '../../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc'));
   await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 120_000 });
 
+  // Switching away only gates navigation. It neither consumes the shortcut
+  // nor loses the Worker-owned entry when Prepare is revisited.
+  await page.locator('#app-tab-preview').click();
+  await expect(page.getByTestId('history-undo')).toBeDisabled();
+  await page.keyboard.press('Control+z');
+  await expect(page.getByTestId('history-undo')).toBeDisabled();
+  await page.locator('#app-tab-prepare').click();
+  await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 120_000 });
+
   const layerHeight = page.locator('#layer_height');
   if (await layerHeight.count()) {
     const before = await layerHeight.inputValue();

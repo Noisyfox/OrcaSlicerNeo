@@ -508,6 +508,15 @@ test('shared history toolbar supports buttons, shortcuts, menu jumps, and native
     await expect(undo).toBeEnabled({ timeout: 30_000 });
     await expect(undo).toContainText('Undo');
 
+    // Project history is an editing operation: it remains intact but cannot
+    // be invoked through buttons or global shortcuts outside Prepare.
+    await page.locator('#app-tab-preview').click();
+    await expect(undo).toBeDisabled();
+    await page.keyboard.press('Control+z');
+    await expect(undo).toBeDisabled();
+    await page.locator('#app-tab-prepare').click();
+    await expect(undo).toBeEnabled({ timeout: 30_000 });
+
     // A focused settings editor keeps the browser's native text undo.
     const layerHeight = page.locator('#layer_height');
     if (await layerHeight.count()) {
