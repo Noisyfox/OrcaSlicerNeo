@@ -419,9 +419,7 @@ history entries.
 - [x] Add unit, Worker/WASM, large-model budget/eviction, and three-host
       end-to-end coverage; keep timing and peak memory as diagnostics initially
 
-## Post-v1 Expansion (queued, not yet scheduled)
-
-### G-code preview GPU streaming renderer
+## G-code preview GPU streaming renderer
 
 > [!info] Native libvgcode SegmentTemplate GPU path accepted 2026-09-02. The
 > shared template has 8 logical vertices and 24 invocations per segment; the
@@ -484,6 +482,8 @@ loading remain future increments.
       64 KiB UTF-8-safe result-bound chunks, result-ID lifecycle binding,
       virtualized read-only rows, and exact/nearest-preceding source-line
       navigation through the typed Worker client
+
+## Post-v1 Expansion (queued, not yet scheduled)
 
 - [x] [Multi-plate support](Multi-Plate%20Support.md) — Steps 1–9 accepted
 - [ ] Project save/load (`.3mf` / `bbs_3mf`) — tracked in Milestone 15;
