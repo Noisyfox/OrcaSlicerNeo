@@ -1,7 +1,7 @@
 # Undo and Redo
 
 **Date:** 2026-09-07
-**Status:** Approved design — implementation not started
+**Status:** Delivered and verified — implementation accepted 2026-09-08
 **Branch:** `dev/undo-redo-design`
 
 ## 1. Goal
@@ -320,6 +320,21 @@ edit, or become a second history owner in React.
 
 This follows native Orca's byte-based, LRU-style policy while choosing a
 cross-host fixed ceiling appropriate for a browser/WASM memory environment.
+
+Neo's `bytesUsed` is a deterministic retained-allocation estimate. It charges
+the observed capacities of retained payload/context/container vectors and
+long strings, plus fixed cross-native/WASM units for history slots, interval
+slots, and each unique shared-payload allocation/control block. A shared blob
+is charged once by pointer identity even when several frames retain it. The
+estimate intentionally includes history-owned capacity that a size-only
+payload count would miss; it does not query allocator headers or use native
+heap telemetry. Orca's corresponding `UndoRedo.cpp::memsize()` is an estimate
+of its object-history representation: it charges object/interval structures,
+serialized bytes, and an immutable object only while the history is its sole
+owner (`use_count() == 1`), then releases optional data and older snapshots.
+Neo therefore preserves Orca's optional-release/LRU behavior while applying a
+stricter exhaustive contract to context, container capacities, labels/keys,
+and shared control/owned-allocation units across native and wasm64 hosts.
 
 ## 8. Initial Invariants
 

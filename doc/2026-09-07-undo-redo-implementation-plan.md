@@ -618,6 +618,40 @@ repair sequence is complete prematurely.
   after-state, and opposite-direction plus branched stale IDs are rejected.
 - Root acceptance is intentionally not recorded in this execution record.
 
+### Repair 6 execution record — exhaustive deterministic byte accounting
+
+- Replaced the payload-size-only `ProjectHistory::bytes_used()` estimate with
+  deterministic retained-allocation accounting. It now includes the active
+  `Impl` allocation, `states` and interval vector capacities, per-state
+  mutable/immutable container capacities, context vector capacity, long entry
+  labels and mesh keys, shared payload vector capacity, and a fixed
+  cross-native/WASM unit for each unique `shared_ptr` payload/control block.
+  Shared payloads are deduplicated by retained `Bytes` identity, so repeated
+  references do not double count. Fixed metadata units avoid allocator headers,
+  `sizeof`/ABI drift, and host heap telemetry; observed capacities remain the
+  only variable component.
+- Added exact native fixture assertions for payload deltas, long label/key
+  deltas, shared-payload de-duplication, mutable/interval slot deltas, context
+  capacity, optional release, budget boundaries, oldest-first eviction, and
+  oversized-operation predecessor retention. The same diagnostics are
+  surfaced through the existing Worker status and therefore drive optional
+  release and eviction with the identical estimate.
+- Orca comparison: upstream `src/slic3r/Utils/UndoRedo.cpp` estimates each
+  history object's native representation (`sizeof(*this)`, serialized bytes,
+  interval storage) and only charges an immutable shared object while the
+  history is its sole owner; it releases optional data and least-recently-used
+  snapshots. Neo keeps that behavior boundary but is deliberately stricter
+  for a cross-host contract by charging all history-retained capacities,
+  context/labels/keys, and one fixed shared allocation/control-block unit per
+  unique payload without allocator-dependent measurements.
+- Native ProjectHistory, focused protocol, dual WASM quick/smoke, workspace
+  tests, typecheck, Desktop E2E, and threaded/serial Web E2E were run after
+  this repair. Exact command results are recorded in the agent handoff; the
+  pre-existing dirty C++ submodule was not modified. The already synchronized
+  `doc/high_level_dev_plan.md` and `spec/Grand Plan.md` Undo/Redo entries
+  remain marked implemented and accepted.
+- Root acceptance is intentionally not recorded in this execution record.
+
 ### Repair 3 execution record — canonical dirty projection after restore
 
 - Centralized Worker `HistoryStatus` projection in `projectHistoryStatus()` so

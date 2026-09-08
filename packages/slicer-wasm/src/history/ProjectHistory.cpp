@@ -11,6 +11,29 @@ namespace Slic3r::Neo::History {
 namespace {
 using Blob = std::shared_ptr<const Bytes>;
 
+void add_bytes(std::size_t& total, std::size_t amount)
+{
+    const auto max = std::numeric_limits<std::size_t>::max();
+    total = amount > max - total ? max : total + amount;
+}
+
+void add_product(std::size_t& total, std::size_t count, std::size_t unit)
+{
+    const auto max = std::numeric_limits<std::size_t>::max();
+    add_bytes(total, count > max / unit ? max : count * unit);
+}
+
+void add_string_storage(std::size_t& total, const std::string& value)
+{
+    // capacity() is the portable observable retained character capacity.  A
+    // fixed terminator unit covers the null character without consulting the
+    // implementation allocator or SSO threshold.
+    if (value.capacity() > ResourceAccounting::kInlineStringCapacity) {
+        const auto max = std::numeric_limits<std::size_t>::max();
+        add_bytes(total, value.capacity() == max ? max : value.capacity() + ResourceAccounting::kStringTerminatorBytes);
+    }
+}
+
 Blob make_blob(const Bytes& bytes)
 {
     return std::make_shared<const Bytes>(bytes);
@@ -414,21 +437,33 @@ void ProjectHistory::set_byte_budget(std::size_t byte_budget)
 
 std::size_t ProjectHistory::bytes_used() const
 {
-    std::set<const void*> seen;
+    std::set<const Bytes*> seen;
     std::size_t total = 0;
+    add_bytes(total, ResourceAccounting::kImplAllocationBytes);
+    add_product(total, m_impl->states.capacity(), ResourceAccounting::kStoredEntryBytes);
+    add_product(total, m_object_intervals.capacity(), ResourceAccounting::kObjectIntervalSlotBytes);
     for (const auto& state : m_impl->states) {
         auto count = [&seen, &total](const Blob& blob) {
-            if (blob && seen.insert(blob.get()).second) total += blob->size();
+            if (!blob || !seen.insert(blob.get()).second) return;
+            // The vector capacity is the retained payload allocation.  The
+            // fixed unit covers the Bytes object and shared_ptr control block
+            // (including make_shared's combined allocation) exactly once per
+            // shared payload, regardless of how many states reference it.
+            add_bytes(total, blob->capacity());
+            add_bytes(total, ResourceAccounting::kSharedBlobAllocationBytes);
         };
         count(state.state.serialized);
-        total += state.state.context.size();
+        add_bytes(total, state.state.context.capacity());
+        add_product(total, state.state.mutable_objects.capacity(), ResourceAccounting::kMutableObjectSlotBytes);
+        add_product(total, state.state.immutable_meshes.capacity(), ResourceAccounting::kImmutableMeshSlotBytes);
+        add_string_storage(total, state.info.label);
         for (const auto& object : state.state.mutable_objects) count(object.data);
         for (const auto& mesh : state.state.immutable_meshes) {
+            add_string_storage(total, mesh.key);
             count(mesh.resident);
             count(mesh.deferred);
         }
     }
-    total += m_impl->states.size() * sizeof(StoredEntry);
     return total;
 }
 

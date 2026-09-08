@@ -94,6 +94,24 @@ struct ResourceDiagnostics {
     bool oversized_entry_retained { false };
 };
 
+// ProjectHistory reports a deterministic retained-allocation estimate rather
+// than the host allocator's live heap usage.  Payload/vector capacities are
+// observed from the retained containers; metadata and shared-control-block
+// costs use fixed units so native and wasm64 runs use the same budget scale.
+struct ResourceAccounting {
+    static constexpr std::size_t kImplAllocationBytes = 128;
+    static constexpr std::size_t kStoredEntryBytes = 128;
+    static constexpr std::size_t kMutableObjectSlotBytes = 32;
+    static constexpr std::size_t kImmutableMeshSlotBytes = 64;
+    static constexpr std::size_t kObjectIntervalSlotBytes = 32;
+    static constexpr std::size_t kSharedBlobAllocationBytes = 64;
+    static constexpr std::size_t kStringTerminatorBytes = 1;
+    // Canonical short-string storage unit.  Values at or below this size are
+    // covered by the fixed StoredEntry/StoredMesh slot; longer strings charge
+    // their observed capacity plus one terminator byte.
+    static constexpr std::size_t kInlineStringCapacity = 15;
+};
+
 class ProjectHistory {
 public:
     static constexpr std::size_t kDefaultByteBudget = std::size_t(256) * 1024 * 1024;

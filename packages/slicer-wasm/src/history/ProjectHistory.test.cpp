@@ -34,6 +34,13 @@ static ModelState model_with_native_state(std::uint8_t value, std::size_t native
     return state;
 }
 
+static ModelState model_with_shared_mesh(const std::shared_ptr<const Bytes>& mesh, const char* key)
+{
+    ModelState state;
+    state.immutable_meshes.push_back({ key, mesh, {}, false });
+    return state;
+}
+
 int main()
 {
     ProjectHistory history(4096);
@@ -195,6 +202,85 @@ int main()
     CHECK(history.current().model.immutable_meshes.front().resident == nullptr);
     CHECK(history.current().model.immutable_meshes.front().deferred != nullptr);
     CHECK(history.undo(restored));
+
+    // Resource accounting is deterministic and charges retained capacities,
+    // not allocator-specific live heap readings.  Payload deltas are exact:
+    // serialized and mutable blobs each retain their vector capacity plus one
+    // fixed shared allocation unit.
+    ProjectHistory small_payload(1u << 20);
+    ProjectHistory large_payload(1u << 20);
+    CHECK(small_payload.commit("same", Category::Project, model(1, 8), {}));
+    CHECK(large_payload.commit("same", Category::Project, model(1, 24), {}));
+    CHECK(large_payload.bytes_used() - small_payload.bytes_used() == 2 * (24 - 8));
+
+    // Long entry labels and mesh keys charge their observed retained string
+    // capacities; short-string storage is covered by the fixed record unit.
+    ModelState short_strings = model(2, 4);
+    short_strings.immutable_meshes.push_back({ "mesh", {}, {}, false });
+    ModelState long_strings = model(2, 4);
+    long_strings.immutable_meshes.push_back({ std::string(80, 'm'), {}, {}, false });
+    ProjectHistory short_string_history(1u << 20);
+    ProjectHistory long_string_history(1u << 20);
+    CHECK(short_string_history.commit("baseline", Category::Project, model(1), {}));
+    CHECK(long_string_history.commit("baseline", Category::Project, model(1), {}));
+    CHECK(short_string_history.commit("short", Category::Project, short_strings, {}));
+    CHECK(long_string_history.commit(std::string(80, 'l'), Category::Project, long_strings, {}));
+    const auto short_label_capacity = short_string_history.current().entry.label.capacity();
+    const auto long_label_capacity = long_string_history.current().entry.label.capacity();
+    const auto short_key_capacity = short_string_history.current().model.immutable_meshes.front().key.capacity();
+    const auto long_key_capacity = long_string_history.current().model.immutable_meshes.front().key.capacity();
+    const auto string_bytes = [](std::size_t capacity) {
+        return capacity > ResourceAccounting::kInlineStringCapacity
+            ? capacity + ResourceAccounting::kStringTerminatorBytes : std::size_t(0);
+    };
+    const auto label_delta = string_bytes(long_label_capacity) - string_bytes(short_label_capacity);
+    const auto key_delta = string_bytes(long_key_capacity) - string_bytes(short_key_capacity);
+    if (long_string_history.bytes_used() - short_string_history.bytes_used() != label_delta + key_delta) {
+        std::cerr << "string accounting: actual=" << (long_string_history.bytes_used() - short_string_history.bytes_used())
+                  << " expected=" << (label_delta + key_delta) << " label=" << label_delta << " key=" << key_delta
+                  << " caps=" << short_label_capacity << "," << long_label_capacity << ","
+                  << short_key_capacity << "," << long_key_capacity << "\n";
+        return 1;
+    }
+
+    // Identical shared payloads are charged once even when two retained
+    // states use different keys and therefore cannot reuse by key matching.
+    auto shared_payload = std::make_shared<const Bytes>(bytes(0xA1, 96));
+    ModelState shared_first = model_with_shared_mesh(shared_payload, "first");
+    ModelState shared_second = model_with_shared_mesh(shared_payload, "second");
+    auto distinct_payload = std::make_shared<const Bytes>(bytes(0xA1, 96));
+    ModelState distinct_second = model_with_shared_mesh(distinct_payload, "second");
+    ProjectHistory shared_history(1u << 20);
+    ProjectHistory distinct_history(1u << 20);
+    CHECK(shared_history.commit("first", Category::Project, shared_first, {}));
+    CHECK(shared_history.commit("second", Category::Project, shared_second, {}));
+    CHECK(distinct_history.commit("first", Category::Project, shared_first, {}));
+    CHECK(distinct_history.commit("second", Category::Project, distinct_second, {}));
+    CHECK(distinct_history.bytes_used() - shared_history.bytes_used() ==
+        shared_payload->capacity() + ResourceAccounting::kSharedBlobAllocationBytes);
+
+    // Container capacity is part of the retained estimate.  Adding one
+    // mutable object has an exact slot, payload, and interval delta.
+    ModelState one_object = model(3, 7);
+    ModelState two_objects = one_object;
+    two_objects.mutable_objects.push_back({ 99, 3, bytes(7, 7) });
+    ProjectHistory one_object_history(1u << 20);
+    ProjectHistory two_object_history(1u << 20);
+    CHECK(one_object_history.commit("objects", Category::Project, one_object, {}));
+    CHECK(two_object_history.commit("objects", Category::Project, two_objects, {}));
+    CHECK(two_object_history.bytes_used() - one_object_history.bytes_used() ==
+        ResourceAccounting::kMutableObjectSlotBytes +
+        ResourceAccounting::kObjectIntervalSlotBytes + 7 +
+        ResourceAccounting::kSharedBlobAllocationBytes);
+
+    // Context is charged at the retained vector capacity (the stored copy's
+    // capacity equals its size), and optional release/eviction use this same
+    // estimate rather than the old payload-only count.
+    ProjectHistory context_small(1u << 20);
+    ProjectHistory context_large(1u << 20);
+    CHECK(context_small.commit("context", Category::Project, {}, bytes(9, 3)));
+    CHECK(context_large.commit("context", Category::Project, {}, bytes(9, 11)));
+    CHECK(context_large.bytes_used() - context_small.bytes_used() == 8);
 
     // Resource effects are observable diagnostics, not notifications.  The
     // released-byte counter is cumulative for this project session and the
