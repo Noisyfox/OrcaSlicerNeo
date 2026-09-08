@@ -23,6 +23,10 @@
 
 ## Read before changing
 
+Keep this file as a concise execution entry point: link to authoritative
+documents instead of copying their directory trees, command catalogs,
+troubleshooting procedures, or test matrices here.
+
 1. Before any coding, read
    [`spec/Web-Electron Shared Application Architecture.md`](spec/Web-Electron%20Shared%20Application%20Architecture.md).
 2. Read the relevant approved design in `spec/` and the current dated task
