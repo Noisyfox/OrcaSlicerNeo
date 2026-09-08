@@ -4,12 +4,15 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 const root = resolve(import.meta.dirname, '..');
 const isWindows = process.platform === 'win32';
 const runner = isWindows ? 'cmd.exe' : 'bash';
-const reportPath = resolve(root, process.env.ORCA_UNDO_REDO_GATE_REPORT ??
-  '.work/undo-redo-release-gates.json');
+const reportOverride = process.env.ORCA_UNDO_REDO_GATE_REPORT;
+const reportPath = reportOverride
+  ? resolve(root, reportOverride)
+  : resolve(tmpdir(), 'orca-slicer-neo', 'undo-redo-release-gates.json');
 const pnpm = isWindows ? 'pnpm.cmd' : 'pnpm';
 const wasmDriver = isWindows ? ['scripts\\build-windows.bat'] : ['scripts/build.sh'];
 const command = (name, args, required = true) => ({ name, args, required });
