@@ -1,252 +1,123 @@
 # Repository Guidelines
 
-## Architecture & Scope
+## Mission and non-negotiable boundaries
 
-- OrcaSlicerNeo rebuilds the OrcaSlicer GUI as a shared React app
-  (**React + TypeScript + Vite + shadcn/ui**) with two thin hosts: an
-  **Electron** desktop app (`apps/desktop`) and a static **Web** app
-  (`apps/web`), with the C++ slicing core (`libslic3r`) compiled to
-  **WebAssembly (Emscripten)** and called from JS.
-- The wxWidgets GUI is **not** ported and not compiled in the WASM build.
-- Monorepo managed by pnpm workspaces (`apps/*`, `packages/*`), runtime pinned
-  via Volta (following established monorepo conventions).
-- Target platforms: Windows x64/arm64, Linux x64/arm64, macOS x64/arm64 — all
-  ship both wasm64 variants; the Web target is desktop Chrome 133+ with
-  WebGL 2 and wasm64 (see
-  `spec/Web-Electron Shared Application Architecture.md`).
-- Keep the C++ submodule changes **minimal**: `libslic3r` is reused as-is;
-  modifications happen only through `packages/slicer-wasm/patches/*.patch` or
-  deliberate submodule commits, never ad-hoc edits.
-- Licensing: AGPL-3.0 throughout (fork of AGPL OrcaSlicer).
+- OrcaSlicerNeo is a shared React + TypeScript + Vite + shadcn/ui application
+  with thin Electron and static-Web hosts. The C++ `libslic3r` core is compiled
+  to WebAssembly; the wxWidgets GUI is neither ported nor built for WASM. The
+  authoritative architecture is
+  [`spec/Web-Electron Shared Application Architecture.md`](spec/Web-Electron%20Shared%20Application%20Architecture.md).
+- Treat `packages/slicer-wasm/cpp/` as a read-only pinned submodule. Make
+  upstream adaptations through `packages/slicer-wasm/patches/*.patch`, or use
+  an intentional, documented submodule commit. Never make ad-hoc edits or move
+  the submodule pointer casually.
+- `packages/slicer-wasm/src/client/` is the only JavaScript allowed to talk
+  directly to the Emscripten module. Application code must use
+  `packages/slicer-runtime/`; never import module URLs or Emscripten globals
+  into the application.
+- Run the WASM module in a Web Worker; never block the renderer UI thread.
+- Use pnpm for workspace development, unit tests, typechecks, and Electron e2e.
+  Do not substitute npm or yarn. The native WASM build drivers are the intended
+  exception.
+- The repository and its deliverables remain AGPL-3.0.
 
-## Authoritative Documents
+## Read before changing
 
-- Read `spec/Web-Electron Shared Application Architecture.md` **before any
-  coding** — it is the approved design for the current milestone (shared
-  Electron + static-Web application). `doc/2026-08-12-electron-gui-rewrite-design.md`
-  remains the approved design for the delivered desktop vertical slice
-  (load STL/3MF → configure → slice → 3D preview → export G-code) it extends.
-- Read `doc/high_level_dev_plan.md` for the roadmap and `spec/Grand Plan.md`
-  for the milestone checklist; keep both in sync with delivered work.
-- Read `project_structure_and_guidelines.md` for structure and engineering
-  constraints.
-- Read `doc/` for dated engineering docs. Start a task with one dated, living
-  task document and update it in place through every phase; do not split one
-  task into phase-specific notes. It records only accepted product behaviour
-  and decisions. Promote the same document to `spec/` when approved and remove
-  superseded task notes.
-- Approved designs live in `spec/`. Any feature/design change must be reflected
-  in `doc/` and, once approved, `spec/`.
+1. Before any coding, read
+   [`spec/Web-Electron Shared Application Architecture.md`](spec/Web-Electron%20Shared%20Application%20Architecture.md).
+2. Read the relevant approved design in `spec/` and the current dated task
+   document in `doc/`. The delivered desktop vertical slice is documented in
+   [`doc/2026-08-12-electron-gui-rewrite-design.md`](doc/2026-08-12-electron-gui-rewrite-design.md).
+3. Use
+   [`project_structure_and_guidelines.md`](project_structure_and_guidelines.md)
+   for the repository tree, ownership boundaries, engineering constraints, and
+   documentation conventions. Do not duplicate those inventories here.
+4. Use [`README.md`](README.md) and the platform driver's `help` command for
+   current setup, build, development, smoke, and e2e commands. For WASM-specific
+   details, consult
+   [`doc/2026-08-12-wasm-build-notes.md`](doc/2026-08-12-wasm-build-notes.md),
+   [`doc/2026-08-15-cmd-build-pipeline.md`](doc/2026-08-15-cmd-build-pipeline.md),
+   and
+   [`doc/2026-08-20-wasm-dwarf-debug-build.md`](doc/2026-08-20-wasm-dwarf-debug-build.md).
+5. Follow
+   [`doc/2026-09-08-test-execution-strategy.md`](doc/2026-09-08-test-execution-strategy.md)
+   when choosing verification scope. Do not infer that every feature edit
+   requires the full repository matrix.
+6. Update [`doc/high_level_dev_plan.md`](doc/high_level_dev_plan.md) and
+   [`spec/Grand Plan.md`](spec/Grand%20Plan.md) only when delivered work changes
+   roadmap or milestone status, and keep them consistent.
 
-## Project Structure
+Start each feature or design change with one dated, living task document in
+`doc/` and update it in place. Record only accepted behavior and decisions;
+do not create phase-by-phase notes. When approved, promote that same document
+to `spec/` and remove superseded task notes.
 
-- `apps/desktop/`: Electron host — `src/main/` (windows, dialogs, session
-  config), `src/preload/` (contextBridge API), `src/renderer/` (thin entry
-  composing the shared app with the Electron adapter).
-- `apps/web/`: static Web host — Vite app, browser adapters (file picker /
-  Blob download, localStorage preferences), capability gate and
-  unsupported-environment screen.
-- `packages/slicer-app/`: shared React UI — components, stores, viewport,
-  styles (used by both hosts; an import-direction guard test keeps it free
-  of host/Electron/Node dependencies).
-- `packages/slicer-runtime/`: shared runtime — Worker/WASM asset resolution,
-  profile installation into MEMFS, startup gate and capability selection.
-- `packages/platform-contract/`: injected platform contracts (models,
-  exports, preferences, runtime, chrome) + context provider.
-- `packages/profile-resources/`: deterministic profile package build
-  (versioned manifest + core/vendor ZIPs from upstream profile
-  organization).
-- `packages/slicer-wasm/`: the WASM slicer module.
-  - `cpp/`: git submodule → `Noisyfox/OrcaSlicer` (pinned SHA). Do not commit
-    changes to the submodule pointer casually; update it with intent.
-  - `CMakeLists.txt`, `stubs/`, `shim/_serial.hpp`, `patches/`: the Emscripten
-    build scaffold (spike-derived; see the design doc).
-  - `src/`: `bridge.cpp` (extern "C" API) + `slice_main.cpp` (CLI driver).
-  - `src/client/`: typed JS client + Web Worker glue.
-  - `build.sh`, `build-boost-wasm64.sh`, `fetch-deps.sh` (+ `.bat` ports,
-    cmd-native, no Git Bash): WASM build pipeline.
-- `doc/`: dated engineering docs (`YYYY-MM-DD-topic.md`, repo convention).
-- `spec/`: approved specs.
-- `tools/ scripts/`: dev utilities, CI/packaging scripts.
+## Working rules
 
-## Key paths
-
-| Path | What it is |
-|---|---|
-| `spec/Web-Electron Shared Application Architecture.md` | **Approved design — read before coding.** Shared Electron + Web architecture, contracts, decisions |
-| `doc/2026-08-12-electron-gui-rewrite-design.md` | Approved design for the delivered desktop vertical slice |
-| `doc/high_level_dev_plan.md` / `spec/Grand Plan.md` | Roadmap + milestone checklist (keep in sync with work) |
-| `packages/slicer-app/` `packages/slicer-runtime/` | Shared React UI / runtime glue (used by both hosts) |
-| `packages/platform-contract/` `packages/profile-resources/` | Injected platform contracts / profile package build |
-| `packages/slicer-wasm/cpp/` | git submodule → `Noisyfox/OrcaSlicer` (C++ source, pinned SHA). Treat as read-only except via `patches/` |
-| `packages/slicer-wasm/src/bridge.cpp` | extern "C" bridge API (the C++↔JS seam) |
-| `packages/slicer-wasm/src/client/` | typed JS client + worker glue (the only JS that touches the WASM module) |
-| `apps/desktop/src/` | Electron main / preload / renderer entry |
-| `apps/web/src/` | static Web host entry + adapters |
-
-## Reference (do not reinvent)
-
-The phase-0 spike (external reference implementation, GO verdict 2026-07-24)
-proved feasibility and contains reusable machinery:
-- `shim/_serial.hpp` — serial TBB shim (copy; add `parallel_pipeline` stand-in)
-- `build-boost-wasm64.sh` — Boost 1.84 for wasm64
-- `cmake/CMakeLists.txt` — GLOB + `DROP_PATTERNS` scaffold
-- `patches/0001-model-hpp-guard-step-include.patch` — Model.hpp STEP guard
-- `harness/` — Node smoke runner + mock-module self-test pattern
-- `FINDINGS.md` — per-file compile recipe, remaining blockers, wasm64 rationale
-
-## Build commands
-
-- All-in-one driver (Windows): `scripts/build-windows.bat help` — pure cmd,
-  **no Git Bash**. Same driver on macOS/Linux: `scripts/build.sh help`
-  (plain bash; uses emcc/emcmake from PATH first — e.g. Homebrew
-  emscripten — then falls back to auto-activating an emsdk install;
-  `--no-env` skips that). Subcommands
-  `env deps boost build full quick shim smoke test dev e2e` wrap every step
-  below. `build`/`full` produce the production **dual-variant** set
-  (threaded + serial wasm64 via `scripts/build-wasm-dual.bat` /
-  `build-wasm-dual.sh`, staged into the renderer by `scripts/stage.mjs`);
-  `quick` is the incremental ninja loop for bridge changes, rebuilding both
-  variant trees by default (`--variant threaded|serial` limits it); `smoke`
-  runs the harnesses against both variants. The driver auto-activates emsdk
-  (via the `EMSDK` env var or `emsdk_env` on PATH; emcc/emcmake on PATH are
-  used as-is) and takes `-j N`, `--variant`, `--no-env`, `--debug`, `-v`.
-  `--debug` (or `WASM_DEBUG=1`) builds the libslic3r/bridge part with `-g -O0`
-  so the module embeds DWARF for interactive source-level debugging in Chrome
-  DevTools; deps (Boost/oneTBB/vendored) stay release without debug info — see
-  `doc/2026-08-20-wasm-dwarf-debug-build.md`. cmd gotchas for .bat edits
-  (NoDefaultCurrentDirectoryInExePath, paren-block escaping, CRLF): see
-  `doc/2026-08-15-cmd-build-pipeline.md`.
-- WASM: `packages\slicer-wasm\build.bat` (cmd; `call <emsdk>\emsdk_env.bat`
-  first, or use the driver; ~50 GB disk for the dep build)
-- Node smoke: `node packages/slicer-wasm/harness/run-slice.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --stl packages/slicer-wasm/fixtures/cube.stl --config packages/slicer-wasm/fixtures/config.json` (variants live under `out/{threaded,serial}/`)
-- App dev: `pnpm --filter @orca/desktop dev` (electron-vite) / `pnpm --filter @orca/web dev` (Vite). The `predev` hooks stage the WASM module and the profile packages into the shared renderer public dir; the profile packages must be built first via `pnpm --filter @orca/profile-resources build` (staging fails without them, or warns in mock mode)
-- e2e: `pnpm --filter @orca/desktop test:e2e` (Playwright Electron); `pnpm --filter @orca/web test:e2e:threaded` / `test:e2e:serial` (Playwright Chrome, real artifacts)
-
-## WASM Build Workflow (iterative — do not expect push-button)
-
-The WASM build is an iteration surface, not a finished pipeline. When it fails:
-
-> On Windows (no Git Bash), run the `.bat` ports via `scripts\build-windows.bat`;
-> the iterate loop below is identical. cmd gotchas that have cost real
-> debugging time: bare exe names fail with 9009 on machines with
-> `NoDefaultCurrentDirectoryInExePath` set (always call `.\b2.exe` etc.),
-> unescaped `)` in echo text closes `if (...)` blocks early, and .bat must be
-> CRLF. Details: `doc/2026-08-15-cmd-build-pipeline.md`.
-
-1. Missing `<tbb/X.h>` → add `X` to `TBB_HEADERS` in `packages/slicer-wasm/build.bat` (or `build.sh`), re-run.
-2. Undefined symbol from a dropped file (SLA/CGAL/OCCT) → exclude its caller via
-   `DROP_PATTERNS` in `packages/slicer-wasm/CMakeLists.txt`, or add an empty stub
-   in `packages/slicer-wasm/stubs/`.
-3. Missing Boost/Eigen → fix include paths (Boost must be Emscripten-built via
-   `build-boost-wasm64.sh`).
-4. `libslic3r` API mismatch in the bridge → adjust call signatures; the API
-   drifts across versions (see the spike's README for the iterate loop).
-
-## Bridge API Rules
-
-- extern "C", JSON-in/JSON-out, synchronous calls on the worker thread.
-- Binary buffers cross via the WASM heap (`_malloc`/`_free` + `HEAPU8` views).
-- Never block the UI thread from the renderer; the WASM module runs in a Web
-  Worker.
-- The client (`packages/slicer-wasm/src/client`) is the only JS that talks to
-  the WASM module; application code goes through `slicer-runtime`, never the
-  module URLs or Emscripten globals.
-
-## Golden rules
-
-1. **libslic3r is reused with minimum changes.** Prefer build-scaffold exclusions,
-   stubs, and shim headers over editing the submodule. Any submodule edit needs a
-   `patches/*.patch` (or an intentional, documented submodule commit).
-2. **Docs first.** New work gets one dated, living task document in `doc/`
-   before/with code. Update it in place throughout the task instead of creating
-   phase notes; retain only accepted product behaviour and decisions. Approved
-   designs promote to `spec/` as that same document. Follow the repo's dated
-   `YYYY-MM-DD-topic.md` convention.
-
-## Required development and verification workflow
-
-1. Start work on a dedicated development branch. Before beginning a new issue,
-   commit any verified, in-scope work already in the tree; do not silently
-   bundle it with the new fix.
+1. Work on a dedicated development branch. Before starting a new issue, commit
+   verified in-scope work already in the tree; do not bundle unrelated or
+   pre-existing changes into the new commit.
 2. Divide implementation into complete, independently testable pieces. Run the
-   risk-based checks for that piece and make one commit after every such piece;
-   do not defer all commits until the end of a multi-part change. Follow
-   `doc/2026-09-08-test-execution-strategy.md`; the full release matrix is not
-   the default edit-loop or per-piece gate.
-3. Use pnpm for every workspace development, unit-test, typecheck, and
-   Electron e2e command. Do not substitute npm or yarn. The platform build
-   driver is the intentional exception for the native WASM quick build: on
-   Windows run `scripts\build-windows.bat quick` (or `scripts/build.sh quick`
-   on macOS/Linux) whenever the WASM bridge, build scaffold, or generated
-   artifacts are affected.
-4. During the edit loop, run the smallest related Vitest target and affected
-   package typecheck. Add a focused host E2E only when unit tests cannot prove
-   the changed interaction or platform seam. WASM work starts with the affected
-   variant's focused quick/smoke path; do not automatically run both variants.
-5. Before a code handoff, run `pnpm test`, `pnpm typecheck`, focused E2E for
-   every affected host seam, and the applicable WASM checks. Common WASM changes
-   quick-build both variants, but the comprehensive bridge contract may run on
-   one variant plus variant-specific smoke on the other unless the changed code
-   is variant-dependent or an approved task specification requires both.
-6. Run the complete Electron, real Web threaded/serial, dual comprehensive
-   WASM, packaged-app, and compatibility matrix for releases, milestone
-   acceptance, overnight regression, or when an approved task specification
-   explicitly requires it—not after every implementation increment.
-7. Documentation-only handoffs require `git diff --check` and documentation
-   consistency review, not the product regression matrix. Always report the
-   actual commands and results; name intentional skips and tests not run.
+   checks appropriate to each piece and commit each piece separately.
+3. On Windows, use `scripts\build-windows.bat`; do not use Git Bash. Keep batch
+   files cmd-native and CRLF. See the cmd pipeline document above for quoting,
+   executable lookup, and parenthesis-block hazards.
+4. Report the exact checks run and their results. Name any intentionally
+   skipped, unavailable, or failing check.
+5. For documentation-only changes, at minimum run `git diff --check` and verify
+   every changed local link and command against its authoritative source.
 
-## Testing
+## High-risk paths
 
-- Node smoke tests (no Electron): `packages/slicer-wasm/harness/` pattern —
-  stage fixtures into MEMFS, run via `callMain`, validate G-code output
-  (run against both `out/threaded/` and `out/serial/` artifacts).
-- Unit (`vitest`): shared packages + client against a mock Emscripten module
-  (no emsdk); `packages/slicer-app/src/import-direction.test.ts` guards the
-  shared packages from host dependencies.
-- e2e (Playwright): drive the full v1 flow in the Electron app
-  (`apps/desktop/e2e/`) and in Chrome against both real wasm64 artifacts
-  (`apps/web/e2e/`, `scripts/run-web-e2e-serial.mjs`), plus a packaged-app
-  runtime probe (`scripts/run-desktop-e2e-real.mjs`). These are release-level
-  evidence. During development, route changes to focused tests using
-  `doc/2026-09-08-test-execution-strategy.md`.
+| Path | Required handling |
+| --- | --- |
+| `packages/slicer-wasm/cpp/` | Preserve the pinned submodule; use patches or a deliberate documented submodule update. |
+| `packages/slicer-wasm/src/bridge.cpp` | Preserve the narrow C++/JS ABI and run the applicable native WASM quick build. |
+| `packages/slicer-wasm/src/client/` | Keep all direct Emscripten-module access behind this typed client. |
+| `scripts/*.bat`, `packages/slicer-wasm/*.bat` | Use Windows cmd syntax and CRLF; never assume Git Bash. |
+| `doc/`, `spec/` | Keep living task decisions separate from approved specifications and avoid parallel phase notes. |
+
+## Bridge and runtime invariants
+
+- The bridge is `extern "C"`, JSON-in/JSON-out, and synchronous on its Worker
+  thread.
+- Binary buffers cross through the WASM heap using `_malloc`, `_free`, and
+  `HEAPU8` views.
+- Renderer and application code use the runtime/client boundary rather than
+  calling the module directly.
+
+## Verification scope
+
+- During an edit loop, run the smallest deterministic checks that cover the
+  changed behavior.
+- Before committing an independently testable piece, run the affected package
+  tests/typecheck and any boundary guard or smoke test implicated by the diff.
+- At handoff or PR time, run the repository-level checks plus affected-host e2e
+  and affected WASM variant checks.
+- Reserve the full dual-host, dual-WASM release matrix for release qualification
+  or changes that genuinely span that matrix.
+
+The precise decision table, escalation triggers, and command examples live in
+[`doc/2026-09-08-test-execution-strategy.md`](doc/2026-09-08-test-execution-strategy.md);
+that document is authoritative when this summary is insufficient.
 
 <!-- code-review-graph MCP tools -->
-## MCP Tools: code-review-graph
+## Code exploration and review
 
-**IMPORTANT: This project has a knowledge graph. ALWAYS use the
-code-review-graph MCP tools BEFORE using Grep/Glob/Read to explore
-the codebase.** The graph is faster, cheaper (fewer tokens), and gives
-you structural context (callers, dependents, test coverage) that file
-scanning cannot.
+**Use the code-review-graph MCP tools before Grep, Glob, or broad file reads.**
+The graph provides structural context such as callers, dependents, flows, and
+test coverage. Fall back to text search or file reads only when the graph does
+not contain the needed evidence.
 
-### When to use graph tools FIRST
+- Explore concepts with `semantic_search_nodes_tool` or `query_graph_tool`.
+- Assess blast radius with `get_impact_radius_tool` and execution paths with
+  `get_affected_flows_tool`.
+- Review changes with `detect_changes_tool`, then request focused source context
+  with `get_review_context_tool`.
+- Trace callers, callees, imports, dependencies, and tests with
+  `query_graph_tool`; use the `tests_for` pattern for coverage questions.
+- Use `get_architecture_overview_tool` and `list_communities_tool` for
+  architecture questions.
 
-- **Exploring code**: `semantic_search_nodes_tool` or `query_graph_tool` instead of Grep
-- **Understanding impact**: `get_impact_radius_tool` instead of manually tracing imports
-- **Code review**: `detect_changes_tool` + `get_review_context_tool` instead of reading entire files
-- **Finding relationships**: `query_graph_tool` with callers_of/callees_of/imports_of/tests_for
-- **Architecture questions**: `get_architecture_overview_tool` + `list_communities_tool`
-
-Fall back to Grep/Glob/Read **only** when the graph doesn't cover what you need.
-
-### Key Tools
-
-| Tool | Use when |
-| ------ | ---------- |
-| `detect_changes_tool` | Reviewing code changes — gives risk-scored analysis |
-| `get_review_context_tool` | Need source snippets for review — token-efficient |
-| `get_impact_radius_tool` | Understanding blast radius of a change |
-| `get_affected_flows_tool` | Finding which execution paths are impacted |
-| `query_graph_tool` | Tracing callers, callees, imports, tests, dependencies |
-| `semantic_search_nodes_tool` | Finding functions/classes by name or keyword |
-| `get_architecture_overview_tool` | Understanding high-level codebase structure |
-| `refactor_tool` | Planning renames, finding dead code |
-
-### Workflow
-
-1. The graph auto-updates on file changes (via hooks).
-2. Use `detect_changes_tool` for code review.
-3. Use `get_affected_flows_tool` to understand impact.
-4. Use `query_graph_tool` pattern="tests_for" to check coverage.
+The graph auto-updates through repository hooks. For reviews, start with change
+detection, inspect affected flows, then confirm coverage for the changed nodes.
