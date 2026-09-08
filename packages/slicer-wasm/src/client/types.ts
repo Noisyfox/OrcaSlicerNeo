@@ -706,6 +706,23 @@ export interface FilamentSessionCapabilities {
 
 export type FilamentAssignmentTarget = 'object' | 'model-part' | 'parameter-modifier';
 
+export type FilamentRoutingTarget = 'project' | 'object' | 'model-part';
+
+export interface FilamentRoutingProjection {
+  readonly target: FilamentRoutingTarget;
+  readonly id: number;
+  readonly objectId: number;
+  readonly selector: 'support-base' | 'support-interface' | 'outer-wall' | 'inner-wall' |
+    'sparse-infill' | 'internal-solid-infill' | 'top-surface' | 'bottom-surface';
+  /** Zero means native Default; positive values are one-based slot IDs. */
+  readonly explicitSlot: number;
+  /** Zero for project-scoped support Default; otherwise the effective slot. */
+  readonly effectiveSlot: number;
+  /** True when the effective value is inherited from the native parent scope. */
+  readonly inherited: boolean;
+  readonly defaulted: boolean;
+}
+
 export interface FilamentAssignmentProjection {
   readonly target: FilamentAssignmentTarget;
   readonly id: number;
@@ -741,6 +758,7 @@ export interface FilamentSessionSnapshot {
   readonly mappings: FilamentNativeMapping;
   readonly flushing: FilamentFlushingState;
   readonly capabilities: FilamentSessionCapabilities;
+  readonly routing?: readonly FilamentRoutingProjection[];
   readonly assignments: FilamentAssignmentProjectionSet;
   readonly revisions: FilamentSessionRevisions;
   readonly status: FilamentSessionStatus;
@@ -756,7 +774,7 @@ export interface FilamentSessionSnapshotError {
 export type FilamentSessionSnapshotResult = FilamentSessionSnapshot | FilamentSessionSnapshotError;
 
 export interface FilamentMutationSummary {
-  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge';
+  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge' | 'assign' | 'routing';
   readonly slot?: number;
   readonly source?: number;
   readonly destination?: number | null;
@@ -767,7 +785,10 @@ export interface FilamentMutationSummary {
   readonly revisionBefore: number;
   readonly revisionAfter: number;
   readonly dirty: true;
-  readonly allPlateResultsInvalidated: true;
+  readonly allPlateResultsInvalidated: boolean;
+  readonly affectedPlateIds?: readonly string[];
+  readonly acceptedTargets?: readonly { readonly kind: FilamentAssignmentTarget | FilamentRoutingTarget; readonly id: number; readonly objectId: number }[];
+  readonly selector?: string;
 }
 
 export interface FilamentMutationResult {
@@ -797,6 +818,29 @@ export interface FilamentSlotDeleteRequest extends FilamentCommandRequest {
 export interface FilamentSlotMergeRequest extends FilamentCommandRequest {
   readonly source: number;
   readonly destination: number;
+}
+
+export interface FilamentAssignmentTargetRequest {
+  readonly kind: 'object' | 'instance' | 'instance-as-object' | 'model-part' | 'parameter-modifier';
+  readonly id: number;
+}
+
+export interface FilamentAssignmentRequest extends FilamentCommandRequest {
+  readonly slot: number;
+  readonly targets: readonly FilamentAssignmentTargetRequest[];
+}
+
+export interface FilamentRoutingTargetRequest {
+  readonly kind: FilamentRoutingTarget;
+  readonly id?: number;
+}
+
+export type FilamentRoutingSelector = FilamentRoutingProjection['selector'];
+
+export interface FilamentRoutingRequest extends FilamentCommandRequest {
+  readonly selector: FilamentRoutingSelector;
+  readonly slot: number;
+  readonly targets: readonly FilamentRoutingTargetRequest[];
 }
 
 export type FilamentMutationResultOrError = AtomicCommandResult<FilamentMutationResult>;
@@ -829,6 +873,8 @@ export interface SlicerClient {
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
   deleteFilamentSlot(request: FilamentSlotDeleteRequest): Promise<FilamentMutationResultOrError>;
   mergeFilamentSlots(request: FilamentSlotMergeRequest): Promise<FilamentMutationResultOrError>;
+  assignFilament(request: FilamentAssignmentRequest): Promise<FilamentMutationResultOrError>;
+  setFilamentRouting(request: FilamentRoutingRequest): Promise<FilamentMutationResultOrError>;
   /** Begin/commit/abort are serialized by the Worker; transaction IDs are opaque. */
   beginHistory(label: import('./history').HistoryLabel, category: import('./history').HistoryCategory,
                beforeContext: import('./history').HistoryContext,

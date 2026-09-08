@@ -24,10 +24,11 @@ import type {
   PreviewTextChunk, PreviewTextChunkRequest,
   PreviewTextLines, PreviewTextLinesRequest,
   FilamentSessionSnapshotResult, FilamentSessionSnapshot, FilamentSessionSlot,
-  FilamentAssignmentProjection,
+  FilamentAssignmentProjection, FilamentRoutingProjection,
   FilamentMutationResultOrError, FilamentMutationResult,
   FilamentSlotPresetRequest, FilamentSlotColourRequest,
   FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
+  FilamentAssignmentRequest, FilamentRoutingRequest,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -134,6 +135,35 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
   if (f.plane_count !== nozzleCount)
     return { ok: false, error: 'inconsistent filament session flushing planes' };
 
+  const routing: FilamentRoutingProjection[] = [];
+  const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
+    'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
+  if (value.routing !== undefined) {
+    if (!Array.isArray(value.routing)) return { ok: false, error: 'invalid filament session routing' };
+    for (const candidate of value.routing) {
+      if (!candidate || typeof candidate !== 'object') return { ok: false, error: 'invalid filament session routing' };
+      const item = candidate as Record<string, unknown>;
+      if ((item.target !== 'project' && item.target !== 'object' && item.target !== 'model-part') ||
+          !integer(item.id) || !integer(item.object_id) || typeof item.selector !== 'string' ||
+          !routingSelectors.has(item.selector) || !integer(item.explicit_slot) ||
+          !integer(item.effective_slot) || typeof item.inherited !== 'boolean' || typeof item.defaulted !== 'boolean' ||
+          (item.target === 'project' && (item.id !== 0 || item.object_id !== 0 ||
+            (item.selector !== 'support-base' && item.selector !== 'support-interface'))) ||
+          (item.target === 'object' && (item.id === 0 || item.object_id !== item.id)) ||
+          (item.target === 'model-part' && (item.id === 0 || item.object_id === 0 ||
+            item.selector === 'support-base' || item.selector === 'support-interface')) ||
+          (item.effective_slot === 0 && item.defaulted !== true) ||
+          (item.effective_slot !== 0 && item.defaulted !== false))
+        return { ok: false, error: 'invalid filament session routing' };
+      if ((item.effective_slot as number) > slotCount || (item.explicit_slot as number) > slotCount)
+        return { ok: false, error: 'invalid filament session routing' };
+      routing.push({ target: item.target as FilamentRoutingProjection['target'], id: item.id as number,
+        objectId: item.object_id as number, selector: item.selector as FilamentRoutingProjection['selector'],
+        explicitSlot: item.explicit_slot as number, effectiveSlot: item.effective_slot as number,
+        inherited: item.inherited as boolean, defaulted: item.defaulted as boolean });
+    }
+  }
+
   const assignments = value.assignments;
   if (!assignments || typeof assignments !== 'object') return { ok: false, error: 'invalid filament session assignments' };
   const assignmentSet = assignments as Record<string, unknown>;
@@ -189,6 +219,7 @@ function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotRe
     capabilities: { minSlots, maxSlots, nozzleCount, flexible,
       canAdd: cap.can_add as boolean,
       canDelete: cap.can_delete as boolean, canMerge: cap.can_merge as boolean },
+    ...(value.routing !== undefined ? { routing } : {}),
     assignments: { objects, parts, modifiers },
     revisions: { session: rev.session as number, project: rev.project as number,
       result: rev.result as number, plates },
@@ -224,26 +255,33 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
       !Number.isSafeInteger(mutation.revision_before) || !Number.isSafeInteger(mutation.revision_after) ||
       Number(mutation.revision_after) !== Number(mutation.revision_before) + 1 ||
       Number(mutation.revision_after) !== snapshot.revisions.session ||
-      mutation.dirty !== true || mutation.all_plate_results_invalidated !== true)
+      mutation.dirty !== true || typeof mutation.all_plate_results_invalidated !== 'boolean')
     return { ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' };
-  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge']);
+  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing']);
   if (!validMutationKinds.has(String(mutation.kind)))
     return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
   const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(mutation, key);
-  const commonKeys = new Set(['kind', 'history_entry_delta', 'revision_before', 'revision_after',
-    'dirty', 'all_plate_results_invalidated']);
+  const baseKeys = ['kind', 'history_entry_delta', 'revision_before', 'revision_after', 'dirty', 'all_plate_results_invalidated'];
   const kindKeys: Record<string, string[]> = {
-    'select-preset': ['slot', 'preset'],
-    'set-colour': ['slot', 'colour'],
-    add: ['slot'],
-    delete: ['source', 'destination', 'slot_count'],
-    merge: ['source', 'destination', 'slot_count'],
+    'select-preset': [...baseKeys, 'slot', 'preset'],
+    'set-colour': [...baseKeys, 'slot', 'colour'],
+    add: [...baseKeys, 'slot'],
+    delete: [...baseKeys, 'source', 'destination', 'slot_count'],
+    merge: [...baseKeys, 'source', 'destination', 'slot_count'],
+    assign: [...baseKeys, 'slot', 'accepted_targets', 'affected_plate_ids'],
+    routing: [...baseKeys, 'selector', 'slot', 'accepted_targets', 'affected_plate_ids'],
   };
-  const allowedKeys = new Set([...commonKeys, ...(kindKeys[String(mutation.kind)] ?? [])]);
+  const allowedKeys = new Set(kindKeys[String(mutation.kind)] ?? []);
   if (Object.keys(mutation).some((key) => !allowedKeys.has(key)))
     return { ok: false, version: 1, error: 'extraneous filament mutation field', errorCode: 'invalid_response' };
-  const requireSlot = mutation.kind === 'select-preset' || mutation.kind === 'set-colour' || mutation.kind === 'add';
-  if (requireSlot && (!Number.isSafeInteger(mutation.slot) || Number(mutation.slot) < 1))
+  if (Object.keys(mutation).length !== allowedKeys.size || [...allowedKeys].some((key) => !has(key)))
+    return { ok: false, version: 1, error: 'missing filament mutation field', errorCode: 'invalid_response' };
+  if (mutation.kind !== 'assign' && mutation.kind !== 'routing' && mutation.all_plate_results_invalidated !== true)
+    return { ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' };
+  const requireSlot = mutation.kind === 'select-preset' || mutation.kind === 'set-colour' || mutation.kind === 'add' ||
+    mutation.kind === 'assign' || mutation.kind === 'routing';
+  const minimumSlot = mutation.kind === 'assign' || mutation.kind === 'routing' ? 0 : 1;
+  if (requireSlot && (!Number.isSafeInteger(mutation.slot) || Number(mutation.slot) < minimumSlot))
     return { ok: false, version: 1, error: 'invalid filament mutation slot', errorCode: 'invalid_response' };
   if (requireSlot && Number(mutation.slot) > snapshot.slots.length)
     return { ok: false, version: 1, error: 'invalid filament mutation slot range', errorCode: 'invalid_response' };
@@ -268,6 +306,47 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
         Number(mutation.destination) < 1 || Number(mutation.destination) > snapshot.slots.length)
       return { ok: false, version: 1, error: 'invalid filament merge destination range', errorCode: 'invalid_response' };
   }
+  if (mutation.kind === 'assign' || mutation.kind === 'routing') {
+    if (!Array.isArray(mutation.affected_plate_ids) ||
+        !mutation.affected_plate_ids.every((id) => typeof id === 'string'))
+      return { ok: false, version: 1, error: 'invalid filament affected plate ids', errorCode: 'invalid_response' };
+    if (!Array.isArray(mutation.accepted_targets) || mutation.accepted_targets.length === 0)
+      return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+    const selector = mutation.kind === 'routing' ? mutation.selector : undefined;
+    const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
+      'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
+    if (mutation.kind === 'routing' && (typeof selector !== 'string' || !routingSelectors.has(selector)))
+      return { ok: false, version: 1, error: 'invalid filament routing selector', errorCode: 'invalid_response' };
+    let projectAccepted = false;
+    for (const candidate of mutation.accepted_targets) {
+      if (!candidate || typeof candidate !== 'object')
+        return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+      const target = candidate as Record<string, unknown>;
+      if (Object.keys(target).sort().join(',') !== ['kind', 'id', 'object_id'].sort().join(',') ||
+          typeof target.kind !== 'string' || !Number.isSafeInteger(target.id) ||
+          !Number.isSafeInteger(target.object_id))
+        return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+      const kind = target.kind;
+      const id = target.id as number;
+      const objectId = target.object_id as number;
+      if (mutation.kind === 'assign') {
+        if (!new Set(['object', 'model-part', 'parameter-modifier']).has(kind) || id < 1 || objectId < 1 ||
+            (kind === 'object' && id !== objectId))
+          return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+      } else {
+        const feature = selector !== 'support-base' && selector !== 'support-interface';
+        if ((kind === 'project' && (id !== 0 || objectId !== 0 || feature)) ||
+            (kind === 'object' && (id < 1 || objectId !== id)) ||
+            (kind === 'model-part' && (id < 1 || objectId < 1 || !feature)) ||
+            !new Set(['project', 'object', 'model-part']).has(kind))
+          return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+        projectAccepted = projectAccepted || kind === 'project';
+      }
+    }
+    if ((mutation.kind === 'assign' && mutation.all_plate_results_invalidated !== false) ||
+        (mutation.kind === 'routing' && mutation.all_plate_results_invalidated !== projectAccepted))
+      return { ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' };
+  }
   const summary = {
     kind: mutation.kind as FilamentMutationResult['mutation']['kind'],
     ...(Number.isSafeInteger(mutation.slot) ? { slot: mutation.slot as number } : {}),
@@ -281,7 +360,14 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     revisionBefore: mutation.revision_before as number,
     revisionAfter: mutation.revision_after as number,
     dirty: true as const,
-    allPlateResultsInvalidated: true as const,
+    allPlateResultsInvalidated: mutation.all_plate_results_invalidated as boolean,
+    ...(Array.isArray(mutation.affected_plate_ids) && mutation.affected_plate_ids.every((id) => typeof id === 'string')
+      ? { affectedPlateIds: mutation.affected_plate_ids as string[] } : {}),
+    ...(Array.isArray(mutation.accepted_targets) ? { acceptedTargets: mutation.accepted_targets.map((target) => {
+      const item = target as Record<string, unknown>;
+      return { kind: item.kind as string, id: item.id as number, objectId: item.object_id as number };
+    }) as FilamentMutationResult['mutation']['acceptedTargets'] } : {}),
+    ...(typeof mutation.selector === 'string' ? { selector: mutation.selector } : {}),
   };
   return { ok: true, version: 1, result: { snapshot, mutation: summary } };
 }
@@ -705,6 +791,16 @@ export function createClient(
     async mergeFilamentSlots(request: FilamentSlotMergeRequest): Promise<FilamentMutationResultOrError> {
       const m = await module();
       return normalizeFilamentMutationResult(callJson(m, 'orc_merge_filament_slots', ['string'], [JSON.stringify(request)]));
+    },
+
+    async assignFilament(request: FilamentAssignmentRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_assign_filament', ['string'], [JSON.stringify(request)]));
+    },
+
+    async setFilamentRouting(request: FilamentRoutingRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_set_filament_routing', ['string'], [JSON.stringify(request)]));
     },
 
     beginHistory,

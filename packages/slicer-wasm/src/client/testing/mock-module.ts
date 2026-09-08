@@ -517,6 +517,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
       capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true,
         can_add: true, can_delete: false, can_merge: false },
+      routing: [],
       assignments: { objects, parts, modifiers: [] },
       revisions: { session: historyRevision, project: historyRevision, result: 0, plates: { ...plateInputRevisions } },
       status: { state: 'ready', error: null },
@@ -619,6 +620,64 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       mutation.slot_count = next.slots.length;
     }
     return { ok: true, version: 1, result: { snapshot: clone(next), mutation } };
+  }
+  function filamentAssignmentMutation(requestJson: string, kind: 'assign' | 'routing'): unknown {
+    if (opts.filamentMutation !== undefined) return clone(opts.filamentMutation);
+    let request: any;
+    try { request = JSON.parse(requestJson); } catch { return { ok: false, version: 1, error: 'invalid command', error_code: 'invalid_command', status: { state: 'error', error: 'invalid command' } }; }
+    const snapshot: any = filamentSessionSnapshot();
+    const errorEnvelope = (error: string, code: string) => ({ ok: false, version: 1, error, error_code: code, status: { state: 'error', error } });
+    if (!request || request.version !== 1) return errorEnvelope('unsupported filament command version', 'invalid_command');
+    if (!Number.isSafeInteger(request.revision) || request.revision !== snapshot.revisions.session) return errorEnvelope('filament session revision is stale', 'stale_revision');
+    if (request.inject_failure) return errorEnvelope('injected native validation failure', 'native_validation_failure');
+    const next: any = clone(snapshot);
+    const targets = Array.isArray(request.targets) ? request.targets : (request.target ? [request.target] : []);
+    if (targets.length === 0) return errorEnvelope('assignment targets are required', 'invalid_command');
+    const accepted: any[] = [];
+    if (kind === 'assign') {
+      if (!Number.isSafeInteger(request.slot) || request.slot < 0 || request.slot > next.slots.length) return errorEnvelope('assignment slot is outside the ordered filament slots', 'unsupported_reference');
+      const normalized: Array<{ group: 'objects' | 'parts' | 'modifiers'; id: number; objectId: number; source: any }> = [];
+      const seen = new Set<string>();
+      for (const target of targets) {
+        if (!target || !['object', 'instance', 'instance-as-object', 'model-part', 'parameter-modifier'].includes(target.kind) || !Number.isSafeInteger(target.id)) return errorEnvelope('target is not eligible', 'ineligible_target');
+        const group = target.kind === 'object' || target.kind === 'instance' || target.kind === 'instance-as-object' ? 'objects' : target.kind === 'model-part' ? 'parts' : 'modifiers';
+        if (group === 'objects' && request.slot === 0) return errorEnvelope('object assignment cannot inherit', 'invalid_command');
+        const source = next.assignments[group].find((entry: any) => entry.id === target.id || (group === 'objects' && entry.object_id === target.id));
+        if (!source) return errorEnvelope('target is not eligible', 'ineligible_target');
+        const objectId = source.object_id;
+        const id = group === 'objects' ? objectId : source.id;
+        if (seen.has(`${group}:${id}`)) continue;
+        seen.add(`${group}:${id}`); normalized.push({ group, id, objectId, source });
+      }
+      const objectIds = new Set(normalized.filter((target) => target.group === 'objects').map((target) => target.objectId));
+      const effective = normalized
+        .filter((target) => target.group !== 'parts' || !objectIds.has(target.objectId))
+        .sort((left, right) => ({ objects: 0, parts: 1, modifiers: 2 }[left.group] - { objects: 0, parts: 1, modifiers: 2 }[right.group]));
+      for (const target of effective) {
+        accepted.push({ kind: target.group === 'objects' ? 'object' : target.group === 'parts' ? 'model-part' : 'parameter-modifier', id: target.id, object_id: target.objectId });
+        target.source.explicit_slot = request.slot;
+        target.source.effective_slot = request.slot || (next.assignments.objects.find((entry: any) => entry.object_id === target.objectId)?.effective_slot ?? target.source.effective_slot);
+        target.source.inherited = request.slot === 0;
+        if (target.group === 'objects') for (const part of next.assignments.parts) if (part.object_id === target.objectId) { part.explicit_slot = 0; part.effective_slot = request.slot; part.inherited = true; }
+      }
+    } else {
+      if (!Number.isSafeInteger(request.slot) || request.slot < 0 || request.slot > next.slots.length || typeof request.selector !== 'string') return errorEnvelope('invalid routing command', 'invalid_command');
+      const feature = request.selector !== 'support-base' && request.selector !== 'support-interface';
+      for (const target of targets) {
+        if (!target || !['project', 'object', 'model-part'].includes(target.kind)) return errorEnvelope('target is not eligible', 'ineligible_target');
+        if ((feature && target.kind === 'project') || (!feature && target.kind === 'model-part')) return errorEnvelope('target is not eligible', 'ineligible_target');
+        const id = target.kind === 'project' ? 0 : target.id;
+        if (target.kind !== 'project' && (!Number.isSafeInteger(id) || id < 1)) return errorEnvelope('target is not eligible', 'ineligible_target');
+        accepted.push({ kind: target.kind, id, object_id: target.kind === 'project' ? 0 : id });
+      }
+    }
+    next.revisions.session += 1; next.revisions.project = next.revisions.session;
+    filamentSessionState = next;
+    return { ok: true, version: 1, result: { snapshot: clone(next), mutation: {
+      kind, history_entry_delta: 1, revision_before: request.revision, revision_after: next.revisions.session,
+      dirty: true, all_plate_results_invalidated: kind === 'routing' && accepted.some((target: any) => target.kind === 'project'), accepted_targets: accepted,
+      ...(kind === 'routing' ? { selector: request.selector, slot: request.slot } : { slot: request.slot }), affected_plate_ids: [],
+    } } };
   }
   function plateMutation(
     reason: string,
@@ -1066,6 +1125,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_merge_filament_slots(requestJson: string) {
       return filamentMutation(requestJson, 'merge');
+    },
+    orc_assign_filament(requestJson: string) {
+      return filamentAssignmentMutation(requestJson, 'assign');
+    },
+    orc_set_filament_routing(requestJson: string) {
+      return filamentAssignmentMutation(requestJson, 'routing');
     },
     orc_reset_plate_session() {
       resetPlateSession();
@@ -1860,6 +1925,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_add_filament_slot: { ret: 'number', args: ['string'] },
     orc_delete_filament_slot: { ret: 'number', args: ['string'] },
     orc_merge_filament_slots: { ret: 'number', args: ['string'] },
+    orc_assign_filament: { ret: 'number', args: ['string'] },
+    orc_set_filament_routing: { ret: 'number', args: ['string'] },
     orc_reset_plate_session: { ret: 'number', args: [] },
     orc_select_plate: { ret: 'number', args: ['string'] },
     orc_add_plate: { ret: 'number', args: [] },

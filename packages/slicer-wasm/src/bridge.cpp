@@ -1923,8 +1923,61 @@ json filament_session_snapshot_json()
 
     json revisions = {{"session", state().history_revision}, {"project", state().history_revision},
                       {"result", state().preview_result_id}, {"plates", plate_revisions_json()}};
+    json routing = json::array();
+    const std::array<std::pair<const char *, const char *>, 8> routing_keys = {{
+        {"support-base", "support_filament"}, {"support-interface", "support_interface_filament"},
+        {"outer-wall", "outer_wall_filament_id"}, {"inner-wall", "inner_wall_filament_id"},
+        {"sparse-infill", "sparse_infill_filament_id"}, {"internal-solid-infill", "internal_solid_filament_id"},
+        {"top-surface", "top_surface_filament_id"}, {"bottom-surface", "bottom_surface_filament_id"},
+    }};
+    auto option_value = [](const auto& config, const char* key) {
+        if (const auto* option = dynamic_cast<const ConfigOptionInt*>(config.option(key))) return option->value;
+        return 0;
+    };
+    auto routing_values = [&](const auto& config) {
+        std::vector<int> values;
+        values.reserve(routing_keys.size());
+        for (const auto& [selector, key] : routing_keys) values.push_back(option_value(config, key));
+        return values;
+    };
+    auto append_routing = [&](const char* target, std::size_t id, std::size_t object_id,
+                              const auto& config, const std::vector<int>& parent_values,
+                              int assignment_slot, const bool support_only, const bool feature_only) {
+        const auto own_values = routing_values(config);
+        for (std::size_t index = 0; index < routing_keys.size(); ++index) {
+            const auto& [selector, key] = routing_keys[index];
+            const bool feature = std::string(selector) != "support-base" && std::string(selector) != "support-interface";
+            if ((support_only && feature) || (feature_only && !feature)) continue;
+            const int own = own_values[index];
+            const int parent = parent_values.empty() ? 0 : parent_values[index];
+            const int effective = own > 0 ? own : (parent > 0 ? parent : (feature ? assignment_slot : 0));
+            const bool inherited = own == 0 && !parent_values.empty();
+            // `defaulted` describes an effective native zero, not the fact that
+            // an object inherits.  An object inheriting an explicit project
+            // support route is therefore inherited=true, defaulted=false.
+            const bool defaulted = effective == 0;
+            routing.push_back({{"target", target}, {"id", id}, {"object_id", object_id},
+                               {"selector", selector}, {"explicit_slot", own},
+                               {"effective_slot", effective}, {"inherited", inherited},
+                               {"defaulted", defaulted}});
+        }
+    };
+    append_routing("project", 0, 0, bundle.project_config, {}, 0, true, false);
+    for (const ModelObject* object : state().model.objects) {
+        if (object == nullptr) continue;
+        const int object_slot = std::max(1, explicit_extruder(object->config));
+        append_routing("object", object->id().id, object->id().id, object->config,
+                       routing_values(bundle.project_config), object_slot, false, false);
+        for (const ModelVolume* volume : object->volumes) {
+            if (volume == nullptr || volume->type() != ModelVolumeType::MODEL_PART) continue;
+            const int explicit_slot = explicit_extruder(volume->config);
+            const int assignment_slot = std::max(1, explicit_slot == 0 ? object_slot : explicit_slot);
+            append_routing("model-part", volume->id().id, object->id().id, volume->config,
+                           routing_values(object->config), assignment_slot, false, true);
+        }
+    }
     return {{"ok", true}, {"version", 1}, {"slots", slots}, {"mappings", mappings},
-            {"flushing", flushing}, {"capabilities", capabilities},
+            {"flushing", flushing}, {"capabilities", capabilities}, {"routing", routing},
             {"assignments", {{"objects", assignment_json(objects)}, {"parts", assignment_json(parts)},
                              {"modifiers", assignment_json(modifiers)}}},
             {"revisions", revisions}, {"status", {{"state", "ready"}, {"error", nullptr}}}};
@@ -2635,6 +2688,336 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         state().next_filament_colour_index = before_next_filament_colour_index;
         return filament_command_error("native_validation_failure", "unknown native validation failure");
     }
+}
+
+struct FilamentAssignmentTarget {
+    std::string kind;
+    std::size_t id = 0;
+};
+
+static std::vector<FilamentAssignmentTarget> parse_assignment_targets(const json& request)
+{
+    const json* values = request.contains("targets") ? &request["targets"] : &request["target"];
+    if (values == nullptr || (!values->is_array() && !values->is_object()))
+        throw FilamentCommandFailure("invalid_command", "assignment targets are required");
+    json array = values->is_array() ? *values : json::array({*values});
+    std::vector<FilamentAssignmentTarget> result;
+    std::set<std::pair<std::string, std::size_t>> seen;
+    for (const auto& value : array) {
+        if (!value.is_object() || !value.contains("kind") || !value["kind"].is_string() ||
+            !value.contains("id") || !value["id"].is_number_unsigned() ||
+            value["id"].get<std::uint64_t>() == 0 ||
+            value["id"].get<std::uint64_t>() > std::numeric_limits<std::size_t>::max())
+            throw FilamentCommandFailure("invalid_command", "invalid assignment target");
+        const std::string kind = value["kind"].get<std::string>();
+        const std::size_t id = value["id"].get<std::size_t>();
+        if (!seen.emplace(kind, id).second) continue;
+        result.push_back({kind, id});
+    }
+    if (result.empty()) throw FilamentCommandFailure("invalid_command", "assignment targets are empty");
+    return result;
+}
+
+static ModelObject* find_object_by_id_in(Model& model, const std::size_t id)
+{
+    for (auto& object : model.objects) if (object->id().id == id) return object;
+    return nullptr;
+}
+
+static ModelVolume* find_volume_by_id_in(Model& model, const std::size_t id)
+{
+    for (auto& object : model.objects)
+        for (auto& volume : object->volumes)
+            if (volume->id().id == id) return volume;
+    return nullptr;
+}
+
+static ModelObject* owner_of_volume_in(Model& model, const std::size_t id)
+{
+    for (auto& object : model.objects)
+        for (auto& volume : object->volumes)
+            if (volume->id().id == id) return object;
+    return nullptr;
+}
+
+static ModelObject* owner_of_instance_in(Model& model, const std::size_t id)
+{
+    for (auto& object : model.objects)
+        for (auto& instance : object->instances)
+            if (instance->id().id == id) return object;
+    return nullptr;
+}
+
+static void collect_object_instance_ids(const Model& model, const std::set<std::size_t>& object_ids,
+                                        std::set<std::size_t>& instance_ids)
+{
+    for (const auto* object : model.objects) {
+        if (object_ids.find(object->id().id) == object_ids.end()) continue;
+        for (const auto* instance : object->instances) instance_ids.insert(instance->id().id);
+    }
+}
+
+template <typename Mutator>
+json run_filament_assignment_mutation(const json& request, const char* label, Mutator mutator)
+{
+    try {
+        if (!request.is_object() || request.value("version", 0) != 1)
+            return filament_command_error("invalid_command", "unsupported filament assignment command version");
+        const auto before_snapshot = filament_session_snapshot_json();
+        if (!before_snapshot.value("ok", false)) return before_snapshot;
+        if (!request.contains("revision") || !request["revision"].is_number_unsigned() ||
+            request["revision"].get<std::uint64_t>() != before_snapshot["revisions"]["session"].get<std::uint64_t>())
+            return filament_command_error("stale_revision", "filament session revision is stale");
+        const auto before_context = default_history_context();
+        const auto before_history_model = history_model_state();
+        PresetBundle staged_bundle = state().presets;
+        Model staged_model = state().model;
+        auto staged_plates = state().plate_session_plates;
+        auto staged_overlay = state().project_config_overlay;
+        std::set<std::size_t> affected_objects;
+        json mutation = mutator(staged_bundle, staged_model, staged_plates, staged_overlay, affected_objects);
+        if (request.value("inject_failure", false) || request.value("inject_failure_stage", "") == "before-history")
+            return filament_command_error("native_validation_failure", "injected native validation failure");
+        validate_filament_candidate(staged_bundle, staged_model, staged_plates, staged_overlay);
+
+        std::set<std::size_t> affected_instances;
+        collect_object_instance_ids(state().model, affected_objects, affected_instances);
+        const bool invalidate_all = mutation.value("invalidate_all_plates", false);
+        const auto affected_plates = invalidate_all ? all_plate_ids() : member_plate_ids_for_instances(affected_instances);
+        PresetBundle before_bundle = state().presets;
+        Model before_model = state().model;
+        const auto before_plates = state().plate_session_plates;
+        const auto before_overlay = state().project_config_overlay;
+        const auto before_plate_revisions = state().plate_input_revisions;
+        const auto before_membership = state().instance_plate_ids;
+        const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
+        const auto before_parked = state().parked_instance_ids;
+        const auto before_pending = state().pending_membership_instance_ids;
+        const auto before_current_plate = state().current_plate_id;
+        bool published = false;
+        bool history_committed = false;
+        const auto rollback = [&]() {
+            if (!published) return;
+            state().presets = std::move(before_bundle);
+            state().model = std::move(before_model);
+            state().plate_session_plates = before_plates;
+            state().project_config_overlay = before_overlay;
+            state().plate_input_revisions = before_plate_revisions;
+            state().instance_plate_ids = before_membership;
+            state().plate_out_of_bounds_ids = before_out_of_bounds;
+            state().parked_instance_ids = before_parked;
+            state().pending_membership_instance_ids = before_pending;
+            state().current_plate_id = before_current_plate;
+        };
+        try {
+            published = true;
+            state().presets = std::move(staged_bundle);
+            state().model = std::move(staged_model);
+            state().plate_session_plates = std::move(staged_plates);
+            state().project_config_overlay = std::move(staged_overlay);
+            ensure_plate_session_state();
+            for (const auto& plate_id : affected_plates) ++state().plate_input_revisions[plate_id];
+            auto context = default_history_context();
+            context["filamentSessionRevision"] = state().history_revision + 1;
+            const auto encoded = context.dump();
+            const Neo::History::Bytes bytes(encoded.begin(), encoded.end());
+            if (request.value("inject_failure_stage", "") == "during-history")
+                throw std::runtime_error("injected history commit failure");
+            const bool committed = [&]() {
+                if (!state().history.entries().empty())
+                    return state().history.commit(label, Neo::History::Category::Project, history_model_state(), bytes);
+                const auto baseline_encoded = before_context.dump();
+                const Neo::History::Bytes baseline_bytes(baseline_encoded.begin(), baseline_encoded.end());
+                return state().history.commit_with_baseline(label, Neo::History::Category::Project,
+                    before_history_model, baseline_bytes, history_model_state(), bytes);
+            }();
+            if (!committed) throw std::runtime_error("history commit rejected filament assignment");
+            history_committed = true;
+        } catch (...) {
+            if (!history_committed) rollback();
+            throw;
+        }
+        state().history_revision++;
+        if (affected_plates.find(state().current_plate_id) != affected_plates.end()) {
+            state().print.clear();
+            invalidate_preview_source();
+        }
+        mutation["history_entry_delta"] = 1;
+        mutation["revision_before"] = request["revision"];
+        mutation["revision_after"] = state().history_revision;
+        mutation["dirty"] = state().history.project_modified();
+        mutation["affected_plate_ids"] = affected_plates;
+        mutation["all_plate_results_invalidated"] = invalidate_all;
+        mutation.erase("invalidate_all_plates");
+        return filament_mutation_result(mutation);
+    } catch (const FilamentCommandFailure& e) {
+        return filament_command_error(e.code, e.what());
+    } catch (const std::exception& e) {
+        return filament_command_error("native_validation_failure", e.what());
+    } catch (...) {
+        return filament_command_error("native_validation_failure", "unknown filament assignment failure");
+    }
+}
+
+static int requested_assignment_slot(const json& request, const std::size_t slot_count, const bool allow_inherit)
+{
+    if (!request.contains("slot") || !request["slot"].is_number_integer())
+        throw FilamentCommandFailure("invalid_command", "slot is required");
+    const int slot = request["slot"].get<int>();
+    if (slot == 0 && allow_inherit) return 0;
+    if (slot < 1 || slot > static_cast<int>(slot_count))
+        throw FilamentCommandFailure("unsupported_reference", "assignment slot is outside the ordered filament slots");
+    return slot;
+}
+
+json filament_assign_command(const json& request)
+{
+    return run_filament_assignment_mutation(request, "Assign Filament", [&request](PresetBundle& bundle, Model& model,
+        auto&, auto&, std::set<std::size_t>& affected_objects) {
+        const auto targets = parse_assignment_targets(request);
+        const int slot = requested_assignment_slot(request, bundle.filament_presets.size(), true);
+        std::vector<FilamentAssignmentTarget> normalized;
+        std::set<std::pair<std::string, std::size_t>> seen;
+        for (const auto& target : targets) {
+            ModelObject* object = nullptr;
+            if (target.kind == "object") object = find_object_by_id_in(model, target.id);
+            else if (target.kind == "instance" || target.kind == "instance-as-object") object = owner_of_instance_in(model, target.id);
+            else if (target.kind == "model-part" || target.kind == "model_part" ||
+                     target.kind == "parameter-modifier" || target.kind == "parameter_modifier") {
+                const bool model_part_target = target.kind == "model-part" || target.kind == "model_part";
+                auto* volume = find_volume_by_id_in(model, target.id);
+                if (volume == nullptr || (model_part_target && volume->type() != ModelVolumeType::MODEL_PART) ||
+                    (!model_part_target && volume->type() != ModelVolumeType::PARAMETER_MODIFIER))
+                    throw FilamentCommandFailure("ineligible_target", "target volume is not eligible for filament assignment");
+                object = owner_of_volume_in(model, target.id);
+            } else {
+                throw FilamentCommandFailure("ineligible_target", "target kind is not eligible for filament assignment");
+            }
+            if (object == nullptr) throw FilamentCommandFailure("ineligible_target", "assignment target was not found");
+            if ((target.kind == "object" || target.kind == "instance" || target.kind == "instance-as-object") && slot == 0)
+                throw FilamentCommandFailure("invalid_command", "object assignment cannot inherit");
+            const std::string normalized_kind = (target.kind == "instance" || target.kind == "instance-as-object") ? "object" :
+                (target.kind == "model_part" ? "model-part" : target.kind == "parameter_modifier" ? "parameter-modifier" : target.kind);
+            const std::size_t normalized_id = normalized_kind == "object" ? object->id().id : target.id;
+            if (seen.emplace(normalized_kind, normalized_id).second) {
+                normalized.push_back({normalized_kind, normalized_id});
+                affected_objects.insert(object->id().id);
+            }
+        }
+        // Normalize ownership before mutating.  An owning object (including an
+        // instance normalized to that object) dominates all descendant model
+        // parts regardless of request order; parameter modifiers remain
+        // independent and are preserved unless explicitly targeted.
+        std::set<std::size_t> owning_objects;
+        for (const auto& target : normalized)
+            if (target.kind == "object") owning_objects.insert(target.id);
+        std::vector<FilamentAssignmentTarget> effective_targets;
+        for (const auto& target : normalized) {
+            if (target.kind == "model-part") {
+                const auto* owner = owner_of_volume_in(model, target.id);
+                if (owner != nullptr && owning_objects.find(owner->id().id) != owning_objects.end()) continue;
+            }
+            effective_targets.push_back(target);
+        }
+        std::stable_sort(effective_targets.begin(), effective_targets.end(), [](const auto& left, const auto& right) {
+            const auto rank = [](const std::string& kind) { return kind == "object" ? 0 : kind == "model-part" ? 1 : 2; };
+            return rank(left.kind) < rank(right.kind);
+        });
+        json accepted = json::array();
+        for (const auto& target : effective_targets) {
+            const auto* owner = target.kind == "object" ? find_object_by_id_in(model, target.id) : owner_of_volume_in(model, target.id);
+            accepted.push_back({{"kind", target.kind}, {"id", target.id}, {"object_id", owner->id().id}});
+            if (target.kind == "object") {
+                auto* object = find_object_by_id_in(model, target.id);
+                object->config.set_key_value("extruder", new ConfigOptionInt(slot));
+                for (auto* volume : object->volumes)
+                    if (volume->type() == ModelVolumeType::MODEL_PART) volume->config.erase("extruder");
+            } else {
+                auto* volume = find_volume_by_id_in(model, target.id);
+                if (slot == 0) volume->config.erase("extruder");
+                else volume->config.set_key_value("extruder", new ConfigOptionInt(slot));
+            }
+        }
+        return json{{"kind", "assign"}, {"accepted_targets", accepted}, {"slot", slot}};
+    });
+}
+
+static const char* routing_key_for_selector(const std::string& selector)
+{
+    static const std::map<std::string, const char*> keys = {
+        {"support-base", "support_filament"}, {"support-interface", "support_interface_filament"},
+        {"outer-wall", "outer_wall_filament_id"}, {"inner-wall", "inner_wall_filament_id"},
+        {"sparse-infill", "sparse_infill_filament_id"}, {"internal-solid-infill", "internal_solid_filament_id"},
+        {"top-surface", "top_surface_filament_id"}, {"bottom-surface", "bottom_surface_filament_id"},
+    };
+    const auto it = keys.find(selector);
+    return it == keys.end() ? nullptr : it->second;
+}
+
+json filament_routing_command(const json& request)
+{
+    return run_filament_assignment_mutation(request, "Set Filament Routing", [&request](PresetBundle& bundle, Model& model,
+        auto&, auto&, std::set<std::size_t>& affected_objects) {
+        if (!request.contains("selector") || !request["selector"].is_string())
+            throw FilamentCommandFailure("invalid_command", "routing selector is required");
+        const std::string selector = request["selector"].get<std::string>();
+        const char* key = routing_key_for_selector(selector);
+        if (key == nullptr) throw FilamentCommandFailure("invalid_command", "unsupported filament routing selector");
+        const bool feature_selector = selector != "support-base" && selector != "support-interface";
+        const int slot = request.contains("slot") && request["slot"].is_number_integer() ? request["slot"].get<int>() : -1;
+        if (slot < 0 || slot > static_cast<int>(bundle.filament_presets.size()))
+            throw FilamentCommandFailure("unsupported_reference", "routing slot is outside the ordered filament slots");
+        const auto targets = request.contains("targets") ? request["targets"] : request.value("target", json::object());
+        const json array = targets.is_array() ? targets : json::array({targets});
+        if (array.empty()) throw FilamentCommandFailure("invalid_command", "routing targets are required");
+        json accepted = json::array();
+        std::set<std::pair<std::string, std::size_t>> seen;
+        bool invalidate_all = false;
+        for (const auto& target : array) {
+            if (!target.is_object() || !target.contains("kind") || !target["kind"].is_string())
+                throw FilamentCommandFailure("invalid_command", "invalid routing target");
+            const std::string kind = target["kind"].get<std::string>();
+            const bool project_kind = kind == "project";
+            if (project_kind) {
+                if (target.contains("id") &&
+                    (!target["id"].is_number_unsigned() || target["id"].get<std::uint64_t>() != 0))
+                    throw FilamentCommandFailure("invalid_command", "project routing target id must be zero");
+            } else if (!target.contains("id") || !target["id"].is_number_unsigned() ||
+                       target["id"].get<std::uint64_t>() == 0 ||
+                       target["id"].get<std::uint64_t>() > std::numeric_limits<std::size_t>::max()) {
+                throw FilamentCommandFailure("invalid_command", "routing target id is invalid");
+            }
+            const std::size_t id = project_kind ? 0 : target["id"].get<std::size_t>();
+            bool project_target = false;
+            ModelVolume* volume = nullptr;
+            ModelObject* owner = nullptr;
+            const std::string normalized_kind = kind == "model_part" ? "model-part" : kind;
+            if (normalized_kind == "project") {
+                if (feature_selector) throw FilamentCommandFailure("ineligible_target", "feature routing does not support project scope");
+                project_target = true;
+            } else if (normalized_kind == "object") {
+                owner = find_object_by_id_in(model, id);
+            } else if (normalized_kind == "model-part") {
+                if (!feature_selector) throw FilamentCommandFailure("ineligible_target", "support routing does not support model-part scope");
+                volume = find_volume_by_id_in(model, id); owner = owner_of_volume_in(model, id);
+            } else {
+                throw FilamentCommandFailure("ineligible_target", "routing target is not eligible");
+            }
+            if (!project_target && normalized_kind == "object" && owner == nullptr) throw FilamentCommandFailure("ineligible_target", "routing target was not found");
+            if (!project_target && normalized_kind == "model-part" && (owner == nullptr || volume == nullptr || volume->type() != ModelVolumeType::MODEL_PART))
+                throw FilamentCommandFailure("ineligible_target", "routing target was not found");
+            if (normalized_kind == "object" || normalized_kind == "model-part") affected_objects.insert(owner ? owner->id().id : id);
+            if (seen.emplace(normalized_kind, id).second) {
+                if (project_target) bundle.project_config.set_key_value(key, new ConfigOptionInt(slot));
+                else if (normalized_kind == "object") owner->config.set_key_value(key, new ConfigOptionInt(slot));
+                else volume->config.set_key_value(key, new ConfigOptionInt(slot));
+                accepted.push_back({{"kind", normalized_kind}, {"id", id}, {"object_id", owner ? owner->id().id : 0}});
+                invalidate_all = invalidate_all || project_target;
+            }
+        }
+        return json{{"kind", "routing"}, {"selector", selector}, {"slot", slot},
+                    {"accepted_targets", accepted}, {"invalidate_all_plates", invalidate_all}};
+    });
 }
 
 json filament_select_slot_preset_command(const json& request)
@@ -4026,6 +4409,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_filament_slots(const char* request_js
         request_json && *request_json ? json::parse(request_json) : json::object(), true).dump()); }
     catch (const std::exception& e) { return dup_json(filament_command_error("invalid_command", e.what()).dump()); }
     catch (...) { return dup_json(filament_command_error("invalid_command", "invalid filament command").dump()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_assign_filament(const char* request_json) {
+    try { return dup_json(filament_assign_command(
+        request_json && *request_json ? json::parse(request_json) : json::object()).dump()); }
+    catch (const std::exception& e) { return dup_json(filament_command_error("invalid_command", e.what()).dump()); }
+    catch (...) { return dup_json(filament_command_error("invalid_command", "invalid filament assignment command").dump()); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_set_filament_routing(const char* request_json) {
+    try { return dup_json(filament_routing_command(
+        request_json && *request_json ? json::parse(request_json) : json::object()).dump()); }
+    catch (const std::exception& e) { return dup_json(filament_command_error("invalid_command", e.what()).dump()); }
+    catch (...) { return dup_json(filament_command_error("invalid_command", "invalid filament routing command").dump()); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_reset_plate_session() {

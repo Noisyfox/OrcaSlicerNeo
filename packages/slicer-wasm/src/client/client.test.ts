@@ -129,6 +129,40 @@ describe('SlicerClient bridge contract', () => {
         slot: 1, preset: 'p', ...mutation,
       } },
     });
+    const assignmentResponse = (fields: Record<string, unknown>, snapshot = validSnapshot) => ({
+      ok: true, version: 1, result: { snapshot: toWire(snapshot), mutation: {
+        kind: 'assign', history_entry_delta: 1, revision_before: 0, revision_after: 1,
+        dirty: true, all_plate_results_invalidated: false, slot: 0,
+        accepted_targets: [{ kind: 'object', id: 7, object_id: 7 }], affected_plate_ids: [], ...fields,
+      } },
+    });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: assignmentResponse({ preset: 'unexpected' }),
+    })).assignFilament({ version: 1, revision: 0, slot: 0, targets: [{ kind: 'object', id: 7 }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'extraneous filament mutation field', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: assignmentResponse({ accepted_targets: [] }),
+    })).assignFilament({ version: 1, revision: 0, slot: 0, targets: [{ kind: 'object', id: 7 }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: assignmentResponse({ all_plate_results_invalidated: true }),
+    })).assignFilament({ version: 1, revision: 0, slot: 0, targets: [{ kind: 'object', id: 7 }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' });
+    const routingResponse = (fields: Record<string, unknown>) => ({
+      ok: true, version: 1, result: { snapshot: toWire(validSnapshot), mutation: {
+        kind: 'routing', history_entry_delta: 1, revision_before: 0, revision_after: 1,
+        dirty: true, all_plate_results_invalidated: true, selector: 'support-base', slot: 1,
+        accepted_targets: [{ kind: 'project', id: 0, object_id: 0 }], affected_plate_ids: ['plate-1'], ...fields,
+      } },
+    });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: routingResponse({ all_plate_results_invalidated: false }),
+    })).setFilamentRouting({ version: 1, revision: 0, selector: 'support-base', slot: 1, targets: [{ kind: 'project' }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: routingResponse({ accepted_targets: [{ kind: 'project', id: 2, object_id: 0 }] }),
+    })).setFilamentRouting({ version: 1, revision: 0, selector: 'support-base', slot: 1, targets: [{ kind: 'project' }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' });
     await expect(createClient(async () => createMockModule({
       filamentMutation: response({ slot_count: 1 }),
     })).selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))

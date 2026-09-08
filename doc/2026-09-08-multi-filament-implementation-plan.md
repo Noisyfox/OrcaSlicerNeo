@@ -227,6 +227,45 @@ Pass requires all command-result and rollback assertions plus serial quick/smoke
 
 Pass requires inherited-vs-explicit assertions, instance deduplication, ineligible rejection, all six routing selectors, and rollback green.
 
+**Step 3 self-verification record (2026-09-09, remediation green):** The
+Worker/client assignment and routing contract now normalizes instance targets
+to owning objects before mutation, makes an owning object dominate descendant
+model-part targets in either request order while preserving parameter modifiers,
+rejects malformed IDs with stable command/ineligible errors, and reports the
+accepted target set. The projection exposes only project/object support routes,
+object/model-part feature routes, no parameter-modifier rows, and distinguishes
+inherited object support from effective native-zero Default. Project support
+routing invalidates and revises every plate; object/part routing reports only
+member plates. The focused real serial harness
+`multi-filament-assignment-routing-smoke.mjs` passed both target orders,
+inherited-vs-explicit/default semantics, all six feature selectors, every
+allowed/disallowed routing scope, three-plate invalidation and revisions,
+ineligible rejection, modifier preservation, and injected-failure rollback of
+the session, plate revisions, and history status.
+`pnpm --filter slicer-wasm test` passed (125/125),
+`pnpm --filter slicer-wasm typecheck` passed,
+`scripts\build-windows.bat quick --variant serial` passed, and
+`scripts\build-windows.bat smoke --variant serial` passed with exit code 0;
+`git diff --check` passed. Client tests cover strict per-kind fields, accepted
+target normalization, slot ranges, routing scope, and invalidation metadata.
+No UI, runtime, painting-editor, or pinned C++ submodule files were changed.
+
+**Root acceptance record (2026-09-09):** Accepted after independent review of
+the normalized target ownership, routing-scope matrix, effective/default and
+inherited projection, native transaction rollback, and per-plate versus
+project-wide invalidation paths. Root reran `pnpm --filter @orca/slicer-wasm
+test` (125/125), `pnpm --filter @orca/slicer-wasm typecheck`, harness syntax,
+the focused real-serial assignment/routing harness, serial quick, serial smoke,
+the existing history smoke, and `git diff --check`; all passed. The focused
+harness proved both object/part request orders, instance-to-object
+deduplication, model-part inherit, modifier preservation, all six feature
+selectors, support Default/inheritance, allowed and rejected scopes,
+three-plate global revision invalidation, member-plate invalidation, and
+failure rollback. The changed-path allowlist contains only this living plan and
+the Step 3 bridge/client/mock/test/harness files. The pinned submodule remains
+at `b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with exactly its seven
+pre-existing user-owned dirty paths unchanged. Step 4 is unblocked.
+
 **Root independent acceptance:** Re-run package checks and fixture harness; manually inspect JSON for explicit/inherited and Default distinctions; verify bridge/client-only boundary and serial quick/smoke. Failure blocks Step 4.
 
 **Commit boundary:** One assignment/routing command commit.
