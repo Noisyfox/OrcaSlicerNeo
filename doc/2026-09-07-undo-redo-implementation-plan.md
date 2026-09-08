@@ -514,9 +514,26 @@ repair sequence is complete prematurely.
   saved structural positions are used to rebind membership to their fresh
   runtime IDs. Transaction abort restores the same complete session.
 - The real history harness now covers Add Plate Undo/Redo, stable IDs and
-  revisions, and plate-scoped configuration Undo/Redo. The initial harness
-  failure (Add Plate Undo left two plates live) was reproduced before the
-  implementation and passes after the repair.
+  revisions, plate-scoped configuration Undo/Redo, Delete Plate Undo/Redo,
+  ordered plate compaction/reorder Undo/Redo, imported lock state across
+  Undo/Redo, and membership/parked/out-of-bounds combinations. Every
+  restored snapshot is checked against the live model's valid instance IDs,
+  complete membership lists, current plate, order, and revisions in both
+  serial and threaded WASM. The initial harness failure (Add Plate Undo left
+  two plates live) was reproduced before the implementation and passes after
+  the repair.
 - The C++ submodule under `packages/slicer-wasm/cpp` remained untouched and
   retains its pre-existing dirty state. Root acceptance is intentionally not
   recorded here.
+
+### Repair 1 supplemental verification — structural plate history matrix
+
+- `history-smoke.mjs` passed in serial and threaded WASM after adding the
+  structural matrix: Delete Plate Undo/Redo restores parked membership and
+  the current plate; the intermediate-delete compaction path restores plate
+  order; imported locked-plate state survives both directions; and the
+  surviving out-of-bounds member remains a member with the same flag.
+- The focused harness also passed `pnpm test` (all workspaces: 409
+  slicer-app tests, 108 slicer-wasm tests) and `pnpm typecheck`.
+- This supplemental harness-only commit does not change the C++ implementation
+  or the root acceptance status.
