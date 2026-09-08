@@ -151,6 +151,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
     const plateResults = Object.fromEntries(Object.entries(state.plateResults).filter(([id]) => !invalidated.has(id)));
     const activeAffected = state.activeSliceTarget && invalidated.has(state.activeSliceTarget.plateId);
     const currentAffected = state.sliceTarget && invalidated.has(state.sliceTarget.plateId);
+    const slicingAffected = activeAffected || (state.status === 'slicing' && currentAffected);
     return {
       plateResults,
       ...(activeAffected ? { activeSliceTarget: null } : {}),
@@ -164,6 +165,10 @@ export const useSlicerStore = create<SlicerState>((set) => ({
         layer: 0,
         maxLayer: 0,
         preview: { ...DEFAULT_PREVIEW_STATE },
+      } : {}),
+      ...(slicingAffected && !currentAffected ? {
+        status: state.sliceTarget ? 'done' as const : 'idle' as const,
+        progress: state.sliceTarget ? 100 : 0,
       } : {}),
     };
   }),

@@ -98,11 +98,14 @@ export async function applyPresetConfigurationMutation(platform: PlatformCapabil
 }
 
 /** Clear stale slice UI after a successful shared configuration commit. */
-export function invalidateAfterSharedConfigurationMutation(): void {
-  // Shared printer/process/filament inputs are common to every plate. Keep
-  // no completed result (or active job) across this boundary.
+export function invalidateAfterSharedConfigurationMutation(affectedPlateIds?: readonly string[]): void {
+  // Native object/part/plate overrides return their exact affected plate set;
+  // consume it so an edit cannot discard an unrelated completed plate.  A
+  // missing set denotes the shared project/preset boundary and conservatively
+  // clears every result.
   const existingStatus = useSlicerStore.getState().error;
-  useSlicerStore.getState().invalidateSliceResult();
+  if (affectedPlateIds !== undefined) useSlicerStore.getState().invalidatePlateResults(affectedPlateIds);
+  else useSlicerStore.getState().invalidateSliceResult();
   // Native configuration warnings are successful-command status, not stale
   // slice errors. Preserve the visible warning while the result projection is
   // invalidated; ordinary errors retain the existing clearing behaviour.

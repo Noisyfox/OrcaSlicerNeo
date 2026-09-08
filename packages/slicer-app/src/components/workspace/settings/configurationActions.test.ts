@@ -4,7 +4,7 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { commitOptionFieldChange } from './OptionField';
-import { commitSharedConfigurationMutation } from './configurationActions';
+import { commitSharedConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 
 const mutation = {
   ok: true as const,
@@ -22,6 +22,7 @@ const mutation = {
 describe('commitSharedConfigurationMutation', () => {
   beforeEach(() => {
     useProjectStore.getState().reset();
+    useSlicerStore.getState().clearPlateResults();
     useSlicerStore.setState({ error: null });
   });
 
@@ -67,6 +68,32 @@ describe('commitSharedConfigurationMutation', () => {
     expect(useSettingsStore.getState().overlay.plates['plate-2']?.wipe_tower_x).toBe('0');
     expect(useProjectStore.getState().plateInputRevisions).toEqual({ 'plate-1': 9, 'plate-2': 10 });
     expect(useProjectStore.getState().dirtyReasons).toContain('prime-tower-position');
+  });
+
+  it('invalidates only the native affected plate for a scoped override', async () => {
+    const result = { ok: true, objects: 1, layers: 1, toolpath: {}, metadata: {} } as any;
+    const slicer = useSlicerStore.getState();
+    slicer.setPlateResult({ plateId: 'plate-1', inputRevision: 1 }, result);
+    slicer.setPlateResult({ plateId: 'plate-2', inputRevision: 1 }, result);
+    const setOverride = vi.fn(async () => ({
+      ok: true as const,
+      overlay: { project: {}, objects: {}, parts: {}, plates: { 'plate-2': { wipe_tower_x: '15' } } },
+      plateSession: { ...mutation, currentPlateId: 'plate-2', inputRevisions: { 'plate-1': 9, 'plate-2': 10 }, affectedPlateIds: ['plate-2'], dirtyReasons: ['prime-tower-position'] },
+    }));
+    const platform = { runtime: { setProjectConfigOverride: setOverride } } as unknown as PlatformCapabilities;
+    await commitOptionFieldChange(platform, 'wipe_tower_x', '15', { scope: 'plate', id: 'plate-2' });
+    expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-1']);
+  });
+
+  it('treats an explicit empty native affected set as a scoped no-op', () => {
+    const result = { ok: true, objects: 1, layers: 1, toolpath: {}, metadata: {} } as any;
+    const slicer = useSlicerStore.getState();
+    slicer.setPlateResult({ plateId: 'plate-1', inputRevision: 1 }, result);
+    slicer.setPlateResult({ plateId: 'plate-2', inputRevision: 1 }, result);
+
+    invalidateAfterSharedConfigurationMutation([]);
+
+    expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-1', 'plate-2']);
   });
 
   it('publishes native warnings without converting a successful commit into a failure', async () => {

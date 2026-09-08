@@ -581,6 +581,63 @@ Pass requires one-slot regression, two-material assignment/tool-change/flush/pri
 
 **Commit boundary:** One slice/Preview integration commit.
 
+**Step 7 self-verification record (2026-09-09, remediation):** The shared app
+now consumes the Worker-provided affected-plate set for filament mutations.
+Shared rack changes clear every cached result, object/part/plate-scoped
+configuration changes retain unrelated plate results, and an affected
+in-flight slice is cancelled without cancelling an unaffected plate. An
+explicit empty native affected set is now a no-op rather than the global
+fallback. Slice result publication re-reads the native plate revision
+immediately before caching preview/G-code, so a late result cannot revive
+stale output; when that late job was already invalidated, the unaffected
+active preview remains `done` at 100% with no stale publish. The real
+serial-WASM fixture `packages/slicer-wasm/harness/multi-filament-slice-preview-
+smoke.mjs` covers a one-slot regression plus a two-slot assigned-object slice,
+actual generated tool/extruder IDs and palette, tool-change order, temperature
+commands, and flushing/prime-tower G-code semantics. It also proves with the
+native bridge and `Print::validate()` that a disjoint-temperature unused rack
+slot does not block slicing, while assigning that slot returns the existing
+mixed-temperature error unchanged. No byte-for-byte G-code comparison is
+used.
+
+Passed checks: `pnpm --filter @orca/slicer-app test -- --run` (69 files,
+455 tests) and typecheck; `pnpm --filter @orca/slicer-runtime test -- --run`
+(5 files, 32 tests) and typecheck; `pnpm --filter @orca/slicer-wasm test
+-- --run` (126 tests) and typecheck; `node --check
+packages/slicer-wasm/harness/multi-filament-slice-preview-smoke.mjs`; the
+real serial-WASM slice/Preview harness; `node
+packages/slicer-wasm/harness/plate-local-slice-smoke.mjs
+packages/slicer-wasm/out/serial/orca_slice.js`; `scripts\\build-windows.bat
+quick --variant serial`; `scripts\\build-windows.bat smoke --variant serial`;
+and `git diff --check`. Primary-host Electron/Web E2E infrastructure is
+available (`apps/desktop` has `test:e2e`/`test:e2e:real`, and `apps/web` has
+threaded/serial E2E scripts), but no dedicated multi-filament slice/Preview
+scenario exists and these host E2E commands were intentionally not run: the
+changed lifecycle is host-neutral, no host adapter changed, and the shared
+app/runtime tests plus real Worker/WASM harness prove the affected seam.
+The prior supplementary command/flush harness attempt was intentionally
+skipped after exceeding the local memory/time budget; it is not counted as a
+pass. The pinned `packages/slicer-wasm/cpp` submodule remains at
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with exactly its seven pre-existing
+dirty paths unchanged; no commit was created by the Step 7 agent.
+
+**Root acceptance record (2026-09-09):** Accepted after one remediation round.
+Root independently verified the undefined-versus-empty affected-plate contract,
+late native-revision rejection, cancellation of only the affected in-flight
+slice, and retention of an unaffected cached preview. Root reran the slicer-app
+suite and typecheck (69 files, 455 tests), slicer-runtime suite and typecheck (5
+files, 32 tests), and slicer-wasm suite and typecheck (126 tests); all passed.
+The new real serial-WASM harness passed its one-slot regression, two-material
+tool/order/palette/temperature/flushing/prime-tower assertions, and the native
+mixed-temperature used-versus-unused validation. The existing plate-local
+native smoke passed, including stale-slice rejection. The focused primary-host
+Electron E2E `full v1 flow: add models -> slice -> preview -> export gcode`
+passed (1/1), including its renderer CSS smoke. Root then reran serial quick,
+serial smoke, and `git diff --check`; all passed. The accepted paths contain
+only the living plan, shared app lifecycle/configuration/tests, and the
+multi-filament fixture README/harness. The pinned submodule HEAD and its seven
+pre-existing user-owned dirty paths remain unchanged. Step 8 is unblocked.
+
 ### Step 8 — Acceptance closure preparation
 
 **Dispatch:** Root starts a fresh Luna High subagent for Step 8 only after Step 7 is accepted. It performs only the allowlisted fixture/guard/checklist work and complete self-verification; root independently accepts or blocks the step.

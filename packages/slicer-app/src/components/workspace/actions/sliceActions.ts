@@ -120,6 +120,23 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     if (!preview.ok) { setFailure(preview.error ?? 'slice result unavailable'); return; }
     const exported = await platform.runtime.exportGcodePlate(target);
     if (!exported.ok) { setFailure(exported.error ?? 'slice G-code unavailable'); return; }
+    // A configuration or plate-local edit may have superseded the native
+    // result while preview extraction/export were in flight.  Re-read the
+    // authoritative plate revision immediately before publication so a late
+    // result can never repopulate the renderer cache after invalidation.
+    const finalSession = await platform.runtime.getPlateSessionSnapshot();
+    const finalRevision = finalSession.ok ? finalSession.inputRevisions?.[target.plateId] : undefined;
+    const finalLive = useSlicerStore.getState();
+    if (!finalSession.ok || finalRevision !== target.inputRevision ||
+        !finalLive.activeSliceTarget || finalLive.activeSliceTarget.plateId !== target.plateId ||
+        finalLive.activeSliceTarget.inputRevision !== target.inputRevision) {
+      if (finalLive.activeSliceTarget?.plateId === target.plateId &&
+          finalLive.activeSliceTarget.inputRevision === target.inputRevision) {
+        finalLive.setActiveSliceTarget(null);
+        if (finalLive.status === 'slicing') finalLive.setStatus('idle');
+      }
+      return;
+    }
     useSlicerStore.getState().setPlateResult(target, preview, exported.bytes);
     useSlicerStore.getState().setActiveSliceTarget(null);
     const current = usePlateSessionStore.getState().snapshot?.currentPlateId;

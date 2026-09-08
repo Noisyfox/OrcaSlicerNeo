@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { useFilamentSessionStore } from './useFilamentSessionStore';
+import { useSlicerStore } from './useSlicerStore';
 import type { FilamentSessionSnapshot, SlicerClient } from '@slicer/client';
 
 function snapshot(revision: number): FilamentSessionSnapshot {
@@ -35,6 +36,51 @@ describe('filament session store lifecycle', () => {
       mutation: { kind: 'add', historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 3, dirty: true, allPlateResultsInvalidated: true },
     } }));
     expect(useFilamentSessionStore.getState().snapshot).toBe(newer);
+  });
+
+  it('invalidates shared rack results and cancels only an affected active plate', async () => {
+    const initial = snapshot(1); const newer = snapshot(2);
+    const result = { ok: true as const, version: 1 as const, result: {
+      snapshot: newer,
+      mutation: { kind: 'set-colour' as const, historyEntryDelta: 1 as const, revisionBefore: 1, revisionAfter: 2,
+        dirty: true as const, allPlateResultsInvalidated: true as const },
+    } };
+    const cancel = vi.fn(async () => ({ ok: true }));
+    const slicer = useSlicerStore.getState();
+    slicer.setPlateResult({ plateId: 'plate-a', inputRevision: 1 }, {
+      ok: true, objects: 1, layers: 1,
+      toolpath: { vertexCount: 0, positions: new Float32Array(), layers: new Uint32Array(), features: new Uint32Array(), palette: [], segmentCount: 0,
+        starts: new Float32Array(), ends: new Float32Array(), layerIds: new Uint32Array(), moveOrders: new Uint32Array(), gcodeIds: new Uint32Array(),
+        sourceLineOrderValid: true, moveTypes: new Uint8Array(), extrusionRoles: new Uint16Array(), extruderIds: new Uint8Array(), colorPrintIds: new Uint8Array(),
+        widths: new Float32Array(), heights: new Float32Array(), metrics: {} },
+      metadata: { resultId: 1, layerRanges: [], featurePalette: [] },
+    });
+    slicer.setActiveSliceTarget({ plateId: 'plate-a', inputRevision: 1 });
+    slicer.setStatus('slicing');
+    useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
+    await useFilamentSessionStore.getState().run({ cancel } as unknown as SlicerClient, async () => result);
+    expect(useSlicerStore.getState().plateResults).toEqual({});
+    expect(useSlicerStore.getState().activeSliceTarget).toBeNull();
+    expect(useSlicerStore.getState().status).toBe('idle');
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it('retains an unaffected cached plate for an object-scoped mutation', async () => {
+    const initial = snapshot(1); const newer = snapshot(2);
+    const slicer = useSlicerStore.getState();
+    const emptyResult = { ok: true, objects: 1, layers: 1,
+      toolpath: { vertexCount: 0, positions: new Float32Array(), layers: new Uint32Array(), features: new Uint32Array(), palette: [], segmentCount: 0,
+        starts: new Float32Array(), ends: new Float32Array(), layerIds: new Uint32Array(), moveOrders: new Uint32Array(), gcodeIds: new Uint32Array(),
+        moveTypes: new Uint8Array(), extrusionRoles: new Uint16Array(), extruderIds: new Uint8Array(), colorPrintIds: new Uint8Array(), widths: new Float32Array(), heights: new Float32Array(), metrics: {} },
+      metadata: { resultId: 1, layerRanges: [], featurePalette: [] } };
+    slicer.setPlateResult({ plateId: 'plate-a', inputRevision: 1 }, emptyResult);
+    slicer.setPlateResult({ plateId: 'plate-b', inputRevision: 1 }, emptyResult);
+    useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
+    await useFilamentSessionStore.getState().run({} as SlicerClient, async () => ({ ok: true, version: 1, result: {
+      snapshot: newer,
+      mutation: { kind: 'assign', historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 2, dirty: true, allPlateResultsInvalidated: false, affectedPlateIds: ['plate-a'] },
+    } }));
+    expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-b']);
   });
 
   it('clears an external snapshot and records thrown refresh failures without rejecting', async () => {

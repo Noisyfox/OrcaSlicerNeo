@@ -17,13 +17,13 @@ export async function commitOptionFieldChange(
   next: string,
   target: ProjectConfigOverrideTarget = { scope: 'project' },
 ): Promise<void> {
-  await commitSharedConfigurationMutation(platform, optionKey, next, target);
+  const mutation = await commitSharedConfigurationMutation(platform, optionKey, next, target);
   // The Worker response already installed the native serialized effective
   // value in the overlay.  Only legacy runtimes without the typed override
   // command need the requested value mirrored locally.
   if (typeof platform.runtime.setProjectConfigOverride !== 'function')
     useSettingsStore.getState().setOverlayValue(target.scope, target.id === undefined ? undefined : String(target.id), optionKey, next);
-  invalidateAfterSharedConfigurationMutation();
+  invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
 }
 
 export function OptionField({ optionKey, meta, target = { scope: 'project' } }: {
@@ -67,7 +67,10 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
   const cancelDraft = () => setDraft(value);
   const changeDiscrete = (next: string) => {
     setDraft(next);
-    invalidateAfterSharedConfigurationMutation();
+    // Scoped overrides cannot know their affected plate set until the native
+    // transaction returns. Shared project settings retain the existing
+    // immediate invalidation behavior.
+    if (target.scope === 'project') invalidateAfterSharedConfigurationMutation();
     void commit(next);
   };
   const label = meta.label ?? optionKey;
@@ -130,7 +133,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
           setDraft(e.target.value);
           // A draft must invalidate stale preview output immediately, while
           // the Worker/history write remains deferred until commit.
-          invalidateAfterSharedConfigurationMutation();
+          if (target.scope === 'project') invalidateAfterSharedConfigurationMutation();
         }}
         className="flex-1"
       />

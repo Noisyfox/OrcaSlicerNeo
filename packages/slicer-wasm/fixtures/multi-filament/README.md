@@ -30,4 +30,11 @@ without asserting the later slot contract:
 
 ```powershell
 node packages/slicer-wasm/harness/multi-filament-reader-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js
+
+Step 7 real slice/Preview semantics (tool changes, generated palette,
+temperature, flushing/prime-tower markers):
+
+```text
+node packages/slicer-wasm/harness/multi-filament-slice-preview-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js
+```
 ```

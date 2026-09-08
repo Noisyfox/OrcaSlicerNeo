@@ -11,6 +11,7 @@ import type {
   FilamentSlotPresetRequest,
   SlicerClient,
 } from '@slicer/client';
+import { applyFilamentMutationResult } from './plateResultLifecycle';
 
 /**
  * UI state for the material rack. `snapshot` is always the last complete
@@ -71,7 +72,11 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
     set({ pendingKind: 'mutation', rejected: null });
     try {
       const result = await command();
-      if (result.ok) set({ snapshot: result.result.snapshot, pendingKind: null, rejected: null });
+      if (result.ok) {
+        set({ snapshot: result.result.snapshot, rejected: null });
+        await applyFilamentMutationResult(result.result.mutation, runtime);
+        set({ pendingKind: null });
+      }
       else set({ pendingKind: null, rejected: result.error });
       return result;
     } catch (error) {
