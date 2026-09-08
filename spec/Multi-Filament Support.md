@@ -168,7 +168,8 @@ renumbers assignments or edits flush arrays independently.
 - A project always retains at least one filament slot.
 - Single-extruder multi-material and supported material-switcher/AMS printer
   configurations may add and remove slots up to OrcaSlicer's native maximum of
-  64.
+  64. Electron and Web use the same limit; Neo does not derive a lower Web
+  limit from browser or device-memory estimates.
 - A fixed multi-extruder printer retains at least the number of slots required
   by its physical extruders. Neo does not expose a deletion command that would
   violate that requirement.
@@ -423,6 +424,24 @@ or convert the error into a bypassable warning. Slot fallback caused by project
 load or a Printer/Process transition continues to use the rack and project-load
 reporting rules defined elsewhere in this specification.
 
+### 10.7 Host parity and resource failure
+
+Electron and Web expose the same multi-filament commands, slot limit, project
+semantics, and native validation. The additional slot vectors and flushing
+matrix are not used as a proxy for total slicing memory pressure; Neo does not
+silently lower the slot count, discard references, or substitute presets in
+response to a resource failure.
+
+A recoverable allocation or command failure follows the atomic mutation rules
+in this specification: the pre-command filament session, model, plate state,
+history cursor, and result validity remain unchanged, and the command may be
+retried after the user changes the workload.
+
+A fatal WASM Worker OOM or trap follows the shared runtime's fatal-error flow.
+Multi-filament does not add a second Worker-recovery protocol, autosave, or
+reconstruction of unsaved project state. This preserves the crash-recovery
+boundary in [`3MF Project Persistence.md`](3MF%20Project%20Persistence.md).
+
 ## 11. Project Persistence and History
 
 ### 11.1 3MF project authority
@@ -501,5 +520,4 @@ and a later new project may fall back to the last successfully stored rack.
 The living specification will be extended in coherent batches after decisions
 are made for:
 
-- Web and Electron resource limits and recovery behaviour; and
 - acceptance fixtures and verification scope.
