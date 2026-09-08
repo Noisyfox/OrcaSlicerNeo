@@ -435,6 +435,25 @@ describe('SlicerClient bridge contract', () => {
     expect(revalidated).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
   });
 
+  it('normalizes native prime-tower corrections and rejects malformed status envelopes', async () => {
+    const corrected = await makeClient().setProjectConfigOverride({ scope: 'plate', id: 'plate-1' }, 'wipe_tower_x', 'not-a-number');
+    expect(corrected).toMatchObject({ ok: true, overlay: { plates: { 'plate-1': { wipe_tower_x: '0' } } },
+      configurationStatus: { state: 'ready', corrections: [{ key: 'wipe_tower_x', requested: 'not-a-number', effective: '0' }] } });
+
+    const malformed = await createClient(async () => createMockModule({ projectConfigOverride: {
+      ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} },
+      configuration_status: { state: 'ready', corrections: [{ key: 'wipe_tower_x' }], warnings: [], errors: [] },
+    } })).setProjectConfigOverride({ scope: 'project' }, 'enable_prime_tower', '1');
+    expect(malformed).toEqual({ ok: false, error: 'invalid project configuration status' });
+
+    const nativeError = await createClient(async () => createMockModule({ projectConfigOverride: {
+      ok: false, error: 'native option rejected', error_code: 'native_validation_failure',
+      status: { state: 'error', error: 'native option rejected' },
+    } })).setProjectConfigOverride({ scope: 'project' }, 'enable_prime_tower', 'bad');
+    expect(nativeError).toEqual({ ok: false, error: 'native option rejected', errorCode: 'native_validation_failure',
+      status: { state: 'error', error: 'native option rejected' } });
+  });
+
   it('returns printer-bound reflow transforms for every member while preserving empty plates', async () => {
     const c = makeClient();
     const first = await c.getPlateSessionSnapshot();

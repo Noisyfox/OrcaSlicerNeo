@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { commitOptionFieldChange } from './OptionField';
 import { commitSharedConfigurationMutation } from './configurationActions';
 
@@ -19,7 +20,10 @@ const mutation = {
 };
 
 describe('commitSharedConfigurationMutation', () => {
-  beforeEach(() => useProjectStore.getState().reset());
+  beforeEach(() => {
+    useProjectStore.getState().reset();
+    useSlicerStore.setState({ error: null });
+  });
 
   it('routes an option-field commit through the typed runtime before recording it', async () => {
     const mark = vi.fn(async () => mutation);
@@ -47,5 +51,47 @@ describe('commitSharedConfigurationMutation', () => {
     const platform = { runtime: { markSharedConfigurationMutation: mark } } as unknown as PlatformCapabilities;
     await expect(commitSharedConfigurationMutation(platform)).rejects.toThrow('bridge rejected');
     expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [], plateInputRevisions: {} });
+    expect(useSlicerStore.getState().error).toBe('bridge rejected');
+  });
+
+  it('keeps the native effective correction and plate-local transaction', async () => {
+    const setOverride = vi.fn(async () => ({
+      ok: true as const,
+      overlay: { project: {}, objects: {}, parts: {}, plates: { 'plate-2': { wipe_tower_x: '0' } } },
+      configurationStatus: { state: 'ready' as const, corrections: [{ key: 'wipe_tower_x', requested: 'invalid', effective: '0' }], warnings: [], errors: [] },
+      plateSession: { ...mutation, currentPlateId: 'plate-2', inputRevisions: { 'plate-1': 9, 'plate-2': 10 }, affectedPlateIds: ['plate-2'], dirtyReasons: ['prime-tower-position'] },
+    }));
+    const platform = { runtime: { setProjectConfigOverride: setOverride } } as unknown as PlatformCapabilities;
+    await commitOptionFieldChange(platform, 'wipe_tower_x', 'invalid', { scope: 'plate', id: 'plate-2' });
+    expect(setOverride).toHaveBeenCalledWith({ scope: 'plate', id: 'plate-2' }, 'wipe_tower_x', 'invalid');
+    expect(useSettingsStore.getState().overlay.plates['plate-2']?.wipe_tower_x).toBe('0');
+    expect(useProjectStore.getState().plateInputRevisions).toEqual({ 'plate-1': 9, 'plate-2': 10 });
+    expect(useProjectStore.getState().dirtyReasons).toContain('prime-tower-position');
+  });
+
+  it('publishes native warnings without converting a successful commit into a failure', async () => {
+    const setOverride = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true as const,
+        overlay: { project: { prime_tower_width: '20' }, objects: {}, parts: {}, plates: {} },
+        configurationStatus: { state: 'ready' as const, corrections: [], warnings: ['width was clamped'], errors: [] },
+        plateSession: mutation,
+      })
+      .mockResolvedValueOnce({
+        ok: true as const,
+        overlay: { project: { prime_tower_width: '21' }, objects: {}, parts: {}, plates: {} },
+        configurationStatus: { state: 'ready' as const, corrections: [], warnings: [], errors: [] },
+        plateSession: mutation,
+      });
+    const platform = { runtime: { setProjectConfigOverride: setOverride } } as unknown as PlatformCapabilities;
+
+    await expect(commitOptionFieldChange(platform, 'prime_tower_width', '20')).resolves.toBeUndefined();
+    expect(useSettingsStore.getState().overlay.project.prime_tower_width).toBe('20');
+    expect(useProjectStore.getState().dirty).toBe(true);
+    expect(useSlicerStore.getState().error).toBe('[Warning] width was clamped');
+
+    await commitOptionFieldChange(platform, 'prime_tower_width', '21');
+    expect(useSettingsStore.getState().overlay.project.prime_tower_width).toBe('21');
+    expect(useSlicerStore.getState().error).toBe('[Warning] width was clamped');
   });
 });

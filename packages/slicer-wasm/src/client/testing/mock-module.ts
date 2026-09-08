@@ -78,6 +78,8 @@ export interface MockModuleOptions {
   filamentSession?: unknown;
   /** Optional raw mutation response override for client normalization tests. */
   filamentMutation?: unknown;
+  /** Optional raw project-configuration response override for normalization tests. */
+  projectConfigOverride?: unknown;
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -133,6 +135,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'] },
       enable_support: { type: 'bool' },
       nozzle_temperature: { type: 'float' },
+      enable_prime_tower: { type: 'bool' },
+      prime_tower_width: { type: 'float' },
+      wipe_tower_x: { type: 'float' },
+      wipe_tower_y: { type: 'float' },
       printable_area: { type: 'points' },
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'] },
     };
@@ -1186,6 +1192,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return { ok: true, overlay: clone(projectConfigOverlay) };
     },
     orc_set_project_config_override(scope: string, id: string, optionKey: string, value: string) {
+      if (opts.projectConfigOverride !== undefined) return opts.projectConfigOverride;
       if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
       if (!optionKey) return { error: 'option key is required' };
       if (scope !== 'project' && !id) return { error: 'scope id is required' };
@@ -1193,9 +1200,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         : scope === 'object' ? (projectConfigOverlay.objects[id] ??= {})
           : scope === 'part' ? (projectConfigOverlay.parts[id] ??= {})
             : (projectConfigOverlay.plates[id] ??= {});
-      bucket[optionKey] = value;
+      const effective = (optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y') && !Number.isFinite(Number(value)) ? '0' : value;
+      bucket[optionKey] = effective;
       const mutation = bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>;
-      return { ok: true, overlay: clone(projectConfigOverlay), plate_session: mutation };
+      return { ok: true, overlay: clone(projectConfigOverlay), plate_session: mutation,
+        configuration_status: { state: 'ready', corrections: effective === value ? [] : [{ key: optionKey, requested: value, effective }], warnings: [], errors: [] } };
     },
     orc_revalidate_project_config_overlay() {
       // The native bridge validates against the current option metadata. The

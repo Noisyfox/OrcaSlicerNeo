@@ -14,6 +14,7 @@ import type { SceneInteractionController } from '../viewport/SceneInteractionCon
 import { usePlatform } from '@orca/platform-contract';
 import { applyPresetConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
+import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import {
   Combobox,
   ComboboxContent,
@@ -31,6 +32,7 @@ const PROCESS_KEYS = [
   'nozzle_temperature', 'nozzle_temperature_initial_layer',
   'hot_plate_temp_initial_layer', 'print_speed', 'outer_wall_speed',
   'sparse_infill_speed', 'travel_speed',
+  'enable_prime_tower', 'prime_tower_width',
 ];
 
 type PresetKind = 'printer' | 'print' | 'filament';
@@ -46,6 +48,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
   const selectedFilament = useSettingsStore((s) => s.selectedFilament);
   const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
   const setOverlay = useSettingsStore((s) => s.setOverlay);
+  const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
 
@@ -133,6 +136,14 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
         {processKeys.map((k) => (
           <OptionField key={k} optionKey={k} meta={metadata[k]} />
         ))}
+        {currentPlateId && metadata.wipe_tower_x && (
+          <OptionField optionKey="wipe_tower_x" meta={metadata.wipe_tower_x}
+            target={{ scope: 'plate', id: currentPlateId }} />
+        )}
+        {currentPlateId && metadata.wipe_tower_y && (
+          <OptionField optionKey="wipe_tower_y" meta={metadata.wipe_tower_y}
+            target={{ scope: 'plate', id: currentPlateId }} />
+        )}
       </section>
     </div>
   );

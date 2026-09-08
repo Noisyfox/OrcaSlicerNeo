@@ -389,6 +389,50 @@ user-owned dirty paths unchanged. Step 5 is unblocked.
 - focused native fixture for imported-matrix preservation/replacement, support routing, prime tower, and native error projection;
 - serial WASM quick/smoke.
 
+**Step 5 self-verification record (2026-09-09):** Implemented the native
+flushing-input recalc path and atomic full-matrix publication, imported-matrix
+preservation until the first accepted edit, native prime-tower controls/status,
+plate-local X/Y invalidation, and support Default/explicit Delete/Merge remap.
+The focused real-WASM harness
+`packages/slicer-wasm/harness/multi-filament-flushing-prime-tower-smoke.mjs`
+passed its production export/reload matrix-preservation check, replacement
+checks for preset/colour/Add/Delete/Merge/support-base/support-interface,
+failure rollback, prime-tower status/invalidation, and three-slot project/
+object Default/decrement/survivor remapping across all six feature routes.
+`pnpm --filter @orca/slicer-wasm test` (126/126),
+`pnpm --filter @orca/slicer-runtime test` (32/32), and
+`pnpm --filter @orca/slicer-app test` (68 files, 443/443) passed; all three
+package typechecks passed; `scripts\\build-windows.bat quick --variant serial`
+and `scripts\\build-windows.bat smoke --variant serial` passed; and
+`git diff --check` passed. No separate DOM/E2E run was needed because this
+step's settings seam is covered by the new prime-tower SettingsPanel and
+configuration-action semantic tests plus the real-WASM harness. The client
+strictly normalizes native corrections and error envelopes, and the app keeps
+the native effective serialized value rather than the requested raw value.
+Non-empty native warnings remain visible with a `[Warning]` prefix after
+successful invalidation, while empty warnings do not clear unrelated status.
+The pinned C++ submodule was not edited and retains its pre-existing dirty
+state.
+
+**Root acceptance record (2026-09-09):** Accepted after two remediation rounds.
+Root first rejected the result because the native `configuration_status` was
+not normalized or consumed, corrected values were overwritten by raw input,
+and the focused harness covered only one flushing-input class; a final narrow
+remediation surfaced successful native warnings without failing the command.
+The accepted bridge parses into native candidates before publication, persists
+serialized effective values, returns strict correction/warning/error status,
+keeps rejected config state and revisions unchanged, and applies project-wide
+versus plate-local prime-tower invalidation. Root reran the WASM suite/typecheck
+(126/126), runtime suite/typecheck (32/32), app suite/typecheck (68 files,
+443/443), harness syntax, serial quick, the expanded real-WASM harness, serial
+smoke, and `git diff --check`; all passed. The harness proved production
+export/reload matrix preservation; full-matrix replacement for preset, colour,
+Add, Delete, Merge, support-base and support-interface; injected rollback;
+three-slot Default/decrement/survivor remapping; and prime-tower status and
+invalidation boundaries. The pinned submodule remains at
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with exactly its seven pre-existing
+user-owned dirty paths unchanged. Step 6 is unblocked.
+
 Pass requires matrix replacement timing, full-matrix atomicity, per-plate prime-tower invalidation, and Default semantics.
 
 **Root independent acceptance:** Re-run all three affected package gates and the native fixture; inspect imported matrix before/after the first flushing edit; run serial quick/smoke; perform a focused host E2E only if settings metadata/DOM integration is not covered by component tests. Failure blocks Step 6.

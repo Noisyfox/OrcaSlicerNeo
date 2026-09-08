@@ -9,8 +9,8 @@ import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, PresetSnapshotResult,
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
-  ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError,
-  ProjectConfigOverlay,
+  ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError, ProjectConfigOverlay,
+  ConfigurationStatus,
   ClearModelResult,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
@@ -36,6 +36,86 @@ import type {
 } from './history';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeConfigurationStatus(raw: unknown, allowReady: boolean): ConfigurationStatus | null {
+  if (!isRecord(raw) || (raw.state !== 'ready' && raw.state !== 'error')) return null;
+  if (raw.state === 'error') {
+    return typeof raw.error === 'string' ? { state: 'error', error: raw.error } : null;
+  }
+  if (!allowReady || !Array.isArray(raw.corrections) || !Array.isArray(raw.warnings) || !Array.isArray(raw.errors) ||
+      !raw.warnings.every((value) => typeof value === 'string') || !raw.errors.every((value) => typeof value === 'string'))
+    return null;
+  const corrections = raw.corrections.map((value) => {
+    if (!isRecord(value) || typeof value.key !== 'string' || typeof value.requested !== 'string' || typeof value.effective !== 'string') return null;
+    return { key: value.key, requested: value.requested, effective: value.effective };
+  });
+  if (corrections.some((value) => value === null)) return null;
+  return { state: 'ready', corrections: corrections as { key: string; requested: string; effective: string }[],
+    warnings: raw.warnings as string[], errors: raw.errors as string[] };
+}
+
+function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResultOrError {
+  if (!isRecord(raw)) return { ok: false, error: 'invalid project configuration response' };
+  if (raw.ok !== true) {
+    if (raw.ok !== false || typeof raw.error !== 'string') return { ok: false, error: 'invalid project configuration error envelope' };
+    const result: { ok: false; error: string; errorCode?: string; status?: { state: 'error'; error: string } } = { ok: false, error: raw.error };
+    if (raw.error_code !== undefined) {
+      if (typeof raw.error_code !== 'string') return { ok: false, error: 'invalid project configuration error code' };
+      result.errorCode = raw.error_code;
+    }
+    if (raw.status !== undefined) {
+      const status = normalizeConfigurationStatus(raw.status, false);
+      if (!status || status.state !== 'error') return { ok: false, error: 'invalid project configuration error status' };
+      result.status = status;
+    }
+    return result;
+  }
+  const overlay = raw.overlay;
+  if (!isRecord(overlay)) return { ok: false, error: 'invalid project configuration overlay' };
+  const normalizeBucket = (value: unknown): Record<string, string> | null => {
+    if (!isRecord(value)) return null;
+    const entries: Record<string, string> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item !== 'string') return null;
+      entries[key] = item;
+    }
+    return entries;
+  };
+  const project = normalizeBucket(overlay.project);
+  const normalizeScopedBucket = (value: unknown): Record<string, Record<string, string>> | null => {
+    if (!isRecord(value)) return null;
+    const result: Record<string, Record<string, string>> = {};
+    for (const [id, item] of Object.entries(value)) {
+      const bucket = normalizeBucket(item);
+      if (!bucket) return null;
+      result[id] = bucket;
+    }
+    return result;
+  };
+  const objects = normalizeScopedBucket(overlay.objects);
+  const parts = normalizeScopedBucket(overlay.parts);
+  const plates = normalizeScopedBucket(overlay.plates);
+  if (!project || !objects || !parts || !plates) return { ok: false, error: 'invalid project configuration overlay' };
+  const result: { ok: true; overlay: ProjectConfigOverlay; plateSession?: unknown; configurationStatus?: unknown } = {
+    ok: true, overlay: { project, objects, parts, plates },
+  };
+  if (raw.plate_session !== undefined) {
+    const plateSession = normalizePlateMutationResult(raw.plate_session);
+    if (!plateSession.ok) return { ok: false, error: plateSession.error };
+    result.plateSession = plateSession;
+  }
+  const rawStatus = raw.configuration_status ?? raw.configurationStatus;
+  if (rawStatus !== undefined) {
+    const status = normalizeConfigurationStatus(rawStatus, true);
+    if (!status || status.state !== 'ready') return { ok: false, error: 'invalid project configuration status' };
+    result.configurationStatus = status;
+  }
+  return result as ProjectConfigOverlayResultOrError;
+}
 
 function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult {
   if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid filament session response' };
@@ -854,27 +934,20 @@ export function createClient(
 
     async getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
       const m = await module();
-      return callJson(m, 'orc_get_project_config_overlay', [], []) as ProjectConfigOverlayResultOrError;
+      return normalizeProjectConfigOverlay(callJson(m, 'orc_get_project_config_overlay', [], []));
     },
 
     async setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError> {
       const m = await module();
       const scopeId = target.id === undefined ? '' : String(target.id);
       const raw = callJson(m, 'orc_set_project_config_override', ['string', 'string', 'string', 'string'],
-        [target.scope, scopeId, optionKey, value]) as Record<string, unknown>;
-      if (!raw || raw.ok !== true) return raw as unknown as ProjectConfigOverlayResultOrError;
-      const result: Record<string, unknown> = { ...raw };
-      if (raw.plate_session) {
-        const plateSession = normalizePlateMutationResult(raw.plate_session);
-        if (plateSession.ok) result.plateSession = plateSession;
-        delete result.plate_session;
-      }
-      return result as unknown as ProjectConfigOverlayResultOrError;
+        [target.scope, scopeId, optionKey, value]);
+      return normalizeProjectConfigOverlay(raw);
     },
 
     async revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
       const m = await module();
-      return callJson(m, 'orc_revalidate_project_config_overlay', [], []) as ProjectConfigOverlayResultOrError;
+      return normalizeProjectConfigOverlay(callJson(m, 'orc_revalidate_project_config_overlay', [], []));
     },
 
     async getPresetSnapshot(): Promise<PresetSnapshotResult> {

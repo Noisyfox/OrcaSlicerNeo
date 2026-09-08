@@ -2081,6 +2081,22 @@ bool is_filament_slot_reference_key(const std::string& key)
     return keys.find(key) != keys.end();
 }
 
+int remap_filament_config_reference(const std::string& key, const int value,
+                                    const std::size_t removed,
+                                    const std::optional<std::size_t>& replacement)
+{
+    // Support/raft and feature routing use native zero as Default.  A plain
+    // slot Delete therefore clears a deleted explicit route to Default, while
+    // ordinary object/part assignments retain Orca's slot-1 fallback.
+    if (!replacement.has_value() && value == static_cast<int>(removed + 1) &&
+        (key == "support_filament" || key == "support_interface_filament" ||
+         key == "outer_wall_filament_id" || key == "inner_wall_filament_id" ||
+         key == "sparse_infill_filament_id" || key == "internal_solid_filament_id" ||
+         key == "top_surface_filament_id" || key == "bottom_surface_filament_id"))
+        return 0;
+    return remap_filament_reference(value, removed, replacement);
+}
+
 template <typename Config>
 void remap_config_filament_references(Config& config, const std::size_t removed,
                                       const std::optional<std::size_t>& replacement)
@@ -2090,7 +2106,7 @@ void remap_config_filament_references(Config& config, const std::size_t removed,
         if (!is_filament_slot_reference_key(key)) continue;
         const auto* option = dynamic_cast<const ConfigOptionInt*>(config.option(key));
         if (option == nullptr) continue;
-        config.set_key_value(key, new ConfigOptionInt(remap_filament_reference(option->value, removed, replacement)));
+        config.set_key_value(key, new ConfigOptionInt(remap_filament_config_reference(key, option->value, removed, replacement)));
     }
 }
 
@@ -2105,7 +2121,7 @@ void remap_overlay_filament_references(json& overlay, const std::size_t removed,
             if (!is_filament_slot_reference_key(option.key()) || !option.value().is_string()) continue;
             try {
                 const int old_value = std::stoi(option.value().get<std::string>());
-                option.value() = std::to_string(remap_filament_reference(old_value, removed, replacement));
+                option.value() = std::to_string(remap_filament_config_reference(option.key(), old_value, removed, replacement));
             } catch (...) {
                 throw FilamentCommandFailure("unsupported_reference", "invalid filament reference in project overlay");
             }
@@ -2350,6 +2366,27 @@ std::vector<FlushColour> flush_colours_for_slot(const std::string& base,
     if (result.empty())
         if (const auto colour = parse_flush_colour(base)) result.push_back(*colour);
     if (result.empty()) result.push_back({});
+    return result;
+}
+
+// A plate-local process setting (currently the prime-tower X/Y position) must
+// not invalidate the complete project.  Keep this transaction in the bridge,
+// beside the shared variant, so the response carries the authoritative
+// revision and affected plate set used by both hosts.
+json plate_configuration_mutation_snapshot(const std::string& plate_id,
+                                            const char* reason)
+{
+    ensure_plate_session_state();
+    if (find_plate(plate_id) == nullptr)
+        throw std::runtime_error("plate not found");
+    ++state().plate_input_revisions[plate_id];
+    const std::set<std::string> affected{plate_id};
+    json result = plate_session_snapshot_json();
+    result["input_revisions"] = plate_revisions_json();
+    result["affected_plate_ids_before"] = plate_id_array(affected);
+    result["affected_plate_ids_after"] = plate_id_array(affected);
+    result["affected_plate_ids"] = plate_id_array(affected);
+    result["dirty_reasons"] = {reason};
     return result;
 }
 
@@ -3015,6 +3052,12 @@ json filament_routing_command(const json& request)
                 invalidate_all = invalidate_all || project_target;
             }
         }
+        // Native support/raft filament selection changes the flushing input.
+        // Recalculate only after every target has been accepted into the
+        // staged bundle; the assignment transaction then publishes the full
+        // matrix atomically with the routing mutation.  Feature-path routing
+        // does not affect flushing volumes.
+        if (!feature_selector) recalculate_filament_flush(bundle);
         return json{{"kind", "routing"}, {"selector", selector}, {"slot", slot},
                     {"accepted_targets", accepted}, {"invalidate_all_plates", invalidate_all}};
     });
@@ -3109,6 +3152,11 @@ json filament_delete_or_merge_command(const json& request, const bool merge)
             replacement = *destination > *source ? *destination - 1 : *destination;
         }
         bundle.update_num_filaments(*source);
+        // Project-scoped support/feature routing lives in the native project
+        // config rather than the renderer overlay.  Remap it before the
+        // projection is rebuilt so Delete yields Default for zero-backed
+        // routing and Merge points at the selected survivor.
+        remap_config_filament_references(bundle.project_config, *source, replacement);
         remap_model_filament_references(model, *source, replacement, count - 1);
         remap_plate_filament_references(plates, *source, replacement, count);
         remap_overlay_filament_references(overlay, *source, replacement);
@@ -3294,6 +3342,33 @@ json project_config_overlay_metadata()
 json project_config_overlay_result()
 {
     return json{{"ok", true}, {"overlay", state().project_config_overlay}};
+}
+
+// The native ConfigOption parser is the authority for prime-tower input.  A
+// successful mutation returns the value after that parser, allowing hosts to
+// display native normalization/corrections without reimplementing a second
+// settings parser.  Warnings/errors remain native command status values.
+template <typename Config>
+json native_configuration_status(const Config& config,
+                                 const std::string& key,
+                                 const std::string& requested)
+{
+    json corrections = json::array();
+    const ConfigOption* option = config.option(key);
+    if (option != nullptr) {
+        const std::string effective = option->serialize();
+        if (effective != requested)
+            corrections.push_back({{"key", key}, {"requested", requested}, {"effective", effective}});
+    }
+    return json{{"state", "ready"}, {"corrections", std::move(corrections)},
+                {"warnings", json::array()}, {"errors", json::array()}};
+}
+
+const char* native_configuration_error_json(const std::string& code,
+                                            const std::string& message)
+{
+    return dup_json(json{{"ok", false}, {"error", message}, {"error_code", code},
+                         {"status", {{"state", "error"}, {"error", message}}}}.dump());
 }
 
 static std::string history_entry_id(const std::uint64_t id)
@@ -4358,6 +4433,17 @@ EMSCRIPTEN_KEEPALIVE const char* orc_test_set_filament_flush_fixture(const char*
         if (request.contains("filament_retraction_distances_when_cut"))
             set_filament_floats("filament_retraction_distances_when_cut", read_floats(request["filament_retraction_distances_when_cut"], "filament_retraction_distances_when_cut"));
         recalculate_filament_flush(state().presets);
+        // Test-only imported-project seam: install a complete native matrix
+        // after the native calculation so the next read proves load-time
+        // preservation.  The first real flushing mutation must replace it.
+        if (request.contains("imported_matrix")) {
+            const auto imported = read_floats(request["imported_matrix"], "imported_matrix");
+            const std::size_t count = state().presets.filament_presets.size();
+            const std::size_t planes = static_cast<std::size_t>(std::max(1, state().presets.get_printer_extruder_count()));
+            if (imported.size() != count * count * planes)
+                return error_json("invalid imported flush matrix size");
+            state().presets.project_config.option<ConfigOptionFloats>("flush_volumes_matrix", true)->values = imported;
+        }
         return dup_json(json{{"ok", true}, {"snapshot", filament_session_snapshot_json()},
             {"min_flush_volumes", min_flush_volumes_for_config(synthetic_full,
                 state().presets.filament_presets.size(),
@@ -4624,38 +4710,78 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
         const std::string id = id_cstr ? id_cstr : "";
         const std::string key = option_key_cstr ? option_key_cstr : "";
         const std::string value = value_cstr ? value_cstr : "";
+        const auto configuration_error = [](const std::string& code, const std::string& message) {
+            return native_configuration_error_json(code, message);
+        };
         if (scope != "project" && scope != "object" && scope != "part" && scope != "plate")
-            return error_json("invalid project configuration scope");
-        if (key.empty()) return error_json("option key is required");
+            return configuration_error("invalid_command", "invalid project configuration scope");
+        if (key.empty()) return configuration_error("invalid_command", "option key is required");
         if (print_config_def.options.find(key) == print_config_def.options.end())
-            return error_json("unsupported project configuration option: " + key);
-        if (scope != "project" && id.empty()) return error_json("scope id is required");
+            return configuration_error("unsupported_reference", "unsupported project configuration option: " + key);
+        if (scope != "project" && id.empty()) return configuration_error("invalid_command", "scope id is required");
+        // The first-release prime-tower position is intentionally per plate;
+        // exposing a plate override for any other option would make its
+        // invalidation semantics ambiguous.  The shared enable/width values
+        // stay project-scoped and use the existing shared mutation path.
+        if (scope == "plate" && key != "wipe_tower_x" && key != "wipe_tower_y")
+            return configuration_error("unsupported_reference", "only prime tower X/Y are supported at plate scope");
         ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-        if (scope == "object") {
+        DynamicPrintConfig project_candidate;
+        std::optional<json> configuration_status;
+        std::string effective_value;
+        const auto effective_for = [&key](const auto& config) {
+            const ConfigOption* option = config.option(key);
+            if (option == nullptr) throw BadOptionValueException("native option is unavailable: " + key);
+            return option->serialize();
+        };
+        if (scope == "project") {
+            project_candidate = state().presets.project_config;
+            apply_overlay_to_config(project_candidate, state().project_config_overlay["project"]);
+            project_candidate.set_deserialize(key, value, substitutions);
+            configuration_status = native_configuration_status(project_candidate, key, value);
+            effective_value = effective_for(project_candidate);
+        } else if (scope == "object") {
             auto* object = find_object_by_id(static_cast<std::size_t>(std::stoull(id)));
-            if (!object) return error_json("object not found");
-            object->config.set_deserialize(key, value, substitutions);
+            if (!object) return configuration_error("unsupported_reference", "object not found");
+            DynamicPrintConfig candidate = object->config.get();
+            candidate.set_deserialize(key, value, substitutions);
+            configuration_status = native_configuration_status(candidate, key, value);
+            effective_value = effective_for(candidate);
+            object->config.assign_config(candidate);
         } else if (scope == "part") {
             auto* volume = find_volume_by_id(static_cast<std::size_t>(std::stoull(id)));
-            if (!volume) return error_json("part not found");
-            volume->config.set_deserialize(key, value, substitutions);
+            if (!volume) return configuration_error("unsupported_reference", "part not found");
+            DynamicPrintConfig candidate = volume->config.get();
+            candidate.set_deserialize(key, value, substitutions);
+            configuration_status = native_configuration_status(candidate, key, value);
+            effective_value = effective_for(candidate);
+            volume->config.assign_config(candidate);
         } else if (scope == "plate") {
             auto* plate = const_cast<BridgeState::PlateSessionPlate*>(find_plate(id));
-            if (!plate) return error_json("plate not found");
-            plate->settings.set_deserialize(key, value, substitutions);
+            if (!plate) return configuration_error("unsupported_reference", "plate not found");
+            DynamicPrintConfig candidate = plate->settings;
+            candidate.set_deserialize(key, value, substitutions);
+            configuration_status = native_configuration_status(candidate, key, value);
+            effective_value = effective_for(candidate);
+            plate->settings = std::move(candidate);
             plate->settings_metadata = config_metadata_json(plate->settings);
         }
         json& bucket = scope == "project" ? state().project_config_overlay["project"]
             : scope == "object" ? state().project_config_overlay["objects"][id]
             : scope == "part" ? state().project_config_overlay["parts"][id]
             : state().project_config_overlay["plates"][id];
-        bucket[key] = value;
-        const auto mutation = shared_configuration_mutation_snapshot();
+        bucket[key] = effective_value;
+        const auto mutation = scope == "plate"
+            ? plate_configuration_mutation_snapshot(id, "prime-tower-position")
+            : shared_configuration_mutation_snapshot();
         json result = project_config_overlay_result();
         result["plate_session"] = mutation;
+        if (configuration_status.has_value()) result["configuration_status"] = *configuration_status;
         return dup_json(result.dump());
-    } catch (const std::exception& e) { return error_json(e.what()); }
-    catch (...) { return error_json("unknown C++ exception"); }
+    } catch (const BadOptionValueException& e) {
+        return native_configuration_error_json("native_validation_failure", e.what());
+    } catch (const std::exception& e) { return native_configuration_error_json("native_validation_failure", e.what()); }
+    catch (...) { return native_configuration_error_json("native_validation_failure", "unknown C++ exception"); }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_revalidate_project_config_overlay() {

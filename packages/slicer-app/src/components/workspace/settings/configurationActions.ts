@@ -1,5 +1,5 @@
 import type { PlatformCapabilities } from '@orca/platform-contract';
-import type { PlateSessionMutation } from '@slicer/client';
+import type { PlateSessionMutation, ProjectConfigOverrideTarget } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
@@ -20,6 +20,7 @@ async function commitSharedConfigurationMutationNow(
   platform: PlatformCapabilities,
   optionKey?: string,
   value?: string,
+  target: ProjectConfigOverrideTarget = { scope: 'project' },
 ): Promise<PlateSessionMutation> {
   const markConfiguration = platform.runtime.markSharedConfigurationMutation;
   const setOverride = platform.runtime.setProjectConfigOverride;
@@ -33,8 +34,12 @@ async function commitSharedConfigurationMutationNow(
       'Change Project Configuration',
       async () => {
         if (optionKey !== undefined && typeof setOverride === 'function') {
-          const result = await setOverride.call(platform.runtime, { scope: 'project' }, optionKey, value ?? '');
+          const result = await setOverride.call(platform.runtime, target, optionKey, value ?? '');
           if (!result.ok) throw new Error(result.error);
+          if (result.configurationStatus?.state === 'ready' && result.configurationStatus.errors.length > 0)
+            throw new Error(result.configurationStatus.errors.join('; '));
+          if (result.configurationStatus?.state === 'ready' && result.configurationStatus.warnings.length > 0)
+            useSlicerStore.getState().setError(`[Warning] ${result.configurationStatus.warnings.join('; ')}`);
           useSettingsStore.getState().setOverlay(result.overlay);
           return result.plateSession ?? await markConfiguration.call(platform.runtime);
         }
@@ -42,9 +47,15 @@ async function commitSharedConfigurationMutationNow(
       },
     )).result;
   } catch (error) {
-    throw new Error(errorText(error));
+    const message = errorText(error);
+    useSlicerStore.getState().setError(message);
+    throw new Error(message);
   }
-  if (!mutation.ok) throw new Error(mutation.error ?? 'shared configuration mutation failed');
+  if (!mutation.ok) {
+    const message = mutation.error ?? 'shared configuration mutation failed';
+    useSlicerStore.getState().setError(message);
+    throw new Error(message);
+  }
   const activeJob = useSlicerStore.getState().activeSliceTarget;
   if (activeJob && (mutation.affectedPlateIds ?? []).includes(activeJob.plateId)) {
     useSlicerStore.getState().invalidatePlateResults([activeJob.plateId]);
@@ -62,9 +73,10 @@ export function commitSharedConfigurationMutation(
   platform: PlatformCapabilities,
   optionKey?: string,
   value?: string,
+  target?: ProjectConfigOverrideTarget,
 ): Promise<PlateSessionMutation> {
   const task = configurationMutationQueue.then(() =>
-    commitSharedConfigurationMutationNow(platform, optionKey, value));
+    commitSharedConfigurationMutationNow(platform, optionKey, value, target));
   configurationMutationQueue = task.then(() => undefined, () => undefined);
   return task;
 }
@@ -89,5 +101,10 @@ export async function applyPresetConfigurationMutation(platform: PlatformCapabil
 export function invalidateAfterSharedConfigurationMutation(): void {
   // Shared printer/process/filament inputs are common to every plate. Keep
   // no completed result (or active job) across this boundary.
+  const existingStatus = useSlicerStore.getState().error;
   useSlicerStore.getState().invalidateSliceResult();
+  // Native configuration warnings are successful-command status, not stale
+  // slice errors. Preserve the visible warning while the result projection is
+  // invalidated; ordinary errors retain the existing clearing behaviour.
+  if (existingStatus?.startsWith('[Warning]')) useSlicerStore.getState().setError(existingStatus);
 }

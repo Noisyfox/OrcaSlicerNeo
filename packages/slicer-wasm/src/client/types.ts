@@ -129,15 +129,39 @@ export interface ProjectConfigOverrideTarget {
   readonly id?: number | string;
 }
 
+export interface ConfigurationCorrection {
+  readonly key: string;
+  readonly requested: string;
+  readonly effective: string;
+}
+
+export interface ConfigurationReadyStatus {
+  readonly state: 'ready';
+  readonly corrections: readonly ConfigurationCorrection[];
+  readonly warnings: readonly string[];
+  readonly errors: readonly string[];
+}
+
+export interface ConfigurationErrorStatus {
+  readonly state: 'error';
+  readonly error: string;
+}
+
+export type ConfigurationStatus = ConfigurationReadyStatus | ConfigurationErrorStatus;
+
 export interface ProjectConfigOverlayResult {
   readonly ok: true;
   readonly overlay: ProjectConfigOverlay;
   readonly plateSession?: PlateSessionMutation;
+  /** Native option parse/normalization feedback for configuration commands. */
+  readonly configurationStatus?: ConfigurationReadyStatus;
 }
 
 export interface ProjectConfigOverlayError {
   readonly ok?: false;
   readonly error: string;
+  readonly errorCode?: string;
+  readonly status?: ConfigurationErrorStatus;
 }
 
 export type ProjectConfigOverlayResultOrError = ProjectConfigOverlayResult | ProjectConfigOverlayError;

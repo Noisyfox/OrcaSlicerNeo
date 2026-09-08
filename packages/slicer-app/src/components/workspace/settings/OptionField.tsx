@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/settings/OptionField.tsx
-import type { OptionMeta } from '@slicer/client';
+import type { OptionMeta, ProjectConfigOverrideTarget } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useEffect, useRef, useState } from 'react';
 import { errorText } from '@orca/slicer-runtime';
@@ -15,15 +15,29 @@ export async function commitOptionFieldChange(
   platform: Parameters<typeof commitSharedConfigurationMutation>[0],
   optionKey: string,
   next: string,
+  target: ProjectConfigOverrideTarget = { scope: 'project' },
 ): Promise<void> {
-  await commitSharedConfigurationMutation(platform, optionKey, next);
-  useSettingsStore.getState().setOverlayValue('project', undefined, optionKey, next);
+  await commitSharedConfigurationMutation(platform, optionKey, next, target);
+  // The Worker response already installed the native serialized effective
+  // value in the overlay.  Only legacy runtimes without the typed override
+  // command need the requested value mirrored locally.
+  if (typeof platform.runtime.setProjectConfigOverride !== 'function')
+    useSettingsStore.getState().setOverlayValue(target.scope, target.id === undefined ? undefined : String(target.id), optionKey, next);
   invalidateAfterSharedConfigurationMutation();
 }
 
-export function OptionField({ optionKey, meta }: { optionKey: string; meta: OptionMeta }) {
+export function OptionField({ optionKey, meta, target = { scope: 'project' } }: {
+  optionKey: string;
+  meta: OptionMeta;
+  target?: ProjectConfigOverrideTarget;
+}) {
   const platform = usePlatform();
-  const value = useSettingsStore((s) => s.values[optionKey] ?? meta.default ?? '');
+  const value = useSettingsStore((s) => {
+    if (target.scope === 'project') return s.values[optionKey] ?? meta.default ?? '';
+    const id = target.id === undefined ? '' : String(target.id);
+    return s.overlay[target.scope === 'plate' ? 'plates' : target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey]
+      ?? meta.default ?? '';
+  });
   const [draft, setDraft] = useState(value);
   const focused = useRef(false);
   const committing = useRef(false);
@@ -33,8 +47,13 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
     if (committing.current) return;
     committing.current = true;
     try {
-      await commitOptionFieldChange(platform, optionKey, next);
-      setDraft(next);
+      await commitOptionFieldChange(platform, optionKey, next, target);
+      const state = useSettingsStore.getState();
+      const id = target.id === undefined ? '' : String(target.id);
+      const effective = target.scope === 'project'
+        ? state.values[optionKey]
+        : state.overlay[target.scope === 'plate' ? 'plates' : target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey];
+      setDraft(effective ?? next);
     } catch (error) {
       setError(errorText(error));
     } finally {
