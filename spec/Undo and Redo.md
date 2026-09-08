@@ -93,9 +93,17 @@ The following are explicitly outside history:
 - opening or closing a gizmo as an isolated UI action;
 - derived slicing and preview output.
 
-Undo/Redo therefore never rewrites global preferences. When a restored project
-requires a compatible printing technology, normal preset compatibility/loading
-may run, but this is not an attempt to restore a historical global preset.
+Undo/Redo therefore does not restore historical global-preference snapshots.
+When a restored project requires a compatible printing technology, normal
+preset compatibility/loading may run, but this is not an attempt to restore a
+historical global preset.
+
+The approved multi-filament feature defines one narrow projection exception:
+after an Undo/Redo restoration changes the current project's filament rack, Neo
+writes that resulting rack as the selected printer's last-used default for
+future new projects. The rack preference is not itself part of history and no
+other global preference is changed. See
+[`Multi-Filament Support.md`](Multi-Filament%20Support.md#103-per-printer-remembered-rack).
 
 Project-owned overrides are canonical Worker `ProjectConfigOverlay` state,
 scoped to the project, object, part, or plate as applicable. They are validated

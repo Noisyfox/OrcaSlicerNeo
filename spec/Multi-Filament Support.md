@@ -70,8 +70,10 @@ Project state has priority over remembered defaults:
    last-used slot state for the selected printer.
 3. Remembered state is namespaced by printer and never replaces explicit slot
    state loaded from a project.
-4. Project-local changes may update the current printer's remembered defaults
-   for future new projects, but they do not alter another printer's defaults.
+4. The current effective slot state is mirrored to the selected printer's
+   remembered defaults after a successful explicit slot edit and after an
+   Undo/Redo restoration that changes that state. It never alters another
+   printer's defaults.
 
 The existing single selected-filament preference is therefore a compatibility
 projection of slot 1 during migration, not a second source of multi-filament
@@ -285,7 +287,77 @@ Prepare colouring is distinct from G-code Preview colouring:
 The two views should normally agree, but the UI does not reuse Prepare colours
 as fabricated evidence when a slice result lacks a tool or palette entry.
 
-## 10. Decisions Still to Be Clarified
+## 10. Project Persistence and History
+
+### 10.1 3MF project authority
+
+An opened multi-filament 3MF restores its complete ordered slot state through
+the existing upstream BBS project reader and preset-loading path. Embedded
+filament presets are project-session resources:
+
+- modified filament or printer G-code and missing corresponding system presets
+  use the existing project safety warning and confirmation flow;
+- confirmation permits the embedded presets only for the lifetime of the
+  opened project and never installs them in the global system library;
+- compatible embedded presets retain their exact project configuration;
+- a slot that cannot be used after native compatibility evaluation receives
+  OrcaSlicer's compatible fallback, and the load result reports every changed
+  slot before the project is accepted by the UI; and
+- rejecting the warning or failing restoration leaves the previous project,
+  history, and remembered rack unchanged.
+
+Project save writes every effective slot preset, colour, native map, flushing
+configuration, and model/plate assignment needed for native OrcaSlicer and Neo
+to reproduce the project. Derived G-code and preview buffers remain outside
+normal project persistence.
+
+### 10.2 History coverage
+
+Every exposed project-level filament mutation creates exactly one semantic
+Undo/Redo entry:
+
+- object, instance-as-object, part, and parameter-modifier assignment;
+- changing a slot's filament preset or effective colour;
+- adding a slot;
+- deleting a slot; and
+- merging a slot into another slot.
+
+The history frame must restore the complete native filament session, not only
+its React projection. It includes the ordered preset names, colours, colour
+metadata, filament/extruder/nozzle/volume maps, flush arrays and matrices, and
+all affected model, painting, custom-G-code, support, and plate references.
+Restoration is atomic with the model and plate-session history state. A failure
+leaves the current history cursor and live project unchanged.
+
+Filament session state is not represented solely as generic project-overlay
+strings: restoring it must re-establish `PresetBundle` and its validated full
+configuration before the restored project can be sliced.
+
+### 10.3 Per-printer remembered rack
+
+The selected printer has a versioned remembered-rack preference used only to
+seed a new project or a session without explicit project slot state. The live
+project remains authoritative while it is open.
+
+The remembered rack always mirrors the current effective filament session:
+
+- a successful explicit slot preset, colour, Add, Delete, or Merge with
+  operation writes the resulting projection;
+- Undo, Redo, and history jump write the restored projection after the native
+  restoration succeeds; and
+- failed, cancelled, or aborted mutations do not write preferences.
+
+This synchronization is a deliberate narrow exception to Neo's normal rule
+that Undo/Redo never rewrites global preferences. History still does not store
+or restore a global-preference snapshot. It restores project state first and
+then publishes that current state as the selected printer's last-used rack.
+No unrelated UI, host, printer, process, or global preference is changed.
+
+Preference persistence failure is non-fatal. The restored project state remains
+active, the failure is reported through the existing preference-error channel,
+and a later new project may fall back to the last successfully stored rack.
+
+## 11. Decisions Still to Be Clarified
 
 The living specification will be extended in coherent batches after decisions
 are made for:
