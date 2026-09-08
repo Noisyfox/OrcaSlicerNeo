@@ -170,18 +170,32 @@ The WASM build is an iteration surface, not a finished pipeline. When it fails:
    commit any verified, in-scope work already in the tree; do not silently
    bundle it with the new fix.
 2. Divide implementation into complete, independently testable pieces. Run the
-   appropriate checks and make one commit after every such piece; do not defer
-   all commits until the end of a multi-part change.
+   risk-based checks for that piece and make one commit after every such piece;
+   do not defer all commits until the end of a multi-part change. Follow
+   `doc/2026-09-08-test-execution-strategy.md`; the full release matrix is not
+   the default edit-loop or per-piece gate.
 3. Use pnpm for every workspace development, unit-test, typecheck, and
    Electron e2e command. Do not substitute npm or yarn. The platform build
    driver is the intentional exception for the native WASM quick build: on
    Windows run `scripts\build-windows.bat quick` (or `scripts/build.sh quick`
    on macOS/Linux) whenever the WASM bridge, build scaffold, or generated
    artifacts are affected.
-4. Before handoff, run `pnpm test`, `pnpm typecheck`, the applicable quick
-   WASM build, and `pnpm --filter @orca/desktop test:e2e`. In a sandboxed execution
-   environment, run Electron e2e with the required outside-sandbox approval.
-   Report the actual result; a known intentionally skipped test must be named.
+4. During the edit loop, run the smallest related Vitest target and affected
+   package typecheck. Add a focused host E2E only when unit tests cannot prove
+   the changed interaction or platform seam. WASM work starts with the affected
+   variant's focused quick/smoke path; do not automatically run both variants.
+5. Before a code handoff, run `pnpm test`, `pnpm typecheck`, focused E2E for
+   every affected host seam, and the applicable WASM checks. Common WASM changes
+   quick-build both variants, but the comprehensive bridge contract may run on
+   one variant plus variant-specific smoke on the other unless the changed code
+   is variant-dependent or an approved task specification requires both.
+6. Run the complete Electron, real Web threaded/serial, dual comprehensive
+   WASM, packaged-app, and compatibility matrix for releases, milestone
+   acceptance, overnight regression, or when an approved task specification
+   explicitly requires it—not after every implementation increment.
+7. Documentation-only handoffs require `git diff --check` and documentation
+   consistency review, not the product regression matrix. Always report the
+   actual commands and results; name intentional skips and tests not run.
 
 ## Testing
 
@@ -194,7 +208,9 @@ The WASM build is an iteration surface, not a finished pipeline. When it fails:
 - e2e (Playwright): drive the full v1 flow in the Electron app
   (`apps/desktop/e2e/`) and in Chrome against both real wasm64 artifacts
   (`apps/web/e2e/`, `scripts/run-web-e2e-serial.mjs`), plus a packaged-app
-  runtime probe (`scripts/run-desktop-e2e-real.mjs`).
+  runtime probe (`scripts/run-desktop-e2e-real.mjs`). These are release-level
+  evidence. During development, route changes to focused tests using
+  `doc/2026-09-08-test-execution-strategy.md`.
 
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph

@@ -5,6 +5,14 @@ GUI rewrite of OrcaSlicer. The approved design is
 [`doc/2026-08-12-electron-gui-rewrite-design.md`](../doc/2026-08-12-electron-gui-rewrite-design.md);
 details and status live in [`doc/high_level_dev_plan.md`](../doc/high_level_dev_plan.md).
 
+Verification frequency follows the accepted
+[`test execution strategy`](../doc/2026-09-08-test-execution-strategy.md):
+focused, risk-based checks during implementation; root regression and affected
+host/runtime checks before code handoff; and the complete cross-host,
+threaded/serial, packaging, and compatibility matrix for release or milestone
+acceptance. Historical milestone command lists below are release evidence, not
+the default edit-loop gate.
+
 ## Milestone 0: Foundation
 
 - [x] Design doc approved and committed (`doc/2026-08-12-electron-gui-rewrite-design.md`)

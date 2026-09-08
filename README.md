@@ -42,7 +42,9 @@ tools/ scripts/        dev utilities, CI scripts
 ```
 
 See [project_structure_and_guidelines.md](project_structure_and_guidelines.md) and
-[AGENTS.md](AGENTS.md) for structure and engineering conventions.
+[AGENTS.md](AGENTS.md) for structure and engineering conventions. Test
+frequency and focused-versus-release routing are defined by the
+[risk-based test execution strategy](doc/2026-09-08-test-execution-strategy.md).
 
 ## Building
 

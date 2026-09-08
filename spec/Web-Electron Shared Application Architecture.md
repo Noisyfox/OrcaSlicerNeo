@@ -403,7 +403,11 @@ changing the common application or C++ bridge.
 
 ## 10. Required Verification
 
-The refactor is not complete until all of the following hold:
+The following list is release/milestone acceptance evidence. It is not the
+default edit-loop or per-commit matrix; routine execution follows
+`doc/2026-09-08-test-execution-strategy.md` and selects the smallest test set
+that covers the changed risk. The refactor is not complete until all of the
+following hold:
 
 1. Shared-package unit tests run with no Electron runtime.
 2. Chrome Web E2E covers import, system-profile selection, slicing, preview,
@@ -419,6 +423,13 @@ manifest and every vendor package.
 
 Mocks remain appropriate for fast unit/UI tests but cannot replace real WASM
 verification of either artifact.
+
+For routine development, shared application behaviour is exercised end to end
+in one primary host. The other host validates its platform seam, and the second
+WASM variant validates selection/fallback plus a focused real slice path. The
+complete cross-host and threaded/serial matrix above runs for release,
+milestone acceptance, overnight regression, or an explicitly documented
+high-risk task gate.
 
 ## 11. Explicitly Deferred Work
 
