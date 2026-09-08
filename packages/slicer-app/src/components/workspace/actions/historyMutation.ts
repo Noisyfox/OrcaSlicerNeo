@@ -111,6 +111,7 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
     const status = typeof runtime.getHistoryStatus === 'function'
       ? await runtime.getHistoryStatus().catch(() => null)
       : null;
+    if (status) projectHistoryStatus(status);
     return {
       result: { ok: false, error: error instanceof Error ? error.message : String(error) } as T,
       status,
@@ -119,13 +120,18 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
 }
 
 /** Keep the renderer's dirty projection aligned with the Worker checkpoint. */
+export function projectHistoryStatus(status: HistoryStatus): HistoryStatus {
+  useHistoryNavigationStore.getState().setStatus(status);
+  useProjectStore.getState().setProject({ dirty: status.dirty, dirtyReasons: [] });
+  return status;
+}
+
+/** Read and project the Worker's current checkpoint state. */
 export async function syncHistoryStatus(runtime: Partial<Pick<SlicerRuntime, 'getHistoryStatus'>>): Promise<HistoryStatus | null> {
   if (typeof runtime.getHistoryStatus !== 'function') return null;
   try {
     const status = await runtime.getHistoryStatus();
-    useHistoryNavigationStore.getState().setStatus(status);
-    useProjectStore.getState().setProject({ dirty: status.dirty, dirtyReasons: [] });
-    return status;
+    return projectHistoryStatus(status);
   } catch {
     return null;
   }

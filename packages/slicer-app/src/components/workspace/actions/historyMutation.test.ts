@@ -57,6 +57,19 @@ describe('structural history transaction boundary', () => {
     expect(response.result).toEqual({ ok: false, error: 'rejected' });
   });
 
+  it('projects the Worker checkpoint after an aborted transaction', async () => {
+    const runtime = {
+      runProjectHistoryTransaction: vi.fn(async () => { throw new Error('mutation failed'); }),
+      getHistoryStatus: vi.fn(async () => ({ ...status, dirty: false, dirtyReasons: undefined })),
+    };
+    useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
+
+    const response = await runProjectHistoryMutation(runtime as never, 'Clear Scene', async () => ({ ok: true }));
+
+    expect(response.result).toEqual({ ok: false, error: 'mutation failed' });
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [] });
+  });
+
   it('filters deleted stable IDs and reads the authoritative active plate for after-context', async () => {
     const committed: { context?: HistoryContext } = {};
     const runtime = {

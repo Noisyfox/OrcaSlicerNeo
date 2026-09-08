@@ -560,3 +560,20 @@ repair sequence is complete prematurely.
   same `selectionBoundsWorld()` wait; the failure is outside the Worker/core
   traversal changes and no unrelated E2E behavior was modified here.
 - Root acceptance is intentionally not recorded in this execution record.
+
+### Repair 3 execution record — canonical dirty projection after restore
+
+- Centralized Worker `HistoryStatus` projection in `projectHistoryStatus()` so
+  successful Undo/Redo/jump restores update both history navigation and the
+  canonical `useProjectStore.dirty` field, clearing legacy dirty reasons.
+- Applied the same projection when a history transaction aborts and its Worker
+  status is recovered, while restore failures retain the previous projection.
+- Added regressions for save-checkpoint navigation (Undo to clean, Redo to
+  dirty), aborted transactions, and failed restores preserving dirty state.
+- Focused restore/history-mutation tests passed (9/9); full `pnpm test` passed
+  (411 slicer-app tests), and `pnpm typecheck` passed. Desktop E2E passed 30
+  with 3 existing skips; threaded Web E2E passed 5/5; serial Web E2E passed
+  5/5. No WASM quick build was required because this repair changes only the
+  shared TypeScript dirty projection and does not touch the bridge or WASM
+  sources.
+- Root acceptance is intentionally not recorded in this execution record.

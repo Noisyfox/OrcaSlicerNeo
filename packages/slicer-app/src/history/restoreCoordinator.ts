@@ -5,6 +5,7 @@ import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
+import { projectHistoryStatus } from '../components/workspace/actions/historyMutation';
 
 export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string };
 
@@ -81,7 +82,7 @@ export function createHistoryRestoreCoordinator({
         return false;
       }
       // Do not project model or context before the Worker returns success.
-      useHistoryNavigationStore.getState().setStatus(result.status);
+      projectHistoryStatus(result.status);
       useHistoryRestoreStore.getState().setSnapshotSuppressed(true);
       useSlicerStore.getState().invalidateSliceResult();
       refreshModel();

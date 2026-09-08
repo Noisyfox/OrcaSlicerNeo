@@ -3,6 +3,7 @@ import type { HistoryContext, HistoryStatus, RestoreResult } from '@slicer/clien
 import { createHistoryRestoreCoordinator } from './restoreCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
+import { useProjectStore } from '../stores/useProjectStore';
 
 const context: HistoryContext = {
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
@@ -30,6 +31,7 @@ describe('history restore coordinator', () => {
   beforeEach(() => {
     useHistoryRestoreStore.getState().reset();
     useSlicerStore.getState().invalidateSliceResult();
+    useProjectStore.getState().reset();
   });
 
   it('consumes the first shortcut by cancelling a draft drag', async () => {
@@ -72,6 +74,7 @@ describe('history restore coordinator', () => {
   });
 
   it('keeps the old projection on retryable Worker restore failure', async () => {
+    useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
     const refreshModel = vi.fn();
     const failed: RestoreResult = { ok: false, error: {
       code: 'restore-failed', message: 'invalid staged model', retryable: true,
@@ -85,5 +88,25 @@ describe('history restore coordinator', () => {
     expect(refreshModel).not.toHaveBeenCalled();
     expect(useHistoryRestoreStore.getState().error).toBe('invalid staged model');
     expect(useHistoryRestoreStore.getState().phase).toBe('idle');
+    expect(useProjectStore.getState()).toMatchObject({ dirty: true, dirtyReasons: ['model-transform'] });
+  });
+
+  it('projects Worker dirty state after undoing to and redoing away from a saved checkpoint', async () => {
+    const saved = success();
+    const dirtyAgain = { ...success(), status: { ...status, dirty: true, cursor: 2, revision: 2 } };
+    const undoHistory = vi.fn(async () => saved);
+    const redoHistory = vi.fn(async () => dirtyAgain);
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory, redoHistory, jumpHistory: vi.fn(), cancel: vi.fn() },
+      sceneInteraction: fakeScene(),
+      refreshModel: vi.fn(),
+    });
+
+    useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
+    await expect(coordinator.restore('undo')).resolves.toBe(true);
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [] });
+
+    await expect(coordinator.restore('redo')).resolves.toBe(true);
+    expect(useProjectStore.getState()).toMatchObject({ dirty: true, dirtyReasons: [] });
   });
 });
