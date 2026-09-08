@@ -1,7 +1,7 @@
 # Undo and Redo
 
 **Date:** 2026-09-07
-**Status:** Delivered and verified — Repair 6 self-verification complete; pending independent root acceptance (2026-09-08)
+**Status:** Delivered and verified — implementation accepted 2026-09-08
 **Branch:** `dev/undo-redo-design`
 
 ## 1. Goal
