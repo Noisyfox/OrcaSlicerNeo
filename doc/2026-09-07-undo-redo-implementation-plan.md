@@ -464,3 +464,39 @@ coalescing, and reproducible three-host release evidence.
 | 7 | `e593323` | Client overlay test, slicer-app suite, full `pnpm test`, `pnpm typecheck`, dual quick, dual smoke, Desktop E2E 29 passed/3 existing skips, and threaded/serial Web E2E 4/4 each | Reviewed overlay persistence/history, draft commit boundaries, preset exclusion, atomic rejected writes, and final host gates; independently reran focused client/settings coverage | Accepted 2026-09-07 |
 | 8 | `68fbb42`, `98afaaf` | Navigation/Toolbar component tests, full workspace checks, dual WASM smoke, Desktop E2E 29 passed/3 existing skips, threaded/serial Web E2E 4/4 each | Reviewed Worker-status navigation path, context-entry filtering, shortcut focus filtering, and direct jump; independently ran navigation/Toolbar 14/14 and desktop shared-history E2E 1/1 | Accepted 2026-09-08 |
 | 9 | `171475f`, `eff1c15`, `c747854` | Focused protocol 9/9, standalone native ProjectHistory fixture, workspace tests (409 slicer-app tests), typecheck, dual quick/smoke, Desktop E2E 30 passed/3 existing skips, threaded Web E2E 5/5, serial Web E2E 5/5 | Reviewed resource/coalescing diff, Windows launcher, and temporary-report hygiene; independently ran `pnpm verify:undo-redo`: test, typecheck, dual quick/smoke, Desktop E2E, threaded Web E2E, and serial Web E2E all exited 0 | Accepted 2026-09-08 |
+
+## 13. Post-review remediation sequence
+
+The 2026-09-08 branch review found six deviations from the accepted design.
+They are repaired sequentially under the same agent gate as the original
+implementation: one fresh `gpt-5.6-luna` agent at `high` reasoning effort per
+step, agent self-verification and an in-scope commit, followed by independent
+root review and focused verification before the next step begins.
+
+1. Restore the complete Worker-owned plate session in every history frame:
+   plate collection, stable IDs, active plate, memberships, ordering, locks,
+   revisions, and project-owned plate configuration.
+2. Make one-step Undo/Redo skip context-only entries while restoring the
+   adjacent project frame and preserving correct redo branching.
+3. Project Worker history dirty state into the canonical project store after
+   every restore so save-point navigation and close protection agree.
+4. Keep restore fencing active until structure, mesh, selection, active plate,
+   gizmo, dirty state, and slice invalidation have all completed projection.
+5. Correct directional menu jump semantics: an Undo item restores the state
+   before its named operation, while Redo restores the state after it.
+6. Account for every history-exclusive native allocation represented by the
+   adapted core, including dynamic container and string storage, and retain
+   deterministic budget/eviction coverage.
+
+The stale specification status line is corrected with the final remediation
+step after all functional fixes pass, so documentation does not claim the
+repair sequence is complete prematurely.
+
+| Repair | luna-high implementation commit | Agent self-verification | Root acceptance | Status |
+| --- | --- | --- | --- | --- |
+| 1 | — | — | — | Not started |
+| 2 | — | — | — | Not started |
+| 3 | — | — | — | Not started |
+| 4 | — | — | — | Not started |
+| 5 | — | — | — | Not started |
+| 6 | — | — | — | Not started |
