@@ -387,7 +387,7 @@ Release-gate commands (all passed on 2026-09-04):
 
 ## Milestone 16: Undo and Redo
 
-> [!success] Status: **approved design** (2026-09-07). Major specification:
+> [!success] Status: **implemented and accepted** (2026-09-08). Major specification:
 > [`Undo and Redo.md`](Undo%20and%20Redo.md).
 > Sequential execution plan:
 > [`2026-09-07-undo-redo-implementation-plan.md`](../doc/2026-09-07-undo-redo-implementation-plan.md).
@@ -398,17 +398,17 @@ active plate, and gizmo) without recording global preset selection or system
 preferences. Complete 3MF archives and derived slice/preview output are not
 history entries.
 
-- [ ] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
+- [x] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
       approved 256 MiB cross-host budget and eviction policy
-- [ ] Add the Worker/WASM project-history contract and shared restore flow
-- [ ] Make the Worker authoritative for history context, committed transforms,
+- [x] Add the Worker/WASM project-history contract and shared restore flow
+- [x] Make the Worker authoritative for history context, committed transforms,
       and project configuration overlays
-- [ ] Integrate semantic command, gesture, selection, and active-plate
+- [x] Integrate semantic command, gesture, selection, and active-plate
       transactions with the saved-checkpoint dirty-state model; every exposed
       project mutation must use that transaction boundary
-- [ ] Add directional history menus, direct jump, focus-aware keyboard
+- [x] Add directional history menus, direct jump, focus-aware keyboard
       bindings, and cross-host verification
-- [ ] Add unit, Worker/WASM, large-model budget/eviction, and three-host
+- [x] Add unit, Worker/WASM, large-model budget/eviction, and three-host
       end-to-end coverage; keep timing and peak memory as diagnostics initially
 
 ## Post-v1 Expansion (queued, not yet scheduled)

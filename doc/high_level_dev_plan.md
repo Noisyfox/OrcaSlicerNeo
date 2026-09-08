@@ -469,7 +469,7 @@ execution record.
 
 ### Milestone 16 — Undo and Redo
 
-> **Status: approved design (2026-09-07).** The major specification is
+> **Status: implemented and accepted (2026-09-08).** The major specification is
 > `spec/Undo and Redo.md`.
 > Its sequential agent-gated execution plan is
 > `doc/2026-09-07-undo-redo-implementation-plan.md`.
@@ -479,16 +479,16 @@ History restores model/project changes plus selection, active plate, and gizmo
 context. It excludes global preset selection, global/system preferences, full
 3MF archives, and derived slice/preview output.
 
-- [ ] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
+- [x] Extract/adapt Orca's wx-free `ObjectID`-version history core with the
       approved 256 MiB cross-host budget and eviction policy.
-- [ ] Implement the Worker/WASM history contract and coherent restore path.
-- [ ] Make the Worker authoritative for history context, committed transforms,
+- [x] Implement the Worker/WASM history contract and coherent restore path.
+- [x] Make the Worker authoritative for history context, committed transforms,
       and project configuration overlays.
-- [ ] Integrate semantic command/gesture/selection/active-plate transactions
+- [x] Integrate semantic command/gesture/selection/active-plate transactions
       with the saved-checkpoint dirty-state model; every exposed project
       mutation must use that boundary. Then add UI/key bindings and directional
       history menus/direct jump plus cross-host verification.
-- [ ] Add unit, Worker/WASM, large-model budget/eviction, and Electron/Web
+- [x] Add unit, Worker/WASM, large-model budget/eviction, and Electron/Web
       verification; record timing and peak memory as diagnostics initially.
 
 ### Maintenance — Filament Library Selector Completeness
