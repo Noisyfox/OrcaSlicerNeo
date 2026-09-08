@@ -105,7 +105,57 @@ All successful slot mutations invalidate affected slice results. Shared slot
 configuration changes affect every plate unless a later specification defines
 an explicitly plate-local material model.
 
-## 7. Decisions Still to Be Clarified
+## 7. Object and Part Assignment
+
+Filament assignment follows OrcaSlicer's native object-list model. The bridge
+stores assignments in native `ModelConfig`; React only projects and edits that
+state through typed commands.
+
+### 7.1 Assignment hierarchy
+
+- Every object has an effective filament slot. An absent or zero object value
+  is normalized to slot 1 when the object is explicitly assigned.
+- A `MODEL_PART` volume normally inherits its parent object's slot and may
+  carry an explicit part-level override.
+- The UI represents an inherited model-part assignment distinctly from an
+  explicit assignment, even when both currently resolve to the same slot.
+- Assigning a filament to an object clears explicit `MODEL_PART` filament
+  overrides below that object. All of its model parts then inherit the newly
+  assigned object slot, matching native OrcaSlicer.
+- A `PARAMETER_MODIFIER` may carry its own filament assignment. Assigning its
+  parent object does not clear that modifier configuration.
+
+### 7.2 Eligible targets
+
+Direct filament assignment is available for:
+
+- objects;
+- instances, as an interaction alias for their owning object;
+- `MODEL_PART` volumes; and
+- `PARAMETER_MODIFIER` volumes.
+
+`NEGATIVE_VOLUME`, `SUPPORT_BLOCKER`, and `SUPPORT_ENFORCER` volumes do not
+produce a direct filament assignment and do not expose the command. Dedicated
+support-material or region-setting controls may configure related print
+options in a later milestone without changing this target rule.
+
+### 7.3 Instance and multi-selection semantics
+
+Filament assignment is not an instance-level model property. Invoking the
+command from an instance row assigns its owning object, so every instance of
+that object receives the same effective object/part assignment. Neo does not
+invent per-instance filament state or duplicate an object implicitly.
+
+Homogeneous multi-selection supports one atomic assignment across eligible
+objects or eligible volumes. Instance entries are deduplicated to their owning
+objects. Ineligible entries are not silently mutated; command availability and
+the eventual typed result must make the accepted target set explicit.
+
+Selecting the inherit value for a `MODEL_PART` removes its explicit `extruder`
+configuration and resolves the effective slot from the object. Object targets
+cannot select inherit because there is no higher model assignment level.
+
+## 8. Decisions Still to Be Clarified
 
 The living specification will be extended in coherent batches after decisions
 are made for:
