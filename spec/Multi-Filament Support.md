@@ -138,8 +138,8 @@ Direct filament assignment is available for:
 
 `NEGATIVE_VOLUME`, `SUPPORT_BLOCKER`, and `SUPPORT_ENFORCER` volumes do not
 produce a direct filament assignment and do not expose the command. Dedicated
-support-material or region-setting controls may configure related print
-options in a later milestone without changing this target rule.
+support-material and feature-path controls configure related print options
+without changing this target rule.
 
 ### 7.3 Instance and multi-selection semantics
 
@@ -287,9 +287,101 @@ Prepare colouring is distinct from G-code Preview colouring:
 The two views should normally agree, but the UI does not reuse Prepare colours
 as fabricated evidence when a slice result lacks a tool or palette entry.
 
-## 10. Project Persistence and History
+## 10. Flushing, Prime Tower, and Feature Routing
 
-### 10.1 3MF project authority
+### 10.1 Flushing-volume policy
+
+The first release does not provide a flushing-volume matrix editor or an
+All/Colour/None automatic-calculation preference. Neo always uses the native
+OrcaSlicer calculation after an input that affects flushing changes, including:
+
+- a slot's filament preset, material properties, or effective colour;
+- slot Add, Delete, Merge with, or renumbering; and
+- the support/raft base or support/raft interface filament selection.
+
+The Worker recalculates and returns the complete matrix atomically with the
+filament session. React neither derives individual values nor applies partial
+matrix edits.
+
+Opening a 3MF is not itself a flushing-input edit. Neo initially preserves the
+project's stored matrix exactly for OrcaSlicer interoperability. The first
+subsequent change to a flushing input unconditionally replaces that imported
+matrix with a complete native recalculation. Project save persists the current
+effective matrix even though Neo does not expose direct editing in this
+release.
+
+### 10.2 Prime tower controls
+
+Prime tower remains native Process configuration rather than a property
+inferred solely from the number of slots. The first release exposes these
+basic controls:
+
+- `enable_prime_tower`;
+- per-plate X and Y position; and
+- `prime_tower_width`.
+
+All other prime-tower parameters retain their Process-preset values and remain
+round-trippable without a first-release editing surface. The session applies
+OrcaSlicer's normalization and validation for the actual used-filament count,
+print sequence, G-code flavour, layer constraints, and build-volume bounds.
+The UI presents returned corrections, errors, and warnings; it does not force
+the tower on merely because the project has multiple slots.
+
+### 10.3 Support and raft filament
+
+The Support settings expose OrcaSlicer's two independent simple controls:
+
+- **Support/raft base** maps `support_filament`; and
+- **Support/raft interface** maps `support_interface_filament`.
+
+Each control offers `Default` plus every current filament slot. Native value
+zero (`Default`) means that no filament is forced and the currently active
+object/part filament is used; it does not mean slot 1. An explicit value is a
+one-based slot reference.
+
+The two settings may exist at Process and object override scope wherever the
+existing settings architecture permits the corresponding native option.
+Delete and Merge with update them in the same atomic slot-remapping
+transaction. A deleted explicit value with no merge destination falls back to
+`Default`, not slot 1.
+
+### 10.4 Feature-path filament routing
+
+The first release exposes all six native advanced filament-routing options in
+a collapsed **Advanced filament routing** group for eligible object and
+`MODEL_PART` settings:
+
+- outer walls and inner walls;
+- sparse infill and internal solid infill; and
+- top surface and bottom surface.
+
+Each selector offers `Default` plus every current slot. Here `Default` means
+inherit the active object/part filament. It remains distinct from the support
+controls' "use the currently active filament" behaviour.
+
+These options participate in project persistence, one-step Undo/Redo, slice
+invalidation, and atomic slot Delete/Merge remapping. A deleted explicit value
+with no merge destination becomes `Default`; a Merge with operation replaces
+it with the selected surviving slot before later slot IDs are renumbered.
+
+### 10.5 Deferred multi-colour editors
+
+The first release creates and edits multi-colour model intent only through
+object, `MODEL_PART`, and `PARAMETER_MODIFIER` assignment plus the feature-path
+controls above. It does not provide:
+
+- facet-level multi-material painting; or
+- Preview layer-slider creation or editing of colour-change and tool-change
+  events.
+
+Imported facet painting and layer/tool-change events remain lossless project
+state: Neo must preserve, slice, preview, save, and atomically remap them during
+slot Delete or Merge with. Their absence from the UI must never clear or
+normalize them merely by opening and saving a project.
+
+## 11. Project Persistence and History
+
+### 11.1 3MF project authority
 
 An opened multi-filament 3MF restores its complete ordered slot state through
 the existing upstream BBS project reader and preset-loading path. Embedded
@@ -311,12 +403,15 @@ configuration, and model/plate assignment needed for native OrcaSlicer and Neo
 to reproduce the project. Derived G-code and preview buffers remain outside
 normal project persistence.
 
-### 10.2 History coverage
+### 11.2 History coverage
 
 Every exposed project-level filament mutation creates exactly one semantic
 Undo/Redo entry:
 
 - object, instance-as-object, part, and parameter-modifier assignment;
+- support/raft base, support/raft interface, and advanced feature-path
+  filament selection;
+- prime-tower enable, position, and width changes;
 - changing a slot's filament preset or effective colour;
 - adding a slot;
 - deleting a slot; and
@@ -333,7 +428,7 @@ Filament session state is not represented solely as generic project-overlay
 strings: restoring it must re-establish `PresetBundle` and its validated full
 configuration before the restored project can be sliced.
 
-### 10.3 Per-printer remembered rack
+### 11.3 Per-printer remembered rack
 
 The selected printer has a versioned remembered-rack preference used only to
 seed a new project or a session without explicit project slot state. The live
@@ -357,14 +452,12 @@ Preference persistence failure is non-fatal. The restored project state remains
 active, the failure is reported through the existing preference-error channel,
 and a later new project may fall back to the last successfully stored rack.
 
-## 11. Decisions Still to Be Clarified
+## 12. Decisions Still to Be Clarified
 
 The living specification will be extended in coherent batches after decisions
 are made for:
 
-- object and part assignment and inheritance;
-- add, delete, replacement, and imported-state remapping;
-- detailed sidebar and Object List interaction;
-- Undo/Redo transaction contents and dirty-state behaviour;
-- 3MF interoperability, fallback, and conflict handling; and
+- slice scheduling, stale-result presentation, and progress/cancellation;
+- error and warning presentation for incompatible material combinations;
+- Web and Electron resource limits and recovery behaviour; and
 - acceptance fixtures and verification scope.
