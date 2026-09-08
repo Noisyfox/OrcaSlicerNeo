@@ -500,6 +500,7 @@ repair sequence is complete prematurely.
 | 4 | `7a7826e` | Focused restore/GL barrier 9/9, `pnpm test` (414 slicer-app tests), `pnpm typecheck`, Desktop E2E 30 passed/3 existing skips, threaded Web 5/5, and serial Web 5/5 | Reviewed the Worker-success-to-renderer-ready barrier, revision fencing, empty-scene clear, mesh failure cleanup, plate/context projection ordering, and joined restore behavior; independently ran focused restore/GL barrier 9/9, Workspace 5/5, `pnpm typecheck`, and diff hygiene | Accepted 2026-09-08 |
 | 5 | `a27a915`, `c79b56d`, `d87a3ac` | Native ProjectHistory fixture; focused protocol/Worker 19/19 and Toolbar/restore 17/17; `pnpm test` (112 slicer-wasm and 416 slicer-app tests); `pnpm typecheck`; dual WASM quick/smoke; Desktop E2E 30 passed/3 existing skips; threaded and serial Web E2E 5/5; real serial/threaded directional history smoke | Returned the first submission for a context-entry/default-direction bypass, then required actual evicted-ID and real-WASM bridge coverage; reviewed the explicit directional contract and project-frame resolution; independently ran native ProjectHistory, focused protocol/Worker 19/19, Toolbar/restore 17/17, serial/threaded real history smoke, `pnpm typecheck`, and diff hygiene | Accepted 2026-09-08 |
 | 6 | `f655bb1`, `4eab2be` | Native ProjectHistory fixture, focused protocol, dual quick, serial/threaded history smoke, `pnpm test`, and `pnpm typecheck` passed; real-WASM smoke covers accounting diagnostics and retained restore, while native fixture covers deterministic eviction/oversized boundaries; Desktop E2E 29 passed/3 existing skips plus one transient Add Primitive failure that passed alone; threaded/serial Web E2E 5/5 | Returned the first submission for under-sized unproven canonical slots, host-dependent short-string classification, premature accepted status, and missing real-WASM accounting evidence; reviewed compile-time upper-bound assertions, allocation de-duplication, Orca comparison, and synchronized roadmap/spec status; independently ran native ProjectHistory, focused protocol 9/9, serial/threaded real history smoke, `pnpm typecheck`, and diff hygiene | Accepted 2026-09-08 |
+| 7 | `ca82d36` | Focused Toolbar/app-tab tests 16/16, workspace tests (419 slicer-app tests), typecheck, Desktop E2E 30 passed/3 existing skips, threaded/serial Web E2E 5/5 | Reviewed both UI and global-shortcut gates; independently ran the same focused, workspace, and three-host checks | Accepted 2026-09-08 |
 
 ### Repair 1 execution record — complete plate session in history frames
 
@@ -561,7 +562,7 @@ repair sequence is complete prematurely.
   traversal changes and no unrelated E2E behavior was modified here.
 - Root acceptance is intentionally not recorded in this execution record.
 
-### Repair 7 scope — Prepare-only history navigation
+### Repair 7 execution record — Prepare-only history navigation
 
 - Project Undo/Redo navigation is enabled only while the shared application is
   on the Prepare tab. Home, Preview, and Device retain visible toolbar
@@ -571,6 +572,17 @@ repair sequence is complete prematurely.
   editing precedence remains unchanged.
 - Returning to Prepare reuses the current Worker `HistoryStatus`; changing
   tabs must not reset, truncate, or otherwise mutate project history.
+- Implemented the gate in both command entry points: Toolbar buttons/menu
+  triggers are disabled outside Prepare, stale mounted menu items cannot
+  invoke a restore, and the global shortcut listener returns before consuming
+  a project-history shortcut on non-Prepare tabs.
+- Added component coverage for Home, Preview, and Device, plus real Desktop
+  and Web flows proving a Preview-tab `Ctrl+Z` does not restore history and
+  that returning to Prepare preserves and re-enables the Worker-owned entry.
+- Focused tests passed 16/16; `pnpm test` passed (419 slicer-app tests) and
+  `pnpm typecheck` passed. Desktop E2E passed 30 with 3 existing skips;
+  threaded Web E2E passed 5/5; serial Web E2E passed 5/5. No WASM rebuild was
+  required because the change is shared TypeScript only.
 
 ### Repair 4 execution record — asynchronous restore projection barrier
 
