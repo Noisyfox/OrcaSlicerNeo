@@ -222,7 +222,70 @@ delete.
 Every add, Delete, or Merge with operation marks the project dirty, invalidates
 all plate slice results, and creates one Undo/Redo entry.
 
-## 9. Decisions Still to Be Clarified
+## 9. Prepare UI and Visual Feedback
+
+Neo follows OrcaSlicer's two-surface interaction model while adapting its
+layout to the shared responsive React sidebar.
+
+### 9.1 Filament slot area
+
+A collapsible **Filament** area near the top of the Prepare settings sidebar
+owns material-rack operations. Each slot presents:
+
+- its one-based slot number and effective colour;
+- the selected filament preset;
+- a searchable compatible-preset picker;
+- an action menu containing the applicable Edit, Merge with, and Delete
+  commands; and
+- enough state to identify incompatible fallback, pending work, or a rejected
+  mutation without constructing a partial optimistic session.
+
+The slot area uses two columns when the current sidebar width can present the
+controls without truncating their primary content and one column otherwise.
+This is responsive layout, not a host-specific implementation. Electron and
+Web render the same component and command model.
+
+Add, Delete, and other commands are enabled from the capability fields in the
+Worker-provided filament-session snapshot. The UI does not infer device type
+or native slot-count constraints.
+
+### 9.2 Object List assignment surface
+
+The Object List adds a filament column that always displays the effective slot
+colour and number for assignable object and volume rows. An inherited
+`MODEL_PART` value remains visually distinguishable from an explicit override.
+
+Filament assignment is available through both native-style entry points:
+
+- activating the filament column edits the focused eligible row; and
+- **Change Filament** in the object/part context menu applies to the current
+  eligible selection, including a homogeneous multi-selection.
+
+Both entry points dispatch the same typed atomic command and produce the same
+history entry. The context menu does not maintain a separate selection or
+assignment model.
+
+### 9.3 Prepare viewport colour
+
+Prepare mode colours every printable model volume by its effective filament
+slot immediately after assignment or slot-colour changes. Modifier and wipe-
+tower geometry do not use the ordinary printable-volume colour projection.
+
+Selection, disabled, transparent, and out-of-bounds visual treatments remain
+overlays on top of the slot colour and are not destroyed by recolouring. A
+missing or out-of-range assignment is normalized by the Worker before the
+projection is returned; React does not silently select a fallback colour.
+
+Prepare colouring is distinct from G-code Preview colouring:
+
+- Prepare projects the model's configured effective assignment.
+- Preview projects the extruder/tool recorded on actual generated toolpath
+  segments and uses the completed result's filament palette.
+
+The two views should normally agree, but the UI does not reuse Prepare colours
+as fabricated evidence when a slice result lacks a tool or palette entry.
+
+## 10. Decisions Still to Be Clarified
 
 The living specification will be extended in coherent batches after decisions
 are made for:
