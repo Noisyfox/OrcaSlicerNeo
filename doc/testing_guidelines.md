@@ -1,8 +1,6 @@
-# Risk-Based Test Execution Strategy
+# Testing Guidelines
 
-**Date:** 2026-09-08
-
-**Status:** Accepted project guidance
+**Status:** Authoritative project guidance
 
 ## Purpose
 
@@ -11,8 +9,9 @@ The repository has fast Vitest coverage, heavyweight Electron/Web end-to-end
 flows, and two real wasm64 variants. Those layers answer different questions
 and must not all run after every edit or every small feature increment.
 
-This document defines when each layer runs. Product specifications remain the
-authority for the behaviours that must be covered; this strategy controls the
+This document is the repository-wide testing guide. It defines test ownership,
+quality expectations, and when each layer runs. Product specifications remain
+the authority for the behaviours that must be covered; this guide controls the
 frequency and scope of their execution.
 
 ## Principles

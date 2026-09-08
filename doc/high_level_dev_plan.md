@@ -17,7 +17,7 @@
   the WASM module, vitest with a mock Emscripten module for the shared
   packages/client, Playwright Electron for the desktop app and Playwright
   Chrome for the Web host (real threaded + serial artifacts). Development uses
-  the risk-based levels in `doc/2026-09-08-test-execution-strategy.md`; the
+  the risk-based levels in `doc/testing_guidelines.md`; the
   complete cross-host/dual-variant matrix is a release or milestone gate, not
   a mandatory per-edit or per-piece loop.
 

@@ -405,7 +405,7 @@ changing the common application or C++ bridge.
 
 The following list is release/milestone acceptance evidence. It is not the
 default edit-loop or per-commit matrix; routine execution follows
-`doc/2026-09-08-test-execution-strategy.md` and selects the smallest test set
+`doc/testing_guidelines.md` and selects the smallest test set
 that covers the changed risk. The refactor is not complete until all of the
 following hold:
 

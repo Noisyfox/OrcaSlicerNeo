@@ -44,7 +44,7 @@ troubleshooting procedures, or test matrices here.
    and
    [`doc/2026-08-20-wasm-dwarf-debug-build.md`](doc/2026-08-20-wasm-dwarf-debug-build.md).
 5. Follow
-   [`doc/2026-09-08-test-execution-strategy.md`](doc/2026-09-08-test-execution-strategy.md)
+   [`doc/testing_guidelines.md`](doc/testing_guidelines.md)
    when choosing verification scope. Do not infer that every feature edit
    requires the full repository matrix.
 6. Update [`doc/high_level_dev_plan.md`](doc/high_level_dev_plan.md) and
@@ -102,7 +102,7 @@ to `spec/` and remove superseded task notes.
   or changes that genuinely span that matrix.
 
 The precise decision table, escalation triggers, and command examples live in
-[`doc/2026-09-08-test-execution-strategy.md`](doc/2026-09-08-test-execution-strategy.md);
+[`doc/testing_guidelines.md`](doc/testing_guidelines.md);
 that document is authoritative when this summary is insufficient.
 
 <!-- code-review-graph MCP tools -->

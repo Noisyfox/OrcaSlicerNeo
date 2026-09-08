@@ -178,7 +178,7 @@ desktop OrcaSlicer for the same profile (the spike's GO criterion).
 
 Test-layer existence does not imply that every layer runs after every change.
 Execution frequency and change-to-test routing are defined by
-`doc/2026-09-08-test-execution-strategy.md`. Shared behaviour is covered
+`doc/testing_guidelines.md`. Shared behaviour is covered
 exhaustively at the lowest practical layer and exercised end to end in one
 primary host; the second host and second WASM variant focus on their distinct
 platform/runtime seams until the release gate.

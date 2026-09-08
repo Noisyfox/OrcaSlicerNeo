@@ -6,7 +6,7 @@ GUI rewrite of OrcaSlicer. The approved design is
 details and status live in [`doc/high_level_dev_plan.md`](../doc/high_level_dev_plan.md).
 
 Verification frequency follows the accepted
-[`test execution strategy`](../doc/2026-09-08-test-execution-strategy.md):
+[`testing guidelines`](../doc/testing_guidelines.md):
 focused, risk-based checks during implementation; root regression and affected
 host/runtime checks before code handoff; and the complete cross-host,
 threaded/serial, packaging, and compatibility matrix for release or milestone
