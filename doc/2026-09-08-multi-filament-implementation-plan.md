@@ -540,6 +540,23 @@ harnesses, and this living plan. The pinned submodule remains at
 `b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with exactly its seven pre-existing
 user-owned dirty paths unchanged. Step 7 is unblocked.
 
+**Step 6 corrective acceptance (2026-09-09):** Step 8's complete fixture audit
+exposed that a valid exported empty-scene project carrying a 64-slot Neo
+filament sidecar could not be reopened. The native reader had succeeded, but
+the bridge incorrectly treated every empty imported model as a load failure.
+The correction permits an empty model only for project replacement, where the
+PresetBundle, plate session, and validated sidecar remain meaningful;
+geometry-only import still rejects an archive with no geometry. The fresh Step
+6 remediation agent and root independently proved serial and threaded writer
+and reader round-trip of all 64 ordered slots and the complete 64x64 flushing
+matrix, while retaining the geometry-only rejection. Root reran WASM 128/128,
+runtime 33/33, app 455/455 and their typechecks; history, project-preflight,
+writer round-trip, and independent-reader native harnesses; both-variant quick
+and smoke; and `git diff --check`. All passed. Atomic project rollback and
+strict vector/matrix validation remain covered. The pinned submodule HEAD and
+its seven pre-existing dirty paths were unchanged. Step 6 is re-accepted and
+Step 8 may be re-dispatched.
+
 **Root independent acceptance:** Re-run all affected package checks and both independent 3MF reader/writer fixture paths; run `pnpm --filter @orca/slicer-wasm exec vitest run src/client/history.test.ts src/client/history.protocol.test.ts` plus relevant harnesses; inspect history cursor/rack/project state across failure and undo; run serial quick/smoke. Failure blocks Step 7.
 
 **Commit boundary:** One history/persistence commit.

@@ -5351,7 +5351,11 @@ static const char* orc_load_project_impl(const char* data, int len,
                                           &imported, &plate_data, &project_presets,
                                           &is_bbl_3mf, &is_orca_3mf, &file_version,
                                           nullptr, strategy, nullptr, 0);
-        if (!loaded || imported.objects.empty())
+        // A project export is also valid while the scene is empty: the BBS
+        // reader can still restore its PresetBundle, plate session, and Neo
+        // sidecars. Geometry-only import, however, must continue to reject an
+        // archive that contains no geometry to append.
+        if (!loaded || (geometry_only && imported.objects.empty()))
             throw Slic3r::RuntimeError("Loading of a project file failed.");
         publish_slicer_progress(55, geometry_only ? "Preparing imported geometry" : "Reading project settings");
         if (neo_metadata) {
