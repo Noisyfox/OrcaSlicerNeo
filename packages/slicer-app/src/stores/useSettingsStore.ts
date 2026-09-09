@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { OptionMetadata, PresetInfo, ProfileSnapshot, ProjectConfigOverlay } from '@slicer/client';
+import type { FilamentCatalogItem, OptionMetadata, PresetInfo, ProfileSnapshot, ProjectConfigOverlay } from '@slicer/client';
 
 export const emptyProjectConfigOverlay = (): ProjectConfigOverlay => ({
   project: {}, objects: {}, parts: {}, plates: {},
@@ -18,7 +18,7 @@ interface SettingsState {
   prints: PresetInfo[];
   /** Engine-filtered filament catalogue consumed by the multi-filament rack.
    * It is not a single-filament selection or a second source of truth. */
-  filamentCatalog: PresetInfo[];
+  filamentCatalog: FilamentCatalogItem[];
   /** Current printer/process profile names, synced from the bridge. Filament
    * selection is owned exclusively by the Worker filament session/rack. */
   selectedPrinter: string;
@@ -34,7 +34,7 @@ interface SettingsState {
   setMetadata: (m: OptionMetadata) => void;
   /** Replace all picker state from one atomic compatibility snapshot. */
   hydrateProfileSnapshot: (snapshot: ProfileSnapshot) => void;
-  setPresets: (printers: PresetInfo[], prints: PresetInfo[], filamentCatalog: PresetInfo[]) => void;
+  setPresets: (printers: PresetInfo[], prints: PresetInfo[], filamentCatalog: FilamentCatalogItem[]) => void;
   setSelections: (printer: string, print: string) => void;
   setValue: (key: string, value: string) => void;
   setValues: (values: Record<string, string>) => void;

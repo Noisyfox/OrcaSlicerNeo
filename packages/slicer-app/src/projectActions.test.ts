@@ -14,7 +14,7 @@ const snapshot: ProfileSnapshot = {
   ok: true,
   printers: [{ name: 'Project printer', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   prints: [{ name: 'Project process', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-  filamentCatalog: [{ name: 'Project filament', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+  filamentCatalog: [{ name: 'Project filament', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
   printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 },
 };
 const freshPlateSession: PlateSessionMutation = {

@@ -111,6 +111,7 @@ check('orc_get_preset_snapshot returns coherent picker candidates',
       && Array.isArray(snapshot.printers) && snapshot.printers.length > 0
       && Array.isArray(snapshot.prints) && snapshot.prints.length > 0
       && Array.isArray(snapshot.filament_catalog) && snapshot.filament_catalog.length > 0
+      && snapshot.filament_catalog.every((entry) => !Object.hasOwn(entry, 'selected'))
       && snapshotHasSelection(snapshot, 'printer')
       && snapshotHasSelection(snapshot, 'print')
       && !Object.hasOwn(snapshot, 'filament'),

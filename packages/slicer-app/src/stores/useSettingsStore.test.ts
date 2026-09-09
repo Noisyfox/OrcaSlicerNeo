@@ -7,7 +7,7 @@ const bootSnapshot: ProfileSnapshot = {
   ok: true,
   printers: [{ name: 'P', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
   prints: [{ name: 'Q', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
-  filamentCatalog: [{ name: 'F', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: false }],
+  filamentCatalog: [{ name: 'F', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
   printer: { name: 'P', idx: 1 },
   print: { name: 'Q', idx: 2 },
 };

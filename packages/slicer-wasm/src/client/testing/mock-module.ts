@@ -204,10 +204,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       { name: 'Hidden filament', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
     ],
   };
-  const selected: Record<PresetKind, string> = {
+  const selected: Record<'printer' | 'print', string> = {
     printer: presetFixtures.printer[0].name,
     print: presetFixtures.print[0].name,
-    filament: presetFixtures.filament[0].name,
   };
 
   function isCompatible(kind: 'print' | 'filament', fixture: PresetFixture): boolean {
@@ -221,7 +220,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return list.filter((preset) => preset.is_visible && isCompatible(kind, preset));
   }
 
-  function selectedEntry(kind: PresetKind) {
+  function selectedEntry(kind: 'printer' | 'print') {
     return {
       name: selected[kind],
       idx: presetFixtures[kind].findIndex((preset) => preset.name === selected[kind]),
@@ -229,15 +228,16 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
 
   function snapshot() {
-    const entry = (kind: PresetKind, preset: PresetFixture) => ({
+    const selectableEntry = (kind: 'printer' | 'print', preset: PresetFixture) => ({
       ...preset,
       selected: preset.name === selected[kind],
     });
+    const filamentEntry = (preset: PresetFixture) => ({ ...preset });
     return {
       ok: true,
-      printers: candidates('printer').map((preset) => entry('printer', preset)),
-      prints: candidates('print').map((preset) => entry('print', preset)),
-      filament_catalog: candidates('filament').map((preset) => entry('filament', preset)),
+      printers: candidates('printer').map((preset) => selectableEntry('printer', preset)),
+      prints: candidates('print').map((preset) => selectableEntry('print', preset)),
+      filament_catalog: candidates('filament').map(filamentEntry),
       printer: selectedEntry('printer'),
       print: selectedEntry('print'),
       printable_area: presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area
@@ -245,7 +245,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     };
   }
 
-  function selectFallback(kind: 'print' | 'filament'): boolean {
+  function selectFallback(kind: 'print'): boolean {
     const fallback = candidates(kind)[0];
     if (!fallback) return false;
     selected[kind] = fallback.name;
@@ -257,14 +257,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (!activePrint || !isCompatible('print', activePrint)) {
       if (!selectFallback('print')) return false;
     }
-    const activeFilament = presetFixtures.filament.find((preset) => preset.name === selected.filament);
-    if (!activeFilament || !isCompatible('filament', activeFilament)) return selectFallback('filament');
     return true;
   }
 
   function resolveAfterPrintChange(): boolean {
-    const activeFilament = presetFixtures.filament.find((preset) => preset.name === selected.filament);
-    if (!activeFilament || !isCompatible('filament', activeFilament)) return selectFallback('filament');
     return true;
   }
 
@@ -1273,8 +1269,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return `preset is incompatible: ${name}`;
       }
 
-      // Validate before mutation, then mirror the bridge's printer → print →
-      // filament and print → filament fallback chains. Every success returns
+      // Validate before mutation, then mirror the bridge's printer → print
+      // fallback chain. Filament compatibility is represented by the rack
+      // session and never changes a single selected catalogue item. Every success returns
       // one complete state, while every rejection leaves selected untouched.
       const previous = { ...selected };
       selected[presetKind] = name;

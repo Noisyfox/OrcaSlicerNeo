@@ -14,7 +14,7 @@ function snapshot(printer: string, print: string, filament: string): ProfileSnap
     ok: true,
     printers: [{ name: printer, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
     prints: [{ name: print, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-    filamentCatalog: [{ name: filament, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+    filamentCatalog: [{ name: filament, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '' }],
     printer: { name: printer, idx: 0 },
     print: { name: print, idx: 0 },
   };

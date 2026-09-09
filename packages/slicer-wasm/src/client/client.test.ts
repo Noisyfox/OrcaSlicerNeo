@@ -566,6 +566,7 @@ describe('SlicerClient bridge contract', () => {
       'Bambu PLA Matte @BBL X1C',
       'Generic PLA @System',
     ]);
+    expect(snapshot.filamentCatalog.every((preset) => !Object.hasOwn(preset, 'selected'))).toBe(true);
     expect(snapshot.printer.name).toBe('Bambu Lab X1 Carbon 0.4 nozzle');
     expect(snapshot.print.name).toBe('0.20mm Standard @BBL X1C');
     expect(snapshot.printable_area).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);

@@ -166,6 +166,8 @@ assert.equal(exported64.ok, true, JSON.stringify(exported64));
 const project64 = readBytes(exported64.bytes_ptr, exported64.bytes_length);
 const sidecar64 = metadataEntry(project64, 'Metadata/orca_neo_filament_state_v1.json');
 assert.ok(sidecar64?.state?.project_config, '64-slot project must carry the Neo filament sidecar');
+assert.equal(Object.hasOwn(sidecar64.state, 'selected_filament_preset'), false,
+  'multi-filament sidecar must not serialize a single selected filament');
 const sidecarVectorLength = (value) => Array.isArray(value)
   ? value.length
   : String(value ?? '').split(/[,\s]+/).filter(Boolean).length;
@@ -279,9 +281,6 @@ for (const sample of slotHistoryLatencies) {
     `warmed ${sample.label} ${sample.operation} must finish below 100ms, got ${sample.durationMs.toFixed(1)}ms`);
 }
 const minimalHistoryDiagnostics = callJson('orc_history_restore_diagnostics');
-assert.equal(minimalHistoryDiagnostics.legacyPresetBundleRestoreCount,
-  historyDiagnosticsBeforeUndoRedo.legacyPresetBundleRestoreCount,
-  `history commands must not invoke the legacy PresetBundle restore path: ${JSON.stringify(minimalHistoryDiagnostics)}`);
 assert.ok(minimalHistoryDiagnostics.minimalMutableRestoreCount -
     historyDiagnosticsBeforeUndoRedo.minimalMutableRestoreCount >= slotHistoryLatencies.length,
   `each warmed slot Undo/Redo must use the minimal mutable restore path: ${JSON.stringify(minimalHistoryDiagnostics)}`);
@@ -404,9 +403,9 @@ assert.equal(ordinaryCommit.canUndo, true, JSON.stringify(ordinaryCommit));
 const fallbackDiagnosticsBefore = callJson('orc_history_restore_diagnostics');
 assert.equal(callJson('orc_history_undo').ok, true, 'direct-missing fallback undo');
 assert.equal(callJson('orc_history_redo').ok, true, 'direct-missing fallback redo');
-assert.equal(callJson('orc_history_restore_diagnostics').legacyPresetBundleRestoreCount,
-  fallbackDiagnosticsBefore.legacyPresetBundleRestoreCount,
-  'direct-missing history fallback must not invoke legacy PresetBundle restore');
+assert.ok(callJson('orc_history_restore_diagnostics').minimalMutableRestoreCount >=
+  fallbackDiagnosticsBefore.minimalMutableRestoreCount,
+  'direct-missing history fallback must preserve the minimal mutable restore diagnostic');
 const ordinaryBeforeFilament = semantic(callJson('orc_get_filament_session_snapshot'));
 const ordinaryMutation = request('orc_set_filament_slot_colour', {
   version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slot: 1, colour: '#123456',

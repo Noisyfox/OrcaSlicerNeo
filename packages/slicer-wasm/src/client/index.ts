@@ -4,7 +4,7 @@ export { startWorker, createWorkerClient } from './worker';
 export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
-  InitResult, PresetInfo, PresetSelection, ProfileSnapshot,
+  InitResult, FilamentCatalogItem, PresetInfo, PresetSelection, ProfileSnapshot,
   FilamentColourProvenance, FilamentSessionSlot, FilamentNativeMapping,
   FilamentFlushingState, FilamentSessionCapabilities, FilamentAssignmentTarget,
   FilamentAssignmentProjection, FilamentAssignmentProjectionSet,

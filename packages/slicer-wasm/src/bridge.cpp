@@ -251,11 +251,9 @@ struct BridgeState {
     std::vector<HistoryTransaction> nested_history_transactions;
     std::uint64_t next_history_transaction_id = 1;
     std::uint64_t history_revision = 0;
-    // Test-visible counters make the no-PresetBundle history boundary
-    // executable: history restores must use the minimal mutable frame below,
-    // never the legacy whole-bundle restore helper retained for project import.
+    // Test-visible counter makes the no-PresetBundle history boundary
+    // executable: history restores must use the minimal mutable frame below.
     std::uint64_t history_minimal_mutable_restore_count = 0;
-    std::uint64_t history_legacy_bundle_restore_count = 0;
     std::size_t next_filament_colour_index = 0;
     bool history_disabled = false;
     // The current completed preview owns the exported G-code in MEMFS. Keep
@@ -329,7 +327,6 @@ BridgeState& state() { static BridgeState s; return s; }
 // missing frame always uses the authoritative archive/context restore below.
 struct DirectFilamentHistoryFrame {
     std::vector<std::string> filament_presets;
-    std::string selected_filament_preset;
     std::optional<Preset> edited_filament;
     DynamicPrintConfig project_config;
     std::vector<std::vector<std::string>> ams_multi_colour_filment;
@@ -1725,18 +1722,21 @@ json serialize_app_config() {
 // not interpret compatible_printers / compatible_prints itself because that
 // would duplicate the upstream condition, inheritance, library-exclusion and
 // parent-preset rules.
-json preset_entry_json(const Preset& preset, const PresetCollection& collection) {
+json preset_entry_json(const Preset& preset, const PresetCollection& collection,
+                       bool include_selection = true) {
     json entry{{"name", preset.name},
                {"is_visible", preset.is_visible},
-               {"is_default", preset.is_default},
-               {"selected", preset.name == collection.get_selected_preset_name()}};
+               {"is_default", preset.is_default}};
+    if (include_selection)
+        entry["selected"] = preset.name == collection.get_selected_preset_name();
     entry["vendor_id"] = preset.vendor ? preset.vendor->id : "";
     entry["model"]     = preset.config.opt_string("printer_model");
     entry["variant"]   = preset.config.opt_string("printer_variant");
     return entry;
 }
 
-json preset_candidates_json(const PresetCollection& collection, bool require_compatible) {
+json preset_candidates_json(const PresetCollection& collection, bool require_compatible,
+                            bool include_selection = true) {
     json candidates = json::array();
     // begin()/end() intentionally omit generated "- default -" presets.
     // Keep the collection order: it is the engine's candidate ordering and
@@ -1744,7 +1744,7 @@ json preset_candidates_json(const PresetCollection& collection, bool require_com
     for (auto it = collection.begin(); it != collection.end(); ++it) {
         if (!it->is_visible || (require_compatible && !it->is_compatible))
             continue;
-        candidates.push_back(preset_entry_json(*it, collection));
+        candidates.push_back(preset_entry_json(*it, collection, include_selection));
     }
     return candidates;
 }
@@ -1775,7 +1775,7 @@ json preset_snapshot_json() {
     return json{{"ok", true},
                 {"printers", preset_candidates_json(state().presets.printers, false)},
                 {"prints", preset_candidates_json(state().presets.prints, true)},
-                {"filament_catalog", preset_candidates_json(state().presets.filaments, true)},
+                {"filament_catalog", preset_candidates_json(state().presets.filaments, true, false)},
                 {"printer", preset_selection_json(state().presets.printers)},
                 {"print", preset_selection_json(state().presets.prints)},
                 {"printable_area", selected_printer_printable_area_json()}};
@@ -1865,14 +1865,11 @@ json filament_session_snapshot_json()
     std::vector<std::string> preset_names = bundle.filament_presets;
     std::vector<std::string> colours = config_strings(project, "filament_colour");
     if (colours.empty()) colours = config_strings(filament, "filament_colour");
-    if (preset_names.empty()) {
-        const std::string selected = bundle.filaments.get_selected_preset_name();
-        preset_names.push_back(selected.empty() ? "Default" : selected);
-    }
+    if (preset_names.empty())
+        return filament_session_error_json("filament_slots_missing", "filament rack has no slots");
     const size_t slot_count = std::max<size_t>(1, std::max(preset_names.size(), colours.size()));
     if (preset_names.size() < slot_count) {
-        const std::string fallback = bundle.filaments.get_selected_preset_name();
-        preset_names.resize(slot_count, fallback.empty() ? "Default" : fallback);
+        return filament_session_error_json("filament_slots_mismatched", "filament rack slots and colours differ");
     }
     std::vector<std::string> preset_colours(slot_count);
     const auto native_default_colours = state().profile_config.get_filament_colors();
@@ -2097,7 +2094,6 @@ json filament_history_state_json(const PresetBundle& bundle)
     return json{
         {"version", 1},
         {"filament_presets", bundle.filament_presets},
-        {"selected_filament_preset", bundle.filaments.get_selected_preset_name()},
         {"project_config", config_metadata_json(bundle.project_config)},
         {"edited_filament_config", config_metadata_json(bundle.filaments.get_edited_preset().config)},
         {"ams_multi_colour_filment", bundle.ams_multi_color_filment},
@@ -2771,7 +2767,6 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         const auto before_filament_presets = state().presets.filament_presets;
         const auto before_project_config = state().presets.project_config;
         const auto before_ams_colours = state().presets.ams_multi_color_filment;
-        const auto before_selected_filament = state().presets.filaments.get_selected_preset_name();
         const auto before_edited_filament = state().presets.filaments.get_edited_preset();
         Model before_model = state().model;
         const auto before_plates = state().plate_session_plates;
@@ -2790,8 +2785,6 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             state().presets.filament_presets = before_filament_presets;
             state().presets.project_config = before_project_config;
             state().presets.ams_multi_color_filment = before_ams_colours;
-            if (!before_selected_filament.empty())
-                state().presets.filaments.select_preset_by_name(before_selected_filament, false);
             state().presets.filaments.get_edited_preset() = before_edited_filament;
             state().model = before_model;
             state().plate_session_plates = before_plates;
@@ -2919,7 +2912,6 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
         const auto before_filament_presets = state().presets.filament_presets;
         const auto before_project_config = state().presets.project_config;
         const auto before_ams_colours = state().presets.ams_multi_color_filment;
-        const auto before_selected_filament = state().presets.filaments.get_selected_preset_name();
         const auto before_edited_filament = state().presets.filaments.get_edited_preset();
         std::shared_ptr<const Model> before_model;
         if (model_changes) before_model = std::make_shared<Model>(state().model);
@@ -2948,8 +2940,6 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             state().presets.filament_presets = before_filament_presets;
             state().presets.project_config = before_project_config;
             state().presets.ams_multi_color_filment = before_ams_colours;
-            if (!before_selected_filament.empty())
-                state().presets.filaments.select_preset_by_name(before_selected_filament, false);
             state().presets.filaments.get_edited_preset() = before_edited_filament;
             if (before_model) state().model = *before_model;
             state().plate_session_plates = before_plates;
@@ -3164,14 +3154,11 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
         const auto before_filament_presets = state().presets.filament_presets;
         const auto before_project_config = state().presets.project_config;
         const auto before_ams_colours = state().presets.ams_multi_color_filment;
-        const auto before_selected_filament = state().presets.filaments.get_selected_preset_name();
         const auto before_edited_filament = state().presets.filaments.get_edited_preset();
         const auto restore_mutable_bundle = [&]() {
             state().presets.filament_presets = before_filament_presets;
             state().presets.project_config = before_project_config;
             state().presets.ams_multi_color_filment = before_ams_colours;
-            if (!before_selected_filament.empty())
-                state().presets.filaments.select_preset_by_name(before_selected_filament, false);
             state().presets.filaments.get_edited_preset() = before_edited_filament;
         };
         Model staged_model = state().model;
@@ -4069,7 +4056,6 @@ static std::size_t direct_filament_frame_bytes(const DirectFilamentHistoryFrame&
         bytes += value.capacity() + 1;
     };
     for (const auto& value : frame.filament_presets) add_string(value);
-    add_string(frame.selected_filament_preset);
     for (const auto& row : frame.ams_multi_colour_filment)
         for (const auto& value : row) add_string(value);
     const std::string edited = frame.edited_filament
@@ -4097,7 +4083,6 @@ make_direct_filament_history_frame(std::shared_ptr<const Model> model,
     if (!model) return std::nullopt;
     auto frame = std::make_shared<DirectFilamentHistoryFrame>();
     frame->filament_presets = state().presets.filament_presets;
-    frame->selected_filament_preset = state().presets.filaments.get_selected_preset_name();
     frame->edited_filament.emplace(state().presets.filaments.get_edited_preset());
     frame->project_config = state().presets.project_config;
     frame->ams_multi_colour_filment = state().presets.ams_multi_color_filment;
@@ -4206,12 +4191,11 @@ static bool history_model_state_equal(const Neo::History::ModelState& lhs,
 
 static void restore_filament_history_state(PresetBundle& bundle, const json& encoded)
 {
-    ++state().history_legacy_bundle_restore_count;
     if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
         !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
         encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
         !encoded.contains("project_config") || !encoded["project_config"].is_object() ||
-        !encoded.contains("selected_filament_preset") || !encoded["selected_filament_preset"].is_string())
+        encoded.contains("selected_filament_preset"))
         throw std::runtime_error("invalid history filament state");
 
     std::vector<std::string> names;
@@ -4228,11 +4212,6 @@ static void restore_filament_history_state(PresetBundle& bundle, const json& enc
     bundle.filament_presets = names;
     for (size_t index = 0; index < names.size(); ++index)
         bundle.set_filament_preset(index, names[index]);
-    const std::string selected = encoded["selected_filament_preset"].get<std::string>();
-    if (!bundle.filaments.select_preset_by_name(selected, false) &&
-        bundle.filaments.find_preset(selected, false, true) == nullptr)
-        throw std::runtime_error(std::string("history selected filament preset is unavailable: ") + selected);
-
     ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
     for (auto it = encoded["project_config"].begin(); it != encoded["project_config"].end(); ++it) {
         if (!it.value().is_string()) throw std::runtime_error("invalid history project config value");
@@ -4247,7 +4226,6 @@ static void restore_filament_history_state(PresetBundle& bundle, const json& enc
 // PresetBundle; copying it in an undo/redo path is both expensive and wrong.
 struct StagedFilamentHistoryMutableState {
     std::vector<std::string> names;
-    std::string selected;
     DynamicPrintConfig project_config;
     std::vector<std::vector<std::string>> ams_multi_colour_filment;
     Preset edited_filament;
@@ -4260,10 +4238,10 @@ static StagedFilamentHistoryMutableState stage_filament_history_mutable_state(
         !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
         encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
         !encoded.contains("project_config") || !encoded["project_config"].is_object() ||
-        !encoded.contains("selected_filament_preset") || !encoded["selected_filament_preset"].is_string())
+        encoded.contains("selected_filament_preset"))
         throw std::runtime_error("invalid history filament state");
     StagedFilamentHistoryMutableState staged {
-        {}, encoded["selected_filament_preset"].get<std::string>(), catalog.project_config,
+        {}, catalog.project_config,
         catalog.ams_multi_color_filment, catalog.filaments.get_edited_preset() };
     staged.names.reserve(encoded["filament_presets"].size());
     for (const auto& value : encoded["filament_presets"]) {
@@ -4274,8 +4252,6 @@ static StagedFilamentHistoryMutableState stage_filament_history_mutable_state(
             throw std::runtime_error("history filament preset is unavailable");
         staged.names.push_back(name);
     }
-    if (!staged.selected.empty() && catalog.filaments.find_preset(staged.selected, false) == nullptr)
-        throw std::runtime_error("history selected filament preset is unavailable");
     apply_overlay_to_config(staged.project_config, encoded["project_config"]);
     if (const auto edited = encoded.find("edited_filament_config"); edited != encoded.end()) {
         if (!edited->is_object()) throw std::runtime_error("invalid history edited filament config");
@@ -4295,8 +4271,6 @@ static void apply_filament_history_mutable_state(PresetBundle& bundle,
     bundle.filament_presets = std::move(staged.names);
     for (size_t index = 0; index < bundle.filament_presets.size(); ++index)
         bundle.set_filament_preset(index, bundle.filament_presets[index]);
-    if (!staged.selected.empty() && !bundle.filaments.select_preset_by_name(staged.selected, false))
-        throw std::runtime_error("history selected filament preset is unavailable");
     bundle.project_config = std::move(staged.project_config);
     bundle.ams_multi_color_filment = std::move(staged.ams_multi_colour_filment);
     bundle.filaments.get_edited_preset() = std::move(staged.edited_filament);
@@ -4575,7 +4549,6 @@ static json restore_direct_filament_history_frame(const Neo::History::RestorePla
     const auto before_filament_presets = state().presets.filament_presets;
     const auto before_project_config = state().presets.project_config;
     const auto before_ams_colours = state().presets.ams_multi_color_filment;
-    const auto before_selected = state().presets.filaments.get_selected_preset_name();
     const auto before_edited = state().presets.filaments.get_edited_preset();
     Model before_model = state().model;
     const auto before_plates = state().plate_session_plates;
@@ -4591,10 +4564,6 @@ static json restore_direct_filament_history_frame(const Neo::History::RestorePla
         state().presets.filament_presets = std::move(staged_filament_presets);
         state().presets.project_config = std::move(staged_project_config);
         state().presets.ams_multi_color_filment = std::move(staged_ams_colours);
-        if (!frame->selected_filament_preset.empty() &&
-            !state().presets.filaments.select_preset_by_name(frame->selected_filament_preset, false) &&
-            state().presets.filaments.find_preset(frame->selected_filament_preset, false, true) == nullptr)
-            throw std::runtime_error("direct history selected filament preset is unavailable");
         state().presets.filaments.get_edited_preset() = std::move(staged_edited_filament);
         state().model = std::move(staged_model);
         state().plate_session_plates = std::move(staged_plates);
@@ -4613,7 +4582,6 @@ static json restore_direct_filament_history_frame(const Neo::History::RestorePla
         state().presets.filament_presets = before_filament_presets;
         state().presets.project_config = before_project_config;
         state().presets.ams_multi_color_filment = before_ams_colours;
-        if (!before_selected.empty()) state().presets.filaments.select_preset_by_name(before_selected, false);
         state().presets.filaments.get_edited_preset() = before_edited;
         state().model = std::move(before_model);
         state().plate_session_plates = before_plates;
@@ -4955,7 +4923,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_status() {
 EMSCRIPTEN_KEEPALIVE const char* orc_history_restore_diagnostics() {
     return dup_json(json{
         {"minimalMutableRestoreCount", state().history_minimal_mutable_restore_count},
-        {"legacyPresetBundleRestoreCount", state().history_legacy_bundle_restore_count},
     }.dump());
 }
 

@@ -175,7 +175,8 @@ export interface PlateSessionSnapshotError {
 export type PlateSessionSnapshotResult = PlateSessionSnapshot | PlateSessionSnapshotError;
 export type PlateSessionMutationResult = PlateSessionMutation | PlateSessionSnapshotError;
 
-export interface PresetInfo {
+/** Common identity and visibility fields for entries in the engine catalogue. */
+export interface FilamentCatalogItem {
   name: string;
   /** Real preset visibility result from the bundled profile state. */
   is_visible: boolean;
@@ -184,6 +185,10 @@ export interface PresetInfo {
   vendor_id: string;
   model: string;
   variant: string;
+}
+
+/** A printer/process entry whose collection selection is meaningful. */
+export interface PresetInfo extends FilamentCatalogItem {
   /** true when this entry is the collection's current selection (the
    *  picker's value source at boot; updated by selectProfile responses) */
   selected: boolean;
@@ -207,7 +212,8 @@ export interface ProfileSnapshot {
   printers: PresetInfo[];
   prints: PresetInfo[];
   /** Engine-filtered filament catalogue consumed by the multi-filament rack. */
-  filamentCatalog: PresetInfo[];
+  /** Engine-filtered rack catalogue. Items intentionally have no selected flag. */
+  filamentCatalog: FilamentCatalogItem[];
   printer: PresetSelection;
   print: PresetSelection;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
