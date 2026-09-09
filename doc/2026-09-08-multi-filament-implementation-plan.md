@@ -1103,3 +1103,25 @@ compatibility or legacy single-filament paths were introduced, and the pinned
 submodule remains outside the write set. The bridge source decreased from 6649
 to 6107 lines; the remaining bridge modularization stages remain planned and
 are not marked complete here.
+
+### 4.6 Model operations bridge module (2026-09-10)
+
+This independently testable bridge-maintenance step extracts the model editing
+domain into packages/slicer-wasm/src/bridge_model_operations.{hpp,cpp}.
+Model byte loading, primitive creation, clear-scene, object/volume/instance
+delete/clone/reorder/split/merge/separation/add/remove, transform updates,
+stable-ID resolution, model structure projection, and mesh projection now
+compile in the dedicated module. Geometry-only model staging helpers used by
+project import are exposed through its narrow C++ interface.
+
+The C ABI exports remain unchanged and are kept in an extern "C" block in the
+new translation unit; JSON schemas, canonical plate_session mutation
+envelopes, world_transform records, error semantics, stale revision fences,
+history minimal-state boundaries, and native model behavior are unchanged.
+The module directly consumes BridgeState and the approved PlateSession
+helpers; it does not own project persistence, history transactions, filament
+state, profiles, or slicing. No legacy compatibility aliases or
+single-filament behavior was introduced. CMake explicitly compiles the new
+source, and the pinned native submodule remains outside the write set. The
+bridge source is reduced from 6107 to 5291 lines; later project/history and
+slicing decomposition remains planned work.
