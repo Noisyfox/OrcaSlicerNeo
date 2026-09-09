@@ -1014,3 +1014,14 @@ export, business helper, ABI, JSON field, error string, and operation. No
 history/filament/project/profile/model/slice ABI or compatibility/fallback
 logic is moved or changed, and the pinned `packages/slicer-wasm/cpp`
 submodule remains outside this phase's write set.
+
+### 4.1 Pure history model codec narrow step (2026-09-10)
+
+The second modularization step is complete at the pure codec boundary only.
+`NeoHistoryArchiveContext`, its cereal adapters, mesh serialization/hash,
+`ModelState` capture, retained-state model staging, and model-state equality
+now live in `packages/slicer-wasm/src/bridge_history_codec.{hpp,cpp}`. The
+codec receives its `const Model&` and restore data explicitly and has no
+`state()`, `BridgeState`, or `PresetBundle` dependency. `bridge.cpp` retains
+history transactions, direct filament frames, plate/session coordination, and
+all extern-C exports; no broader history split is claimed by this step.
