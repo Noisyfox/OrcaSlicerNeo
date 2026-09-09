@@ -1258,3 +1258,22 @@ compiles the module and the pinned native submodule remains outside the write
 set. The facade is reduced from 1940 to 1240 lines; all history restore helpers
 and history ABI definitions now live in the dedicated module. No product
 behaviour is changed by this structural step.
+
+### 4.11 Plate lifecycle command bridge module (2026-09-10)
+
+This independently testable bridge-maintenance step extracts the plate
+lifecycle command ABI into
+`packages/slicer-wasm/src/bridge_plate_commands.{hpp,cpp}`. The module owns
+plate-session reset, selection, add/delete, membership recomputation, shared
+configuration mutation marking, and the plate-local configuration mutation
+snapshot helper. Runtime plate identity, membership, geometry, and canonical
+mutation projections remain in `bridge_plate_session.{hpp,cpp}`; project
+configuration overlay commands remain in the facade.
+
+The CMake source list explicitly compiles the new translation unit. The six
+exported command names and signatures are unchanged, the canonical
+`plate_session` response and history/context behavior are unchanged, and no
+legacy or single-filament path was added. The module reuses the existing
+plate-session and history-runtime interfaces; history-producing plate
+operations continue to use field-level state and never copy a complete
+`PresetBundle`. The pinned native submodule remains outside the write set.
