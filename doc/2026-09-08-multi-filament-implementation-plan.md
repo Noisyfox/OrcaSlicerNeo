@@ -1025,3 +1025,22 @@ codec receives its `const Model&` and restore data explicitly and has no
 `state()`, `BridgeState`, or `PresetBundle` dependency. `bridge.cpp` retains
 history transactions, direct filament frames, plate/session coordination, and
 all extern-C exports; no broader history split is claimed by this step.
+
+### 4.2 History metadata/context/status narrow step (2026-09-10)
+
+This independently testable bridge-maintenance step extracts the history
+metadata layer into `packages/slicer-wasm/src/bridge_history_metadata.{hpp,cpp}`.
+History entry-id and direction parsing, context validation, default/canonical
+context construction, context-only recording (including active-plate context),
+public history status JSON, and restore diagnostics JSON now accept explicit
+`BridgeState&`/`const BridgeState&` and required snapshots/model state. Context
+records continue to use `History::Category::Context` and do not advance the
+filament history/session revision fence. `bridge.cpp` retains only narrow
+adapters and all model restore, direct filament-frame, mutation, and C ABI
+operation code.
+
+The CMake source list explicitly includes the new module. No ABI, JSON/error
+contract, typed client path, compatibility logic, or pinned submodule content
+changed. This record covers only the metadata/context/status extraction;
+subsequent bridge modularization stages remain planned and are not marked
+complete.

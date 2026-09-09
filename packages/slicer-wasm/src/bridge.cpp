@@ -50,6 +50,7 @@
 
 #include "bridge_buffers.hpp"
 #include "bridge_history_codec.hpp"
+#include "bridge_history_metadata.hpp"
 #include "bridge_state.hpp"
 #include "history/ProjectHistory.hpp"
 // Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/; the brief's
@@ -96,6 +97,10 @@ namespace {
 static void apply_project_filament_sidecar_state(PresetBundle& bundle, const json& encoded);
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
+using Neo::Bridge::HistoryMetadata::history_entry_id;
+using Neo::Bridge::HistoryMetadata::parse_history_context;
+using Neo::Bridge::HistoryMetadata::parse_history_entry_id;
+using Neo::Bridge::HistoryMetadata::parse_history_jump_direction;
 
 // Slot add/delete has a deliberately narrow mutation surface.  Retaining this
 // immutable bridge-owned frame lets ProjectHistory restore that surface
@@ -2209,7 +2214,43 @@ void remap_model_filament_references(Model& model, const std::size_t removed,
     }
 }
 
-static json default_history_context();
+static json default_history_context()
+{
+    return Neo::Bridge::HistoryMetadata::default_history_context(
+        state(), plate_session_snapshot_json(), filament_history_state_json(state().presets));
+}
+
+static json canonical_history_context(json context)
+{
+    return Neo::Bridge::HistoryMetadata::canonical_history_context(
+        state(), std::move(context), plate_session_snapshot_json(), filament_history_state_json(state().presets));
+}
+
+static Neo::History::ModelState history_model_state_for_context()
+{
+    return Neo::History::Codec::capture_model_state(state().model);
+}
+
+static void record_history_context(const std::string& label, const json& requested)
+{
+    const auto model_state = history_model_state_for_context();
+    Neo::Bridge::HistoryMetadata::record_history_context(
+        state(), label, requested, plate_session_snapshot_json(),
+        filament_history_state_json(state().presets), model_state);
+}
+
+static void record_active_plate_context()
+{
+    const auto model_state = history_model_state_for_context();
+    Neo::Bridge::HistoryMetadata::record_active_plate_context(
+        state(), plate_session_snapshot_json(), filament_history_state_json(state().presets), model_state);
+}
+
+static json history_status_json()
+{
+    return Neo::Bridge::HistoryMetadata::history_status_json(state());
+}
+
 struct FlushColour { unsigned char a = 255, r = 0, g = 0, b = 0; };
 
 std::optional<FlushColour> parse_flush_colour(const std::string& value)
@@ -3536,67 +3577,6 @@ const char* native_configuration_error_json(const std::string& code,
                          {"status", {{"state", "error"}, {"error", message}}}}.dump());
 }
 
-static std::string history_entry_id(const std::uint64_t id)
-{
-    return std::string("entry-") + std::to_string(id);
-}
-
-static bool parse_history_entry_id(const char* value, std::uint64_t& id)
-{
-    if (!value) return false;
-    const std::string text(value);
-    if (text.rfind("entry-", 0) != 0 || text.size() == 6) return false;
-    try {
-        std::size_t consumed = 0;
-        id = std::stoull(text.substr(6), &consumed);
-        return consumed == text.size() - 6;
-    } catch (...) {
-        return false;
-    }
-}
-
-static bool parse_history_jump_direction(const char* value, Neo::History::JumpDirection& direction)
-{
-    if (!value) return false;
-    const std::string text(value);
-    if (text == "undo") { direction = Neo::History::JumpDirection::Undo; return true; }
-    if (text == "redo") { direction = Neo::History::JumpDirection::Redo; return true; }
-    return false;
-}
-
-static json parse_history_context(const char* context_cstr)
-{
-    if (!context_cstr || !*context_cstr)
-        throw std::runtime_error("history context is required");
-    const json context = json::parse(context_cstr);
-    if (!context.is_object() || !context.contains("selection") ||
-        !context["selection"].is_object() ||
-        !context.contains("activePlateId") ||
-        !(context["activePlateId"].is_null() || context["activePlateId"].is_string()) ||
-        !context.contains("gizmo") ||
-        !(context["gizmo"].is_null() || context["gizmo"].is_object()) ||
-        !context.contains("projectConfigOverlay") ||
-        !context["projectConfigOverlay"].is_object())
-        throw std::runtime_error("invalid history context");
-    if (context.contains("filamentState") &&
-        (!context["filamentState"].is_object() || context["filamentState"].value("version", 0) != 1))
-        throw std::runtime_error("invalid history filament state");
-    const auto& selection = context["selection"];
-    if (!selection.contains("mode") || !selection["mode"].is_string() ||
-        !selection.contains("objectIds") || !selection["objectIds"].is_array() ||
-        !selection.contains("partIds") || !selection["partIds"].is_array() ||
-        !selection.contains("instanceIds") || !selection["instanceIds"].is_array())
-        throw std::runtime_error("invalid history selection");
-    for (const char* key : {"objectIds", "partIds", "instanceIds"})
-        for (const auto& id : selection[key])
-            if (!id.is_number_integer() || id.get<std::int64_t>() < 0)
-                throw std::runtime_error("invalid history selection id");
-    if (context["gizmo"].is_object() &&
-        (!context["gizmo"].contains("type") || !context["gizmo"]["type"].is_string()))
-        throw std::runtime_error("invalid history gizmo");
-    return context;
-}
-
 // Plate session state is deliberately kept beside the model version in the
 // history context.  The model archive cannot carry the headless session's
 // current plate, runtime plate IDs, membership, or input revisions, so
@@ -4007,123 +3987,6 @@ static void restore_history_transaction_state(const json& context,
         state().project_config_overlay = before_overlay;
         throw;
     }
-}
-
-static json default_history_context()
-{
-    return json{
-        {"selection", {{"mode", "object"}, {"objectIds", json::array()},
-                        {"partIds", json::array()}, {"instanceIds", json::array()}}},
-        {"activePlateId", state().current_plate_id.empty() ? json(nullptr) : json(state().current_plate_id)},
-        {"gizmo", nullptr}, {"projectConfigOverlay", state().project_config_overlay},
-        {"plateSession", plate_session_snapshot_json()},
-        {"filamentState", filament_history_state_json(state().presets)},
-    };
-}
-
-static json canonical_history_context(json context)
-{
-    if (!context.is_object()) context = default_history_context();
-    // The Worker is authoritative for plate identity, collection, membership,
-    // and revisions. React contributes only the projected editing context.
-    context["activePlateId"] = state().current_plate_id.empty()
-        ? json(nullptr) : json(state().current_plate_id);
-    context["plateSession"] = plate_session_snapshot_json();
-    context["projectConfigOverlay"] = state().project_config_overlay;
-    // Filament presets, colours, routing, matrices, and per-project config
-    // are not part of ModelState.  Every authoritative history context must
-    // therefore carry the current native filament state, including ordinary
-    // model/context entries supplied by the renderer.
-    context["filamentState"] = filament_history_state_json(state().presets);
-    return context;
-}
-
-// Selection and active-plate changes are internal context records. They carry
-// no model mutation and are deliberately invisible to ordinary project
-// traversal, while a new context record still truncates a redo branch.
-static void record_history_context(const std::string& label, const json& requested)
-{
-    if (state().active_history_transaction) return;
-    json context = canonical_history_context(requested);
-    if (!state().history.entries().empty()) {
-        // The renderer sends the complete projected context. Keeping this
-        // replacement explicit prevents stale selection fields when only the
-        // active plate changes.
-    } else {
-        const json baseline = default_history_context();
-        const std::string encoded = baseline.dump();
-        const Neo::History::Bytes context_bytes(encoded.begin(), encoded.end());
-        state().history.commit("", Neo::History::Category::Project,
-                               Neo::History::Codec::capture_model_state(state().model), context_bytes);
-        state().history.mark_current_as_saved();
-    }
-    const std::string encoded = context.dump();
-    const Neo::History::Bytes context_bytes(encoded.begin(), encoded.end());
-    // Selection/active-plate records are renderer context only.  They must
-    // not advance the project/filament session revision: the native model,
-    // filament rack, and slice inputs are unchanged, so a command built from
-    // the last filament snapshot remains valid after a context update.
-    state().history.commit(label, Neo::History::Category::Context,
-                           Neo::History::Codec::capture_model_state(state().model), context_bytes);
-}
-
-static void record_active_plate_context()
-{
-    json context = default_history_context();
-    if (!state().history.entries().empty()) {
-        try {
-            const auto& current = state().history.current();
-            context = json::parse(std::string(current.context.begin(), current.context.end()));
-        } catch (...) { context = default_history_context(); }
-    }
-    context["activePlateId"] = state().current_plate_id.empty()
-        ? json(nullptr) : json(state().current_plate_id);
-    record_history_context("Active Plate", context);
-}
-
-static json history_status_json()
-{
-    const auto entries = state().history.entries();
-    const std::size_t cursor = state().history.cursor();
-    json undo = json::array();
-    json redo = json::array();
-    for (std::size_t i = cursor; i > 0; --i) {
-        const auto& entry = entries[i];
-        if (entry.category != Neo::History::Category::Project || entry.id == 0) continue;
-        undo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
-                            {"category", entry.category == Neo::History::Category::Project ? "project" : "context"}});
-    }
-    for (std::size_t i = cursor + 1; i < entries.size(); ++i) {
-        const auto& entry = entries[i];
-        if (entry.category != Neo::History::Category::Project || entry.id == 0) continue;
-        redo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
-                            {"category", entry.category == Neo::History::Category::Project ? "project" : "context"}});
-    }
-    const auto* undo_entry = state().history.undo_entry();
-    const auto* redo_entry = state().history.redo_entry();
-    const auto saved = state().history.saved_checkpoint();
-    const auto resources = state().history.resource_diagnostics();
-    return json{
-        {"canUndo", state().history.can_undo()}, {"canRedo", state().history.can_redo()},
-        {"undoLabel", undo_entry ? json(undo_entry->label) : json(nullptr)},
-        {"redoLabel", redo_entry ? json(redo_entry->label) : json(nullptr)},
-        {"undoEntries", std::move(undo)}, {"redoEntries", std::move(redo)},
-        {"cursor", cursor},
-        {"savedCheckpoint", saved == std::numeric_limits<std::size_t>::max() ? json(nullptr) : json(saved)},
-        {"savedCheckpointEvicted", state().history.saved_checkpoint_evicted()},
-        {"dirty", state().history.project_modified()},
-        {"bytesUsed", state().history.bytes_used()}, {"byteBudget", state().history.byte_budget()},
-        {"optionalBytesReleased", resources.optional_bytes_released},
-        {"evictedEntryCount", resources.evicted_entry_count},
-        {"lastEvictedEntryId", resources.last_evicted_entry_id == 0
-            ? json(nullptr) : json(history_entry_id(resources.last_evicted_entry_id))},
-        {"oldestRetainedEntryId", state().history.entries().empty()
-            ? json(nullptr) : json(history_entry_id(resources.oldest_retained_entry_id))},
-        {"oversizedEntryRetained", resources.oversized_entry_retained},
-        {"disabled", state().history_disabled},
-        {"activeTransactionId", state().active_history_transaction ? json(state().active_history_transaction->id) : json(nullptr)},
-        {"revision", state().history_revision},
-    };
 }
 
 static void validate_direct_filament_history_frame(const DirectFilamentHistoryFrame& frame,
@@ -4561,10 +4424,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_status() {
 // compare the public status byte-for-byte. This diagnostic is test-only
 // evidence that history restores stay on the minimal mutable-state path.
 EMSCRIPTEN_KEEPALIVE const char* orc_history_restore_diagnostics() {
-    return dup_json(json{
-        {"minimalMutableRestoreCount", state().history_minimal_mutable_restore_count},
-        {"fullPresetBundleCopyCount", state().full_preset_bundle_copy_count},
-    }.dump());
+    return dup_json(Neo::Bridge::HistoryMetadata::restore_diagnostics_json(state()).dump());
 }
 
 // Project replacement is a hard history boundary.  The caller supplies the
