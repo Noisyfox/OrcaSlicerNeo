@@ -336,6 +336,7 @@ set(ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
 # Neo-owned, headless project history. Keep this source outside the pinned
 # Orca submodule; the C bridge and Worker transaction adapters remain Neo code.
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp")
+list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp")
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
   list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
 endif()

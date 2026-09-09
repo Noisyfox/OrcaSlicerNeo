@@ -10,7 +10,6 @@
 // (AGENTS.md): if a signature below mismatches the pinned submodule, adjust
 // here — never in the submodule.
 #include <emscripten/emscripten.h>
-#include <emscripten/threading.h>
 
 #include <algorithm>
 #include <array>
@@ -59,6 +58,7 @@
 #include "libslic3r/Utils.hpp"
 
 #include "bridge_buffers.hpp"
+#include "bridge_state.hpp"
 #include "history/ProjectHistory.hpp"
 // Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/; the brief's
 // PrintObject.hpp does not exist (class PrintObject is in Print.hpp, already
@@ -191,138 +191,11 @@ template <class Archive> struct specialize<Archive, std::shared_ptr<const Slic3r
 
 namespace {
 
-#ifdef ORCA_WASM_THREADING
-// Match the pre-created Emscripten pool. This API returns the runtime's
-// navigator.hardwareConcurrency value; keep a nonzero fallback for unusual
-// hosts.
-int wasm_tbb_concurrency()
-{
-    return std::max(1, emscripten_num_logical_cores());
-}
-#endif
-
-// Module-global state. orc_init() (re)creates the preset bundle.
-//
-// Drift at the pinned SHA (build-system level): bridge.cpp.o is linked before
-// the libslic3r archive, so module-scope globals here construct BEFORE
-// PrintConfig.cpp's `print_config_def` global — and PresetBundle's constructor
-// chain (PresetCollection -> FullPrintConfig::defaults() -> print_config_def)
-// reads it. Native OrcaSlicer never keeps a module-scope PresetBundle. Keep
-// the state in a lazily-constructed holder instead: it is created on the
-// first orc_* call (after all TUs' statics, including print_config_def, have
-// run) — observed as "memory access out of bounds" at instantiation when
-// constructed eagerly.
-json empty_project_config_overlay();
+// Bridge business helpers keep the C ABI and all JSON operations in this
+// translation unit; Worker-owned state lives in bridge_state.cpp.
 static void apply_project_filament_sidecar_state(PresetBundle& bundle, const json& encoded);
-struct BridgeState {
-#ifdef ORCA_WASM_THREADING
-    // Match the pre-created Emscripten pthread pool at runtime. This avoids a
-    // fixed compile-time cap while ensuring oneTBB never asks for more worker
-    // threads than the loader supplied.
-    const int tbb_max_concurrency = wasm_tbb_concurrency();
-    tbb::global_control tbb_concurrency{
-        tbb::global_control::max_allowed_parallelism,
-        static_cast<std::size_t>(tbb_max_concurrency)};
-    tbb::task_arena tbb_arena{tbb_max_concurrency};
-#endif
-    AppConfig profile_config;
-    PresetBundle presets;
-    Model       model;
-    Print       print;
-    // Project-owned overrides are kept in the Worker/WASM session. React only
-    // receives a render projection and never becomes their source of truth.
-    json project_config_overlay = empty_project_config_overlay();
-    // Step 2 history is deliberately Worker/WASM owned. ProjectHistory owns
-    // keyed mutable object versions and shared immutable mesh data.
-    Neo::History::ProjectHistory history;
-    struct HistoryTransaction {
-        std::string id;
-        std::string label;
-        Neo::History::Category category { Neo::History::Category::Project };
-        json before_context;
-        Neo::History::ModelState before_model;
-        bool coalesced { false };
-        std::string parent_id;
-    };
-    std::optional<HistoryTransaction> active_history_transaction;
-    // Nested/coalesced transactions are intentionally dormant: they publish
-    // no independent history entry and have no UI.  Keeping a stack here
-    // gives future painting/support tools one safe outer transaction boundary.
-    std::vector<HistoryTransaction> nested_history_transactions;
-    std::uint64_t next_history_transaction_id = 1;
-    std::uint64_t history_revision = 0;
-    // Test-visible counter makes the no-PresetBundle history boundary
-    // executable: history restores must use the minimal mutable frame below.
-    std::uint64_t history_minimal_mutable_restore_count = 0;
-    // Project import is the one audited boundary that intentionally stages a
-    // complete PresetBundle copy so native embedded-preset loading remains
-    // transactional. History paths must never increment this counter.
-    std::uint64_t full_preset_bundle_copy_count = 0;
-    std::size_t next_filament_colour_index = 0;
-    bool history_disabled = false;
-    // The current completed preview owns the exported G-code in MEMFS. Keep
-    // only its identity and file metadata here: full source text must never
-    // be copied into the initial preview JSON or retained as a second string.
-    std::uint32_t preview_result_id = 0;
-    std::string preview_gcode_path;
-    std::size_t preview_gcode_size = 0;
-    std::vector<std::size_t> preview_gcode_line_ends;
-    bool preview_text_available = false;
-    // The current result is deliberately single-plate until Step 8 adds the
-    // per-plate result cache.  Keep its operation identity beside the result
-    // so export cannot accidentally consume a result for another plate or
-    // revision after selection/editing races.
-    std::string preview_plate_id;
-    std::uint64_t preview_plate_revision = 0;
-    // Runtime-only identity for the headless plate session. These records are
-    // deliberately independent from native plate_index values and are never
-    // persisted. Membership is derived from the live Model, not maintained by
-    // the renderer.
-    struct PlateSessionPlate {
-        std::string id;
-        std::string name;
-        int display_index = 0;
-        Vec3d origin = Vec3d::Zero();
-        bool locked = false;
-        DynamicPrintConfig settings;
-        json settings_metadata = json::object();
-        // Ordered key/value records retain unknown native metadata without
-        // colliding with the bridge's own schema.  Values are intentionally
-        // strings because that is the native model_settings.config wire type.
-        json opaque_metadata = json::array();
-        // Future Neo per-plate fields are copied through without interpreting
-        // them, so newer producers can round-trip them through this version.
-        json future_metadata = json::object();
-    };
-    std::vector<PlateSessionPlate> plate_session_plates;
-    std::string current_plate_id;
-    std::map<std::size_t, std::string> instance_plate_ids;
-    std::map<std::string, std::set<std::size_t>> plate_out_of_bounds_ids;
-    std::set<std::size_t> parked_instance_ids;
-    struct PendingProjectRestore {
-        std::string token;
-        std::vector<unsigned char> bytes;
-        std::string display_name;
-        std::uint64_t base_history_revision { 0 };
-        std::size_t base_history_cursor { 0 };
-        std::string base_filament_state;
-        std::string base_model_state;
-        std::string base_overlay;
-    };
-    std::optional<PendingProjectRestore> pending_project_restore;
-    // Test-only fault injection used by the native atomic-commit fixture. It
-    // is deliberately one-shot and is never set by application code.
-    bool inject_project_commit_failure = false;
-    // Instances touched by a pending committed transform.  The renderer may
-    // send one setModelTransform call per composite, but recomputation is
-    // deliberately deferred until the complete global operation has settled.
-    std::set<std::size_t> pending_membership_instance_ids;
-    // Per-plate slice-input generations.  Selection and preview-only reads do
-    // not advance these values; a committed model/configuration mutation does
-    // so only for plates containing an instance before or after the command.
-    std::map<std::string, std::uint64_t> plate_input_revisions;
-};
-BridgeState& state() { static BridgeState s; return s; }
+using Neo::Bridge::BridgeState;
+using Neo::Bridge::state;
 
 // Slot add/delete has a deliberately narrow mutation surface.  Retaining this
 // immutable bridge-owned frame lets ProjectHistory restore that surface

@@ -993,3 +993,24 @@ Every accepted step must leave evidence sufficient for a new agent to reproduce 
 The following are always blockers until resolved at the owning step: contract/schema drift; partial mutation; a changed history cursor/rack/project after rejection; stale or cross-plate result acceptance; host import leakage; missing real-WASM evidence; ambiguous E2E assertions; any changed path outside the step allowlist; or any submodule content/index/pointer change.
 
 The plan follows [`doc/testing_guidelines.md`](testing_guidelines.md) for Level 1–4 scope and [`spec/Web-Electron Shared Application Architecture.md`](../spec/Web-Electron%20Shared%20Application%20Architecture.md) for host/runtime boundaries. Product behaviour is not reopened by an implementation subagent; any genuinely new requirement requires a separately approved spec change before a new plan step.
+
+## 4. Bridge modularization follow-up (2026-09-09)
+
+The next bridge-maintenance phase is an internal decomposition only; it does
+not change the accepted C ABI, JSON schemas, or multi-filament behaviour. The
+planned sequence is: (1) move the Worker-owned state aggregate and lazy
+construction into a Neo-owned module; (2) isolate history serialization and
+transaction adapters; (3) separate plate/session and profile/model operation
+helpers; (4) leave `bridge.cpp` as the narrow extern-C business facade; and
+(5) rerun the bridge contract, both-variant build, and focused history and
+multi-filament evidence after each independently testable step. Later stages
+remain planned work and are not complete in this document.
+
+This step's boundary is limited to the first item: `BridgeState`, its nested
+state records, lazy `state()` lifetime, and the required serial/threaded state
+initialization now live in `packages/slicer-wasm/src/bridge_state.hpp/.cpp`,
+with an explicit CMake source entry. `bridge.cpp` retains every extern-C
+export, business helper, ABI, JSON field, error string, and operation. No
+history/filament/project/profile/model/slice ABI or compatibility/fallback
+logic is moved or changed, and the pinned `packages/slicer-wasm/cpp`
+submodule remains outside this phase's write set.
