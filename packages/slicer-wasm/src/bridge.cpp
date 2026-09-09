@@ -6,78 +6,36 @@
 // C strings; the JS side reads them with UTF8ToString and _free()s. Binary
 // buffers cross via the WASM heap (_malloc/_free + HEAPU8).
 //
-// Version-sensitive libslic3r APIs are the documented drift surface
-// (AGENTS.md): if a signature below mismatches the pinned submodule, adjust
-// here — never in the submodule.
+// This translation unit deliberately contains only bridge composition and the
+// narrow runtime adapters required by the feature modules below.
 #include <emscripten/emscripten.h>
 
 #include <algorithm>
-#include <array>
-#include <atomic>
-#include <cctype>
 #include <cmath>
-#include <cstddef>
-#include <cstdint>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <fstream>
-#include <limits>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <optional>
-#include <sstream>
-#include <set>
+#include <exception>
 #include <string>
-#include <string_view>
-#include <utility>
 #include <vector>
 
-#include "libslic3r/AppConfig.hpp"
-#include "libslic3r/BuildVolume.hpp"
-#include "libslic3r/Color.hpp"
-#include "libslic3r/Exception.hpp"
-#include "libslic3r/FlushVolCalc.hpp"
-#include "libslic3r/Format/bbs_3mf.hpp"
-#include "libslic3r/miniz_extension.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
-#include "libslic3r/Print.hpp"
-#include "libslic3r/PrintConfig.hpp"
-#include "libslic3r/TriangleMesh.hpp"
-#include "libslic3r/Utils.hpp"
 
-#include "bridge_buffers.hpp"
 #include "bridge_filament_state.hpp"
 #include "bridge_filament_commands.hpp"
-#include "bridge_filament_session.hpp"
 #include "bridge_history_runtime.hpp"
-#include "bridge_model_operations.hpp"
 #include "bridge_plate_session.hpp"
-#include "bridge_plate_commands.hpp"
 #include "bridge_profiles.hpp"
 #include "bridge_project_overlay.hpp"
 #include "bridge_project_persistence.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_state.hpp"
-// Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/; the brief's
-// PrintObject.hpp does not exist (class PrintObject is in Print.hpp, already
-// included above).
-#include "libslic3r/GCode/GCodeProcessor.hpp"
 
 #include <boost/log/trivial.hpp>
 
 #include "wasm_log.hpp"
 
-#ifdef ORCA_WASM_THREADING
-#include <tbb/global_control.h>
-#include <tbb/task_arena.h>
-#endif
-
 #include "nlohmann/json.hpp"
 
-using namespace Slic3r;
 using nlohmann::json;
 
 // ColorSpaceConvert.cpp belongs to the desktop-only slic3r utility source
@@ -100,61 +58,12 @@ void RGB2HSV(float r, float g, float b, float* h, float* s, float* v)
 
 namespace {
 
-// Bridge-local helpers keep error formatting and shared ABI utilities here;
+// The facade owns only composition and the two runtime adapters below;
 // feature-specific state and command implementations live in bridge modules.
-using Neo::Bridge::BridgeState;
-using Neo::Bridge::state;
-using Neo::Bridge::FilamentState::history_state_json;
-using Neo::Bridge::Profiles::preset_snapshot_json;
-using namespace Neo::Bridge::ModelOperations;
-using namespace Neo::Bridge::PlateSession;
-using Neo::Bridge::PlateCommands::plate_configuration_mutation_snapshot;
-using namespace Neo::Bridge::SlicingPipeline;
-using Neo::Bridge::ProjectOverlay::empty_project_config_overlay;
-
-
-// Copy a string into a malloc'd C string the JS side can read then _free().
-const char* dup_json(const std::string& s) {
-    char* out = static_cast<char*>(std::malloc(s.size() + 1));
-    std::memcpy(out, s.data(), s.size());
-    out[s.size()] = '\0';
-    return out;
-}
-
-const char* error_json(const std::string& msg) {
-    return dup_json(json{{"error", msg}}.dump());
-}
-
-std::string sanitized_model_basename(const char* filename, const char* ext) {
-    std::string name = filename ? filename : "";
-    const auto slash = name.find_last_of("\\/");
-    if (slash != std::string::npos) name.erase(0, slash + 1);
-    for (char& c : name) {
-        const unsigned char uc = static_cast<unsigned char>(c);
-        if (!(std::isalnum(uc) || c == '.' || c == '_' || c == '-')) c = '_';
-    }
-    std::string fallback_ext = ext && *ext ? ext : "stl";
-    if (name.empty() || name == "." || name == "..") name = "uploaded_model." + fallback_ext;
-    if (name.find_last_of('.') == std::string::npos) name += "." + fallback_ext;
-    return name;
-}
-
-// SlicingErrors' what() is just the category "Errors" (Exception.hpp:44) —
-// the real per-object messages live in its errors_ vector (GCode.cpp:
-// collect_layers_to_print aggregates per-object SlicingErrors and rethrows).
-// Returning e.what() alone made the renderer show only "Errors" with no
-// way to see what actually failed; join the underlying messages instead.
-const char* error_json_from_exception(const std::exception& e) {
-    if (const auto* se = dynamic_cast<const SlicingErrors*>(&e); se != nullptr) {
-        std::string joined;
-        for (const auto& err : se->errors_) {
-            if (!joined.empty()) joined += "\n";
-            joined += err.what();
-        }
-        if (!joined.empty()) return error_json(joined);
-    }
-    return error_json(e.what());
-}
+using Slic3r::Neo::Bridge::BridgeState;
+using Slic3r::Neo::Bridge::state;
+using Slic3r::Neo::Bridge::FilamentState::history_state_json;
+using Slic3r::Neo::Bridge::ProjectOverlay::empty_project_config_overlay;
 
 } // namespace
 
@@ -196,8 +105,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
             log_level = opts["log_level"].get<std::string>();
         wasm_log::init_with_level(log_level);
 
-        const char* result = Neo::Bridge::Profiles::init_profiles();
-        reset_plate_session_state();
+        const char* result = Slic3r::Neo::Bridge::Profiles::init_profiles();
+        Slic3r::Neo::Bridge::PlateSession::reset_plate_session_state();
         state().project_config_overlay = empty_project_config_overlay();
         state().history.clear();
         state().active_history_transaction.reset();
@@ -216,33 +125,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         // -fignore-exceptions would compile them out entirely) and fire only
         // when init genuinely failed — never on the happy path.
         fprintf(stderr, "orc_init caught std::exception: %s\n", e.what());
-        return error_json(e.what());
+        return Slic3r::Neo::Bridge::Profiles::error_json(e.what());
     } catch (...) {
         // Non-std throw: never let a C++ exception cross the extern "C" seam
         // (it would surface in JS as an uncatchable CppException crash).
         fprintf(stderr, "orc_init caught (...) via catch-all\n");
-        return error_json("unknown C++ exception");
+        return Slic3r::Neo::Bridge::Profiles::error_json("unknown C++ exception");
     }
 }
-
-// Headless plate-session commands. Every successful mutation returns one
-// coherent snapshot and the complete set of world transforms changed by grid
-// reflow. The frontend never derives membership, origins, or reflow deltas.
-EMSCRIPTEN_KEEPALIVE const char* orc_get_plate_session_snapshot() {
-    try {
-        return dup_json(plate_session_snapshot_json().dump());
-    } catch (const std::exception& e) {
-        return error_json(e.what());
-    } catch (...) {
-        return error_json("unknown C++ exception");
-    }
-}
-
-// Harness-only fixture seam.  This is intentionally not declared by
-// SlicerClient: it injects imported per-plate vectors/sequences and custom
-// events so the native command boundary can prove rejection/remapping without
-// manufacturing a desktop 3MF archive.  It does not create history entries.
-// Progress transport is defined in bridge_slicing_pipeline.cpp. Its narrow
-// interface is imported above for project operations that report stages.
 
 }  // extern "C"

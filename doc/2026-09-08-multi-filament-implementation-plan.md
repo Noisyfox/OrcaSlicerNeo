@@ -1319,3 +1319,22 @@ No compatibility or old single-filament API was added. The pinned native
 submodule remains outside the write set. The parent `bridge.cpp` was 804
 physical lines and is now 248 physical lines; the new session module is 561
 physical lines.
+
+### 4.14 Bridge composition-root cleanup (2026-09-10)
+
+This final bridge-maintenance step moves the read-only
+`orc_get_plate_session_snapshot` ABI adapter into
+`packages/slicer-wasm/src/bridge_plate_commands.cpp`, alongside the other
+plate command exports. The parent `bridge.cpp` now contains only `orc_init`,
+the HistoryRuntime adapter, the ProjectPersistence filament-validation
+adapter, and the required global `RGB2HSV` link symbol. Unreferenced
+`sanitized_model_basename` and `error_json_from_exception` helpers, stale
+feature usings/includes, and duplicate JSON allocation code were removed;
+`Profiles::duplicate_json`/`error_json` is reused for the initialization
+error path.
+
+The 77 exported ABI names and complete signatures, JSON/error contracts,
+stale revision fence, millisecond slot history, and no-full-bundle history
+boundary are unchanged. No compatibility or old single-filament path was
+added, and the pinned native submodule remains outside the write set.
+`bridge.cpp` is reduced from 248 to 137 physical lines.

@@ -66,6 +66,17 @@ json plate_configuration_mutation_snapshot(const std::string& plate_id,
 
 extern "C" {
 
+EMSCRIPTEN_KEEPALIVE const char* orc_get_plate_session_snapshot()
+{
+    try {
+        return dup_json(plate_session_snapshot_json().dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_reset_plate_session()
 {
     try {
