@@ -1,7 +1,7 @@
 # Multi-Filament Support Implementation Plan
 
 **Date:** 2026-09-08
-**Status:** Accepted execution plan; implementation not started
+**Status:** Accepted execution plan; Steps 0–9 accepted; Step 10 release gate pending
 **Scope:** The multi-filament behaviour accepted by [`spec/Multi-Filament Support.md`](../spec/Multi-Filament%20Support.md), for the shared Electron/Web application.
 **Execution rule:** Every step below is implemented by a new, fresh Luna High subagent. The subagent must implement the complete step and perform its self-verification. The root agent independently verifies the step and records evidence before dispatching the next subagent. Steps are strictly serial; a failed or incomplete gate stops the sequence.
 
@@ -691,6 +691,19 @@ Pass requires all required deterministic checks and all reported intentional ski
 
 **Commit boundary:** One acceptance-fixture/boundary-guard/checklist commit containing only the precise allowlist. Product corrective commits are not Step 8 commits: they return to the owning earlier step, use a fresh Luna High subagent, and require that step's full self-verification and root acceptance before Step 8 is re-dispatched.
 
+**Step 8 root acceptance record (2026-09-09):** Accepted at commit
+`d5ea4c0` (`test(filament): close multi-filament acceptance coverage`). Root
+verified that the commit contains only the Step 8 allowlist: fixture inventory
+and acceptance checklist assets, real-WASM command/imported-state harnesses,
+and client/runtime boundary tests; no production implementation, manifest,
+build script, host adapter, roadmap, approved spec, or submodule change was
+introduced. The checklist schema pins native core
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde`, enumerates serial/threaded fixture
+coverage, and reports no failed entries. Root independently accepted the
+fixture/boundary evidence and left Step 9 unblocked. The Step 9 audit below
+re-runs the current root suites, both host flows, both variant build/smoke
+paths, and the required handoff checks against this exact HEAD.
+
 ### Step 9 — Level 3 handoff audit
 
 **Dispatch:** Root starts a fresh Luna High subagent for Step 9 only after Step 8 is accepted. The subagent performs the complete Level 3 audit and self-verification record; root independently accepts or blocks the audit. This is not a root-only step.
@@ -714,6 +727,104 @@ Pass requires all required deterministic checks and all reported intentional ski
 **Root independent acceptance:** Root independently re-runs the applicable Level 3 commands, verifies the subagent's outputs against current files and Git state, checks graph evidence, `git diff --check`, local links/commands, commit boundaries, and unchanged dirty submodule. Root accepts Step 9 only when all applicable gates pass and every unavailable check is explicitly reported. Failure blocks Step 10 and requires remediation by a fresh subagent at the owning earlier step, followed by repeat acceptance and a new Step 9 dispatch.
 
 **Commit boundary:** No product commit is required; if an audit fix is needed, return it to the relevant prior step and use a fresh Luna High subagent.
+
+**Step 9 Luna High self-verification audit record (2026-09-09):** The fresh
+handoff audit ran on branch `dev/multi-filament-spec` at HEAD `d5ea4c0` and
+passed every applicable Level 3 gate. Exact results:
+
+- `pnpm test` — exit 0; all eight workspace test projects passed, including
+  slicer-wasm 4 files/128 tests, slicer-runtime 5 files/33 tests,
+  slicer-app 69 files/455 tests, desktop 10 files/67 tests, and Web 6
+  files/27 tests.
+- `pnpm typecheck` — exit 0 for all eight workspace projects.
+- Primary shared-app Electron flow
+  `pnpm --filter @orca/desktop test:e2e -- --grep "full v1 flow: add models.*slice.*preview.*export gcode"`
+  — exit 0, renderer CSS smoke passed, 1/1 test passed.
+- Affected Web host seams —
+  `pnpm --filter @orca/web test:e2e:serial` exit 0 (5/5, serial fallback,
+  import/slice/preview/download) and
+  `pnpm --filter @orca/web test:e2e:threaded` exit 0 (5/5, threaded
+  import/slice/preview/download).
+- `scripts\build-windows.bat quick --variant both` — exit 0; threaded and
+  serial artifacts were incrementally verified and staged.
+- `scripts\build-windows.bat smoke --variant both` — exit 0; both variants
+  completed the configured run-slice, bridge, and DRC smoke paths.
+- Comprehensive bridge smoke on threaded WASM:
+  `node packages/slicer-wasm/harness/bridge-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js packages/slicer-wasm/fixtures/cube.stl`
+  — exit 0; `orc_init`, profile/preset, model, slice/progress, result,
+  export, cancel, and threaded shared-memory/TBB checks all reported PASS.
+- Focused serial fallback/import/slice/export evidence —
+  `node packages/slicer-wasm/harness/multi-filament-slice-preview-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js`
+  and `node packages/slicer-wasm/harness/drc-smoke.mjs
+  packages/slicer-wasm/out/serial/orca_slice.js
+  packages/slicer-wasm/fixtures/drc` — combined exit 0; the former proved
+  one-slot and two-tool Preview palette/tool-order/temperature/flushing or
+  prime-tower and used-vs-unused-temperature semantics, and the latter proved
+  real DRC import, slice, and non-empty G-code export.
+- `node packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs`
+  — exit 0; the machine-readable checklist parsed all entries with no failed
+  plan rows. This is a checklist/schema audit, not a claim that the complete
+  Level 4 matrix was run here.
+- `git diff --check` — exit 0. Four living-plan local links resolve:
+  `spec/Multi-Filament Support.md`, `project_structure_and_guidelines.md`,
+  `doc/testing_guidelines.md`, and
+  `spec/Web-Electron Shared Application Architecture.md`. The plan's command
+  forms were cross-checked against the package scripts, the build driver's
+  `--variant` contract, and the acceptance checklist; every command claimed
+  as passed in this audit has current output above.
+
+Graph review was run against the current graph at `d5ea4c0` (3,580 nodes and
+46,197 edges). Change detection against the implementation baseline reported
+76 changed files, 233 structural test-gap candidates, and no automatically
+connected affected flows; focused review of bridge/client/runtime/app/history/
+preview reported high risk for 8 selected files (500 impacted nodes and 342
+raw gap candidates). Function-level `tests_for` queries found 61 client tests
+for `createClient`, 8 runtime bootstrap tests, 10 `sliceModel` tests including
+native-revision stale-result rejection, and the plate-result retention test.
+The graph has no direct test edge for the C++ `orc_init` node, private client
+normalizers, or the store's private snapshot/mutation helpers, and its flow
+detector does not connect native MJS harnesses to C++ nodes. These are recorded
+as graph mapping gaps, not release blockers: the required behavior is covered
+by the real threaded bridge smoke, serial multi-filament/DRC harnesses, the
+full client/runtime/app suites, and both real Web host flows. No required
+multi-filament acceptance item remains without executable evidence.
+
+Changed-path and commit audit passed. The implementation commits remain
+separate and ordered from `fcd7963` through `d5ea4c0`; Step 9 changed no
+product file and created no product commit. Apart from this living-plan
+documentation record, the only pre-existing working-tree change is the dirty
+`packages/slicer-wasm/cpp` submodule: its pointer and HEAD
+remain `b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde`, with exactly these seven
+unchanged files: `src/libslic3r/EdgeGrid.cpp`,
+`src/libslic3r/ExPolygonCollection.cpp`,
+`src/libslic3r/Format/bbs_3mf.cpp`, `src/libslic3r/LocalesUtils.cpp`,
+`src/libslic3r/Model.hpp`, `src/libslic3r/Platform.cpp`, and
+`src/libslic3r/utils.cpp`. No roadmap, approved spec semantics, or release
+status was updated.
+
+Intentional Step 9 skips are the complete Level 4 matrix (full Electron,
+packaged/runtime probes, non-root Web deployment, and licensed/profile/
+compatibility release probes), which are reserved for Step 10. No applicable
+Level 3 check was unavailable or silently converted to a pass. Step 9 is
+self-verified and awaits the root acceptance recorded below; this record does
+not mark the milestone delivered.
+
+**Step 9 root acceptance record (2026-09-09):** Accepted. Root independently
+reran the full workspace test and typecheck gates; the focused Electron flow
+(1/1); real Web threaded (5/5) and serial (5/5); both-variant quick and smoke;
+the threaded comprehensive bridge smoke; and serial multi-filament Preview and
+DRC import/slice/export harnesses. Root also reran the final 30-row acceptance
+runner earlier in this acceptance chain with all 21 selected real-WASM commands
+passing and `failed=[]`. Graph change/affected-flow review of the accumulated
+implementation reported medium risk and no connected affected flow; focused
+`tests_for` review found 61 client boundary tests and 10 `sliceModel` tests,
+while the native C++ mapping gap is directly covered by the real bridge and
+project harnesses. All four living-plan local links resolve, `git diff --check`
+passes, commits remain separately ordered, and no roadmap or approved spec was
+changed. The pinned submodule remains at
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with exactly its seven pre-existing
+dirty paths. Step 10 is unblocked; the milestone remains undelivered pending
+the separate Level 4 release gate.
 
 ### Step 10 — Separate Level 4 release gate
 
