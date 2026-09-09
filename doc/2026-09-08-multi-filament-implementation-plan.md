@@ -1093,9 +1093,13 @@ persistence parsing and archive writing, model mutation orchestration, slicing,
 history transactions, and all extern-C exports remain in `bridge.cpp`.
 
 The CMake source list explicitly includes the module. The split is structural:
-the 77-export ABI, JSON/error contracts, stale-revision behavior, history
-minimal-state boundary, slot latency, and native multi-plate behavior are
-unchanged. No compatibility or legacy single-filament paths were introduced,
-and the pinned submodule remains outside the write set. The bridge source
-decreased from 6649 to 6107 lines; the remaining bridge modularization stages
-remain planned and are not marked complete here.
+the 77-export ABI, canonical `plate_session` mutation schema, JSON/error
+contracts, stale-revision behavior, history minimal-state boundary, slot
+latency, and native multi-plate behavior are unchanged. A follow-up fix removed
+the former outer mutation-field aliases and duplicate `transform` field; test
+and mock callers now read only `plate_session` and `world_transform`. Direct
+plate-session snapshots retain their canonical top-level snapshot schema. No
+compatibility or legacy single-filament paths were introduced, and the pinned
+submodule remains outside the write set. The bridge source decreased from 6649
+to 6107 lines; the remaining bridge modularization stages remain planned and
+are not marked complete here.

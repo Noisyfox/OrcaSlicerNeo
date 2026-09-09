@@ -193,8 +193,8 @@ const secondPlate = callJson('orc_add_plate', [], []);
 check('create second native plate', secondPlate.ok === true && secondPlate.plates?.length === 2,
       JSON.stringify(secondPlate));
 const secondPlateModel = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Second Plate Cube']);
-check('add geometry to second plate', secondPlateModel.ok === true && secondPlateModel.affected_plate_ids_after?.length === 1
-      && secondPlateModel.affected_plate_ids_after[0] === secondPlate.current_plate_id,
+check('add geometry to second plate', secondPlateModel.ok === true && secondPlateModel.plate_session.affected_plate_ids_after?.length === 1
+      && secondPlateModel.plate_session.affected_plate_ids_after[0] === secondPlate.current_plate_id,
       JSON.stringify(secondPlateModel));
 const beforeExportSession = callJson('orc_get_plate_session_snapshot', [], []);
 check('capture complete multi-plate session', beforeExportSession.ok === true && beforeExportSession.plates?.length === 2

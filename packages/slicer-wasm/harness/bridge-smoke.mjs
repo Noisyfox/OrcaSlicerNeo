@@ -269,8 +269,8 @@ check('adding a model preserves the current plate identity',
           if (verts[i + a] > max[a]) max[a] = verts[i + a];
         }
       const center = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
-      const primitivePlate = added.plates?.find((plate) =>
-        plate.plate_id === added.current_plate_id);
+      const primitivePlate = added.plate_session.plates?.find((plate) =>
+        plate.plate_id === added.plate_session.current_plate_id);
       const primitiveExpectedXY = [
         primitivePlate.origin[0] + (areaBounds.minX + areaBounds.maxX) * 0.5,
         primitivePlate.origin[1] + (areaBounds.minY + areaBounds.maxY) * 0.5,

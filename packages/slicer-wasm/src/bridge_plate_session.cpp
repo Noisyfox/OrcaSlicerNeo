@@ -80,7 +80,7 @@ PlateBounds selected_plate_bounds()
             bounds.max_z = height->value;
     } catch (...) {
         // A bridge snapshot must remain usable even before profile setup. The
-        // deterministic fallback is the historical 200 mm square bed.
+        // deterministic runtime default is a 200 mm square bed.
     }
     return bounds;
 }
@@ -345,7 +345,7 @@ std::vector<Vec2d> selected_printable_area(const PlateBounds& bounds,
                 area.emplace_back(point.x() + plate.origin.x(), point.y() + plate.origin.y());
         }
     } catch (...) {
-        // Keep the deterministic fallback in sync with selected_plate_bounds().
+        // Keep the deterministic runtime default in sync with selected_plate_bounds().
     }
     if (area.size() < 3) {
         area = {{plate.origin.x() + bounds.min_x, plate.origin.y() + bounds.min_y},
@@ -394,10 +394,7 @@ json instance_transform_record(const PlateInstanceRef& ref)
 {
     return json{{"instance_id", ref.instance_id}, {"object_id", ref.object->id().id},
                 {"object_index", ref.object_index}, {"instance_index", ref.instance_index},
-                {"world_transform", session_transform_json(ref.instance->get_transformation())},
-                // The short alias is useful to clients that already call all
-                // transform payloads simply "transform".
-                {"transform", session_transform_json(ref.instance->get_transformation())}};
+                {"world_transform", session_transform_json(ref.instance->get_transformation())}};
 }
 
 void translate_instance(const PlateInstanceRef& ref, const Vec3d& delta)
@@ -589,20 +586,7 @@ json shared_configuration_mutation_snapshot()
 
 json attach_plate_mutation(json result, const json& mutation)
 {
-    // Keep the historical result fields stable while exposing the richer
-    // session transaction to new clients.  Top-level aliases are intentional:
-    // direct bridge harnesses can inspect the contract without knowing the
-    // nested client representation.
     result["plate_session"] = mutation;
-    for (const char* key : {"plates", "current_plate_id", "instances", "instance_transforms",
-                            "input_revisions", "affected_plate_ids_before",
-                            "affected_plate_ids_after", "affected_plate_ids", "dirty_reasons"}) {
-        // Some structural results already expose a legacy top-level field
-        // with the same name (notably numeric `instances` counts for model
-        // imports/shapes). Preserve that caller-owned contract; the complete
-        // membership array remains available under plate_session.
-        if (mutation.contains(key) && !result.contains(key)) result[key] = mutation.at(key);
-    }
     return result;
 }
 

@@ -72,9 +72,9 @@ check('invalid select is atomic', rejectedSelect.ok !== true && afterRejectedSel
 // lowest display index wins.  The later move intersects neither plate.
 const revisionsBeforeImport = { ...(session.input_revisions ?? {}) };
 const addedCube = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Step2 Cube']);
-check('add cube on current plate', addedCube.ok === true && addedCube.dirty_reasons?.includes('model-import') &&
-  addedCube.affected_plate_ids_after?.includes(session.plates[1].plate_id));
-const addedCubeTransform = addedCube.instance_transforms?.find((entry) => entry.object_index === 1);
+check('add cube on current plate', addedCube.ok === true && addedCube.plate_session.dirty_reasons?.includes('model-import') &&
+  addedCube.plate_session.affected_plate_ids_after?.includes(session.plates[1].plate_id));
+const addedCubeTransform = addedCube.plate_session.instance_transforms?.find((entry) => entry.object_index === 1);
 const selectedPlateCenter = plateWorldCenter(selected.plates.find((plate) =>
   plate.plate_id === selected.current_plate_id));
 check('new model uses selected non-first plate world center and rests on bed',
@@ -83,9 +83,9 @@ check('new model uses selected non-first plate world center and rests on bed',
   Math.abs(addedCubeTransform.world_transform.offset[1] - selectedPlateCenter[1]) < 1e-6 &&
   Math.abs(addedCubeTransform.world_transform.offset[2] - 10) < 1e-6,
   JSON.stringify({ transform: addedCubeTransform, expectedXY: selectedPlateCenter }));
-const addedRevision = addedCube.input_revisions?.[session.plates[1].plate_id];
+const addedRevision = addedCube.plate_session.input_revisions?.[session.plates[1].plate_id];
 check('model import advances only its current plate revision', Number.isSafeInteger(addedRevision) &&
-  Object.entries(addedCube.input_revisions ?? {}).every(([id, revision]) =>
+  Object.entries(addedCube.plate_session.input_revisions ?? {}).every(([id, revision]) =>
   revision === (id === session.plates[1].plate_id ? (revisionsBeforeImport[id] ?? 0) + 1 : revisionsBeforeImport[id] ?? 0)), JSON.stringify(addedCube));
 const identity = JSON.stringify({ offset: [120, 0, 10], rotation: [0, 0, 0], scale: [30, 30, 30], mirror: [1, 1, 1] });
 check('set oversized instance', callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'], [1, 0, 0, identity, volumeIdentity]).ok === true);

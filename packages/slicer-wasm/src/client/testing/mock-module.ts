@@ -754,7 +754,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           object_index: objectIndex,
           instance_index: instanceIndex,
           world_transform: transform,
-          transform,
         });
       }
     }
