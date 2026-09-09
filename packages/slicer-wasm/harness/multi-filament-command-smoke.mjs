@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { metadataEntry } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
@@ -15,6 +16,15 @@ const profileRoot = resolve(opts['profile-root'] ?? `${repoRoot}/packages/profil
 const factory = await loadModuleFactory(resolve(opts.module));
 const Module = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
 await installProfilePackages(Module, createNodeProfileSource(profileRoot));
+const startedAt = performance.now();
+const stageTimes = [];
+let flexibleFilamentNames = [];
+const historyLatencies = [];
+function markStage(name) {
+  const stage = { name, elapsedMs: Math.round(performance.now() - startedAt) };
+  stageTimes.push(stage);
+  console.error(`multi-filament-command-smoke stage ${stage.name}: ${stage.elapsedMs}ms`);
+}
 function callJson(name, types = [], args = []) {
   const pointer = Number(Module.ccall(name, 'number', types, args));
   const result = JSON.parse(Module.UTF8ToString(pointer)); Module._free(pointer); return result;
@@ -34,14 +44,83 @@ function initFlexible() {
   assert.equal(selected.ok, true, JSON.stringify(selected));
   const snapshot = callJson('orc_get_filament_session_snapshot'); assert.equal(snapshot.ok, true, JSON.stringify(snapshot));
   assert.equal(snapshot.capabilities.flexible, true, JSON.stringify(snapshot));
+  // Build the compatible alternate-preset inventory once. Fetching the full
+  // profile catalogue is intentionally expensive; the command checks below
+  // use this immutable list rather than repeatedly serialising it.
+  flexibleFilamentNames = callJson('orc_get_preset_snapshot').filaments.map((entry) => entry.name);
+  assert.ok(flexibleFilamentNames.some((name) => name !== snapshot.slots[0].preset.name),
+    'profile set must expose a distinct compatible filament');
   return snapshot;
+}
+function alternateFilament(currentName) {
+  const candidate = flexibleFilamentNames.find((name) => name !== currentName);
+  assert.ok(candidate, 'select-preset requires a distinct compatible filament');
+  return candidate;
+}
+function stableState(value) {
+  if (Array.isArray(value)) return value.map(stableState);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value)
+      // Revision tokens are deliberately monotonic, including when an undo
+      // restores the complete session. They are concurrency guards, not
+      // project state, and therefore cannot be compared to a baseline.
+      .filter(([key]) => key !== 'revision' && key !== 'revisions' && key !== 'history_revision')
+      .map(([key, entry]) => [stableState(key), stableState(entry)]));
+  }
+  if (typeof value === 'string')
+    return value.replace(/plate-session-\d+-plate-\d+/g, 'plate-session-<fresh>-plate-<fresh>');
+  return value;
+}
+function scenarioState() {
+  return stableState({
+    session: callJson('orc_get_filament_session_snapshot'),
+    plates: callJson('orc_get_plate_session_snapshot'),
+    overlay: callJson('orc_get_project_config_overlay'),
+    model: callJson('orc_get_model_structure'),
+  });
+}
+let baselineState = null;
+let baselineProject = null;
+function loadProject(bytes, displayName) {
+  const pointer = Number(Module._malloc(bytes.byteLength));
+  Module.HEAPU8.set(bytes, pointer);
+  const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+    [pointer, bytes.byteLength, 0, displayName]);
+  Module._free(pointer);
+  return loaded;
+}
+function establishFlexibleBaseline() {
+  const snapshot = initFlexible();
+  baselineState = scenarioState();
+  const exported = callJson('orc_export_project');
+  assert.equal(exported.ok, true, JSON.stringify(exported));
+  baselineProject = readBytes(exported.bytes_ptr, exported.bytes_length);
+  return snapshot;
+}
+function resetFlexibleScenario() {
+  // orc_init rebuilds the complete profile bundle (~10 s on this machine).
+  // Reloading this independently exported empty project is the real project
+  // reader/writer path, restores every project-owned state surface, and is
+  // about six times faster. This is deliberately not a mock/reset seam.
+  const loaded = loadProject(baselineProject, 'command-smoke-baseline.3mf');
+  assert.equal(loaded.ok, true, JSON.stringify(loaded));
+  assert.deepEqual(scenarioState(), baselineState,
+    'scenario reset must restore every non-revision session, plate, preset, overlay, and model value');
+  return callJson('orc_get_filament_session_snapshot');
 }
 function add(snapshot) {
   const result = request('orc_add_filament_slot', { version: 1, revision: snapshot.revisions.session });
   assert.equal(result.ok, true, JSON.stringify(result)); return result.result.snapshot;
 }
 function withSlots(count) {
-  let current = initFlexible();
+  let current = callJson('orc_get_filament_session_snapshot');
+  while (current.slots.length > count) {
+    const removed = request('orc_delete_filament_slot', {
+      version: 1, revision: current.revisions.session, slot: current.slots.length,
+    });
+    assert.equal(removed.ok, true, JSON.stringify(removed));
+    current = removed.result.snapshot;
+  }
   while (current.slots.length < count) current = add(current);
   return current;
 }
@@ -54,19 +133,30 @@ const nativeAddColours = [
   '#7841CE', '#115877', '#ED1E79', '#2EBDEF', '#345B2F', '#800080',
   '#FA8173', '#800000', '#F7B763', '#A4C41E',
 ];
-let snapshot = initFlexible();
-for (const expectedColour of nativeAddColours) {
-  snapshot = add(snapshot);
-  assert.equal(snapshot.slots.at(-1).colour.effective, expectedColour,
-    `native add colour sequence at slot ${snapshot.slots.length}`);
-}
+let snapshot = establishFlexibleBaseline();
+const noOverrideBefore = snapshot;
+const noOverride = request('orc_select_filament_slot_preset', {
+  version: 1, revision: snapshot.revisions.session, slot: 1,
+  preset: alternateFilament(noOverrideBefore.slots[0].preset.name),
+});
+assert.equal(noOverride.ok, true, JSON.stringify(noOverride));
+assert.equal(noOverride.result.snapshot.slots[0].colour.provenance, 'preset');
+snapshot = noOverride.result.snapshot;
 
-snapshot = initFlexible();
-for (let count = 1; count < 64; count++) snapshot = add(snapshot);
-assert.equal(snapshot.slots.length, 64, JSON.stringify(snapshot));
-const at64 = request('orc_add_filament_slot', { version: 1, revision: snapshot.revisions.session });
+function assertCapacityRoundTrip() {
+  let capacitySnapshot = callJson('orc_get_filament_session_snapshot');
+  while (capacitySnapshot.slots.length < 64) {
+    capacitySnapshot = add(capacitySnapshot);
+    const colourIndex = capacitySnapshot.slots.length - 2;
+    if (colourIndex < nativeAddColours.length) {
+      assert.equal(capacitySnapshot.slots.at(-1).colour.effective, nativeAddColours[colourIndex],
+        `native add colour sequence at slot ${capacitySnapshot.slots.length}`);
+    }
+  }
+assert.equal(capacitySnapshot.slots.length, 64, JSON.stringify(capacitySnapshot));
+const at64 = request('orc_add_filament_slot', { version: 1, revision: capacitySnapshot.revisions.session });
 assert.equal(at64.ok, false); assert.equal(at64.error_code, 'capability_rejected');
-assert.deepEqual(callJson('orc_get_filament_session_snapshot'), snapshot);
+assert.deepEqual(callJson('orc_get_filament_session_snapshot'), capacitySnapshot);
 
 // Capacity is also a persistence boundary: the complete 64-slot session and
 // its 64x64 native matrix must survive the real BBS 3MF writer and reader,
@@ -81,26 +171,32 @@ const sidecarVectorLength = (value) => Array.isArray(value)
   : String(value ?? '').split(/[,\s]+/).filter(Boolean).length;
 assert.equal(sidecarVectorLength(sidecar64.state.project_config.filament_map), 64);
 assert.equal(sidecarVectorLength(sidecar64.state.project_config.flush_volumes_matrix), 4096);
-const project64Pointer = Number(Module._malloc(project64.byteLength));
-Module.HEAPU8.set(project64, project64Pointer);
-const reloaded64 = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
-  [project64Pointer, project64.byteLength, 0, 'capacity-64-roundtrip.3mf']);
-Module._free(project64Pointer);
+const reloaded64 = loadProject(project64, 'capacity-64-roundtrip.3mf');
 assert.equal(reloaded64.ok, true, JSON.stringify(reloaded64));
 const session64 = callJson('orc_get_filament_session_snapshot');
 assert.equal(session64.slots.length, 64, JSON.stringify(session64));
 assert.equal(session64.flushing.matrix.length, 4096, JSON.stringify(session64.flushing));
 assert.equal(session64.flushing.plane_count, session64.capabilities.nozzle_count);
 assert.deepEqual(session64.slots.map((entry) => entry.slot), Array.from({ length: 64 }, (_, index) => index + 1));
+}
 
+assertCapacityRoundTrip();
+markStage('capacity-and-add-colour-sequence');
+snapshot = resetFlexibleScenario();
+snapshot = withSlots(4);
+const fourSlotFingerprint = (value) => JSON.stringify({ slots: value.slots, mappings: value.mappings,
+  flushing: value.flushing, assignments: value.assignments });
+const fourSlotBaseline = snapshot;
 for (const slot of [1, 2, 4]) {
-  snapshot = withSlots(4);
   const deleted = request('orc_delete_filament_slot', { version: 1, revision: snapshot.revisions.session, slot });
   assert.equal(deleted.ok, true, JSON.stringify(deleted));
   assert.equal(deleted.result.snapshot.slots.length, 3);
+  const undo = callJson('orc_history_undo');
+  assert.equal(undo.ok, true, JSON.stringify(undo));
+  snapshot = callJson('orc_get_filament_session_snapshot');
+  assert.equal(fourSlotFingerprint(snapshot), fourSlotFingerprint(fourSlotBaseline), `delete ${slot} undo must restore the shared four-slot baseline`);
 }
 for (const [source, destination] of [[1, 2], [2, 1], [4, 1]]) {
-  snapshot = withSlots(4);
   const destinationColour = request('orc_set_filament_slot_colour', {
     version: 1, revision: snapshot.revisions.session, slot: destination, colour: '#AABBCC',
   });
@@ -114,9 +210,22 @@ for (const [source, destination] of [[1, 2], [2, 1], [4, 1]]) {
   assert.equal(merge.result.snapshot.slots.length, 3);
   const retained = merge.result.snapshot.slots.find((entry) => entry.colour.effective === '#AABBCC');
   assert.ok(retained, `destination colour must survive merge ${source}->${destination}`);
+  assert.equal(callJson('orc_history_undo').ok, true, `merge ${source}->${destination} undo`);
+  snapshot = callJson('orc_get_filament_session_snapshot');
+  assert.equal(fourSlotFingerprint(snapshot), fourSlotFingerprint(sourceColour.result.snapshot),
+    `merge ${source}->${destination} undo must preserve the staged source colour`);
+  assert.equal(callJson('orc_history_undo').ok, true, `source colour ${source} undo`);
+  snapshot = callJson('orc_get_filament_session_snapshot');
+  assert.equal(fourSlotFingerprint(snapshot), fourSlotFingerprint(destinationColour.result.snapshot),
+    `source colour ${source} undo must preserve destination colour`);
+  assert.equal(callJson('orc_history_undo').ok, true, `destination colour ${destination} undo`);
+  snapshot = callJson('orc_get_filament_session_snapshot');
+  assert.equal(fourSlotFingerprint(snapshot), fourSlotFingerprint(fourSlotBaseline),
+    `merge ${source}->${destination} cleanup must restore four-slot baseline`);
 }
+markStage('delete-merge-remap');
 
-snapshot = initFlexible(); snapshot = add(snapshot); snapshot = add(snapshot);
+snapshot = withSlots(3);
 const beforeInjected = JSON.stringify(snapshot);
 const injected = request('orc_delete_filament_slot', { version: 1, revision: snapshot.revisions.session, slot: 1, inject_failure: true });
 assert.equal(injected.ok, false); assert.equal(injected.error_code, 'native_validation_failure');
@@ -129,24 +238,26 @@ function semantic(snapshot) {
   return JSON.stringify({ slots: snapshot.slots, mappings: snapshot.mappings,
     flushing: snapshot.flushing, assignments: snapshot.assignments });
 }
+const historyDiagnosticsBeforeUndoRedo = callJson('orc_history_restore_diagnostics');
 async function assertUndoRedo(label, mutate, prepare = (snapshot) => snapshot) {
-  const before = prepare(initFlexible());
+  const before = prepare(callJson('orc_get_filament_session_snapshot'));
   const result = await mutate(before);
   assert.equal(result.ok, true, `${label} mutation: ${JSON.stringify(result)}`);
   const after = result.result.snapshot;
+  const undoStarted = performance.now();
   const undo = callJson('orc_history_undo');
+  historyLatencies.push({ label, operation: 'undo', durationMs: performance.now() - undoStarted });
   assert.equal(undo.ok, true, `${label} undo: ${JSON.stringify(undo)}`);
   assert.equal(semantic(callJson('orc_get_filament_session_snapshot')), semantic(before), `${label} undo state`);
+  const redoStarted = performance.now();
   const redo = callJson('orc_history_redo');
+  historyLatencies.push({ label, operation: 'redo', durationMs: performance.now() - redoStarted });
   assert.equal(redo.ok, true, `${label} redo: ${JSON.stringify(redo)}`);
   assert.equal(semantic(callJson('orc_get_filament_session_snapshot')), semantic(after), `${label} redo state`);
 }
 await assertUndoRedo('select-preset', (before) => {
-  const presets = callJson('orc_get_preset_snapshot');
-  const candidate = presets.filaments.find((entry) => entry.name !== before.slots[0].preset.name);
-  assert.ok(candidate, 'select-preset requires a distinct compatible filament');
   return Promise.resolve(request('orc_select_filament_slot_preset', {
-    version: 1, revision: before.revisions.session, slot: 1, preset: candidate.name,
+    version: 1, revision: before.revisions.session, slot: 1, preset: alternateFilament(before.slots[0].preset.name),
   }));
 });
 await assertUndoRedo('set-colour', (before) => Promise.resolve(request('orc_set_filament_slot_colour', {
@@ -161,6 +272,20 @@ await assertUndoRedo('delete', (before) => Promise.resolve(request('orc_delete_f
 await assertUndoRedo('merge', (before) => Promise.resolve(request('orc_merge_filament_slots', {
   version: 1, revision: before.revisions.session, source: 2, destination: 1,
 })), (before) => add(add(before)));
+const slotHistoryLatencies = historyLatencies.filter((sample) => sample.label === 'add' || sample.label === 'delete');
+assert.equal(slotHistoryLatencies.length, 4, JSON.stringify(historyLatencies));
+for (const sample of slotHistoryLatencies) {
+  assert.ok(sample.durationMs < 100,
+    `warmed ${sample.label} ${sample.operation} must finish below 100ms, got ${sample.durationMs.toFixed(1)}ms`);
+}
+const minimalHistoryDiagnostics = callJson('orc_history_restore_diagnostics');
+assert.equal(minimalHistoryDiagnostics.legacyPresetBundleRestoreCount,
+  historyDiagnosticsBeforeUndoRedo.legacyPresetBundleRestoreCount,
+  `history commands must not invoke the legacy PresetBundle restore path: ${JSON.stringify(minimalHistoryDiagnostics)}`);
+assert.ok(minimalHistoryDiagnostics.minimalMutableRestoreCount -
+    historyDiagnosticsBeforeUndoRedo.minimalMutableRestoreCount >= slotHistoryLatencies.length,
+  `each warmed slot Undo/Redo must use the minimal mutable restore path: ${JSON.stringify(minimalHistoryDiagnostics)}`);
+markStage('rollback-and-history');
 
 snapshot = withSlots(2);
 const lateBefore = JSON.stringify(callJson('orc_get_filament_session_snapshot'));
@@ -242,33 +367,30 @@ const malformedBefore = JSON.stringify(callJson('orc_get_plate_session_snapshot'
 const malformed = request('orc_delete_filament_slot', { version: 1, revision: snapshot.revisions.session, slot: 2 });
 assert.equal(malformed.ok, false); assert.equal(malformed.error_code, 'unsupported_reference');
 assert.equal(JSON.stringify(callJson('orc_get_plate_session_snapshot')), malformedBefore);
+markStage('plate-fixtures');
 
-snapshot = initFlexible();
+// The 64-slot round trip above already proves a real project reader/writer
+// reset.  This later fixture only needs a fresh history boundary, so reset it
+// through the production history protocol instead of re-parsing the same
+// immutable empty project a second time.
+assert.equal(callJson('orc_clear_model').ok, true);
+const retentionContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+assert.equal(callJson('orc_history_reset', ['string'], [JSON.stringify(retentionContext)]).canUndo, false);
+snapshot = withSlots(1);
 const userColour = request('orc_set_filament_slot_colour', { version: 1, revision: snapshot.revisions.session, slot: 1, colour: '#DDAA11' });
 assert.equal(userColour.ok, true, JSON.stringify(userColour));
 const userPresetSnapshot = userColour.result.snapshot;
-const presetChoices = callJson('orc_get_preset_snapshot').filaments;
-const alternatePreset = presetChoices.find((entry) => entry.name !== userPresetSnapshot.slots[0].preset.name);
-assert.ok(alternatePreset, 'preset retention requires a distinct compatible preset');
-const retained = request('orc_select_filament_slot_preset', { version: 1, revision: userPresetSnapshot.revisions.session, slot: 1, preset: alternatePreset.name });
+const retained = request('orc_select_filament_slot_preset', { version: 1, revision: userPresetSnapshot.revisions.session, slot: 1, preset: alternateFilament(userPresetSnapshot.slots[0].preset.name) });
 assert.equal(retained.ok, true, JSON.stringify(retained));
 assert.equal(retained.result.snapshot.slots[0].colour.effective, '#DDAA11');
-
-snapshot = initFlexible();
-const noOverrideBefore = snapshot;
-const noOverridePreset = callJson('orc_get_preset_snapshot').filaments.find((entry) => entry.name !== noOverrideBefore.slots[0].preset.name);
-assert.ok(noOverridePreset, 'preset recalculation requires a distinct compatible preset');
-const noOverride = request('orc_select_filament_slot_preset', { version: 1, revision: snapshot.revisions.session, slot: 1, preset: noOverridePreset.name });
-assert.equal(noOverride.ok, true, JSON.stringify(noOverride));
-assert.equal(noOverride.result.snapshot.slots[0].colour.provenance, 'preset');
 
 // A normal model history entry must carry the same filament state as a
 // filament entry.  Undo/redo across both directions therefore restores the
 // complete preset/colour/matrix state even when the ordinary entry was made
 // from renderer context that omitted filamentState.
-snapshot = initFlexible();
-const historyContext = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
-  activePlateId: null, gizmo: null, projectConfigOverlay: {} };
+snapshot = retained.result.snapshot;
+const historyContext = retentionContext;
 const ordinaryBegin = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['ordinary model mutation', 'project', JSON.stringify(historyContext), '']);
 assert.equal(ordinaryBegin.ok, true, JSON.stringify(ordinaryBegin));
@@ -276,6 +398,15 @@ assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', 'ordinary'
 const ordinaryCommit = callJson('orc_history_commit', ['string', 'string'],
   [ordinaryBegin.transactionId, JSON.stringify(historyContext)]);
 assert.equal(ordinaryCommit.canUndo, true, JSON.stringify(ordinaryCommit));
+// An ordinary model commit deliberately carries no direct filament frame.
+// Its undo/redo exercises the serialized/direct-missing fallback; the bridge
+// diagnostic must prove this path still never clones/restores PresetBundle.
+const fallbackDiagnosticsBefore = callJson('orc_history_restore_diagnostics');
+assert.equal(callJson('orc_history_undo').ok, true, 'direct-missing fallback undo');
+assert.equal(callJson('orc_history_redo').ok, true, 'direct-missing fallback redo');
+assert.equal(callJson('orc_history_restore_diagnostics').legacyPresetBundleRestoreCount,
+  fallbackDiagnosticsBefore.legacyPresetBundleRestoreCount,
+  'direct-missing history fallback must not invoke legacy PresetBundle restore');
 const ordinaryBeforeFilament = semantic(callJson('orc_get_filament_session_snapshot'));
 const ordinaryMutation = request('orc_set_filament_slot_colour', {
   version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slot: 1, colour: '#123456',
@@ -311,18 +442,20 @@ assert.equal(remapped.result.snapshot.assignments.objects[0].explicit_slot, 1,
 const unrelatedAfter = callJson('orc_get_project_config_overlay');
 assert.equal(JSON.stringify(unrelatedAfter.overlay.project.filament_flush_temp), unrelatedBefore,
   JSON.stringify(unrelatedAfter));
+markStage('preset-and-reference-retention');
 
-let fixedSnapshot = null;
-const printers = callJson('orc_get_preset_snapshot').printers;
-for (const printer of printers) {
-  const selected = callJson('orc_select_preset', ['string', 'string'], ['printer', printer.name]);
-  if (!selected.ok) continue;
-  const candidate = callJson('orc_get_filament_session_snapshot');
-  if (candidate.ok && !candidate.capabilities.flexible && candidate.capabilities.nozzle_count > 1) {
-    fixedSnapshot = candidate; break;
-  }
-}
+// This bundled fixture is deliberately named rather than discovered by
+// repeatedly selecting hundreds of printers. Discovery serialized the whole
+// compatibility graph per candidate and dominated the command regression
+// loop without adding coverage: the explicit assertion below still proves
+// this is a fixed multi-nozzle profile at runtime.
+const fixedPrinterName = 'MyToolChanger 0.4 nozzle';
+const fixedSelected = callJson('orc_select_preset', ['string', 'string'], ['printer', fixedPrinterName]);
+assert.equal(fixedSelected.ok, true, JSON.stringify(fixedSelected));
+const fixedSnapshot = callJson('orc_get_filament_session_snapshot');
 assert.ok(fixedSnapshot, 'profile set must expose a fixed multi-extruder printer');
+assert.equal(fixedSnapshot.capabilities.flexible, false, JSON.stringify(fixedSnapshot));
+assert.ok(fixedSnapshot.capabilities.nozzle_count > 1, JSON.stringify(fixedSnapshot));
 const fixedAdd = request('orc_add_filament_slot', { version: 1, revision: fixedSnapshot.revisions.session });
 assert.equal(fixedAdd.ok, false); assert.equal(fixedAdd.error_code, 'capability_rejected');
 // The same fixed multi-nozzle profile still exercises valid native flush
@@ -390,4 +523,7 @@ assert.deepEqual(noMultiplierFixture.snapshot.flushing.matrix, flushFixture.snap
   'flush multiplier must not alter the recalculated base matrix');
 assert.deepEqual(noMultiplierFixture.min_flush_volumes, flushFixture.min_flush_volumes,
   'flush multiplier must not alter native minimum-volume inputs');
+markStage('fixed-nozzle-flush');
+console.log(JSON.stringify({ commandSmokeDurationMs: Math.round(performance.now() - startedAt), stageTimes,
+  slotHistoryLatencies }));
 console.log('multi-filament atomic command smoke passed (capacity, remap, rollback, flush, retention, fixed capability, and all five undo/redo command families)');

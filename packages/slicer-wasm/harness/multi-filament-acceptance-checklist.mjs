@@ -32,13 +32,23 @@ for (const [requirement, evidence] of Object.entries(checklist.coverage)) {
 }
 
 const runReal = argv.includes('--run-real');
+if (argv.includes('--help')) {
+  console.log('usage: node multi-filament-acceptance-checklist.mjs [--run-real] [--threaded-only|--serial-only] [--max-parallel N]');
+  console.log('development: --threaded-only runs the fast threaded artifact only; default release acceptance always runs serial and threaded.');
+  process.exit(0);
+}
 const variants = argv.includes('--threaded-only') ? ['threaded'] : argv.includes('--serial-only') ? ['serial'] : ['serial', 'threaded'];
 const moduleRootIndex = argv.indexOf('--module-root');
 const moduleRootArg = moduleRootIndex >= 0 ? argv[moduleRootIndex + 1] : undefined;
 const moduleRoot = moduleRootArg ? resolve(root, moduleRootArg) : null;
 const forceFailureIndex = argv.indexOf('--force-fail');
 const forceFailureId = forceFailureIndex >= 0 ? argv[forceFailureIndex + 1] : undefined;
+const parallelIndex = argv.indexOf('--max-parallel');
+const requestedParallelism = parallelIndex >= 0 ? Number(argv[parallelIndex + 1]) : 0;
+const maxParallel = Number.isSafeInteger(requestedParallelism) && requestedParallelism > 0
+  ? requestedParallelism : 8;
 const results = [];
+const runnerStartedAt = Date.now();
 
 function commandFor(check) {
   const tokens = check.command.trim().split(/\s+/);
@@ -61,13 +71,19 @@ function commandFor(check) {
   if (moduleRoot && variant) modulePath = resolve(moduleRoot, variant, 'orca_slice.js');
   if (forceFailureId === check.id) modulePath = resolve(root, 'packages/slicer-wasm/out/__acceptance_missing__/orca_slice.js');
   const args = [script];
-  if (moduleArgumentStyle === 'positional') args.push(modulePath, ...tokens);
+  const scriptArgs = moduleArgumentStyle === 'positional'
+    ? [modulePath, ...tokens]
+    : (() => {
+      tokens[moduleFlag] = '--module';
+      tokens[moduleFlag + 1] = modulePath;
+      return tokens;
+    })();
+  if (moduleArgumentStyle === 'positional') args.push(...scriptArgs);
   else {
-    tokens[moduleFlag] = '--module';
-    tokens[moduleFlag + 1] = modulePath;
-    args.push(...tokens);
+    args.push(...scriptArgs);
   }
-  return { executable: process.execPath, args, display: `node ${args.map((arg) => JSON.stringify(arg)).join(' ')}` };
+  return { executable: process.execPath, args, script, scriptArgs,
+    display: `node ${args.map((arg) => JSON.stringify(arg)).join(' ')}` };
 }
 
 function isSelectedRealCheck(check) {
@@ -104,6 +120,19 @@ async function run(check) {
   };
 }
 
+async function runBounded(checks) {
+  const output = new Map();
+  let next = 0;
+  const workers = Array.from({ length: Math.min(maxParallel, checks.length) }, async () => {
+    while (next < checks.length) {
+      const check = checks[next++];
+      output.set(check.id, await run(check));
+    }
+  });
+  await Promise.all(workers);
+  return output;
+}
+
 if (forceFailureId) {
   assert.ok(ids.has(forceFailureId), `--force-fail references unknown check ${forceFailureId}`);
   for (const check of checklist.checks) {
@@ -112,22 +141,30 @@ if (forceFailureId) {
       : { id: check.id, status: 'not-run', command: check.command, acceptance: check.acceptance, reason: 'failure probe stops before execution' });
   }
 } else if (runReal) {
+  const executable = checklist.checks.filter((check) => check.kind === 'real-wasm' && isSelectedRealCheck(check));
+  const executed = await runBounded(executable);
   for (const check of checklist.checks) {
     if (check.kind !== 'real-wasm') {
       results.push({ id: check.id, status: 'delegated', command: check.command, acceptance: check.acceptance, reason: 'executed by its owning package/build/host gate' });
     } else if (!isSelectedRealCheck(check)) {
       results.push({ id: check.id, status: 'not-selected', command: check.command, acceptance: check.acceptance, reason: `variant selection: ${variants.join(', ')}` });
     } else {
-      results.push(await run(check));
+      results.push(executed.get(check.id));
     }
   }
 } else {
   for (const check of checklist.checks) results.push({ id: check.id, status: 'planned', command: check.command, acceptance: check.acceptance });
 }
 const failed = results.filter((result) => result.status === 'fail');
+const wallClockMs = Date.now() - runnerStartedAt;
+if (runReal && !forceFailureId && wallClockMs > 120_000) {
+  results.push({ id: 'runner-wall-clock', status: 'fail', command: 'real-WASM acceptance runner',
+    acceptance: ['prebuilt-wall-clock-under-120000ms'], durationMs: wallClockMs,
+    error: `real-WASM acceptance exceeded 120000ms (${wallClockMs}ms)` });
+}
 console.log(JSON.stringify({
   schema: 'orca-multi-filament-acceptance-results', schemaVersion: 1,
   nativeCoreCommit: checklist.nativeCoreCommit, mode: forceFailureId ? 'failure-probe' : runReal ? 'real-wasm' : 'plan', variants,
-  results, failed: failed.map(({ id }) => id),
+  maxParallel, wallClockMs, results, failed: results.filter((result) => result.status === 'fail').map(({ id }) => id),
 }, null, 2));
-if (failed.length) process.exitCode = 1;
+if (results.some((result) => result.status === 'fail')) process.exitCode = 1;

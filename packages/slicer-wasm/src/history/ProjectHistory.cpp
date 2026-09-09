@@ -64,6 +64,7 @@ struct StoredState {
     std::vector<StoredMutable> mutable_objects;
     std::vector<StoredMesh> immutable_meshes;
     Bytes context;
+    std::optional<RestoreState::DirectFrame> direct_frame;
 };
 
 struct StoredEntry {
@@ -141,12 +142,16 @@ struct ProjectHistory::Impl {
     }
 
     static StoredState store(const ModelState& model, const Bytes& context,
-                             const StoredState* previous)
+                             const StoredState* previous,
+                             std::optional<RestoreState::DirectFrame> direct_frame)
     {
         StoredState state;
         state.serialized = previous && bytes_equal(previous->serialized, model.serialized)
             ? previous->serialized : make_blob(model.serialized);
         state.context = context;
+        if (direct_frame && (!direct_frame->payload || direct_frame->bytes == 0))
+            direct_frame.reset();
+        state.direct_frame = std::move(direct_frame);
 
         state.mutable_objects.reserve(model.mutable_objects.size());
         for (const auto& object : model.mutable_objects) {
@@ -220,10 +225,13 @@ void ProjectHistory::clear()
     m_object_intervals.clear();
 }
 
-bool ProjectHistory::commit(std::string label, Category category, const ModelState& model, const Bytes& context)
+bool ProjectHistory::commit(std::string label, Category category, const ModelState& model, const Bytes& context,
+                            std::optional<RestoreState::DirectFrame> direct_frame,
+                            std::optional<RestoreState::DirectFrame> predecessor_direct_frame)
 {
     if (m_impl->states.empty()) {
-        m_impl->states.push_back({ { 0, {}, Category::Project }, Impl::store(model, context, nullptr) });
+        m_impl->states.push_back({ { 0, {}, Category::Project },
+                                   Impl::store(model, context, nullptr, std::move(direct_frame)) });
         m_cursor = 0;
         rebuild_intervals();
         return true;
@@ -247,11 +255,18 @@ bool ProjectHistory::commit(std::string label, Category category, const ModelSta
     backup.m_object_intervals = m_object_intervals;
 
     try {
+        // A fast frame describes the currently retained predecessor.  Attach
+        // it only as part of the same transactional branch append so a failed
+        // commit cannot leave a newly charged side payload behind.
+        if (!m_impl->states[m_cursor].state.direct_frame && predecessor_direct_frame &&
+            predecessor_direct_frame->payload && predecessor_direct_frame->bytes != 0)
+            m_impl->states[m_cursor].state.direct_frame = std::move(predecessor_direct_frame);
         // Build the complete retained state before touching the current branch.
         // Serialization/allocation failures must not discard redo entries or move
         // the cursor; the bridge relies on this when a published mutation's
         // history commit throws.
-        StoredState prepared = Impl::store(model, context, &m_impl->states[m_cursor].state);
+        StoredState prepared = Impl::store(model, context, &m_impl->states[m_cursor].state,
+                                           std::move(direct_frame));
         m_impl->states.reserve(m_impl->states.size() + 1);
 
         // A new branch invalidates all redo IDs and any saved checkpoint that was
@@ -284,7 +299,9 @@ bool ProjectHistory::commit(std::string label, Category category, const ModelSta
 
 bool ProjectHistory::commit_with_baseline(std::string label, Category category,
                                           const ModelState& baseline_model, const Bytes& baseline_context,
-                                          const ModelState& model, const Bytes& context)
+                                          const ModelState& model, const Bytes& context,
+                                          std::optional<RestoreState::DirectFrame> baseline_direct_frame,
+                                          std::optional<RestoreState::DirectFrame> direct_frame)
 {
     if (!m_impl->states.empty()) return commit(std::move(label), category, model, context);
     try {
@@ -293,11 +310,12 @@ bool ProjectHistory::commit_with_baseline(std::string label, Category category,
         // intermediate state exists, and the guard restores the empty
         // history if allocation/serialization fails while constructing it.
         m_impl->states.push_back({ { 0, {}, Category::Project },
-                                   Impl::store(baseline_model, baseline_context, nullptr) });
+                                   Impl::store(baseline_model, baseline_context, nullptr,
+                                               std::move(baseline_direct_frame)) });
         m_cursor = 0;
         rebuild_intervals();
         mark_current_as_saved();
-        if (!commit(std::move(label), category, model, context)) {
+        if (!commit(std::move(label), category, model, context, std::move(direct_frame))) {
             clear();
             return false;
         }
@@ -352,6 +370,7 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
     result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
+    result.state.direct_frame = state.state.direct_frame;
     return true;
 }
 
@@ -367,6 +386,7 @@ bool ProjectHistory::prepare_redo(RestorePlan& result) const
     result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
+    result.state.direct_frame = state.state.direct_frame;
     return true;
 }
 
@@ -380,6 +400,7 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
     result.state.model = Impl::restore_model(it->state);
     result.state.context = it->state.context;
     result.state.entry = it->info;
+    result.state.direct_frame = it->state.direct_frame;
     return true;
 }
 
@@ -409,6 +430,7 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
     result.state.model = Impl::restore_model(target_entry.state);
     result.state.context = target_entry.state.context;
     result.state.entry = target_entry.info;
+    result.state.direct_frame = target_entry.state.direct_frame;
     return true;
 }
 
@@ -474,6 +496,7 @@ const RestoreState& ProjectHistory::current() const
     cache.model = Impl::restore_model(state.state);
     cache.context = state.state.context;
     cache.entry = state.info;
+    cache.direct_frame = state.state.direct_frame;
     return cache;
 }
 
@@ -511,6 +534,7 @@ std::size_t ProjectHistory::bytes_used() const
     static_assert(ResourceAccounting::kImplAllocationBytes >= sizeof(Impl),
                   "impl accounting slot must cover ProjectHistory::Impl");
     std::set<const Bytes*> seen;
+    std::set<const void*> seen_direct_frames;
     std::size_t total = 0;
     add_bytes(total, ResourceAccounting::kImplAllocationBytes);
     add_product(total, m_impl->states.capacity(), ResourceAccounting::kStoredEntryBytes);
@@ -527,6 +551,12 @@ std::size_t ProjectHistory::bytes_used() const
         };
         count(state.state.serialized);
         add_bytes(total, state.state.context.capacity());
+        if (state.state.direct_frame) {
+            add_bytes(total, ResourceAccounting::kDirectFrameSlotBytes);
+            const auto& frame = *state.state.direct_frame;
+            if (frame.payload && seen_direct_frames.insert(frame.payload.get()).second)
+                add_bytes(total, frame.bytes);
+        }
         add_product(total, state.state.mutable_objects.capacity(), ResourceAccounting::kMutableObjectSlotBytes);
         add_product(total, state.state.immutable_meshes.capacity(), ResourceAccounting::kImmutableMeshSlotBytes);
         add_string_storage(total, state.info.label);

@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -13,6 +14,13 @@ const repoRoot = resolve(import.meta.dirname, '../../..');
 const factory = await loadModuleFactory(resolve(opts.module));
 const Module = await factory({ noInitialRun: true, print: () => {}, printErr: () => {} });
 await installProfilePackages(Module, createNodeProfileSource(resolve(opts['profile-root'] ?? `${repoRoot}/packages/profile-resources/dist`)));
+const startedAt = performance.now();
+const stageTimes = [];
+function markStage(name) {
+  const elapsedMs = Math.round(performance.now() - startedAt);
+  stageTimes.push({ name, elapsedMs });
+  if (process.env.ORCA_HARNESS_TIMING === '1') console.error(`flushing smoke ${name}: ${elapsedMs}ms`);
+}
 function callJson(name, types = [], args = []) {
   const ptr = Number(Module.ccall(name, 'number', types, args));
   const result = JSON.parse(Module.UTF8ToString(ptr)); Module._free(ptr); return result;
@@ -63,6 +71,7 @@ assert.equal(loaded.ok, true, JSON.stringify(loaded));
 snapshot = callJson('orc_get_filament_session_snapshot');
 assert.deepEqual(snapshot.flushing.matrix, importedSnapshot.flushing.matrix, 'production project load preserves imported matrix exactly');
 assert.equal(snapshot.flushing.source, 'native');
+markStage('profile-init-and-project-roundtrip');
 
 // Every accepted flushing-input class must replace a complete imported matrix.
 const alternatePreset = callJson('orc_get_preset_snapshot').filaments.find((entry) => entry.name !== snapshot.slots[0].preset.name);
@@ -106,6 +115,7 @@ const interfaceRoute = request('orc_set_filament_routing', {
 assert.equal(interfaceRoute.ok, true, JSON.stringify(interfaceRoute));
 assertReplaced(before.flushing.matrix, interfaceRoute.result.snapshot, 2);
 snapshot = interfaceRoute.result.snapshot;
+markStage('native-flush-input-recalculation');
 
 // An injected native rejection must preserve the complete matrix and session.
 const rejectedBefore = installImportedMatrix(2, 910);
@@ -162,6 +172,7 @@ assert.deepEqual(callJson('orc_get_project_config_overlay'), rejectedConfigBefor
 assert.deepEqual(callJson('orc_get_plate_session_snapshot').input_revisions, rejectedPlateBefore.input_revisions,
   'rejected native scope leaves plate revisions unchanged');
 assert.deepEqual(callJson('orc_history_status'), rejectedHistoryBefore, 'rejected native scope leaves history unchanged');
+markStage('prime-tower-config-and-history');
 
 // Delete without a merge destination maps an explicit support reference to
 // Default; other references above the deleted slot decrement exactly once.
@@ -217,5 +228,7 @@ for (const selector of allFeatureSelectors) {
   const route = merged.result.snapshot.routing.find((r) => r.target === 'object' && r.id === objectId && r.selector === selector);
   assert.equal(route?.explicit_slot, 1, `${selector} merge maps to selected survivor`);
 }
+markStage('routing-remap');
 
+if (process.env.ORCA_HARNESS_TIMING === '1') console.error(JSON.stringify({ flushingSmokeDurationMs: Math.round(performance.now() - startedAt), stageTimes }));
 console.log('multi-filament flushing/prime-tower smoke passed (import preservation, native recalc, support Default/remap, prime tower status and plate-local invalidation)');

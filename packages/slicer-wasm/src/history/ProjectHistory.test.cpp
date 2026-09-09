@@ -293,6 +293,54 @@ int main()
     CHECK(context_large.commit("context", Category::Project, {}, bytes(9, 11)));
     CHECK(context_large.bytes_used() - context_small.bytes_used() == 8);
 
+    // Direct restore frames are owned by retained history entries.  A shared
+    // frame must be returned verbatim for undo/redo, charged once for its
+    // payload, and never be required for the serialized restore fallback.
+    const auto direct_payload = std::make_shared<const Bytes>(bytes(0x5a, 128));
+    const RestoreState::DirectFrame direct_frame {
+        std::static_pointer_cast<const void>(direct_payload), direct_payload->size()
+    };
+    ProjectHistory direct_history(1u << 20);
+    ProjectHistory serialized_fallback(1u << 20);
+    CHECK(direct_history.commit("baseline", Category::Project, model(1), {}, direct_frame));
+    CHECK(direct_history.commit("edit", Category::Project, model(2), {}, direct_frame));
+    CHECK(serialized_fallback.commit("baseline", Category::Project, model(1), {}));
+    CHECK(serialized_fallback.commit("edit", Category::Project, model(2), {}));
+    CHECK(direct_history.bytes_used() - serialized_fallback.bytes_used() ==
+        2 * ResourceAccounting::kDirectFrameSlotBytes + direct_payload->size());
+    RestorePlan direct_undo;
+    CHECK(direct_history.prepare_undo(direct_undo));
+    CHECK(direct_undo.state.direct_frame);
+    CHECK(direct_undo.state.direct_frame->payload.get() == direct_payload.get());
+    CHECK(direct_undo.state.direct_frame->bytes == direct_payload->size());
+    CHECK(direct_history.commit_restore(direct_undo));
+    RestorePlan direct_redo;
+    CHECK(direct_history.prepare_redo(direct_redo));
+    CHECK(direct_redo.state.direct_frame);
+    CHECK(direct_redo.state.direct_frame->payload.get() == direct_payload.get());
+    CHECK(direct_history.commit_restore(direct_redo));
+    RestorePlan fallback_undo;
+    CHECK(serialized_fallback.prepare_undo(fallback_undo));
+    CHECK(!fallback_undo.state.direct_frame);
+
+    // Under budget pressure direct frames leave with their entry: retained
+    // entries still expose their exact frame while an evicted target has no
+    // plan and therefore cannot accidentally read an unbudgeted side cache.
+    ProjectHistory direct_eviction(1);
+    CHECK(direct_eviction.commit("base", Category::Project, model(1), {}, direct_frame));
+    CHECK(direct_eviction.commit("edit", Category::Project, model(2), {}, direct_frame));
+    const auto direct_eviction_entries = direct_eviction.entries();
+    CHECK(direct_eviction.commit("tail", Category::Project, model(3), {}, direct_frame));
+    CHECK(direct_eviction.resource_diagnostics().evicted_entry_count > 0);
+    bool evicted_direct_entry = false;
+    for (const auto& entry : direct_eviction_entries) {
+        RestorePlan evicted_direct_plan;
+        if (!direct_eviction.prepare_jump(entry.id, JumpDirection::Undo, evicted_direct_plan) &&
+            !direct_eviction.prepare_jump(entry.id, JumpDirection::Redo, evicted_direct_plan))
+            evicted_direct_entry = true;
+    }
+    CHECK(evicted_direct_entry);
+
     // Resource effects are observable diagnostics, not notifications.  The
     // released-byte counter is cumulative for this project session and the
     // retained oldest entry remains a safe restore target.

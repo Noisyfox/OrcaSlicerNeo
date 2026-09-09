@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -61,6 +62,15 @@ struct RestoreState {
     ModelState model;
     Bytes context;
     EntryInfo entry;
+    // Bridge-owned, immutable fast-path state.  ProjectHistory deliberately
+    // treats it as opaque: its explicit byte charge participates in the same
+    // eviction policy as the authoritative archive state, and a missing frame
+    // always falls back to the archive restore path.
+    struct DirectFrame {
+        std::shared_ptr<const void> payload;
+        std::size_t bytes { 0 };
+    };
+    std::optional<DirectFrame> direct_frame;
 };
 
 // A prepared restore is deliberately separate from the history cursor.  The
@@ -106,6 +116,7 @@ struct ResourceAccounting {
     static constexpr std::size_t kImmutableMeshSlotBytes = 128;
     static constexpr std::size_t kObjectIntervalSlotBytes = 32;
     static constexpr std::size_t kSharedBlobAllocationBytes = 64;
+    static constexpr std::size_t kDirectFrameSlotBytes = 32;
     static constexpr std::size_t kStringTerminatorBytes = 1;
     // Canonical short-string threshold, independent of the implementation's
     // actual SSO capacity. Values at or below this size are covered by the
@@ -130,14 +141,18 @@ public:
     // The first commit establishes the baseline from which Undo starts.  Each
     // subsequent commit stores the new state.  A commit with identical model
     // and context bytes is a no-op and does not consume a history entry.
-    bool commit(std::string label, Category category, const ModelState& model, const Bytes& context);
+    bool commit(std::string label, Category category, const ModelState& model, const Bytes& context,
+                std::optional<RestoreState::DirectFrame> direct_frame = std::nullopt,
+                std::optional<RestoreState::DirectFrame> predecessor_direct_frame = std::nullopt);
     // Publish the initial baseline and its first project mutation as one
     // history operation.  The bridge uses this when a freshly initialized
     // session receives its first atomic command; a failed command must not
     // leave a baseline behind without the corresponding mutation.
     bool commit_with_baseline(std::string label, Category category,
                               const ModelState& baseline_model, const Bytes& baseline_context,
-                              const ModelState& model, const Bytes& context);
+                              const ModelState& model, const Bytes& context,
+                              std::optional<RestoreState::DirectFrame> baseline_direct_frame = std::nullopt,
+                              std::optional<RestoreState::DirectFrame> direct_frame = std::nullopt);
     bool record(std::string label, Category category, const ModelState& model, const Bytes& context)
     { return commit(std::move(label), category, model, context); }
 
