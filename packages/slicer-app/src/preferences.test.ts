@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreSelections } from './preferences';
 import type { UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
-import type { PresetSnapshot } from '@slicer/client';
+import type { ProfileSnapshot } from '@slicer/client';
 
 const prefs: UserPreferences = {
   version: 1,
@@ -9,34 +9,33 @@ const prefs: UserPreferences = {
   ui: {},
 };
 
-function snapshot(printer: string, print: string, filament: string): PresetSnapshot {
+function snapshot(printer: string, print: string, filament: string): ProfileSnapshot {
   return {
     ok: true,
     printers: [{ name: printer, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
     prints: [{ name: print, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-    filaments: [{ name: filament, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+    filamentCatalog: [{ name: filament, is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
     printer: { name: printer, idx: 0 },
     print: { name: print, idx: 0 },
-    filament: { name: filament, idx: 0 },
   };
 }
 
 describe('selection restoration', () => {
-  it('restores printer, print, then filament and returns the final atomic snapshot', async () => {
+  it('restores printer and process while leaving rack filament selection to the session', async () => {
     const initial = snapshot('default-printer', 'default-print', 'default-filament');
     const final = snapshot('P2', 'Q2', 'F2');
     const calls: Array<[string, string]> = [];
     const result = await restoreSelections({
-      getPresetSnapshot: vi.fn(async () => initial),
-      selectPreset: vi.fn(async (kind, name) => {
+      getProfileSnapshot: vi.fn(async () => initial),
+      selectProfile: vi.fn(async (kind, name) => {
         calls.push([kind, name]);
         return final;
       }),
     }, prefs);
 
-    expect(calls).toEqual([['printer', 'P'], ['print', 'Q'], ['filament', 'F']]);
+    expect(calls).toEqual([['printer', 'P'], ['print', 'Q']]);
     expect(result.snapshot).toBe(final);
-    expect(result.preferences.selectedProfiles).toEqual({ printer: 'P2', print: 'Q2', filament: 'F2' });
+    expect(result.preferences.selectedProfiles).toEqual({ printer: 'P2', print: 'Q2', filament: 'F' });
   });
 
   it('uses the current snapshot candidate after a rejected saved name, then keeps later candidates current', async () => {
@@ -44,29 +43,26 @@ describe('selection restoration', () => {
     const initial = snapshot('engine-printer', 'engine-print', 'engine-filament');
     const afterPrinter = snapshot('fallback-printer', 'printer-print', 'printer-filament');
     const afterPrint = snapshot('fallback-printer', 'fallback-print', 'print-filament');
-    const final = snapshot('fallback-printer', 'fallback-print', 'fallback-filament');
     const calls: Array<[string, string]> = [];
     const result = await restoreSelections({
-      getPresetSnapshot: async () => initial,
-      selectPreset: async (kind, name) => {
+      getProfileSnapshot: async () => initial,
+      selectProfile: async (kind, name) => {
         calls.push([kind, name]);
         if (kind === 'printer' && name === 'P') return { error: 'not available' };
         if (kind === 'printer') return afterPrinter;
         if (kind === 'print' && name === 'Q') return { error: 'not available' };
         if (kind === 'print') return afterPrint;
-        if (kind === 'filament' && name === 'F') return { error: 'not available' };
-        return final;
+        return afterPrint;
       },
     }, prefs);
 
     expect(calls).toEqual([
       ['printer', 'P'], ['printer', 'engine-printer'],
       ['print', 'Q'], ['print', 'printer-print'],
-      ['filament', 'F'], ['filament', 'print-filament'],
     ]);
-    expect(result.snapshot).toBe(final);
+    expect(result.snapshot).toBe(afterPrint);
     expect(result.preferences.selectedProfiles).toEqual({
-      printer: 'fallback-printer', print: 'fallback-print', filament: 'fallback-filament',
+      printer: 'fallback-printer', print: 'fallback-print', filament: 'F',
     });
   });
 
@@ -75,8 +71,8 @@ describe('selection restoration', () => {
     const final = snapshot('resolved-printer', 'resolved-print', 'resolved-filament');
     const calls: Array<[string, string]> = [];
     const result = await restoreSelections({
-      getPresetSnapshot: async () => initial,
-      selectPreset: async (kind, name) => {
+      getProfileSnapshot: async () => initial,
+      selectProfile: async (kind, name) => {
         calls.push([kind, name]);
         return final;
       },
@@ -85,10 +81,9 @@ describe('selection restoration', () => {
     expect(calls).toEqual([
       ['printer', 'engine-printer'],
       ['print', 'resolved-print'],
-      ['filament', 'resolved-filament'],
     ]);
     expect(result.preferences.selectedProfiles).toEqual({
-      printer: 'resolved-printer', print: 'resolved-print', filament: 'resolved-filament',
+      printer: 'resolved-printer', print: 'resolved-print',
     });
   });
 

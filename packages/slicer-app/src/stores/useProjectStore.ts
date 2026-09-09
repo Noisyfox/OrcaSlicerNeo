@@ -132,7 +132,7 @@ export const useProjectStore = create<ProjectSessionState>((set) => ({
   reset: () => set(initialSession()),
 }));
 
-export function projectPresetTriple(snapshot: { printer: { name: string }; print: { name: string }; filament: { name: string } }): ProjectPresetSelections {
-  return { printer: snapshot.printer.name, print: snapshot.print.name, filament: snapshot.filament.name };
+export function projectPresetTriple(snapshot: { printer: { name: string }; print: { name: string }; filamentCatalog?: readonly { name: string }[] }): ProjectPresetSelections {
+  return { printer: snapshot.printer.name, print: snapshot.print.name, filament: snapshot.filamentCatalog?.[0]?.name ?? '' };
 }
 

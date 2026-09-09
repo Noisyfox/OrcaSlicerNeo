@@ -516,7 +516,7 @@ describe('SlicerClient bridge contract', () => {
     const selected = await c.selectPlate(second.plates[1].plateId);
     if (!selected.ok) throw new Error(selected.error);
 
-    const changedPrinter = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');
+    const changedPrinter = await c.selectProfile('printer', 'Bambu Lab P1S 0.4 nozzle');
     expect(changedPrinter.ok).toBe(true);
     const mutation = await c.markSharedConfigurationMutation();
     expect(mutation.ok).toBe(true);
@@ -548,9 +548,9 @@ describe('SlicerClient bridge contract', () => {
     expect(afterLoad.plates[0]?.plateId).toBe(afterLoad.currentPlateId);
   });
 
-  it('getPresetSnapshot returns the coherent strict-hide picker state', async () => {
+  it('getProfileSnapshot returns the coherent strict-hide picker state', async () => {
     const c = makeClient();
-    const snapshot = await c.getPresetSnapshot();
+    const snapshot = await c.getProfileSnapshot();
     expect(snapshot.ok).toBe(true);
     if (!snapshot.ok) throw new Error(snapshot.error);
     expect(snapshot.printers.map((preset) => preset.name)).toEqual([
@@ -561,65 +561,60 @@ describe('SlicerClient bridge contract', () => {
       '0.20mm Standard @BBL X1C',
       '0.16mm Optimal @BBL X1C',
     ]);
-    expect(snapshot.filaments.map((preset) => preset.name)).toEqual([
+    expect(snapshot.filamentCatalog.map((preset) => preset.name)).toEqual([
       'Bambu PLA Basic @BBL X1C',
       'Bambu PLA Matte @BBL X1C',
       'Generic PLA @System',
     ]);
     expect(snapshot.printer.name).toBe('Bambu Lab X1 Carbon 0.4 nozzle');
     expect(snapshot.print.name).toBe('0.20mm Standard @BBL X1C');
-    expect(snapshot.filament.name).toBe('Bambu PLA Basic @BBL X1C');
     expect(snapshot.printable_area).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
   });
 
-  it('selectPreset returns the resolved printer-to-process-to-filament snapshot', async () => {
+  it('selectProfile returns the resolved printer-to-process-to-rack snapshot', async () => {
     const c = makeClient();
-    const r = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');
+    const r = await c.selectProfile('printer', 'Bambu Lab P1S 0.4 nozzle');
     expect(r.ok).toBe(true);
     if (!r.ok) throw new Error(r.error);
     expect(r.printer.name).toBe('Bambu Lab P1S 0.4 nozzle');
     expect(r.print.name).toBe('0.20mm Standard @BBL P1S');
-    expect(r.filament.name).toBe('Bambu PLA Basic @BBL P1S');
     expect(r.prints.map((preset) => preset.name)).toEqual(['0.20mm Standard @BBL P1S']);
-    expect(r.filaments.map((preset) => preset.name)).toEqual([
+    expect(r.filamentCatalog.map((preset) => preset.name)).toEqual([
       'Bambu PLA Basic @BBL P1S',
       'Generic PLA @System',
     ]);
     expect(r.printable_area).toEqual([[0, 0], [256, 0], [256, 256], [0, 256]]);
   });
 
-  it('selecting a process refreshes its dependent filament candidates and fallbacks', async () => {
+  it('selecting a process refreshes the rack filament catalogue and native fallback', async () => {
     const c = makeClient();
-    const matte = await c.selectPreset('filament', 'Bambu PLA Matte @BBL X1C');
-    expect(matte.ok).toBe(true);
-    const r = await c.selectPreset('print', '0.16mm Optimal @BBL X1C');
+    const r = await c.selectProfile('print', '0.16mm Optimal @BBL X1C');
     expect(r.ok).toBe(true);
     if (!r.ok) throw new Error(r.error);
     expect(r.print.name).toBe('0.16mm Optimal @BBL X1C');
-    expect(r.filament.name).toBe('Bambu PLA Basic @BBL X1C');
-    expect(r.filaments.map((preset) => preset.name)).toEqual([
+    expect(r.filamentCatalog.map((preset) => preset.name)).toEqual([
       'Bambu PLA Basic @BBL X1C',
       'Bambu PLA Silk @BBL X1C',
       'Generic PLA @System',
     ]);
   });
 
-  it('selectPreset rejects unavailable requests without mutating the snapshot', async () => {
+  it('selectProfile rejects unavailable requests without mutating the snapshot', async () => {
     const c = makeClient();
-    const before = await c.getPresetSnapshot();
-    const unknown = await c.selectPreset('printer', 'No Such Printer');
+    const before = await c.getProfileSnapshot();
+    const unknown = await c.selectProfile('printer', 'No Such Printer');
     expect(unknown.ok).toBeFalsy();
     if (unknown.ok) throw new Error('expected unknown printer rejection');
     expect(unknown.error).toContain('not found');
-    const hidden = await c.selectPreset('printer', 'Afinia H+1(HS)');
+    const hidden = await c.selectProfile('printer', 'Afinia H+1(HS)');
     expect(hidden.ok).toBeFalsy();
     if (hidden.ok) throw new Error('expected hidden printer rejection');
     expect(hidden.error).toContain('not visible');
-    const incompatible = await c.selectPreset('print', '0.20mm Standard @BBL P1S');
+    const incompatible = await c.selectProfile('print', '0.20mm Standard @BBL P1S');
     expect(incompatible.ok).toBeFalsy();
     if (incompatible.ok) throw new Error('expected incompatible process rejection');
     expect(incompatible.error).toContain('incompatible');
-    expect(await c.getPresetSnapshot()).toEqual(before);
+    expect(await c.getProfileSnapshot()).toEqual(before);
   });
 
   it('getOptionMetadata exposes typed keys', async () => {

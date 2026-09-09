@@ -1,4 +1,4 @@
-import type { PresetSnapshot } from '@slicer/client';
+import type { ProfileSnapshot } from '@slicer/client';
 import type { RememberedFilamentRack, UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, SlicerClient } from '@slicer/client';
 
@@ -6,7 +6,7 @@ export interface RestoredSelections {
   /** The engine-resolved names to persist for the next launch. */
   preferences: UserPreferences;
   /** The final coherent picker state; do not rebuild it with legacy list reads. */
-  snapshot: PresetSnapshot;
+  snapshot: ProfileSnapshot;
 }
 
 // Rack edits are UI state first and preference state second.  Serialize
@@ -90,13 +90,13 @@ export async function restoreRememberedFilamentRack(
   }
 }
 
-function resolvedPreferences(preferences: UserPreferences, snapshot: PresetSnapshot): UserPreferences {
+function resolvedPreferences(preferences: UserPreferences, snapshot: ProfileSnapshot): UserPreferences {
   return {
     ...preferences,
     selectedProfiles: {
+      ...preferences.selectedProfiles,
       printer: snapshot.printer.name,
       print: snapshot.print.name,
-      filament: snapshot.filament.name,
     },
   };
 }
@@ -108,26 +108,26 @@ function resolvedPreferences(preferences: UserPreferences, snapshot: PresetSnaps
  * "first" profile itself.
  */
 export async function restoreSelections(
-  runtime: Pick<SlicerClient, 'getPresetSnapshot' | 'selectPreset'>,
+  runtime: Pick<SlicerClient, 'getProfileSnapshot' | 'selectProfile'>,
   preferences: UserPreferences,
 ): Promise<RestoredSelections> {
-  let initial = await runtime.getPresetSnapshot();
-  if (!initial.ok) throw new Error(initial.error ?? 'getPresetSnapshot failed');
+  let initial = await runtime.getProfileSnapshot();
+  if (!initial.ok) throw new Error(initial.error ?? 'getProfileSnapshot failed');
   let snapshot = initial;
 
-  for (const kind of ['printer', 'print', 'filament'] as const) {
+  for (const kind of ['printer', 'print'] as const) {
     const savedName = preferences.selectedProfiles[kind];
     const candidateName = snapshot[kind].name;
     const requestedName = savedName ?? candidateName;
-    let result = await runtime.selectPreset(kind, requestedName);
+    let result = await runtime.selectProfile(kind, requestedName);
 
     if (!result.ok) {
       if (savedName) {
         console.warn(`profile ${kind} ${savedName} unavailable; using the engine-selected candidate`);
       }
       // The current snapshot is still authoritative because a rejected
-      // selectPreset leaves the engine state unchanged.
-      result = await runtime.selectPreset(kind, candidateName);
+      // selectProfile leaves the engine state unchanged.
+      result = await runtime.selectProfile(kind, candidateName);
     }
     if (!result.ok) throw new Error(result.error ?? `could not select ${kind}`);
     snapshot = result;

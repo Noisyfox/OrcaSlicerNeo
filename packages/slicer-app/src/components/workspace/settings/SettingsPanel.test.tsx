@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
-import type { PresetInfo, PresetSnapshot, PresetSnapshotResult } from '@slicer/client';
+import type { PresetInfo, ProfileSnapshot, ProfileSnapshotResult } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
@@ -20,26 +20,24 @@ function preset(name: string, isVisible = true): PresetInfo {
   return { name, is_visible: isVisible, is_default: false, vendor_id: '', model: '', variant: '', selected: false };
 }
 
-const initialSnapshot: PresetSnapshot = {
+const initialSnapshot: ProfileSnapshot = {
   ok: true,
   printers: [preset('Old Printer'), preset('New Printer')],
   // The false flag is deliberately retained: picker arrays are already bridge
   // candidates and must not be re-filtered by React.
   prints: [preset('Candidate Process B', false), preset('Candidate Process A')],
-  filaments: [preset('Old Filament')],
+  filamentCatalog: [preset('Old Filament')],
   printer: { name: 'Old Printer', idx: 0 },
   print: { name: 'Candidate Process B', idx: 0 },
-  filament: { name: 'Old Filament', idx: 0 },
 };
 
-const resolvedSnapshot: PresetSnapshot = {
+const resolvedSnapshot: ProfileSnapshot = {
   ok: true,
   printers: [preset('New Printer'), preset('Other Printer')],
   prints: [preset('Resolved Process')],
-  filaments: [preset('Resolved Filament')],
+  filamentCatalog: [preset('Resolved Filament')],
   printer: { name: 'New Printer', idx: 4 },
   print: { name: 'Resolved Process', idx: 8 },
-  filament: { name: 'Resolved Filament', idx: 12 },
 };
 
 function resetStores() {
@@ -49,10 +47,9 @@ function resetStores() {
     metadata: {},
     printers: initialSnapshot.printers,
     prints: initialSnapshot.prints,
-    filaments: initialSnapshot.filaments,
+    filamentCatalog: initialSnapshot.filamentCatalog,
     selectedPrinter: initialSnapshot.printer.name,
     selectedPrint: initialSnapshot.print.name,
-    selectedFilament: initialSnapshot.filament.name,
     values: { layer_height: '0.12' },
   });
   useSlicerStore.setState({
@@ -61,7 +58,7 @@ function resetStores() {
   });
 }
 
-function makePlatform(selectPreset: (kind: 'printer' | 'print' | 'filament', name: string) => Promise<PresetSnapshotResult>) {
+function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) => Promise<ProfileSnapshotResult>) {
   const preferences: UserPreferences = { version: 1, selectedProfiles: { printer: 'saved' }, ui: {} };
   const repository = {
     load: vi.fn(async () => preferences),
@@ -70,7 +67,7 @@ function makePlatform(selectPreset: (kind: 'printer' | 'print' | 'filament', nam
   return {
     platform: {
       runtime: {
-        selectPreset: vi.fn(selectPreset),
+        selectProfile: vi.fn(selectProfile),
         markSharedConfigurationMutation: vi.fn(async () => ({
           ok: true,
           version: 1,
@@ -86,7 +83,7 @@ function makePlatform(selectPreset: (kind: 'printer' | 'print' | 'filament', nam
       },
       preferences: repository,
     } as unknown as PlatformCapabilities,
-    runtime: { selectPreset: undefined as unknown as ReturnType<typeof vi.fn> },
+    runtime: { selectProfile: undefined as unknown as ReturnType<typeof vi.fn> },
     repository,
     preferences,
   };
@@ -137,12 +134,15 @@ describe('SettingsPanel preset transitions', () => {
 
     expect([...document.querySelectorAll('[data-slot="combobox-item"]')].map((item) => item.textContent))
       .toEqual(['Candidate Process B', 'Candidate Process A']);
+    expect(container.querySelector('[data-testid="filament-preset-select"]')).toBeNull();
+    expect(container.querySelector('[data-testid="preset-select"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="process-preset-select"]')).not.toBeNull();
   });
 
   it('locks every selector, atomically applies the resolved snapshot, clears overrides, invalidates once, and persists the resolved triple', async () => {
     resetStores();
-    let resolveSelection!: (snapshot: PresetSnapshotResult) => void;
-    const pending = new Promise<PresetSnapshotResult>((resolve) => { resolveSelection = resolve; });
+    let resolveSelection!: (snapshot: ProfileSnapshotResult) => void;
+    const pending = new Promise<ProfileSnapshotResult>((resolve) => { resolveSelection = resolve; });
     const { platform, repository } = makePlatform(async () => pending);
     const { container, root } = await render(platform);
     roots.push(root);
@@ -153,7 +153,7 @@ describe('SettingsPanel preset transitions', () => {
 
     expect((container.querySelector('[data-testid="preset-select"]') as HTMLButtonElement).disabled).toBe(true);
     expect((container.querySelector('[data-testid="process-preset-select"]') as HTMLButtonElement).disabled).toBe(true);
-    expect((container.querySelector('[data-testid="filament-preset-select"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(container.querySelector('[data-testid="filament-preset-select"]')).toBeNull();
     expect(container.querySelector('[data-testid="preset-transition-region"]')?.getAttribute('aria-busy')).toBe('true');
 
     await act(async () => {
@@ -165,9 +165,9 @@ describe('SettingsPanel preset transitions', () => {
     const settings = useSettingsStore.getState();
     expect(settings.printers).toBe(resolvedSnapshot.printers);
     expect(settings.prints).toBe(resolvedSnapshot.prints);
-    expect(settings.filaments).toBe(resolvedSnapshot.filaments);
-    expect([settings.selectedPrinter, settings.selectedPrint, settings.selectedFilament])
-      .toEqual(['New Printer', 'Resolved Process', 'Resolved Filament']);
+    expect(settings.filamentCatalog).toBe(resolvedSnapshot.filamentCatalog);
+    expect([settings.selectedPrinter, settings.selectedPrint])
+      .toEqual(['New Printer', 'Resolved Process']);
     expect(settings.values).toEqual({});
     expect((platform.runtime as unknown as { markSharedConfigurationMutation: ReturnType<typeof vi.fn> })
       .markSharedConfigurationMutation).toHaveBeenCalledOnce();
@@ -181,7 +181,7 @@ describe('SettingsPanel preset transitions', () => {
       resultExported: false, layer: 0, maxLayer: 0,
     });
     expect(repository.save).toHaveBeenCalledWith(expect.objectContaining({
-      selectedProfiles: { printer: 'New Printer', print: 'Resolved Process', filament: 'Resolved Filament' },
+      selectedProfiles: { printer: 'New Printer', print: 'Resolved Process' },
     }));
     expect(container.querySelector('[data-testid="preset-transition-region"]')?.getAttribute('aria-busy')).toBe('false');
     expect((container.querySelector('[data-testid="preset-select"]') as HTMLButtonElement).disabled).toBe(false);

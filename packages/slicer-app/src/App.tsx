@@ -55,7 +55,7 @@ export function handleMenuKeyDown(
 export default function App() {
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
-  const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
+  const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
   const setOverlay = useSettingsStore((s) => s.setOverlay);
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
@@ -358,12 +358,12 @@ export default function App() {
         if (cancelled) return;
         await persistRestoredSelections(platform.preferences, restored.preferences);
         if (cancelled) return;
-        hydratePresetSnapshot(restored.snapshot);
+        hydrateProfileSnapshot(restored.snapshot);
         useProjectStore.getState().setProject({
           systemPresets: {
             printer: restored.snapshot.printer.name,
             print: restored.snapshot.print.name,
-            filament: restored.snapshot.filament.name,
+            filament: restored.snapshot.filamentCatalog[0]?.name ?? '',
           },
         });
         setMetadata(metadata);
@@ -378,7 +378,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [hydratePresetSnapshot, setMetadata, setOverlay, setError, platform.preferences, platform.runtime]);
+  }, [hydrateProfileSnapshot, setMetadata, setOverlay, setError, platform.preferences, platform.runtime]);
 
   useEffect(() => {
     if (platform.chrome.kind !== 'web') return;

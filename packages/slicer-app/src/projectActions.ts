@@ -31,14 +31,16 @@ export interface ProjectActionOptions {
   sceneResetTarget?: SceneResetTarget | null;
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel' | 'getFilamentSessionSnapshot'> &
+type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot'> &
   Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory' | 'restoreFilamentRack' | 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function runtimeOf(platform: PlatformCapabilities): Runtime { return platform.runtime; }
 function currentPresets(): ProjectPresetSelections {
-  const s = useSettingsStore.getState(); return { printer: s.selectedPrinter, print: s.selectedPrint, filament: s.selectedFilament };
+  const s = useSettingsStore.getState();
+  const previous = useProjectStore.getState().systemPresets;
+  return { printer: s.selectedPrinter, print: s.selectedPrint, filament: previous?.filament ?? '' };
 }
 export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   const notices: ProjectNotice[] = [];
@@ -102,14 +104,14 @@ export async function recordHistoryContext(
 }
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
   if (!selections) return;
-  let resolved: Awaited<ReturnType<Runtime['getPresetSnapshot']>> | null = null;
-  for (const [kind, name] of [['printer', selections.printer], ['print', selections.print], ['filament', selections.filament]] as const) {
+  let resolved: Awaited<ReturnType<Runtime['getProfileSnapshot']>> | null = null;
+  for (const [kind, name] of [['printer', selections.printer], ['print', selections.print]] as const) {
     if (!name) continue;
-    const result = await runtime.selectPreset(kind, name);
+    const result = await runtime.selectProfile(kind, name);
     if (!result.ok) throw new Error(result.error ?? `could not restore ${kind} preset`);
     resolved = result;
   }
-  if (resolved?.ok) useSettingsStore.getState().hydratePresetSnapshot(resolved);
+  if (resolved?.ok) useSettingsStore.getState().hydrateProfileSnapshot(resolved);
 }
 async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 'open', input: ProjectInput | undefined, options: ProjectActionOptions): Promise<ProjectActionResult | null> {
   if (!await projectDirtyStatus(platform)) return null;
@@ -249,10 +251,10 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     if (load.plateSession) usePlateSessionStore.getState().setSnapshot(load.plateSession);
     // The native load response contains the candidate preset snapshot from
-    // the same replacement transaction. A second getPresetSnapshot call here
+    // the same replacement transaction. A second getProfileSnapshot call here
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
-    useSettingsStore.getState().hydratePresetSnapshot(snapshot);
+    useSettingsStore.getState().hydrateProfileSnapshot(snapshot);
     if (load.projectConfigOverlay) useSettingsStore.getState().setOverlay(load.projectConfigOverlay);
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
     const history = await resetHistory(runtime);

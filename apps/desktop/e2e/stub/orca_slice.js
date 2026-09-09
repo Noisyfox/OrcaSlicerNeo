@@ -2,7 +2,7 @@
 // ONLY by the packaged-app probe (staged into public/wasm/ by
 // scripts/stage-stub-wasm.mjs, which is gitignored). Replaced by the real
 // Emscripten artifact in CI (e2e-real). Implements just enough of the bridge
-// for the app's boot path: init → getPresetSnapshot → getOptionMetadata.
+// for the app's boot path: init → getProfileSnapshot → getOptionMetadata.
 //
 // Contract: every bridge call returns a malloc'd JSON C string; the client
 // reads it via Number(ccall(...)) → UTF8ToString(ptr) → JSON.parse (see

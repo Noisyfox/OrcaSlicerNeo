@@ -27,12 +27,13 @@ const GIZMO_BUTTONS: ReadonlyArray<{
 export function GizmoToolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   useSceneInteractionVersion(sceneInteraction ?? undefined);
   const platform = usePlatform();
-  // Boot loads all three preset lists atomically (setPresets); until they
+  // Boot loads the printer/process lists and the rack's filament catalogue
+  // atomically; until they
   // arrive (or if boot fails) Add Model stays disabled — a model without
   // presets can't be configured or sliced. Unlike the gizmo toggles it is
   // NOT gated on a selection: importing onto an empty plate is the point.
   const presetsLoaded = useSettingsStore(
-    (s) => s.printers.length > 0 && s.prints.length > 0 && s.filaments.length > 0,
+    (s) => s.printers.length > 0 && s.prints.length > 0 && s.filamentCatalog.length > 0,
   );
   if (!sceneInteraction) return null;
   // The gizmos can only arm with a non-empty selection — the controller's

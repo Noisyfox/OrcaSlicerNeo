@@ -185,7 +185,7 @@ export interface PresetInfo {
   model: string;
   variant: string;
   /** true when this entry is the collection's current selection (the
-   *  picker's value source at boot; updated by selectPreset responses) */
+   *  picker's value source at boot; updated by selectProfile responses) */
   selected: boolean;
 }
 
@@ -202,28 +202,25 @@ export interface PresetSelection {
  * final selection context. Preserve their order; do not re-filter or sort in
  * JavaScript.
  */
-export interface PresetSnapshot {
+export interface ProfileSnapshot {
   ok: true;
   printers: PresetInfo[];
   prints: PresetInfo[];
-  filaments: PresetInfo[];
+  /** Engine-filtered filament catalogue consumed by the multi-filament rack. */
+  filamentCatalog: PresetInfo[];
   printer: PresetSelection;
   print: PresetSelection;
-  filament: PresetSelection;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printable_area?: Array<[number, number]>;
 }
 
 /** A bridge rejection has no partial snapshot and leaves engine state unchanged. */
-export interface PresetSnapshotError {
+export interface ProfileSnapshotError {
   ok?: false;
   error: string;
 }
 
-export type PresetSnapshotResult = PresetSnapshot | PresetSnapshotError;
-
-/** @deprecated Use PresetSnapshotResult; retained during the API migration. */
-export type SelectPresetResult = PresetSnapshotResult;
+export type ProfileSnapshotResult = ProfileSnapshot | ProfileSnapshotError;
 
 export type OptionMetaType =
   | 'float' | 'int' | 'string' | 'bool' | 'percent' | 'floats' | 'ints'
@@ -310,7 +307,7 @@ export interface ProjectLoadResult {
     filamentSlotChanges?: FilamentSlotChange[];
   };
   /** Candidate picker state captured in the same native load response. */
-  presetSnapshot?: PresetSnapshot;
+  presetSnapshot?: ProfileSnapshot;
   /** Authoritative plate membership returned by the native model transaction. */
   plateSession?: PlateSessionMutation;
   /** Project/object/part/plate overrides retained by the Worker. */
@@ -955,7 +952,7 @@ export interface SlicerClient {
   /** Revalidate retained overrides after a base preset transition. */
   revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
-  getPresetSnapshot(): Promise<PresetSnapshotResult>;
+  getProfileSnapshot(): Promise<ProfileSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
   addModel(bytes: Uint8Array, ext: string, displayName?: string): Promise<LoadModelResult>;
@@ -1017,8 +1014,10 @@ export interface SlicerClient {
   setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult>;
   /** Toggle a single instance's printable state by its stable ObjectID. */
   setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult>;
-  /** Select a preset by name and return the final atomic compatibility state. */
-  selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<PresetSnapshotResult>;
+  /** Select a printer or process profile and return the final atomic
+   * compatibility state. Filament selection is owned by the multi-filament
+   * session/rack commands. */
+  selectProfile(kind: 'printer' | 'print', name: string): Promise<ProfileSnapshotResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
   slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;

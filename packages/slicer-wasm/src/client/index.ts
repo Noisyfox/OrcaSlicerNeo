@@ -4,7 +4,7 @@ export { startWorker, createWorkerClient } from './worker';
 export type { WorkerMessage, WorkerTransport } from './worker';
 export type {
   SlicerClient, OrcaModule, OrcaModuleFactory,
-  InitResult, PresetInfo, PresetSelection, PresetSnapshot,
+  InitResult, PresetInfo, PresetSelection, ProfileSnapshot,
   FilamentColourProvenance, FilamentSessionSlot, FilamentNativeMapping,
   FilamentFlushingState, FilamentSessionCapabilities, FilamentAssignmentTarget,
   FilamentAssignmentProjection, FilamentAssignmentProjectionSet,
@@ -21,7 +21,7 @@ export type {
   PlateSessionMutation, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult,
   ProjectConfigOverlay, ProjectConfigScope, ProjectConfigOverrideTarget,
   ProjectConfigOverlayResult, ProjectConfigOverlayError, ProjectConfigOverlayResultOrError,
-  PresetSnapshotError, PresetSnapshotResult, SelectPresetResult,
+  ProfileSnapshotError, ProfileSnapshotResult,
   OptionMetadata, OptionMeta,
   LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,

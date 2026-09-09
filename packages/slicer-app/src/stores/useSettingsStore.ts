@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { OptionMetadata, PresetInfo, PresetSnapshot, ProjectConfigOverlay } from '@slicer/client';
+import type { OptionMetadata, PresetInfo, ProfileSnapshot, ProjectConfigOverlay } from '@slicer/client';
 
 export const emptyProjectConfigOverlay = (): ProjectConfigOverlay => ({
   project: {}, objects: {}, parts: {}, plates: {},
@@ -16,14 +16,13 @@ interface SettingsState {
    *  from the bridge, never computed client-side). */
   printers: PresetInfo[];
   prints: PresetInfo[];
-  filaments: PresetInfo[];
-  /** Current selection names, synced from the bridge: setPresets derives
-   *  them from the lists' `selected` flags at boot; setSelections applies
-   *  selectPreset responses (all three, since printer change re-runs the
-   *  compatibility tail that moves print/filament). */
+  /** Engine-filtered filament catalogue consumed by the multi-filament rack.
+   * It is not a single-filament selection or a second source of truth. */
+  filamentCatalog: PresetInfo[];
+  /** Current printer/process profile names, synced from the bridge. Filament
+   * selection is owned exclusively by the Worker filament session/rack. */
   selectedPrinter: string;
   selectedPrint: string;
-  selectedFilament: string;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printableArea: Array<[number, number]>;
   values: Record<string, string>;
@@ -34,9 +33,9 @@ interface SettingsState {
   modelRevision: number;
   setMetadata: (m: OptionMetadata) => void;
   /** Replace all picker state from one atomic compatibility snapshot. */
-  hydratePresetSnapshot: (snapshot: PresetSnapshot) => void;
-  setPresets: (printers: PresetInfo[], prints: PresetInfo[], filaments: PresetInfo[]) => void;
-  setSelections: (printer: string, print: string, filament: string) => void;
+  hydrateProfileSnapshot: (snapshot: ProfileSnapshot) => void;
+  setPresets: (printers: PresetInfo[], prints: PresetInfo[], filamentCatalog: PresetInfo[]) => void;
+  setSelections: (printer: string, print: string) => void;
   setValue: (key: string, value: string) => void;
   setValues: (values: Record<string, string>) => void;
   setOverlay: (overlay: ProjectConfigOverlay) => void;
@@ -50,37 +49,34 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   metadata: null,
   printers: [],
   prints: [],
-  filaments: [],
+  filamentCatalog: [],
   selectedPrinter: '',
   selectedPrint: '',
-  selectedFilament: '',
   printableArea: [[0, 0], [220, 0], [220, 220], [0, 220]],
   values: {},
   overlay: emptyProjectConfigOverlay(),
   modelLoaded: false,
   modelRevision: 0,
   setMetadata: (metadata) => set({ metadata }),
-  hydratePresetSnapshot: (snapshot) => set({
+  hydrateProfileSnapshot: (snapshot) => set({
     printers: snapshot.printers,
     prints: snapshot.prints,
-    filaments: snapshot.filaments,
+    filamentCatalog: snapshot.filamentCatalog,
     selectedPrinter: snapshot.printer.name,
     selectedPrint: snapshot.print.name,
-    selectedFilament: snapshot.filament.name,
     printableArea: snapshot.printable_area ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
     // A system preset transition replaces the base configuration. Temporary
     // renderer overrides belong to the previous combination and must not leak
     // into the next slice.
     values: projectOverlayValues(get().overlay),
   }),
-  setPresets: (printers, prints, filaments) => set({
-    printers, prints, filaments,
+  setPresets: (printers, prints, filamentCatalog) => set({
+    printers, prints, filamentCatalog,
     selectedPrinter: printers.find((p) => p.selected)?.name ?? '',
     selectedPrint: prints.find((p) => p.selected)?.name ?? '',
-    selectedFilament: filaments.find((p) => p.selected)?.name ?? '',
   }),
-  setSelections: (selectedPrinter, selectedPrint, selectedFilament) =>
-    set({ selectedPrinter, selectedPrint, selectedFilament, values: projectOverlayValues(get().overlay) }),
+  setSelections: (selectedPrinter, selectedPrint) =>
+    set({ selectedPrinter, selectedPrint, values: projectOverlayValues(get().overlay) }),
   setValue: (key, value) => set((s) => ({ values: { ...s.values, [key]: value } })),
   setValues: (values) => set({ values }),
   setOverlay: (overlay) => set({ overlay, values: projectOverlayValues(overlay) }),

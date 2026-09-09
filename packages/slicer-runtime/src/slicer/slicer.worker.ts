@@ -76,7 +76,7 @@ startWorker(factory, undefined, undefined, async (module) => {
   // E2E-only fixture support: production builds never set this mock env var.
   // Delaying just the bridge response makes the UI's stale-picker lock
   // observable without changing any application compatibility behaviour.
-  if (op === 'selectPreset') {
+  if (op === 'selectProfile') {
     await new Promise<void>((resolve) => setTimeout(resolve, mockPresetTransitionDelayMs));
   }
 } : undefined);

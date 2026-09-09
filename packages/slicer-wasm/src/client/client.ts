@@ -7,7 +7,7 @@
 // ----------------------------------------------------------------
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
-  InitResult, PresetSnapshotResult,
+  InitResult, ProfileSnapshot, ProfileSnapshotResult,
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
   ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError, ProjectConfigOverlay,
   ConfigurationStatus,
@@ -572,6 +572,24 @@ function normalizeCount(raw: unknown): number | null {
   return typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0 ? raw : null;
 }
 
+/** Convert the native profile/catalogue payload into the public profile
+ * contract. The native bridge still carries its historical `filaments` and
+ * selected `filament` fields for project/CLI interoperability, but neither is
+ * exposed as a single-filament application API. */
+function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
+  if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
+  const catalogue = Array.isArray(raw.filamentCatalog) ? raw.filamentCatalog : raw.filaments;
+  return {
+    ok: true,
+    printers: (Array.isArray(raw.printers) ? raw.printers : []) as ProfileSnapshot['printers'],
+    prints: (Array.isArray(raw.prints) ? raw.prints : []) as ProfileSnapshot['prints'],
+    filamentCatalog: (Array.isArray(catalogue) ? catalogue : []) as ProfileSnapshot['filamentCatalog'],
+    printer: raw.printer as ProfileSnapshot['printer'],
+    print: raw.print as ProfileSnapshot['print'],
+    ...(Array.isArray(raw.printable_area) ? { printable_area: raw.printable_area as Array<[number, number]> } : {}),
+  };
+}
+
 function normalizeLoadModelResult(raw: unknown): LoadModelResult {
   if (!raw || typeof raw !== 'object') return { ok: false, objects: 0, instances: 0, error: 'invalid model mutation response' };
   const value = raw as Record<string, unknown>;
@@ -956,14 +974,14 @@ export function createClient(
       return normalizeProjectConfigOverlay(callJson(m, 'orc_revalidate_project_config_overlay', [], []));
     },
 
-    async getPresetSnapshot(): Promise<PresetSnapshotResult> {
+    async getProfileSnapshot(): Promise<ProfileSnapshotResult> {
       const m = await module();
-      return callJson(m, 'orc_get_preset_snapshot', [], []) as PresetSnapshotResult;
+      return normalizeProfileSnapshot(callJson(m, 'orc_get_preset_snapshot', [], []) as Record<string, unknown>);
     },
 
-    async selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<PresetSnapshotResult> {
+    async selectProfile(kind: 'printer' | 'print', name: string): Promise<ProfileSnapshotResult> {
       const m = await module();
-      return callJson(m, 'orc_select_preset', ['string', 'string'], [kind, name]) as PresetSnapshotResult;
+      return normalizeProfileSnapshot(callJson(m, 'orc_select_preset', ['string', 'string'], [kind, name]) as Record<string, unknown>);
     },
 
     async getOptionMetadata(): Promise<OptionMetadata> {
@@ -1043,7 +1061,7 @@ export function createClient(
           } : undefined,
           presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object'
             && (r.preset_snapshot as Record<string, unknown>).ok === true
-            ? r.preset_snapshot as unknown as import('./types').PresetSnapshot : undefined,
+            ? normalizeProfileSnapshot(r.preset_snapshot as Record<string, unknown>) as ProfileSnapshot : undefined,
           ...(r.plate_session ? (() => {
             const plateSession = normalizePlateMutationResult(r.plate_session);
             return plateSession.ok ? { plateSession } : {};
@@ -1103,7 +1121,7 @@ export function createClient(
             }) : undefined,
           } : undefined,
           presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object' && (r.preset_snapshot as Record<string, unknown>).ok === true
-            ? r.preset_snapshot as unknown as import('./types').PresetSnapshot : undefined,
+            ? normalizeProfileSnapshot(r.preset_snapshot as Record<string, unknown>) as ProfileSnapshot : undefined,
           ...(r.plate_session ? (() => { const plateSession = normalizePlateMutationResult(r.plate_session); return plateSession.ok ? { plateSession } : {}; })() : {}),
           ...(r.project_config_overlay && typeof r.project_config_overlay === 'object' ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
         };

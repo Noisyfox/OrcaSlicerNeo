@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
-import type { FilamentSessionSnapshot, PlateSessionMutation, PresetSnapshot, ProjectLoadResult } from '@slicer/client';
+import type { FilamentSessionSnapshot, PlateSessionMutation, ProfileSnapshot, ProjectLoadResult } from '@slicer/client';
 import { useProjectStore } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
@@ -10,12 +10,12 @@ import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { importProjectGeometry, newProject, openProject, openProjectInputs, saveProject, sortProjectInputs } from './projectActions';
 
 const input: ProjectInput = { displayName: 'Robot.3mf', bytes: new Uint8Array([80, 75, 3, 4]) };
-const snapshot: PresetSnapshot = {
+const snapshot: ProfileSnapshot = {
   ok: true,
   printers: [{ name: 'Project printer', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
   prints: [{ name: 'Project process', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-  filaments: [{ name: 'Project filament', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
-  printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 }, filament: { name: 'Project filament', idx: 0 },
+  filamentCatalog: [{ name: 'Project filament', is_visible: true, is_default: false, vendor_id: '', model: '', variant: '', selected: true }],
+  printer: { name: 'Project printer', idx: 0 }, print: { name: 'Project process', idx: 0 },
 };
 const freshPlateSession: PlateSessionMutation = {
   ok: true,
@@ -42,8 +42,8 @@ function platformFor(load: Record<string, unknown> = {}) {
     importProjectGeometry: vi.fn(async () => ({ ok: true, objects: 2, instances: 2, mode: 'geometry-only' as const, compatibility: 'generic' as const, projectSettingsAvailable: false })),
     clearModel: vi.fn(async () => ({ ok: true })),
     exportProject: vi.fn(async () => ({ ok: true, path: '/tmp/project.3mf', bytes: new Uint8Array([1, 2]) })),
-    getPresetSnapshot: vi.fn(async () => snapshot),
-    selectPreset: vi.fn(async () => snapshot),
+    getProfileSnapshot: vi.fn(async () => snapshot),
+    selectProfile: vi.fn(async () => snapshot),
     getFilamentSessionSnapshot: vi.fn(async () => filamentSnapshot(0)),
     resetHistory: vi.fn(async () => null),
     cancel: vi.fn(async () => ({ ok: true })),
@@ -72,7 +72,7 @@ describe('transactional project actions', () => {
     useProjectStore.getState().reset();
     usePlateSessionStore.getState().reset();
     glVolumeCollection.clear();
-    useSettingsStore.setState({ modelLoaded: false, selectedPrinter: 'System printer', selectedPrint: 'System process', selectedFilament: 'System filament', values: {} });
+    useSettingsStore.setState({ modelLoaded: false, selectedPrinter: 'System printer', selectedPrint: 'System process', values: {} });
     useFilamentSessionStore.getState().reset();
     useSlicerStore.getState().invalidateSliceResult();
   });
@@ -108,10 +108,10 @@ describe('transactional project actions', () => {
 
   it('commits the native load response without a second snapshot read', async () => {
     const { platform, runtime } = platformFor();
-    runtime.getPresetSnapshot.mockResolvedValue({ ok: false, error: 'late snapshot read failed' } as never);
+    runtime.getProfileSnapshot.mockResolvedValue({ ok: false, error: 'late snapshot read failed' } as never);
     const result = await openProject(platform, { loadBehaviour: 'load_all' });
     expect(result.status).toBe('ok');
-    expect(runtime.getPresetSnapshot).not.toHaveBeenCalled();
+    expect(runtime.getProfileSnapshot).not.toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', scope: 'project', dirty: false });
   });
 
@@ -189,7 +189,7 @@ describe('transactional project actions', () => {
 
   it('geometry import never replaces active settings and makes the session dirty', async () => {
     const { platform } = platformFor();
-    useSettingsStore.setState({ modelLoaded: true, selectedPrinter: 'Current printer', selectedPrint: 'Current process', selectedFilament: 'Current filament', values: { layer_height: '0.2' } });
+    useSettingsStore.setState({ modelLoaded: true, selectedPrinter: 'Current printer', selectedPrint: 'Current process', values: { layer_height: '0.2' } });
     await importProjectGeometry(platform, input);
     expect(useSettingsStore.getState()).toMatchObject({ selectedPrinter: 'Current printer', selectedPrint: 'Current process', values: { layer_height: '0.2' } });
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: true, hasContent: true });
@@ -212,7 +212,7 @@ describe('transactional project actions', () => {
     const result = await newProject(platform, { decideDirty: () => 'save' });
     expect(result.status).toBe('ok'); expect(runtime.clearModel).toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: false, scope: 'system', hasContent: false });
-    expect(runtime.selectPreset).toHaveBeenCalledWith('printer', 'System printer');
+    expect(runtime.selectProfile).toHaveBeenCalledWith('printer', 'System printer');
   });
 
   it('New clears the renderer projection and resets a multi-plate session after runtime success', async () => {

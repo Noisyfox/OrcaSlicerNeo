@@ -26,7 +26,7 @@ describe('useSettingsStore', () => {
     expect(s.metadata).toBeNull();
     expect(s.printers).toEqual([]);
     expect(s.prints).toEqual([]);
-    expect(s.filaments).toEqual([]);
+    expect(s.filamentCatalog).toEqual([]);
     expect(s.selectedPrinter).toBe('');
     expect(s.values).toEqual({});
 
@@ -37,11 +37,10 @@ describe('useSettingsStore', () => {
     );
     expect(useSettingsStore.getState().printers).toEqual([preset('A1', { selected: true })]);
     expect(useSettingsStore.getState().prints).toEqual([preset('PLA', { selected: true })]);
-    expect(useSettingsStore.getState().filaments).toEqual([preset('Basic', { selected: true })]);
+    expect(useSettingsStore.getState().filamentCatalog).toEqual([preset('Basic', { selected: true })]);
     // selections derive from the lists' selected flags (boot contract)
     expect(useSettingsStore.getState().selectedPrinter).toBe('A1');
     expect(useSettingsStore.getState().selectedPrint).toBe('PLA');
-    expect(useSettingsStore.getState().selectedFilament).toBe('Basic');
 
     s.setValue('wall_loops', '3');
     s.setValue('wall_loops', '4');
@@ -51,12 +50,11 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().values).toEqual({ layer_height: '0.2', wall_loops: '3' });
   });
 
-  it('setSelections applies selectPreset responses (all three at once)', () => {
+  it('setSelections applies printer/process responses without a legacy filament selection', () => {
     const s = useSettingsStore.getState();
-    s.setSelections('P1S', 'Standard', 'Matte');
+    s.setSelections('P1S', 'Standard');
     expect(useSettingsStore.getState().selectedPrinter).toBe('P1S');
     expect(useSettingsStore.getState().selectedPrint).toBe('Standard');
-    expect(useSettingsStore.getState().selectedFilament).toBe('Matte');
     expect(useSettingsStore.getState().values).toEqual({});
   });
 });

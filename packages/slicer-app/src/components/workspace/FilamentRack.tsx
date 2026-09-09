@@ -105,7 +105,7 @@ export function FilamentRack() {
   const load = useFilamentSessionStore((state) => state.load);
   const run = useFilamentSessionStore((state) => state.run);
   const clearRejected = useFilamentSessionStore((state) => state.clearRejected);
-  const filaments = useSettingsStore((state) => state.filaments);
+  const filamentCatalog = useSettingsStore((state) => state.filamentCatalog);
   const [expanded, setExpanded] = useState(true);
   const [impact, setImpact] = useState<PendingImpact>(null);
 
@@ -115,8 +115,8 @@ export function FilamentRack() {
   }, [load, platform.runtime]);
 
   const presetNames = useMemo(
-    () => compatiblePresetNames(snapshot, filaments.map((preset) => preset.name)),
-    [filaments, snapshot],
+    () => compatiblePresetNames(snapshot, filamentCatalog.map((preset) => preset.name)),
+    [filamentCatalog, snapshot],
   );
   const pending = pendingKind !== null;
 

@@ -28,6 +28,9 @@ test('new project slots remain assignable after adding Cube and opening its cont
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible();
+    await expect(page.getByTestId('filament-rack')).toBeVisible();
+    await expect(page.getByTestId('filament-slot-1')).toBeVisible();
+    await expect(page.getByTestId('filament-preset-select')).toHaveCount(0);
 
     await page.getByTestId('menu-file-trigger').click();
     await page.getByTestId('file-new-project').click();
