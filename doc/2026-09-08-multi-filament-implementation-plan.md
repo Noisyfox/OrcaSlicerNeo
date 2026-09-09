@@ -1199,7 +1199,12 @@ reduced from 4515 to 3366 physical lines. Serial and threaded quick WASM
 builds, 130 WASM tests, package typecheck, project-preflight atomic smoke,
 threaded project-roundtrip, bridge smoke, history smoke, and threaded
 multi-filament command smoke pass. The pinned native fixture parser and
-bridge-open checks pass; its existing canonical expected second-plate local
-offset (`111.9`) disagrees with the unchanged implementation output
-(`103.5`), so this extraction does not alter that pre-existing fixture
-baseline or native geometry semantics.
+bridge-open checks pass. Its canonical layout records the selected native
+printer printable area (`207 x 255`), the grid gap ratio (`0.2`), and the
+resulting stride (`207 * 1.2 = 248.4`). The fixture's native world offsets
+(`103.5` and `351.9`) therefore produce the canonical local offsets
+`103.5` on both plates after subtracting the plate origins (`0` and
+`248.4`). The harness asserts this derivation and validates the selected
+printable area, origins, and world offsets rather than relying on a default
+profile. Native interoperability and controlled checksum tests pass in both
+serial and threaded variants.

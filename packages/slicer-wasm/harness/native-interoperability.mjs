@@ -167,6 +167,20 @@ if (!Module || !nativeFixture || !checkFixture(fixtureBytes)) {
   const mesh = callJson(Module, 'orc_get_model_mesh');
   const actual = canonicalState(snapshot, mesh);
   const expected = fixture.expected;
+  const layout = expected.canonical_layout;
+  const preset = callJson(Module, 'orc_get_preset_snapshot');
+  const closeVector = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length &&
+    a.every((value, index) => Array.isArray(value) ? closeVector(value, b[index]) : close(value, b[index]));
+  const actualWorldOffsets = (mesh.objects ?? []).map((item) => item.offset);
+  check('canonical plate layout derives from selected printer area',
+    JSON.stringify(preset.printable_area) === JSON.stringify(layout.printable_area) &&
+    snapshot.plates.length === layout.plate_origins.length &&
+    snapshot.plates.every((plate, index) => closeVector(plate.origin, layout.plate_origins[index])) &&
+    close(layout.plate_stride_x,
+      (layout.printable_area[1][0] - layout.printable_area[0][0]) * (1 + layout.grid_gap_ratio)) &&
+    closeVector(actualWorldOffsets, layout.world_offsets),
+    JSON.stringify({ printable_area: preset.printable_area,
+      origins: snapshot.plates.map((plate) => plate.origin), world_offsets: actualWorldOffsets }));
   check('canonical plate state matches pinned fixture', equalCanonical(actual, expected), JSON.stringify(actual));
   for (const [label, mutate] of [
     ['order', (value) => { value.plates.reverse(); }],
@@ -190,16 +204,16 @@ if (!Module || !nativeFixture || !checkFixture(fixtureBytes)) {
   } catch (error) { check('pinned native parser accepts Neo output', false, error.message); }
   check('Neo output omits derived G-code and preview artifacts', output.length > 0 && verifyNativeProjectArchive(output).derivedArtifacts.length === 0);
 
-  const legacy = removeEntries(fixtureBytes, (name) => name === neoEntryName);
-  const legacySettings = readZipEntries(legacy).find((entry) => entry.name === 'Metadata/model_settings.config');
-  const withoutPlates = decoder.decode(legacySettings.content).replace(/<plate\b[\s\S]*?<\/plate>/g, '');
-  const legacyBytes = replaceEntry(legacy, 'Metadata/model_settings.config', encoder.encode(withoutPlates));
-  ptr = writeBytes(Module, legacyBytes);
-  const legacyLoad = callJson(Module, 'orc_load_project', ['pointer', 'number', 'number', 'string'], [ptr, legacyBytes.length, 0, 'legacy.3mf']);
+  const ordinaryNativeProject = removeEntries(fixtureBytes, (name) => name === neoEntryName);
+  const ordinaryNativeSettings = readZipEntries(ordinaryNativeProject).find((entry) => entry.name === 'Metadata/model_settings.config');
+  const withoutPlates = decoder.decode(ordinaryNativeSettings.content).replace(/<plate\b[\s\S]*?<\/plate>/g, '');
+  const ordinaryNativeBytes = replaceEntry(ordinaryNativeProject, 'Metadata/model_settings.config', encoder.encode(withoutPlates));
+  ptr = writeBytes(Module, ordinaryNativeBytes);
+  const ordinaryNativeLoad = callJson(Module, 'orc_load_project', ['pointer', 'number', 'number', 'string'], [ptr, ordinaryNativeBytes.length, 0, 'ordinary-native.3mf']);
   Module._free(ptr);
-  const legacySnapshot = callJson(Module, 'orc_get_plate_session_snapshot');
-  check('legacy project falls back to one Plate 1', legacyLoad.ok === true && legacySnapshot.plates.length === 1 &&
-    legacySnapshot.plates[0].name === 'Plate 1');
+  const ordinaryNativeSnapshot = callJson(Module, 'orc_get_plate_session_snapshot');
+  check('ordinary native 3MF without plate metadata uses one Plate 1', ordinaryNativeLoad.ok === true && ordinaryNativeSnapshot.plates.length === 1 &&
+    ordinaryNativeSnapshot.plates[0].name === 'Plate 1');
 
   ptr = writeBytes(Module, fixtureBytes);
   const restored = callJson(Module, 'orc_load_project', ['pointer', 'number', 'number', 'string'], [ptr, fixtureBytes.length, 0, fixture.filename]);

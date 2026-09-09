@@ -20,6 +20,13 @@
     "expected": {
       "plate_count": 2,
       "current_plate_index": 0,
+      "canonical_layout": {
+        "printable_area": [[0, 0], [207, 0], [207, 255], [0, 255]],
+        "grid_gap_ratio": 0.2,
+        "plate_origins": [[0, 0, 0], [248.4, 0, 0]],
+        "plate_stride_x": 248.4,
+        "world_offsets": [[103.5, 127.5, 10], [351.9, 127.5, 10]]
+      },
       "plates": [
         {
           "display_index": 0,
@@ -34,7 +41,7 @@
           "name": "Native Plate 2",
           "locked": false,
           "instance_membership": [{ "object_index": 1, "instance_index": 0 }],
-          "local_offsets": [[111.89999999999998, 127.5, 10]],
+          "local_offsets": [[103.5, 127.5, 10]],
           "opaque_metadata": [{ "key": "native_second_key", "value": "native-second-value" }]
         }
       ]
