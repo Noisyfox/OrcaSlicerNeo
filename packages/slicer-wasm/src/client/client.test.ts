@@ -43,6 +43,36 @@ describe('SlicerClient bridge contract', () => {
       .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'unsupported filament session version' });
   });
 
+  it('frees filament JSON responses, including malformed native JSON', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall.bind(module);
+    let responsePointer = 0;
+    module.ccall = ((name, ret, argTypes, args) => {
+      if (name === 'orc_get_filament_session_snapshot') {
+        const bytes = new TextEncoder().encode('{malformed');
+        responsePointer = Number(module._malloc(bytes.length + 1));
+        module.HEAPU8.set(bytes, responsePointer);
+        return responsePointer;
+      }
+      return originalCall(name, ret, argTypes, args);
+    }) as typeof module.ccall;
+    const c = createClient(async () => module);
+    await expect(c.getFilamentSessionSnapshot()).rejects.toThrow(SyntaxError);
+    expect(module._freedPointers).toContain(responsePointer);
+  });
+
+  it('frees every filament command response without retaining a native pointer', async () => {
+    const module = createMockModule();
+    const c = createClient(async () => module);
+    const before = module._freedPointers.length;
+    const snapshot = await c.getFilamentSessionSnapshot();
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    const result = await c.addFilamentSlot({ version: 1, revision: snapshot.revisions.session });
+    expect(result.ok).toBe(true);
+    expect(module._freedPointers.length).toBeGreaterThanOrEqual(before + 2);
+  });
+
   it('requires the versioned native failure envelope', async () => {
     const failure = { ok: false, version: 1, error: 'native projection failed', error_code: 'native_failure',
       status: { state: 'error', error: 'native projection failed' } };

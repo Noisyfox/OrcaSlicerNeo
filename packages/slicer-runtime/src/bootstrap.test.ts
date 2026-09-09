@@ -94,4 +94,38 @@ describe('portable runtime bootstrap', () => {
       mappings: { physicalExtruder: [0] }, flushing: { matrixDimension: 1 },
     });
   });
+
+  it('keeps the filament-session wire contract identical for serial and threaded hosts', async () => {
+    const wireSnapshot = {
+      ok: true, version: 1,
+      slots: [{ slot: 1, preset: { id: 'Generic PLA', name: 'Generic PLA' },
+        colour: { effective: '#F2754E', provenance: 'preset' } }],
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
+      flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' },
+      capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
+      assignments: { objects: [], parts: [], modifiers: [] },
+      revisions: { session: 0, project: 0, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    } as const;
+    async function readFor(threadedWasm: boolean) {
+      let receive!: (message: import('../../slicer-wasm/src/client').WorkerMessage) => void;
+      const transport: WorkerTransport = {
+        post(message) {
+          if (message.type === 'request' && message.op === 'getFilamentSessionSnapshot') {
+            receive({ type: 'response', id: message.id, ok: true, result: wireSnapshot });
+          }
+        },
+        onMessage(listener) { receive = listener; },
+      };
+      const runtime = createRuntimeBootstrap({
+        transport,
+        capabilities: { webgl2: true, wasm64: true, threadedWasm },
+      });
+      return runtime.getFilamentSessionSnapshot();
+    }
+    const serial = await readFor(false);
+    const threaded = await readFor(true);
+    expect(serial).toEqual(threaded);
+    expect(serial).toMatchObject({ ok: true, slots: [{ slot: 1 }], capabilities: { maxSlots: 64 } });
+  });
 });

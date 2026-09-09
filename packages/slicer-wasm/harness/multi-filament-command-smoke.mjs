@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { metadataEntry } from './native-3mf-parser.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
 const opts = {};
@@ -19,6 +20,11 @@ function callJson(name, types = [], args = []) {
   const result = JSON.parse(Module.UTF8ToString(pointer)); Module._free(pointer); return result;
 }
 function request(name, body) { return callJson(name, ['string'], [JSON.stringify(body)]); }
+function readBytes(pointer, length) {
+  const bytes = Module.HEAPU8.slice(Number(pointer), Number(pointer) + Number(length));
+  Module._free(Number(pointer));
+  return bytes;
+}
 function initFlexible() {
   const init = callJson('orc_init', ['string'], ['']); assert.equal(init.ok, true, JSON.stringify(init));
   const presets = callJson('orc_get_preset_snapshot');
@@ -61,6 +67,31 @@ assert.equal(snapshot.slots.length, 64, JSON.stringify(snapshot));
 const at64 = request('orc_add_filament_slot', { version: 1, revision: snapshot.revisions.session });
 assert.equal(at64.ok, false); assert.equal(at64.error_code, 'capability_rejected');
 assert.deepEqual(callJson('orc_get_filament_session_snapshot'), snapshot);
+
+// Capacity is also a persistence boundary: the complete 64-slot session and
+// its 64x64 native matrix must survive the real BBS 3MF writer and reader,
+// rather than only living in the in-memory command state.
+const exported64 = callJson('orc_export_project');
+assert.equal(exported64.ok, true, JSON.stringify(exported64));
+const project64 = readBytes(exported64.bytes_ptr, exported64.bytes_length);
+const sidecar64 = metadataEntry(project64, 'Metadata/orca_neo_filament_state_v1.json');
+assert.ok(sidecar64?.state?.project_config, '64-slot project must carry the Neo filament sidecar');
+const sidecarVectorLength = (value) => Array.isArray(value)
+  ? value.length
+  : String(value ?? '').split(/[,\s]+/).filter(Boolean).length;
+assert.equal(sidecarVectorLength(sidecar64.state.project_config.filament_map), 64);
+assert.equal(sidecarVectorLength(sidecar64.state.project_config.flush_volumes_matrix), 4096);
+const project64Pointer = Number(Module._malloc(project64.byteLength));
+Module.HEAPU8.set(project64, project64Pointer);
+const reloaded64 = callJson('orc_load_project', ['pointer', 'number', 'number', 'string'],
+  [project64Pointer, project64.byteLength, 0, 'capacity-64-roundtrip.3mf']);
+Module._free(project64Pointer);
+assert.equal(reloaded64.ok, true, JSON.stringify(reloaded64));
+const session64 = callJson('orc_get_filament_session_snapshot');
+assert.equal(session64.slots.length, 64, JSON.stringify(session64));
+assert.equal(session64.flushing.matrix.length, 4096, JSON.stringify(session64.flushing));
+assert.equal(session64.flushing.plane_count, session64.capabilities.nozzle_count);
+assert.deepEqual(session64.slots.map((entry) => entry.slot), Array.from({ length: 64 }, (_, index) => index + 1));
 
 for (const slot of [1, 2, 4]) {
   snapshot = withSlots(4);

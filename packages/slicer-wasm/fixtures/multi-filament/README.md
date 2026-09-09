@@ -30,11 +30,30 @@ without asserting the later slot contract:
 
 ```powershell
 node packages/slicer-wasm/harness/multi-filament-reader-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js
+```
 
 Step 7 real slice/Preview semantics (tool changes, generated palette,
 temperature, flushing/prime-tower markers):
 
-```text
+```powershell
 node packages/slicer-wasm/harness/multi-filament-slice-preview-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js
 ```
+
+Step 8 acceptance inventory and machine-readable result runner:
+
+```powershell
+node packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs
+node packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs --run-real
 ```
+
+The first command validates and prints the complete command plan. `--run-real`
+executes the selected real-WASM entries and emits JSON results; every other
+entry remains visible as `delegated` or `not-selected`. The plate-local result
+safety check runs in serial mode. `--force-fail <id>` is a deterministic probe
+that verifies a failing check produces a nonzero exit code.
+
+The acceptance inventory includes the separate 64-slot/4096-cell 3MF
+round-trip, imported facet-painting and per-layer tool-change preservation plus
+Delete/Merge remapping, and the serial/threaded history, project-round-trip,
+preflight/rack, and embedded-preset restoration harnesses required by
+Multi-Filament Support §13.2.
