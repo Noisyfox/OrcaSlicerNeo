@@ -1297,4 +1297,4 @@ does not own initialization, filament fixtures or command wrappers, project
 archive staging, or history transactions; history paths continue to avoid
 copying the complete `PresetBundle`. No compatibility or old single-filament
 API was added, and the pinned native submodule remains outside the write set.
-`bridge.cpp` is reduced from 1240 to 804 physical lines.
+`bridge.cpp` is reduced from 1041 to 804 physical lines.
