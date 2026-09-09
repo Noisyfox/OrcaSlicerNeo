@@ -1125,3 +1125,22 @@ single-filament behavior was introduced. CMake explicitly compiles the new
 source, and the pinned native submodule remains outside the write set. The
 bridge source is reduced from 6107 to 5291 lines; later project/history and
 slicing decomposition remains planned work.
+
+### 4.7 Slicing pipeline bridge module (2026-09-10)
+
+This independently testable bridge-maintenance step extracts the slicing and
+result pipeline into `packages/slicer-wasm/src/bridge_slicing_pipeline.{hpp,cpp}`.
+The module owns the progress mailbox/callback transport, current-plate slice
+and result projection, bounded preview source paging, G-code export, cancel
+reset, and threading diagnostics. It consumes the existing Worker-owned state,
+plate-session helpers, and binary-buffer builder through includes; it does not
+own project persistence, history, filament commands, plate identity, model
+editing, profiles, or initialization.
+
+The CMake source list explicitly compiles the new translation unit. The full
+77-export C ABI, canonical JSON, stale plate-revision fence, buffer ownership,
+progress semantics, and synchronous Worker ABI are unchanged. No compatibility
+or legacy single-filament code was added, and the pinned native submodule is
+outside the write set. At this step `bridge.cpp` is reduced from 5291 to 4515
+physical lines; project loading continues to use the module's narrow progress
+interface. Later project/history decomposition remains planned work.

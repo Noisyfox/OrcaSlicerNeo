@@ -343,6 +343,7 @@ list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history_metad
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_model_operations.cpp")
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_profiles.cpp")
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_plate_session.cpp")
+list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_slicing_pipeline.cpp")
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
   list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
 endif()
