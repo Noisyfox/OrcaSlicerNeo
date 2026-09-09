@@ -1144,3 +1144,29 @@ or legacy single-filament code was added, and the pinned native submodule is
 outside the write set. At this step `bridge.cpp` is reduced from 5291 to 4515
 physical lines; project loading continues to use the module's narrow progress
 interface. Later project/history decomposition remains planned work.
+
+#### Slicing pipeline v2-only wire cleanup (2026-09-10)
+
+The slicing pipeline follow-up removed the unfinished preview wire aliases
+and their duplicate allocations. `orc_get_slice_result` now publishes only
+the canonical v2 segment arrays: `starts_ptr`, `ends_ptr`, `layer_id_ptr`,
+move/source/type arrays, `extrusion_role_ptr`, tool/colour arrays, geometry
+width/height arrays, and optional metric descriptors. The former
+`vertex_ptr`/`vertex_count`, `layer_ptr`/`layer_count`, `feature_ptr`/
+`feature_count`, and `toolpath.features` fields are gone, as are the matching
+`ToolpathBuffers::positions`/`features` buffers and releases. The model-mesh
+`vertex_ptr` ABI is unrelated and remains unchanged.
+
+The typed client requires a v2 envelope, required counts/pointers, and a
+complete `metadata.feature_palette` whose entries contain canonical `id` and
+`role` values. It derives the renderer's local per-segment feature IDs from
+`extrusion_role_ptr` through that palette; missing fields or roles fail
+explicitly rather than falling back. `ClientToolpath` and all app consumers,
+mock data, tests, and real-WASM harnesses now use the v2-only shape. The
+bridge smoke harness also supplies the current four-argument model-load API
+directly instead of adapting an older call shape.
+
+This is a separate follow-up fix commit after `9255274`; the pinned native submodule remains
+untouched. Required slice-result heap buffers are each read/freed once by the
+client, and the real serial/threaded preview and bridge smokes validate the
+canonical pointer set.

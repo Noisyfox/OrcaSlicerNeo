@@ -70,8 +70,8 @@ describe('worker protocol', () => {
     await workerClient.addModel(new Uint8Array(4), 'stl');
     await workerClient.slice({}, () => {});
     const res = await workerClient.getSliceResult();
-    expect(res.toolpath.vertexCount).toBeGreaterThan(0);
-    expect(res.toolpath.positions.byteLength).toBe(res.toolpath.vertexCount * 3 * 4);
+    expect(res.toolpath.segmentCount).toBeGreaterThan(0);
+    expect(res.toolpath.ends.byteLength).toBe(res.toolpath.segmentCount * 3 * 4);
   });
 
   it('round-trips project operations and transfers the exported archive', async () => {

@@ -82,9 +82,6 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
         out.ends.appendF32(static_cast<float>(mv.position.x()));
         out.ends.appendF32(static_cast<float>(mv.position.y()));
         out.ends.appendF32(static_cast<float>(mv.position.z()));
-        out.positions.appendF32(static_cast<float>(mv.position.x()));
-        out.positions.appendF32(static_cast<float>(mv.position.y()));
-        out.positions.appendF32(static_cast<float>(mv.position.z()));
         out.layers.appendU32(layer_id);
         out.move_orders.appendU32(move_order);
         if (!same_logical_move) ++move_order;
@@ -118,14 +115,11 @@ ToolpathBuffers build_toolpath(const GCodeProcessorResult& result) {
             name << "Role " << static_cast<unsigned>(mv.extrusion_role);
             fallback = {name.str(), {160, 160, 160}};
         }
-        auto fid = feature_ids.find(mv.extrusion_role);
-        if (fid == feature_ids.end()) {
+        if (feature_ids.find(mv.extrusion_role) == feature_ids.end()) {
             const auto id = static_cast<std::uint32_t>(out.palette_used.size());
-            fid = feature_ids.emplace(mv.extrusion_role, id).first;
+            feature_ids.emplace(mv.extrusion_role, id);
             out.palette_used.emplace_back(mv.extrusion_role, it == palette.end() ? fallback : it->second);
         }
-        out.features.appendU32(fid->second);
-
         max_layer_id = std::max(max_layer_id, layer_id);
         previous_gcode_id = gcode_id;
         ++out.segmentCount;

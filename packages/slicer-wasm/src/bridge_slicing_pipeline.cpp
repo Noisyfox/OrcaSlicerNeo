@@ -299,7 +299,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             config.set_deserialize(key, value, substitutions);
         }
         // Project and plate overrides are canonical Worker state and win over
-        // any legacy renderer payload supplied for this slice request.
+        // any renderer payload supplied for this slice request.
         apply_overlay_to_config(config, state().project_config_overlay["project"]);
         if (const auto* plate = find_plate(plate_id)) {
             const auto plate_it = state().project_config_overlay["plates"].find(plate_id);
@@ -438,12 +438,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                 {"gcode_id_ptr", 0}, {"move_type_ptr", 0},
                                 {"extrusion_role_ptr", 0}, {"extruder_id_ptr", 0},
                                 {"color_print_id_ptr", 0}, {"width_ptr", 0}, {"height_ptr", 0},
-                                // v1 aliases, retained until the renderer
-                                // migration is complete.
-                                {"vertex_ptr", 0}, {"vertex_count", 0},
-                                {"layer_ptr", 0}, {"layer_count", 0},
-                                {"feature_ptr", 0}, {"feature_count", 0},
-                                {"features", json::array()}, {"metrics", json::object()}};
+                                {"metrics", json::object()}};
             return dup_json(json{{"ok", true}, {"preview_version", 2},
                                  {"objects", 0}, {"layers", 0},
                                  {"metadata", json{{"result_id", 0}, {"layer_ranges", json::array()},
@@ -483,15 +478,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         // previous objects().front() cap hid taller objects' extra layers.
         const size_t layers = tp.layerCount;
 
-        // Feature palette (local id → name/color). build_toolpath assigns
-        // ids 0..N-1 in order of first use; the compatibility feature buffer
-        // and the v2 extrusion_roles array both remain stable across calls.
-        json features = json::array();
+        // Feature palette (local id → role/name/color). build_toolpath assigns
+        // ids 0..N-1 in order of first use; the client derives the local id
+        // for each segment from this table and extrusion_roles.
         json feature_palette = json::array();
         for (const auto& [role, info] : tp.palette_used) {
-            const auto id = static_cast<int>(features.size());
-            features.push_back({{"id", id}, {"name", info.name},
-                                {"color", {info.color[0], info.color[1], info.color[2]}}});
+            const auto id = static_cast<int>(feature_palette.size());
             feature_palette.push_back({{"id", id}, {"role", static_cast<unsigned>(role)},
                                        {"name", info.name},
                                        {"color", {info.color[0], info.color[1], info.color[2]}}});
@@ -540,12 +532,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         };
 
         // wasm64: heap pointers as uintptr_t (see orc_get_model_mesh).
-        const std::uintptr_t tvptr = ptr(tp.positions);
         const std::uintptr_t ts = ptr(tp.starts);
         const std::uintptr_t te = ptr(tp.ends);
-        const std::uintptr_t tlptr = reinterpret_cast<std::uintptr_t>(tp.layers.data);
-        const std::uintptr_t tfptr = reinterpret_cast<std::uintptr_t>(tp.features.data);
-        const size_t n_verts = tp.positions.size / 12;
 
         json out{{"ok", true}, {"preview_version", 2},
                  {"objects", print.objects().size()}, {"layers", layers}};
@@ -591,18 +579,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             {"color_print_id_ptr", ptr(tp.color_prints)},
             {"width_ptr", ptr(tp.widths)}, {"height_ptr", ptr(tp.heights)},
             {"metrics", std::move(metrics)},
-            {"vertex_ptr", tvptr}, {"vertex_count", n_verts},
-            {"layer_ptr", ptr(tp.layers)}, {"layer_count", n_verts},
-            {"feature_ptr", tfptr}, {"feature_count", n_verts},
-            {"features", std::move(features)},
         };
         // Every pointer above is released after it has been recorded. JS now
         // owns the corresponding bytes and must _free() each exactly once.
-        tp.starts.release(); tp.ends.release(); tp.positions.release();
+        tp.starts.release(); tp.ends.release();
         tp.layers.release(); tp.move_orders.release(); tp.gcode_ids.release();
         tp.move_types.release(); tp.extrusion_roles.release(); tp.extruders.release();
         tp.color_prints.release(); tp.widths.release(); tp.heights.release();
-        tp.features.release(); tp.feedrates.release(); tp.actual_feedrates.release();
+        tp.feedrates.release(); tp.actual_feedrates.release();
         tp.volumetric_flows.release(); tp.actual_volumetric_flows.release();
         tp.fan_speeds.release(); tp.temperatures.release(); tp.pressure_advances.release();
         tp.accelerations.release(); tp.jerks.release(); tp.times.release();
@@ -829,7 +813,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
         // surfaces as an uncatchable CppException that kills the module
         // (observed deterministically; the throw is caught and rethrown by
         // libslic3r internals, and the rethrow carries poisoned EH state).
-        // So for v1, cancel is a state reset: it must never poison the module.
+        // Cancel is therefore a state reset: it must never poison the module.
         state().print.restart();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {

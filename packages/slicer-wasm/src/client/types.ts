@@ -627,14 +627,9 @@ export interface PreviewToolpathMetrics {
 }
 
 export interface ClientToolpath {
-  vertexCount: number;
-  /** Float32Array xyz per toolpath vertex */
-  positions: Float32Array;
-  /** Uint32Array layer_id per vertex */
-  layers: Uint32Array;
-  /** Uint32Array palette index per vertex */
+  /** Uint32Array local palette index derived from extrusionRoles and metadata.featurePalette */
   features: Uint32Array;
-  /** per-feature id → palette color (palette may index beyond, client clamps) */
+  /** Canonical v2 feature palette published in preview metadata. */
   palette: ToolpathFeature[];
   /** Explicit continuous segment arrays. Every array has segmentCount entries. */
   segmentCount: number;

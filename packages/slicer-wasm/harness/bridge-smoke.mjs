@@ -39,14 +39,6 @@ await installProfilePackages(Module, createNodeProfileSource(profileRoot));
 // Heap pointers keep their Number form on the JS side (_malloc/_free are
 // wrapped to return/accept Numbers; HEAPU8.set needs a Number offset).
 function callJson(name, argTypes, args) {
-  // Keep the long-lived STL regression calls below source-compatible while
-  // exercising the current four-argument bridge contract.  Production JS
-  // always supplies the selected basename; legacy smoke calls intentionally
-  // use the bridge's safe fallback name.
-  if (name === 'orc_add_model' && args.length === 3) {
-    argTypes = [...argTypes, 'string'];
-    args = [...args, ''];
-  }
   const ptr = Number(Module.ccall(name, 'number', argTypes, args));
   const s = Module.UTF8ToString(ptr);
   Module._free(ptr);
@@ -165,8 +157,8 @@ check('metadata has sparse_infill_pattern enum', Array.isArray(meta.sparse_infil
 const stl = await readFile(stlPath);
 const dataPtr = Number(Module._malloc(stl.length));
 Module.HEAPU8.set(stl, dataPtr);
-const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                        [dataPtr, stl.length, 'stl']);
+const loaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                        [dataPtr, stl.length, 'stl', 'cube.stl']);
 Module._free(dataPtr);
 check('orc_add_model ok', loaded.ok === true && loaded.objects > 0, JSON.stringify(loaded));
 const plateAfterModel = callJson('orc_get_plate_session_snapshot', [], []);
@@ -294,8 +286,8 @@ check('adding a model preserves the current plate identity',
   callJson('orc_clear_model', [], []);
   const cubePtr = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, cubePtr);
-  const restored = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                            [cubePtr, stl.length, 'stl']);
+  const restored = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                            [cubePtr, stl.length, 'stl', 'cube.stl']);
   Module._free(cubePtr);
   check('stl cube restored after the primitive checks', restored.ok === true && restored.objects === 1,
         JSON.stringify(restored));
@@ -306,8 +298,8 @@ check('adding a model preserves the current plate identity',
 // centering checks below continue to exercise the one-object fixture.
 const secondPtr = Number(Module._malloc(stl.length));
 Module.HEAPU8.set(stl, secondPtr);
-const appended = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                          [secondPtr, stl.length, 'stl']);
+const appended = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                          [secondPtr, stl.length, 'stl', 'cube.stl']);
 Module._free(secondPtr);
 check('orc_add_model preserves existing objects', appended.ok === true && appended.objects === 2,
       JSON.stringify(appended));
@@ -315,8 +307,8 @@ const cleared = callJson('orc_clear_model', [], []);
 check('orc_clear_model resets the scene', cleared.ok === true, JSON.stringify(cleared));
 const restoredPtr = Number(Module._malloc(stl.length));
 Module.HEAPU8.set(stl, restoredPtr);
-const restored = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                          [restoredPtr, stl.length, 'stl']);
+const restored = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                          [restoredPtr, stl.length, 'stl', 'cube.stl']);
 Module._free(restoredPtr);
 check('orc_add_model restores one object after clear', restored.ok === true && restored.objects === 1,
       JSON.stringify(restored));
@@ -326,8 +318,8 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
 {
   const secondPtr = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, secondPtr);
-  const two = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                       [secondPtr, stl.length, 'stl']);
+  const two = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                       [secondPtr, stl.length, 'stl', 'cube.stl']);
   Module._free(secondPtr);
   check('delete fixture has two objects', two.ok === true && two.objects === 2, JSON.stringify(two));
 
@@ -356,8 +348,8 @@ check('orc_add_model restores one object after clear', restored.ok === true && r
 {
   const restorePtr = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, restorePtr);
-  const restoredAgain = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                                 [restorePtr, stl.length, 'stl']);
+  const restoredAgain = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                                 [restorePtr, stl.length, 'stl', 'cube.stl']);
   Module._free(restorePtr);
   check('orc_add_model restores the slice fixture', restoredAgain.ok === true && restoredAgain.objects === 1,
         JSON.stringify(restoredAgain));
@@ -690,8 +682,8 @@ const stl2 = await readFile(stlPath);
 const dataPtr2 = Number(Module._malloc(stl2.length));
 Module.HEAPU8.set(stl2, dataPtr2);
 callJson('orc_clear_model', [], []);
-const reloaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                          [dataPtr2, stl2.length, 'stl']);
+const reloaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                          [dataPtr2, stl2.length, 'stl', 'cube.stl']);
 Module._free(dataPtr2);
 check('reload before re-slice ok', reloaded.ok === true, JSON.stringify(reloaded));
 // Fix round 2 (honest test): 'temperature' is the pre-rename name (now
@@ -719,8 +711,8 @@ const boxStl = await readFile(boxStlPath);
 const boxPtr = Number(Module._malloc(boxStl.length));
 Module.HEAPU8.set(boxStl, boxPtr);
 callJson('orc_clear_model', [], []);
-const boxLoaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                           [boxPtr, boxStl.length, 'stl']);
+const boxLoaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                           [boxPtr, boxStl.length, 'stl', 'floating-box.stl']);
 Module._free(boxPtr);
 check('floating-box loads', boxLoaded.ok === true && boxLoaded.objects === 1, JSON.stringify(boxLoaded));
 // Load-time centering (check 4b) dropped the box onto the bed (world min Z
@@ -753,8 +745,8 @@ check('slice error surfaces the real message, not the bare category',
   const mpPtr = Number(Module._malloc(multi.length));
   Module.HEAPU8.set(multi, mpPtr);
   callJson('orc_clear_model', [], []);
-  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                          [mpPtr, multi.length, 'stl']);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                          [mpPtr, multi.length, 'stl', 'multipart.stl']);
   Module._free(mpPtr);
   check('multipart fixture loads', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
 
@@ -795,8 +787,8 @@ check('slice error surfaces the real message, not the bare category',
   const mpPtr = Number(Module._malloc(multi.length));
   Module.HEAPU8.set(multi, mpPtr);
   callJson('orc_clear_model', [], []);
-  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'],
-                          [mpPtr, multi.length, 'stl']);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'],
+                          [mpPtr, multi.length, 'stl', 'multipart.stl']);
   Module._free(mpPtr);
   check('multipart loads for object split', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
 
@@ -827,11 +819,11 @@ check('slice error surfaces the real message, not the bare category',
   callJson('orc_clear_model', [], []);
   const p1 = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, p1);
-  const l1 = callJson('orc_add_model', ['pointer', 'number', 'string'], [p1, stl.length, 'stl']);
+  const l1 = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'], [p1, stl.length, 'stl', 'cube.stl']);
   Module._free(p1);
   const p2 = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, p2);
-  const l2 = callJson('orc_add_model', ['pointer', 'number', 'string'], [p2, stl.length, 'stl']);
+  const l2 = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'], [p2, stl.length, 'stl', 'cube.stl']);
   Module._free(p2);
   check('assemble fixture has two objects', l1.ok === true && l2.ok === true && l2.objects === 2, JSON.stringify(l2));
 
@@ -858,7 +850,7 @@ check('slice error surfaces the real message, not the bare category',
   callJson('orc_clear_model', [], []);
   const p = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, p);
-  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'], [p, stl.length, 'stl']);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'], [p, stl.length, 'stl', 'cube.stl']);
   Module._free(p);
   check('separate-instances fixture loads', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
 
@@ -887,7 +879,7 @@ check('slice error surfaces the real message, not the bare category',
   callJson('orc_clear_model', [], []);
   const p = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, p);
-  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'], [p, stl.length, 'stl']);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'], [p, stl.length, 'stl', 'cube.stl']);
   Module._free(p);
   check('add-instance fixture loads', loaded.ok === true && loaded.objects === 1, JSON.stringify(loaded));
   const s = callJson('orc_get_model_structure', [], []);
@@ -929,7 +921,7 @@ check('slice error surfaces the real message, not the bare category',
         p1p.ok === true && p1p.printer?.name === 'Bambu Lab P1P 0.4 nozzle', JSON.stringify(p1p.printer));
   const p = Number(Module._malloc(stl.length));
   Module.HEAPU8.set(stl, p);
-  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string'], [p, stl.length, 'stl']);
+  const loaded = callJson('orc_add_model', ['pointer', 'number', 'string', 'string'], [p, stl.length, 'stl', 'cube.stl']);
   Module._free(p);
   // The generic bridge fixture has no plater placement service. P1P's
   // profile coordinates start at (0, 0), so put this 20 mm cube at its
@@ -942,7 +934,7 @@ check('slice error surfaces the real message, not the bare category',
   check('P1P cube slices successfully', sliced.ok === true, JSON.stringify(sliced));
   const result = callJson('orc_get_slice_result', [], []);
   check('P1P cube produces a non-empty preview',
-        result.ok === true && result.layers > 0 && result.toolpath?.vertex_count > 0,
+        result.ok === true && result.layers > 0 && result.toolpath?.segment_count > 0,
         JSON.stringify(result).slice(0, 200));
 }
 

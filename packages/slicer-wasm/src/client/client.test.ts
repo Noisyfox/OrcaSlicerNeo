@@ -1345,8 +1345,8 @@ describe('SlicerClient bridge contract', () => {
     await c.slice({}, () => {});
     const r = await c.getSliceResult();
     expect(r.layers).toBe(40);
-    expect(r.toolpath.vertexCount).toBe(2400);
-    expect(r.toolpath.positions.byteLength).toBe(2400 * 3 * 4);
+    expect(r.toolpath.segmentCount).toBe(2400);
+    expect(r.toolpath.ends.byteLength).toBe(2400 * 3 * 4);
     expect(r.toolpath.features.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -1354,7 +1354,7 @@ describe('SlicerClient bridge contract', () => {
     const c = createClient(async () => createMockModule({
       sliceFixture: {
         layers: 2, toolpathVertices: 4,
-        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }, { id: 1, name: 'Infill', color: [0, 0, 255] }],
+        features: [{ id: 0, role: 0, name: 'Perimeter', color: [255, 0, 0] }, { id: 1, role: 1, name: 'Infill', color: [0, 0, 255] }],
         extruderPalette: [
           { id: 0, name: 'Red PLA', color: [255, 0, 0], tool: 0 },
           { id: 1, name: 'Blue PETG', color: [0, 0, 255], tool: 1 },
@@ -1404,26 +1404,26 @@ describe('SlicerClient bridge contract', () => {
 
   it('preserves every Orca extrusion-role label and color in the client palette', async () => {
     const orcaPalette: MockFeature[] = [
-      { id: 0, name: 'Undefined', color: [230, 179, 179] },
-      { id: 1, name: 'Inner wall', color: [255, 230, 77] },
-      { id: 2, name: 'Outer wall', color: [255, 125, 56] },
-      { id: 3, name: 'Overhang wall', color: [31, 31, 255] },
-      { id: 4, name: 'Sparse infill', color: [176, 48, 41] },
-      { id: 5, name: 'Internal solid infill', color: [150, 84, 204] },
-      { id: 6, name: 'Top surface', color: [240, 64, 64] },
-      { id: 7, name: 'Bottom surface', color: [102, 92, 199] },
-      { id: 8, name: 'Ironing', color: [255, 140, 105] },
-      { id: 9, name: 'Bridge', color: [77, 128, 186] },
-      { id: 10, name: 'Internal Bridge', color: [77, 128, 186] },
-      { id: 11, name: 'Gap infill', color: [255, 255, 255] },
-      { id: 12, name: 'Skirt', color: [0, 135, 110] },
-      { id: 13, name: 'Brim', color: [0, 59, 110] },
-      { id: 14, name: 'Support', color: [0, 255, 0] },
-      { id: 15, name: 'Support interface', color: [0, 128, 0] },
-      { id: 16, name: 'Support transition', color: [0, 64, 0] },
-      { id: 17, name: 'Prime tower', color: [179, 227, 171] },
-      { id: 18, name: 'Custom', color: [94, 209, 148] },
-      { id: 19, name: 'Multiple', color: [128, 128, 128] },
+      { id: 0, role: 0, name: 'Undefined', color: [230, 179, 179] },
+      { id: 1, role: 1, name: 'Inner wall', color: [255, 230, 77] },
+      { id: 2, role: 2, name: 'Outer wall', color: [255, 125, 56] },
+      { id: 3, role: 3, name: 'Overhang wall', color: [31, 31, 255] },
+      { id: 4, role: 4, name: 'Sparse infill', color: [176, 48, 41] },
+      { id: 5, role: 5, name: 'Internal solid infill', color: [150, 84, 204] },
+      { id: 6, role: 6, name: 'Top surface', color: [240, 64, 64] },
+      { id: 7, role: 7, name: 'Bottom surface', color: [102, 92, 199] },
+      { id: 8, role: 8, name: 'Ironing', color: [255, 140, 105] },
+      { id: 9, role: 9, name: 'Bridge', color: [77, 128, 186] },
+      { id: 10, role: 10, name: 'Internal Bridge', color: [77, 128, 186] },
+      { id: 11, role: 11, name: 'Gap infill', color: [255, 255, 255] },
+      { id: 12, role: 12, name: 'Skirt', color: [0, 135, 110] },
+      { id: 13, role: 13, name: 'Brim', color: [0, 59, 110] },
+      { id: 14, role: 14, name: 'Support', color: [0, 255, 0] },
+      { id: 15, role: 15, name: 'Support interface', color: [0, 128, 0] },
+      { id: 16, role: 16, name: 'Support transition', color: [0, 64, 0] },
+      { id: 17, role: 17, name: 'Prime tower', color: [179, 227, 171] },
+      { id: 18, role: 18, name: 'Custom', color: [94, 209, 148] },
+      { id: 19, role: 19, name: 'Multiple', color: [128, 128, 128] },
     ];
     const c = createClient(async () => createMockModule({
       sliceFixture: { layers: 1, toolpathVertices: 2, features: orcaPalette },
@@ -1437,7 +1437,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('omits unavailable optional metrics while preserving required arrays', async () => {
     const c = createClient(async () => createMockModule({
-      sliceFixture: { layers: 1, toolpathVertices: 2, features: [{ id: 0, name: 'Travel', color: [1, 2, 3] }] },
+      sliceFixture: { layers: 1, toolpathVertices: 2, features: [{ id: 0, role: 0, name: 'Travel', color: [1, 2, 3] }] },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
     await c.slice({});
@@ -1543,7 +1543,7 @@ describe('SlicerClient bridge contract', () => {
     const c = createClient(async () => createMockModule({
       sliceFixture: {
         layers: 1, toolpathVertices: 2,
-        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        features: [{ id: 0, role: 0, name: 'Perimeter', color: [255, 0, 0] }],
         resultId: 17, sourceText,
       },
     }));
@@ -1566,7 +1566,7 @@ describe('SlicerClient bridge contract', () => {
     const c = createClient(async () => createMockModule({
       sliceFixture: {
         layers: 1, toolpathVertices: 2,
-        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        features: [{ id: 0, role: 0, name: 'Perimeter', color: [255, 0, 0] }],
         resultId: 18, sourceText,
       },
     }));
@@ -1587,7 +1587,7 @@ describe('SlicerClient bridge contract', () => {
     const c = createClient(async () => createMockModule({
       sliceFixture: {
         layers: 1, toolpathVertices: 2,
-        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        features: [{ id: 0, role: 0, name: 'Perimeter', color: [255, 0, 0] }],
         resultId: 19, sourceText: '; header\nG1 X1\nG1 X2\n',
       },
     }));

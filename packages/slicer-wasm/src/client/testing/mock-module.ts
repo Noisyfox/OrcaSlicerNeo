@@ -11,6 +11,7 @@ import type { ProjectLoadResult, VolumeType } from '../types';
 
 export interface MockFeature {
   id: number;
+  role: number;
   name: string;
   color: [number, number, number];
 }
@@ -20,7 +21,7 @@ export interface MockSliceFixture {
   toolpathVertices: number; // per vertex: xyz (Float32)
   features: MockFeature[];
   optionalMetrics?: Record<string, number[]>;
-  extruderPalette?: Array<MockFeature & { tool?: number }>;
+  extruderPalette?: Array<Omit<MockFeature, 'role'> & { tool?: number }>;
   resultId?: number;
   sourceFilename?: string;
   sourceText?: string;
@@ -122,9 +123,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     layers: 40,
     toolpathVertices: 2400,
     features: [
-      { id: 0, name: 'ExternalPerimeter', color: [255, 140, 0] as [number, number, number] },
-      { id: 1, name: 'InternalPerimeter', color: [255, 180, 0] as [number, number, number] },
-      { id: 2, name: 'SparseInfill', color: [0, 160, 255] as [number, number, number] },
+      { id: 0, role: 0, name: 'ExternalPerimeter', color: [255, 140, 0] as [number, number, number] },
+      { id: 1, role: 1, name: 'InternalPerimeter', color: [255, 180, 0] as [number, number, number] },
+      { id: 2, role: 2, name: 'SparseInfill', color: [0, 160, 255] as [number, number, number] },
     ],
   };
   const metadata: Record<string, { type: string; enum_values?: string[] }> =
@@ -903,10 +904,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         for (let j = 0; j < n; j++) {
           const jnext = (j + 1) % n;
           const v0 = i * n + j;
-          const v1 = inext * n + j;
+          const vNext = inext * n + j;
           const v2 = inext * n + jnext;
           const v3 = i * n + jnext;
-          tris.push([v0, v1, v2], [v0, v2, v3]);
+          tris.push([v0, vNext, v2], [v0, v2, v3]);
         }
       }
       return { verts, tris };
@@ -1876,10 +1877,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           move_type_ptr: mtptr, extrusion_role_ptr: rptr,
           extruder_id_ptr: xptr, color_print_id_ptr: cptr,
           width_ptr: wptr, height_ptr: hptr, metrics,
-          vertex_ptr: eptr, vertex_count: n,
-          layer_ptr: lptr, layer_count: n,
-          feature_ptr: allocU32(roles), feature_count: n,
-          features: fixture.features,
         },
       };
     },

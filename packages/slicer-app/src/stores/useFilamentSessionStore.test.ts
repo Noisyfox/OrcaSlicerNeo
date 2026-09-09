@@ -78,7 +78,7 @@ describe('filament session store lifecycle', () => {
     const slicer = useSlicerStore.getState();
     slicer.setPlateResult({ plateId: 'plate-a', inputRevision: 1 }, {
       ok: true, objects: 1, layers: 1,
-      toolpath: { vertexCount: 0, positions: new Float32Array(), layers: new Uint32Array(), features: new Uint32Array(), palette: [], segmentCount: 0,
+      toolpath: { features: new Uint32Array(), palette: [], segmentCount: 0,
         starts: new Float32Array(), ends: new Float32Array(), layerIds: new Uint32Array(), moveOrders: new Uint32Array(), gcodeIds: new Uint32Array(),
         sourceLineOrderValid: true, moveTypes: new Uint8Array(), extrusionRoles: new Uint16Array(), extruderIds: new Uint8Array(), colorPrintIds: new Uint8Array(),
         widths: new Float32Array(), heights: new Float32Array(), metrics: {} },
@@ -98,7 +98,7 @@ describe('filament session store lifecycle', () => {
     const initial = snapshot(1); const newer = snapshot(2);
     const slicer = useSlicerStore.getState();
     const emptyResult = { ok: true, objects: 1, layers: 1,
-      toolpath: { vertexCount: 0, positions: new Float32Array(), layers: new Uint32Array(), features: new Uint32Array(), palette: [], segmentCount: 0,
+      toolpath: { features: new Uint32Array(), palette: [], segmentCount: 0,
         starts: new Float32Array(), ends: new Float32Array(), layerIds: new Uint32Array(), moveOrders: new Uint32Array(), gcodeIds: new Uint32Array(),
         moveTypes: new Uint8Array(), extrusionRoles: new Uint16Array(), extruderIds: new Uint8Array(), colorPrintIds: new Uint8Array(), widths: new Float32Array(), heights: new Float32Array(), metrics: {} },
       metadata: { resultId: 1, layerRanges: [], featurePalette: [] } };

@@ -5,7 +5,7 @@ import { applyPlateResultMutation } from './plateResultLifecycle';
 
 function result(layers = 1): ClientSliceResult {
   return { ok: true, objects: 1, layers, metadata: { resultId: layers, layerRanges: [], featurePalette: [] }, toolpath: {
-    vertexCount: 0, positions: new Float32Array(), layers: new Uint32Array(), features: new Uint32Array(), palette: [],
+    features: new Uint32Array(), palette: [],
     segmentCount: 0, starts: new Float32Array(), ends: new Float32Array(), layerIds: new Uint32Array(),
     moveOrders: new Uint32Array(), gcodeIds: new Uint32Array(), moveTypes: new Uint8Array(),
     extrusionRoles: new Uint16Array(), extruderIds: new Uint8Array(), colorPrintIds: new Uint8Array(),

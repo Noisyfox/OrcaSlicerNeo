@@ -1363,7 +1363,7 @@ export function createClient(
         metadata?: {
           result_id?: number; source_filename?: string;
           layer_ranges?: Array<{ id: number; z: number; first_segment: number; segment_count: number }>;
-          feature_palette?: ToolpathFeature[];
+          feature_palette?: Array<ToolpathFeature & { role: number }>;
           extruder_palette?: Array<ToolpathFeature & { tool?: number }>;
           source_line_mapping?: { available: boolean; line_count: number };
           source_text?: { available: boolean; byte_length?: number };
@@ -1390,40 +1390,88 @@ export function createClient(
           extruder_id_ptr?: number; color_print_id_ptr?: number;
           width_ptr?: number; height_ptr?: number;
           metrics?: Record<string, { ptr: number; count: number }>;
-          vertex_ptr: number; vertex_count: number;
-          layer_ptr: number; layer_count: number;
-          feature_ptr: number; feature_count: number;
-          features: ToolpathFeature[];
         };
       };
-      if (!r.ok || !r.toolpath) return r as unknown as ClientSliceResult;
+      if (!r.ok) return r as unknown as ClientSliceResult;
+      if (r.preview_version !== 2 || !r.metadata || !r.toolpath)
+        throw new Error('slice result bridge returned an invalid v2 envelope');
 
+      const requireInteger = (value: unknown, field: string, minimum = 0): number => {
+        if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum)
+          throw new Error(`slice result bridge returned an invalid ${field}`);
+        return value;
+      };
+      const requirePointer = (value: unknown, field: string, byteLength: number): number => {
+        const pointer = requireInteger(value, `${field} pointer`);
+        if ((byteLength > 0 && pointer === 0) || (byteLength === 0 && pointer !== 0))
+          throw new Error(`slice result bridge returned an invalid ${field} buffer`);
+        return pointer;
+      };
       const t = r.toolpath;
-      const segmentCount = Number(t.segment_count ?? t.vertex_count ?? 0);
-      const readF32 = (ptr: number | undefined, count: number): Float32Array =>
-        ptr && count > 0 ? new Float32Array(readBytes(m, Number(ptr), count * 4).buffer) : new Float32Array(count);
-      const readU32 = (ptr: number | undefined, count: number): Uint32Array =>
-        ptr && count > 0 ? new Uint32Array(readBytes(m, Number(ptr), count * 4).buffer) : new Uint32Array(count);
-      const readU16 = (ptr: number | undefined, count: number): Uint16Array =>
-        ptr && count > 0 ? new Uint16Array(readBytes(m, Number(ptr), count * 2).buffer) : new Uint16Array(count);
-      const readU8 = (ptr: number | undefined, count: number): Uint8Array =>
-        ptr && count > 0 ? readBytes(m, Number(ptr), count) : new Uint8Array(count);
-      const starts = readF32(t.starts_ptr, segmentCount * 3);
-      const ends = readF32(t.ends_ptr, segmentCount * 3);
-      // v1 result fallback: old bridges only had endpoint positions. Keep the
-      // aliases usable while making the v2 arrays total and typed.
-      // The bridge keeps vertex_ptr as a v1 compatibility allocation. Read it
-      // even for v2 responses so its heap ownership is released exactly once;
-      // v2 rendering uses ends instead.
-      const legacyPositions = t.ends_ptr && t.vertex_ptr === t.ends_ptr
-        ? new Float32Array(0)
-        : t.ends_ptr
-        ? (readF32(t.vertex_ptr, (t.vertex_count ?? segmentCount) * 3), new Float32Array(0))
-        : readF32(t.vertex_ptr, (t.vertex_count ?? segmentCount) * 3);
-      const resolvedEnds = t.ends_ptr ? ends : legacyPositions;
-      const resolvedStarts = t.starts_ptr ? starts : resolvedEnds.slice();
-      const layerIds = readU32(t.layer_id_ptr ?? t.layer_ptr, segmentCount);
-      const features = readU32(t.feature_ptr, segmentCount);
+      const segmentCount = requireInteger(t.segment_count, 'segment count');
+      const metadataRaw = r.metadata;
+      const resultId = requireInteger(metadataRaw.result_id, 'result id');
+      if (!Array.isArray(metadataRaw.layer_ranges) || !Array.isArray(metadataRaw.feature_palette))
+        throw new Error('slice result bridge returned incomplete v2 metadata');
+      const featurePalette = metadataRaw.feature_palette;
+      const roleToFeatureId = new Map<number, number>();
+      featurePalette.forEach((entry, index) => {
+        if (!entry || !Number.isSafeInteger(entry.id) || entry.id !== index ||
+            !Number.isSafeInteger(entry.role) || typeof entry.name !== 'string' ||
+            !Array.isArray(entry.color) || entry.color.length !== 3 ||
+            !entry.color.every((value) => typeof value === 'number' && Number.isFinite(value)) ||
+            roleToFeatureId.has(entry.role))
+          throw new Error('slice result bridge returned an invalid feature palette');
+        roleToFeatureId.set(entry.role, entry.id);
+      });
+      const readF32 = (ptr: number | undefined, count: number, field: string): Float32Array => {
+        const address = requirePointer(ptr, field, count * Float32Array.BYTES_PER_ELEMENT);
+        return count > 0 ? new Float32Array(readBytes(m, address, count * 4).buffer) : new Float32Array(0);
+      };
+      const readU32 = (ptr: number | undefined, count: number, field: string): Uint32Array => {
+        const address = requirePointer(ptr, field, count * Uint32Array.BYTES_PER_ELEMENT);
+        return count > 0 ? new Uint32Array(readBytes(m, address, count * 4).buffer) : new Uint32Array(0);
+      };
+      const readU16 = (ptr: number | undefined, count: number, field: string): Uint16Array => {
+        const address = requirePointer(ptr, field, count * Uint16Array.BYTES_PER_ELEMENT);
+        return count > 0 ? new Uint16Array(readBytes(m, address, count * 2).buffer) : new Uint16Array(0);
+      };
+      const readU8 = (ptr: number | undefined, count: number, field: string): Uint8Array => {
+        const address = requirePointer(ptr, field, count * Uint8Array.BYTES_PER_ELEMENT);
+        return count > 0 ? readBytes(m, address, count) : new Uint8Array(0);
+      };
+      const requiredPointers: Array<[unknown, string, number]> = [
+        [t.starts_ptr, 'starts', segmentCount * 3 * Float32Array.BYTES_PER_ELEMENT],
+        [t.ends_ptr, 'ends', segmentCount * 3 * Float32Array.BYTES_PER_ELEMENT],
+        [t.layer_id_ptr, 'layer ids', segmentCount * Uint32Array.BYTES_PER_ELEMENT],
+        [t.move_order_ptr, 'move orders', segmentCount * Uint32Array.BYTES_PER_ELEMENT],
+        [t.gcode_id_ptr, 'G-code ids', segmentCount * Uint32Array.BYTES_PER_ELEMENT],
+        [t.move_type_ptr, 'move types', segmentCount * Uint8Array.BYTES_PER_ELEMENT],
+        [t.extrusion_role_ptr, 'extrusion roles', segmentCount * Uint16Array.BYTES_PER_ELEMENT],
+        [t.extruder_id_ptr, 'extruder ids', segmentCount * Uint8Array.BYTES_PER_ELEMENT],
+        [t.color_print_id_ptr, 'colour-print ids', segmentCount * Uint8Array.BYTES_PER_ELEMENT],
+        [t.width_ptr, 'widths', segmentCount * Float32Array.BYTES_PER_ELEMENT],
+        [t.height_ptr, 'heights', segmentCount * Float32Array.BYTES_PER_ELEMENT],
+      ];
+      for (const [pointer, field, byteLength] of requiredPointers)
+        requirePointer(pointer, field, byteLength);
+      for (const [wireName, field] of Object.entries({
+        feedrate: 'feedrate', actual_feedrate: 'actualFeedrate',
+        volumetric_flow: 'volumetricFlow', actual_volumetric_flow: 'actualVolumetricFlow',
+        fan_speed: 'fanSpeed', temperature: 'temperature', pressure_advance: 'pressureAdvance',
+        acceleration: 'acceleration', jerk: 'jerk', time: 'time', layer_duration: 'layerDuration',
+      })) {
+        const descriptor = t.metrics?.[wireName];
+        if (descriptor !== undefined) {
+          if (!descriptor || descriptor.count !== segmentCount)
+            throw new Error(`slice result bridge returned an invalid ${wireName} metric`);
+          requirePointer(descriptor.ptr, `${wireName} metric`, descriptor.count * Float32Array.BYTES_PER_ELEMENT);
+        }
+      }
+      const starts = readF32(t.starts_ptr, segmentCount * 3, 'starts');
+      const ends = readF32(t.ends_ptr, segmentCount * 3, 'ends');
+      const layerIds = readU32(t.layer_id_ptr, segmentCount, 'layer ids');
+      const roles = readU16(t.extrusion_role_ptr, segmentCount, 'extrusion roles');
       const metricKeyMap: Record<string, keyof PreviewToolpathMetrics> = {
         feedrate: 'feedrate', actual_feedrate: 'actualFeedrate',
         volumetric_flow: 'volumetricFlow', actual_volumetric_flow: 'actualVolumetricFlow',
@@ -1433,8 +1481,9 @@ export function createClient(
       const metrics: PreviewToolpathMetrics = {};
       for (const [wireName, field] of Object.entries(metricKeyMap)) {
         const descriptor = t.metrics?.[wireName];
-        if (descriptor && descriptor.ptr && descriptor.count === segmentCount)
-          metrics[field] = readF32(descriptor.ptr, descriptor.count);
+        if (descriptor !== undefined) {
+          metrics[field] = readF32(descriptor.ptr, descriptor.count, `${wireName} metric`);
+        }
       }
       const metricRanges: PreviewAnalysis['metricRanges'] = {};
       for (const [field, values] of Object.entries(metrics) as Array<[PreviewMetricKey, Float32Array]>) {
@@ -1447,7 +1496,7 @@ export function createClient(
         }
         if (min !== Infinity) metricRanges[field] = { min, max };
       }
-      const rawAnalysis = r.metadata?.analysis;
+      const rawAnalysis = metadataRaw.analysis;
       const analysis: PreviewAnalysis | undefined = rawAnalysis ? {
         summary: {
           ...(Number.isFinite(rawAnalysis.summary?.estimated_time_seconds) ? {
@@ -1473,20 +1522,20 @@ export function createClient(
       } : (Object.keys(metricRanges).length > 0 ? {
         summary: {}, featureStatistics: [], metricRanges,
       } : undefined);
-      const sourceText = r.metadata?.source_text;
+      const sourceText = metadataRaw.source_text;
       const sourceByteLength = sourceText?.byte_length;
       const metadata: PreviewMetadata = {
-        resultId: Number(r.metadata?.result_id ?? 0),
-        ...(r.metadata?.source_filename ? { sourceFilename: r.metadata.source_filename } : {}),
-        layerRanges: (r.metadata?.layer_ranges ?? []).map((layer) => ({
+        resultId,
+        ...(metadataRaw.source_filename ? { sourceFilename: metadataRaw.source_filename } : {}),
+        layerRanges: metadataRaw.layer_ranges.map((layer) => ({
           id: layer.id, z: layer.z, firstSegment: layer.first_segment, segmentCount: layer.segment_count,
         })),
-        featurePalette: r.metadata?.feature_palette ?? t.features,
-        ...(r.metadata?.extruder_palette ? { extruderPalette: r.metadata.extruder_palette } : {}),
-        ...(r.metadata?.source_line_mapping ? {
+        featurePalette,
+        ...(metadataRaw.extruder_palette ? { extruderPalette: metadataRaw.extruder_palette } : {}),
+        ...(metadataRaw.source_line_mapping ? {
           sourceLineMapping: {
-            available: r.metadata.source_line_mapping.available,
-            lineCount: r.metadata.source_line_mapping.line_count,
+            available: metadataRaw.source_line_mapping.available,
+            lineCount: metadataRaw.source_line_mapping.line_count,
           },
         } : {}),
         ...(sourceText ? {
@@ -1498,32 +1547,41 @@ export function createClient(
         } : {}),
         ...(analysis ? { analysis } : {}),
       };
-      const moveOrders = readU32(t.move_order_ptr, segmentCount);
-      const gcodeIds = readU32(t.gcode_id_ptr, segmentCount);
+      const moveOrders = readU32(t.move_order_ptr, segmentCount, 'move orders');
+      const gcodeIds = readU32(t.gcode_id_ptr, segmentCount, 'G-code ids');
+      const features = new Uint32Array(segmentCount);
+      for (let index = 0; index < roles.length; index++) {
+        const featureId = roleToFeatureId.get(roles[index]!);
+        if (featureId === undefined)
+          throw new Error(`slice result bridge feature palette is missing role ${roles[index]}`);
+        features[index] = featureId;
+      }
       const sourceLineOrderValid = gcodeIds.every((line, index) => index === 0 || line >= gcodeIds[index - 1]);
       const toolpath: ClientToolpath = {
-        vertexCount: segmentCount,
-        positions: resolvedEnds,
-        layers: layerIds,
         features,
-        palette: t.features,
+        palette: featurePalette,
         segmentCount,
-        starts: resolvedStarts,
-        ends: resolvedEnds,
+        starts,
+        ends,
         layerIds,
         moveOrders,
         gcodeIds,
         sourceLineOrderValid,
-        moveTypes: readU8(t.move_type_ptr, segmentCount),
-        extrusionRoles: readU16(t.extrusion_role_ptr, segmentCount),
-        extruderIds: readU8(t.extruder_id_ptr, segmentCount),
-        colorPrintIds: readU8(t.color_print_id_ptr, segmentCount),
-        widths: readF32(t.width_ptr, segmentCount),
-        heights: readF32(t.height_ptr, segmentCount),
+        moveTypes: readU8(t.move_type_ptr, segmentCount, 'move types'),
+        extrusionRoles: roles,
+        extruderIds: readU8(t.extruder_id_ptr, segmentCount, 'extruder ids'),
+        colorPrintIds: readU8(t.color_print_id_ptr, segmentCount, 'colour-print ids'),
+        widths: readF32(t.width_ptr, segmentCount, 'widths'),
+        heights: readF32(t.height_ptr, segmentCount, 'heights'),
         metrics,
       };
 
-      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath, metadata };
+      return {
+        ok: true,
+        objects: requireInteger(r.objects, 'object count'),
+        layers: requireInteger(r.layers, 'layer count'),
+        toolpath, metadata,
+      };
     },
 
     async exportGcode(): Promise<ExportGcodeResult> {

@@ -87,10 +87,6 @@ struct ToolpathBuffers {
     // values for coordinates).
     MallocBuffer starts;      // Float32 xyz per segment
     MallocBuffer ends;        // Float32 xyz per segment
-    // Deprecated v1 aliases retained for consumers that have not migrated to
-    // segments yet. They contain one endpoint and one feature id per segment.
-    MallocBuffer positions;
-    MallocBuffer features;
     MallocBuffer layers;      // Uint32 layer_id per segment
     MallocBuffer move_orders; // Uint32 order within layer
     MallocBuffer gcode_ids;   // Uint32 source G-code id
@@ -126,9 +122,9 @@ struct ToolpathBuffers {
         std::uint32_t count = 0;
     };
     std::vector<LayerRange> layer_ranges;
-    // Local palette: index into this vector == the id recorded in
-    // `features`. Kept local (0..N-1) so the JSON feature list in
-    // orc_get_slice_result lines up with the buffer values 1:1.
+    // Local palette: index into this vector is the id published in
+    // metadata.feature_palette. The client derives per-segment local ids
+    // from this palette and the canonical extrusion_roles buffer.
     std::vector<std::pair<ExtrusionRole, FeatureInfo>> palette_used;
 };
 

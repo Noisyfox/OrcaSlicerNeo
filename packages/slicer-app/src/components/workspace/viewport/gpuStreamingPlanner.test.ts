@@ -18,9 +18,6 @@ function clientToolpath(overrides: Partial<ClientToolpath> = {}): ClientToolpath
     ends[i * 3] = i + 1;
   }
   return {
-    vertexCount: segmentCount * 2,
-    positions: new Float32Array(segmentCount * 6),
-    layers: new Uint32Array(segmentCount * 2),
     features: Uint32Array.from([0, 1, 0, 1, 0, 1, 2, 0, 1, 2, 0]),
     palette: [
       { id: 0, name: 'one', color: [1, 2, 3] },
