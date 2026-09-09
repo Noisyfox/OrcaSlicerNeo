@@ -47,7 +47,7 @@ function initFlexible() {
   // Build the compatible alternate-preset inventory once. Fetching the full
   // profile catalogue is intentionally expensive; the command checks below
   // use this immutable list rather than repeatedly serialising it.
-  flexibleFilamentNames = callJson('orc_get_preset_snapshot').filaments.map((entry) => entry.name);
+  flexibleFilamentNames = callJson('orc_get_preset_snapshot').filament_catalog.map((entry) => entry.name);
   assert.ok(flexibleFilamentNames.some((name) => name !== snapshot.slots[0].preset.name),
     'profile set must expose a distinct compatible filament');
   return snapshot;

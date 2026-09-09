@@ -104,7 +104,6 @@ export interface UserPreferences {
   selectedProfiles: {
     printer?: string;
     print?: string;
-    filament?: string;
   };
   /**
    * Last successfully published effective rack, namespaced by printer
@@ -268,7 +267,6 @@ export function normalizeUserPreferences(value: unknown): UserPreferences {
     selectedProfiles: {
       ...(typeof selectedProfiles.printer === 'string' ? { printer: selectedProfiles.printer } : {}),
       ...(typeof selectedProfiles.print === 'string' ? { print: selectedProfiles.print } : {}),
-      ...(typeof selectedProfiles.filament === 'string' ? { filament: selectedProfiles.filament } : {}),
     },
     ...(Object.keys(rememberedFilamentRacks).length > 0 ? { rememberedFilamentRacks } : {}),
     ui: {

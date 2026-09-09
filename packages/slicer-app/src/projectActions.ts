@@ -2,7 +2,7 @@ import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract
 import type { ProjectLoadResult, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
-import { useProjectStore, projectPresetTriple, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
+import { useProjectStore, projectPresetSelections, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
@@ -39,8 +39,7 @@ function errorText(error: unknown): string { return error instanceof Error ? err
 function runtimeOf(platform: PlatformCapabilities): Runtime { return platform.runtime; }
 function currentPresets(): ProjectPresetSelections {
   const s = useSettingsStore.getState();
-  const previous = useProjectStore.getState().systemPresets;
-  return { printer: s.selectedPrinter, print: s.selectedPrint, filament: previous?.filament ?? '' };
+  return { printer: s.selectedPrinter, print: s.selectedPrint };
 }
 export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   const notices: ProjectNotice[] = [];
@@ -262,7 +261,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     // filament projection only after that fence so the mirror cannot retain
     // a pre-reset revision and reject the first user command as stale.
     await refreshFilamentSession(runtime);
-    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history?.dirty ?? false, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
+      useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history?.dirty ?? false, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 

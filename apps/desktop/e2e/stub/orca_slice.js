@@ -51,10 +51,9 @@ export default function makeStubModule() {
         ok: true,
         printers: [{ ...preset(printer), selected: true }, preset('Bambu Lab P1S 0.4 nozzle')],
         prints: [{ ...preset(print), selected: true }],
-        filaments: [{ ...preset(filament), selected: true }, preset('Bambu PLA Matte @BBL X1C')],
+        filament_catalog: [{ ...preset(filament), selected: true }, preset('Bambu PLA Matte @BBL X1C')],
         printer: { name: printer, idx: 0 },
         print: { name: print, idx: 0 },
-        filament: { name: filament, idx: 0 },
       };
     },
     orc_get_option_metadata() {

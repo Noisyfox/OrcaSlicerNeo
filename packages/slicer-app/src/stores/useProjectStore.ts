@@ -16,7 +16,6 @@ export type ProjectOperationPhase =
 export interface ProjectPresetSelections {
   printer: string;
   print: string;
-  filament: string;
 }
 
 export interface ProjectNotice {
@@ -78,7 +77,7 @@ export interface ProjectSessionState {
 }
 
 export const DEFAULT_PROJECT_PRESETS: ProjectPresetSelections = {
-  printer: '', print: '', filament: '',
+  printer: '', print: '',
 };
 
 const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' | 'recordSharedConfigurationMutation' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
@@ -132,7 +131,7 @@ export const useProjectStore = create<ProjectSessionState>((set) => ({
   reset: () => set(initialSession()),
 }));
 
-export function projectPresetTriple(snapshot: { printer: { name: string }; print: { name: string }; filamentCatalog?: readonly { name: string }[] }): ProjectPresetSelections {
-  return { printer: snapshot.printer.name, print: snapshot.print.name, filament: snapshot.filamentCatalog?.[0]?.name ?? '' };
+export function projectPresetSelections(snapshot: { printer: { name: string }; print: { name: string } }): ProjectPresetSelections {
+  return { printer: snapshot.printer.name, print: snapshot.print.name };
 }
 

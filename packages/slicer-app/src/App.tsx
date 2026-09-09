@@ -359,13 +359,12 @@ export default function App() {
         await persistRestoredSelections(platform.preferences, restored.preferences);
         if (cancelled) return;
         hydrateProfileSnapshot(restored.snapshot);
-        useProjectStore.getState().setProject({
-          systemPresets: {
-            printer: restored.snapshot.printer.name,
-            print: restored.snapshot.print.name,
-            filament: restored.snapshot.filamentCatalog[0]?.name ?? '',
-          },
-        });
+          useProjectStore.getState().setProject({
+            systemPresets: {
+              printer: restored.snapshot.printer.name,
+              print: restored.snapshot.print.name,
+            },
+          });
         setMetadata(metadata);
         setBoot('ready');
       } catch (err) {

@@ -74,7 +74,7 @@ assert.equal(snapshot.flushing.source, 'native');
 markStage('profile-init-and-project-roundtrip');
 
 // Every accepted flushing-input class must replace a complete imported matrix.
-const alternatePreset = callJson('orc_get_preset_snapshot').filaments.find((entry) => entry.name !== snapshot.slots[0].preset.name);
+const alternatePreset = callJson('orc_get_preset_snapshot').filament_catalog.find((entry) => entry.name !== snapshot.slots[0].preset.name);
 assert.ok(alternatePreset, 'a second compatible filament preset is required');
 let before = installImportedMatrix(2, 210);
 let changed = request('orc_select_filament_slot_preset', { version: 1, revision: before.revisions.session, slot: 1, preset: alternatePreset.name });

@@ -237,10 +237,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       ok: true,
       printers: candidates('printer').map((preset) => entry('printer', preset)),
       prints: candidates('print').map((preset) => entry('print', preset)),
-      filaments: candidates('filament').map((preset) => entry('filament', preset)),
+      filament_catalog: candidates('filament').map((preset) => entry('filament', preset)),
       printer: selectedEntry('printer'),
       print: selectedEntry('print'),
-      filament: selectedEntry('filament'),
       printable_area: presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area
         ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
     };
@@ -1264,9 +1263,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return snapshot();
     },
     orc_select_preset(kind: string, name: string) {
-      const presetKind = kind as PresetKind;
+      if (kind !== 'printer' && kind !== 'print') return 'kind must be print|printer';
+      const presetKind = kind as 'printer' | 'print';
       const list = presetFixtures[presetKind];
-      if (!list) return `kind must be print|filament|printer`;
       const requested = list.find((preset) => preset.name === name);
       if (!requested) return `preset not found: ${name}`;
       if (!requested.is_visible) return `preset is not visible: ${name}`;

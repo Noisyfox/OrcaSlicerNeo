@@ -1775,10 +1775,9 @@ json preset_snapshot_json() {
     return json{{"ok", true},
                 {"printers", preset_candidates_json(state().presets.printers, false)},
                 {"prints", preset_candidates_json(state().presets.prints, true)},
-                {"filaments", preset_candidates_json(state().presets.filaments, true)},
+                {"filament_catalog", preset_candidates_json(state().presets.filaments, true)},
                 {"printer", preset_selection_json(state().presets.printers)},
                 {"print", preset_selection_json(state().presets.prints)},
-                {"filament", preset_selection_json(state().presets.filaments)},
                 {"printable_area", selected_printer_printable_area_json()}};
 }
 
@@ -5591,17 +5590,15 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
         if (name.empty()) return error_json("preset name required");
         PresetCollection* coll = nullptr;
         if (kind == "print")        coll = &state().presets.prints;
-        else if (kind == "filament")coll = &state().presets.filaments;
         else if (kind == "printer") coll = &state().presets.printers;
-        else return error_json("kind must be print|filament|printer");
+        else return error_json("kind must be print|printer");
         Preset* requested = coll->find_preset(name);
         if (requested == nullptr)
             return error_json("preset not found: " + name);
         if (!requested->is_visible)
             return error_json("preset is not visible: " + name);
-        // A printer has no compatibility context.  Print and filament names
-        // must already be candidates for the current engine-resolved printer
-        // (and, for filament, current process) before they may be selected.
+        // A printer has no compatibility context. Process names must already
+        // be candidates for the current engine-resolved printer.
         if (kind != "printer" && !requested->is_compatible)
             return error_json("preset is incompatible: " + name);
         if (!coll->select_preset_by_name(name, true))

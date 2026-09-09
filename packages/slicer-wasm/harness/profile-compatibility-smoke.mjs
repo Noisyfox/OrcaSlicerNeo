@@ -32,17 +32,18 @@ function callJson(Module, name, argTypes = [], args = []) {
 }
 
 function names(snapshot, kind) {
-  return snapshot[`${kind}s`].map((preset) => preset.name);
+  const key = kind === 'filament' ? 'filament_catalog' : `${kind}s`;
+  return snapshot[key].map((preset) => preset.name);
 }
 
 function assertSnapshot(snapshot, expected) {
   assert.equal(snapshot.ok, true, `expected successful snapshot: ${JSON.stringify(snapshot)}`);
   assert.deepEqual(names(snapshot, 'printer'), expected.printers, 'printer candidates/order');
   assert.deepEqual(names(snapshot, 'print'), expected.prints, 'process candidates/order');
-  assert.deepEqual(names(snapshot, 'filament'), expected.filaments, 'filament candidates/order');
+  assert.deepEqual(names(snapshot, 'filament'), expected.filamentCatalog, 'filament catalogue/order');
   assert.equal(snapshot.printer.name, expected.printer, 'resolved printer');
   assert.equal(snapshot.print.name, expected.print, 'resolved process');
-  assert.equal(snapshot.filament.name, expected.filament, 'resolved filament');
+  assert.equal(Object.hasOwn(snapshot, 'filament'), false, 'single-filament selection is absent');
 }
 
 const packageRoot = await mkdtemp(join(tmpdir(), 'orca-profile-compatibility-'));
@@ -63,6 +64,11 @@ try {
   const init = callJson(Module, 'orc_init', ['string'], ['']);
   assert.equal(init.ok, true, `orc_init failed: ${JSON.stringify(init)}`);
 
+  const retiredFilamentSelection = callJson(Module, 'orc_select_preset', ['string', 'string'],
+    ['filament', 'Alpha Explicit Filament']);
+  assert.equal(retiredFilamentSelection.ok, undefined, 'single-filament selection must not be accepted');
+  assert.match(retiredFilamentSelection.error, /kind must be print\|printer/);
+
   // Alpha is first in native collection order. Its explicit default selects
   // the name-list-compatible process and filament. The condition-based
   // process is also visible because Alpha's printer_notes satisfies it. Its
@@ -71,10 +77,9 @@ try {
   assertSnapshot(snapshot, {
     printers: ['Compatibility Alpha 0.4 nozzle', 'Compatibility Beta 0.4 nozzle'],
     prints: ['Alpha Condition Process', 'Alpha Explicit Process'],
-    filaments: ['Generic PLA @Compatibility Alpha', 'Alpha Explicit Filament'],
+    filamentCatalog: ['Generic PLA @Compatibility Alpha', 'Alpha Explicit Filament'],
     printer: 'Compatibility Alpha 0.4 nozzle',
     print: 'Alpha Explicit Process',
-    filament: 'Alpha Explicit Filament',
   });
 
   // A process change must recalculate the filament candidates against both
@@ -85,10 +90,9 @@ try {
   assertSnapshot(snapshot, {
     printers: ['Compatibility Alpha 0.4 nozzle', 'Compatibility Beta 0.4 nozzle'],
     prints: ['Alpha Condition Process', 'Alpha Explicit Process'],
-    filaments: ['Generic PLA @Compatibility Alpha', 'Alpha Condition Filament'],
+    filamentCatalog: ['Generic PLA @Compatibility Alpha', 'Alpha Condition Filament'],
     printer: 'Compatibility Alpha 0.4 nozzle',
     print: 'Alpha Condition Process',
-    filament: 'Generic PLA @Compatibility Alpha',
   });
 
   // Switching to Beta makes both selected Alpha profiles incompatible. The
@@ -100,10 +104,9 @@ try {
   assertSnapshot(snapshot, {
     printers: ['Compatibility Alpha 0.4 nozzle', 'Compatibility Beta 0.4 nozzle'],
     prints: ['Beta Explicit Process'],
-    filaments: ['Generic PLA @System', 'Beta Explicit Filament'],
+    filamentCatalog: ['Generic PLA @System', 'Beta Explicit Filament'],
     printer: 'Compatibility Beta 0.4 nozzle',
     print: 'Beta Explicit Process',
-    filament: 'Generic PLA @System',
   });
 
   // The native list and condition rules must also be enforced by the bridge

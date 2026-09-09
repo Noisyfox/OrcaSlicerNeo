@@ -573,17 +573,15 @@ function normalizeCount(raw: unknown): number | null {
 }
 
 /** Convert the native profile/catalogue payload into the public profile
- * contract. The native bridge still carries its historical `filaments` and
- * selected `filament` fields for project/CLI interoperability, but neither is
- * exposed as a single-filament application API. */
+ * contract. The native bridge emits the multi-filament catalogue under its
+ * explicit wire key; single-filament selection is not part of this contract. */
 function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
   if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
-  const catalogue = Array.isArray(raw.filamentCatalog) ? raw.filamentCatalog : raw.filaments;
   return {
     ok: true,
     printers: (Array.isArray(raw.printers) ? raw.printers : []) as ProfileSnapshot['printers'],
     prints: (Array.isArray(raw.prints) ? raw.prints : []) as ProfileSnapshot['prints'],
-    filamentCatalog: (Array.isArray(catalogue) ? catalogue : []) as ProfileSnapshot['filamentCatalog'],
+    filamentCatalog: (Array.isArray(raw.filament_catalog) ? raw.filament_catalog : []) as ProfileSnapshot['filamentCatalog'],
     printer: raw.printer as ProfileSnapshot['printer'],
     print: raw.print as ProfileSnapshot['print'],
     ...(Array.isArray(raw.printable_area) ? { printable_area: raw.printable_area as Array<[number, number]> } : {}),

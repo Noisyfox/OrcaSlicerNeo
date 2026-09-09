@@ -102,7 +102,7 @@ check('variant reports a consistent TBB pool',
       `${JSON.stringify(threading)} runtimeCores=${runtimeCores}`);
 
 // 2. Compatibility snapshots are the coherent picker source. They carry the
-// engine-selected triple and remain coherent after native fallback paths.
+// engine-selected printer/process pair and the rack's filament catalogue.
 const snapshot = callJson('orc_get_preset_snapshot', [], []);
 const snapshotHasSelection = (s, kind) => Array.isArray(s[`${kind}s`])
   && s[`${kind}s`].some((p) => p.name === s[kind]?.name && p.selected === true);
@@ -110,11 +110,11 @@ check('orc_get_preset_snapshot returns coherent picker candidates',
       snapshot.ok === true
       && Array.isArray(snapshot.printers) && snapshot.printers.length > 0
       && Array.isArray(snapshot.prints) && snapshot.prints.length > 0
-      && Array.isArray(snapshot.filaments) && snapshot.filaments.length > 0
+      && Array.isArray(snapshot.filament_catalog) && snapshot.filament_catalog.length > 0
       && snapshotHasSelection(snapshot, 'printer')
       && snapshotHasSelection(snapshot, 'print')
-      && snapshotHasSelection(snapshot, 'filament'),
-      JSON.stringify({ printer: snapshot.printer, print: snapshot.print, filament: snapshot.filament }));
+      && !Object.hasOwn(snapshot, 'filament'),
+      JSON.stringify({ printer: snapshot.printer, print: snapshot.print, filament_catalog: snapshot.filament_catalog }));
 check('preset snapshot carries the selected printer build plate',
       Array.isArray(snapshot.printable_area) && snapshot.printable_area.length >= 3
       && snapshot.printable_area.every((point) => Array.isArray(point)
@@ -132,8 +132,8 @@ if (nextPrinter) {
   check('printer selection returns a complete resolved compatibility snapshot',
         selectedSnapshot.ok === true && selectedSnapshot.printer?.name === nextPrinter.name
         && snapshotHasSelection(selectedSnapshot, 'print')
-        && snapshotHasSelection(selectedSnapshot, 'filament'),
-        JSON.stringify({ printer: selectedSnapshot.printer, print: selectedSnapshot.print, filament: selectedSnapshot.filament }));
+        && Array.isArray(selectedSnapshot.filament_catalog),
+        JSON.stringify({ printer: selectedSnapshot.printer, print: selectedSnapshot.print, filament_catalog: selectedSnapshot.filament_catalog }));
 }
 const nextPrint = selectedSnapshot.prints?.find((preset) => preset.name !== selectedSnapshot.print?.name);
 check('resolved printer has an alternate compatible process', nextPrint !== undefined,
@@ -142,8 +142,8 @@ if (nextPrint) {
   selectedSnapshot = callJson('orc_select_preset', ['string', 'string'], ['print', nextPrint.name]);
   check('process selection re-resolves and returns a filament-compatible snapshot',
         selectedSnapshot.ok === true && selectedSnapshot.print?.name === nextPrint.name
-        && snapshotHasSelection(selectedSnapshot, 'filament'),
-        JSON.stringify({ print: selectedSnapshot.print, filament: selectedSnapshot.filament }));
+        && Array.isArray(selectedSnapshot.filament_catalog),
+        JSON.stringify({ print: selectedSnapshot.print, filament_catalog: selectedSnapshot.filament_catalog }));
 }
 const printableArea = selectedSnapshot.printable_area ?? snapshot.printable_area;
 const areaBounds = printableArea.reduce((bounds, point) => ({

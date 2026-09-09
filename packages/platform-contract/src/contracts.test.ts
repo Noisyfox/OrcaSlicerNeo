@@ -9,7 +9,7 @@ describe('user preferences', () => {
   });
   it('keeps only the typed profile names and UI preferences', () => {
     expect(normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'P', print: 4, filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, x: true } })).toEqual({
-      version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, switchToDeviceAfterSend: true },
+      version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, switchToDeviceAfterSend: true },
     });
   });
 

@@ -94,7 +94,6 @@ function resolvedPreferences(preferences: UserPreferences, snapshot: ProfileSnap
   return {
     ...preferences,
     selectedProfiles: {
-      ...preferences.selectedProfiles,
       printer: snapshot.printer.name,
       print: snapshot.print.name,
     },

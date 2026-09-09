@@ -208,7 +208,7 @@ describe('transactional project actions', () => {
 
   it('Save then New restores the saved global preset selection', async () => {
     const { platform, runtime } = platformFor();
-    useProjectStore.getState().setProject({ hasContent: true, dirty: true, scope: 'project', systemPresets: { printer: 'System printer', print: 'System process', filament: 'System filament' } });
+    useProjectStore.getState().setProject({ hasContent: true, dirty: true, scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' } });
     const result = await newProject(platform, { decideDirty: () => 'save' });
     expect(result.status).toBe('ok'); expect(runtime.clearModel).toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: false, scope: 'system', hasContent: false });

@@ -83,12 +83,11 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       // export, toolpath-layer state, progress, and completed status together.
       invalidateAfterSharedConfigurationMutation();
       const project = useProjectStore.getState();
-      const compatibilityFilament = project.projectPresets?.filament ?? project.systemPresets?.filament ?? '';
       project.setProject({
         ...(project.scope === 'project' ? { projectPresets: {
-          printer: r.printer.name, print: r.print.name, filament: compatibilityFilament,
+          printer: r.printer.name, print: r.print.name,
         } } : { systemPresets: {
-          printer: r.printer.name, print: r.print.name, filament: compatibilityFilament,
+          printer: r.printer.name, print: r.print.name,
         } }),
       });
 
@@ -101,7 +100,6 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       try {
         const prefs = await platform.preferences.load();
         await platform.preferences.save({ ...prefs, selectedProfiles: {
-          ...prefs.selectedProfiles,
           printer: r.printer.name, print: r.print.name,
         } });
       } catch (error) {

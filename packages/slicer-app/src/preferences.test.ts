@@ -5,7 +5,7 @@ import type { ProfileSnapshot } from '@slicer/client';
 
 const prefs: UserPreferences = {
   version: 1,
-  selectedProfiles: { printer: 'P', print: 'Q', filament: 'F' },
+  selectedProfiles: { printer: 'P', print: 'Q' },
   ui: {},
 };
 
@@ -35,7 +35,7 @@ describe('selection restoration', () => {
 
     expect(calls).toEqual([['printer', 'P'], ['print', 'Q']]);
     expect(result.snapshot).toBe(final);
-    expect(result.preferences.selectedProfiles).toEqual({ printer: 'P2', print: 'Q2', filament: 'F' });
+    expect(result.preferences.selectedProfiles).toEqual({ printer: 'P2', print: 'Q2' });
   });
 
   it('uses the current snapshot candidate after a rejected saved name, then keeps later candidates current', async () => {
@@ -62,7 +62,7 @@ describe('selection restoration', () => {
     ]);
     expect(result.snapshot).toBe(afterPrint);
     expect(result.preferences.selectedProfiles).toEqual({
-      printer: 'fallback-printer', print: 'fallback-print', filament: 'F',
+      printer: 'fallback-printer', print: 'fallback-print',
     });
   });
 
@@ -90,7 +90,7 @@ describe('selection restoration', () => {
   it('persists the resolved triple without failing the already-valid boot state on storage errors', async () => {
     const preferences = {
       version: 1 as const,
-      selectedProfiles: { printer: 'resolved-printer', print: 'resolved-print', filament: 'resolved-filament' },
+      selectedProfiles: { printer: 'resolved-printer', print: 'resolved-print' },
       ui: {},
     };
     const repository = { load: vi.fn(), save: vi.fn(async () => {}) };

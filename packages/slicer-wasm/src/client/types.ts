@@ -198,9 +198,9 @@ export interface PresetSelection {
 /**
  * One coherent, picker-ready FFF preset state from the C++ profile engine.
  * The candidate arrays are already filtered by the engine: printers are
- * visible, while prints and filaments are visible and compatible with the
- * final selection context. Preserve their order; do not re-filter or sort in
- * JavaScript.
+ * visible, while prints and the multi-filament catalogue are visible and
+ * compatible with the final selection context. Preserve their order; do not
+ * re-filter or sort in JavaScript.
  */
 export interface ProfileSnapshot {
   ok: true;

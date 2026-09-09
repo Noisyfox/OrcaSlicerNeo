@@ -26,8 +26,16 @@ describe('multi-filament application boundary', () => {
 
   it('keeps the rack catalogue separate from the printer/process selectors', () => {
     const settingsStore = source('./stores/useSettingsStore.ts');
+    const projectStore = source('./stores/useProjectStore.ts');
+    const projectActions = source('./projectActions.ts');
+    const app = source('./App.tsx');
     expect(settingsStore).toContain('filamentCatalog');
     expect(settingsStore).not.toContain('selectedFilament');
     expect(settingsStore).not.toContain('hydratePresetSnapshot');
+    for (const productionSource of [projectStore, projectActions, app]) {
+      expect(productionSource).not.toContain('ProjectPresetSelections.filament');
+      expect(productionSource).not.toContain('filamentCatalog?.[0]');
+      expect(productionSource).not.toContain('compatibilityFilament');
+    }
   });
 });
