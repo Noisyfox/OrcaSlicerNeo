@@ -49,6 +49,7 @@
 #include "libslic3r/Utils.hpp"
 
 #include "bridge_buffers.hpp"
+#include "bridge_filament_state.hpp"
 #include "bridge_history_codec.hpp"
 #include "bridge_history_metadata.hpp"
 #include "bridge_state.hpp"
@@ -92,42 +93,25 @@ void RGB2HSV(float r, float g, float b, float* h, float* s, float* v)
 
 namespace {
 
-// Bridge business helpers keep the C ABI and all JSON operations in this
-// translation unit; Worker-owned state lives in bridge_state.cpp.
-static void apply_project_filament_sidecar_state(PresetBundle& bundle, const json& encoded);
+// Bridge business helpers keep the C ABI and command transactions in this
+// translation unit; filament projections and field-level history state live
+// in bridge_filament_state.cpp.
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
+using Neo::Bridge::FilamentState::config_metadata_json;
+using Neo::Bridge::FilamentState::history_state_json;
+using Neo::Bridge::FilamentState::DirectHistoryFrame;
+using Neo::Bridge::FilamentState::StagedMutableState;
+using Neo::Bridge::FilamentState::apply_mutable;
+using Neo::Bridge::FilamentState::apply_project_sidecar;
+using Neo::Bridge::FilamentState::current_direct_frame_model;
+using Neo::Bridge::FilamentState::make_direct_frame;
+using Neo::Bridge::FilamentState::stage_mutable;
+using DirectFilamentHistoryFrame = Neo::Bridge::FilamentState::DirectHistoryFrame;
 using Neo::Bridge::HistoryMetadata::history_entry_id;
 using Neo::Bridge::HistoryMetadata::parse_history_context;
 using Neo::Bridge::HistoryMetadata::parse_history_entry_id;
 using Neo::Bridge::HistoryMetadata::parse_history_jump_direction;
-
-// Slot add/delete has a deliberately narrow mutation surface.  Retaining this
-// immutable bridge-owned frame lets ProjectHistory restore that surface
-// without replaying PresetBundle's compatibility/install pipeline.  The core
-// charges the opaque payload and evicts it with the owning history entry; a
-// missing frame always uses the authoritative archive/context restore below.
-struct DirectFilamentHistoryFrame {
-    std::vector<std::string> filament_presets;
-    std::optional<Preset> edited_filament;
-    DynamicPrintConfig project_config;
-    std::vector<std::vector<std::string>> ams_multi_colour_filment;
-    std::shared_ptr<const Model> model;
-    std::vector<BridgeState::PlateSessionPlate> plates;
-    json overlay;
-    std::map<std::string, std::uint64_t> plate_input_revisions;
-    std::map<std::size_t, std::string> instance_plate_ids;
-    std::map<std::string, std::set<std::size_t>> plate_out_of_bounds_ids;
-    std::set<std::size_t> parked_instance_ids;
-    std::set<std::size_t> pending_membership_instance_ids;
-    std::string current_plate_id;
-    std::size_t next_filament_colour_index { 0 };
-};
-
-static std::optional<Neo::History::RestoreState::DirectFrame>
-make_direct_filament_history_frame(std::shared_ptr<const Model> model,
-                                   const Neo::History::ModelState& model_state);
-static std::shared_ptr<const Model> current_direct_filament_history_model();
 
 std::atomic<std::uint64_t> g_plate_session_sequence{0};
 std::atomic<std::uint64_t> g_plate_id_sequence{0};
@@ -248,16 +232,6 @@ bool valid_project_config_overlay(const json& overlay)
         }
     }
     return true;
-}
-
-json config_metadata_json(const DynamicPrintConfig& config)
-{
-    json out = json::object();
-    for (const std::string& key : config.keys()) {
-        try { out[key] = config.opt_serialize(key); }
-        catch (...) { /* an unknown future option remains in opaque data */ }
-    }
-    return out;
 }
 
 std::string xml_unescape_value(std::string value)
@@ -1866,22 +1840,6 @@ json filament_session_snapshot_json()
             {"revisions", revisions}, {"status", {{"state", "ready"}, {"error", nullptr}}}};
 }
 
-// History stores the native filament inputs that are not part of ModelState.
-// The ordered slot names and complete serialized project config are sufficient
-// to rebuild PresetBundle's mutable project session from the same immutable
-// preset collections on undo/redo; the projection alone would lose maps,
-// flushing vectors/matrices, and colour metadata.
-json filament_history_state_json(const PresetBundle& bundle)
-{
-    return json{
-        {"version", 1},
-        {"filament_presets", bundle.filament_presets},
-        {"project_config", config_metadata_json(bundle.project_config)},
-        {"edited_filament_config", config_metadata_json(bundle.filaments.get_edited_preset().config)},
-        {"ams_multi_colour_filment", bundle.ams_multi_color_filment},
-    };
-}
-
 // Step 2 filament commands.  Requests are intentionally versioned and carry
 // the snapshot session revision.  All edits are made against temporary native
 // copies and are published only after the complete projection validates.
@@ -2217,13 +2175,13 @@ void remap_model_filament_references(Model& model, const std::size_t removed,
 static json default_history_context()
 {
     return Neo::Bridge::HistoryMetadata::default_history_context(
-        state(), plate_session_snapshot_json(), filament_history_state_json(state().presets));
+        state(), plate_session_snapshot_json(), history_state_json(state().presets));
 }
 
 static json canonical_history_context(json context)
 {
     return Neo::Bridge::HistoryMetadata::canonical_history_context(
-        state(), std::move(context), plate_session_snapshot_json(), filament_history_state_json(state().presets));
+        state(), std::move(context), plate_session_snapshot_json(), history_state_json(state().presets));
 }
 
 static Neo::History::ModelState history_model_state_for_context()
@@ -2236,14 +2194,14 @@ static void record_history_context(const std::string& label, const json& request
     const auto model_state = history_model_state_for_context();
     Neo::Bridge::HistoryMetadata::record_history_context(
         state(), label, requested, plate_session_snapshot_json(),
-        filament_history_state_json(state().presets), model_state);
+        history_state_json(state().presets), model_state);
 }
 
 static void record_active_plate_context()
 {
     const auto model_state = history_model_state_for_context();
     Neo::Bridge::HistoryMetadata::record_active_plate_context(
-        state(), plate_session_snapshot_json(), filament_history_state_json(state().presets), model_state);
+        state(), plate_session_snapshot_json(), history_state_json(state().presets), model_state);
 }
 
 static json history_status_json()
@@ -2566,10 +2524,10 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             ? Neo::History::Codec::capture_model_state(state().model) : state().history.current().model;
         const bool needs_predecessor_direct = state().history.entries().empty() ||
             !state().history.current().direct_frame.has_value();
-        std::shared_ptr<const Model> direct_before_model = current_direct_filament_history_model();
+        std::shared_ptr<const Model> direct_before_model = current_direct_frame_model(state());
         if (!direct_before_model) direct_before_model = std::make_shared<Model>(state().model);
         const auto predecessor_direct = needs_predecessor_direct
-            ? make_direct_filament_history_frame(direct_before_model, before_history_model)
+            ? make_direct_frame(state(), direct_before_model, before_history_model)
             : std::optional<Neo::History::RestoreState::DirectFrame>{};
         if (!request.contains("revision") || !request["revision"].is_number_unsigned())
             return filament_command_error("stale_revision", "filament session revision is required");
@@ -2654,8 +2612,8 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             if (failure_stage == "during-history")
                 throw std::runtime_error("injected history commit failure");
             const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
-            const auto direct_frame = make_direct_filament_history_frame(
-                std::make_shared<Model>(state().model), after_history_model);
+            const auto direct_frame = make_direct_frame(
+                state(), std::make_shared<Model>(state().model), after_history_model);
             const bool committed = [&]() {
                 if (!state().history.entries().empty())
                     return state().history.commit(label, Neo::History::Category::Project,
@@ -2742,11 +2700,11 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
         const auto& current_history = state().history.current();
         const bool needs_predecessor_direct = state().history.entries().empty() ||
             !current_history.direct_frame.has_value();
-        std::shared_ptr<const Model> direct_before_model = current_direct_filament_history_model();
+        std::shared_ptr<const Model> direct_before_model = current_direct_frame_model(state());
         if (!direct_before_model)
             direct_before_model = before_model ? before_model : std::make_shared<Model>(state().model);
         const auto predecessor_direct = needs_predecessor_direct
-            ? make_direct_filament_history_frame(direct_before_model, before_history_model)
+            ? make_direct_frame(state(), direct_before_model, before_history_model)
             : std::optional<Neo::History::RestoreState::DirectFrame>{};
 
         bool mutated = false;
@@ -2801,8 +2759,8 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
             const auto direct_after_model = model_changes
                 ? std::make_shared<Model>(state().model) : direct_before_model;
-            const auto direct_frame = make_direct_filament_history_frame(direct_after_model,
-                                                                          after_history_model);
+            const auto direct_frame = make_direct_frame(state(), direct_after_model,
+                                                        after_history_model);
             const bool committed = [&]() {
                 if (!state().history.entries().empty())
                     return state().history.commit(label, Neo::History::Category::Project,
@@ -3023,10 +2981,10 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
         };
         const bool needs_predecessor_direct = state().history.entries().empty() ||
             !state().history.current().direct_frame.has_value();
-        std::shared_ptr<const Model> direct_before_model = current_direct_filament_history_model();
+        std::shared_ptr<const Model> direct_before_model = current_direct_frame_model(state());
         if (!direct_before_model) direct_before_model = std::make_shared<Model>(state().model);
         const auto predecessor_direct = needs_predecessor_direct
-            ? make_direct_filament_history_frame(direct_before_model, before_history_model)
+            ? make_direct_frame(state(), direct_before_model, before_history_model)
             : std::optional<Neo::History::RestoreState::DirectFrame>{};
         try {
             state().model = std::move(staged_model);
@@ -3041,8 +2999,8 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             if (request.value("inject_failure_stage", "") == "during-history")
                 throw std::runtime_error("injected history commit failure");
             const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
-            const auto direct_frame = make_direct_filament_history_frame(
-                std::make_shared<Model>(state().model), after_history_model);
+            const auto direct_frame = make_direct_frame(
+                state(), std::make_shared<Model>(state().model), after_history_model);
             const bool committed = [&]() {
                 if (!state().history.entries().empty())
                     return state().history.commit(label, Neo::History::Category::Project,
@@ -3744,160 +3702,8 @@ static void restore_history_plate_session(const json& session, const Model& rest
         state().plate_input_revisions[plate_id] = revision.get<std::uint64_t>();
 }
 
-static std::size_t direct_filament_frame_bytes(const DirectFilamentHistoryFrame& frame,
-                                               const Neo::History::ModelState& model_state)
-{
-    // The history core cannot inspect the opaque frame, so the bridge gives it
-    // one conservative retained-allocation charge.  ModelState is already the
-    // authoritative archive budget proxy; charging its payload again here
-    // prevents this direct-copy acceleration from becoming an unbudgeted cache.
-    std::size_t bytes = sizeof(DirectFilamentHistoryFrame);
-    const auto add_string = [&bytes](const std::string& value) {
-        bytes += value.capacity() + 1;
-    };
-    for (const auto& value : frame.filament_presets) add_string(value);
-    for (const auto& row : frame.ams_multi_colour_filment)
-        for (const auto& value : row) add_string(value);
-    const std::string edited = frame.edited_filament
-        ? config_metadata_json(frame.edited_filament->config).dump() : std::string{};
-    const std::string project = config_metadata_json(frame.project_config).dump();
-    bytes += edited.capacity() + project.capacity() + frame.overlay.dump().capacity();
-    for (const auto& plate : frame.plates) {
-        bytes += sizeof(BridgeState::PlateSessionPlate) + plate.id.capacity() + plate.name.capacity() + 2;
-        bytes += plate.settings_metadata.dump().capacity() + plate.opaque_metadata.dump().capacity() +
-            plate.future_metadata.dump().capacity();
-    }
-    for (const auto& object : model_state.mutable_objects) bytes += object.data.capacity();
-    for (const auto& mesh : model_state.immutable_meshes) {
-        bytes += mesh.key.capacity() + 1;
-        if (mesh.resident) bytes += mesh.resident->capacity();
-        if (mesh.deferred) bytes += mesh.deferred->capacity();
-    }
-    return bytes;
-}
-
-static std::optional<Neo::History::RestoreState::DirectFrame>
-make_direct_filament_history_frame(std::shared_ptr<const Model> model,
-                                   const Neo::History::ModelState& model_state)
-{
-    if (!model) return std::nullopt;
-    auto frame = std::make_shared<DirectFilamentHistoryFrame>();
-    frame->filament_presets = state().presets.filament_presets;
-    frame->edited_filament.emplace(state().presets.filaments.get_edited_preset());
-    frame->project_config = state().presets.project_config;
-    frame->ams_multi_colour_filment = state().presets.ams_multi_color_filment;
-    frame->model = std::move(model);
-    frame->plates = state().plate_session_plates;
-    frame->overlay = state().project_config_overlay;
-    frame->plate_input_revisions = state().plate_input_revisions;
-    frame->instance_plate_ids = state().instance_plate_ids;
-    frame->plate_out_of_bounds_ids = state().plate_out_of_bounds_ids;
-    frame->parked_instance_ids = state().parked_instance_ids;
-    frame->pending_membership_instance_ids = state().pending_membership_instance_ids;
-    frame->current_plate_id = state().current_plate_id;
-    frame->next_filament_colour_index = state().next_filament_colour_index;
-    const std::size_t bytes = direct_filament_frame_bytes(*frame, model_state);
-    return Neo::History::RestoreState::DirectFrame{
-        std::static_pointer_cast<const void>(std::move(frame)), bytes};
-}
-
-static std::shared_ptr<const Model> current_direct_filament_history_model()
-{
-    const auto& current = state().history.current();
-    if (!current.direct_frame || !current.direct_frame->payload) return {};
-    const auto frame = std::static_pointer_cast<const DirectFilamentHistoryFrame>(
-        current.direct_frame->payload);
-    return frame ? frame->model : std::shared_ptr<const Model>{};
-}
-
-static void apply_project_filament_sidecar_state(PresetBundle& bundle, const json& encoded)
-{
-    if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
-        !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
-        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
-        !encoded.contains("project_config") || !encoded["project_config"].is_object())
-        throw std::runtime_error("invalid project filament sidecar state");
-
-    std::vector<std::string> names;
-    names.reserve(encoded["filament_presets"].size());
-    for (const auto& value : encoded["filament_presets"]) {
-        if (!value.is_string() || value.get<std::string>().empty())
-            throw std::runtime_error("invalid history filament preset name");
-        const std::string name = value.get<std::string>();
-        const Preset* preset = bundle.filaments.find_preset(name, false, true);
-        if (preset == nullptr) throw std::runtime_error("history filament preset is unavailable");
-        names.push_back(name);
-    }
-    bundle.set_num_filaments(static_cast<unsigned int>(names.size()));
-    bundle.filament_presets = names;
-    for (size_t index = 0; index < names.size(); ++index)
-        bundle.set_filament_preset(index, names[index]);
-    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-    for (auto it = encoded["project_config"].begin(); it != encoded["project_config"].end(); ++it) {
-        if (!it.value().is_string()) throw std::runtime_error("invalid history project config value");
-        try { bundle.project_config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions); }
-        catch (const std::exception& e) { throw std::runtime_error(std::string("invalid history project config: ") + e.what()); }
-    }
-}
-
-// History must retain and restore only project-mutable filament data.  The
-// profile catalogue (printer/process/filament collections and compatibility
-// caches) is immutable for a project session and remains owned by the live
-// PresetBundle; copying it in an undo/redo path is both expensive and wrong.
-struct StagedFilamentHistoryMutableState {
-    std::vector<std::string> names;
-    DynamicPrintConfig project_config;
-    std::vector<std::vector<std::string>> ams_multi_colour_filment;
-    Preset edited_filament;
-};
-
-static StagedFilamentHistoryMutableState stage_filament_history_mutable_state(
-    const PresetBundle& catalog, const json& encoded)
-{
-    if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
-        !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
-        encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
-        !encoded.contains("project_config") || !encoded["project_config"].is_object())
-        throw std::runtime_error("invalid history filament state");
-    StagedFilamentHistoryMutableState staged {
-        {}, catalog.project_config,
-        catalog.ams_multi_color_filment, catalog.filaments.get_edited_preset() };
-    staged.names.reserve(encoded["filament_presets"].size());
-    for (const auto& value : encoded["filament_presets"]) {
-        if (!value.is_string() || value.get<std::string>().empty())
-            throw std::runtime_error("invalid history filament preset name");
-        const auto name = value.get<std::string>();
-        if (catalog.filaments.find_preset(name, false) == nullptr)
-            throw std::runtime_error("history filament preset is unavailable");
-        staged.names.push_back(name);
-    }
-    apply_overlay_to_config(staged.project_config, encoded["project_config"]);
-    if (const auto edited = encoded.find("edited_filament_config"); edited != encoded.end()) {
-        if (!edited->is_object()) throw std::runtime_error("invalid history edited filament config");
-        apply_overlay_to_config(staged.edited_filament.config, *edited);
-    }
-    if (const auto ams = encoded.find("ams_multi_colour_filment"); ams != encoded.end()) {
-        if (!ams->is_array()) throw std::runtime_error("invalid history AMS colours");
-        staged.ams_multi_colour_filment = ams->get<std::vector<std::vector<std::string>>>();
-    }
-    return staged;
-}
-
-static void apply_filament_history_mutable_state(PresetBundle& bundle,
-                                                  StagedFilamentHistoryMutableState&& staged)
-{
-    bundle.set_num_filaments(static_cast<unsigned int>(staged.names.size()));
-    bundle.filament_presets = std::move(staged.names);
-    for (size_t index = 0; index < bundle.filament_presets.size(); ++index)
-        bundle.set_filament_preset(index, bundle.filament_presets[index]);
-    bundle.project_config = std::move(staged.project_config);
-    bundle.ams_multi_color_filment = std::move(staged.ams_multi_colour_filment);
-    bundle.filaments.get_edited_preset() = std::move(staged.edited_filament);
-    ++state().history_minimal_mutable_restore_count;
-}
-
 static void validate_filament_history_mutable_state(PresetBundle& catalog,
-                                                     const StagedFilamentHistoryMutableState& staged,
+                                                     const StagedMutableState& staged,
                                                      Model& model,
                                                      const std::vector<BridgeState::PlateSessionPlate>& plates,
                                                      const json& overlay)
@@ -3959,7 +3765,7 @@ static void restore_history_transaction_state(const json& context,
 {
     if (!context.contains("filamentState"))
         throw std::runtime_error("history transaction is missing filament state");
-    auto staged_filament_state = stage_filament_history_mutable_state(state().presets, context["filamentState"]);
+    auto staged_filament_state = stage_mutable(state().presets, context["filamentState"]);
     auto staged_model = Neo::History::Codec::model_state_equal(
         Neo::History::Codec::capture_model_state(state().model), model)
         ? Model(state().model) : Neo::History::Codec::stage_model(state().model, {model, {}, {}});
@@ -3968,12 +3774,12 @@ static void restore_history_transaction_state(const json& context,
         staged_plates = build_history_plate_session(context["plateSession"], staged_model);
     validate_filament_history_mutable_state(state().presets, staged_filament_state, staged_model, staged_plates,
                                             context.value("projectConfigOverlay", empty_project_config_overlay()));
-    auto before_filament_state = stage_filament_history_mutable_state(
-        state().presets, filament_history_state_json(state().presets));
+    auto before_filament_state = stage_mutable(
+        state().presets, history_state_json(state().presets));
     const auto before_model = state().model;
     const auto before_plates = state().plate_session_plates;
     const auto before_overlay = state().project_config_overlay;
-    apply_filament_history_mutable_state(state().presets, std::move(staged_filament_state));
+    apply_mutable(state(), state().presets, std::move(staged_filament_state));
     state().model = std::move(staged_model);
     try {
         if (context.contains("plateSession"))
@@ -3981,7 +3787,7 @@ static void restore_history_transaction_state(const json& context,
         if (valid_project_config_overlay(context["projectConfigOverlay"]))
             state().project_config_overlay = context["projectConfigOverlay"];
     } catch (...) {
-        apply_filament_history_mutable_state(state().presets, std::move(before_filament_state));
+        apply_mutable(state(), state().presets, std::move(before_filament_state));
         state().model = before_model;
         state().plate_session_plates = before_plates;
         state().project_config_overlay = before_overlay;
@@ -4127,10 +3933,10 @@ static json history_restore_result(const Neo::History::RestorePlan& plan)
     // never clone PresetBundle's printer/process/filament collections on a
     // history path.
     const bool filament_state_changed =
-        filament_history_state_json(state().presets) != validated_context["filamentState"];
-    std::optional<StagedFilamentHistoryMutableState> staged_filament_state;
+        history_state_json(state().presets) != validated_context["filamentState"];
+    std::optional<StagedMutableState> staged_filament_state;
     if (filament_state_changed) {
-        staged_filament_state.emplace(stage_filament_history_mutable_state(
+        staged_filament_state.emplace(stage_mutable(
             state().presets, validated_context["filamentState"]));
     }
     auto staged_plates = state().plate_session_plates;
@@ -4147,10 +3953,10 @@ static json history_restore_result(const Neo::History::RestorePlan& plan)
     // atomic even if another writer is introduced later.
     if (!state().history.can_commit_restore(plan))
         throw std::runtime_error("history restore became stale");
-    std::optional<StagedFilamentHistoryMutableState> before_filament_state;
+    std::optional<StagedMutableState> before_filament_state;
     if (filament_state_changed)
-        before_filament_state.emplace(stage_filament_history_mutable_state(
-            state().presets, filament_history_state_json(state().presets)));
+        before_filament_state.emplace(stage_mutable(
+            state().presets, history_state_json(state().presets)));
     Model before_model = state().model;
     const auto before_plates = state().plate_session_plates;
     const auto before_overlay = state().project_config_overlay;
@@ -4161,7 +3967,7 @@ static json history_restore_result(const Neo::History::RestorePlan& plan)
     const auto before_pending = state().pending_membership_instance_ids;
     const auto before_current_plate = state().current_plate_id;
     if (staged_filament_state)
-        apply_filament_history_mutable_state(state().presets, std::move(*staged_filament_state));
+        apply_mutable(state(), state().presets, std::move(*staged_filament_state));
     state().model = std::move(staged_model);
     try {
         if (validated_context.contains("plateSession"))
@@ -4172,7 +3978,7 @@ static json history_restore_result(const Neo::History::RestorePlan& plan)
             throw std::runtime_error("history restore became stale");
     } catch (...) {
         if (before_filament_state)
-            apply_filament_history_mutable_state(state().presets, std::move(*before_filament_state));
+            apply_mutable(state(), state().presets, std::move(*before_filament_state));
         state().model = std::move(before_model);
         state().plate_session_plates = before_plates;
         state().project_config_overlay = before_overlay;
@@ -5459,7 +5265,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             if (filament_state_metadata) {
                 requested_filament_slots = filament_state_metadata->value(
                     "filament_presets", std::vector<std::string>{});
-                apply_project_filament_sidecar_state(candidate, *filament_state_metadata);
+                apply_project_sidecar(candidate, *filament_state_metadata);
                 filament_sidecar_applied = true;
                 validate_filament_candidate(candidate, imported, {},
                                             overlay_metadata.value_or(empty_project_config_overlay()),
@@ -5477,7 +5283,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             // apply the same request-before-compatibility ordering here.
             if (!filament_sidecar_applied) {
                 requested_filament_slots = filament_state_metadata->value("filament_presets", std::vector<std::string>{});
-                apply_project_filament_sidecar_state(candidate, *filament_state_metadata);
+                apply_project_sidecar(candidate, *filament_state_metadata);
                 filament_sidecar_applied = true;
                 validate_filament_candidate(candidate, imported, {},
                                             overlay_metadata.value_or(empty_project_config_overlay()),
@@ -5552,7 +5358,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 token, std::vector<unsigned char>(reinterpret_cast<const unsigned char*>(data),
                                                   reinterpret_cast<const unsigned char*>(data) + len), project_name,
                 state().history_revision, state().history.cursor(),
-                filament_history_state_json(state().presets).dump(),
+                history_state_json(state().presets).dump(),
                 model_structure_json().dump(), state().project_config_overlay.dump()};
             json out{
                 {"ok", true}, {"preflight", true}, {"preflight_token", token},
@@ -5795,7 +5601,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_commit_project_preflight(const char* token)
         const auto pending = *state().pending_project_restore;
         if (pending.base_history_revision != state().history_revision ||
             pending.base_history_cursor != state().history.cursor() ||
-            pending.base_filament_state != filament_history_state_json(state().presets).dump() ||
+            pending.base_filament_state != history_state_json(state().presets).dump() ||
             pending.base_model_state != model_structure_json().dump() ||
             pending.base_overlay != state().project_config_overlay.dump()) {
             state().pending_project_restore.reset();
@@ -5930,7 +5736,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_project() {
         if (!append_archive_entry(path, kNeoConfigOverlayEntry, overlay))
             throw Slic3r::RuntimeError("Neo configuration overlay metadata append failed");
         const json filament_state = json{{"schema", kNeoFilamentStateSchema}, {"version", 1},
-                                         {"state", filament_history_state_json(state().presets)}};
+                                         {"state", history_state_json(state().presets)}};
         if (!append_archive_entry(path, kNeoFilamentStateEntry, filament_state.dump()))
             throw Slic3r::RuntimeError("Neo filament state metadata append failed");
 

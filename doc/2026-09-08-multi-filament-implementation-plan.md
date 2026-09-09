@@ -1044,3 +1044,21 @@ contract, typed client path, compatibility logic, or pinned submodule content
 changed. This record covers only the metadata/context/status extraction;
 subsequent bridge modularization stages remain planned and are not marked
 complete.
+
+### 4.3 Multi-filament state/snapshot/sidecar narrow step (2026-09-10)
+
+This independently testable bridge-maintenance step extracts the cohesive
+multi-filament state boundary into
+`packages/slicer-wasm/src/bridge_filament_state.{hpp,cpp}`. The module owns
+field-level filament history serialization, direct-frame capture and retained
+resource accounting, project filament sidecar decoding, and staged mutable
+filament capture/apply. It receives explicit `BridgeState&`/preset arguments
+and never copies the complete `BridgeState` or `PresetBundle` catalogue.
+Filament command transactions, history cursor fencing, restore coordination,
+and all extern-C wrappers remain in `bridge.cpp`.
+
+The CMake source list explicitly includes the module. This step preserves the
+ABI, JSON/error schema, typed client contract, compatibility rules, and the
+pinned dirty submodule; no legacy single-filament fields or compatibility
+paths are introduced. Rack/session projection and later plate/profile helper
+decomposition remain planned follow-up work and are not marked complete here.
