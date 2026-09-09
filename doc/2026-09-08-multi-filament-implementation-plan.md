@@ -1060,5 +1060,24 @@ and all extern-C wrappers remain in `bridge.cpp`.
 The CMake source list explicitly includes the module. This step preserves the
 ABI, JSON/error schema, typed client contract, compatibility rules, and the
 pinned dirty submodule; no legacy single-filament fields or compatibility
-paths are introduced. Rack/session projection and later plate/profile helper
+paths are introduced. Rack/session projection and later plate/model helper
 decomposition remain planned follow-up work and are not marked complete here.
+
+### 4.4 Profile/config projection narrow step (2026-09-10)
+
+This independently testable bridge-maintenance step extracts the native
+profile/config domain into `packages/slicer-wasm/src/bridge_profiles.{hpp,cpp}`.
+The module owns AppConfig staging/serialization, native profile visibility and
+initial selection, Printer/Process compatibility selection, atomic preset
+snapshot projection (including `filament_catalog` and printable-area data),
+and option metadata projection. The three existing profile C exports remain
+unchanged in ABI, JSON, and error behavior; `orc_init` keeps its existing
+Worker-owned reset/history/session sequence and delegates only profile loading
+to the module.
+
+The CMake source list explicitly includes the module. The module does not add
+single-filament selectors, selected flags, preferences, project state, or
+compatibility shims, and does not copy `BridgeState` or `PresetBundle`; the
+existing project-import staging boundary remains in `bridge.cpp`. This step
+preserves rack/session revalidation and revision behavior; later plate/model
+helper decomposition remains planned follow-up work.

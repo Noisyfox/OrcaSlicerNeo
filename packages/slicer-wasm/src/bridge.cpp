@@ -52,6 +52,7 @@
 #include "bridge_filament_state.hpp"
 #include "bridge_history_codec.hpp"
 #include "bridge_history_metadata.hpp"
+#include "bridge_profiles.hpp"
 #include "bridge_state.hpp"
 #include "history/ProjectHistory.hpp"
 // Drift at the pinned SHA: GCodeProcessor.hpp lives under GCode/; the brief's
@@ -112,6 +113,7 @@ using Neo::Bridge::HistoryMetadata::history_entry_id;
 using Neo::Bridge::HistoryMetadata::parse_history_context;
 using Neo::Bridge::HistoryMetadata::parse_history_entry_id;
 using Neo::Bridge::HistoryMetadata::parse_history_jump_direction;
+using Neo::Bridge::Profiles::preset_snapshot_json;
 
 std::atomic<std::uint64_t> g_plate_session_sequence{0};
 std::atomic<std::uint64_t> g_plate_id_sequence{0};
@@ -1281,260 +1283,6 @@ const char* error_json_from_exception(const std::exception& e) {
         if (!joined.empty()) return error_json(joined);
     }
     return error_json(e.what());
-}
-
-std::string option_type_name(const ConfigOptionDef& def) {
-    switch (def.type) {
-        case coFloat:            return "float";
-        case coInt:              return "int";
-        case coString:           return "string";
-        case coBool:             return "bool";
-        case coPercent:          return "percent";
-        case coFloats:           return "floats";
-        case coInts:             return "ints";
-        case coStrings:          return "strings";
-        case coBools:            return "bools";
-        case coEnum:             return "enum";
-        case coFloatOrPercent:   return "float_or_percent";
-        case coPercents:         return "percents";
-        case coPoint:            return "point";
-        case coPoints:           return "points";
-        case coPoint3:           return "point3";
-        // Drift at the pinned SHA: ConfigOptionType has no coVec3d (the enum
-        // ends at coPointsGroups/coIntsGroups, Config.hpp:166-203), so the
-        // planned coVec3d case is dropped; such types hit default: "unknown".
-        default:                 return "unknown";
-    }
-}
-
-json option_def_to_json(const ConfigOptionDef& def) {
-    json j;
-    j["type"] = option_type_name(def);
-    if (!def.label.empty()) j["label"] = def.label;
-    if (!def.full_label.empty()) j["full_label"] = def.full_label;
-    if (!def.tooltip.empty()) j["tooltip"] = def.tooltip;
-    if (!def.category.empty()) j["category"] = def.category;
-    j["mode"] = int(def.mode);
-    if (!def.enum_values.empty()) j["enum_values"] = def.enum_values;
-    if (!def.enum_labels.empty()) j["enum_labels"] = def.enum_labels;
-    if (def.min != 0.0 || def.max != 0.0) {
-        j["min"] = def.min;
-        j["max"] = def.max;
-    }
-    if (def.default_value) j["default"] = def.default_value->serialize();
-    return j;
-}
-
-// Internal profile visibility bootstrap; preferences remain host-owned.
-// The app config JSON (the fork's USE_JSON_CONFIG schema) is the single
-// source of truth for installed printers + selections; the renderer owns
-// it and persists it (see doc/2026-08-15-m4-preset-management-design.md).
-// AppConfig::load() is file-based (loading_path()), so the bridge
-// populates the live instance through the public setters instead —
-// set_variant (models), set/set_section (presets/filaments). The loader's
-// JSON keys: "models" (vendor/model/nozzle_diameter objects),
-// "presets" (machine/process/filament + multi-material filament_*),
-// "filaments" (array of installed filament names).
-
-// Returns true when the JSON carried a "models" section (installed-state
-// is authoritative); false means "fresh config" → install everything.
-bool apply_app_config(const json& j) {
-    AppConfig& cfg = state().profile_config;
-    bool has_models = false;
-    for (auto it = j.begin(); it != j.end(); ++it) {
-        if (it.key() == "models" && it.value().is_array()) {
-            has_models = true;
-            for (const auto& j_model : it.value()) {
-                if (!j_model.is_object()) continue;
-                std::string vendor, model;
-                if (j_model.contains("vendor") && j_model["vendor"].is_string())
-                    vendor = j_model["vendor"].get<std::string>();
-                if (j_model.contains("model") && j_model["model"].is_string())
-                    model = j_model["model"].get<std::string>();
-                std::vector<std::string> variants;
-                if (vendor.empty() || model.empty() ||
-                    !j_model.contains("nozzle_diameter"))
-                    continue;
-                // The fork's on-disk form is an escaped string
-                // (escape_strings_cstyle, see serialize_app_config); accept
-                // a plain array too (hand-written configs, probe fixtures).
-                if (j_model["nozzle_diameter"].is_array()) {
-                    for (const auto& v : j_model["nozzle_diameter"])
-                        if (v.is_string())
-                            variants.push_back(v.get<std::string>());
-                } else if (j_model["nozzle_diameter"].is_string()) {
-                    if (!unescape_strings_cstyle(
-                            j_model["nozzle_diameter"].get<std::string>(), variants))
-                        continue;
-                } else {
-                    continue;
-                }
-                if (variants.empty()) continue;
-                for (const auto& v : variants)
-                    cfg.set_variant(vendor, model, v, true);
-            }
-        } else if (it.key() == "presets" && it.value().is_object()) {
-            for (auto pk = it.value().begin(); pk != it.value().end(); ++pk)
-                if (pk.value().is_string())
-                    cfg.set("presets", pk.key(), pk.value().get<std::string>());
-        } else if (it.key() == "filaments" && it.value().is_array()) {
-            std::map<std::string, std::string> installed;
-            for (const auto& el : it.value())
-                if (el.is_string()) installed[el.get<std::string>()] = "true";
-            cfg.set_section("filaments", installed);
-        }
-    }
-    return has_models;
-}
-
-// The shared application installs every shipped profile package before calling
-// orc_init(). Preserve that delivery decision in the native visibility gate:
-// the legacy AppConfig fields are an implementation detail here, not a second
-// record of which profiles the user installed.
-void install_all_filaments() {
-    AppConfig& cfg = state().profile_config;
-    for (const Preset& p : state().presets.filaments) {
-        if (p.is_system)
-            cfg.set(AppConfig::SECTION_FILAMENTS, p.name, "true");
-    }
-}
-
-// Fresh-config default: install every printer and filament the bundle ships.
-// The vendor/model/variant triple only exists in the preset configs, so this
-// runs after load_presets (chicken-and-egg with set_visible_from_appconfig
-// otherwise). Visibility is then recomputed through the native AppConfig
-// path; compatibility, including OrcaFilamentLibrary generic supersession,
-// remains wholly owned by PresetBundle.
-void install_all_printers() {
-    AppConfig& cfg = state().profile_config;
-    for (const Preset& p : state().presets.printers) {  // begin()/end(): skips generated defaults
-        if (p.vendor == nullptr) continue;
-        const std::string model   = p.config.opt_string("printer_model");
-        const std::string variant = p.config.opt_string("printer_variant");
-        if (model.empty() || variant.empty()) continue;
-        cfg.set_variant(p.vendor->id, model, variant, true);
-    }
-    install_all_filaments();
-    // load_selections is the public entry that recomputes visibility and
-    // compatibility from the now-complete package-derived installed state.
-    // With no saved selection, reselect_after_app_config establishes the
-    // baseline selection next.
-    state().presets.load_selections(cfg);
-}
-
-// Re-apply the selection after installed-state changed: presets.machine
-// wins; on a fresh config (no name yet) keep the round-5 baseline — first
-// non-default preset — but now over an all-visible collection. The
-// load_selections tail (update_compatible + multi-material) then fixes
-// print/filament for the active machine.
-void reselect_after_app_config() {
-    const std::string initial = state().profile_config.get("presets", PRESET_PRINTER_NAME);
-    bool selected = !initial.empty() &&
-                    state().presets.printers.select_preset_by_name(initial, true);
-    if (!selected) {
-        size_t sel_idx = 0;
-        for (auto it = state().presets.printers.lbegin();
-             it != state().presets.printers.end(); ++it, ++sel_idx) {
-            if (it->is_default) continue;
-            state().presets.printers.select_preset(sel_idx);
-            break;
-        }
-    }
-    state().presets.update_compatible(PresetSelectCompatibleType::Always);
-    state().presets.update_multi_material_filament_presets();
-}
-
-// Rebuild the app config JSON the renderer persists — same schema and code
-// paths as AppConfig::save() (models from the public vendors() map,
-// filaments as an array, presets key/values).
-json serialize_app_config() {
-    const AppConfig& cfg = state().profile_config;
-    json j = json::object();
-    if (cfg.has_section("presets"))
-        for (const auto& kvp : cfg.get_section("presets"))
-            j["presets"][kvp.first] = kvp.second;
-    if (cfg.has_section("filaments")) {
-        json arr = json::array();
-        for (const auto& kvp : cfg.get_section("filaments"))
-            arr.push_back(kvp.first);
-        j["filaments"] = std::move(arr);
-    }
-    for (const auto& vendor : cfg.vendors()) {
-        for (const auto& model : vendor.second) {
-            if (model.second.empty()) continue;
-            const std::vector<std::string> variants(model.second.begin(), model.second.end());
-            j["models"].push_back(json{
-                {"vendor", vendor.first},
-                {"model", model.first},
-                {"nozzle_diameter", escape_strings_cstyle(variants)},
-            });
-        }
-    }
-    return j;
-}
-
-// Build the one coherent preset view consumed by the picker UI.  The
-// compatibility state belongs to PresetBundle: the bridge deliberately does
-// not interpret compatible_printers / compatible_prints itself because that
-// would duplicate the upstream condition, inheritance, library-exclusion and
-// parent-preset rules.
-json preset_entry_json(const Preset& preset, const PresetCollection& collection,
-                       bool include_selection = true) {
-    json entry{{"name", preset.name},
-               {"is_visible", preset.is_visible},
-               {"is_default", preset.is_default}};
-    if (include_selection)
-        entry["selected"] = preset.name == collection.get_selected_preset_name();
-    entry["vendor_id"] = preset.vendor ? preset.vendor->id : "";
-    entry["model"]     = preset.config.opt_string("printer_model");
-    entry["variant"]   = preset.config.opt_string("printer_variant");
-    return entry;
-}
-
-json preset_candidates_json(const PresetCollection& collection, bool require_compatible,
-                            bool include_selection = true) {
-    json candidates = json::array();
-    // begin()/end() intentionally omit generated "- default -" presets.
-    // Keep the collection order: it is the engine's candidate ordering and
-    // must not be re-sorted by an application-layer policy.
-    for (auto it = collection.begin(); it != collection.end(); ++it) {
-        if (!it->is_visible || (require_compatible && !it->is_compatible))
-            continue;
-        candidates.push_back(preset_entry_json(*it, collection, include_selection));
-    }
-    return candidates;
-}
-
-json preset_selection_json(const PresetCollection& collection) {
-    return json{{"name", collection.get_selected_preset_name()},
-                {"idx", collection.get_selected_idx()}};
-}
-
-json selected_printer_printable_area_json() {
-    json points = json::array();
-    const Preset& printer = state().presets.printers.get_selected_preset();
-    const ConfigOptionPoints* area = printer.config.opt<ConfigOptionPoints>("printable_area");
-    if (area == nullptr || area->values.size() < 3)
-        return points;
-    for (const Vec2d& point : area->values) {
-        if (!std::isfinite(point.x()) || !std::isfinite(point.y()))
-            return json::array();
-        points.push_back({point.x(), point.y()});
-    }
-    return points;
-}
-
-// This is emitted only after the caller has completed any native compatibility
-// recalculation and fallback. It is intentionally the only picker-state read:
-// callers must not compose a UI state from separate collection reads.
-json preset_snapshot_json() {
-    return json{{"ok", true},
-                {"printers", preset_candidates_json(state().presets.printers, false)},
-                {"prints", preset_candidates_json(state().presets.prints, true)},
-                {"filament_catalog", preset_candidates_json(state().presets.filaments, true, false)},
-                {"printer", preset_selection_json(state().presets.printers)},
-                {"print", preset_selection_json(state().presets.prints)},
-                {"printable_area", selected_printer_printable_area_json()}};
 }
 
 // Step 1 filament-session projection.  This is deliberately a read-only
@@ -3331,39 +3079,6 @@ json filament_delete_or_merge_command(const json& request, const bool merge)
     });
 }
 
-// Shared initialization body. The incoming JSON is ignored legacy input.
-// the renderer's whole config — REPLACE the previous state, never merge:
-// a stale presets.machine from an earlier init could point at a printer that
-// is invisible under the new models section, and install_all_printers'
-// accumulated models would defeat a later partial install. (M4 probe:
-// section 4 crashed on this — the second init inherited section 3's
-// selection + the fresh-default's full vendor map.)
-void reset_app_config() {
-    AppConfig& cfg = state().profile_config;
-    cfg.set_vendors({});            // installed-state (m_vendors)
-    cfg.clear_section("presets");   // selections
-    cfg.clear_section("filaments"); // installed filaments
-}
-const char* init_with_app_config(const json& j) {
-    reset_app_config();
-    const bool has_models = apply_app_config(j);
-    set_data_dir("/");
-    // resources_dir() is never set by the bridge; pointing it at "/" makes
-    // the bundled /info/nozzle_info.json mountable and stops
-    // get_hrc_by_nozzle_type's benign parse-error path (M3 carry-forward).
-    set_resources_dir("/");
-    state().presets.setup_directories();
-    state().presets.load_presets(state().profile_config, ForwardCompatibilitySubstitutionRule::Enable);
-    if (!has_models) {
-        install_all_printers();
-        reselect_after_app_config();
-    }
-    return dup_json(json{{"ok", true},
-                         {"prints",    state().presets.prints.size()},
-                         {"filaments", state().presets.filaments.size()},
-                         {"printers",  state().presets.printers.size()}}.dump());
-}
-
 // ObjectID crosses the boundary as a JSON number. Wasm64 sizes are 64-bit, so
 // the client passes a JS Number (double); validate it is a positive integer
 // before narrowing to size_t. A valid ObjectID is strictly positive (ObjectID.hpp).
@@ -4033,7 +3748,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
             log_level = opts["log_level"].get<std::string>();
         wasm_log::init_with_level(log_level);
 
-        const char* result = init_with_app_config(json::object());
+        const char* result = Neo::Bridge::Profiles::init_with_app_config(json::object());
         reset_plate_session_state();
         state().project_config_overlay = empty_project_config_overlay();
         state().history.clear();
@@ -4839,86 +4554,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_revalidate_project_config_overlay() {
         return dup_json(project_config_overlay_result().dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }
-}
-
-// Read one atomic, picker-ready compatibility state. It contains only
-// candidates the current strict-hide UI may render: visible printers, then
-// visible-and-compatible FFF print and filament presets. Callers must replace
-// all three lists and selections from this single response.
-EMSCRIPTEN_KEEPALIVE const char* orc_get_preset_snapshot() {
-    try {
-        return dup_json(preset_snapshot_json().dump());
-    } catch (const std::exception& e) {
-        return error_json(e.what());
-    } catch (...) {
-        return error_json("unknown C++ exception");
-    }
-}
-
-// The selection guard deliberately lives here as well as in the UI: stale UI
-// state or another caller must not construct an invalid compatibility tuple.
-EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const char* name_cstr) {
-    try {
-        const std::string kind = kind_cstr ? kind_cstr : "";
-        const std::string name = name_cstr ? name_cstr : "";
-        if (name.empty()) return error_json("preset name required");
-        PresetCollection* coll = nullptr;
-        if (kind == "print")        coll = &state().presets.prints;
-        else if (kind == "printer") coll = &state().presets.printers;
-        else return error_json("kind must be print|printer");
-        Preset* requested = coll->find_preset(name);
-        if (requested == nullptr)
-            return error_json("preset not found: " + name);
-        if (!requested->is_visible)
-            return error_json("preset is not visible: " + name);
-        // A printer has no compatibility context. Process names must already
-        // be candidates for the current engine-resolved printer.
-        if (kind != "printer" && !requested->is_compatible)
-            return error_json("preset is incompatible: " + name);
-        if (!coll->select_preset_by_name(name, true))
-            return error_json("could not select preset: " + name);
-        if (kind == "printer") {
-            // OrcaSlicer's normal compatibility/fallback path.  Process is
-            // resolved first, then filament against that final process.
-            state().presets.update_compatible(PresetSelectCompatibleType::Always);
-            state().presets.update_multi_material_filament_presets();
-        } else if (kind == "print") {
-            // The request was just validated as a compatible print preset, so
-            // retain it while re-evaluating dependent filament compatibility.
-            // The second argument selects OrcaSlicer's native filament
-            // fallback when the newly active print makes it incompatible.
-            state().presets.update_compatible(PresetSelectCompatibleType::Never,
-                                               PresetSelectCompatibleType::Always);
-            state().presets.update_multi_material_filament_presets();
-        }
-        return dup_json(preset_snapshot_json().dump());
-    } catch (const std::exception& e) {
-        return error_json(e.what());
-    } catch (...) {
-        // Non-std throw (M4 probe caught one escaping a partial-install
-        // init): never let a C++ exception cross the extern "C" seam.
-        return error_json("unknown C++ exception");
-    }
-}
-
-EMSCRIPTEN_KEEPALIVE const char* orc_get_option_metadata() {
-    try {
-        // Drift at the pinned SHA: PrintConfigDef::defs() does not exist; the
-        // shared definition instance is the global const PrintConfigDef
-        // (PrintConfig.hpp:719), whose ConfigDef::options (Config.hpp:2589)
-        // is the option map.
-        const auto& defs = print_config_def.options;
-        json out = json::object();
-        for (const auto& [key, def] : defs)
-            out[key] = option_def_to_json(def);
-        return dup_json(out.dump());
-    } catch (const std::exception& e) {
-        return error_json(e.what());
-    } catch (...) {
-        // Non-std throw (M4 probe caught one escaping a partial-install
-        // init): never let a C++ exception cross the extern "C" seam.
-        return error_json("unknown C++ exception");
-    }
 }
 
 // Model bytes arrive in the WASM heap (JS: _malloc + HEAPU8 + _free).

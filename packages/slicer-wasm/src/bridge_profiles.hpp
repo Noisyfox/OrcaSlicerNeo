@@ -1,0 +1,26 @@
+// ----------------------------------------------------------------
+// Worker-owned profile/config projections for the Neo bridge.
+//
+// Native profile visibility, compatibility, selection, and option metadata
+// remain in this module so bridge.cpp only coordinates unrelated operations.
+// The exported C functions below keep the existing ABI and JSON contract.
+// ----------------------------------------------------------------
+#pragma once
+
+#include "bridge_state.hpp"
+#include "nlohmann/json.hpp"
+
+#include <string>
+
+namespace Slic3r::Neo::Bridge::Profiles {
+
+using json = nlohmann::json;
+
+const char* duplicate_json(const std::string& value);
+const char* error_json(const std::string& message);
+json preset_snapshot_json();
+json option_metadata_json();
+json serialize_app_config();
+const char* init_with_app_config(const json& config);
+
+} // namespace Slic3r::Neo::Bridge::Profiles
