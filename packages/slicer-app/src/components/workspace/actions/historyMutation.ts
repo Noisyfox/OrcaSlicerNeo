@@ -1,7 +1,6 @@
 import type {
   HistoryContext,
   HistoryStatus,
-  SlicerClient,
 } from '@slicer/client';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from '../objectList/useObjectListStore';
@@ -17,9 +16,8 @@ export type HistoryMutationResult<T> = {
   status: HistoryStatus | null;
 };
 
-type HistoryMutationRuntime = Partial<Pick<SlicerRuntime,
-  'runProjectHistoryTransaction' | 'getHistoryStatus' | 'getModelStructure' |
-  'getPlateSessionSnapshot'>>;
+type HistoryMutationRuntime = Pick<SlicerRuntime, 'runProjectHistoryTransaction'> &
+  Partial<Pick<SlicerRuntime, 'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot'>>;
 
 /** Build a JSON-safe context from the current stable-ID ObjectList projection. */
 export function historyContextForStructure(sceneInteraction?: SceneInteractionController | null): HistoryContext {
@@ -66,25 +64,16 @@ function projectContextOntoStructure(context: HistoryContext, structure: Awaited
 
 type MutationResponse = { ok?: boolean; error?: string };
 
-/**
- * Run one project mutation through the Worker-owned history transaction.
- * The compatibility path is only for old test doubles; production runtimes
- * implement the method through SlicerRuntime's required HistoryRuntimeMethods.
- */
+/** Run one project mutation through the Worker-owned history transaction. */
 export async function runProjectHistoryMutation<T extends MutationResponse>(
   runtime: HistoryMutationRuntime,
   label: string,
   mutation: () => Promise<T>,
   sceneInteraction?: SceneInteractionController | null,
 ): Promise<HistoryMutationResult<T>> {
-  const transaction = runtime.runProjectHistoryTransaction;
-  if (typeof transaction !== 'function') {
-    return { result: await mutation(), status: null };
-  }
   const before = historyContextForStructure(sceneInteraction);
   try {
-    const response = await transaction.call(
-      runtime as SlicerClient,
+    const response = await runtime.runProjectHistoryTransaction(
       label,
       'project',
       before,

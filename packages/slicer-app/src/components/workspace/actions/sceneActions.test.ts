@@ -14,10 +14,17 @@ import { addHandyModel, addModel, HANDY_MODELS } from './sceneActions';
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
   const addModel = vi.fn(async () => result);
+  const runProjectHistoryTransaction = vi.fn(async <T>(
+    _label: string,
+    _category: 'project' | 'context',
+    _before: unknown,
+    mutation: (transactionId: string) => Promise<T>,
+    _after: unknown | (() => unknown | Promise<unknown>),
+  ) => ({ result: await mutation('tx-1'), status: {} as never }));
   return {
     platform: {
       models: { pick: vi.fn(async () => ({ displayName: fileName, bytes: new Uint8Array([1]) })) },
-      runtime: { addModel },
+      runtime: { addModel, runProjectHistoryTransaction },
     } as unknown as PlatformCapabilities,
     addModel,
   };

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
+import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
@@ -13,14 +14,17 @@ const status: HistoryStatus = {
   disabled: false, activeTransactionId: null, revision: 2,
 };
 
+type TransactionMock = ReturnType<typeof vi.fn> & SlicerRuntime['runProjectHistoryTransaction'];
+
 function transactionRuntime() {
-  const runProjectHistoryTransaction = vi.fn(async <T>(
+  const implementation = async <T>(
     _label: string,
     _category: 'project' | 'context',
     before: HistoryContext,
     mutation: (id: string) => Promise<T>,
-    after: HistoryContext | (() => HistoryContext),
-  ) => ({ result: await mutation('tx-1'), status: { ...status, revision: 3, undoLabel: before.activePlateId ?? 'mutation' }, context: after }));
+    after: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
+  ): Promise<{ result: T; status: HistoryStatus }> => ({ result: await mutation('tx-1'), status: { ...status, revision: 3, undoLabel: before.activePlateId ?? 'mutation' } });
+  const runProjectHistoryTransaction = vi.fn(implementation) as unknown as TransactionMock;
   return { runProjectHistoryTransaction, getHistoryStatus: vi.fn(async () => status) };
 }
 
@@ -40,7 +44,7 @@ describe('structural history transaction boundary', () => {
   it('captures stable object and plate IDs and commits one project transaction', async () => {
     const runtime = transactionRuntime();
     const before = historyContextForStructure();
-    const response = await runProjectHistoryMutation(runtime as never, 'Delete Objects', async () => ({ ok: true, deleted: 1 }));
+    const response = await runProjectHistoryMutation(runtime, 'Delete Objects', async () => ({ ok: true, deleted: 1 }));
 
     expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledOnce();
     expect(runtime.runProjectHistoryTransaction.mock.calls[0][2]).toEqual(expect.objectContaining({
@@ -53,7 +57,7 @@ describe('structural history transaction boundary', () => {
 
   it('returns a failed result after the transaction aborts', async () => {
     const runtime = transactionRuntime();
-    const response = await runProjectHistoryMutation(runtime as never, 'Clear Scene', async () => ({ ok: false, error: 'rejected' }));
+    const response = await runProjectHistoryMutation(runtime, 'Clear Scene', async () => ({ ok: false, error: 'rejected' }));
     expect(response.result).toEqual({ ok: false, error: 'rejected' });
   });
 
@@ -64,7 +68,7 @@ describe('structural history transaction boundary', () => {
     };
     useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
 
-    const response = await runProjectHistoryMutation(runtime as never, 'Clear Scene', async () => ({ ok: true }));
+    const response = await runProjectHistoryMutation(runtime, 'Clear Scene', async () => ({ ok: true }));
 
     expect(response.result).toEqual({ ok: false, error: 'mutation failed' });
     expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [] });
@@ -73,28 +77,28 @@ describe('structural history transaction boundary', () => {
   it('filters deleted stable IDs and reads the authoritative active plate for after-context', async () => {
     const committed: { context?: HistoryContext } = {};
     const runtime = {
-      runProjectHistoryTransaction: async (
+      runProjectHistoryTransaction: async <T>(
         _label: string,
         _category: 'project',
         _before: HistoryContext,
-        mutation: (id: string) => Promise<{ ok: boolean }>,
+        mutation: (id: string) => Promise<T>,
         after: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
-      ) => {
+      ): Promise<{ result: T; status: HistoryStatus }> => {
         const result = await mutation('tx-1');
         committed.context = typeof after === 'function' ? await after() : after;
         return { result, status };
       },
       getModelStructure: async () => ({
-        ok: true,
+        ok: true as const,
         objects: [{
           id: 43, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
-          volumes: [{ id: 430, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+          volumes: [{ id: 430, index: 0, name: 'Part', type: 'model_part' as const, isSplittable: false }],
           instances: [{ id: 4300, index: 0, printable: true }],
         }],
       }),
       getPlateSessionSnapshot: async () => ({
-        ok: true, version: 2, currentPlateId: 'plate-b',
-        plates: [{ plateId: 'plate-b', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 2' }],
+        ok: true as const, version: 1 as const, currentPlateId: 'plate-b',
+        plates: [{ plateId: 'plate-b', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], name: 'Plate 2' }],
       }),
     };
     useObjectListStore.setState({
@@ -106,7 +110,7 @@ describe('structural history transaction boundary', () => {
       projection: { objectIds: new Set([42]), volumeIds: new Set([420]), instanceIds: new Set([4200]) },
     });
 
-    await runProjectHistoryMutation(runtime as never, 'Delete Objects', async () => ({ ok: true }));
+    await runProjectHistoryMutation(runtime, 'Delete Objects', async () => ({ ok: true }));
 
     expect(committed.context?.selection).toEqual({ mode: 'part', objectIds: [], partIds: [], instanceIds: [] });
     expect(committed.context?.activePlateId).toBe('plate-b');

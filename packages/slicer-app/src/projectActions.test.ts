@@ -47,6 +47,13 @@ function platformFor(load: Record<string, unknown> = {}) {
     getFilamentSessionSnapshot: vi.fn(async () => filamentSnapshot(0)),
     resetHistory: vi.fn(async () => null),
     cancel: vi.fn(async () => ({ ok: true })),
+    runProjectHistoryTransaction: vi.fn(async <T>(
+      _label: string,
+      _category: 'project' | 'context',
+      _before: unknown,
+      mutation: (transactionId: string) => Promise<T>,
+      _after: unknown | (() => unknown | Promise<unknown>),
+    ) => ({ result: await mutation('tx-1'), status: {} as never })),
   };
   const projects = {
     open: vi.fn(async () => ({ status: 'ok' as const, input })),

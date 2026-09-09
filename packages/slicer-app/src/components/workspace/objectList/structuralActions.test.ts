@@ -37,6 +37,13 @@ function makeRuntime(): SlicerRuntime {
     addInstance: vi.fn(async () => ({ ok: true, objectId: 1, instanceId: 22 })),
     removeInstance: vi.fn(async () => ({ ok: true })),
     getModelStructure: vi.fn(async () => structure),
+    runProjectHistoryTransaction: vi.fn(async <T>(
+      _label: string,
+      _category: 'project' | 'context',
+      _before: unknown,
+      mutation: (transactionId: string) => Promise<T>,
+      _after: unknown | (() => unknown | Promise<unknown>),
+    ) => ({ result: await mutation('tx-1'), status: {} as never })),
   } as unknown as SlicerRuntime;
 }
 
