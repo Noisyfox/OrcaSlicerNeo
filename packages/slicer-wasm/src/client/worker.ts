@@ -108,7 +108,12 @@ export function startWorker(
           throw new Error('malformed history jump request');
       }
       await beforeRequest?.(op, callArgs);
-      const result = await method(...callArgs);
+      // Preserve the client receiver for composed operations such as
+      // preflightProject(), which delegates to this.loadProject(). The
+      // dispatcher previously invoked a detached method and made `this`
+      // undefined in the worker even though the public client contract was
+      // otherwise valid.
+      const result = await method.apply(client, callArgs);
       if (op === 'beginHistory') {
         if (typeof result !== 'string' || result.length === 0) throw new Error('malformed history transaction id');
         activeTransactionIds.push(result);

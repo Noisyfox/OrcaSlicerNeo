@@ -89,6 +89,15 @@ describe('worker protocol', () => {
     expect(transfer).toBeDefined();
   });
 
+  it('preserves the client receiver for composed project preflight operations', async () => {
+    const { workerClient } = setup();
+    await workerClient.init();
+    const preflight = await workerClient.preflightProject(new Uint8Array([0x50, 0x4b]), 'clean.3mf');
+    expect(preflight.ok).toBe(true);
+    expect(preflight.preflightToken).toBe('mock-preflight');
+    expect(preflight.embeddedPresetWarnings?.requiresConfirmation).toBe(false);
+  });
+
   it('forwards geometry-only project load progress through the threaded mailbox', async () => {
     const module = createMockModule({ threaded: true });
     const channel = new Channel();

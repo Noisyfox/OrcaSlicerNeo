@@ -151,6 +151,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     presetEvidence: [],
     ...opts.embeddedPresetWarnings,
   };
+  // A project preflight describes whether replacing the current session needs
+  // user confirmation.  The default mock project is a plain synthetic archive
+  // and has no embedded safety warning; warning-focused tests opt in through
+  // embeddedPresetWarnings.  Keeping this derived value separate from the
+  // legacy direct-load fixture prevents the app E2E project picker from being
+  // blocked by a warning that the fixture does not contain.
+  const hasProjectPreflightWarning = Boolean(
+    projectWarningFixture.modifiedPrinterGcode ||
+    projectWarningFixture.modifiedFilamentGcode ||
+    projectWarningFixture.missingSystemPreset ||
+    projectWarningFixture.modifiedGcodeKeys.length > 0 ||
+    projectWarningFixture.missingSystemPresetTypes.length > 0 ||
+    projectWarningFixture.presetEvidence.length > 0,
+  );
 
   // The OrcaSlicer "Add Primitive" menu set (GUI_Factories.cpp
   // append_submenu_add_generic): the shapes the native bridge's orc_add_shape
@@ -1317,14 +1331,43 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), mode: 'project',
         display_name: displayName || '', compatibility: 'bambu', project_settings_available: true,
         is_bbl_3mf: true, is_orca_3mf: false, file_version: '1.0.0', multi_plate: false, plate_count: 1,
-        embedded_preset_warnings: { present: true, count: 1, printer_count: 1, process_count: 1, filament_count: 1,
-          modified_printer_gcode: false, modified_filament_gcode: false, missing_system_preset: false,
-          modified_gcode_keys: [], missing_system_preset_types: [], preset_evidence: [], requires_confirmation: true,
+        embedded_preset_warnings: { present: hasProjectPreflightWarning, count: hasProjectPreflightWarning ? 1 : 0,
+          printer_count: hasProjectPreflightWarning ? 1 : 0, process_count: hasProjectPreflightWarning ? 1 : 0,
+          filament_count: hasProjectPreflightWarning ? 1 : 0,
+          modified_printer_gcode: projectWarningFixture.modifiedPrinterGcode,
+          modified_filament_gcode: projectWarningFixture.modifiedFilamentGcode,
+          missing_system_preset: projectWarningFixture.missingSystemPreset,
+          modified_gcode_keys: projectWarningFixture.modifiedGcodeKeys,
+          missing_system_preset_types: projectWarningFixture.missingSystemPresetTypes,
+          preset_evidence: projectWarningFixture.presetEvidence,
+          requires_confirmation: hasProjectPreflightWarning,
           filament_slot_changes: [] },
       };
     },
     orc_commit_project_preflight(_token: string) {
-      return bridge.orc_load_project(0, 2, 0, 'preflight.3mf');
+      const committed = bridge.orc_load_project(0, 2, 0, 'preflight.3mf') as Record<string, unknown>;
+      // Keep the commit response consistent with the preflight response. The
+      // synthetic default project has no embedded warning; otherwise the
+      // shared app would finish a clean preflight by creating a second,
+      // spurious post-load notice.
+      if (!hasProjectPreflightWarning) {
+        committed.embedded_preset_warnings = {
+          present: false,
+          count: 0,
+          printer_count: 0,
+          process_count: 0,
+          filament_count: 0,
+          modified_printer_gcode: false,
+          modified_filament_gcode: false,
+          missing_system_preset: false,
+          modified_gcode_keys: [],
+          missing_system_preset_types: [],
+          preset_evidence: [],
+          requires_confirmation: false,
+          filament_slot_changes: [],
+        };
+      }
+      return committed;
     },
     orc_cancel_project_preflight(_token: string) { return { ok: true }; },
     orc_import_project_geometry(_ptr: number, len: number, displayName: string) {
