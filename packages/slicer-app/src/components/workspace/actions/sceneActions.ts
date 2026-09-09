@@ -13,7 +13,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { applyPlateSessionTransforms } from './syncModelTransforms';
-import { glVolumeCollection } from '../viewport/GLVolume';
+import { glVolumeCollection, waitForGLVolumeRevision } from '../viewport/GLVolume';
 import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 import { resetSceneState } from './resetSceneState';
@@ -39,6 +39,13 @@ async function commitAdded(
   // that commit before the additive import refreshes the collection.
   const synced = await waitForSettledModelTransforms();
   if (!synced.ok) throw new Error(synced.error ?? 'model synchronization failed');
+  // An additive mutation can be requested while the previous model revision
+  // is still loading. Serialize the mutation behind that mesh publication so
+  // concurrent Worker reads cannot publish an older collection after the
+  // native add has completed.
+  const currentSettings = useSettingsStore.getState();
+  if (currentSettings.modelLoaded && typeof platform.runtime.getModelMesh === 'function')
+    await waitForGLVolumeRevision(currentSettings.modelRevision);
   const history = await runProjectHistoryMutation(platform.runtime, `Add ${displayName}`, add, sceneInteraction);
   const r = history.result;
   if (!r.ok) throw new Error(r.error ?? 'add failed');
@@ -51,6 +58,13 @@ async function commitAdded(
   // paths must never cross the platform boundary.
   settings.setValue('modelPath', displayName);
   settings.setModelLoaded(true);
+  // Clear the previous selection before waiting for the replacement mesh. The
+  // loader/Scene effect also resets on publication, but doing it here avoids
+  // an async add completing after a caller has already started inspecting the
+  // newly published collection.
+  sceneInteraction?.resetForModel();
+  if (typeof platform.runtime.getModelMesh === 'function')
+    await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
   await refreshFilamentSession(platform.runtime);
   useProjectStore.getState().setProject({ hasContent: true });
   if (r.plateSession) {
@@ -61,7 +75,6 @@ async function commitAdded(
   }
   else useProjectStore.getState().markDirty('model-import');
   await syncHistoryStatus(platform.runtime);
-  sceneInteraction?.resetForModel();
   slicer.setError(null);
 }
 

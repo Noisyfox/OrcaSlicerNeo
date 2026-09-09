@@ -370,6 +370,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
           <div
             key={obj.id}
             data-testid={`object-${obj.id}`}
+            className="relative"
             draggable={!(renamingObject || renamingPartInObject)}
             onDragStart={(e) => {
               e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'object', id: obj.id }));
@@ -392,11 +393,10 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               if (row) handleRowContextMenu(e, row, { kind: 'object', object: obj });
             }}
           >
-            <div className="flex items-center gap-0.5">
             <Button
               variant="ghost"
               size="xs"
-              className={`flex-1 justify-start ${objectSelected ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
+              className={`w-full justify-start pr-20 ${objectSelected ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
               data-state={objectSelected ? 'selected' : 'idle'}
               onClick={(e) => {
                 const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
@@ -425,12 +425,13 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               ) : obj.name}
               {validity !== 'valid' && <ObjectValidityBadge validity={validity} objectId={obj.id} />}
             </Button>
-            <FilamentAssignmentCell
-              snapshot={filamentSnapshot}
-              kind="object"
-              id={obj.id}
-              onAssign={(slot) => assignRow('object', obj.id, slot)}
-            />
+            <div className="absolute right-0 top-0">
+              <FilamentAssignmentCell
+                snapshot={filamentSnapshot}
+                kind="object"
+                id={obj.id}
+                onAssign={(slot) => assignRow('object', obj.id, slot)}
+              />
             </div>
             {isExpanded && (
               <div className="ml-4">
