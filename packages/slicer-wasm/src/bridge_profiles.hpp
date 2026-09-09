@@ -20,7 +20,6 @@ const char* duplicate_json(const std::string& value);
 const char* error_json(const std::string& message);
 json preset_snapshot_json();
 json option_metadata_json();
-json serialize_app_config();
-const char* init_with_app_config(const json& config);
+const char* init_profiles();
 
 } // namespace Slic3r::Neo::Bridge::Profiles

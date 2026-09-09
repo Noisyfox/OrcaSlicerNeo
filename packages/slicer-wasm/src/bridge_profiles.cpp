@@ -7,9 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <map>
 #include <string>
-#include <vector>
 
 #include <emscripten/emscripten.h>
 
@@ -85,52 +83,6 @@ json option_def_to_json(const ConfigOptionDef& def)
 // The profile config is populated through public AppConfig setters because
 // AppConfig::load() requires a file-backed loading path. The renderer remains
 // the owner of this JSON and persists it through the existing client contract.
-bool apply_app_config(const json& config)
-{
-    AppConfig& app_config = state().profile_config;
-    bool has_models = false;
-    for (auto it = config.begin(); it != config.end(); ++it) {
-        if (it.key() == "models" && it.value().is_array()) {
-            has_models = true;
-            for (const auto& model : it.value()) {
-                if (!model.is_object()) continue;
-                std::string vendor, name;
-                if (model.contains("vendor") && model["vendor"].is_string())
-                    vendor = model["vendor"].get<std::string>();
-                if (model.contains("model") && model["model"].is_string())
-                    name = model["model"].get<std::string>();
-                std::vector<std::string> variants;
-                if (vendor.empty() || name.empty() || !model.contains("nozzle_diameter"))
-                    continue;
-                // Accept both the escaped on-disk representation and a plain
-                // array for hand-written configs and deterministic fixtures.
-                if (model["nozzle_diameter"].is_array()) {
-                    for (const auto& value : model["nozzle_diameter"])
-                        if (value.is_string()) variants.push_back(value.get<std::string>());
-                } else if (model["nozzle_diameter"].is_string()) {
-                    if (!unescape_strings_cstyle(model["nozzle_diameter"].get<std::string>(), variants))
-                        continue;
-                } else {
-                    continue;
-                }
-                if (variants.empty()) continue;
-                for (const auto& variant : variants)
-                    app_config.set_variant(vendor, name, variant, true);
-            }
-        } else if (it.key() == "presets" && it.value().is_object()) {
-            for (auto preset = it.value().begin(); preset != it.value().end(); ++preset)
-                if (preset.value().is_string())
-                    app_config.set("presets", preset.key(), preset.value().get<std::string>());
-        } else if (it.key() == "filaments" && it.value().is_array()) {
-            std::map<std::string, std::string> installed;
-            for (const auto& filament : it.value())
-                if (filament.is_string()) installed[filament.get<std::string>()] = "true";
-            app_config.set_section("filaments", installed);
-        }
-    }
-    return has_models;
-}
-
 void install_all_filaments()
 {
     AppConfig& app_config = state().profile_config;
@@ -254,42 +206,15 @@ json preset_snapshot_json()
                 {"printable_area", selected_printer_printable_area_json()}};
 }
 
-json serialize_app_config()
-{
-    const AppConfig& app_config = state().profile_config;
-    json result = json::object();
-    if (app_config.has_section("presets"))
-        for (const auto& pair : app_config.get_section("presets"))
-            result["presets"][pair.first] = pair.second;
-    if (app_config.has_section("filaments")) {
-        json filaments = json::array();
-        for (const auto& pair : app_config.get_section("filaments")) filaments.push_back(pair.first);
-        result["filaments"] = std::move(filaments);
-    }
-    for (const auto& vendor : app_config.vendors()) {
-        for (const auto& model : vendor.second) {
-            if (model.second.empty()) continue;
-            const std::vector<std::string> variants(model.second.begin(), model.second.end());
-            result["models"].push_back(json{{"vendor", vendor.first},
-                                             {"model", model.first},
-                                             {"nozzle_diameter", escape_strings_cstyle(variants)}});
-        }
-    }
-    return result;
-}
-
-const char* init_with_app_config(const json& config)
+const char* init_profiles()
 {
     reset_app_config();
-    const bool has_models = apply_app_config(config);
     set_data_dir("/");
     set_resources_dir("/");
     state().presets.setup_directories();
     state().presets.load_presets(state().profile_config, ForwardCompatibilitySubstitutionRule::Enable);
-    if (!has_models) {
-        install_all_printers();
-        reselect_after_app_config();
-    }
+    install_all_printers();
+    reselect_after_app_config();
     return dup_json(json{{"ok", true},
                          {"prints", state().presets.prints.size()},
                          {"filaments", state().presets.filaments.size()},

@@ -1067,7 +1067,7 @@ decomposition remain planned follow-up work and are not marked complete here.
 
 This independently testable bridge-maintenance step extracts the native
 profile/config domain into `packages/slicer-wasm/src/bridge_profiles.{hpp,cpp}`.
-The module owns AppConfig staging/serialization, native profile visibility and
+The module owns internal AppConfig reset/loading, native profile visibility and
 initial selection, Printer/Process compatibility selection, atomic preset
 snapshot projection (including `filament_catalog` and printable-area data),
 and option metadata projection. The three existing profile C exports remain

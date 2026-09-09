@@ -3732,11 +3732,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_restore_filament_rack(const char* request_c
 
 EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
     try {
-        // The JSON is the options payload; only "log_level" is consumed today
-        // (the rest is the legacy preferences slot, still ignored — the
-        // renderer owns preferences and passes them through MEMFS profiles).
-        // The client forwards globalThis.ORCA_LOG_LEVEL here so the boost::log
-        // severity filter is controllable from JS (doc/2026-08-21-wasm-boost-log.md).
+        // The options object currently controls only the bridge log severity.
         json opts = json::object();
         if (options_json && *options_json) {
             try { opts = json::parse(options_json); }
@@ -3748,7 +3744,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
             log_level = opts["log_level"].get<std::string>();
         wasm_log::init_with_level(log_level);
 
-        const char* result = Neo::Bridge::Profiles::init_with_app_config(json::object());
+        const char* result = Neo::Bridge::Profiles::init_profiles();
         reset_plate_session_state();
         state().project_config_overlay = empty_project_config_overlay();
         state().history.clear();
