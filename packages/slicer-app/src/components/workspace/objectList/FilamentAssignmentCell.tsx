@@ -33,12 +33,13 @@ export function FilamentAssignmentCell({ snapshot, kind, id, assignable = true, 
 
 export function useFilamentAssignmentAction() {
   const platform = usePlatform();
-  const snapshot = useFilamentSessionStore((state) => state.snapshot);
   const run = useFilamentSessionStore((state) => state.run);
   return (slot: number, targets: readonly FilamentAssignmentTargetRequest[]) => {
-    if (!snapshot || targets.length === 0) return Promise.resolve(null);
-    return run(platform.runtime, () => platform.runtime.assignFilament({
-      version: 1, revision: snapshot.revisions.session, slot, targets,
-    }));
+    if (targets.length === 0) return Promise.resolve(null);
+    return run(platform.runtime, () => {
+      const current = useFilamentSessionStore.getState().snapshot;
+      if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
+      return platform.runtime.assignFilament({ version: 1, revision: current.revisions.session, slot, targets });
+    });
   };
 }

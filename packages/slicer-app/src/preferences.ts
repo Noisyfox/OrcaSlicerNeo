@@ -9,6 +9,12 @@ export interface RestoredSelections {
   snapshot: PresetSnapshot;
 }
 
+// Rack edits are UI state first and preference state second.  Serialize
+// writes per repository/printer so fire-and-forget persistence remains
+// last-write-wins instead of allowing an older IPC/filesystem write to land
+// after a newer slot mutation.
+const rackWriteQueues = new WeakMap<object, Map<string, Promise<void>>>();
+
 /** Build the only durable rack preference from the Worker-owned projection. */
 export function rememberedRackFromSnapshot(snapshot: FilamentSessionSnapshot): RememberedFilamentRack {
   return {
@@ -31,18 +37,26 @@ export async function publishRememberedFilamentRack(
   snapshot: FilamentSessionSnapshot,
 ): Promise<void> {
   if (!printer) return;
-  try {
-    const current = await repository.load();
-    await repository.save({
-      ...current,
-      rememberedFilamentRacks: {
-        ...(current.rememberedFilamentRacks ?? {}),
-        [printer]: rememberedRackFromSnapshot(snapshot),
-      },
-    });
-  } catch (error) {
-    console.error('remembered filament rack save failed; keeping session state', error);
-  }
+  let queues = rackWriteQueues.get(repository);
+  if (!queues) { queues = new Map(); rackWriteQueues.set(repository, queues); }
+  const previous = queues.get(printer) ?? Promise.resolve();
+  const write = previous.catch(() => undefined).then(async () => {
+    try {
+      const current = await repository.load();
+      await repository.save({
+        ...current,
+        rememberedFilamentRacks: {
+          ...(current.rememberedFilamentRacks ?? {}),
+          [printer]: rememberedRackFromSnapshot(snapshot),
+        },
+      });
+    } catch (error) {
+      console.error('remembered filament rack save failed; keeping session state', error);
+    }
+  });
+  queues.set(printer, write);
+  await write;
+  if (queues.get(printer) === write) queues.delete(printer);
 }
 
 export function rememberedFilamentRack(

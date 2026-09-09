@@ -30,6 +30,23 @@ interface FilamentSessionState {
   reset: () => void;
 }
 
+// Model/project mutations can advance the native history revision without
+// changing the renderer's React projection synchronously.  Keep every
+// filament read and write on one FIFO so a command can never overtake the
+// refresh that fences such a mutation.
+let filamentOperationTail: Promise<void> = Promise.resolve();
+let pendingFilamentOperations = 0;
+
+function enqueueFilamentOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = filamentOperationTail;
+  let release!: () => void;
+  filamentOperationTail = new Promise<void>((resolve) => { release = resolve; });
+  return previous
+    .catch(() => undefined)
+    .then(operation)
+    .finally(release);
+}
+
 function isSnapshot(result: FilamentSessionSnapshotResult): result is FilamentSessionSnapshot {
   return result.ok === true && Array.isArray(result.slots);
 }
@@ -66,24 +83,33 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
   snapshot: null,
   pendingKind: null,
   rejected: null,
-  load: (runtime): Promise<FilamentSessionSnapshotResult> => readFilamentSnapshot(runtime, set, () => true),
-  refresh: (runtime, isCurrent = () => true): Promise<FilamentSessionSnapshotResult> => readFilamentSnapshot(runtime, set, isCurrent),
+  load: (runtime): Promise<FilamentSessionSnapshotResult> => enqueueFilamentOperation(
+    () => readFilamentSnapshot(runtime, set, () => true),
+  ),
+  refresh: (runtime, isCurrent = () => true): Promise<FilamentSessionSnapshotResult> => enqueueFilamentOperation(
+    () => readFilamentSnapshot(runtime, set, isCurrent),
+  ),
   run: async (runtime, command) => {
+    pendingFilamentOperations += 1;
     set({ pendingKind: 'mutation', rejected: null });
-    try {
-      const result = await command();
-      if (result.ok) {
-        set({ snapshot: result.result.snapshot, rejected: null });
-        await applyFilamentMutationResult(result.result.mutation, runtime);
-        set({ pendingKind: null });
+    return enqueueFilamentOperation(async () => {
+      try {
+        const result = await command();
+        if (result.ok) {
+          set({ snapshot: result.result.snapshot, rejected: null });
+          await applyFilamentMutationResult(result.result.mutation, runtime);
+        }
+        else set({ rejected: result.error });
+        return result;
+      } catch (error) {
+        const rejected = String(error);
+        set({ rejected });
+        return { ok: false, version: 1, error: rejected, errorCode: 'runtime_failure' };
+      } finally {
+        pendingFilamentOperations -= 1;
+        if (pendingFilamentOperations === 0) set({ pendingKind: null });
       }
-      else set({ pendingKind: null, rejected: result.error });
-      return result;
-    } catch (error) {
-      const rejected = String(error);
-      set({ pendingKind: null, rejected });
-      return { ok: false, version: 1, error: rejected, errorCode: 'runtime_failure' };
-    }
+    });
   },
   clearRejected: () => set({ rejected: null }),
   reset: () => set({ snapshot: null, pendingKind: null, rejected: null }),

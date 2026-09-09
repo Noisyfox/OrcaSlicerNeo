@@ -95,12 +95,11 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
         label={`Change Filament · ${label}`}
         testid={`objectlist-change-filament-${slot === 0 ? 'default' : slot}`}
         onClick={() => {
-          void runFilament(runtime, () => runtime.assignFilament({
-            version: 1,
-            revision: filamentSnapshot.revisions.session,
-            slot,
-            targets,
-          }));
+          void runFilament(runtime, () => {
+            const current = useFilamentSessionStore.getState().snapshot;
+            if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
+            return runtime.assignFilament({ version: 1, revision: current.revisions.session, slot, targets });
+          });
           onClose();
         }}
       />

@@ -84,14 +84,12 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   );
 
   function assignRow(kind: 'object' | 'part', id: number, slot: number) {
-    if (!filamentSnapshot) return;
     const targets = assignmentTargetsForSelection({ kind, id }, projection);
-    void runFilament(platform.runtime, () => platform.runtime.assignFilament({
-      version: 1,
-      revision: filamentSnapshot.revisions.session,
-      slot,
-      targets,
-    }));
+    void runFilament(platform.runtime, () => {
+      const current = useFilamentSessionStore.getState().snapshot;
+      if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
+      return platform.runtime.assignFilament({ version: 1, revision: current.revisions.session, slot, targets });
+    });
   }
 
   useEffect(() => {

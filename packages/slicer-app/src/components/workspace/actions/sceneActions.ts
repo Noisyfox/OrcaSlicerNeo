@@ -49,6 +49,10 @@ async function commitAdded(
   const history = await runProjectHistoryMutation(platform.runtime, `Add ${displayName}`, add, sceneInteraction);
   const r = history.result;
   if (!r.ok) throw new Error(r.error ?? 'add failed');
+  // Add Primitive/model commits advance the native history revision. Start
+  // the session refresh before renderer mesh work so the filament command
+  // FIFO fences any ObjectList/context-menu command opened during loading.
+  const filamentRefresh = refreshFilamentSession(platform.runtime);
   applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
   const slicer = useSlicerStore.getState();
   const settings = useSettingsStore.getState();
@@ -65,7 +69,7 @@ async function commitAdded(
   sceneInteraction?.resetForModel();
   if (typeof platform.runtime.getModelMesh === 'function')
     await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
-  await refreshFilamentSession(platform.runtime);
+  await filamentRefresh;
   useProjectStore.getState().setProject({ hasContent: true });
   if (r.plateSession) {
     const previousPlateSession = usePlateSessionStore.getState().snapshot;

@@ -59,4 +59,31 @@ describe('Object List filament context command', () => {
     await act(async () => { item.click(); await Promise.resolve(); });
     expect(assignFilament).toHaveBeenCalledWith({ version: 1, revision: 7, slot: 0, targets: [{ kind: 'model-part', id: 20 }] });
   });
+
+  it('waits for a post-model refresh and uses its revision for a queued Slot 2 command', async () => {
+    let releaseRefresh!: (value: FilamentSessionSnapshot) => void;
+    const refreshed = { ...snapshot, revisions: { ...snapshot.revisions, session: 8, project: 8 } } as FilamentSessionSnapshot;
+    const assignFilament = vi.fn(async (request: { revision: number }) => ({ ok: true as const, version: 1 as const, result: {
+      snapshot: { ...refreshed, revisions: { ...refreshed.revisions, session: request.revision + 1, project: request.revision + 1 } },
+      mutation: { kind: 'assign' as const, historyEntryDelta: 1 as const, revisionBefore: request.revision, revisionAfter: request.revision + 1,
+        dirty: true as const, allPlateResultsInvalidated: false as const, affectedPlateIds: [] },
+    } }));
+    const runtime = {
+      assignFilament,
+      getFilamentSessionSnapshot: vi.fn(() => new Promise<FilamentSessionSnapshot>((resolve) => { releaseRefresh = resolve; })),
+    };
+    useFilamentSessionStore.setState({ snapshot, rejected: null });
+    useObjectListStore.setState({ projection: { objectIds: new Set(), volumeIds: new Set(), instanceIds: new Set([100, 101]) } });
+    const rendered = renderMenu({ kind: 'object', object }, assignFilament); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    const refresh = useFilamentSessionStore.getState().refresh(runtime as never);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    const item = document.querySelector('[data-testid="objectlist-change-filament-2"]') as HTMLElement;
+    await act(async () => { item.click(); await Promise.resolve(); });
+    expect(assignFilament).not.toHaveBeenCalled();
+    releaseRefresh(refreshed);
+    await refresh;
+    await vi.waitFor(() => expect(assignFilament).toHaveBeenCalledOnce());
+    expect(assignFilament).toHaveBeenCalledWith(expect.objectContaining({ revision: 8, slot: 2 }));
+  });
 });

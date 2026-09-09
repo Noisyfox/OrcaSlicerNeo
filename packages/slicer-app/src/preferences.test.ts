@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreSelections } from './preferences';
-import type { UserPreferences } from '@orca/platform-contract';
+import type { UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import type { PresetSnapshot } from '@slicer/client';
 
 const prefs: UserPreferences = {
@@ -142,5 +142,28 @@ describe('selection restoration', () => {
       assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 1, project: 1, result: 0, plates: {} }, status: { state: 'ready', error: null },
     }) as never;
     await expect(publishRememberedFilamentRack(repository, 'Printer A', snapshot)).resolves.toBeUndefined();
+  });
+
+  it('serializes concurrent rack writes so the newest slot projection wins', async () => {
+    const makeSnapshot = (name: string) => ({
+      ok: true as const, version: 1 as const,
+      slots: [{ slot: 1, preset: { id: 'p', name }, colour: { effective: '#112233', provenance: 'preset' as const } }],
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
+      flushing: { matrix: [0], vector: [0], matrixDimension: 1, planeCount: 1, source: 'native' as const },
+      capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: true, canMerge: true },
+      assignments: { objects: [], parts: [], modifiers: [] },
+      revisions: { session: 1, project: 1, result: 0, plates: {} }, status: { state: 'ready' as const, error: null },
+    });
+    const saved: UserPreferences[] = [];
+    const repository: UserPreferencesRepository = {
+      load: vi.fn(async () => { await new Promise((resolve) => setTimeout(resolve, 1)); return prefs; }),
+      save: vi.fn(async (value) => { saved.push(value); }),
+    };
+    await Promise.all([
+      publishRememberedFilamentRack(repository, 'Printer A', makeSnapshot('First')),
+      publishRememberedFilamentRack(repository, 'Printer A', makeSnapshot('Second')),
+    ]);
+    expect(saved).toHaveLength(2);
+    expect(saved.at(-1)?.rememberedFilamentRacks?.['Printer A'].slots[0].preset).toBe('Second');
   });
 });

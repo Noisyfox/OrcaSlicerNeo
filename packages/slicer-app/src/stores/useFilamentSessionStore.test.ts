@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useFilamentSessionStore } from './useFilamentSessionStore';
 import { useSlicerStore } from './useSlicerStore';
 import type { FilamentSessionSnapshot, SlicerClient } from '@slicer/client';
@@ -14,6 +14,10 @@ function snapshot(revision: number): FilamentSessionSnapshot {
   };
 }
 
+afterEach(() => {
+  useFilamentSessionStore.getState().reset();
+});
+
 describe('filament session store lifecycle', () => {
   it('publishes only a current complete Worker snapshot', async () => {
     const initial = snapshot(1); const newer = snapshot(2);
@@ -23,6 +27,31 @@ describe('filament session store lifecycle', () => {
     expect(useFilamentSessionStore.getState().snapshot).toBe(initial);
     await useFilamentSessionStore.getState().refresh(runtime, () => true);
     expect(useFilamentSessionStore.getState().snapshot).toBe(newer);
+  });
+
+  it('fences a filament command behind a project refresh and reads the refreshed revision', async () => {
+    const initial = snapshot(1);
+    const refreshed = snapshot(2);
+    const assigned = snapshot(3);
+    let releaseRefresh!: (value: FilamentSessionSnapshot) => void;
+    const runtime = {
+      getFilamentSessionSnapshot: vi.fn(() => new Promise<FilamentSessionSnapshot>((resolve) => { releaseRefresh = resolve; })),
+    } as unknown as SlicerClient;
+    useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
+    const refresh = useFilamentSessionStore.getState().refresh(runtime);
+    const command = vi.fn(async () => ({ ok: true as const, version: 1 as const, result: {
+      snapshot: assigned,
+      mutation: { kind: 'assign' as const, historyEntryDelta: 1 as const, revisionBefore: 2, revisionAfter: 3,
+        dirty: true as const, allPlateResultsInvalidated: false as const, affectedPlateIds: [] },
+    } }));
+    const run = useFilamentSessionStore.getState().run(runtime, command);
+    expect(command).not.toHaveBeenCalled();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    releaseRefresh(refreshed);
+    await refresh;
+    await run;
+    expect(command).toHaveBeenCalledOnce();
+    expect(useFilamentSessionStore.getState().snapshot).toBe(assigned);
   });
 
   it('replaces the mirror only from a successful returned mutation', async () => {

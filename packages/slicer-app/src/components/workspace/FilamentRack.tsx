@@ -123,11 +123,14 @@ export function FilamentRack() {
   async function updateSlot(request: () => Promise<FilamentMutationResultOrError>) {
     const result = await run(platform.runtime, request);
     if (result.ok) {
-      await publishRememberedFilamentRack(platform.preferences, useSettingsStore.getState().selectedPrinter, result.result.snapshot);
+      // Native mutation + renderer projection are the interactive operation.
+      // Do not hold the rack's pending state on a preferences IPC/filesystem
+      // round trip; the helper serializes background writes per printer.
+      void publishRememberedFilamentRack(platform.preferences, useSettingsStore.getState().selectedPrinter, result.result.snapshot);
     }
   }
 
-  function revision() { return snapshot?.revisions.session ?? 0; }
+  function revision() { return useFilamentSessionStore.getState().snapshot?.revisions.session ?? 0; }
 
   function askOrRun(kind: 'delete' | 'merge', slot: number, destination: number | null) {
     if (!snapshot) return;
