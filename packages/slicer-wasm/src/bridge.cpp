@@ -2819,6 +2819,138 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
     }
 }
 
+// Add/delete only touch a small, well-defined part of PresetBundle.  The
+// generic transaction above intentionally stages the complete installed
+// preset graph, which is the right safety boundary for arbitrary commands but
+// makes a single slot edit pay for several deep copies.  Keep the same
+// validation, snapshot, history, and rollback protocol while applying these
+// two mutations in place and retaining only the fields they can change.
+template <typename Mutator>
+json run_filament_slot_mutation(const json& request, const char* label, const bool model_changes, Mutator mutator)
+{
+    const auto before_next_filament_colour_index = state().next_filament_colour_index;
+    try {
+        if (!request.is_object() || !request.contains("version") ||
+            !request["version"].is_number_unsigned() || request["version"].get<unsigned>() != 1)
+            return filament_command_error("invalid_command", "unsupported filament command version");
+        if (state().active_history_transaction)
+            return filament_command_error("history_transaction_active", "filament command cannot run inside another history transaction");
+        const auto before_snapshot = filament_session_snapshot_json();
+        if (!before_snapshot.value("ok", false)) return before_snapshot;
+        const auto before_context = default_history_context();
+        const auto before_history_model = history_model_state();
+        if (!request.contains("revision") || !request["revision"].is_number_unsigned())
+            return filament_command_error("stale_revision", "filament session revision is required");
+        const auto expected = request["revision"].get<std::uint64_t>();
+        if (expected != before_snapshot["revisions"]["session"].get<std::uint64_t>())
+            return filament_command_error("stale_revision", "filament session revision is stale");
+
+        const auto before_filament_presets = state().presets.filament_presets;
+        const auto before_project_config = state().presets.project_config;
+        const auto before_ams_colours = state().presets.ams_multi_color_filment;
+        const auto before_selected_filament = state().presets.filaments.get_selected_preset_name();
+        const auto before_edited_filament = state().presets.filaments.get_edited_preset();
+        std::optional<Model> before_model;
+        if (model_changes) before_model.emplace(state().model);
+        const auto before_plates = state().plate_session_plates;
+        const auto before_overlay = state().project_config_overlay;
+        const auto before_plate_revisions = state().plate_input_revisions;
+        const auto before_membership = state().instance_plate_ids;
+        const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
+        const auto before_parked = state().parked_instance_ids;
+        const auto before_pending = state().pending_membership_instance_ids;
+        const auto before_current_plate = state().current_plate_id;
+
+        bool mutated = false;
+        bool history_committed = false;
+        const auto rollback = [&]() {
+            if (!mutated || history_committed) return;
+            state().presets.filament_presets = before_filament_presets;
+            state().presets.project_config = before_project_config;
+            state().presets.ams_multi_color_filment = before_ams_colours;
+            if (!before_selected_filament.empty())
+                state().presets.filaments.select_preset_by_name(before_selected_filament, false);
+            state().presets.filaments.get_edited_preset() = before_edited_filament;
+            if (before_model) state().model = *before_model;
+            state().plate_session_plates = before_plates;
+            state().project_config_overlay = before_overlay;
+            state().plate_input_revisions = before_plate_revisions;
+            state().instance_plate_ids = before_membership;
+            state().plate_out_of_bounds_ids = before_out_of_bounds;
+            state().parked_instance_ids = before_parked;
+            state().pending_membership_instance_ids = before_pending;
+            state().current_plate_id = before_current_plate;
+            state().next_filament_colour_index = before_next_filament_colour_index;
+        };
+
+        try {
+            mutated = true;
+            const auto old_count = state().presets.filament_presets.size();
+            json mutation = mutator(state().presets, state().model, state().plate_session_plates,
+                                     state().project_config_overlay, old_count);
+            if (request.value("inject_failure", false)) {
+                rollback();
+                return filament_command_error("native_validation_failure", "injected native validation failure");
+            }
+            validate_filament_candidate(state().presets, state().model, state().plate_session_plates,
+                                        state().project_config_overlay);
+            ensure_plate_session_state();
+            for (const auto& plate_id : all_plate_ids()) ++state().plate_input_revisions[plate_id];
+            const auto final_snapshot = filament_session_snapshot_json();
+            if (!final_snapshot.value("ok", false)) {
+                rollback();
+                return final_snapshot;
+            }
+            auto context = default_history_context();
+            context["filamentSessionRevision"] = state().history_revision + 1;
+            const auto encoded = context.dump();
+            const Neo::History::Bytes bytes(encoded.begin(), encoded.end());
+            const auto failure_stage = request.value("inject_failure_stage", "");
+            if (failure_stage == "before-history") {
+                rollback();
+                return filament_command_error("native_validation_failure", "injected late native validation failure");
+            }
+            if (failure_stage == "during-history")
+                throw std::runtime_error("injected history commit failure");
+            const bool committed = [&]() {
+                if (!state().history.entries().empty())
+                    return state().history.commit(label, Neo::History::Category::Project, history_model_state(), bytes);
+                const auto baseline_encoded = before_context.dump();
+                const Neo::History::Bytes baseline_bytes(baseline_encoded.begin(), baseline_encoded.end());
+                return state().history.commit_with_baseline(
+                    label, Neo::History::Category::Project,
+                    before_history_model, baseline_bytes, history_model_state(), bytes);
+            }();
+            if (!committed) {
+                rollback();
+                return filament_command_error("native_validation_failure", "history commit rejected filament mutation");
+            }
+            history_committed = true;
+            state().history_revision++;
+            state().print.clear();
+            invalidate_preview_source();
+            mutation["history_entry_delta"] = 1;
+            mutation["revision_before"] = expected;
+            mutation["revision_after"] = state().history_revision;
+            mutation["dirty"] = state().history.project_modified();
+            mutation["all_plate_results_invalidated"] = true;
+            return filament_mutation_result(mutation);
+        } catch (...) {
+            rollback();
+            throw;
+        }
+    } catch (const FilamentCommandFailure& e) {
+        state().next_filament_colour_index = before_next_filament_colour_index;
+        return filament_command_error(e.code, e.what());
+    } catch (const std::exception& e) {
+        state().next_filament_colour_index = before_next_filament_colour_index;
+        return filament_command_error("native_validation_failure", e.what());
+    } catch (...) {
+        state().next_filament_colour_index = before_next_filament_colour_index;
+        return filament_command_error("native_validation_failure", "unknown native validation failure");
+    }
+}
+
 const char* restore_filament_rack_command(const char* request_cstr)
 {
     try {
@@ -3247,7 +3379,8 @@ static constexpr std::array<const char*, 16> kNativeFilamentColours = {
 
 json filament_add_command(const json& request)
 {
-    return run_filament_mutation(request, "Add Filament Slot", [](PresetBundle& bundle, Model&, auto& plates, auto&, std::size_t count) {
+    return run_filament_slot_mutation(request, "Add Filament Slot", false,
+        [](PresetBundle& bundle, Model&, auto& plates, auto&, std::size_t count) {
         const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
         if (!flexible || count >= 64) throw FilamentCommandFailure("capability_rejected", "filament slot capacity or capability rejected");
         const std::string colour = kNativeFilamentColours[state().next_filament_colour_index++ % kNativeFilamentColours.size()];
@@ -3262,11 +3395,28 @@ json filament_add_command(const json& request)
         add_plate_filament_references(plates, bundle, count);
         recalculate_filament_flush(bundle);
         return json{{"kind", "add"}, {"slot", count + 1}};
-    });
+        });
 }
 
 json filament_delete_or_merge_command(const json& request, const bool merge)
 {
+    if (!merge)
+        return run_filament_slot_mutation(request, "Delete Filament Slot", true,
+            [request](PresetBundle& bundle, Model& model, auto& plates, auto& overlay, std::size_t count) {
+            const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
+            if (!flexible || count <= 1) throw FilamentCommandFailure("capability_rejected", "filament slot capability rejected");
+            std::string error;
+            const auto source = filament_command_slot(request, "slot", count, error);
+            if (!source) throw FilamentCommandFailure("unsupported_reference", error);
+            bundle.update_num_filaments(*source);
+            remap_config_filament_references(bundle.project_config, *source, std::nullopt);
+            remap_model_filament_references(model, *source, std::nullopt, count - 1);
+            remap_plate_filament_references(plates, *source, std::nullopt, count);
+            remap_overlay_filament_references(overlay, *source, std::nullopt);
+            recalculate_filament_flush(bundle);
+            return json{{"kind", "delete"}, {"source", *source + 1},
+                        {"destination", nullptr}, {"slot_count", count - 1}};
+        });
     return run_filament_mutation(request, merge ? "Merge Filament Slots" : "Delete Filament Slot",
         [request, merge](PresetBundle& bundle, Model& model, auto& plates, auto& overlay, std::size_t count) {
         const bool flexible = bundle.printers.get_edited_preset().config.opt_bool("single_extruder_multi_material") || bundle.is_bbl_vendor();
