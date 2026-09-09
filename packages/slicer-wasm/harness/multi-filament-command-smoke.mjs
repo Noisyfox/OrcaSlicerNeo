@@ -524,6 +524,46 @@ assert.deepEqual(noMultiplierFixture.snapshot.flushing.matrix, flushFixture.snap
 assert.deepEqual(noMultiplierFixture.min_flush_volumes, flushFixture.min_flush_volumes,
   'flush multiplier must not alter native minimum-volume inputs');
 markStage('fixed-nozzle-flush');
+
+// A renderer selection/context record is a history entry for navigation only;
+// it does not change the native model or filament session. Reproduce the UI
+// sequence against the real bridge: add slots, add Cube inside a project
+// transaction, record the ObjectList selection context, then assign Slot 2.
+// The assignment must use the pre-context filament revision successfully.
+function contextForRevisionFence() {
+  return {
+    selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+    activePlateId: null,
+    gizmo: null,
+    projectConfigOverlay: {},
+  };
+}
+snapshot = resetFlexibleScenario();
+snapshot = withSlots(2);
+const fenceContext = JSON.stringify(contextForRevisionFence());
+const fenceBegin = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Add Cube', 'project', fenceContext, '']);
+assert.equal(fenceBegin.ok, true, JSON.stringify(fenceBegin));
+const fenceShape = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Cube']);
+assert.equal(fenceShape.ok, true, JSON.stringify(fenceShape));
+const fenceCommit = callJson('orc_history_commit', ['string', 'string'],
+  [fenceBegin.transactionId, fenceContext]);
+assert.equal(fenceCommit.revision, snapshot.revisions.session + 1, JSON.stringify(fenceCommit));
+const fenceBeforeContext = callJson('orc_get_filament_session_snapshot');
+assert.equal(fenceBeforeContext.assignments.objects.length, 1, JSON.stringify(fenceBeforeContext));
+const fenceRecord = callJson('orc_history_record_context', ['string', 'string'],
+  ['Selection', JSON.stringify({ ...contextForRevisionFence(), selection: {
+    mode: 'object', objectIds: [fenceBeforeContext.assignments.objects[0].id], partIds: [], instanceIds: [],
+  } })]);
+assert.equal(fenceRecord.revision, fenceBeforeContext.revisions.session, JSON.stringify(fenceRecord));
+const fenceAfterContext = callJson('orc_get_filament_session_snapshot');
+assert.equal(fenceAfterContext.revisions.session, fenceBeforeContext.revisions.session);
+const fenceAssignment = request('orc_assign_filament', {
+  version: 1, revision: fenceAfterContext.revisions.session, slot: 2,
+  targets: [{ kind: 'object', id: fenceBeforeContext.assignments.objects[0].id }],
+});
+assert.equal(fenceAssignment.ok, true, JSON.stringify(fenceAssignment));
+markStage('context-revision-fence');
 console.log(JSON.stringify({ commandSmokeDurationMs: Math.round(performance.now() - startedAt), stageTimes,
   slotHistoryLatencies }));
 console.log('multi-filament atomic command smoke passed (capacity, remap, rollback, flush, retention, fixed capability, and all five undo/redo command families)');

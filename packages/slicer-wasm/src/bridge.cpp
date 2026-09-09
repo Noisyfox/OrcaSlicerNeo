@@ -4446,9 +4446,12 @@ static void record_history_context(const std::string& label, const json& request
     }
     const std::string encoded = context.dump();
     const Neo::History::Bytes context_bytes(encoded.begin(), encoded.end());
-    if (state().history.commit(label, Neo::History::Category::Context,
-                               history_model_state(), context_bytes))
-        state().history_revision++;
+    // Selection/active-plate records are renderer context only.  They must
+    // not advance the project/filament session revision: the native model,
+    // filament rack, and slice inputs are unchanged, so a command built from
+    // the last filament snapshot remains valid after a context update.
+    state().history.commit(label, Neo::History::Category::Context,
+                           history_model_state(), context_bytes);
 }
 
 static void record_active_plate_context()

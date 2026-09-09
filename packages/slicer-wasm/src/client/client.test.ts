@@ -139,6 +139,25 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(beforeInjected);
   });
 
+  it('keeps the filament command fence stable across context-only history', async () => {
+    const c = makeClient();
+    const before = await c.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+
+    await c.recordHistoryContext('Selection', {
+      selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: null,
+      gizmo: null,
+      projectConfigOverlay: {},
+    });
+    const afterContext = await c.getFilamentSessionSnapshot();
+    if (!afterContext.ok) throw new Error(afterContext.error);
+    expect(afterContext.revisions.session).toBe(before.revisions.session);
+
+    const added = await c.addFilamentSlot({ version: 1, revision: afterContext.revisions.session });
+    expect(added.ok).toBe(true);
+  });
+
   it('rejects kind-specific mutation response fields and post-mutation ranges', async () => {
     const base = await makeClient().getFilamentSessionSnapshot();
     if (!base.ok) throw new Error(base.error);

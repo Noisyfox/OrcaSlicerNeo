@@ -438,7 +438,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
       label: 'Active Plate', category: 'context', context });
     historyCursor = historyEntries.length - 1;
-    historyRevision++;
+    // Context-only history does not change the native project or filament
+    // session. Keep the command fence stable after selection/plate updates.
   }
   function recordHistoryContext(label: string, context: any): void {
     if (historyTransaction) throw new Error('history transaction is active');
@@ -455,7 +456,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
       label, category: 'context', context: clone(context) });
     historyCursor = historyEntries.length - 1;
-    historyRevision++;
+    // Context-only history does not change the native project or filament
+    // session. Keep the command fence stable after selection/plate updates.
   }
 
   function plateStride(): number {
@@ -520,7 +522,29 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
 
   function filamentSessionSnapshot(): unknown {
-    if (filamentSessionState !== undefined) return clone(filamentSessionState);
+    if (filamentSessionState !== undefined) {
+      const snapshot = clone(filamentSessionState) as any;
+      // Slot mutations replace the mock's projected session object. Keep its
+      // model-backed assignment projection live when a later Add Primitive
+      // changes the model; the native bridge derives this from the current
+      // Model on every snapshot read.
+      if (objectMeta.length > 0) {
+        const previousObjects = new Map((snapshot.assignments?.objects ?? []).map((entry: any) => [entry.id, entry]));
+        const previousParts = new Map((snapshot.assignments?.parts ?? []).map((entry: any) => [entry.id, entry]));
+        const objects = objectMeta.map((object) => previousObjects.get(object.id) ?? ({
+          target: 'object', id: object.id, object_id: object.id,
+          explicit_slot: 1, effective_slot: 1, inherited: false,
+        }));
+        const parts = objectMeta.flatMap((object, index) => (volumeMeta[index] ?? [])
+          .filter((volume) => volume.type === 'model_part')
+          .map((volume) => previousParts.get(volume.id) ?? ({
+            target: 'model-part', id: volume.id, object_id: object.id,
+            explicit_slot: 0, effective_slot: 1, inherited: true,
+          })));
+        snapshot.assignments = { ...snapshot.assignments, objects, parts, modifiers: snapshot.assignments?.modifiers ?? [] };
+      }
+      return snapshot;
+    }
     const objects = objectMeta.map((object) => ({
       target: 'object', id: object.id, object_id: object.id,
       explicit_slot: 1, effective_slot: 1, inherited: false,
@@ -1404,6 +1428,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       instanceMeta = [];
       projectConfigOverlay = emptyOverlay();
       modelLoaded = false;
+      if (filamentSessionState !== undefined)
+        filamentSessionState.assignments = { objects: [], parts: [], modifiers: [] };
       sliced = false;
       resetPlateSession();
       return { ok: true, plate_session: plateMutation('model-clear', [], []) };
