@@ -1,7 +1,8 @@
 # Multi-Filament Support Implementation Plan
 
 **Date:** 2026-09-08
-**Status:** Accepted execution plan; Steps 0–9 accepted; Step 10 release gate pending
+**Status:** Complete and accepted; Steps 0–10 passed; documentation closeout
+recorded at `07f276d`
 **Scope:** The multi-filament behaviour accepted by [`spec/Multi-Filament Support.md`](../spec/Multi-Filament%20Support.md), for the shared Electron/Web application.
 **Execution rule:** Every step below is implemented by a new, fresh Luna High subagent. The subagent must implement the complete step and perform its self-verification. The root agent independently verifies the step and records evidence before dispatching the next subagent. Steps are strictly serial; a failed or incomplete gate stops the sequence.
 
@@ -171,7 +172,10 @@ same seven pre-existing user-owned dirty paths.
 **Implementation tasks:**
 
 1. Add explicit JSON command shapes and stable error codes/details for stale revisions, capability rejection, unsupported references, and native validation failure.
-2. Stage a copy of `PresetBundle`, model, plate state, custom G-code, painting/tool changes, support references, routing values, maps, arrays, and flushing state; validate all references and capacity before commit.
+2. Stage the mutable filament session, model, plate state, custom G-code,
+   painting/tool changes, support references, routing values, maps, arrays, and
+   flushing state; validate all references and capacity before commit. Do not
+   copy the complete `PresetBundle` on a history-producing mutation.
 3. Implement native-compatible Add semantics (copy final preset, native next colour, extend maps/arrays, recalculate flushing); Delete fallback-to-slot-1 semantics; Merge destination remapping; and decrement references above the removed slot.
 4. Preserve valid user colour across preset changes, mark the project dirty, invalidate all plate results, and return one complete revisioned snapshot.
 5. Extend mock/client tests for atomic success and byte-for-byte pre-command state preservation on failure (without requiring G-code byte equality).
@@ -453,7 +457,11 @@ Pass requires matrix replacement timing, full-matrix atomicity, per-plate prime-
 
 **Implementation tasks:**
 
-1. Extend the native history frame to restore PresetBundle, ordered slots, colours/metadata, maps, matrices, model/plate assignments, painting, custom G-code, support, routing, and revisions atomically.
+1. Extend the native history frame to restore the mutable filament session,
+   ordered slots, colours/metadata, maps, matrices, model/plate assignments,
+   painting, custom G-code, support, routing, and revisions atomically. The
+   immutable profile catalogue remains in the live `PresetBundle`; history
+   restores its validated mutable state without copying the complete bundle.
 2. Implement two-phase project restore: stage native project and embedded presets, run compatibility evaluation, report every changed slot, then commit or leave prior project/history/rack unchanged.
 3. Persist all effective slot state and matrix/map data required for native Neo round-trip while excluding derived G-code/preview buffers.
 4. Implement printer-namespaced remembered rack priority and publication after successful explicit edits and successful Undo/Redo/history jumps only; preference failures are non-fatal.
@@ -802,12 +810,11 @@ unchanged files: `src/libslic3r/EdgeGrid.cpp`,
 `src/libslic3r/utils.cpp`. No roadmap, approved spec semantics, or release
 status was updated.
 
-Intentional Step 9 skips are the complete Level 4 matrix (full Electron,
-packaged/runtime probes, non-root Web deployment, and licensed/profile/
-compatibility release probes), which are reserved for Step 10. No applicable
-Level 3 check was unavailable or silently converted to a pass. Step 9 is
-self-verified and awaits the root acceptance recorded below; this record does
-not mark the milestone delivered.
+At that earlier audit point, the complete Level 4 matrix (full Electron,
+packaged/runtime probes, non-root Web deployment, and licensed/profile probes)
+was intentionally reserved for Step 10. No applicable Level 3 check was
+unavailable or silently converted to a pass. The subsequent Step 10 acceptance
+record below supersedes that pending status.
 
 **Step 9 root acceptance record (2026-09-09):** Accepted. Root independently
 reran the full workspace test and typecheck gates; the focused Electron flow
@@ -823,8 +830,8 @@ project harnesses. All four living-plan local links resolve, `git diff --check`
 passes, commits remain separately ordered, and no roadmap or approved spec was
 changed. The pinned submodule remains at
 `b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde` with exactly its seven pre-existing
-dirty paths. Step 10 is unblocked; the milestone remains undelivered pending
-the separate Level 4 release gate.
+dirty paths. Step 10 was unblocked at that point; the later Step 10 acceptance
+record below is the final release-gate decision.
 
 **Step 9 Luna High re-audit self-verification record (2026-09-09):** A fresh
 Level 3 re-audit was run after corrective commits `343f5ac` (`fix(app): restore
@@ -872,13 +879,13 @@ evidence. All four local plan links resolve and the command forms match the
 current package scripts/build-driver contracts. `git diff --check` passes.
 
 The five previously failing Electron paths now pass in this focused rerun;
-the complete Level 4 Electron/package/non-root-Web/profile/compatibility and
-licensed-fixture matrix remains intentionally reserved for Step 10. No
-implementation or submodule files were changed by this audit. The only dirty
-path remains the pre-existing `packages/slicer-wasm/cpp` submodule at
+the complete Level 4 Electron/package/non-root-Web/profile and licensed-fixture
+matrix was subsequently closed by Step 10. No implementation or submodule
+files were changed by this audit. The only dirty path remains the pre-existing
+`packages/slicer-wasm/cpp` submodule at
 `b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde`, with the same seven user-owned
-dirty files. This record is self-verification only and awaits root acceptance;
-it does not mark the milestone delivered.
+dirty files. This record is historical self-verification; the Step 10
+acceptance record below is authoritative.
 
 **Step 9 root re-acceptance record (2026-09-09):** Root independently reviewed
 corrective commits `343f5ac` and `1905a59`, including the restored ObjectList
@@ -892,13 +899,14 @@ serial-fallback suites passed 5/5 each. Graph review at `1905a59` reported no
 mapped affected flows; its native-harness mapping gap is covered by the
 successful real-WASM matrix. `git diff --check` passed, and the pinned native
 submodule remained at `b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde`
-with the same seven user-owned dirty files. Step 9 is re-accepted and Step 10
-is unblocked; the milestone remains undelivered until the separate Level 4
-release gate passes.
+with the same seven user-owned dirty files. Step 9 is re-accepted; the later
+Step 10 acceptance record below closes the release gate.
 
-### Step 10 — Separate Level 4 release gate
+### Step 10 — Separate Level 4 release gate (accepted)
 
-**Dispatch:** Root starts a fresh Luna High subagent for Step 10 only after Step 9 is accepted. The subagent performs the complete Level 4 release matrix and self-verification record; root independently performs final acceptance. This is the final serial step; no later implementation step may be dispatched.
+**Dispatch:** The fresh Step 10 subagent performed the complete Level 4
+release matrix after Step 9; root independently accepted the result. This was
+the final serial step.
 
 **Functional boundary:** Final release/milestone acceptance only. This is the first and only step that runs the complete approved cross-host, dual-variant matrix regardless of recent changes. The Luna High subagent executes and reports the matrix; root owns the final release decision and any subsequent commit/status/roadmap update.
 
@@ -920,6 +928,63 @@ release gate passes.
 **Root independent acceptance:** Root independently re-runs or verifies every Level 4 result, compares the evidence with the approved checklist, checks exact host/variant coverage, `git diff --check`, local links, commit boundaries, AGPL scope, and that the only unrelated pre-existing change remains the same dirty submodule. Root accepts the release gate only when every required result is green or an explicitly approved release exception exists. Only root may then mark the milestone delivered, create release/status commits, or update roadmap/spec documents. Failure ends the serial sequence and requires remediation at the owning earlier step by a fresh Luna High subagent, repeat root acceptance through Step 9, and a new Step 10 dispatch.
 
 **Commit boundary:** No automatic release commit. Release/roadmap status updates are a separate, explicitly authorized documentation change after this gate.
+
+**Step 10 root acceptance record (2026-09-09):** Accepted at implementation
+HEAD `07f276d`. The complete dual-variant real-WASM acceptance runner covered
+the command/rollback, assignments/routing, independent reader, imported
+painting/tool changes, flushing/prime tower, plate-local result, history,
+project preflight/rack, project round-trip, and preset-restoration rows on both
+`serial` and `threaded`. It completed in 95.018 seconds with `failed: []`; the
+runner's hard wall-clock limit is 120 seconds. The release matrix retains its
+host/build/profile/project checks, while developer iteration may use the
+`--threaded-only` mode. The Electron target regression set is present in the
+accepted evidence; no implementation or submodule path changed during the
+gate.
+
+### Step 9 documentation closeout — zero-legacy boundary
+
+**Closeout date:** 2026-09-09
+**Implementation HEAD:** `07f276d`
+**Result:** accepted; no production gap remains
+
+The final audit confirms that the implementation is fully multi-filament:
+
+- The old single-filament UI, public API, preference field, project selection
+  tuple, native history state, project sidecar member, mock field, wire
+  `selected` flag, compatibility special case, and migration test are absent.
+- `filament_catalog` is the only filament catalogue wire projection. The
+  public profile-selection path accepts only Printer and Process; rack/session/
+  slot commands own all filament state.
+- History stores the minimal mutable filament frame. The exact no-bundle
+  invariant is guarded by `fullPresetBundleCopyCount`: the project-import
+  candidate is the sole full `PresetBundle` copy. Warmed slot history Undo/Redo
+  is approximately 1–3 ms in the acceptance smoke.
+- Context-only history records do not advance the filament session fence.
+  Project mutations remain revision-fenced; stale commands leave project,
+  rack, history, and result state unchanged.
+
+The most recent complete real-WASM dual-variant acceptance run finished in
+95.018 s with `failed: []`. The runner hard-fails at 120 s. Developer
+iteration may run the fast threaded-only subset; release acceptance runs both
+`serial` and `threaded`.
+
+The closeout evidence and commands are:
+
+```text
+pnpm test
+pnpm typecheck
+node packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs --run-real
+node packages/slicer-wasm/harness/multi-filament-command-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js
+node packages/slicer-wasm/harness/multi-filament-command-benchmark.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --assert-under-ms 20
+node packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs --run-real --threaded-only
+git diff --check
+```
+
+The full host/build matrix, graph review, and commit/path audit are retained
+in the preceding Step 9 acceptance records. This closeout updates only the
+normative documentation and removes the superseded selector task note; it
+does not add a compatibility shim, migration, production API, or submodule
+change.
 
 ## 3. Cross-step evidence and failure policy
 

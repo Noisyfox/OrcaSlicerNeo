@@ -1,9 +1,15 @@
 # M4 — Preset Management with AppConfig Fidelity (design)
 
-Date: 2026-08-15. Status: **approved (this note is the design)**. Milestone
+Date: 2026-08-15. Status: **historical and superseded**. Milestone
 reference: `spec/Grand Plan.md` → "Full settings surface + search (from
 metadata); preset management"; carry-forward from the M3 notes
 (`doc/2026-08-14-m3-implementation-notes.md`, sixth round).
+
+> This document records the unreleased M4 design only. Its AppConfig bridge,
+> single-filament selection, compatibility tail, and backward-compatible API
+> language are not current contracts. The approved Web–Electron architecture
+> and [`Multi-Filament Support.md`](../spec/Multi-Filament%20Support.md) replace
+> them; no implementation or migration may copy these interfaces.
 
 ## Problem
 

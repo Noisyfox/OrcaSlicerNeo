@@ -2,8 +2,8 @@
 
 **Date:** 2026-09-08
 
-**Status:** Clarification complete; pending final review; implementation has
-not started.
+**Status:** Approved; implementation complete and acceptance verified at
+`07f276d` (2026-09-09).
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -76,9 +76,11 @@ Project state has priority over remembered defaults:
    Undo/Redo restoration that changes that state. It never alters another
    printer's defaults.
 
-The existing single selected-filament preference is therefore a compatibility
-projection of slot 1 during migration, not a second source of multi-filament
-truth.
+There is no single selected-filament preference or compatibility projection.
+`selectedProfiles` contains only the Printer and Process names. A remembered
+rack is a per-printer seed for a new project; the open project's native rack,
+session, and slot state are authoritative. No legacy single-filament field,
+API, sidecar member, or migration path is part of this release.
 
 ## 5. Slot Colour Semantics
 
@@ -103,6 +105,12 @@ The authoritative multi-filament state lives in the stateful C++/WASM Worker
 session alongside `PresetBundle`, model configuration, plate state, and project
 configuration. Application code must use the typed slicer runtime/client and
 must not compose filament profile configurations in TypeScript.
+
+The native engine owns candidate compatibility and fallback. The application
+does not expose a second filament selector or reproduce compatibility rules in
+React. The profile snapshot carries `filament_catalog` only; catalogue entries
+have no selected flag. Printer and Process selection may revalidate the rack,
+but only the rack/session commands change filament state.
 
 All successful slot mutations invalidate affected slice results. Shared slot
 configuration changes affect every plate unless a later specification defines
@@ -473,6 +481,10 @@ configuration, and model/plate assignment needed for native OrcaSlicer and Neo
 to reproduce the project. Derived G-code and preview buffers remain outside
 normal project persistence.
 
+The project/history sidecar contains the ordered rack/session state and project
+configuration only. It must reject `selected_filament_preset` rather than
+interpret it, and no load path performs a legacy single-filament migration.
+
 ### 11.2 History coverage
 
 Every exposed project-level filament mutation creates exactly one semantic
@@ -495,8 +507,12 @@ Restoration is atomic with the model and plate-session history state. A failure
 leaves the current history cursor and live project unchanged.
 
 Filament session state is not represented solely as generic project-overlay
-strings: restoring it must re-establish `PresetBundle` and its validated full
-configuration before the restored project can be sliced.
+strings: restoring it re-establishes the mutable filament state in the live
+`PresetBundle` and validates the full configuration before the restored project
+can be sliced. History never copies the complete preset catalogue/bundle.
+`fullPresetBundleCopyCount` is a guard: the only permitted full copy is the
+staged candidate used by project import so embedded-preset loading remains
+transactional.
 
 ### 11.3 Per-printer remembered rack
 
@@ -521,6 +537,9 @@ No unrelated UI, host, printer, process, or global preference is changed.
 Preference persistence failure is non-fatal. The restored project state remains
 active, the failure is reported through the existing preference-error channel,
 and a later new project may fall back to the last successfully stored rack.
+
+No preference migration is attempted. Unrecognized legacy filament-selection
+fields are not read, projected, or written.
 
 ## 12. Feasibility and Implementation Sequence
 
@@ -643,3 +662,42 @@ Final milestone acceptance follows
 The final acceptance record names the exact commands and results, including
 every unavailable, intentionally skipped, or failing gate. Roadmap documents
 may mark the milestone delivered only after this complete matrix passes.
+
+## 14. Implementation closure and acceptance boundary
+
+The implementation at `07f276d` is the accepted multi-filament boundary:
+
+- Prepare exposes the multi-filament rack/session and slot assignment surfaces;
+  the old single-filament selector, public API, preference field, project
+  selection tuple, native history state, sidecar member, mock field, wire
+  `selected` flag, compatibility special case, and migration test are absent.
+- The profile wire contains `filament_catalog`; `orc_select_preset` accepts
+  only `printer` and `print`. Rack/session/slot state is the only filament
+  authority.
+- History uses the minimal mutable filament frame. The no-bundle invariant is
+  guarded by `fullPresetBundleCopyCount`; the project-import candidate is the
+  sole full `PresetBundle` copy. Warmed slot Undo/Redo stays approximately
+  1–3 ms in the acceptance smoke.
+- Context-only history records do not advance the filament session fence.
+  Project mutations remain revision-fenced, and stale commands are rejected
+  without changing project, rack, history, or result state.
+- The complete dual-variant real-WASM acceptance runner most recently finished
+  in 95.018 s with `failed: []`; its hard wall-clock limit is 120 s. Developer
+  iteration may use `--threaded-only`; release acceptance always runs both
+  `serial` and `threaded`.
+
+The recorded acceptance commands include:
+
+```text
+pnpm test
+pnpm typecheck
+node packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs --run-real
+node packages/slicer-wasm/harness/multi-filament-command-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js
+node packages/slicer-wasm/harness/multi-filament-command-benchmark.mjs --module packages/slicer-wasm/out/serial/orca_slice.js --assert-under-ms 20
+node packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs --run-real --threaded-only
+```
+
+The full host/build matrix and its exact results remain recorded in the living
+implementation plan. This specification is normative for the zero-legacy
+boundary and does not authorize compatibility shims or post-release
+migrations.

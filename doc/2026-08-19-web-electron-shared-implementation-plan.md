@@ -1,7 +1,9 @@
 # Web–Electron Shared Application: Executable Implementation Plan
 
 **Date:** 2026-08-19
-**Status:** Proposed execution plan — no product implementation in this document
+**Status:** Historical execution record; completed and superseded for current
+profile/filament semantics by the approved architecture and multi-filament
+specifications
 **Normative architecture:**
 [`spec/Web-Electron Shared Application Architecture.md`](../spec/Web-Electron%20Shared%20Application%20Architecture.md)
 
@@ -17,10 +19,12 @@ The work is complete only when both hosts run the same core flow:
 1. Load STL/3MF from the host.
 2. Start the local wasm64 runtime and install all bundled upstream-organized
    system profile packages into MEMFS.
-3. Restore/select printer, print, and filament profiles by profile `name`.
+3. Restore/select Printer and Process profiles by profile `name`, then seed a
+   new project from the selected Printer's remembered multi-filament rack.
 4. Edit session-only settings, slice, inspect model/toolpath/layers, and export
    G-code.
-5. Persist only selected profile names and shared UI preferences.
+5. Persist only Printer/Process names, remembered rack state, and shared UI
+   preferences.
 
 Electron remains a supported host throughout. Desktop Chrome 133+ is the Web
 baseline; WebGL 2 and wasm64 are mandatory. The Web host chooses threaded WASM
@@ -161,8 +165,9 @@ the current Electron renderer directory and all current behavior.
 - Wrap existing preload operations in `ModelImporter` and `GcodeExporter`.
   Keep absolute selected paths only in a desktop-private in-memory map keyed by
   import; pass the common UI just `displayName` and bytes.
-- Add an Electron preferences adapter, but initially allow the legacy AppConfig
-  adapter to remain internal so the current boot path continues to work.
+- Add the Electron preferences adapter. The current implementation has no
+  legacy AppConfig adapter; this historical plan's transitional allowance is
+  superseded by the final shared contract.
 - Refactor `TitleBar` into common visual `BrandBar` plus Electron-supplied
   drag-region/macOS-inset styling. It must look and act unchanged in Electron.
 - Refactor sidebar-width reads/writes behind the preference interface. Preserve
@@ -322,23 +327,24 @@ filesystem before `orc_init()`.
 - Add the shared `UserPreferences` schema:
 
   ```ts
-  { version: 1, selectedProfiles: { printer?, print?, filament? }, ui: { sidebarWidth? } }
+  { version: 1, selectedProfiles: { printer?, print? }, rememberedFilamentRacks?, ui: { sidebarWidth? } }
   ```
 
 - Implement Electron file-backed and Web localStorage repositories. Both must
   discard malformed/unknown data, log unavailable read/write storage, and use
   in-memory defaults for the current session.
-- After package installation, restore profile selections through the C++ bridge
-  in printer → print → filament order. Accept bridge-selected compatibility;
-  do not duplicate it in TypeScript. Fall back to bridge default, then first
-  available profile, logging a missing stored name.
-- Immediately write the resolved combination to preferences.
+- After package installation, restore Printer → Process through the C++ bridge
+  and seed a new project from the selected Printer's remembered rack. Accept
+  native compatibility; do not duplicate it in TypeScript. Fall back to the
+  native default, then the first available Printer/Process, logging a missing
+  stored name.
+- Immediately write the resolved Printer/Process names to preferences. Rack
+  state is written only by the multi-filament session publication path.
 - Make a system profile selection clear temporary slicer-setting overrides and
   invalidate the current slice result.
 - Remove AppConfig from common boot, renderer calls, IPC/preload types, client
-  contracts, and eventually the C++ bridge API. A short-lived adapter may exist
-  only while a prior sub-step still has callers; delete it in this step's final
-  commit.
+  contracts, and the C++ bridge API. No short-lived adapter or compatibility
+  migration remains in the final implementation.
 
 **Acceptance**
 
@@ -350,8 +356,9 @@ filesystem before `orc_init()`.
 - Search confirms final shared/application code has no AppConfig boot or save
   usage. WASM quick build and Node smoke pass when bridge symbols change.
 
-**Commit sequence:** schema/adapters, restoration behavior, then final legacy
-AppConfig removal as separate commits.
+**Historical commit sequence:** schema/adapters, restoration behavior, then
+final AppConfig removal as separate commits. The removal is complete; no
+compatibility adapter or migration remains in the current tree.
 
 ## 12. Step 8 — Switch Electron Fully to the Shared Runtime
 

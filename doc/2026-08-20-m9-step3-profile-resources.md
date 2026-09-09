@@ -7,7 +7,9 @@ vendor, emitting a versioned manifest. The Worker installs all packages into
 the existing `/system` MEMFS layout before the first `orc_init()` call; core
 failure blocks startup and vendor failure is logged and skipped.
 
-The shared app now persists only versioned selected profile names and UI
-preferences. Electron keeps its existing IPC transport during this migration,
-but its file is now the small preferences document; legacy bridge AppConfig
-methods remain only as compatibility surface for the accepted M4 harnesses.
+The historical shared-app migration persisted selected profile names and UI
+preferences. The current contract stores only Printer/Process names plus the
+separate remembered multi-filament rack. Electron keeps its IPC transport, but
+the legacy bridge AppConfig methods and single-filament compatibility surface
+were removed before release; this note must not be used as an implementation
+contract.
