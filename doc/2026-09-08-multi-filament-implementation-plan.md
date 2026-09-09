@@ -1170,3 +1170,36 @@ This is a separate follow-up fix commit after `9255274`; the pinned native submo
 untouched. Required slice-result heap buffers are each read/freed once by the
 client, and the real serial/threaded preview and bridge smokes validate the
 canonical pointer set.
+
+### 4.8 Project persistence bridge module (2026-09-10)
+
+This independently testable bridge-maintenance step extracts project
+persistence into `packages/slicer-wasm/src/bridge_project_persistence.{hpp,cpp}`.
+The module owns project archive staging/read/rewrite helpers, native plate
+metadata parsing, Neo plate/config-overlay/filament sidecar coordination,
+project preflight/commit/cancel, geometry-only import, project export, and
+the project-related metadata projections. `bridge.cpp` retains only narrow
+adapters for shared validation/config projection and no project archive
+implementation.
+
+Project replacement remains staged and failure-atomic: model, presets,
+history baseline, plate identity/membership/revisions, overlay, and sidecar
+state are published only after validation, with move-based rollback covering
+late commit failures. The explicit `PresetBundle` candidate copy is confined
+to project load/preflight; history begin/commit/abort/undo/redo/jump/direct
+and eviction paths remain outside this module and do not copy the complete
+bundle. Native Orca/Bambu 3MF parsing/export and the current Neo sidecars
+remain supported; no old Neo/legacy single-filament compatibility path,
+field, alias, migration, or API was added.
+
+The CMake source list explicitly compiles the new translation unit. The
+77-export C ABI, JSON/error contracts, preflight token fence, and current
+multi-filament/plate persistence schemas remain unchanged. `bridge.cpp` is
+reduced from 4515 to 3366 physical lines. Serial and threaded quick WASM
+builds, 130 WASM tests, package typecheck, project-preflight atomic smoke,
+threaded project-roundtrip, bridge smoke, history smoke, and threaded
+multi-filament command smoke pass. The pinned native fixture parser and
+bridge-open checks pass; its existing canonical expected second-plate local
+offset (`111.9`) disagrees with the unchanged implementation output
+(`103.5`), so this extraction does not alter that pre-existing fixture
+baseline or native geometry semantics.
