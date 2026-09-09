@@ -1338,3 +1338,20 @@ stale revision fence, millisecond slot history, and no-full-bundle history
 boundary are unchanged. No compatibility or old single-filament path was
 added, and the pinned native submodule remains outside the write set.
 `bridge.cpp` is reduced from 248 to 137 physical lines.
+
+### 4.15 Filament domain aggregation (2026-09-10)
+
+This independently testable bridge-maintenance step aggregates the previously
+over-split filament state, command, and session modules into the single
+`packages/slicer-wasm/src/bridge_filament.{hpp,cpp}` domain module. The header
+keeps the clear `Filament::State`, `Filament::Commands`, and `Filament::Session`
+internal namespaces while the translation unit contains their existing
+implementations in dependency order. All consumers include the domain header,
+and CMake compiles one filament source instead of three.
+
+The refactor is structural only: all 77 `orc_*` export names and complete
+signatures, JSON/error contracts, stale revision fence, millisecond slot
+history, and field-level history boundary remain unchanged. No legacy or
+backward-compatibility aliases were added, no history/plate/project modules
+were aggregated, and the pinned native submodule remains outside the write
+set. The six superseded state/commands/session files are removed.

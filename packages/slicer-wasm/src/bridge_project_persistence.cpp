@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-#include "bridge_filament_state.hpp"
+#include "bridge_filament.hpp"
 #include "bridge_history_codec.hpp"
 #include "bridge_history_metadata.hpp"
 #include "bridge_model_operations.hpp"
@@ -49,9 +49,9 @@ namespace Slic3r::Neo::Bridge::ProjectPersistence {
 
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
-using Neo::Bridge::FilamentState::apply_project_sidecar;
-using Neo::Bridge::FilamentState::config_metadata_json;
-using Neo::Bridge::FilamentState::history_state_json;
+using Neo::Bridge::Filament::State::apply_project_sidecar;
+using Neo::Bridge::Filament::State::config_metadata_json;
+using Neo::Bridge::Filament::State::history_state_json;
 using Neo::Bridge::HistoryMetadata::default_history_context;
 using Neo::Bridge::Profiles::preset_snapshot_json;
 using namespace Neo::Bridge::ProjectOverlay;

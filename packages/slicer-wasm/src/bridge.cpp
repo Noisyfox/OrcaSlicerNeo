@@ -20,8 +20,7 @@
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 
-#include "bridge_filament_state.hpp"
-#include "bridge_filament_commands.hpp"
+#include "bridge_filament.hpp"
 #include "bridge_history_runtime.hpp"
 #include "bridge_plate_session.hpp"
 #include "bridge_profiles.hpp"
@@ -62,7 +61,7 @@ namespace {
 // feature-specific state and command implementations live in bridge modules.
 using Slic3r::Neo::Bridge::BridgeState;
 using Slic3r::Neo::Bridge::state;
-using Slic3r::Neo::Bridge::FilamentState::history_state_json;
+using Slic3r::Neo::Bridge::Filament::State::history_state_json;
 using Slic3r::Neo::Bridge::ProjectOverlay::empty_project_config_overlay;
 
 } // namespace
@@ -84,7 +83,7 @@ void validate_filament_candidate(PresetBundle& bundle, Model& model,
                                  const json& overlay, bool strict_slot_arrays,
                                  bool require_all_slot_arrays)
 {
-    Neo::Bridge::FilamentCommands::validate_filament_candidate(
+    Neo::Bridge::Filament::Commands::validate_filament_candidate(
         bundle, model, plates, overlay, strict_slot_arrays, require_all_slot_arrays);
 }
 

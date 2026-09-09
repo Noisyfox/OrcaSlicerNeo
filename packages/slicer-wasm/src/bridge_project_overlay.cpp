@@ -11,7 +11,7 @@
 
 #include <emscripten/emscripten.h>
 
-#include "bridge_filament_state.hpp"
+#include "bridge_filament.hpp"
 #include "bridge_model_operations.hpp"
 #include "bridge_plate_commands.hpp"
 #include "bridge_plate_session.hpp"
@@ -24,7 +24,7 @@ namespace Slic3r::Neo::Bridge::ProjectOverlay {
 
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
-using Neo::Bridge::FilamentState::config_metadata_json;
+using Neo::Bridge::Filament::State::config_metadata_json;
 using Neo::Bridge::ModelOperations::find_object_by_id;
 using Neo::Bridge::ModelOperations::find_volume_by_id;
 using Neo::Bridge::PlateCommands::plate_configuration_mutation_snapshot;
@@ -247,7 +247,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
             configuration_status = native_configuration_status(candidate, key, value);
             effective_value = effective_for(candidate);
             plate->settings = std::move(candidate);
-            plate->settings_metadata = FilamentState::config_metadata_json(plate->settings);
+            plate->settings_metadata = Filament::State::config_metadata_json(plate->settings);
         }
         json& bucket = scope == "project" ? state().project_config_overlay["project"]
             : scope == "object" ? state().project_config_overlay["objects"][id]

@@ -15,8 +15,7 @@
 #include <vector>
 
 #include "bridge_history_runtime.hpp"
-#include "bridge_filament_commands.hpp"
-#include "bridge_filament_state.hpp"
+#include "bridge_filament.hpp"
 #include "bridge_history_codec.hpp"
 #include "bridge_history_metadata.hpp"
 #include "bridge_plate_session.hpp"
@@ -31,12 +30,12 @@ namespace Slic3r::Neo::Bridge::HistoryRuntime {
 
 using Neo::Bridge::BridgeState;
 using Neo::Bridge::state;
-using Neo::Bridge::FilamentCommands::validate_filament_candidate;
-using Neo::Bridge::FilamentCommands::validate_filament_candidate_components;
-using Neo::Bridge::FilamentState::apply_mutable;
-using Neo::Bridge::FilamentState::DirectHistoryFrame;
-using Neo::Bridge::FilamentState::history_state_json;
-using Neo::Bridge::FilamentState::stage_mutable;
+using Neo::Bridge::Filament::Commands::validate_filament_candidate;
+using Neo::Bridge::Filament::Commands::validate_filament_candidate_components;
+using Neo::Bridge::Filament::State::apply_mutable;
+using Neo::Bridge::Filament::State::DirectHistoryFrame;
+using Neo::Bridge::Filament::State::history_state_json;
+using Neo::Bridge::Filament::State::stage_mutable;
 using Neo::Bridge::HistoryMetadata::history_entry_id;
 using Neo::Bridge::HistoryMetadata::parse_history_context;
 using Neo::Bridge::HistoryMetadata::parse_history_entry_id;
@@ -225,7 +224,7 @@ void restore_history_plate_session(const json& session, const Model& restored_mo
         state().plate_input_revisions[plate_id] = revision.get<std::uint64_t>();
 }
 
-void validate_filament_history_mutable_state(PresetBundle& catalog, const Neo::Bridge::FilamentState::StagedMutableState& staged,
+void validate_filament_history_mutable_state(PresetBundle& catalog, const Neo::Bridge::Filament::State::StagedMutableState& staged,
                                              Model& model, const std::vector<BridgeState::PlateSessionPlate>& plates,
                                              const json& overlay)
 {
@@ -369,7 +368,7 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
         ? Model(state().model) : Neo::History::Codec::stage_model(state().model, plan.state);
     if (!context.contains("filamentState")) throw std::runtime_error("history context is missing filament state");
     const bool filament_changed = history_state_json(state().presets) != context["filamentState"];
-    std::optional<Neo::Bridge::FilamentState::StagedMutableState> staged_filament_state;
+    std::optional<Neo::Bridge::Filament::State::StagedMutableState> staged_filament_state;
     if (filament_changed) staged_filament_state.emplace(stage_mutable(state().presets, context["filamentState"]));
     auto staged_plates = state().plate_session_plates;
     if (context.contains("plateSession")) staged_plates = build_history_plate_session(context["plateSession"], staged_model);
@@ -380,7 +379,7 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
         validate_filament_candidate(state().presets, staged_model, staged_plates,
                                     context.value("projectConfigOverlay", empty_project_config_overlay()));
     if (!state().history.can_commit_restore(plan)) throw std::runtime_error("history restore became stale");
-    std::optional<Neo::Bridge::FilamentState::StagedMutableState> before_filament_state;
+    std::optional<Neo::Bridge::Filament::State::StagedMutableState> before_filament_state;
     if (filament_changed) before_filament_state.emplace(stage_mutable(state().presets, history_state_json(state().presets)));
     Model before_model = state().model;
     const auto before_plates = state().plate_session_plates;
