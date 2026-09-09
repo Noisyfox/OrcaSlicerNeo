@@ -155,7 +155,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // user confirmation.  The default mock project is a plain synthetic archive
   // and has no embedded safety warning; warning-focused tests opt in through
   // embeddedPresetWarnings.  Keeping this derived value separate from the
-  // legacy direct-load fixture prevents the app E2E project picker from being
+  // direct-load fixture prevents the app E2E project picker from being
   // blocked by a warning that the fixture does not contain.
   const hasProjectPreflightWarning = Boolean(
     projectWarningFixture.modifiedPrinterGcode ||
@@ -174,7 +174,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- Compatibility-aware FFF preset fixture. The mock intentionally owns
   // only simple explicit relations; real compatible_printers / conditions /
   // inheritance remain C++ engine behaviour. Afinia and the hidden print /
-  // filament entries exercise the legacy visibility surface. ----
+  // filament entries exercise visibility filtering. ----
   type PresetKind = 'printer' | 'print' | 'filament';
   type PresetFixture = {
     name: string; is_visible: boolean; is_default: boolean;
@@ -975,7 +975,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
-    orc_init(_legacyPreferencesJson?: string) {
+    orc_init(_optionsJson?: string) {
       resetPlateSession();
       resetHistory();
       return {

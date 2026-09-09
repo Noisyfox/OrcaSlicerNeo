@@ -573,8 +573,7 @@ function normalizeCount(raw: unknown): number | null {
 }
 
 /** Convert the native profile/catalogue payload into the public profile
- * contract. The native bridge emits the multi-filament catalogue under its
- * explicit wire key; single-filament selection is not part of this contract. */
+ * contract, including the engine-filtered filament catalogue. */
 function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
   if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
   return {

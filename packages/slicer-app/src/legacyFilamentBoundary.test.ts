@@ -8,7 +8,7 @@ function source(relative: string): string {
 }
 
 describe('multi-filament application boundary', () => {
-  it('does not expose the retired single-filament selector or selection state', () => {
+  it('keeps printer/process selection separate from rack-owned filament state', () => {
     const settingsPanel = source('./components/workspace/settings/SettingsPanel.tsx');
     const settingsStore = source('./stores/useSettingsStore.ts');
     const preferences = source('./preferences.ts');

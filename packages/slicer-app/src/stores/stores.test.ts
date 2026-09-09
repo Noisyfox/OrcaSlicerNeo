@@ -50,7 +50,7 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().values).toEqual({ layer_height: '0.2', wall_loops: '3' });
   });
 
-  it('setSelections applies printer/process responses without a legacy filament selection', () => {
+  it('setSelections updates printer/process responses while rack state stays separate', () => {
     const s = useSettingsStore.getState();
     s.setSelections('P1S', 'Standard');
     expect(useSettingsStore.getState().selectedPrinter).toBe('P1S');

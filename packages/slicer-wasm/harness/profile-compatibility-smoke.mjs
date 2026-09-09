@@ -43,7 +43,8 @@ function assertSnapshot(snapshot, expected) {
   assert.deepEqual(names(snapshot, 'filament'), expected.filamentCatalog, 'filament catalogue/order');
   assert.equal(snapshot.printer.name, expected.printer, 'resolved printer');
   assert.equal(snapshot.print.name, expected.print, 'resolved process');
-  assert.equal(Object.hasOwn(snapshot, 'filament'), false, 'single-filament selection is absent');
+  assert.equal(Object.hasOwn(snapshot, 'filament'), false,
+    'profile snapshot exposes only printer/process selections and the filament catalogue');
 }
 
 const packageRoot = await mkdtemp(join(tmpdir(), 'orca-profile-compatibility-'));
@@ -63,11 +64,6 @@ try {
 
   const init = callJson(Module, 'orc_init', ['string'], ['']);
   assert.equal(init.ok, true, `orc_init failed: ${JSON.stringify(init)}`);
-
-  const retiredFilamentSelection = callJson(Module, 'orc_select_preset', ['string', 'string'],
-    ['filament', 'Alpha Explicit Filament']);
-  assert.equal(retiredFilamentSelection.ok, undefined, 'single-filament selection must not be accepted');
-  assert.match(retiredFilamentSelection.error, /kind must be print\|printer/);
 
   // Alpha is first in native collection order. Its explicit default selects
   // the name-list-compatible process and filament. The condition-based

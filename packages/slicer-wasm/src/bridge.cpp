@@ -4198,9 +4198,8 @@ static void apply_project_filament_sidecar_state(PresetBundle& bundle, const jso
     if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
         !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
         encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
-        !encoded.contains("project_config") || !encoded["project_config"].is_object() ||
-        encoded.contains("selected_filament_preset"))
-        throw std::runtime_error("invalid history filament state");
+        !encoded.contains("project_config") || !encoded["project_config"].is_object())
+        throw std::runtime_error("invalid project filament sidecar state");
 
     std::vector<std::string> names;
     names.reserve(encoded["filament_presets"].size());
@@ -4241,8 +4240,7 @@ static StagedFilamentHistoryMutableState stage_filament_history_mutable_state(
     if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
         !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
         encoded["filament_presets"].empty() || encoded["filament_presets"].size() > 64 ||
-        !encoded.contains("project_config") || !encoded["project_config"].is_object() ||
-        encoded.contains("selected_filament_preset"))
+        !encoded.contains("project_config") || !encoded["project_config"].is_object())
         throw std::runtime_error("invalid history filament state");
     StagedFilamentHistoryMutableState staged {
         {}, catalog.project_config,

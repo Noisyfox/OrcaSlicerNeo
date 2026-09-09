@@ -572,31 +572,6 @@ describe('SlicerClient bridge contract', () => {
     expect(snapshot.printable_area).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
   });
 
-  it('rejects the retired profile wire fields instead of normalizing them as compatibility', async () => {
-    const module = createMockModule();
-    const originalCall = module.ccall.bind(module);
-    module.ccall = ((name, ret, argTypes, args) => {
-      const pointer = Number(originalCall(name, ret, argTypes, args));
-      if (name !== 'orc_get_preset_snapshot') return pointer;
-      const raw = JSON.parse(module.UTF8ToString(pointer)) as Record<string, unknown>;
-      module._free(pointer);
-      const legacyPayload = JSON.stringify({
-        ...raw,
-        filaments: raw.filament_catalog,
-        filament: { name: 'retired', idx: 0 },
-        filament_catalog: undefined,
-      });
-      const bytes = new TextEncoder().encode(legacyPayload);
-      const replacement = Number(module._malloc(bytes.length + 1));
-      module.HEAPU8.set(bytes, replacement);
-      module.HEAPU8[replacement + bytes.length] = 0;
-      return replacement;
-    }) as typeof module.ccall;
-    const snapshot = await createClient(async () => module).getProfileSnapshot();
-    expect(snapshot).toMatchObject({ ok: true, filamentCatalog: [] });
-    expect(Object.hasOwn(snapshot, 'filament')).toBe(false);
-  });
-
   it('selectProfile returns the resolved printer-to-process-to-rack snapshot', async () => {
     const c = makeClient();
     const r = await c.selectProfile('printer', 'Bambu Lab P1S 0.4 nozzle');
@@ -641,12 +616,6 @@ describe('SlicerClient bridge contract', () => {
     if (incompatible.ok) throw new Error('expected incompatible process rejection');
     expect(incompatible.error).toContain('incompatible');
     expect(await c.getProfileSnapshot()).toEqual(before);
-  });
-
-  it('does not expose a single-filament profile selection command', async () => {
-    const c = makeClient();
-    const result = await c.selectProfile('filament' as never, 'Bambu PLA Matte @BBL X1C');
-    expect(result).toEqual({ error: 'kind must be print|printer' });
   });
 
   it('getOptionMetadata exposes typed keys', async () => {

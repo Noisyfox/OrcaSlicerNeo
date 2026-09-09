@@ -8,8 +8,8 @@ describe('user preferences', () => {
     expect(normalizeUserPreferences('{bad}').ui).toEqual({ switchToDeviceAfterSend: true });
   });
   it('keeps only the typed profile names and UI preferences', () => {
-    expect(normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'P', print: 4, filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, x: true } })).toEqual({
-      version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, switchToDeviceAfterSend: true },
+    expect(normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'P', print: 'Standard', ignored: true }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, x: true } })).toEqual({
+      version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', print: 'Standard' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, switchToDeviceAfterSend: true },
     });
   });
 
