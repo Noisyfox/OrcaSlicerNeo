@@ -213,7 +213,7 @@ int wasm_tbb_concurrency()
 // run) — observed as "memory access out of bounds" at instantiation when
 // constructed eagerly.
 json empty_project_config_overlay();
-static void restore_filament_history_state(PresetBundle& bundle, const json& encoded);
+static void apply_project_filament_sidecar_state(PresetBundle& bundle, const json& encoded);
 struct BridgeState {
 #ifdef ORCA_WASM_THREADING
     // Match the pre-created Emscripten pthread pool at runtime. This avoids a
@@ -254,6 +254,10 @@ struct BridgeState {
     // Test-visible counter makes the no-PresetBundle history boundary
     // executable: history restores must use the minimal mutable frame below.
     std::uint64_t history_minimal_mutable_restore_count = 0;
+    // Project import is the one audited boundary that intentionally stages a
+    // complete PresetBundle copy so native embedded-preset loading remains
+    // transactional. History paths must never increment this counter.
+    std::uint64_t full_preset_bundle_copy_count = 0;
     std::size_t next_filament_colour_index = 0;
     bool history_disabled = false;
     // The current completed preview owns the exported G-code in MEMFS. Keep
@@ -4189,7 +4193,7 @@ static bool history_model_state_equal(const Neo::History::ModelState& lhs,
     return true;
 }
 
-static void restore_filament_history_state(PresetBundle& bundle, const json& encoded)
+static void apply_project_filament_sidecar_state(PresetBundle& bundle, const json& encoded)
 {
     if (!encoded.is_object() || encoded.value("version", 0) != 1 ||
         !encoded.contains("filament_presets") || !encoded["filament_presets"].is_array() ||
@@ -4923,6 +4927,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_status() {
 EMSCRIPTEN_KEEPALIVE const char* orc_history_restore_diagnostics() {
     return dup_json(json{
         {"minimalMutableRestoreCount", state().history_minimal_mutable_restore_count},
+        {"fullPresetBundleCopyCount", state().full_preset_bundle_copy_count},
     }.dump());
 }
 
@@ -5921,6 +5926,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             }
         }
 
+        ++state().full_preset_bundle_copy_count;
         PresetBundle candidate = state().presets;
         std::vector<std::string> requested_filament_slots;
         bool filament_sidecar_applied = false;
@@ -5957,7 +5963,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             if (filament_state_metadata) {
                 requested_filament_slots = filament_state_metadata->value(
                     "filament_presets", std::vector<std::string>{});
-                restore_filament_history_state(candidate, *filament_state_metadata);
+                apply_project_filament_sidecar_state(candidate, *filament_state_metadata);
                 filament_sidecar_applied = true;
                 validate_filament_candidate(candidate, imported, {},
                                             overlay_metadata.value_or(empty_project_config_overlay()),
@@ -5975,7 +5981,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             // apply the same request-before-compatibility ordering here.
             if (!filament_sidecar_applied) {
                 requested_filament_slots = filament_state_metadata->value("filament_presets", std::vector<std::string>{});
-                restore_filament_history_state(candidate, *filament_state_metadata);
+                apply_project_filament_sidecar_state(candidate, *filament_state_metadata);
                 filament_sidecar_applied = true;
                 validate_filament_candidate(candidate, imported, {},
                                             overlay_metadata.value_or(empty_project_config_overlay()),

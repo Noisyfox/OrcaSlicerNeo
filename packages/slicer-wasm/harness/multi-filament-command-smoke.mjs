@@ -281,6 +281,9 @@ for (const sample of slotHistoryLatencies) {
     `warmed ${sample.label} ${sample.operation} must finish below 100ms, got ${sample.durationMs.toFixed(1)}ms`);
 }
 const minimalHistoryDiagnostics = callJson('orc_history_restore_diagnostics');
+assert.equal(minimalHistoryDiagnostics.fullPresetBundleCopyCount,
+  historyDiagnosticsBeforeUndoRedo.fullPresetBundleCopyCount,
+  `history undo/redo must not copy PresetBundle: ${JSON.stringify(minimalHistoryDiagnostics)}`);
 assert.ok(minimalHistoryDiagnostics.minimalMutableRestoreCount -
     historyDiagnosticsBeforeUndoRedo.minimalMutableRestoreCount >= slotHistoryLatencies.length,
   `each warmed slot Undo/Redo must use the minimal mutable restore path: ${JSON.stringify(minimalHistoryDiagnostics)}`);
@@ -399,13 +402,14 @@ const ordinaryCommit = callJson('orc_history_commit', ['string', 'string'],
 assert.equal(ordinaryCommit.canUndo, true, JSON.stringify(ordinaryCommit));
 // An ordinary model commit deliberately carries no direct filament frame.
 // Its undo/redo exercises the serialized/direct-missing fallback; the bridge
-// diagnostic must prove this path still never clones/restores PresetBundle.
+// diagnostic must prove this path still never copies PresetBundle.
 const fallbackDiagnosticsBefore = callJson('orc_history_restore_diagnostics');
 assert.equal(callJson('orc_history_undo').ok, true, 'direct-missing fallback undo');
 assert.equal(callJson('orc_history_redo').ok, true, 'direct-missing fallback redo');
-assert.ok(callJson('orc_history_restore_diagnostics').minimalMutableRestoreCount >=
-  fallbackDiagnosticsBefore.minimalMutableRestoreCount,
-  'direct-missing history fallback must preserve the minimal mutable restore diagnostic');
+const fallbackDiagnosticsAfter = callJson('orc_history_restore_diagnostics');
+assert.equal(fallbackDiagnosticsAfter.fullPresetBundleCopyCount,
+  fallbackDiagnosticsBefore.fullPresetBundleCopyCount,
+  `direct-missing history fallback must not copy PresetBundle: ${JSON.stringify(fallbackDiagnosticsAfter)}`);
 const ordinaryBeforeFilament = semantic(callJson('orc_get_filament_session_snapshot'));
 const ordinaryMutation = request('orc_set_filament_slot_colour', {
   version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slot: 1, colour: '#123456',
@@ -564,5 +568,9 @@ const fenceAssignment = request('orc_assign_filament', {
 assert.equal(fenceAssignment.ok, true, JSON.stringify(fenceAssignment));
 markStage('context-revision-fence');
 console.log(JSON.stringify({ commandSmokeDurationMs: Math.round(performance.now() - startedAt), stageTimes,
-  slotHistoryLatencies }));
+  slotHistoryLatencies,
+  fullPresetBundleCopyCountBeforeHistory: historyDiagnosticsBeforeUndoRedo.fullPresetBundleCopyCount,
+  fullPresetBundleCopyCountAfterHistory: minimalHistoryDiagnostics.fullPresetBundleCopyCount,
+  fullPresetBundleCopyCountBeforeFallback: fallbackDiagnosticsBefore.fullPresetBundleCopyCount,
+  fullPresetBundleCopyCountAfterFallback: fallbackDiagnosticsAfter.fullPresetBundleCopyCount }));
 console.log('multi-filament atomic command smoke passed (capacity, remap, rollback, flush, retention, fixed capability, and all five undo/redo command families)');
