@@ -1208,3 +1208,31 @@ resulting stride (`207 * 1.2 = 248.4`). The fixture's native world offsets
 printable area, origins, and world offsets rather than relying on a default
 profile. Native interoperability and controlled checksum tests pass in both
 serial and threaded variants.
+
+### 4.9 Multi-filament command bridge module (2026-09-10)
+
+This independently testable bridge-maintenance step extracts the
+multi-filament command layer into
+`packages/slicer-wasm/src/bridge_filament_commands.{hpp,cpp}`. The module owns
+command parsing, slot validation, preset/colour selection, slot add/delete/
+merge, assignment and routing, reference remapping, flush recalculation,
+candidate validation, fault-injection rollback, direct history-frame
+coordination, and command result assembly. The existing bridge keeps only
+thin extern-C adapters and supplies the canonical filament-session projection
+through a narrow runtime callback.
+
+The command module consumes `BridgeState` and the existing filament-state,
+plate-session, history, project-persistence, and slicing interfaces. It does
+not add a second wire shape or a compatibility path. History-producing
+mutations retain only the field-level filament state and direct model frame;
+they never copy the complete `PresetBundle`. Revision checks remain at the
+command boundary, all affected plate revisions are invalidated atomically,
+and add/delete/merge rollback remains fieldwise.
+
+The CMake source list explicitly compiles the new translation unit. The
+existing `orc_*` export name/signature set and JSON/error contracts remain
+unchanged, stale filament-session revision fencing remains active, and the
+pinned native submodule remains outside the write set. `bridge.cpp` is
+reduced from 3366 to 1940 physical lines. Full package tests/typechecks,
+dual quick builds, dual history/command smoke, and the acceptance checklist
+remain required before this step is marked complete.
