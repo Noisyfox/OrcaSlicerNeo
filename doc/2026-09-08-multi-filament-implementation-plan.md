@@ -826,6 +826,76 @@ changed. The pinned submodule remains at
 dirty paths. Step 10 is unblocked; the milestone remains undelivered pending
 the separate Level 4 release gate.
 
+**Step 9 Luna High re-audit self-verification record (2026-09-09):** A fresh
+Level 3 re-audit was run after corrective commits `343f5ac` (`fix(app): restore
+Prepare selection with filament controls`) and `1905a59` (`fix(wasm): preserve
+receiver for project preflight`) at HEAD `1905a59`. The current results are:
+
+- `pnpm test` — exit 0; all eight workspace projects passed: slicer-wasm 4
+  files/129 tests, slicer-runtime 5/33, slicer-app 69/455, desktop 10/67,
+  Web 6/27, with printer-control 12, profile-resources 3, and
+  platform-contract 14 tests also passing.
+- `pnpm typecheck` — exit 0 for all eight workspace projects.
+- `scripts\\build-windows.bat quick --variant both` — exit 0; both staged
+  wasm64 artifacts validated. `scripts\\build-windows.bat smoke --variant
+  both` — exit 0; both configured slice/bridge/DRC smoke paths passed.
+- Primary Electron flow
+  `pnpm --filter @orca/desktop test:e2e -- --grep "full v1 flow: add models.*slice.*preview.*export gcode"`
+  — exit 0, 1/1 passed, renderer CSS smoke passed. The five previously
+  failing affected Electron paths (object/part selection guard; clone,
+  assemble, delete; Add Primitive; model-body context menu; project Save As)
+  were rerun together and passed 5/5.
+- `pnpm --filter @orca/web test:e2e:threaded` and
+  `pnpm --filter @orca/web test:e2e:serial` — exit 0, 5/5 each; real threaded
+  and serial fallback import/slice/preview/download flows passed.
+- Comprehensive real-WASM `node
+  packages/slicer-wasm/harness/multi-filament-acceptance-checklist.mjs
+  --run-real` — exit 0 for `serial` and `threaded`, with `failed: []`.
+  This covered the command/rollback, assignments/routing, independent reader,
+  imported painting/tool changes, flushing/prime tower, plate-local result,
+  history, project preflight/rack, project round-trip, and preset restoration
+  rows on both artifacts.
+- Additional current-HEAD probes passed: `project-preflight-smoke.mjs` on
+  serial and threaded (atomic sidecar/rack/preflight rollback),
+  `bridge-smoke.mjs` on threaded, and
+  `multi-filament-slice-preview-smoke.mjs` plus `drc-smoke.mjs` on serial. The
+  acceptance checklist plan parser also exited 0 with no failed rows.
+
+Graph review at this HEAD reports 3,581 nodes and 46,236 edges. Change
+detection against `fcd7963` reports 77 changed files, 367 changed
+functions/classes, 232 structural test-gap candidates, risk 0.60, and no
+automatically connected affected flows. Focused `tests_for` queries report 61
+client tests for `createClient`, 10 `sliceModel` tests, and two direct runtime
+artifact-selection tests; the graph still does not map native C++ harnesses to
+bridge nodes, so the real-WASM matrix above remains the authoritative bridge
+evidence. All four local plan links resolve and the command forms match the
+current package scripts/build-driver contracts. `git diff --check` passes.
+
+The five previously failing Electron paths now pass in this focused rerun;
+the complete Level 4 Electron/package/non-root-Web/profile/compatibility and
+licensed-fixture matrix remains intentionally reserved for Step 10. No
+implementation or submodule files were changed by this audit. The only dirty
+path remains the pre-existing `packages/slicer-wasm/cpp` submodule at
+`b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde`, with the same seven user-owned
+dirty files. This record is self-verification only and awaits root acceptance;
+it does not mark the milestone delivered.
+
+**Step 9 root re-acceptance record (2026-09-09):** Root independently reviewed
+corrective commits `343f5ac` and `1905a59`, including the restored ObjectList
+DOM/selection contract, additive-mesh selection timing, Worker receiver
+preservation, and clean-project mock preflight semantics. Root then reran
+`pnpm test`, `pnpm typecheck`, both-variant quick and smoke builds, and the
+complete real-WASM multi-filament acceptance checklist; all exited 0 and the
+checklist reported `failed: []` for serial and threaded. The primary Electron
+flow plus the five corrected paths passed 6/6, and the real Web threaded and
+serial-fallback suites passed 5/5 each. Graph review at `1905a59` reported no
+mapped affected flows; its native-harness mapping gap is covered by the
+successful real-WASM matrix. `git diff --check` passed, and the pinned native
+submodule remained at `b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde`
+with the same seven user-owned dirty files. Step 9 is re-accepted and Step 10
+is unblocked; the milestone remains undelivered until the separate Level 4
+release gate passes.
+
 ### Step 10 — Separate Level 4 release gate
 
 **Dispatch:** Root starts a fresh Luna High subagent for Step 10 only after Step 9 is accepted. The subagent performs the complete Level 4 release matrix and self-verification record; root independently performs final acceptance. This is the final serial step; no later implementation step may be dispatched.
