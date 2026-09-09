@@ -1298,3 +1298,24 @@ archive staging, or history transactions; history paths continue to avoid
 copying the complete `PresetBundle`. No compatibility or old single-filament
 API was added, and the pinned native submodule remains outside the write set.
 `bridge.cpp` is reduced from 1041 to 804 physical lines.
+
+### 4.13 Multi-filament session projection and ABI facade (2026-09-10)
+
+This independently testable bridge-maintenance step extracts the native
+multi-filament session projection and its thin ABI facade into
+`packages/slicer-wasm/src/bridge_filament_session.{hpp,cpp}`. The module owns
+the canonical rack snapshot, effective slot maps, flushing projection,
+capabilities, assignment/routing projection, command runtime adapter, and the
+multi-filament command and fixture exports. Mutation implementation remains
+in `bridge_filament_commands.cpp`; field-level state and history data remain
+in `bridge_filament_state.cpp`. Plate snapshot and initialization stay in the
+facade.
+
+The CMake source list explicitly compiles the new translation unit. All 77
+`orc_*` exports retain their names and complete signatures, JSON/error
+contracts and stale revision fence are unchanged, and history operations
+continue to use field-level state without copying a complete `PresetBundle`.
+No compatibility or old single-filament API was added. The pinned native
+submodule remains outside the write set. The parent `bridge.cpp` was 804
+physical lines and is now 248 physical lines; the new session module is 561
+physical lines.

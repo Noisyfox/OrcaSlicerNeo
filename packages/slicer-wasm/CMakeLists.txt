@@ -339,6 +339,7 @@ list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHisto
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp")
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament_state.cpp")
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament_commands.cpp")
+list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament_session.cpp")
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history_codec.cpp")
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history_metadata.cpp")
 list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history_runtime.cpp")
