@@ -1,0 +1,611 @@
+// ----------------------------------------------------------------
+// Runtime multi-plate/session implementation for the Neo bridge.
+// ----------------------------------------------------------------
+#include "bridge_plate_session.hpp"
+
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <limits>
+#include <set>
+#include <utility>
+
+#include "libslic3r/BuildVolume.hpp"
+#include "libslic3r/PrintConfig.hpp"
+
+namespace Slic3r::Neo::Bridge::PlateSession {
+
+using namespace Slic3r;
+using nlohmann::json;
+using Neo::Bridge::BridgeState;
+using Neo::Bridge::state;
+
+std::atomic<std::uint64_t> g_plate_session_sequence{0};
+std::atomic<std::uint64_t> g_plate_id_sequence{0};
+
+std::uint64_t next_plate_session_sequence()
+{
+    return g_plate_session_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+std::uint64_t next_plate_id_sequence()
+{
+    return g_plate_id_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+std::uint64_t current_plate_session_sequence()
+{
+    return g_plate_session_sequence.load(std::memory_order_relaxed);
+}
+
+static constexpr int kMaxPlateCount = 36;
+static constexpr double kPlateGap = 1. / 5.;
+
+json session_transform_json(const Slic3r::Geometry::Transformation& t)
+{
+    const auto offset = t.get_offset();
+    const auto rotation = t.get_rotation();
+    const auto scale = t.get_scaling_factor();
+    const auto mirror = t.get_mirror();
+    const Slic3r::Matrix4d m = t.get_matrix().matrix();
+    json j = {{"offset", {offset.x(), offset.y(), offset.z()}},
+              {"rotation", {rotation.x(), rotation.y(), rotation.z()}},
+              {"scale", {scale.x(), scale.y(), scale.z()}},
+              {"mirror", {mirror.x(), mirror.y(), mirror.z()}}};
+    j["matrix"] = {m(0,0), m(1,0), m(2,0), m(3,0),
+                    m(0,1), m(1,1), m(2,1), m(3,1),
+                    m(0,2), m(1,2), m(2,2), m(3,2),
+                    m(0,3), m(1,3), m(2,3), m(3,3)};
+    return j;
+}
+
+PlateBounds selected_plate_bounds()
+{
+    PlateBounds bounds;
+    try {
+        const Preset& printer = state().presets.printers.get_selected_preset();
+        if (const auto* area = printer.config.opt<ConfigOptionPoints>("printable_area");
+            area != nullptr && area->values.size() >= 3) {
+            bounds.min_x = bounds.max_x = area->values.front().x();
+            bounds.min_y = bounds.max_y = area->values.front().y();
+            for (const Vec2d& point : area->values) {
+                bounds.min_x = std::min(bounds.min_x, point.x());
+                bounds.max_x = std::max(bounds.max_x, point.x());
+                bounds.min_y = std::min(bounds.min_y, point.y());
+                bounds.max_y = std::max(bounds.max_y, point.y());
+            }
+        }
+        if (const auto* height = printer.config.opt<ConfigOptionFloat>("printable_height");
+            height != nullptr && std::isfinite(height->value) && height->value > 0.)
+            bounds.max_z = height->value;
+    } catch (...) {
+        // A bridge snapshot must remain usable even before profile setup. The
+        // deterministic fallback is the historical 200 mm square bed.
+    }
+    return bounds;
+}
+
+int plate_column_count(const int count)
+{
+    if (count <= 1) return 1;
+    const double root = std::sqrt(static_cast<double>(count));
+    const int rounded = static_cast<int>(std::round(root));
+    return root > static_cast<double>(rounded) ? rounded + 1 : rounded;
+}
+
+Vec3d plate_origin_for_index(const int index, const int count, const PlateBounds& bounds)
+{
+    const int cols = plate_column_count(count);
+    const int row = index / cols;
+    const int col = index % cols;
+    const double stride_x = (bounds.max_x - bounds.min_x) * (1. + kPlateGap);
+    const double stride_y = (bounds.max_y - bounds.min_y) * (1. + kPlateGap);
+    return Vec3d(col * stride_x, -row * stride_y, 0.);
+}
+
+Vec3d parked_origin_for_count(const int count, const PlateBounds& bounds)
+{
+    const int cols = plate_column_count(count);
+    const int max_count = cols * cols;
+    const int index = count == max_count ? max_count + cols - 1 : count;
+    const int parked_cols = count == max_count ? cols + 1 : cols;
+    const int row = index / parked_cols;
+    const int col = index % parked_cols;
+    const double stride_x = (bounds.max_x - bounds.min_x) * (1. + kPlateGap);
+    const double stride_y = (bounds.max_y - bounds.min_y) * (1. + kPlateGap);
+    return Vec3d(col * stride_x, -row * stride_y, 0.);
+}
+
+
+void reset_plate_session_state()
+{
+    auto& s = state();
+    const auto sequence = next_plate_session_sequence();
+    s.plate_session_plates.clear();
+    s.instance_plate_ids.clear();
+    s.plate_out_of_bounds_ids.clear();
+    s.parked_instance_ids.clear();
+    s.pending_membership_instance_ids.clear();
+    s.plate_input_revisions.clear();
+    const auto plate_id = "plate-session-" + std::to_string(sequence) + "-plate-1";
+    s.plate_session_plates.push_back({plate_id, "Plate 1", 0, Vec3d::Zero()});
+    s.plate_input_revisions[plate_id] = 0;
+    s.current_plate_id = plate_id;
+}
+
+void ensure_plate_session_state()
+{
+    if (state().plate_session_plates.empty() || state().current_plate_id.empty()) reset_plate_session_state();
+}
+
+const BridgeState::PlateSessionPlate* find_plate(const std::string& id)
+{
+    ensure_plate_session_state();
+    const auto& plates = state().plate_session_plates;
+    const auto it = std::find_if(plates.begin(), plates.end(), [&](const auto& plate) { return plate.id == id; });
+    return it == plates.end() ? nullptr : &*it;
+}
+
+BridgeState::PlateSessionPlate* find_plate_mutable(const std::string& id)
+{
+    ensure_plate_session_state();
+    auto& plates = state().plate_session_plates;
+    const auto it = std::find_if(plates.begin(), plates.end(), [&](const auto& plate) { return plate.id == id; });
+    return it == plates.end() ? nullptr : &*it;
+}
+
+json instance_membership_json()
+{
+    json instances = json::array();
+    for (size_t object_index = 0; object_index < state().model.objects.size(); ++object_index) {
+        const ModelObject* object = state().model.objects[object_index];
+        for (size_t instance_index = 0; instance_index < object->instances.size(); ++instance_index) {
+            const ModelInstance* instance = object->instances[instance_index];
+            const std::size_t id = instance->id().id;
+            const auto membership = state().instance_plate_ids.find(id);
+            const std::string plate_id = membership == state().instance_plate_ids.end() ? "" : membership->second;
+            const bool parked = state().parked_instance_ids.find(id) != state().parked_instance_ids.end();
+            const bool out_of_bounds = !plate_id.empty() &&
+                state().plate_out_of_bounds_ids[plate_id].find(id) != state().plate_out_of_bounds_ids[plate_id].end();
+            instances.push_back({
+                {"instance_id", id}, {"object_id", object->id().id},
+                {"object_index", object_index}, {"instance_index", instance_index},
+                {"plate_id", plate_id}, {"member", !plate_id.empty()},
+                {"parked", parked}, {"unprintable", parked || plate_id.empty()},
+                {"out_of_bounds", out_of_bounds},
+            });
+        }
+    }
+    return instances;
+}
+
+json plate_revisions_json();
+
+json plate_session_snapshot_json(const json& instance_transforms, bool include_membership)
+{
+    ensure_plate_session_state();
+    json plates = json::array();
+    for (const auto& plate : state().plate_session_plates) {
+        json out_of_bounds = json::array();
+        json members = json::array();
+        for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
+            if (plate_id == plate.id) members.push_back(instance_id);
+        }
+        const auto out_it = state().plate_out_of_bounds_ids.find(plate.id);
+        if (out_it != state().plate_out_of_bounds_ids.end())
+            for (const auto instance_id : out_it->second) out_of_bounds.push_back(instance_id);
+        const bool plate_valid = out_of_bounds.empty();
+        plates.push_back(json{
+            {"plate_id", plate.id}, {"display_index", plate.display_index},
+            {"origin", {plate.origin.x(), plate.origin.y(), plate.origin.z()}},
+            {"name", plate.name}, {"instance_ids", std::move(members)},
+            {"out_of_bounds_instance_ids", std::move(out_of_bounds)},
+            {"valid", plate_valid}, {"locked", plate.locked},
+            {"settings", plate.settings_metadata},
+            {"opaque_metadata", plate.opaque_metadata},
+            {"future_metadata", plate.future_metadata},
+        });
+    }
+    json result{
+        {"ok", true},
+        {"version", 1},
+        {"current_plate_id", state().current_plate_id},
+        {"plates", std::move(plates)},
+        {"instance_transforms", instance_transforms},
+        {"input_revisions", plate_revisions_json()},
+    };
+    if (include_membership) result["instances"] = instance_membership_json();
+    return result;
+}
+
+std::vector<PlateInstanceRef> plate_instance_refs()
+{
+    std::vector<PlateInstanceRef> refs;
+    for (size_t oi = 0; oi < state().model.objects.size(); ++oi) {
+        ModelObject* object = state().model.objects[oi];
+        for (size_t ii = 0; ii < object->instances.size(); ++ii) {
+            ModelInstance* instance = object->instances[ii];
+            refs.push_back({oi, ii, instance->id().id, object, instance});
+        }
+    }
+    return refs;
+}
+
+// Build the print input for one plate without touching the authoritative
+// editing model.  Model::add_object performs a deep copy of each selected
+// object; non-member instances are removed from that copy and every retained
+// instance is translated back into the printer's local coordinate system.
+// This is intentionally temporary data: the global model continues to carry
+// world-space coordinates for rendering, editing, and persistence.
+std::optional<Model> make_current_plate_model(const BridgeState::PlateSessionPlate& plate,
+                                              std::string& error)
+{
+    Model local_model;
+    const Vec3d local_origin = plate.origin;
+    std::size_t selected_instances = 0;
+    for (ModelObject* source : state().model.objects) {
+        std::vector<std::size_t> selected_indices;
+        for (std::size_t index = 0; index < source->instances.size(); ++index) {
+            const auto instance_id = source->instances[index]->id().id;
+            const auto membership = state().instance_plate_ids.find(instance_id);
+            if (membership != state().instance_plate_ids.end() && membership->second == plate.id)
+                selected_indices.push_back(index);
+        }
+        if (selected_indices.empty()) continue;
+
+        ModelObject* copy = local_model.add_object(*source);
+        const std::set<std::size_t> selected_index_set(selected_indices.begin(), selected_indices.end());
+        for (std::size_t index = copy->instances.size(); index-- > 0;) {
+            if (selected_index_set.find(index) == selected_index_set.end())
+                copy->delete_instance(index);
+        }
+        for (ModelInstance* instance : copy->instances) {
+            auto transform = instance->get_transformation();
+            transform.set_offset(transform.get_offset() - local_origin);
+            instance->set_transformation(transform);
+        }
+        copy->invalidate_bounding_box();
+        selected_instances += copy->instances.size();
+    }
+    if (selected_instances == 0) {
+        error = "current plate is empty";
+        return std::nullopt;
+    }
+    return local_model;
+}
+
+bool validate_plate_operation_target(const std::string& plate_id,
+                                     const std::uint64_t revision,
+                                     std::string& error)
+{
+    ensure_plate_session_state();
+    if (plate_id.empty() || plate_id != state().current_plate_id) {
+        error = "plate operation target is not the current plate";
+        return false;
+    }
+    const auto* plate = find_plate(plate_id);
+    if (plate == nullptr) {
+        error = "plate operation target was not found";
+        return false;
+    }
+    const auto current_revision = state().plate_input_revisions[plate_id];
+    if (revision != current_revision) {
+        error = "plate operation target is stale";
+        return false;
+    }
+    const auto out_of_bounds = state().plate_out_of_bounds_ids.find(plate_id);
+    if (out_of_bounds != state().plate_out_of_bounds_ids.end() && !out_of_bounds->second.empty()) {
+        error = "current plate contains an out-of-bounds instance";
+        return false;
+    }
+    bool has_member = false;
+    for (const auto& [instance_id, member_plate_id] : state().instance_plate_ids) {
+        (void)instance_id;
+        if (member_plate_id == plate_id) { has_member = true; break; }
+    }
+    if (!has_member) {
+        error = "current plate is empty";
+        return false;
+    }
+    return true;
+}
+
+BoundingBoxf3 instance_hull_box(const PlateInstanceRef& ref)
+{
+    for (ModelVolume* volume : ref.object->volumes) {
+        if (volume->is_model_part() && !volume->get_convex_hull_shared_ptr())
+            volume->calculate_convex_hull();
+    }
+    return ref.object->instance_convex_hull_bounding_box(ref.instance);
+}
+
+bool box_intersects_plate(const BoundingBoxf3& box, const BridgeState::PlateSessionPlate& plate,
+                          const PlateBounds& bounds)
+{
+    if (!box.defined) return false;
+    const double min_x = plate.origin.x() + bounds.min_x;
+    const double max_x = plate.origin.x() + bounds.max_x;
+    const double min_y = plate.origin.y() + bounds.min_y;
+    const double max_y = plate.origin.y() + bounds.max_y;
+    return box.max.x() >= min_x && box.min.x() <= max_x &&
+           box.max.y() >= min_y && box.min.y() <= max_y &&
+           box.max.z() >= 0. && box.min.z() <= bounds.max_z;
+}
+
+std::vector<Vec2d> selected_printable_area(const PlateBounds& bounds,
+                                           const BridgeState::PlateSessionPlate& plate)
+{
+    std::vector<Vec2d> area;
+    try {
+        const Preset& printer = state().presets.printers.get_selected_preset();
+        if (const auto* configured = printer.config.opt<ConfigOptionPoints>("printable_area");
+            configured != nullptr && configured->values.size() >= 3) {
+            area.reserve(configured->values.size());
+            for (const Vec2d& point : configured->values)
+                area.emplace_back(point.x() + plate.origin.x(), point.y() + plate.origin.y());
+        }
+    } catch (...) {
+        // Keep the deterministic fallback in sync with selected_plate_bounds().
+    }
+    if (area.size() < 3) {
+        area = {{plate.origin.x() + bounds.min_x, plate.origin.y() + bounds.min_y},
+                {plate.origin.x() + bounds.max_x, plate.origin.y() + bounds.min_y},
+                {plate.origin.x() + bounds.max_x, plate.origin.y() + bounds.max_y},
+                {plate.origin.x() + bounds.min_x, plate.origin.y() + bounds.max_y}};
+    }
+    return area;
+}
+
+// Match Orca's PartPlate::check_outside semantics.  In particular, Orca
+// treats a model that is slightly sunk into the bed specially: it evaluates
+// the convex hull with BuildVolume instead of requiring bbox.min.z() >= 0.
+// Support-bearing projects commonly contain this legitimate small negative Z
+// offset, and the old bridge-side AABB check incorrectly marked those plates
+// out of bounds.
+bool box_fully_inside_plate(const PlateInstanceRef& ref, const BoundingBoxf3& box,
+                            const BridgeState::PlateSessionPlate& plate, const PlateBounds& bounds)
+{
+    if (!box.defined) return false;
+    const double eps = BuildVolume::SceneEpsilon;
+    BoundingBoxf3 plate_box(
+        Vec3d(plate.origin.x() + bounds.min_x - eps,
+              plate.origin.y() + bounds.min_y - eps,
+              plate.origin.z() - eps),
+        Vec3d(plate.origin.x() + bounds.max_x + eps,
+              plate.origin.y() + bounds.max_y + eps,
+              plate.origin.z() + bounds.max_z + eps));
+
+    // This is the same lower-Z adjustment used by PartPlate::check_outside:
+    // a model that rests below the mathematical bed plane is not rejected
+    // merely because of its sinking offset.
+    if (box.max.z() > plate_box.min.z())
+        plate_box.min.z() += box.min.z();
+
+    if (box.min.z() < SINKING_Z_THRESHOLD) {
+        if (!plate_box.intersects(box)) return false;
+        const BuildVolume build_volume(selected_printable_area(bounds, plate), bounds.max_z, {}, {});
+        return ref.instance->calc_print_volume_state(build_volume) != ModelInstancePVS_Partly_Outside;
+    }
+
+    return plate_box.contains(box);
+}
+
+json instance_transform_record(const PlateInstanceRef& ref)
+{
+    return json{{"instance_id", ref.instance_id}, {"object_id", ref.object->id().id},
+                {"object_index", ref.object_index}, {"instance_index", ref.instance_index},
+                {"world_transform", session_transform_json(ref.instance->get_transformation())},
+                // The short alias is useful to clients that already call all
+                // transform payloads simply "transform".
+                {"transform", session_transform_json(ref.instance->get_transformation())}};
+}
+
+void translate_instance(const PlateInstanceRef& ref, const Vec3d& delta)
+{
+    if (delta == Vec3d::Zero()) return;
+    auto transform = ref.instance->get_transformation();
+    transform.set_offset(transform.get_offset() + delta);
+    ref.instance->set_transformation(transform);
+    ref.object->invalidate_bounding_box();
+}
+
+void rebuild_plate_membership(bool clear_parked)
+{
+    ensure_plate_session_state();
+    const PlateBounds bounds = selected_plate_bounds();
+    if (clear_parked) state().parked_instance_ids.clear();
+    state().instance_plate_ids.clear();
+    state().plate_out_of_bounds_ids.clear();
+    for (const auto& ref : plate_instance_refs()) {
+        if (!clear_parked && state().parked_instance_ids.find(ref.instance_id) != state().parked_instance_ids.end())
+            continue;
+        const BoundingBoxf3 box = instance_hull_box(ref);
+        for (const auto& plate : state().plate_session_plates) {
+            if (!box_intersects_plate(box, plate, bounds)) continue;
+            state().instance_plate_ids[ref.instance_id] = plate.id;
+            if (!box_fully_inside_plate(ref, box, plate, bounds))
+                state().plate_out_of_bounds_ids[plate.id].insert(ref.instance_id);
+            break; // lowest display-index plate wins ties, matching Orca.
+        }
+    }
+}
+
+json reflow_instance_transforms(const std::map<std::size_t, Vec3d>& changed)
+{
+    json transforms = json::array();
+    for (const auto& ref : plate_instance_refs()) {
+        if (changed.find(ref.instance_id) != changed.end())
+            transforms.push_back(instance_transform_record(ref));
+    }
+    return transforms;
+}
+
+std::set<std::string> member_plate_ids()
+{
+    std::set<std::string> ids;
+    for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
+        (void)instance_id;
+        if (!plate_id.empty()) ids.insert(plate_id);
+    }
+    return ids;
+}
+
+std::set<std::string> all_plate_ids()
+{
+    std::set<std::string> ids;
+    for (const auto& plate : state().plate_session_plates) ids.insert(plate.id);
+    return ids;
+}
+
+std::set<std::string> member_plate_ids_for_instances(const std::set<std::size_t>& instance_ids)
+{
+    std::set<std::string> ids;
+    for (const auto instance_id : instance_ids) {
+        const auto it = state().instance_plate_ids.find(instance_id);
+        if (it != state().instance_plate_ids.end() && !it->second.empty()) ids.insert(it->second);
+    }
+    return ids;
+}
+
+json plate_id_array(const std::set<std::string>& ids)
+{
+    json out = json::array();
+    for (const auto& id : ids) out.push_back(id);
+    return out;
+}
+
+json plate_revisions_json()
+{
+    json out = json::object();
+    for (const auto& plate : state().plate_session_plates) {
+        const auto it = state().plate_input_revisions.find(plate.id);
+        out[plate.id] = it == state().plate_input_revisions.end() ? 0 : it->second;
+    }
+    return out;
+}
+
+// Finish a committed model mutation.  The membership snapshot is captured
+// before callers mutate the Model, then rebuilt exactly once after all selected
+// transforms/deletes/imports have been applied.  This gives the renderer one
+// atomic response and makes cross-plate edits a single invalidation event.
+json plate_mutation_snapshot(const std::set<std::string>& before,
+                             const std::vector<std::string>& dirty_reasons,
+                             const json& instance_transforms,
+                             const std::set<std::size_t>* affected_instances)
+{
+    const auto after = affected_instances == nullptr ? member_plate_ids()
+                                                       : member_plate_ids_for_instances(*affected_instances);
+    std::set<std::string> affected = before;
+    affected.insert(after.begin(), after.end());
+    for (const auto& id : affected)
+        if (find_plate(id) != nullptr) ++state().plate_input_revisions[id];
+    json result = plate_session_snapshot_json(instance_transforms);
+    result["input_revisions"] = plate_revisions_json();
+    result["affected_plate_ids_before"] = plate_id_array(before);
+    result["affected_plate_ids_after"] = plate_id_array(after);
+    result["affected_plate_ids"] = plate_id_array(affected);
+    result["dirty_reasons"] = dirty_reasons;
+    // A completed transaction consumes any deferred transform markers. This
+    // is important when a structural command (for example Add plate) follows
+    // a transform write before the normal recompute call.
+    state().pending_membership_instance_ids.clear();
+    return result;
+}
+
+// Reflow the display grid after a shared configuration change (most notably a
+// printer preset changing printable_area).  Plate membership is deliberately
+// not recomputed here: every member keeps the same plate-local coordinates,
+// while parked/unassigned instances remain untouched.  The returned IDs are
+// resolved into authoritative world transforms after all origins have moved.
+std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& bounds)
+{
+    ensure_plate_session_state();
+    const auto old_plates = state().plate_session_plates;
+    std::map<std::size_t, Vec3d> changed;
+    const int count = static_cast<int>(old_plates.size());
+    for (size_t index = 0; index < old_plates.size(); ++index) {
+        const Vec3d new_origin = plate_origin_for_index(static_cast<int>(index), count, bounds);
+        const Vec3d delta = new_origin - old_plates[index].origin;
+        if (delta != Vec3d::Zero()) {
+            for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
+                if (plate_id != old_plates[index].id) continue;
+                for (const auto& ref : plate_instance_refs()) {
+                    if (ref.instance_id == instance_id) {
+                        translate_instance(ref, delta);
+                        changed[instance_id] = delta;
+                        break;
+                    }
+                }
+            }
+        }
+        state().plate_session_plates[index].origin = new_origin;
+    }
+    return changed;
+}
+
+// A printer change must not move an instance to a different plate, but it can
+// change whether that existing member fits its newly sized bed. Refresh only
+// the validity map against the new origins/bounds; parked and unassigned
+// instances remain outside the map and are never reconsidered here.
+void refresh_existing_plate_validity(const PlateBounds& bounds)
+{
+    state().plate_out_of_bounds_ids.clear();
+    for (const auto& membership : state().instance_plate_ids) {
+        const auto instance_id = membership.first;
+        const auto& plate_id = membership.second;
+        if (plate_id.empty() || state().parked_instance_ids.find(instance_id) != state().parked_instance_ids.end())
+            continue;
+        const auto* plate = find_plate(plate_id);
+        if (plate == nullptr) continue;
+        const auto refs = plate_instance_refs();
+        const auto ref = std::find_if(refs.begin(), refs.end(),
+                                      [&](const auto& candidate) { return candidate.instance_id == instance_id; });
+        if (ref == refs.end()) continue;
+        if (!box_fully_inside_plate(*ref, instance_hull_box(*ref), *plate, bounds))
+            state().plate_out_of_bounds_ids[plate_id].insert(instance_id);
+    }
+}
+
+// Shared printer/process/filament configuration affects every existing plate,
+// including empty plates. Keep this transaction in the bridge so the complete
+// plate set and its revisions remain authoritative rather than relying on a
+// renderer-side list that may be stale.
+json shared_configuration_mutation_snapshot()
+{
+    const auto bounds = selected_plate_bounds();
+    const auto changed = reflow_plate_origins_for_bounds(bounds);
+    refresh_existing_plate_validity(bounds);
+    const auto affected = all_plate_ids();
+    for (const auto& id : affected) ++state().plate_input_revisions[id];
+    json result = plate_session_snapshot_json(reflow_instance_transforms(changed));
+    result["input_revisions"] = plate_revisions_json();
+    result["affected_plate_ids_before"] = plate_id_array(affected);
+    result["affected_plate_ids_after"] = plate_id_array(affected);
+    result["affected_plate_ids"] = plate_id_array(affected);
+    result["dirty_reasons"] = {"shared-configuration"};
+    state().pending_membership_instance_ids.clear();
+    return result;
+}
+
+json attach_plate_mutation(json result, const json& mutation)
+{
+    // Keep the historical result fields stable while exposing the richer
+    // session transaction to new clients.  Top-level aliases are intentional:
+    // direct bridge harnesses can inspect the contract without knowing the
+    // nested client representation.
+    result["plate_session"] = mutation;
+    for (const char* key : {"plates", "current_plate_id", "instances", "instance_transforms",
+                            "input_revisions", "affected_plate_ids_before",
+                            "affected_plate_ids_after", "affected_plate_ids", "dirty_reasons"}) {
+        // Some structural results already expose a legacy top-level field
+        // with the same name (notably numeric `instances` counts for model
+        // imports/shapes). Preserve that caller-owned contract; the complete
+        // membership array remains available under plate_session.
+        if (mutation.contains(key) && !result.contains(key)) result[key] = mutation.at(key);
+    }
+    return result;
+}
+
+
+
+} // namespace Slic3r::Neo::Bridge::PlateSession

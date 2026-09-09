@@ -1081,3 +1081,21 @@ compatibility shims, and does not copy `BridgeState` or `PresetBundle`; the
 existing project-import staging boundary remains in `bridge.cpp`. This step
 preserves rack/session revalidation and revision behavior; later plate/model
 helper decomposition remains planned follow-up work.
+
+### 4.5 Plate/session identity and membership narrow step (2026-09-10)
+
+This independently testable bridge-maintenance step is accepted. Runtime
+multi-plate identity and sequencing, grid/parking origins, membership
+recomputation, plate snapshots, per-plate revision fences, transform
+translation/reflow, bounds validation, and mutation-result assembly now live
+in `packages/slicer-wasm/src/bridge_plate_session.{hpp,cpp}`. Project
+persistence parsing and archive writing, model mutation orchestration, slicing,
+history transactions, and all extern-C exports remain in `bridge.cpp`.
+
+The CMake source list explicitly includes the module. The split is structural:
+the 77-export ABI, JSON/error contracts, stale-revision behavior, history
+minimal-state boundary, slot latency, and native multi-plate behavior are
+unchanged. No compatibility or legacy single-filament paths were introduced,
+and the pinned submodule remains outside the write set. The bridge source
+decreased from 6649 to 6107 lines; the remaining bridge modularization stages
+remain planned and are not marked complete here.
