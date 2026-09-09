@@ -1236,3 +1236,25 @@ pinned native submodule remains outside the write set. `bridge.cpp` is
 reduced from 3366 to 1940 physical lines. Full package tests/typechecks,
 dual quick builds, dual history/command smoke, and the acceptance checklist
 remain required before this step is marked complete.
+
+### 4.10 History transaction/runtime bridge module (2026-09-10)
+
+This independently testable bridge-maintenance step extracts the history
+transaction and restore runtime into
+`packages/slicer-wasm/src/bridge_history_runtime.{hpp,cpp}`. The module owns
+the history transaction ABI, context canonicalization/recording adapters,
+status and restore diagnostics, model/plate/mutable-filament restore staging,
+direct filament history-frame restoration, cursor fencing, rollback, and
+history reset/save/undo/redo/jump operations. A narrow runtime callback
+supplies the field-level filament state and preview invalidation without
+coupling the module to bridge-private projections.
+
+History restore continues to stage only the mutable filament state and native
+model/direct frame data. No history path copies a complete `PresetBundle`; the
+project-import candidate remains the sole full-bundle staging boundary. The
+77-export ABI, history JSON/error contracts, stale revision fence, and slot
+history performance remain unchanged. The CMake source list explicitly
+compiles the module and the pinned native submodule remains outside the write
+set. The facade is reduced from 1940 to 1240 lines; all history restore helpers
+and history ABI definitions now live in the dedicated module. No product
+behaviour is changed by this structural step.
