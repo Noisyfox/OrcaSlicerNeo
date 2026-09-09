@@ -1139,6 +1139,45 @@ test('scene context menu: Add Primitive submenu appends engine-built shapes', as
   }
 });
 
+// Regression: replacing the renderer collection twice must not expose the
+// e2e selection hook before SceneInteractionController's model reset. Before
+// the effect ordering fix, the second selection could be cleared immediately
+// and selectionBoundsWorld stayed null indefinitely.
+test('scene context menu: selection remains live after consecutive primitive replacements', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const addPrimitive = async (testId: string) => {
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+      await expect(page.getByTestId('ctx-menu')).toBeVisible();
+      await page.getByTestId('btn-add-primitive').click();
+      await expect(page.getByTestId('ctx-primitive-menu')).toBeVisible();
+      await page.getByTestId(testId).click();
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+    };
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await addPrimitive('btn-add-cube');
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await addPrimitive('btn-add-sphere');
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (!REAL) {
+      await expect.poll(() => page.evaluate(() =>
+        (window as unknown as { __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean } }).__orcaE2e?.selectMockInstance?.(1, false) ?? false,
+      )).toBe(true);
+      await expect.poll(() => page.evaluate(() => {
+        const bounds = (window as unknown as { __orcaE2e?: { selectionBoundsWorld?: () => { size: [number, number, number] } | null } }).__orcaE2e?.selectionBoundsWorld?.();
+        return bounds ? bounds.size : null;
+      })).toEqual([20, 20, 20]);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 // OrcaSlicer's bundled samples are available from their own scene-menu
 // flyout.  3DBenchy remains one choice, not the whole catalogue; selecting it
 // still uses the standard append-model path in both mock and real runs.

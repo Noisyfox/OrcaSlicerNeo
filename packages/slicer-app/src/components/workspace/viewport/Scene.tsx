@@ -3,6 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import type { LoadedObject } from './useModelLoader';
+import { glVolumeCollection } from './GLVolume';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { BedPlate } from './BedPlate';
 import { GLVolumeMesh } from './ModelMesh';
 import type { ToolpathGeometry } from './useSliceResult';
@@ -56,6 +58,13 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
     }
     previousActiveTabRef.current = activeTab;
   }, [activeTab, sceneInteraction]);
+  // A loader replacement is a new scene even if it reuses the prior model's
+  // composite IDs. Clear interaction state before publishing any e2e helper
+  // for the new collection; otherwise a polling selection can land between
+  // the helper effect and this reset and be cleared immediately afterwards.
+  useEffect(() => {
+    sceneInteraction.resetForModel();
+  }, [glVolumes, sceneInteraction]);
   // Test-only projection hook (e2e builds): Playwright needs exact
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
   // No-op in production builds (the e2e-only VITE_E2E flag is unset).
@@ -145,10 +154,17 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
       // the first-instance and gizmo tests; this hook sets up the aggregate
       // selection for its multi-instance move assertions.
       selectMockInstance(instanceIdx, additive = true) {
+        // modelLoaded flips before the asynchronous mesh publication, so an
+        // e2e poll must not select a volume from the previous collection.
+        // The collection revision can be published a few instructions before
+        // React commits the matching `glVolumes` state. Require identity as
+        // well, so a poll cannot select through that publication window.
+        if (glVolumeCollection.revision !== useSettingsStore.getState().modelRevision
+          || glVolumeCollection.volumes !== glVolumes) return false;
         const hit = glVolumes.find((volume) => volume.buffer.instanceIdx === instanceIdx);
         // sceneInteraction is null until the viewport mounts; fail the poll
         // (false) rather than throwing so the e2e hook is retryable.
-        return hit && sceneInteraction ? sceneInteraction.selectFromHit(hit, additive) : false;
+        return Boolean(hit && sceneInteraction && sceneInteraction.selectFromHit(hit, additive));
       },
       previewMarkerPresent: () => Boolean(scene.getObjectByName('preview-nozzle-marker')),
       cameraState: () => ({
@@ -214,12 +230,6 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
       }
     };
   }, [activeTab, camera, controls, glVolumes, plateSession, previewVolumes, scene, size, sceneInteraction]);
-
-  // A loader replacement is a new scene even if it reuses the prior model's
-  // composite IDs, so selection and the active gizmo must not leak across it.
-  useEffect(() => {
-    sceneInteraction.resetForModel();
-  }, [glVolumes, sceneInteraction]);
 
   return (
     <>
