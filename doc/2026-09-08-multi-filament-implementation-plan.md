@@ -1277,3 +1277,24 @@ legacy or single-filament path was added. The module reuses the existing
 plate-session and history-runtime interfaces; history-producing plate
 operations continue to use field-level state and never copy a complete
 `PresetBundle`. The pinned native submodule remains outside the write set.
+
+### 4.12 Project configuration overlay bridge module (2026-09-10)
+
+This independently testable bridge-maintenance step extracts project
+configuration overlay handling into
+`packages/slicer-wasm/src/bridge_project_overlay.{hpp,cpp}`. The module owns
+the canonical project/object/part/plate overlay shape, empty/valid overlay
+validation, native option application and status/error projections, plate
+metadata/overlay application, and the three project-configuration C ABI
+exports. Project persistence consumes these behaviours through the narrow
+overlay header instead of retaining adapter implementations in `bridge.cpp`.
+
+The CMake source list explicitly compiles the new translation unit. All 77
+`orc_*` export names and signatures remain unchanged, native configuration
+validation still uses the pinned Orca parser with substitution disabled, and
+plate-local versus shared revision invalidation remains unchanged. The module
+does not own initialization, filament fixtures or command wrappers, project
+archive staging, or history transactions; history paths continue to avoid
+copying the complete `PresetBundle`. No compatibility or old single-filament
+API was added, and the pinned native submodule remains outside the write set.
+`bridge.cpp` is reduced from 1240 to 804 physical lines.

@@ -20,7 +20,7 @@
 #include "bridge_history_codec.hpp"
 #include "bridge_history_metadata.hpp"
 #include "bridge_plate_session.hpp"
-#include "bridge_project_persistence.hpp"
+#include "bridge_project_overlay.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -42,8 +42,8 @@ using Neo::Bridge::HistoryMetadata::parse_history_context;
 using Neo::Bridge::HistoryMetadata::parse_history_entry_id;
 using Neo::Bridge::HistoryMetadata::parse_history_jump_direction;
 using Neo::Bridge::PlateSession::plate_session_snapshot_json;
-using Neo::Bridge::ProjectPersistence::empty_project_config_overlay;
-using Neo::Bridge::ProjectPersistence::valid_project_config_overlay;
+using Neo::Bridge::ProjectOverlay::empty_project_config_overlay;
+using Neo::Bridge::ProjectOverlay::valid_project_config_overlay;
 using Neo::Bridge::SlicingPipeline::invalidate_preview_source;
 using Neo::History::Codec::capture_model_state;
 
@@ -197,7 +197,7 @@ std::vector<BridgeState::PlateSessionPlate> build_history_plate_session(const js
         plate.settings_metadata = record["settings"];
         plate.opaque_metadata = record["opaque_metadata"];
         plate.future_metadata = record["future_metadata"];
-        Neo::Bridge::ProjectPersistence::apply_overlay_to_config(plate.settings, plate.settings_metadata);
+        Neo::Bridge::ProjectOverlay::apply_overlay_to_config(plate.settings, plate.settings_metadata);
         restored_plates.push_back(std::move(plate));
     }
     return restored_plates;

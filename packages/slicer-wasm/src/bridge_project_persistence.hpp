@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "bridge_state.hpp"
+#include "bridge_project_overlay.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -39,22 +40,11 @@ struct ImportedPlateRecord {
     std::vector<std::pair<int, int>> instances;
 };
 
-json empty_project_config_overlay();
-bool valid_project_config_overlay(const json& overlay);
-
-// These narrow adapters are implemented by the bridge's existing filament
-// and overlay validation code.  They keep the project module from owning
-// command transactions or duplicating native validation rules.
+// This narrow adapter is implemented by the bridge's existing filament
+// validation code. It keeps the project module from owning command
+// transactions or duplicating native validation rules.
 void validate_filament_candidate(PresetBundle& bundle, Model& model,
                                  const std::vector<BridgeState::PlateSessionPlate>& plates,
                                  const json& overlay, bool strict_slot_arrays = true,
                                  bool require_all_slot_arrays = false);
-void apply_overlay_to_config(DynamicPrintConfig& config, const json& values);
-void apply_plate_metadata_to_configs(std::vector<BridgeState::PlateSessionPlate>& plates);
-void apply_plate_overlay_to_configs(std::vector<BridgeState::PlateSessionPlate>& plates,
-                                    const json& overlay);
-
-json project_config_overlay_metadata();
-json project_config_overlay_result();
-
 } // namespace Slic3r::Neo::Bridge::ProjectPersistence

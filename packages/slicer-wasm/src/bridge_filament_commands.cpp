@@ -25,7 +25,7 @@
 #include "bridge_history_codec.hpp"
 #include "bridge_history_metadata.hpp"
 #include "bridge_plate_session.hpp"
-#include "bridge_project_persistence.hpp"
+#include "bridge_project_overlay.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/FlushVolCalc.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -47,7 +47,7 @@ using Neo::Bridge::PlateSession::member_plate_ids_for_instances;
 using Neo::Bridge::PlateSession::plate_id_array;
 using Neo::Bridge::PlateSession::plate_revisions_json;
 using Neo::Bridge::PlateSession::plate_session_snapshot_json;
-using Neo::Bridge::ProjectPersistence::valid_project_config_overlay;
+using Neo::Bridge::ProjectOverlay::valid_project_config_overlay;
 using Neo::Bridge::SlicingPipeline::invalidate_preview_source;
 using Neo::History::Codec::capture_model_state;
 

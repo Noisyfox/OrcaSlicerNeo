@@ -54,6 +54,7 @@ using Neo::Bridge::FilamentState::config_metadata_json;
 using Neo::Bridge::FilamentState::history_state_json;
 using Neo::Bridge::HistoryMetadata::default_history_context;
 using Neo::Bridge::Profiles::preset_snapshot_json;
+using namespace Neo::Bridge::ProjectOverlay;
 using namespace Neo::Bridge::ModelOperations;
 using namespace Neo::Bridge::PlateSession;
 using namespace Neo::Bridge::SlicingPipeline;
@@ -82,18 +83,6 @@ const char* project_error_json(const std::string& message)
 json project_history_context()
 {
     return default_history_context(state(), plate_session_snapshot_json(), history_state_json(state().presets));
-}
-
-template <class Config>
-void apply_overlay_generic(Config& config, const json& values)
-{
-    if (!values.is_object()) return;
-    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
-    for (auto it = values.begin(); it != values.end(); ++it) {
-        if (!it.value().is_string()) continue;
-        try { config.set_deserialize(it.key(), it.value().get<std::string>(), substitutions); }
-        catch (...) { /* invalid retained values are ignored at slice time */ }
-    }
 }
 
 std::vector<std::string> requested_filament_slots_from_import(
@@ -126,31 +115,6 @@ std::vector<std::string> requested_filament_slots_from_project_settings(
         }
     }
     return fallback;
-}
-
-json empty_project_config_overlay()
-{
-    return json{{"project", json::object()}, {"objects", json::object()},
-                {"parts", json::object()}, {"plates", json::object()}};
-}
-
-bool valid_project_config_overlay(const json& overlay)
-{
-    if (!overlay.is_object()) return false;
-    for (const char* scope : {"project", "objects", "parts", "plates"})
-        if (!overlay.contains(scope) || !overlay[scope].is_object()) return false;
-    for (const char* scope : {"project", "objects", "parts", "plates"}) {
-        for (auto it = overlay[scope].begin(); it != overlay[scope].end(); ++it) {
-            if (scope == std::string("project")) {
-                if (!it.value().is_string()) return false;
-                continue;
-            }
-            if (!it.value().is_object()) return false;
-            for (auto option = it.value().begin(); option != it.value().end(); ++option)
-                if (!option.value().is_string()) return false;
-        }
-    }
-    return true;
 }
 
 std::string xml_unescape_value(std::string value)
@@ -986,10 +950,10 @@ static const char* orc_load_project_impl(const char* data, int len,
                 initialize_plate_session_from_records(plate_data, raw_records, neo_metadata);
                 for (auto& object : state().model.objects) {
                     const auto it = state().project_config_overlay["objects"].find(std::to_string(object->id().id));
-                    if (it != state().project_config_overlay["objects"].end()) apply_overlay_generic(object->config, it.value());
+                    if (it != state().project_config_overlay["objects"].end()) apply_overlay_to_config(object->config, it.value());
                     for (auto& volume : object->volumes) {
                         const auto part_it = state().project_config_overlay["parts"].find(std::to_string(volume->id().id));
-                        if (part_it != state().project_config_overlay["parts"].end()) apply_overlay_generic(volume->config, part_it.value());
+                        if (part_it != state().project_config_overlay["parts"].end()) apply_overlay_to_config(volume->config, part_it.value());
                     }
                 }
                 apply_plate_metadata_to_configs(state().plate_session_plates);

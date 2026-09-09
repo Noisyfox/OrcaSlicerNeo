@@ -3,8 +3,8 @@
 //
 // This module owns the plate-session command ABI and its plate-local mutation
 // response helper. Runtime identity, membership, and geometry remain in
-// bridge_plate_session.cpp; project configuration overlay commands remain in
-// bridge.cpp.
+// bridge_plate_session.cpp; project configuration overlay commands live in
+// bridge_project_overlay.cpp.
 // ----------------------------------------------------------------
 #pragma once
 
