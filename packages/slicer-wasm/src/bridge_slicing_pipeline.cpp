@@ -299,7 +299,14 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             config.set_deserialize(key, value, substitutions);
         }
         // Project and plate overrides are canonical Worker state and win over
-        // any renderer payload supplied for this slice request.
+        // any renderer payload supplied for this slice request.  PlateData
+        // carries native per-plate filament/tool mappings (for example a
+        // H2D plate can map logical slots 1 and 2 to physical tools 2 and 1)
+        // which are not part of the global PresetBundle config.  Apply that
+        // native plate config before the small Neo overlay so imported
+        // painted projects keep their plate-local tool mapping when sliced.
+        if (const auto* plate = find_plate(plate_id))
+            config.apply(plate->settings, true);
         apply_overlay_to_config(config, state().project_config_overlay["project"]);
         if (const auto* plate = find_plate(plate_id)) {
             const auto plate_it = state().project_config_overlay["plates"].find(plate_id);
@@ -496,14 +503,24 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                          {"first_segment", range.first},
                                          {"segment_count", range.count}});
 
-        // GCodeProcessorResult keeps the configured filament colours parsed
-        // from the completed G-code and the selected filament preset names.
-        // Tool ids are stable zero-based indices. An undecodable source color
-        // is omitted rather than replaced with an invented value.
+        // A normal Orca preview uses the project filament_colour palette,
+        // indexed by logical filament slot. GCodeProcessorResult owns the
+        // equivalent palette for standalone G-code viewer input, but its
+        // default orange entries are not authoritative for a sliced project.
+        // Keep its values as a fallback for configs without a project palette.
+        DynamicPrintConfig preview_config = state().presets.project_config;
+        apply_overlay_to_config(preview_config, state().project_config_overlay["project"]);
+        const auto* project_filament_colors =
+            preview_config.option<ConfigOptionStrings>("filament_colour");
         json extruder_palette = json::array();
         for (size_t tool = 0; tool < gcode_result.extruder_colors.size(); ++tool) {
             ColorRGB color;
-            if (!decode_color(gcode_result.extruder_colors[tool], color)) continue;
+            const std::string* source_color = nullptr;
+            if (project_filament_colors && tool < project_filament_colors->values.size())
+                source_color = &project_filament_colors->values[tool];
+            else
+                source_color = &gcode_result.extruder_colors[tool];
+            if (!decode_color(*source_color, color)) continue;
             const std::string name = tool < gcode_result.settings_ids.filament.size() &&
                     !gcode_result.settings_ids.filament[tool].empty()
                 ? gcode_result.settings_ids.filament[tool]

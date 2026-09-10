@@ -29,7 +29,11 @@ function textEntry(entries, name) {
 
 function buildImportedStateArchive() {
   const entries = readZipEntries(buildIndependentReader3mf());
-  const model = textEntry(entries, '3D/3dmodel.model');
+  // The dual-nozzle H2D profile uses a positive bed coordinate system; keep
+  // this tiny synthetic painted cube inside it so the regression reaches the
+  // slice/preview pipeline rather than the placement validator.
+  const model = textEntry(entries, '3D/3dmodel.model')
+    .replace('transform="1 0 0 0 1 0 0 0 1 0 0 10"', 'transform="1 0 0 0 1 0 0 0 1 100 100 10"');
   // FacetsAnnotation serializes Extruder1..4 as the deterministic nibble
   // strings 4, 8, 0C, and 1C (the low two bits encode split sides).
   const paintStates = ['4', '8', '0C', '1C', '4', '8', '0C', '1C', '4', '8', '0C', '1C'];
@@ -40,6 +44,8 @@ function buildImportedStateArchive() {
 
   const project = JSON.parse(textEntry(entries, 'Metadata/project_settings.config'));
   Object.assign(project, {
+    printer_settings_id: 'Bambu Lab H2D 0.4 nozzle',
+    printer_model: 'Bambu Lab H2D',
     filament_settings_id: [
       'Generic PLA @Project', 'Generic PETG @Project',
       'Generic PLA @Project', 'Generic PETG @Project',
@@ -58,11 +64,11 @@ function buildImportedStateArchive() {
   });
 
   const modelSettings = textEntry(entries, 'Metadata/model_settings.config')
-    .replace('filament_maps" value="1 1"', 'filament_maps" value="1 1 1 1"')
+    .replace('filament_maps" value="1 1"', 'filament_maps" value="2 1 1 1"')
     .replace('filament_volume_maps" value="0 0"', 'filament_volume_maps" value="0 0 0 0"')
     .replace('filament_nozzle_maps" value="0 0"', 'filament_nozzle_maps" value="0 0 0 0"')
     .replace('</plate>', '<filament id="3" tray_info_idx="PLA-BLUE" type="PLA" color="#0000FF" used_m="0" used_g="0" group_id="0" nozzle_diameter="0.4" volume_type="Standard" used_for_object="true" used_for_support="false"/><filament id="4" tray_info_idx="PETG-YELLOW" type="PETG" color="#FFFF00" used_m="0" used_g="0" group_id="0" nozzle_diameter="0.4" volume_type="Standard" used_for_object="true" used_for_support="false"/></plate>');
-  assert.match(modelSettings, /filament_maps" value="1 1 1 1"/);
+  assert.match(modelSettings, /filament_maps" value="2 1 1 1"/);
 
   const layerGcode = `<?xml version="1.0" encoding="utf-8"?>
 <custom_gcodes_per_layer>
@@ -115,6 +121,11 @@ function writeBytes(bytes) {
   Module.HEAPU8.set(bytes, pointer);
   return pointer;
 }
+function readBytes(pointer, length) {
+  const bytes = Module.HEAPU8.slice(Number(pointer), Number(pointer) + Number(length));
+  Module._free(Number(pointer));
+  return bytes;
+}
 function exportProject() {
   const exported = callJson('orc_export_project');
   assert.equal(exported.ok, true, JSON.stringify(exported));
@@ -140,6 +151,20 @@ assert.equal(loaded.ok, true, JSON.stringify(loaded));
 
 const importedSession = callJson('orc_get_filament_session_snapshot');
 assert.equal(importedSession.slots.length, 4, JSON.stringify(importedSession));
+const importedPlates = callJson('orc_get_plate_session_snapshot');
+const importedPlate = importedPlates.plates.find((plate) => plate.plate_id === importedPlates.current_plate_id);
+assert.ok(importedPlate, JSON.stringify(importedPlates));
+assert.match(JSON.stringify(importedPlate.settings), /2[, ]1/);
+const paintedSlice = callJson('orc_slice', ['string'], ['{}']);
+assert.equal(paintedSlice.ok, true, JSON.stringify(paintedSlice));
+const paintedPreview = callJson('orc_get_slice_result');
+assert.equal(paintedPreview.ok, true, JSON.stringify(paintedPreview));
+const paintedCount = Number(paintedPreview.toolpath?.segment_count ?? 0);
+assert.ok(paintedCount > 0, JSON.stringify(paintedPreview));
+const paintedFilaments = [...new Set(readBytes(paintedPreview.toolpath.extruder_id_ptr, paintedCount))].sort((a, b) => a - b);
+assert.deepEqual(paintedFilaments, [0, 1, 2, 3], JSON.stringify({ paintedFilaments, paintedPreview }));
+assert.deepEqual(paintedPreview.metadata?.extruder_palette?.slice(0, 4).map((entry) => entry.color),
+  [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]], JSON.stringify(paintedPreview.metadata));
 const preserved = exportProject();
 const preservedModel = exportedText(preserved, '3D/3dmodel.model');
 const preservedLayers = exportedText(preserved, 'Metadata/custom_gcode_per_layer.xml');
@@ -184,6 +209,8 @@ assert.deepEqual([...mergedLayers.matchAll(/<layer\b[^>]*extruder="([^"]+)"[^>]*
 
 console.log(JSON.stringify({
   importedSlots: importedSession.slots.length,
+  paintedPlateMap: importedPlate.settings,
+  paintedPreview: { filaments: paintedFilaments, palette: paintedPreview.metadata.extruder_palette.slice(0, 4) },
   preservedPainting: preservedPaint,
   preservedLayerToolChanges: ['T2/#00FF00', 'T4/#FFFF00'],
   remappedPainting: remappedPaint,
