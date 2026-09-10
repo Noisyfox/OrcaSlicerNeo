@@ -180,6 +180,7 @@ errors reveal more includes.
   ```
   -O3 -fexceptions -sMEMORY64 -sMODULARIZE=1 -sEXPORT_ES6=1
   -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB
+  -sMAXIMUM_MEMORY=16GB
   -sSTACK_SIZE=8388608 -sEXIT_RUNTIME=0 -sINVOKE_RUN=0 -sFORCE_FILESYSTEM=1
   -sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,cwrap,UTF8ToString,HEAPU8,addFunction,removeFunction
   -sEXPORTED_FUNCTIONS=_main,_malloc,_free -sDISABLE_EXCEPTION_CATCHING=0
@@ -190,6 +191,19 @@ errors reveal more includes.
   filtered by a Python fixpoint in `build.sh` that drops third-party filament
   entries whose `inherits` chain leaves the kept set (`load_vendor_configs_
   from_json` throws on the first missing inherit otherwise).
+
+The heap starts at 64 MiB and may grow to an explicit 16 GiB maximum. The
+`MAXIMUM_MEMORY` ceiling is required: Emscripten's wasm64 default is 2 GiB,
+which is insufficient for large multi-plate 3MF projects during slicing. The
+16 GiB value is the maximum accepted by the target Chromium memory64 shared
+`WebAssembly.Memory` implementation (262144 64 KiB pages); larger values are
+rejected by Chromium before module instantiation. The generated glue contract
+can be checked without running a slice:
+
+```text
+node packages/slicer-wasm/harness/wasm-memory-contract.mjs \
+  --module packages/slicer-wasm/out/threaded/orca_slice.js
+```
 
 ## Iterate-loop fixes actually hit (M0/M1)
 

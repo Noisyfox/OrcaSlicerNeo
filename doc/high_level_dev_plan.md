@@ -55,7 +55,8 @@
 - Re-add `/Format/3mf` + `bbs_3mf` (expat/minilzo are vendored in-tree).
 - Link flags per design: `-O3 -fexceptions -sMEMORY64 -sMODULARIZE=1
   -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH=1
-  -sINITIAL_MEMORY=64MB -sEXIT_RUNTIME=0 -sINVOKE_RUN=0 -sFORCE_FILESYSTEM=1
+  -sINITIAL_MEMORY=64MB -sMAXIMUM_MEMORY=16GB -sEXIT_RUNTIME=0
+  -sINVOKE_RUN=0 -sFORCE_FILESYSTEM=1
   -sEXPORTED_RUNTIME_METHODS=callMain,FS,_malloc,_free
   -sDISABLE_EXCEPTION_CATCHING=0`. No `-pthread` in v1.
 

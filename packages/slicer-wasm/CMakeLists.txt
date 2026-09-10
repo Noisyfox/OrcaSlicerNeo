@@ -399,6 +399,11 @@ target_link_options(orca_slice PRIVATE
   -sENVIRONMENT=web,worker,node
   -sALLOW_MEMORY_GROWTH=1
   -sINITIAL_MEMORY=64MB
+  # Emscripten's wasm64 default caps a growing heap at 2 GiB. Large native
+  # 3MF projects can exceed that during slicing. Chromium's memory64 shared
+  # WebAssembly.Memory accepts at most 262144 64 KiB pages (16 GiB); keep the
+  # link ceiling at that tested browser limit.
+  -sMAXIMUM_MEMORY=16GB
   # Emscripten's default stack is 64KB. libslic3r's deep call chains (G-code
   # export nests the ~34KB GCode object plus recursive geometry passes) exceed
   # that, overflowing the stack region down into the .bss globals below it
