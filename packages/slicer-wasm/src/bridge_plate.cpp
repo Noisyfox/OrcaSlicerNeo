@@ -20,6 +20,9 @@
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "bridge_history.hpp"
+#include "bridge_prime_tower.hpp"
+#include "bridge_filament.hpp"
+#include "bridge_project_overlay.hpp"
 
 using namespace Slic3r;
 using nlohmann::json;
@@ -51,6 +54,40 @@ std::uint64_t current_plate_session_sequence()
 
 static constexpr int kMaxPlateCount = 36;
 static constexpr double kPlateGap = 1. / 5.;
+
+void normalize_coordinate_arrays(DynamicPrintConfig& project_config, const std::size_t plate_count)
+{
+    PrimeTower::normalize_coordinate_settings(project_config, plate_count, 15., 220.);
+}
+
+bool coordinate_arrays_match_plate_count(const DynamicPrintConfig& project_config,
+                                         const std::size_t plate_count)
+{
+    const auto matches = [plate_count](const ConfigOptionFloats* option) {
+        return option != nullptr && option->values.size() == plate_count &&
+            std::all_of(option->values.begin(), option->values.end(),
+                        [](double value) { return std::isfinite(value); });
+    };
+    return matches(project_config.opt<ConfigOptionFloats>("wipe_tower_x")) &&
+        matches(project_config.opt<ConfigOptionFloats>("wipe_tower_y"));
+}
+
+static void adjust_plate_coordinate_arrays(const std::size_t index, const bool erase)
+{
+    auto& project_config = state().presets.project_config;
+    if (erase) {
+        for (const char* key : {"wipe_tower_x", "wipe_tower_y"}) {
+            if (auto* option = project_config.opt<ConfigOptionFloats>(key);
+                option != nullptr && index < option->values.size())
+                option->values.erase(option->values.begin() + static_cast<std::ptrdiff_t>(index));
+        }
+    }
+    normalize_coordinate_arrays(project_config, state().plate_session_plates.size());
+    state().project_config_overlay["project"]["wipe_tower_x"] =
+        project_config.option("wipe_tower_x")->serialize();
+    state().project_config_overlay["project"]["wipe_tower_y"] =
+        project_config.option("wipe_tower_y")->serialize();
+}
 
 json session_transform_json(const Slic3r::Geometry::Transformation& t)
 {
@@ -142,6 +179,7 @@ void reset_plate_session_state()
     s.plate_session_plates.push_back({plate_id, "Plate 1", 0, Vec3d::Zero()});
     s.plate_input_revisions[plate_id] = 0;
     s.current_plate_id = plate_id;
+    normalize_coordinate_arrays(s.presets.project_config, s.plate_session_plates.size());
 }
 
 void ensure_plate_session_state()
@@ -724,6 +762,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
         state().plate_session_plates.push_back({id, "Plate " + std::to_string(new_count), new_count - 1,
                                                 plate_origin_for_index(new_count - 1, new_count, bounds)});
         state().plate_input_revisions[id] = 0;
+        adjust_plate_coordinate_arrays(0, false);
         for (size_t index = 0; index < state().plate_session_plates.size(); ++index) {
             auto& plate = state().plate_session_plates[index];
             plate.display_index = static_cast<int>(index);
@@ -776,6 +815,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
         }
         state().plate_session_plates.erase(state().plate_session_plates.begin() + static_cast<std::ptrdiff_t>(deleted_index));
         state().plate_input_revisions.erase(requested);
+        if (state().project_config_overlay.is_object() && state().project_config_overlay.contains("plates") &&
+            state().project_config_overlay["plates"].is_object())
+            state().project_config_overlay["plates"].erase(requested);
+        adjust_plate_coordinate_arrays(deleted_index, true);
         for (size_t index = 0; index < state().plate_session_plates.size(); ++index) {
             auto& plate = state().plate_session_plates[index];
             const Vec3d new_origin = plate_origin_for_index(static_cast<int>(index), new_count, bounds);

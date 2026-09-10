@@ -53,6 +53,44 @@ describe('SlicerClient bridge contract', () => {
     } })).getPrimeTowerProjection()).resolves.toEqual({ ok: false, error: 'invalid prime tower projection plates' });
   });
 
+  it('moves Prime Tower position with one clamped history mutation and fences stale revisions', async () => {
+    const plateId = 'plate-session-1-plate-1';
+    const payload = {
+      ok: true, version: 1, current_plate_id: plateId,
+      build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 },
+      plates: [{ plate_id: plateId, display_index: 0,
+        eligible: true, empty: false, forced: false, used_slots: [1, 2],
+        width: 20, depth: 30, height: 10, position: { x: 15, y: 15 }, rotation: 45,
+        brim_margin: 3, footprint: { min_x: 0, max_x: 30, min_y: 0, max_y: 30 },
+        bands: [{ slot: 1, start_depth: 0, end_depth: 15, colour: '#333333', opacity: 0.66 },
+          { slot: 2, start_depth: 15, end_depth: 30, colour: '#FFD700', opacity: 0.66 }],
+        build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 } }],
+    };
+    const module = createMockModule({ primeTowerProjection: payload });
+    const c = createClient(async () => module);
+    const before = await c.getPlateSessionSnapshot();
+    expect(before).toMatchObject({ ok: true, inputRevisions: { [plateId]: 0 } });
+    if (!before.ok) throw new Error(before.error);
+    const moved = await c.movePrimeTower({ version: 1, plateId, revision: before.inputRevisions?.[plateId] ?? -1, x: 999, y: 999 });
+    expect(moved).toMatchObject({ ok: true, result: { mutation: {
+      kind: 'move', plateId, historyEntryDelta: 1, revisionBefore: 0, revisionAfter: 1,
+      dirty: true, affectedPlateIds: [plateId], clamped: true, outsideBoundaryWarning: false,
+    } } });
+    if (!moved.ok) throw new Error(moved.error);
+    if (!moved.result.mutation.position) throw new Error('move response omitted authoritative position');
+    expect(moved.result.mutation.position.x).toBeLessThan(200);
+    expect(moved.result.mutation.position.y).toBeLessThan(200);
+    expect(moved.result.plateSession.inputRevisions?.[plateId]).toBe(1);
+    const noOp = await c.movePrimeTower({ version: 1, plateId, revision: 1,
+      x: moved.result.mutation.position.x, y: moved.result.mutation.position.y });
+    expect(noOp).toMatchObject({ ok: true, result: { mutation: {
+      historyEntryDelta: 0, revisionBefore: 1, revisionAfter: 1, dirty: false, affectedPlateIds: [],
+    } } });
+    await expect(c.movePrimeTower({ version: 1, plateId, revision: 0, x: 20, y: 20 }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    await expect(c.getPlateSessionSnapshot()).resolves.toMatchObject({ ok: true, inputRevisions: { [plateId]: 1 } });
+  });
+
   it('init loads preset collections', async () => {
     const c = makeClient();
     const r = await c.init();
@@ -528,7 +566,7 @@ describe('SlicerClient bridge contract', () => {
   it('keeps project configuration overrides in the Worker and scopes them by stable identity', async () => {
     const c = makeClient();
     const initial = await c.getProjectConfigOverlay();
-    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} } });
+    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {} } });
     const project = await c.setProjectConfigOverride({ scope: 'project' }, 'layer_height', '0.16');
     expect(project).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
     await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
@@ -545,9 +583,8 @@ describe('SlicerClient bridge contract', () => {
   });
 
   it('normalizes native prime-tower corrections and rejects malformed status envelopes', async () => {
-    const corrected = await makeClient().setProjectConfigOverride({ scope: 'plate', id: 'plate-1' }, 'wipe_tower_x', 'not-a-number');
-    expect(corrected).toMatchObject({ ok: true, overlay: { plates: { 'plate-1': { wipe_tower_x: '0' } } },
-      configurationStatus: { state: 'ready', corrections: [{ key: 'wipe_tower_x', requested: 'not-a-number', effective: '0' }] } });
+    const corrected = await makeClient().setProjectConfigOverride({ scope: 'project' }, 'wipe_tower_x', '1,2,3');
+    expect(corrected).toMatchObject({ ok: true, overlay: { project: { wipe_tower_x: '1,2,3' } } });
 
     const malformed = await createClient(async () => createMockModule({ projectConfigOverride: {
       ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} },

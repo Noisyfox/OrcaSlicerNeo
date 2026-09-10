@@ -10,7 +10,8 @@ import type {
   InitResult, ProfileSnapshot, ProfileSnapshotResult,
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
   PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
-  PrimeTowerProjection, PrimeTowerProjectionResult,
+  PrimeTowerProjection, PrimeTowerProjectionResult, PrimeTowerMoveRequest,
+  PrimeTowerMoveResultOrError,
   ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError, ProjectConfigOverlay,
   ConfigurationStatus,
   ClearModelResult,
@@ -79,6 +80,10 @@ function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResult
   }
   const overlay = raw.overlay;
   if (!isRecord(overlay)) return { ok: false, error: 'invalid project configuration overlay' };
+  if (Object.keys(overlay).length !== 4 || !Object.hasOwn(overlay, 'project') ||
+      !Object.hasOwn(overlay, 'objects') || !Object.hasOwn(overlay, 'parts') ||
+      !Object.hasOwn(overlay, 'plates'))
+    return { ok: false, error: 'invalid project configuration overlay' };
   const normalizeBucket = (value: unknown): Record<string, string> | null => {
     if (!isRecord(value)) return null;
     const entries: Record<string, string> = {};
@@ -650,12 +655,59 @@ function normalizePrimeTowerProjection(raw: unknown): PrimeTowerProjectionResult
         rotation: item.rotation as number, brimMargin: item.brim_margin as number,
       footprint: { minX: fp.min_x as number, maxX: fp.max_x as number,
         minY: fp.min_y as number, maxY: fp.max_y as number }, bands: typedBands,
-      buildArea: plateArea };
+      buildArea: plateArea,
+      ...(typeof item.outside_boundary_warning === 'boolean'
+        ? { outsideBoundaryWarning: item.outside_boundary_warning } : {}) };
   });
   if (plates.some((plate) => plate === null) || plates.length === 0 || !ids.has(value.current_plate_id))
     return { ok: false, error: 'invalid prime tower projection plates' };
   return { ok: true, version: 1, currentPlateId: value.current_plate_id,
     buildArea, plates: plates as PrimeTowerPlateProjection[] };
+}
+
+function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrError {
+  if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid prime tower move response', errorCode: 'invalid_response' };
+  if (raw.ok !== true) {
+    if (raw.version !== 1 || typeof raw.error !== 'string' || typeof raw.error_code !== 'string')
+      return { ok: false, version: 1, error: 'invalid prime tower move error envelope', errorCode: 'invalid_response' };
+    return { ok: false, version: 1, error: raw.error, errorCode: raw.error_code,
+      ...(isRecord(raw.status) && raw.status.state === 'error' && typeof raw.status.error === 'string'
+        ? { status: { state: 'error', error: raw.status.error } } : {}) };
+  }
+  if (raw.version !== 1 || !isRecord(raw.result))
+    return { ok: false, version: 1, error: 'invalid prime tower move result envelope', errorCode: 'invalid_response' };
+  const result = raw.result;
+  const projection = normalizePrimeTowerProjection(result.projection);
+  const plateSession = normalizePlateSessionResult(result.plate_session);
+  const mutation = result.mutation;
+  if (!projection.ok || !plateSession.ok || !isRecord(mutation))
+    return { ok: false, version: 1, error: 'invalid prime tower move result', errorCode: 'invalid_response' };
+  if (mutation.kind !== 'move' || typeof mutation.plate_id !== 'string' ||
+      ![mutation.history_entry_delta, mutation.revision_before, mutation.revision_after].every((value) => typeof value === 'number' && Number.isSafeInteger(value)) ||
+      (mutation.history_entry_delta !== 0 && mutation.history_entry_delta !== 1) ||
+      typeof mutation.dirty !== 'boolean' || !Array.isArray(mutation.affected_plate_ids) ||
+      !mutation.affected_plate_ids.every((value) => typeof value === 'string'))
+    return { ok: false, version: 1, error: 'invalid prime tower move mutation', errorCode: 'invalid_response' };
+  const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+  const position = mutation.position;
+  if (position !== undefined && (!isRecord(position) || !finite(position.x) || !finite(position.y)))
+    return { ok: false, version: 1, error: 'invalid prime tower move position', errorCode: 'invalid_response' };
+  const footprint = mutation.footprint;
+  if (footprint !== undefined && (!isRecord(footprint) || ![footprint.min_x, footprint.max_x, footprint.min_y, footprint.max_y].every(finite)))
+    return { ok: false, version: 1, error: 'invalid prime tower move footprint', errorCode: 'invalid_response' };
+  const typedMutation = {
+    kind: 'move' as const, plateId: mutation.plate_id,
+    historyEntryDelta: mutation.history_entry_delta as 0 | 1,
+    revisionBefore: mutation.revision_before as number, revisionAfter: mutation.revision_after as number,
+    dirty: mutation.dirty, affectedPlateIds: mutation.affected_plate_ids as string[],
+    ...(typeof mutation.clamped === 'boolean' ? { clamped: mutation.clamped } : {}),
+    ...(typeof mutation.outside_boundary_warning === 'boolean' ? { outsideBoundaryWarning: mutation.outside_boundary_warning } : {}),
+    ...(typeof mutation.warning === 'string' && mutation.warning.length > 0 ? { warning: mutation.warning } : {}),
+    ...(isRecord(position) ? { position: { x: position.x as number, y: position.y as number } } : {}),
+    ...(isRecord(footprint) ? { footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
+      minY: footprint.min_y as number, maxY: footprint.max_y as number } } : {}),
+  };
+  return { ok: true, version: 1, result: { projection, plateSession, mutation: typedMutation } } as PrimeTowerMoveResultOrError;
 }
 
 /** Convert the native profile/catalogue payload into the public profile
@@ -1012,6 +1064,14 @@ export function createClient(
     async getPrimeTowerProjection(): Promise<PrimeTowerProjectionResult> {
       const m = await module();
       return normalizePrimeTowerProjection(callJson(m, 'orc_get_prime_tower_projection', [], []));
+    },
+
+    async movePrimeTower(request: PrimeTowerMoveRequest): Promise<PrimeTowerMoveResultOrError> {
+      const m = await module();
+      return normalizePrimeTowerMoveResult(callJson(m, 'orc_move_prime_tower', ['string'], [JSON.stringify({
+        version: request.version, plate_id: request.plateId, revision: request.revision,
+        x: request.x, y: request.y,
+      })]));
     },
 
     async resetPlateSession(): Promise<PlateSessionSnapshotResult> {

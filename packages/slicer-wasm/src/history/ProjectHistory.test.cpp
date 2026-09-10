@@ -298,6 +298,7 @@ int main()
     // payload, and never be required for the serialized restore fallback.
     const auto direct_payload = std::make_shared<const Bytes>(bytes(0x5a, 128));
     const RestoreState::DirectFrame direct_frame {
+        RestoreState::DirectFrame::Kind::Filament,
         std::static_pointer_cast<const void>(direct_payload), direct_payload->size()
     };
     ProjectHistory direct_history(1u << 20);
@@ -322,6 +323,81 @@ int main()
     RestorePlan fallback_undo;
     CHECK(serialized_fallback.prepare_undo(fallback_undo));
     CHECK(!fallback_undo.state.direct_frame);
+
+    // Sidecar-only Prime Tower commits retain the current model blobs, attach
+    // a typed predecessor frame for Undo, and still truncate a redo branch.
+    const auto prime_before_payload = std::make_shared<const Bytes>(bytes(0x31, 24));
+    const auto prime_after_payload = std::make_shared<const Bytes>(bytes(0x32, 24));
+    const RestoreState::DirectFrame prime_before {
+        RestoreState::DirectFrame::Kind::PrimeTower,
+        std::static_pointer_cast<const void>(prime_before_payload), prime_before_payload->size()
+    };
+    const RestoreState::DirectFrame prime_after {
+        RestoreState::DirectFrame::Kind::PrimeTower,
+        std::static_pointer_cast<const void>(prime_after_payload), prime_after_payload->size()
+    };
+    ProjectHistory narrow(1u << 20);
+    const auto retained_model = model(7, 4096);
+    CHECK(narrow.commit("baseline", Category::Project, retained_model, bytes(0x41, 16)));
+    narrow.mark_current_as_saved();
+    CHECK(narrow.commit_reusing_current_model("prime move", Category::Project, bytes(0x42, 20),
+                                              prime_after, prime_before));
+    CHECK(narrow.entry_count() == 1);
+    CHECK(narrow.project_modified());
+    CHECK(narrow.current().model.serialized == retained_model.serialized);
+    CHECK(narrow.current().direct_frame);
+    CHECK(narrow.current().direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower);
+    CHECK(narrow.undo(restored));
+    CHECK(restored.direct_frame);
+    CHECK(restored.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower);
+    CHECK(restored.direct_frame->payload.get() == prime_before_payload.get());
+    CHECK(!narrow.project_modified());
+    CHECK(narrow.redo(restored));
+    CHECK(restored.direct_frame);
+    CHECK(restored.direct_frame->payload.get() == prime_after_payload.get());
+    CHECK(narrow.undo(restored));
+    CHECK(narrow.commit_reusing_current_model("branched prime move", Category::Project,
+                                              bytes(0x43, 20), prime_after));
+    CHECK(!narrow.can_redo());
+
+    // The sidecar transaction also restores a partially-mutated branch when
+    // the append throws. This exercises the same predecessor/direct-frame
+    // path used by Prime Tower without relying on allocator failure.
+    ProjectHistory exception_rollback(1u << 20);
+    CHECK(exception_rollback.commit("base", Category::Project, retained_model, bytes(0x51, 8)));
+    CHECK(exception_rollback.commit("redo candidate", Category::Project, retained_model, bytes(0x52, 8), prime_after));
+    CHECK(exception_rollback.undo(restored));
+    const auto rollback_entries = exception_rollback.entries();
+    const auto rollback_cursor = exception_rollback.cursor();
+    const auto rollback_bytes = exception_rollback.bytes_used();
+    exception_rollback.fail_next_reusing_commit_for_test();
+    bool rollback_threw = false;
+    try {
+        exception_rollback.commit_reusing_current_model("failing prime move", Category::Project,
+                                                        bytes(0x53, 8), prime_after, prime_before);
+    } catch (...) {
+        rollback_threw = true;
+    }
+    CHECK(rollback_threw);
+    CHECK(exception_rollback.entries().size() == rollback_entries.size());
+    CHECK(exception_rollback.entries().front().id == rollback_entries.front().id);
+    CHECK(exception_rollback.entries().back().id == rollback_entries.back().id);
+    CHECK(exception_rollback.cursor() == rollback_cursor);
+    CHECK(exception_rollback.bytes_used() == rollback_bytes);
+    CHECK(exception_rollback.can_redo());
+    CHECK(exception_rollback.current().context == bytes(0x51, 8));
+
+    // A narrow commit under a tiny budget follows the same eviction policy as
+    // a normal commit, and an empty/no-op call leaves the timeline unchanged.
+    ProjectHistory narrow_budget(1);
+    CHECK(narrow_budget.commit("baseline", Category::Project, model(1, 32), bytes(1)));
+    const auto narrow_count = narrow_budget.entry_count();
+    CHECK(!narrow_budget.commit_reusing_current_model("empty", Category::Project, bytes(1)));
+    CHECK(narrow_budget.entry_count() == narrow_count);
+    CHECK(narrow_budget.commit_reusing_current_model("budgeted move", Category::Project,
+                                                      bytes(3, 2048), prime_after));
+    CHECK(narrow_budget.resource_diagnostics().evicted_entry_count > 0 ||
+          narrow_budget.resource_diagnostics().oversized_entry_retained);
 
     // Under budget pressure direct frames leave with their entry: retained
     // entries still expose their exact frame while an evicted target has no

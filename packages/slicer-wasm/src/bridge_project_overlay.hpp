@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------
 // Project configuration overlay for the Neo WASM bridge.
 //
-// This module owns the canonical project/object/part/plate override state,
+// This module owns the canonical project/object/part override state,
 // native configuration validation, and the three overlay C ABI exports.
 // Project persistence consumes only the small pure/application helpers below.
 // ----------------------------------------------------------------
@@ -20,6 +20,7 @@ using json = nlohmann::json;
 
 json empty_project_config_overlay();
 bool valid_project_config_overlay(const json& overlay);
+void strip_plate_coordinate_overrides(json& overlay);
 
 void apply_overlay_to_config(DynamicPrintConfig& config, const json& values);
 void apply_overlay_to_config(ModelConfig& config, const json& values);

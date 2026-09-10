@@ -90,12 +90,18 @@ function loadProject(bytes, displayName) {
   return loaded;
 }
 function establishFlexibleBaseline() {
-  const snapshot = initFlexible();
-  baselineState = scenarioState();
+  initFlexible();
   const exported = callJson('orc_export_project');
   assert.equal(exported.ok, true, JSON.stringify(exported));
   baselineProject = readBytes(exported.bytes_ptr, exported.bytes_length);
-  return snapshot;
+  // Export/import is the authoritative project boundary. Native plate
+  // coordinate arrays are normalized to the current plate count there, so
+  // establish the comparison state after that boundary rather than retaining
+  // the pre-export in-memory representation.
+  const loaded = loadProject(baselineProject, 'command-smoke-baseline.3mf');
+  assert.equal(loaded.ok, true, JSON.stringify(loaded));
+  baselineState = scenarioState();
+  return callJson('orc_get_filament_session_snapshot');
 }
 function resetFlexibleScenario() {
   // orc_init rebuilds the complete profile bundle (~10 s on this machine).

@@ -5,6 +5,9 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <cmath>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -14,6 +17,7 @@
 #include "bridge_filament.hpp"
 #include "bridge_model_operations.hpp"
 #include "bridge_plate.hpp"
+#include "bridge_prime_tower.hpp"
 #include "libslic3r/Exception.hpp"
 
 using namespace Slic3r;
@@ -91,7 +95,7 @@ json empty_project_config_overlay()
 
 bool valid_project_config_overlay(const json& overlay)
 {
-    if (!overlay.is_object()) return false;
+    if (!overlay.is_object() || overlay.size() != 4) return false;
     for (const char* scope : {"project", "objects", "parts", "plates"})
         if (!overlay.contains(scope) || !overlay[scope].is_object()) return false;
     for (const char* scope : {"project", "objects", "parts", "plates"}) {
@@ -108,6 +112,16 @@ bool valid_project_config_overlay(const json& overlay)
     return true;
 }
 
+void strip_plate_coordinate_overrides(json& overlay)
+{
+    if (!overlay.is_object() || !overlay.contains("plates") || !overlay["plates"].is_object()) return;
+    for (auto& values : overlay["plates"]) {
+        if (!values.is_object()) continue;
+        values.erase("wipe_tower_x");
+        values.erase("wipe_tower_y");
+    }
+}
+
 void apply_overlay_to_config(DynamicPrintConfig& config, const json& values)
 {
     apply_overlay_generic(config, values);
@@ -122,6 +136,12 @@ void apply_plate_metadata_to_configs(std::vector<BridgeState::PlateSessionPlate>
 {
     for (auto& plate : plates) {
         apply_overlay_to_config(plate.settings, plate.settings_metadata);
+        plate.settings.erase("wipe_tower_x");
+        plate.settings.erase("wipe_tower_y");
+        if (plate.settings_metadata.is_object()) {
+            plate.settings_metadata.erase("wipe_tower_x");
+            plate.settings_metadata.erase("wipe_tower_y");
+        }
         plate.settings_metadata = config_metadata_json(plate.settings);
     }
 }
@@ -136,9 +156,6 @@ void apply_plate_overlay_to_configs(std::vector<BridgeState::PlateSessionPlate>&
         if (const auto exact = overlay["plates"].find(plate.id); exact != overlay["plates"].end()) {
             values = &exact.value();
         } else {
-            // Plate session ids are runtime identities and are intentionally
-            // regenerated on restore. Preserve the saved overlay by its
-            // stable one-based plate suffix when the identity changed.
             const std::string suffix = "-plate-" + std::to_string(index + 1);
             for (auto it = overlay["plates"].begin(); it != overlay["plates"].end(); ++it) {
                 if (it.key().size() >= suffix.size() &&
@@ -148,10 +165,12 @@ void apply_plate_overlay_to_configs(std::vector<BridgeState::PlateSessionPlate>&
                 }
             }
         }
-        if (values != nullptr) {
-            apply_overlay_to_config(plate.settings, *values);
-            plate.settings_metadata = config_metadata_json(plate.settings);
-        }
+        if (values == nullptr || !values->is_object()) continue;
+        json candidate = *values;
+        candidate.erase("wipe_tower_x");
+        candidate.erase("wipe_tower_y");
+        apply_overlay_to_config(plate.settings, candidate);
+        plate.settings_metadata = config_metadata_json(plate.settings);
     }
 }
 
@@ -163,7 +182,21 @@ json project_config_overlay_metadata()
 
 json project_config_overlay_result()
 {
-    return json{{"ok", true}, {"overlay", state().project_config_overlay}};
+    json overlay = state().project_config_overlay;
+    json& plates = overlay["plates"];
+    if (!plates.is_object()) plates = json::object();
+    const auto* x = state().presets.project_config.opt<ConfigOptionFloats>("wipe_tower_x");
+    const auto* y = state().presets.project_config.opt<ConfigOptionFloats>("wipe_tower_y");
+    for (std::size_t index = 0; index < state().plate_session_plates.size(); ++index) {
+        const auto& plate = state().plate_session_plates[index];
+        json values = plates[plate.id].is_object() ? plates[plate.id] : json::object();
+        if (x != nullptr && index < x->values.size() && std::isfinite(x->values[index]))
+            values["wipe_tower_x"] = ConfigOptionFloat(x->values[index]).serialize();
+        if (y != nullptr && index < y->values.size() && std::isfinite(y->values[index]))
+            values["wipe_tower_y"] = ConfigOptionFloat(y->values[index]).serialize();
+        plates[plate.id] = std::move(values);
+    }
+    return json{{"ok", true}, {"overlay", std::move(overlay)}};
 }
 
 } // namespace Slic3r::Neo::Bridge::ProjectOverlay
@@ -190,10 +223,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
     using ProjectOverlay::native_configuration_status;
     using ProjectOverlay::native_configuration_error_json;
     using ProjectOverlay::project_config_overlay_result;
+    std::string scope;
+    std::string id;
     try {
         PlateSession::ensure_plate_session_state();
-        const std::string scope = scope_cstr ? scope_cstr : "";
-        const std::string id = id_cstr ? id_cstr : "";
+        scope = scope_cstr ? scope_cstr : "";
+        id = id_cstr ? id_cstr : "";
         const std::string key = option_key_cstr ? option_key_cstr : "";
         const std::string value = value_cstr ? value_cstr : "";
         const auto configuration_error = [](const std::string& code, const std::string& message) {
@@ -205,8 +240,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
         if (Slic3r::print_config_def.options.find(key) == Slic3r::print_config_def.options.end())
             return configuration_error("unsupported_reference", "unsupported project configuration option: " + key);
         if (scope != "project" && id.empty()) return configuration_error("invalid_command", "scope id is required");
-        if (scope == "plate" && key != "wipe_tower_x" && key != "wipe_tower_y")
-            return configuration_error("unsupported_reference", "only prime tower X/Y are supported at plate scope");
         Slic3r::ConfigSubstitutionContext substitutions{Slic3r::ForwardCompatibilitySubstitutionRule::Disable};
         Slic3r::DynamicPrintConfig project_candidate;
         std::optional<json> configuration_status;
@@ -220,6 +253,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
             project_candidate = state().presets.project_config;
             apply_overlay_to_config(project_candidate, state().project_config_overlay["project"]);
             project_candidate.set_deserialize(key, value, substitutions);
+            if ((key == "wipe_tower_x" || key == "wipe_tower_y") &&
+                !PlateSession::coordinate_arrays_match_plate_count(
+                    project_candidate, state().plate_session_plates.size()))
+                return configuration_error("native_validation_failure", "prime tower coordinate arrays must match plate count");
             configuration_status = native_configuration_status(project_candidate, key, value);
             effective_value = effective_for(project_candidate);
         } else if (scope == "object") {
@@ -239,20 +276,37 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
             effective_value = effective_for(candidate);
             volume->config.assign_config(candidate);
         } else {
-            auto* plate = const_cast<BridgeState::PlateSessionPlate*>(PlateSession::find_plate(id));
-            if (!plate) return configuration_error("unsupported_reference", "plate not found");
-            Slic3r::DynamicPrintConfig candidate = plate->settings;
-            candidate.set_deserialize(key, value, substitutions);
-            configuration_status = native_configuration_status(candidate, key, value);
-            effective_value = effective_for(candidate);
-            plate->settings = std::move(candidate);
-            plate->settings_metadata = Filament::State::config_metadata_json(plate->settings);
+            if (key != "wipe_tower_x" && key != "wipe_tower_y")
+                return configuration_error("unsupported_reference", "plate scope only supports prime tower coordinates");
+            auto* plate = PlateSession::find_plate_mutable(id);
+            if (plate == nullptr) return configuration_error("unsupported_reference", "plate not found");
+            if (!PlateSession::coordinate_arrays_match_plate_count(
+                    state().presets.project_config, state().plate_session_plates.size()))
+                return configuration_error("native_validation_failure", "prime tower coordinate array invariant failed");
+            ConfigOptionFloat parsed;
+            if (!parsed.deserialize(value) || !std::isfinite(parsed.value))
+                return configuration_error("native_validation_failure", "prime tower coordinate must be finite");
+            project_candidate = state().presets.project_config;
+            const auto plate_it = std::find_if(state().plate_session_plates.begin(), state().plate_session_plates.end(),
+                [&](const auto& candidate) { return candidate.id == id; });
+            const auto plate_index = static_cast<std::size_t>(
+                std::distance(state().plate_session_plates.begin(), plate_it));
+            PrimeTower::set_coordinate_option_value(project_candidate, key.c_str(), plate_index, parsed.value, 0.);
+            effective_value = parsed.serialize();
+            json corrections = json::array();
+            if (effective_value != value)
+                corrections.push_back({{"key", key}, {"requested", value}, {"effective", effective_value}});
+            configuration_status = json{{"state", "ready"}, {"corrections", std::move(corrections)},
+                                        {"warnings", json::array()}, {"errors", json::array()}};
         }
-        json& bucket = scope == "project" ? state().project_config_overlay["project"]
-            : scope == "object" ? state().project_config_overlay["objects"][id]
-            : scope == "part" ? state().project_config_overlay["parts"][id]
-            : state().project_config_overlay["plates"][id];
-        bucket[key] = effective_value;
+        if (scope != "plate") {
+            json& bucket = scope == "project" ? state().project_config_overlay["project"]
+                : scope == "object" ? state().project_config_overlay["objects"][id]
+                : state().project_config_overlay["parts"][id];
+            bucket[key] = effective_value;
+        }
+        if (scope == "project" || scope == "plate")
+            state().presets.project_config = std::move(project_candidate);
         const auto mutation = scope == "plate"
             ? PlateCommands::plate_configuration_mutation_snapshot(id, "prime-tower-position")
             : PlateSession::shared_configuration_mutation_snapshot();
@@ -272,7 +326,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
 EMSCRIPTEN_KEEPALIVE const char* orc_revalidate_project_config_overlay() {
     using namespace Slic3r::Neo::Bridge::ProjectOverlay;
     try {
-        for (const char* scope : {"project", "objects", "parts", "plates"}) {
+        for (const char* scope : {"project", "objects", "parts"}) {
             auto& values = state().project_config_overlay[scope];
             for (auto it = values.begin(); it != values.end();) {
                 if (scope == std::string("project")) {

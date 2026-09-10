@@ -639,6 +639,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 parsed.value("version", 0) != 1 || !valid_project_config_overlay(parsed["overlay"]))
                 throw Slic3r::RuntimeError("corrupt Neo configuration overlay metadata");
             overlay_metadata = parsed["overlay"];
+            strip_plate_coordinate_overrides(*overlay_metadata);
         }
         if (filament_entry) {
             const json parsed = json::parse(*filament_entry);
@@ -810,7 +811,7 @@ static const char* orc_load_project_impl(const char* data, int len,
 
         std::vector<BridgeState::PlateSessionPlate> staged_plates;
         std::string staged_current_plate_id;
-        const json staged_overlay = overlay_metadata.value_or(empty_project_config_overlay());
+        json staged_overlay = overlay_metadata.value_or(empty_project_config_overlay());
         if (!geometry_only) {
             // Build the incoming plate session while the candidate is still
             // isolated.  Plate settings are part of filament validation, so
@@ -822,6 +823,8 @@ static const char* orc_load_project_impl(const char* data, int len,
                 staged_current_plate_id);
             apply_plate_metadata_to_configs(staged_plates);
             apply_plate_overlay_to_configs(staged_plates, staged_overlay);
+            apply_overlay_to_config(candidate.project_config, staged_overlay["project"]);
+            Neo::Bridge::PlateSession::normalize_coordinate_arrays(candidate.project_config, staged_plates.size());
         }
 
         // Complete candidate validation is still inside the staging phase.
@@ -957,6 +960,10 @@ static const char* orc_load_project_impl(const char* data, int len,
                 }
                 apply_plate_metadata_to_configs(state().plate_session_plates);
                 apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
+                apply_overlay_to_config(state().presets.project_config,
+                                        state().project_config_overlay["project"]);
+                Neo::Bridge::PlateSession::normalize_coordinate_arrays(
+                    state().presets.project_config, state().plate_session_plates.size());
                 // Results are deliberately not loaded from PlateData.
                 rebuild_plate_membership(true);
                 state().history.clear();
@@ -1062,7 +1069,7 @@ static const char* orc_load_project_impl(const char* data, int len,
         if (!geometry_only)
             out["preset_snapshot"] = preset_snapshot_json();
         if (!geometry_only)
-            out["project_config_overlay"] = state().project_config_overlay;
+            out["project_config_overlay"] = project_config_overlay_result()["overlay"];
         if (geometry_only) {
             const auto mutation = plate_mutation_snapshot({}, {"model-import"},
                 reflow_instance_transforms(geometry_added_instances));

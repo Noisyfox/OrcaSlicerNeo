@@ -81,6 +81,7 @@ make_direct_frame(BridgeState& bridge, std::shared_ptr<const Model> model,
     frame->next_filament_colour_index = bridge.next_filament_colour_index;
     const std::size_t bytes = direct_frame_bytes(*frame, model_state);
     return History::RestoreState::DirectFrame{
+        History::RestoreState::DirectFrame::Kind::Filament,
         std::static_pointer_cast<const void>(std::move(frame)), bytes};
 }
 
@@ -88,6 +89,7 @@ std::shared_ptr<const Model> current_direct_frame_model(const BridgeState& bridg
 {
     const auto& current = bridge.history.current();
     if (!current.direct_frame || !current.direct_frame->payload) return {};
+    if (current.direct_frame->kind != History::RestoreState::DirectFrame::Kind::Filament) return {};
     const auto frame = std::static_pointer_cast<const DirectHistoryFrame>(
         current.direct_frame->payload);
     return frame ? frame->model : std::shared_ptr<const Model>{};
@@ -392,7 +394,7 @@ void remap_overlay_filament_references(json& overlay, const std::size_t removed,
         }
     };
     remap_values(overlay["project"]);
-    for (const char* scope : {"objects", "parts", "plates"})
+    for (const char* scope : {"objects", "parts"})
         for (auto it = overlay[scope].begin(); it != overlay[scope].end(); ++it)
             remap_values(it.value());
 }
@@ -829,7 +831,7 @@ void validate_filament_candidate_components(const std::vector<std::string>& fila
         }
     };
     validate_overlay_values(overlay["project"]);
-    for (const char* scope : {"objects", "parts", "plates"})
+    for (const char* scope : {"objects", "parts"})
         for (const auto& [id, values] : overlay[scope].items()) validate_overlay_values(values);
     for (const auto& plate : plates) {
         validate_plate_filament_state(plate, filament_presets.size(), nozzle_count);

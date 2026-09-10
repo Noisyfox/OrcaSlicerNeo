@@ -1509,8 +1509,13 @@ state but adds no scene renderer.
    X/Y, clamps the rotated footprint plus brim to the printable area when it can
    fit, and returns the authoritative proxy/session projection atomically.
 2. One completed command produces one history entry and invalidates only that
-   plate. Undo/Redo restores only the narrow coordinates and result validity;
-   it must not capture, copy, or restore a complete `PresetBundle`.
+   plate. Coordinates are the single native project-level X/Y arrays, never
+   plate settings or per-plate overlay buckets. History retains only the
+   target identity, before/after array elements, and revision; it retains no
+   slice product. Undo/Redo restore only those coordinates and
+   keep the target plate's result invalid, while preserving a real result for
+   an unaffected plate. The command must not capture, copy, or restore a
+   complete `PresetBundle`.
 3. Rejected stale, missing-plate, non-finite, or failed commands leave project
    state, history, revisions, dirty status, and slice results unchanged.
 4. The too-large-to-fit case retains native dimensions and best available

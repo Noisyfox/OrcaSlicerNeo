@@ -49,6 +49,9 @@ Vec3d parked_origin_for_count(int count, const PlateBounds& bounds);
 
 void reset_plate_session_state();
 void ensure_plate_session_state();
+void normalize_coordinate_arrays(DynamicPrintConfig& project_config, std::size_t plate_count);
+bool coordinate_arrays_match_plate_count(const DynamicPrintConfig& project_config,
+                                         std::size_t plate_count);
 const BridgeState::PlateSessionPlate* find_plate(const std::string& id);
 BridgeState::PlateSessionPlate* find_plate_mutable(const std::string& id);
 

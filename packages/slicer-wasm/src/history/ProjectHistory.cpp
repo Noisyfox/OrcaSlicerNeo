@@ -4,6 +4,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <utility>
 
 namespace Slic3r::Neo::History {
@@ -326,6 +327,68 @@ bool ProjectHistory::commit_with_baseline(std::string label, Category category,
     }
 }
 
+bool ProjectHistory::commit_reusing_current_model(std::string label, Category category, const Bytes& context,
+                                                  std::optional<RestoreState::DirectFrame> direct_frame,
+                                                  std::optional<RestoreState::DirectFrame> predecessor_direct_frame)
+{
+    if (m_impl->states.empty()) return false;
+    const auto& current = m_impl->states[m_cursor].state;
+    if (current.context == context && !direct_frame) return false;
+
+    ProjectHistory backup(m_byte_budget);
+    backup.m_impl->states = m_impl->states;
+    backup.m_impl->next_entry_id = m_impl->next_entry_id;
+    backup.m_cursor = m_cursor;
+    backup.m_saved_checkpoint = m_saved_checkpoint;
+    backup.m_saved_checkpoint_evicted = m_saved_checkpoint_evicted;
+    backup.m_optional_bytes_released = m_optional_bytes_released;
+    backup.m_evicted_entry_count = m_evicted_entry_count;
+    backup.m_last_evicted_entry_id = m_last_evicted_entry_id;
+    backup.m_object_intervals = m_object_intervals;
+    try {
+        if (!m_impl->states[m_cursor].state.direct_frame && predecessor_direct_frame &&
+            predecessor_direct_frame->payload && predecessor_direct_frame->bytes != 0)
+            m_impl->states[m_cursor].state.direct_frame = std::move(predecessor_direct_frame);
+
+        StoredState prepared;
+        prepared.serialized = current.serialized;
+        prepared.mutable_objects = current.mutable_objects;
+        prepared.immutable_meshes = current.immutable_meshes;
+        prepared.context = context;
+        if (direct_frame && (!direct_frame->payload || direct_frame->bytes == 0)) direct_frame.reset();
+        prepared.direct_frame = std::move(direct_frame);
+        m_impl->states.reserve(m_impl->states.size() + 1);
+        if (m_cursor + 1 < m_impl->states.size()) {
+            if (m_saved_checkpoint != static_cast<std::size_t>(-1) && m_saved_checkpoint > m_cursor)
+                m_saved_checkpoint_evicted = true;
+            m_impl->states.erase(m_impl->states.begin() + static_cast<std::ptrdiff_t>(m_cursor + 1), m_impl->states.end());
+        }
+#ifdef NEO_PROJECT_HISTORY_TEST
+        if (m_fail_next_reusing_commit_for_test) {
+            m_fail_next_reusing_commit_for_test = false;
+            throw std::runtime_error("injected sidecar commit failure");
+        }
+#endif
+        EntryInfo info { m_impl->next_entry_id++, std::move(label), category };
+        m_impl->states.push_back({ std::move(info), std::move(prepared) });
+        ++m_cursor;
+        rebuild_intervals();
+        release_least_recently_used();
+        return true;
+    } catch (...) {
+        m_impl->states = std::move(backup.m_impl->states);
+        m_impl->next_entry_id = backup.m_impl->next_entry_id;
+        m_cursor = backup.m_cursor;
+        m_saved_checkpoint = backup.m_saved_checkpoint;
+        m_saved_checkpoint_evicted = backup.m_saved_checkpoint_evicted;
+        m_optional_bytes_released = backup.m_optional_bytes_released;
+        m_evicted_entry_count = backup.m_evicted_entry_count;
+        m_last_evicted_entry_id = backup.m_last_evicted_entry_id;
+        m_object_intervals = std::move(backup.m_object_intervals);
+        throw;
+    }
+}
+
 bool ProjectHistory::undo(RestoreState& result)
 {
     RestorePlan plan;
@@ -367,7 +430,8 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
-    result.state.model = Impl::restore_model(state.state);
+    if (!state.state.direct_frame || state.state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower)
+        result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
     result.state.direct_frame = state.state.direct_frame;
@@ -383,7 +447,8 @@ bool ProjectHistory::prepare_redo(RestorePlan& result) const
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
-    result.state.model = Impl::restore_model(state.state);
+    if (!state.state.direct_frame || state.state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower)
+        result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
     result.state.direct_frame = state.state.direct_frame;
@@ -397,7 +462,8 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
     if (it == m_impl->states.end()) return false;
     result.from_cursor = m_cursor;
     result.target_cursor = static_cast<std::size_t>(std::distance(m_impl->states.begin(), it));
-    result.state.model = Impl::restore_model(it->state);
+    if (!it->state.direct_frame || it->state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower)
+        result.state.model = Impl::restore_model(it->state);
     result.state.context = it->state.context;
     result.state.entry = it->info;
     result.state.direct_frame = it->state.direct_frame;
@@ -427,7 +493,8 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& target_entry = m_impl->states[target];
-    result.state.model = Impl::restore_model(target_entry.state);
+    if (!target_entry.state.direct_frame || target_entry.state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower)
+        result.state.model = Impl::restore_model(target_entry.state);
     result.state.context = target_entry.state.context;
     result.state.entry = target_entry.info;
     result.state.direct_frame = target_entry.state.direct_frame;

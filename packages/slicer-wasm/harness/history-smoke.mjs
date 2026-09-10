@@ -150,22 +150,23 @@ const configTx = callJson('orc_history_begin', ['string', 'string', 'string', 's
   ['Plate Config', 'project', JSON.stringify(context), '']);
 if (!configTx.ok || typeof configTx.transactionId !== 'string') throw new Error(JSON.stringify(configTx));
 const configured = callJson('orc_set_project_config_override',
-  ['string', 'string', 'string', 'string'], ['plate', configuredPlateId, 'wipe_tower_x', '101.0']);
-if (!configured.ok || configured.plate_session?.plates?.every((plate) =>
-    plate.plate_id !== configuredPlateId || plate.settings.wipe_tower_x !== '101'))
-  throw new Error(`plate configuration did not update the authoritative session: ${JSON.stringify(configured)}`);
+  ['string', 'string', 'string', 'string'], ['project', '', 'wipe_tower_x', '101,202']);
+if (!configured.ok || configured.overlay?.project?.wipe_tower_x !== '101,202' ||
+    configured.overlay?.plates?.[plateAfterRedo.plates[0].plate_id]?.wipe_tower_x !== '101' ||
+    configured.overlay?.plates?.[plateAfterRedo.plates[1].plate_id]?.wipe_tower_x !== '202')
+  throw new Error(`project coordinate array did not update the authoritative config: ${JSON.stringify(configured)}`);
 const configuredCommit = callJson('orc_history_commit', ['string', 'string'],
   [configTx.transactionId, JSON.stringify(context)]);
 const configuredAfter = callJson('orc_get_plate_session_snapshot', [], []);
-if (!configuredCommit.canUndo || configuredAfter.plates.find((plate) => plate.plate_id === configuredPlateId)?.settings?.wipe_tower_x !== '101')
+if (!configuredCommit.canUndo || configuredAfter.plates.some((plate) => Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x')))
   throw new Error(`plate configuration history commit failed: ${JSON.stringify({ configuredCommit, configuredAfter })}`);
 const configUndo = callJson('orc_history_undo', [], []);
 const configAfterUndo = callJson('orc_get_plate_session_snapshot', [], []);
-if (!configUndo.ok || configAfterUndo.plates.find((plate) => plate.plate_id === configuredPlateId)?.settings?.wipe_tower_x === '101')
+if (!configUndo.ok || configAfterUndo.plates.some((plate) => Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x')))
   throw new Error(`plate configuration undo did not restore the prior session: ${JSON.stringify({ configUndo, configAfterUndo })}`);
 const configRedo = callJson('orc_history_redo', [], []);
 const configAfterRedo = callJson('orc_get_plate_session_snapshot', [], []);
-if (!configRedo.ok || configAfterRedo.plates.find((plate) => plate.plate_id === configuredPlateId)?.settings?.wipe_tower_x !== '101')
+if (!configRedo.ok || configAfterRedo.plates.some((plate) => Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x')))
   throw new Error(`plate configuration redo did not restore the session: ${JSON.stringify({ configRedo, configAfterRedo })}`);
 const projectHistoryCountBeforeCoalesced = configRedo.status.undoEntries.length;
 
@@ -372,8 +373,51 @@ historyCheck('select plate three before structural history',
 const resetFixtureHistory = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);
 historyCheck('establish structural fixture history baseline',
   resetFixtureHistory.canUndo === false, JSON.stringify(resetFixtureHistory));
-const structuralBaseline = callJson('orc_get_plate_session_snapshot', [], []);
+let structuralBaseline = callJson('orc_get_plate_session_snapshot', [], []);
 assertLiveSessionIntegrity(structuralBaseline, 'structural baseline');
+function coordinateArraysMatchPlateCount(session) {
+  const overlay = callJson('orc_get_project_config_overlay');
+  return ['wipe_tower_x', 'wipe_tower_y'].every((key) =>
+    typeof overlay.overlay.project?.[key] === 'string' && overlay.overlay.project[key].split(',').length === session.plates.length) &&
+    session.plates.every((plate, index) => !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x') &&
+      !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_y') &&
+      Number(overlay.overlay.plates?.[plate.plate_id]?.wipe_tower_x) === Number(overlay.overlay.project.wipe_tower_x.split(',')[index]) &&
+      Number(overlay.overlay.plates?.[plate.plate_id]?.wipe_tower_y) === Number(overlay.overlay.project.wipe_tower_y.split(',')[index]));
+}
+function coordinateArrayAt(session, plateId, key) {
+  const plate = session.plates.find((entry) => entry.plate_id === plateId);
+  if (!plate) throw new Error(`missing coordinate plate ${plateId}`);
+  const overlay = callJson('orc_get_project_config_overlay');
+  if (typeof overlay.overlay.project?.[key] !== 'string') throw new Error(`${key} is not serialized`);
+  return overlay.overlay.project[key].split(',').map(Number);
+}
+function coordinateIdentityValues(session, expected) {
+  return Object.entries(expected).every(([plateId, values]) =>
+    ['wipe_tower_x', 'wipe_tower_y'].every((key) => {
+      const actual = coordinateArrayAt(session, plateId, key);
+      return actual.length === session.plates.length && actual[values.index] === values[key];
+    }));
+}
+function setProjectCoordinate(key, value) {
+  const result = callJson('orc_set_project_config_override',
+    ['string', 'string', 'string', 'string'], ['project', '', key, String(value)]);
+  if (!result.ok) throw new Error(`set project ${key} failed: ${JSON.stringify(result)}`);
+}
+setProjectCoordinate('wipe_tower_x', '101,202,303');
+setProjectCoordinate('wipe_tower_y', '201,302,403');
+const coordinateBaselineReset = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);
+historyCheck('coordinate baseline reset retains no extra history entry',
+  coordinateBaselineReset.canUndo === false, JSON.stringify(coordinateBaselineReset));
+structuralBaseline = callJson('orc_get_plate_session_snapshot', [], []);
+const expectedBaselineCoordinates = {
+  [fixturePlateOne]: { index: 0, wipe_tower_x: 101, wipe_tower_y: 201 },
+  [fixturePlateTwo]: { index: 1, wipe_tower_x: 202, wipe_tower_y: 302 },
+  [fixturePlateThree]: { index: 2, wipe_tower_x: 303, wipe_tower_y: 403 },
+};
+historyCheck('structural baseline coordinate arrays match plate count',
+  coordinateArraysMatchPlateCount(structuralBaseline));
+historyCheck('structural baseline coordinate identity order is explicit',
+  coordinateIdentityValues(structuralBaseline, expectedBaselineCoordinates));
 historyCheck('structural baseline contains locked plate and all memberships',
   structuralBaseline.plates.some((plate) => plate.plate_id === lockedPlateId && plate.locked) &&
   structuralBaseline.instances.some((item) => item.object_index === 2 && item.plate_id === fixturePlateTwo && item.parked === false) &&
@@ -411,17 +455,35 @@ historyCheck('delete plate creates parked member and preserves current plate',
   deletedPlate.instances.some((item) => item.object_index === 3 && item.plate_id === fixturePlateThree && item.out_of_bounds),
   JSON.stringify(deletedPlate));
 const deleteAfter = callJson('orc_get_plate_session_snapshot', [], []);
+historyCheck('delete compacts coordinate arrays without a separate repair history entry',
+  coordinateArraysMatchPlateCount(deleteAfter));
+historyCheck('delete compacts surviving coordinate identity order',
+  coordinateIdentityValues(deleteAfter, {
+    [fixturePlateOne]: { index: 0, wipe_tower_x: 101, wipe_tower_y: 201 },
+    [fixturePlateThree]: { index: 1, wipe_tower_x: 303, wipe_tower_y: 403 },
+  }));
 commitHistory('Delete Plate', deleteTransaction);
 const deleteUndo = callJson('orc_history_undo', [], []);
 historyCheck('Delete Plate undo succeeds', deleteUndo.ok === true, JSON.stringify(deleteUndo));
 const deleteUndoSession = restoreAndCompare('Delete Plate undo', structuralBaseline);
+historyCheck('Delete Plate undo restores coordinate arrays to three plates',
+  coordinateArraysMatchPlateCount(deleteUndoSession));
+historyCheck('Delete Plate undo restores coordinate identity order',
+  coordinateIdentityValues(deleteUndoSession, expectedBaselineCoordinates));
 historyCheck('Delete Plate undo restores current plate and member flags',
   deleteUndoSession.current_plate_id === fixturePlateThree &&
   deleteUndoSession.instances.some((item) => item.object_index === 2 && item.plate_id === fixturePlateTwo && !item.parked) &&
   deleteUndoSession.instances.some((item) => item.object_index === 3 && item.plate_id === fixturePlateThree && item.out_of_bounds));
 const deleteRedo = callJson('orc_history_redo', [], []);
 historyCheck('Delete Plate redo succeeds', deleteRedo.ok === true, JSON.stringify(deleteRedo));
-restoreAndCompare('Delete Plate redo', deleteAfter);
+const deleteRedoSession = restoreAndCompare('Delete Plate redo', deleteAfter);
+historyCheck('Delete Plate redo keeps coordinate arrays at two plates',
+  coordinateArraysMatchPlateCount(deleteRedoSession));
+historyCheck('Delete Plate redo restores compact coordinate identity order',
+  coordinateIdentityValues(deleteRedoSession, {
+    [fixturePlateOne]: { index: 0, wipe_tower_x: 101, wipe_tower_y: 201 },
+    [fixturePlateThree]: { index: 1, wipe_tower_x: 303, wipe_tower_y: 403 },
+  }));
 
 // Return to the baseline, then exercise the release's plate-order change
 // path explicitly.  Intermediate deletion compacts the ordered collection;
@@ -435,11 +497,29 @@ historyCheck('reorder plate compaction changes ordered collection',
     `${fixturePlateTwo},${fixturePlateThree}` && reordered.current_plate_id === fixturePlateThree,
   JSON.stringify(reordered));
 const reorderAfter = callJson('orc_get_plate_session_snapshot', [], []);
+historyCheck('reorder compacts coordinate arrays to two plates',
+  coordinateArraysMatchPlateCount(reorderAfter));
+historyCheck('reorder compacts coordinate identity order',
+  coordinateIdentityValues(reorderAfter, {
+    [fixturePlateTwo]: { index: 0, wipe_tower_x: 202, wipe_tower_y: 302 },
+    [fixturePlateThree]: { index: 1, wipe_tower_x: 303, wipe_tower_y: 403 },
+  }));
 commitHistory('Reorder Plate', reorderTransaction);
 historyCheck('Reorder Plate undo succeeds', callJson('orc_history_undo', [], []).ok === true);
-restoreAndCompare('Reorder Plate undo', structuralBaseline);
+const reorderUndoSession = restoreAndCompare('Reorder Plate undo', structuralBaseline);
+historyCheck('reorder Undo restores coordinate arrays to three plates',
+  coordinateArraysMatchPlateCount(reorderUndoSession));
+historyCheck('reorder Undo restores coordinate identity order',
+  coordinateIdentityValues(reorderUndoSession, expectedBaselineCoordinates));
 historyCheck('Reorder Plate redo succeeds', callJson('orc_history_redo', [], []).ok === true);
-restoreAndCompare('Reorder Plate redo', reorderAfter);
+const reorderRedoSession = restoreAndCompare('Reorder Plate redo', reorderAfter);
+historyCheck('reorder Redo keeps coordinate arrays at two plates',
+  coordinateArraysMatchPlateCount(reorderRedoSession));
+historyCheck('reorder Redo restores compact coordinate identity order',
+  coordinateIdentityValues(reorderRedoSession, {
+    [fixturePlateTwo]: { index: 0, wipe_tower_x: 202, wipe_tower_y: 302 },
+    [fixturePlateThree]: { index: 1, wipe_tower_x: 303, wipe_tower_y: 403 },
+  }));
 historyCheck('locked plate state survives reorder Undo/Redo',
   reorderAfter.plates.find((plate) => plate.plate_id === lockedPlateId)?.locked === true);
 

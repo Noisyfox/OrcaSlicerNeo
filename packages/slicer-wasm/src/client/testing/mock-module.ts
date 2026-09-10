@@ -315,11 +315,22 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     project: Record<string, string>;
     objects: Record<string, Record<string, string>>;
     parts: Record<string, Record<string, string>>;
-    plates: Record<string, Record<string, string>>;
   };
-  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {}, plates: {} });
+  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {} });
+  function overlayProjection(): MockOverlay & { plates: Record<string, Record<string, string>> } {
+    const parse = (key: string, fallback: number) => {
+      const values = (projectConfigOverlay.project[key] ?? '').split(',').filter(Boolean).map(Number);
+      return plateIds.map((_, index) => Number.isFinite(values[index]) ? values[index] : fallback);
+    };
+    const x = parse('wipe_tower_x', 15);
+    const y = parse('wipe_tower_y', 220);
+    return { ...clone(projectConfigOverlay), plates: Object.fromEntries(plateIds.map((id, index) => [id, {
+      wipe_tower_x: String(x[index]), wipe_tower_y: String(y[index]),
+    }])) };
+  }
   let projectConfigOverlay = emptyOverlay();
   let exportedProjectConfigOverlay = emptyOverlay();
+  let primeTowerProjectionState: any;
 
   type MockHistoryState = {
     modelLoaded: boolean;
@@ -334,6 +345,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins: Array<[number, number, number]>;
     plateInputRevisions: Record<string, number>;
     projectConfigOverlay: MockOverlay;
+    primeTowerProjection?: unknown;
   };
   type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project' | 'context'; context: any };
   let historyEntries: MockHistoryEntry[] = [];
@@ -351,10 +363,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let historyLastEvictedEntryId: string | null = null;
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  primeTowerProjectionState = opts.primeTowerProjection !== undefined ? clone(opts.primeTowerProjection) : undefined;
   function captureHistoryState(): MockHistoryState {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
       instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
-      projectConfigOverlay });
+      projectConfigOverlay, primeTowerProjection: primeTowerProjectionState });
   }
   function restoreHistoryState(snapshot: MockHistoryState): void {
     modelLoaded = snapshot.modelLoaded;
@@ -369,6 +382,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins = clone(snapshot.plateOrigins);
     plateInputRevisions = clone(snapshot.plateInputRevisions);
     projectConfigOverlay = clone(snapshot.projectConfigOverlay ?? emptyOverlay());
+    primeTowerProjectionState = snapshot.primeTowerProjection === undefined ? undefined : clone(snapshot.primeTowerProjection);
     sliced = false;
   }
   function historyStatus() {
@@ -520,7 +534,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
 
   function primeTowerProjection(): unknown {
-    if (opts.primeTowerProjection !== undefined) return clone(opts.primeTowerProjection);
+    if (primeTowerProjectionState !== undefined) return clone(primeTowerProjectionState);
     const area = { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 };
     return {
       ok: true, version: 1, current_plate_id: currentPlateId, build_area: area,
@@ -531,6 +545,77 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         footprint: { min_x: 15, max_x: 15, min_y: 220, max_y: 220 }, bands: [], build_area: area,
       })),
     };
+  }
+
+  function movePrimeTower(requestJson: string): unknown {
+    let request: any;
+    try { request = JSON.parse(requestJson); } catch {
+      return { ok: false, version: 1, error: 'invalid prime tower move request', error_code: 'invalid_command', status: { state: 'error', error: 'invalid prime tower move request' } };
+    }
+    if (!request || request.version !== 1 || typeof request.plate_id !== 'string' ||
+        !Number.isSafeInteger(request.revision) || !Number.isFinite(request.x) || !Number.isFinite(request.y))
+      return { ok: false, version: 1, error: 'invalid prime tower move request', error_code: 'invalid_command', status: { state: 'error', error: 'invalid prime tower move request' } };
+    const current: any = primeTowerProjection();
+    const plate = current.plates?.find((entry: any) => entry.plate_id === request.plate_id);
+    if (!plate) return { ok: false, version: 1, error: 'plate not found', error_code: 'unsupported_reference', status: { state: 'error', error: 'plate not found' } };
+    if (request.revision !== (plateInputRevisions[request.plate_id] ?? 0))
+      return { ok: false, version: 1, error: 'prime tower plate revision is stale', error_code: 'stale_revision', status: { state: 'error', error: 'prime tower plate revision is stale' } };
+    if (request.inject_failure === true)
+      return { ok: false, version: 1, error: 'prime tower move validation failed', error_code: 'native_validation_failure', status: { state: 'error', error: 'prime tower move validation failed' } };
+    if (!plate.eligible) return { ok: false, version: 1, error: 'prime tower is not available on this plate', error_code: 'ineligible_target', status: { state: 'error', error: 'prime tower is not available on this plate' } };
+    const old = { x: plate.position.x, y: plate.position.y };
+    const widthX = plate.footprint.max_x - plate.footprint.min_x;
+    const widthY = plate.footprint.max_y - plate.footprint.min_y;
+    const offsetMinX = plate.footprint.min_x - old.x;
+    const offsetMaxX = plate.footprint.max_x - old.x;
+    const offsetMinY = plate.footprint.min_y - old.y;
+    const offsetMaxY = plate.footprint.max_y - old.y;
+    const clamp = (value: number, minOffset: number, maxOffset: number, min: number, max: number) => {
+      const low = min - minOffset;
+      const high = max - maxOffset;
+      return low <= high ? Math.min(high, Math.max(low, value)) : (min + max - minOffset - maxOffset) / 2;
+    };
+    const area = plate.build_area;
+    const x = clamp(request.x, offsetMinX, offsetMaxX, area.min_x, area.max_x);
+    const y = clamp(request.y, offsetMinY, offsetMaxY, area.min_y, area.max_y);
+    if (x === old.x && y === old.y) return { ok: true, version: 1, result: { projection: current, plate_session: plateSessionSnapshot(), mutation: {
+      kind: 'move', plate_id: request.plate_id, history_entry_delta: 0, revision_before: plateInputRevisions[request.plate_id] ?? 0,
+      revision_after: plateInputRevisions[request.plate_id] ?? 0, dirty: false, affected_plate_ids: [],
+    } } };
+    const beforeState = captureHistoryState();
+    const next = clone(current) as any;
+    const target = next.plates.find((entry: any) => entry.plate_id === request.plate_id);
+    target.position = { x, y };
+    target.footprint = { min_x: target.footprint.min_x + x - old.x, max_x: target.footprint.max_x + x - old.x,
+      min_y: target.footprint.min_y + y - old.y, max_y: target.footprint.max_y + y - old.y };
+    primeTowerProjectionState = next;
+    const xValues = (projectConfigOverlay.project.wipe_tower_x ?? '').split(',').filter(Boolean);
+    const yValues = (projectConfigOverlay.project.wipe_tower_y ?? '').split(',').filter(Boolean);
+    xValues[plate.display_index] = String(x);
+    yValues[plate.display_index] = String(y);
+    projectConfigOverlay.project.wipe_tower_x = xValues.join(',');
+    projectConfigOverlay.project.wipe_tower_y = yValues.join(',');
+    historyRevision += 1;
+    if (slicedPlateId === request.plate_id) sliced = false;
+    const plateSession = plateMutation('prime-tower-position');
+    const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: currentPlateId, gizmo: null, projectConfigOverlay: clone(projectConfigOverlay),
+      primeTowerMove: { plateId: request.plate_id, before: old, after: { x, y } } };
+    if (historyEntries.length === 0) {
+      historyEntries.push({ ...beforeState, id: 'entry-0', label: '', category: 'project', context: clone(context) });
+      historyCursor = 0; savedHistoryCursor = 0;
+    }
+    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
+      savedHistoryCheckpointEvicted = true;
+    historyEntries.splice(historyCursor + 1);
+    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`, label: 'Move Prime Tower', category: 'project', context: clone(context) });
+    historyCursor = historyEntries.length - 1;
+    return { ok: true, version: 1, result: { projection: next, plate_session: plateSession, mutation: {
+      kind: 'move', plate_id: request.plate_id, history_entry_delta: 1, revision_before: request.revision,
+      revision_after: historyRevision, dirty: true, affected_plate_ids: [request.plate_id],
+      clamped: x !== request.x || y !== request.y, outside_boundary_warning: widthX > area.max_x - area.min_x || widthY > area.max_y - area.min_y,
+      position: { x, y }, footprint: target.footprint,
+    } } };
   }
 
   function filamentSessionSnapshot(): unknown {
@@ -1166,6 +1251,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_prime_tower_projection() {
       return primeTowerProjection();
     },
+    orc_move_prime_tower(requestJson: string) {
+      return movePrimeTower(requestJson);
+    },
     orc_get_filament_session_snapshot() {
       return filamentSessionSnapshot();
     },
@@ -1268,21 +1356,43 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return result;
     },
     orc_get_project_config_overlay() {
-      return { ok: true, overlay: clone(projectConfigOverlay) };
+      return { ok: true, overlay: overlayProjection() };
     },
     orc_set_project_config_override(scope: string, id: string, optionKey: string, value: string) {
       if (opts.projectConfigOverride !== undefined) return opts.projectConfigOverride;
       if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
       if (!optionKey) return { error: 'option key is required' };
       if (scope !== 'project' && !id) return { error: 'scope id is required' };
+      if (scope === 'plate') {
+        if (!['wipe_tower_x', 'wipe_tower_y'].includes(optionKey) || !plateIds.includes(id))
+          return { error: 'unsupported reference' };
+        const index = plateIds.indexOf(id);
+        const key = optionKey;
+        const values = (projectConfigOverlay.project[key] ?? '').split(',').filter(Boolean).map(Number);
+        while (values.length < plateIds.length) values.push(key === 'wipe_tower_x' ? 15 : 220);
+        const parsed = Number(value);
+        const effective = Number.isFinite(parsed) ? parsed : values[index];
+        values[index] = effective;
+        projectConfigOverlay.project[key] = values.join(',');
+        const affected = [id];
+        plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
+        const mutation = plateSessionSnapshot(true) as Record<string, unknown>;
+        mutation.affected_plate_ids_before = affected;
+        mutation.affected_plate_ids_after = affected;
+        mutation.affected_plate_ids = affected;
+        mutation.dirty_reasons = ['prime-tower-position'];
+        return { ok: true, overlay: overlayProjection(), plate_session: mutation,
+          configuration_status: { state: 'ready', corrections: String(effective) === value ? [] : [{ key, requested: value, effective: String(effective) }], warnings: [], errors: [] } };
+      }
       const bucket = scope === 'project' ? projectConfigOverlay.project
         : scope === 'object' ? (projectConfigOverlay.objects[id] ??= {})
-          : scope === 'part' ? (projectConfigOverlay.parts[id] ??= {})
-            : (projectConfigOverlay.plates[id] ??= {});
-      const effective = (optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y') && !Number.isFinite(Number(value)) ? '0' : value;
+          : (projectConfigOverlay.parts[id] ??= {});
+      const coordinateValue = optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y';
+      const coordinateValues = coordinateValue ? value.split(',').map((entry) => Number(entry.trim())) : [];
+      const effective = coordinateValue && (coordinateValues.length === 0 || coordinateValues.some((entry) => !Number.isFinite(entry))) ? '0' : value;
       bucket[optionKey] = effective;
       const mutation = bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>;
-      return { ok: true, overlay: clone(projectConfigOverlay), plate_session: mutation,
+      return { ok: true, overlay: overlayProjection(), plate_session: mutation,
         configuration_status: { state: 'ready', corrections: effective === value ? [] : [{ key: optionKey, requested: value, effective }], warnings: [], errors: [] } };
     },
     orc_revalidate_project_config_overlay() {
@@ -1290,13 +1400,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // fixture exposes the same contract while retaining valid keys.
       for (const key of Object.keys(projectConfigOverlay.project))
         if (!(key in metadata)) delete projectConfigOverlay.project[key];
-      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts, projectConfigOverlay.plates]) {
+      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts]) {
         for (const [id, values] of Object.entries(scope)) {
           for (const key of Object.keys(values)) if (!(key in metadata)) delete values[key];
           if (Object.keys(values).length === 0) delete scope[id];
         }
       }
-      return { ok: true, overlay: clone(projectConfigOverlay) };
+      return { ok: true, overlay: overlayProjection() };
     },
     orc_get_preset_snapshot() {
       return snapshot();
@@ -1383,7 +1493,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
-        project_config_overlay: geometryOnly ? undefined : clone(projectConfigOverlay),
+        project_config_overlay: geometryOnly ? undefined : overlayProjection(),
         plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(true),
       };
     },
@@ -2056,6 +2166,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_clear_model: { ret: 'number', args: [] },
     orc_get_plate_session_snapshot: { ret: 'number', args: [] },
     orc_get_prime_tower_projection: { ret: 'number', args: [] },
+    orc_move_prime_tower: { ret: 'number', args: ['string'] },
     orc_get_filament_session_snapshot: { ret: 'number', args: [] },
     orc_select_filament_slot_preset: { ret: 'number', args: ['string'] },
     orc_set_filament_slot_colour: { ret: 'number', args: ['string'] },

@@ -153,6 +153,7 @@ export interface PrimeTowerPlateProjection {
   readonly footprint: PrimeTowerFootprint;
   readonly bands: readonly PrimeTowerBand[];
   readonly buildArea: PrimeTowerBuildArea;
+  readonly outsideBoundaryWarning?: boolean;
 }
 
 export interface PrimeTowerProjection {
@@ -171,9 +172,41 @@ export interface PrimeTowerProjectionError {
 
 export type PrimeTowerProjectionResult = PrimeTowerProjection | PrimeTowerProjectionError;
 
+export interface PrimeTowerMoveRequest {
+  readonly version: 1;
+  readonly plateId: string;
+  readonly revision: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface PrimeTowerMoveMutation {
+  readonly kind: 'move';
+  readonly plateId: string;
+  readonly historyEntryDelta: 0 | 1;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly dirty: boolean;
+  readonly affectedPlateIds: readonly string[];
+  readonly clamped?: boolean;
+  readonly outsideBoundaryWarning?: boolean;
+  readonly warning?: string;
+  readonly position?: Readonly<{ x: number; y: number }>;
+  readonly footprint?: PrimeTowerFootprint;
+}
+
+export interface PrimeTowerMoveResult {
+  readonly projection: PrimeTowerProjection;
+  readonly plateSession: PlateSessionSnapshot;
+  readonly mutation: PrimeTowerMoveMutation;
+}
+
+export type PrimeTowerMoveResultOrError = AtomicCommandResult<PrimeTowerMoveResult>;
+
 /** Worker-owned project configuration overrides. Keys are native option names;
  * values are their native serialized representations. IDs are stable object /
- * part IDs or runtime plate IDs, never renderer indices. */
+ * part IDs, never renderer indices. The plate bucket is a derived projection
+ * of the authoritative project-level Prime Tower arrays, keyed by plate ID. */
 export interface ProjectConfigOverlay {
   readonly project: Readonly<Record<string, string>>;
   readonly objects: Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -1004,6 +1037,8 @@ export interface SlicerClient {
   getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult>;
   /** Read the native estimated Prepare Prime Tower for every plate. */
   getPrimeTowerProjection(): Promise<PrimeTowerProjectionResult>;
+  /** Move one plate-local Prime Tower position through one atomic history command. */
+  movePrimeTower(request: PrimeTowerMoveRequest): Promise<PrimeTowerMoveResultOrError>;
   /** Reset to one fresh default Plate 1 and return its new runtime identity. */
   resetPlateSession(): Promise<PlateSessionSnapshotResult>;
   /** Select an existing plate by its opaque runtime identity. */

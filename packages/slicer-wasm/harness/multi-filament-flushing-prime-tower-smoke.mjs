@@ -141,27 +141,23 @@ result = callJson('orc_set_project_config_override', ['string', 'string', 'strin
 assert.equal(result.ok, true, JSON.stringify(result));
 assert.equal(result.configuration_status.state, 'ready');
 
-// X/Y are per-plate and revise only the selected plate.  The native parser's
-// status is returned through the same configuration command response.
+// X/Y are one project-level native array indexed by plate display order.
 const beforePlate = callJson('orc_get_plate_session_snapshot');
 const targetPlate = plateIds[1];
+const coordinateX = plateIds.map((_, index) => String(10 + index * 10)).join(',');
+const coordinateY = plateIds.map((_, index) => String(11 + index * 10)).join(',');
 result = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
-  ['plate', targetPlate, 'wipe_tower_x', '10']);
+  ['project', '', 'wipe_tower_x', coordinateX]);
 assert.equal(result.ok, true, JSON.stringify(result));
-assert.deepEqual(result.plate_session.affected_plate_ids, [targetPlate]);
-assert.equal(result.plate_session.input_revisions[plateIds[0]], beforePlate.input_revisions[plateIds[0]]);
-assert.equal(result.plate_session.input_revisions[targetPlate], beforePlate.input_revisions[targetPlate] + 1);
+assert.equal(result.overlay.project.wipe_tower_x, coordinateX);
+assert.equal(result.overlay.plates[targetPlate].wipe_tower_x, '20');
+for (const id of plateIds) assert.equal(result.plate_session.input_revisions[id], beforePlate.input_revisions[id] + 1);
 result = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
-  ['plate', targetPlate, 'wipe_tower_y', '12']);
+  ['project', '', 'wipe_tower_y', coordinateY]);
 assert.equal(result.ok, true, JSON.stringify(result));
-assert.deepEqual(result.plate_session.affected_plate_ids, [targetPlate]);
 const corrected = callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'],
   ['plate', targetPlate, 'wipe_tower_x', 'not-a-number']);
-assert.equal(corrected.ok, true, JSON.stringify(corrected));
-assert.equal(corrected.configuration_status.state, 'ready');
-assert.deepEqual(corrected.configuration_status.corrections, [
-  { key: 'wipe_tower_x', requested: 'not-a-number', effective: '0' },
-]);
+assert.equal(corrected.ok, false, JSON.stringify(corrected));
 const rejectedConfigBefore = callJson('orc_get_project_config_overlay');
 const rejectedPlateBefore = callJson('orc_get_plate_session_snapshot');
 const rejectedHistoryBefore = callJson('orc_history_status');

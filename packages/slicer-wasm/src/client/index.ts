@@ -21,6 +21,7 @@ export type {
   PlateSessionMutation, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult,
   PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
   PrimeTowerProjection, PrimeTowerProjectionError, PrimeTowerProjectionResult,
+  PrimeTowerMoveRequest, PrimeTowerMoveMutation, PrimeTowerMoveResult, PrimeTowerMoveResultOrError,
   ProjectConfigOverlay, ProjectConfigScope, ProjectConfigOverrideTarget,
   ProjectConfigOverlayResult, ProjectConfigOverlayError, ProjectConfigOverlayResultOrError,
   ProfileSnapshotError, ProfileSnapshotResult,

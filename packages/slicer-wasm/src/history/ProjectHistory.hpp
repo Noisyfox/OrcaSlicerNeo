@@ -67,6 +67,8 @@ struct RestoreState {
     // eviction policy as the authoritative archive state, and a missing frame
     // always falls back to the archive restore path.
     struct DirectFrame {
+        enum class Kind : std::uint8_t { Filament, PrimeTower };
+        Kind kind { Kind::Filament };
         std::shared_ptr<const void> payload;
         std::size_t bytes { 0 };
     };
@@ -153,6 +155,12 @@ public:
                               const ModelState& model, const Bytes& context,
                               std::optional<RestoreState::DirectFrame> baseline_direct_frame = std::nullopt,
                               std::optional<RestoreState::DirectFrame> direct_frame = std::nullopt);
+    // Append a sidecar-only frame while retaining the current model blobs by
+    // shared identity. This is for narrow coordinate/configuration edits that
+    // must not serialize or copy the complete model state.
+    bool commit_reusing_current_model(std::string label, Category category, const Bytes& context,
+                                      std::optional<RestoreState::DirectFrame> direct_frame = std::nullopt,
+                                      std::optional<RestoreState::DirectFrame> predecessor_direct_frame = std::nullopt);
     bool record(std::string label, Category category, const ModelState& model, const Bytes& context)
     { return commit(std::move(label), category, model, context); }
 
@@ -199,6 +207,12 @@ public:
     std::size_t release_optional_data();
     ResourceDiagnostics resource_diagnostics() const;
 
+#ifdef NEO_PROJECT_HISTORY_TEST
+    // Test-only fault injection exercises the transaction guard after a
+    // sidecar commit has already truncated a redo branch.
+    void fail_next_reusing_commit_for_test() noexcept { m_fail_next_reusing_commit_for_test = true; }
+#endif
+
     const std::vector<ObjectVersionInterval>& object_intervals() const { return m_object_intervals; }
 
 private:
@@ -212,6 +226,9 @@ private:
     std::size_t m_evicted_entry_count { 0 };
     std::uint64_t m_last_evicted_entry_id { 0 };
     std::vector<ObjectVersionInterval> m_object_intervals;
+#ifdef NEO_PROJECT_HISTORY_TEST
+    bool m_fail_next_reusing_commit_for_test { false };
+#endif
 
     friend struct Impl;
 

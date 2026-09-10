@@ -309,9 +309,6 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             config.apply(plate->settings, true);
         apply_overlay_to_config(config, state().project_config_overlay["project"]);
         if (const auto* plate = find_plate(plate_id)) {
-            const auto plate_it = state().project_config_overlay["plates"].find(plate_id);
-            if (plate_it != state().project_config_overlay["plates"].end())
-                apply_overlay_to_config(config, plate_it.value());
         }
         config.normalize_fdm();
         // Fix round 3: validate() invariant guarantee. A Marlin flavor with

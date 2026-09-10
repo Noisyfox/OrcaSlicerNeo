@@ -388,9 +388,14 @@ area. Z movement is unavailable.
 
 One completed pointer drag produces exactly one project-history entry. Pointer
 moves within that gesture do not write intermediate history. Undo and Redo
-restore only the affected per-plate coordinates through the narrow project
-delta; they must not copy or restore a complete `PresetBundle`. Moving a tower
-invalidates only that plate's slice result.
+restore only the affected elements of the single native project
+`wipe_tower_x`/`wipe_tower_y` arrays (resolved by stable plate identity at the
+current display index) through the narrow project delta; plate settings and
+per-plate overlay buckets are not coordinate storage. They must not copy or
+restore a complete `PresetBundle` or retain any slice product. Moving a tower invalidates that plate's slice result, and the
+same target-plate result remains invalid after Undo and Redo. A completed
+result for an unaffected plate remains available through the move and its
+Undo/Redo navigation.
 
 Loading a project or changing Printer may make saved coordinates invalid for
 the new printable area. When a legal placement exists, Neo silently clamps the

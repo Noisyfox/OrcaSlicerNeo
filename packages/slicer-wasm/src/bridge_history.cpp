@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <functional>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
@@ -20,6 +21,7 @@
 #include "bridge_filament.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_project_overlay.hpp"
+#include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -50,9 +52,11 @@ using Neo::Bridge::HistoryMetadata::parse_history_entry_id;
 using Neo::Bridge::HistoryMetadata::parse_history_jump_direction;
 using Neo::Bridge::PlateSession::plate_session_snapshot_json;
 using Neo::Bridge::ProjectOverlay::empty_project_config_overlay;
+using Neo::Bridge::ProjectOverlay::apply_plate_overlay_to_configs;
 using Neo::Bridge::ProjectOverlay::valid_project_config_overlay;
 using Neo::Bridge::SlicingPipeline::invalidate_preview_source;
 using Neo::History::Codec::capture_model_state;
+using Neo::Bridge::PrimeTower::NarrowHistoryFrame;
 
 namespace {
 
@@ -252,6 +256,7 @@ void restore_history_transaction_state(const json& context, const Neo::History::
         ? Model(state().model) : Neo::History::Codec::stage_model(state().model, {model, {}, {}});
     auto staged_plates = state().plate_session_plates;
     if (context.contains("plateSession")) staged_plates = build_history_plate_session(context["plateSession"], staged_model);
+    apply_plate_overlay_to_configs(staged_plates, context.value("projectConfigOverlay", empty_project_config_overlay()));
     validate_filament_history_mutable_state(state().presets, staged_filament_state, staged_model, staged_plates,
                                             context.value("projectConfigOverlay", empty_project_config_overlay()));
     auto before_filament_state = stage_mutable(state().presets, history_state_json(state().presets));
@@ -264,6 +269,9 @@ void restore_history_transaction_state(const json& context, const Neo::History::
         if (context.contains("plateSession")) restore_history_plate_session(context["plateSession"], state().model);
         if (valid_project_config_overlay(context["projectConfigOverlay"]))
             state().project_config_overlay = context["projectConfigOverlay"];
+        apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
+        Neo::Bridge::PlateSession::normalize_coordinate_arrays(
+            state().presets.project_config, state().plate_session_plates.size());
     } catch (...) {
         apply_mutable(state(), state().presets, std::move(before_filament_state));
         state().model = before_model;
@@ -289,7 +297,8 @@ void validate_direct_frame(const DirectHistoryFrame& frame, const json& context)
 
 json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePlan& plan, const json& context)
 {
-    if (!plan.state.direct_frame || !plan.state.direct_frame->payload || plan.state.direct_frame->bytes == 0)
+    if (!plan.state.direct_frame || plan.state.direct_frame->kind != History::RestoreState::DirectFrame::Kind::Filament ||
+        !plan.state.direct_frame->payload || plan.state.direct_frame->bytes == 0)
         throw std::runtime_error("direct history frame is unavailable");
     const auto frame = std::static_pointer_cast<const DirectHistoryFrame>(plan.state.direct_frame->payload);
     if (!frame) throw std::runtime_error("direct history frame is unavailable");
@@ -333,6 +342,9 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
         state().model = std::move(staged_model);
         state().plate_session_plates = std::move(staged_plates);
         state().project_config_overlay = std::move(staged_overlay);
+        apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
+        Neo::Bridge::PlateSession::normalize_coordinate_arrays(
+            state().presets.project_config, state().plate_session_plates.size());
         state().plate_input_revisions = std::move(staged_plate_revisions);
         state().instance_plate_ids = std::move(staged_membership);
         state().plate_out_of_bounds_ids = std::move(staged_out_of_bounds);
@@ -366,9 +378,109 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
                 {"entryId", history_entry_id(plan.state.entry.id)}, {"direct", true}};
 }
 
+std::optional<NarrowHistoryFrame> parse_narrow_history_frame(const json& context)
+{
+    if (!context.is_object() || context.value("version", 0) != 1 || context.value("kind", "") != "primeTower" ||
+        !context.contains("plate_id") || !context["plate_id"].is_string() ||
+        !context.contains("before") || !context["before"].is_object() ||
+        !context.contains("after") || !context["after"].is_object()) return std::nullopt;
+    NarrowHistoryFrame frame;
+    frame.plate_id = context["plate_id"].get<std::string>();
+    const auto read_coordinate = [](const json& value, NarrowHistoryFrame::CoordinateValue& result) {
+        if (!value.is_object() || !value.contains("present") || !value["present"].is_boolean() ||
+            !value.contains("value") ||
+            !(value["value"].is_null() || value["value"].is_string())) return false;
+        result.option_present = value["present"].get<bool>();
+        result.value = value["value"].is_null() ? std::nullopt : std::optional<std::string>(value["value"].get<std::string>());
+        return !result.value || result.option_present;
+    };
+    const auto read_state = [&read_coordinate](const json& value, NarrowHistoryFrame::CoordinateValue& x,
+                                                NarrowHistoryFrame::CoordinateValue& y, std::uint64_t& revision) {
+        if (!value.contains("x") || !value.contains("y") ||
+            !value.contains("revision") || !value["revision"].is_number_unsigned() ||
+            !read_coordinate(value["x"], x) || !read_coordinate(value["y"], y)) return false;
+        revision = value["revision"].get<std::uint64_t>();
+        return true;
+    };
+    if (!read_state(context["before"], frame.before_x, frame.before_y, frame.before_revision) ||
+        !read_state(context["after"], frame.after_x, frame.after_y, frame.after_revision)) return std::nullopt;
+    frame.after_state = context.value("state", "") == "after";
+    if (!frame.after_state && context.value("state", "") != "before") return std::nullopt;
+    return frame;
+}
+
+json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::RestorePlan& plan,
+                               const NarrowHistoryFrame& frame)
+{
+    if (frame.plate_id.empty() || !frame.before_x.option_present || !frame.before_y.option_present ||
+        !frame.after_x.option_present || !frame.after_y.option_present ||
+        !frame.before_x.value || !frame.before_y.value || !frame.after_x.value || !frame.after_y.value)
+        throw std::runtime_error("invalid prime tower narrow history frame");
+    if (!state().history.can_commit_restore(plan)) throw std::runtime_error("history restore became stale");
+    auto plate_it = std::find_if(state().plate_session_plates.begin(), state().plate_session_plates.end(),
+        [&](const auto& plate) { return plate.id == frame.plate_id; });
+    if (plate_it == state().plate_session_plates.end()) throw std::runtime_error("prime tower history plate is unavailable");
+    const auto& x = frame.after_state ? frame.after_x : frame.before_x;
+    const auto& y = frame.after_state ? frame.after_y : frame.before_y;
+    const std::uint64_t revision = frame.after_state ? frame.after_revision : frame.before_revision;
+    const std::size_t plate_index = static_cast<std::size_t>(
+        std::distance(state().plate_session_plates.begin(), plate_it));
+    const auto before_settings = Neo::Bridge::PrimeTower::snapshot_coordinate_settings(
+        state().presets.project_config, plate_index);
+    const auto before_revision = state().plate_input_revisions[frame.plate_id];
+    try {
+        Neo::Bridge::PrimeTower::restore_coordinate_settings(state().presets.project_config,
+            {x, y}, plate_index, 15., 220.);
+        state().project_config_overlay["project"]["wipe_tower_x"] =
+            state().presets.project_config.option("wipe_tower_x")->serialize();
+        state().project_config_overlay["project"]["wipe_tower_y"] =
+            state().presets.project_config.option("wipe_tower_y")->serialize();
+        state().plate_input_revisions[frame.plate_id] = revision;
+        if (!state().history.commit_restore(plan)) throw std::runtime_error("history restore became stale");
+    } catch (...) {
+        Neo::Bridge::PrimeTower::restore_coordinate_settings(
+            state().presets.project_config, before_settings, plate_index, 15., 220.);
+        state().project_config_overlay["project"]["wipe_tower_x"] =
+            state().presets.project_config.option("wipe_tower_x")->serialize();
+        state().project_config_overlay["project"]["wipe_tower_y"] =
+            state().presets.project_config.option("wipe_tower_y")->serialize();
+        state().plate_input_revisions[frame.plate_id] = before_revision;
+        throw;
+    }
+    // History never retains slice products. A Prime Tower restore always
+    // invalidates the target plate if it is the currently retained result;
+    // an unrelated plate's real result is left untouched.
+    if (state().preview_plate_id == frame.plate_id) {
+        // This is deliberately after commit_restore but cannot throw: the
+        // history cursor must not advance without the target result becoming
+        // invalid, and cleanup must not report a failure after publication.
+        try { state().print.clear(); } catch (...) {}
+        try { invalidate_preview_source(); } catch (...) {}
+        try { if (runtime.invalidate_preview) runtime.invalidate_preview(); } catch (...) {}
+    }
+    ++state().history_revision;
+    return json{{"ok", true}, {"context", { {"version", 1}, {"kind", "primeTower"},
+                                                {"state", frame.after_state ? "after" : "before"},
+                                                {"plate_id", frame.plate_id} }},
+                {"status", history_status_json()}, {"entryId", history_entry_id(plan.state.entry.id)},
+                {"direct", true}, {"narrow", true}};
+}
+
 json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& plan)
 {
     const auto parsed = json::parse(std::string(plan.state.context.begin(), plan.state.context.end()));
+    if (plan.state.direct_frame && plan.state.direct_frame->kind == History::RestoreState::DirectFrame::Kind::PrimeTower) {
+        if (!plan.state.direct_frame->payload || plan.state.direct_frame->bytes == 0)
+            throw std::runtime_error("prime tower narrow history frame is unavailable");
+        const auto frame = std::static_pointer_cast<const NarrowHistoryFrame>(plan.state.direct_frame->payload);
+        if (!frame) throw std::runtime_error("prime tower narrow history frame is unavailable");
+        return restore_prime_tower_frame(runtime, plan, *frame);
+    }
+    if (parsed.value("kind", "") == "primeTower") {
+        const auto frame = parse_narrow_history_frame(parsed);
+        if (!frame) throw std::runtime_error("prime tower narrow history context is invalid");
+        return restore_prime_tower_frame(runtime, plan, *frame);
+    }
     const json context = parse_history_context(parsed.dump().c_str());
     if (plan.state.direct_frame) return restore_direct_frame(runtime, plan, context);
     const auto live_model_state = capture_model_state(state().model);
@@ -380,6 +492,7 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
     if (filament_changed) staged_filament_state.emplace(stage_mutable(state().presets, context["filamentState"]));
     auto staged_plates = state().plate_session_plates;
     if (context.contains("plateSession")) staged_plates = build_history_plate_session(context["plateSession"], staged_model);
+    apply_plate_overlay_to_configs(staged_plates, context.value("projectConfigOverlay", empty_project_config_overlay()));
     if (staged_filament_state)
         validate_filament_history_mutable_state(state().presets, *staged_filament_state, staged_model, staged_plates,
                                                 context.value("projectConfigOverlay", empty_project_config_overlay()));
@@ -403,6 +516,9 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
     try {
         if (context.contains("plateSession")) restore_history_plate_session(context["plateSession"], state().model);
         if (valid_project_config_overlay(context["projectConfigOverlay"])) state().project_config_overlay = context["projectConfigOverlay"];
+        apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
+        Neo::Bridge::PlateSession::normalize_coordinate_arrays(
+            state().presets.project_config, state().plate_session_plates.size());
         if (!state().history.commit_restore(plan)) throw std::runtime_error("history restore became stale");
     } catch (...) {
         if (before_filament_state) apply_mutable(state(), state().presets, std::move(*before_filament_state));
@@ -870,10 +986,30 @@ json history_status_json(const BridgeState& state)
 
 json restore_diagnostics_json(const BridgeState& state)
 {
-    return json{
+    json out = {
         {"minimalMutableRestoreCount", state.history_minimal_mutable_restore_count},
         {"fullPresetBundleCopyCount", state.full_preset_bundle_copy_count},
     };
+    if (!state.history.entries().empty()) {
+        const auto& current = state.history.current();
+        std::size_t retained_model_bytes = current.model.serialized.size();
+        for (const auto& object : current.model.mutable_objects)
+            retained_model_bytes += object.data.size();
+        for (const auto& mesh : current.model.immutable_meshes) {
+            if (mesh.resident) retained_model_bytes += mesh.resident->size();
+            else if (mesh.deferred) retained_model_bytes += mesh.deferred->size();
+        }
+        out["currentContextBytes"] = current.context.size();
+        out["currentModelBytes"] = retained_model_bytes;
+        out["currentDirectFrameBytes"] = current.direct_frame ? current.direct_frame->bytes : 0;
+        out["currentDirectFrameKind"] = current.direct_frame
+            ? (current.direct_frame->kind == History::RestoreState::DirectFrame::Kind::PrimeTower ? "primeTower" : "filament")
+            : "none";
+    }
+    out["previewPlateId"] = state.preview_plate_id;
+    out["previewPlateRevision"] = state.preview_plate_revision;
+    out["previewResultId"] = state.preview_result_id;
+    return out;
 }
 
 } // namespace Slic3r::Neo::Bridge::HistoryMetadata
