@@ -112,6 +112,65 @@ export interface PlateSessionMutation extends PlateSessionSnapshot {
   readonly instanceTransforms: readonly PlateSessionInstanceTransform[];
 }
 
+/** Native printable-area bounds used by the Prime Tower proxy. */
+export interface PrimeTowerBuildArea {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minY: number;
+  readonly maxY: number;
+  readonly maxZ: number;
+}
+
+export interface PrimeTowerFootprint {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minY: number;
+  readonly maxY: number;
+}
+
+export interface PrimeTowerBand {
+  readonly slot: number;
+  readonly startDepth: number;
+  readonly endDepth: number;
+  readonly colour: string;
+  readonly opacity: number;
+}
+
+/** Read-only Worker projection of the estimated Prepare Prime Tower. */
+export interface PrimeTowerPlateProjection {
+  readonly plateId: string;
+  readonly displayIndex: number;
+  readonly eligible: boolean;
+  readonly empty: boolean;
+  readonly forced: boolean;
+  readonly usedSlots: readonly number[];
+  readonly width: number;
+  readonly depth: number;
+  readonly height: number;
+  readonly position: Readonly<{ x: number; y: number }>;
+  readonly rotation: number;
+  readonly brimMargin: number;
+  readonly footprint: PrimeTowerFootprint;
+  readonly bands: readonly PrimeTowerBand[];
+  readonly buildArea: PrimeTowerBuildArea;
+}
+
+export interface PrimeTowerProjection {
+  readonly ok: true;
+  readonly version: 1;
+  readonly currentPlateId: string;
+  readonly buildArea: PrimeTowerBuildArea;
+  readonly plates: readonly PrimeTowerPlateProjection[];
+}
+
+export interface PrimeTowerProjectionError {
+  readonly ok?: false;
+  readonly version?: 1;
+  readonly error: string;
+}
+
+export type PrimeTowerProjectionResult = PrimeTowerProjection | PrimeTowerProjectionError;
+
 /** Worker-owned project configuration overrides. Keys are native option names;
  * values are their native serialized representations. IDs are stable object /
  * part IDs or runtime plate IDs, never renderer indices. */
@@ -943,6 +1002,8 @@ export interface SlicerClient {
   ): Promise<{ result: T; status: import('./history').HistoryStatus }>;
   /** Read the authoritative headless plate session snapshot. */
   getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult>;
+  /** Read the native estimated Prepare Prime Tower for every plate. */
+  getPrimeTowerProjection(): Promise<PrimeTowerProjectionResult>;
   /** Reset to one fresh default Plate 1 and return its new runtime identity. */
   resetPlateSession(): Promise<PlateSessionSnapshotResult>;
   /** Select an existing plate by its opaque runtime identity. */

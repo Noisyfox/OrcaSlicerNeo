@@ -9,6 +9,8 @@ import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, ProfileSnapshot, ProfileSnapshotResult,
   PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
+  PrimeTowerProjection, PrimeTowerProjectionResult,
   ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError, ProjectConfigOverlay,
   ConfigurationStatus,
   ClearModelResult,
@@ -572,6 +574,90 @@ function normalizeCount(raw: unknown): number | null {
   return typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0 ? raw : null;
 }
 
+function normalizePrimeTowerProjection(raw: unknown): PrimeTowerProjectionResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid prime tower projection response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) {
+    if (value.version !== 1 || typeof value.error !== 'string')
+      return { ok: false, error: 'invalid prime tower projection error envelope' };
+    return { ok: false, version: 1, error: value.error };
+  }
+  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || !Array.isArray(value.plates))
+    return { ok: false, error: 'invalid prime tower projection response' };
+  const finite = (entry: unknown): entry is number => typeof entry === 'number' && Number.isFinite(entry);
+  const nonNegative = (entry: unknown): entry is number => finite(entry) && entry >= 0;
+  const same = (left: number, right: number): boolean =>
+    Math.abs(left - right) <= 1e-9 * Math.max(1, Math.abs(left), Math.abs(right));
+  const area = (entry: unknown): PrimeTowerBuildArea | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const item = entry as Record<string, unknown>;
+    if (![item.min_x, item.max_x, item.min_y, item.max_y, item.max_z].every(finite) ||
+        (item.max_x as number) < (item.min_x as number) || (item.max_y as number) < (item.min_y as number) ||
+        (item.max_z as number) < 0) return null;
+    return { minX: item.min_x as number, maxX: item.max_x as number,
+      minY: item.min_y as number, maxY: item.max_y as number, maxZ: item.max_z as number };
+  };
+  const buildArea = area(value.build_area);
+  if (!buildArea) return { ok: false, error: 'invalid prime tower projection build area' };
+  const ids = new Set<string>();
+  const plates = value.plates.map((entry): PrimeTowerPlateProjection | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const item = entry as Record<string, unknown>;
+    const plateArea = area(item.build_area);
+    const position = item.position;
+    const footprint = item.footprint;
+    if (typeof item.plate_id !== 'string' || item.plate_id.length === 0 || ids.has(item.plate_id) ||
+        !Number.isSafeInteger(item.display_index) || (item.display_index as number) < 0 ||
+        typeof item.eligible !== 'boolean' ||
+        typeof item.empty !== 'boolean' || typeof item.forced !== 'boolean' || !Array.isArray(item.used_slots) ||
+        !item.used_slots.every((slot) => Number.isSafeInteger(slot) && (slot as number) >= 1) ||
+        new Set(item.used_slots as number[]).size !== item.used_slots.length ||
+        ![item.width, item.depth, item.height, item.rotation, item.brim_margin].every(finite) ||
+        !position || typeof position !== 'object' || !finite((position as Record<string, unknown>).x) ||
+        !finite((position as Record<string, unknown>).y) || !footprint || typeof footprint !== 'object' ||
+        ![ 'min_x', 'max_x', 'min_y', 'max_y' ].every((key) => finite((footprint as Record<string, unknown>)[key])) ||
+        !plateArea || !Array.isArray(item.bands)) return null;
+    if ([item.width, item.depth, item.height, item.brim_margin].some((entry) => !nonNegative(entry)) ||
+        (item.eligible !== ((item.width as number) > 0)) ||
+        (item.eligible && (item.depth as number) <= 0) ||
+        (item.eligible && (item.height as number) < 0.1) ||
+        (item.eligible && (item.empty || (item.used_slots as unknown[]).length === 0))) return null;
+    const bands = item.bands.map((entry): PrimeTowerBand | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const band = entry as Record<string, unknown>;
+      if (!Number.isSafeInteger(band.slot) || (band.slot as number) < 1 || !finite(band.start_depth) ||
+          !finite(band.end_depth) || !nonNegative(band.start_depth) || !nonNegative(band.end_depth) ||
+          (band.end_depth as number) < (band.start_depth as number) ||
+          typeof band.colour !== 'string' || !/^#[0-9a-f]{6}$/i.test(band.colour) ||
+          !finite(band.opacity) || (band.opacity as number) < 0 || (band.opacity as number) > 1) return null;
+      return { slot: band.slot as number, startDepth: band.start_depth as number,
+        endDepth: band.end_depth as number, colour: band.colour, opacity: band.opacity as number };
+    });
+    const typedBands = bands as PrimeTowerBand[];
+    if (bands.some((band) => band === null) || bands.length !== (item.used_slots as unknown[]).length ||
+        bands.some((band, index) => band!.slot !== (item.used_slots as number[])[index]) ||
+        (typedBands.length > 0 && !same(typedBands[0].startDepth, 0)) ||
+        typedBands.some((band, index) => index > 0 && !same(band.startDepth, typedBands[index - 1].endDepth)) ||
+        (typedBands.length > 0 && !same(typedBands[typedBands.length - 1].endDepth, item.depth as number))) return null;
+    ids.add(item.plate_id);
+    const fp = footprint as Record<string, unknown>;
+    if ((fp.max_x as number) < (fp.min_x as number) || (fp.max_y as number) < (fp.min_y as number)) return null;
+    return { plateId: item.plate_id, displayIndex: item.display_index as number,
+      eligible: item.eligible, empty: item.empty, forced: item.forced,
+      usedSlots: item.used_slots as number[], width: item.width as number, depth: item.depth as number,
+      height: item.height as number,
+      position: { x: (position as Record<string, unknown>).x as number, y: (position as Record<string, unknown>).y as number },
+        rotation: item.rotation as number, brimMargin: item.brim_margin as number,
+      footprint: { minX: fp.min_x as number, maxX: fp.max_x as number,
+        minY: fp.min_y as number, maxY: fp.max_y as number }, bands: typedBands,
+      buildArea: plateArea };
+  });
+  if (plates.some((plate) => plate === null) || plates.length === 0 || !ids.has(value.current_plate_id))
+    return { ok: false, error: 'invalid prime tower projection plates' };
+  return { ok: true, version: 1, currentPlateId: value.current_plate_id,
+    buildArea, plates: plates as PrimeTowerPlateProjection[] };
+}
+
 /** Convert the native profile/catalogue payload into the public profile
  * contract, including the engine-filtered filament catalogue. */
 function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
@@ -921,6 +1007,11 @@ export function createClient(
     async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {
       const m = await module();
       return normalizePlateSessionResult(callJson(m, 'orc_get_plate_session_snapshot', [], []));
+    },
+
+    async getPrimeTowerProjection(): Promise<PrimeTowerProjectionResult> {
+      const m = await module();
+      return normalizePrimeTowerProjection(callJson(m, 'orc_get_prime_tower_projection', [], []));
     },
 
     async resetPlateSession(): Promise<PlateSessionSnapshotResult> {

@@ -19,6 +19,8 @@ export type {
   FilamentRoutingSelector, FilamentRoutingRequest,
   PlateSessionPlate, PlateSessionInstance, PlateSessionInstanceTransform, PlateSessionSnapshot,
   PlateSessionMutation, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
+  PrimeTowerProjection, PrimeTowerProjectionError, PrimeTowerProjectionResult,
   ProjectConfigOverlay, ProjectConfigScope, ProjectConfigOverrideTarget,
   ProjectConfigOverlayResult, ProjectConfigOverlayError, ProjectConfigOverlayResultOrError,
   ProfileSnapshotError, ProfileSnapshotResult,

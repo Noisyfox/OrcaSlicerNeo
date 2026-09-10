@@ -65,6 +65,40 @@ describe('portable runtime bootstrap', () => {
     });
   });
 
+  it('preserves the native Prime Tower projection through serial and threaded workers', async () => {
+    const wireProjection = {
+      ok: true, version: 1, currentPlateId: 'plate-session-1-plate-1',
+      buildArea: { minX: 0, maxX: 200, minY: 0, maxY: 200, maxZ: 300 },
+      plates: [{ plateId: 'plate-session-1-plate-1', displayIndex: 0,
+        eligible: true, empty: false, forced: false, usedSlots: [1, 2], width: 60, depth: 20, height: 10,
+        position: { x: 15, y: 220 }, rotation: 0, brimMargin: 3,
+        footprint: { minX: 12, maxX: 78, minY: 217, maxY: 243 },
+        bands: [{ slot: 1, startDepth: 0, endDepth: 10, colour: '#333333', opacity: 0.66 },
+          { slot: 2, startDepth: 10, endDepth: 20, colour: '#FFD700', opacity: 0.66 }],
+        buildArea: { minX: 0, maxX: 200, minY: 0, maxY: 200, maxZ: 300 } }],
+    } as const;
+    async function readProjection(threadedWasm: boolean) {
+      let receive!: (message: import('../../slicer-wasm/src/client').WorkerMessage) => void;
+      const transport: WorkerTransport = {
+        post(message) {
+          if (message.type === 'request' && message.op === 'getPrimeTowerProjection')
+            receive({ type: 'response', id: message.id, ok: true, result: wireProjection });
+        },
+        onMessage(listener) { receive = listener; },
+      };
+      const runtime = createRuntimeBootstrap({ transport,
+        capabilities: { webgl2: true, wasm64: true, threadedWasm } });
+      return runtime.getPrimeTowerProjection();
+    }
+    const serial = await readProjection(false);
+    const threaded = await readProjection(true);
+    expect(serial).toEqual(threaded);
+    expect(serial).toMatchObject({ ok: true, plates: [{ eligible: true, usedSlots: [1, 2], bands: [
+      { slot: 1, startDepth: 0, endDepth: 10, colour: '#333333', opacity: 0.66 },
+      { slot: 2, startDepth: 10, endDepth: 20, colour: '#FFD700', opacity: 0.66 },
+    ] }] });
+  });
+
   it('preserves the typed filament-session projection through the runtime worker boundary', async () => {
     let receive!: (message: import('../../slicer-wasm/src/client').WorkerMessage) => void;
     const transport: WorkerTransport = {

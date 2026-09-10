@@ -81,6 +81,8 @@ export interface MockModuleOptions {
   filamentMutation?: unknown;
   /** Optional raw project-configuration response override for normalization tests. */
   projectConfigOverride?: unknown;
+  /** Optional raw Prime Tower projection override for normalization tests. */
+  primeTowerProjection?: unknown;
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -515,6 +517,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         }));
     }
     return result;
+  }
+
+  function primeTowerProjection(): unknown {
+    if (opts.primeTowerProjection !== undefined) return clone(opts.primeTowerProjection);
+    const area = { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 };
+    return {
+      ok: true, version: 1, current_plate_id: currentPlateId, build_area: area,
+      plates: plateIds.map((plateId, index) => ({
+        plate_id: plateId, display_index: index, eligible: false, empty: true, forced: false,
+        used_slots: [], width: 0, depth: 0, height: 0,
+        position: { x: 15, y: 220 }, rotation: 0, brim_margin: 3,
+        footprint: { min_x: 15, max_x: 15, min_y: 220, max_y: 220 }, bands: [], build_area: area,
+      })),
+    };
   }
 
   function filamentSessionSnapshot(): unknown {
@@ -1146,6 +1162,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_get_plate_session_snapshot() {
       return plateSessionSnapshot();
+    },
+    orc_get_prime_tower_projection() {
+      return primeTowerProjection();
     },
     orc_get_filament_session_snapshot() {
       return filamentSessionSnapshot();
@@ -2036,6 +2055,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
     orc_get_plate_session_snapshot: { ret: 'number', args: [] },
+    orc_get_prime_tower_projection: { ret: 'number', args: [] },
     orc_get_filament_session_snapshot: { ret: 'number', args: [] },
     orc_select_filament_slot_preset: { ret: 'number', args: ['string'] },
     orc_set_filament_slot_colour: { ret: 'number', args: ['string'] },

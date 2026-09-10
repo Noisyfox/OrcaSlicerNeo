@@ -13,6 +13,46 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('normalizes the native Prime Tower projection and keeps geometry out of React', async () => {
+    const payload = {
+      ok: true, version: 1, current_plate_id: 'plate-session-1-plate-1',
+      build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 },
+      plates: [{ plate_id: 'plate-session-1-plate-1', display_index: 0,
+        eligible: true, empty: false, forced: false, used_slots: [1, 2],
+        width: 60, depth: 20, height: 10, position: { x: 15, y: 220 }, rotation: 90,
+        brim_margin: 3, footprint: { min_x: -8, max_x: 18, min_y: 217, max_y: 283 },
+        bands: [
+          { slot: 1, start_depth: 0, end_depth: 10, colour: '#333333', opacity: 0.66 },
+          { slot: 2, start_depth: 10, end_depth: 20, colour: '#FFD700', opacity: 0.66 },
+        ], build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 } }],
+    };
+    const result = await createClient(async () => createMockModule({ primeTowerProjection: payload }))
+      .getPrimeTowerProjection();
+    expect(result).toEqual({ ok: true, version: 1, currentPlateId: 'plate-session-1-plate-1',
+      buildArea: { minX: 0, maxX: 200, minY: 0, maxY: 200, maxZ: 300 }, plates: [{
+        plateId: 'plate-session-1-plate-1', displayIndex: 0, eligible: true, empty: false, forced: false,
+        usedSlots: [1, 2], width: 60, depth: 20, height: 10, position: { x: 15, y: 220 }, rotation: 90,
+        brimMargin: 3, footprint: { minX: -8, maxX: 18, minY: 217, maxY: 283 },
+        bands: [{ slot: 1, startDepth: 0, endDepth: 10, colour: '#333333', opacity: 0.66 },
+          { slot: 2, startDepth: 10, endDepth: 20, colour: '#FFD700', opacity: 0.66 }],
+        buildArea: { minX: 0, maxX: 200, minY: 0, maxY: 200, maxZ: 300 },
+      }] });
+  });
+
+  it('rejects malformed Prime Tower geometry and unsupported versions', async () => {
+    await expect(createClient(async () => createMockModule({ primeTowerProjection: { ok: true, version: 2 } }))
+      .getPrimeTowerProjection()).resolves.toEqual({ ok: false, error: 'invalid prime tower projection response' });
+    const base = { ok: true, version: 1, current_plate_id: 'p',
+      build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 },
+      plates: [{ plate_id: 'p', display_index: 0, eligible: false, empty: true, forced: false,
+        used_slots: [], width: 0, depth: 0, height: 0, position: { x: 0, y: 0 }, rotation: 0,
+        brim_margin: 0, footprint: { min_x: 0, max_x: 0, min_y: 0, max_y: 0 }, bands: [],
+        build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 } }] };
+    await expect(createClient(async () => createMockModule({ primeTowerProjection: {
+      ...base, plates: [{ ...base.plates[0], eligible: true }],
+    } })).getPrimeTowerProjection()).resolves.toEqual({ ok: false, error: 'invalid prime tower projection plates' });
+  });
+
   it('init loads preset collections', async () => {
     const c = makeClient();
     const r = await c.init();

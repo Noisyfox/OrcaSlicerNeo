@@ -338,6 +338,7 @@ set(ORCA_SLICE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_prime_tower.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_model_operations.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_profiles.cpp"
