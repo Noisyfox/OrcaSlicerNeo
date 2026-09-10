@@ -1,3 +1,5 @@
+#define CEREAL_FUTURE_EXPERIMENTAL
+
 #include <emscripten/emscripten.h>
 
 #include <algorithm>
@@ -14,15 +16,21 @@
 #include <utility>
 #include <vector>
 
-#include "bridge_history_runtime.hpp"
+#include "bridge_history.hpp"
 #include "bridge_filament.hpp"
-#include "bridge_history_codec.hpp"
-#include "bridge_history_metadata.hpp"
 #include "bridge_plate_session.hpp"
 #include "bridge_project_overlay.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
+
+#include <cereal/archives/adapters.hpp>
+#include <cereal/archives/binary.hpp>
+#include <cereal/types/map.hpp>
+#include <cereal/types/memory.hpp>
+#include <cereal/types/optional.hpp>
+#include <cereal/types/string.hpp>
+#include <cereal/types/vector.hpp>
 
 using namespace Slic3r;
 
@@ -443,6 +451,432 @@ void record_active_plate_context(const Runtime& runtime)
 }
 
 } // namespace Slic3r::Neo::Bridge::HistoryRuntime
+
+namespace {
+
+// The native adapter uses the same archive boundary as Orca's object history:
+// mutable ModelObject records contain references to immutable meshes, while
+// mesh bytes are retained once by ProjectHistory's immutable data store.
+struct NeoHistoryArchiveContext {
+    std::map<const Slic3r::TriangleMesh*, std::string> output_mesh_keys;
+    std::map<std::string, std::shared_ptr<const Slic3r::TriangleMesh>> input_meshes;
+};
+using NeoHistoryOutputArchive = cereal::UserDataAdapter<NeoHistoryArchiveContext, cereal::BinaryOutputArchive>;
+using NeoHistoryInputArchive = cereal::UserDataAdapter<NeoHistoryArchiveContext, cereal::BinaryInputArchive>;
+
+} // namespace
+
+namespace cereal {
+
+inline void save(BinaryOutputArchive& archive,
+                 const std::shared_ptr<const Slic3r::TriangleMesh>& mesh)
+{
+    if (!mesh) {
+        archive(std::string{});
+        return;
+    }
+    const auto& keys = cereal::get_user_data<NeoHistoryArchiveContext>(archive).output_mesh_keys;
+    const auto it = keys.find(mesh.get());
+    if (it == keys.end()) throw std::runtime_error("history mesh reference is unavailable");
+    archive(it->second);
+}
+
+inline void load(BinaryInputArchive& archive,
+                 std::shared_ptr<const Slic3r::TriangleMesh>& mesh)
+{
+    std::string key;
+    archive(key);
+    if (key.empty()) {
+        mesh.reset();
+        return;
+    }
+    const auto& meshes = cereal::get_user_data<NeoHistoryArchiveContext>(archive).input_meshes;
+    const auto it = meshes.find(key);
+    if (it == meshes.end()) throw std::runtime_error("history mesh data is unavailable");
+    mesh = it->second;
+}
+
+template<class T>
+inline void save(BinaryOutputArchive& archive, T* const& object)
+{
+    const bool present = object != nullptr;
+    archive(present);
+    if (present) archive(*object);
+}
+
+template<class T>
+inline void load(BinaryInputArchive& archive, T*& object)
+{
+    bool present = false;
+    archive(present);
+    object = present ? cereal::access::construct<T>() : nullptr;
+    if (object) archive(*object);
+}
+
+template<class T>
+inline void save_by_value(BinaryOutputArchive& archive, const T& value)
+{
+    archive(value);
+}
+
+template<class T>
+inline void load_by_value(BinaryInputArchive& archive, T& value)
+{
+    archive(value);
+}
+
+template<class T>
+inline void save_optional(BinaryOutputArchive& archive, const std::shared_ptr<const T>&)
+{
+    // Optional native caches such as convex hulls are deliberately omitted;
+    // ModelVolume::load() reconstructs them from the retained mesh.
+    archive(false);
+}
+
+template<class T>
+inline void load_optional(BinaryInputArchive& archive, std::shared_ptr<const T>& value)
+{
+    bool present = false;
+    archive(present);
+    if (present) archive(value);
+    else value.reset();
+}
+
+template <class Archive> struct specialize<Archive, Slic3r::ModelInstance*, specialization::non_member_load_save> {};
+template <class Archive> struct specialize<Archive, Slic3r::ModelVolume*, specialization::non_member_load_save> {};
+template <class Archive> struct specialize<Archive, std::shared_ptr<const Slic3r::TriangleMesh>, specialization::non_member_load_save> {};
+
+} // namespace cereal
+
+namespace Slic3r::Neo::History::Codec {
+namespace {
+
+Bytes mesh_bytes(const TriangleMesh& mesh)
+{
+    std::ostringstream stream(std::ios::binary | std::ios::out);
+    cereal::BinaryOutputArchive archive(stream);
+    archive(mesh);
+    const std::string encoded = stream.str();
+    return Bytes(encoded.begin(), encoded.end());
+}
+
+std::string mesh_key(const Bytes& bytes)
+{
+    std::uint64_t hash = 1469598103934665603ULL;
+    for (const auto byte : bytes) {
+        hash ^= byte;
+        hash *= 1099511628211ULL;
+    }
+    return std::string("mesh-") + std::to_string(hash) + "-" + std::to_string(bytes.size());
+}
+
+} // namespace
+
+ModelState capture_model_state(const Model& model)
+{
+    NeoHistoryArchiveContext archive_context;
+    std::map<std::string, Bytes> mesh_bytes_by_key;
+    for (const auto* object : model.objects) {
+        for (const auto* volume : object->volumes) {
+            const auto mesh = volume->get_mesh_shared_ptr();
+            if (!mesh) continue;
+            if (archive_context.output_mesh_keys.count(mesh.get())) continue;
+            auto bytes = mesh_bytes(*mesh);
+            const auto key = mesh_key(bytes);
+            archive_context.output_mesh_keys.emplace(mesh.get(), key);
+            mesh_bytes_by_key.emplace(key, std::move(bytes));
+        }
+    }
+
+    ModelState result;
+    // Restoration is driven entirely by ObjectID-keyed mutable records and
+    // shared immutable mesh records. No complete-model archive is retained as
+    // a per-entry equality or restore payload.
+    result.mutable_objects.reserve(model.objects.size());
+    for (const auto* object : model.objects) {
+        std::ostringstream stream(std::ios::binary | std::ios::out);
+        NeoHistoryOutputArchive archive(archive_context, stream);
+        archive(*object);
+        const std::string encoded = stream.str();
+        result.mutable_objects.push_back({
+            object->id().id, object->timestamp(),
+            Bytes(encoded.begin(), encoded.end())});
+    }
+    result.immutable_meshes.reserve(mesh_bytes_by_key.size());
+    for (auto& [key, bytes] : mesh_bytes_by_key)
+        result.immutable_meshes.push_back({std::move(key), std::make_shared<const Bytes>(std::move(bytes)), {}, false});
+    return result;
+}
+
+Model stage_model(const Model& model_template, const RestoreState& restored)
+{
+    NeoHistoryArchiveContext archive_context;
+    for (const auto& mesh : restored.model.immutable_meshes) {
+        const auto& encoded = mesh.resident ? *mesh.resident : (mesh.deferred ? *mesh.deferred : Bytes{});
+        if (encoded.empty()) throw std::runtime_error("history mesh data is unavailable");
+        std::string bytes(encoded.begin(), encoded.end());
+        std::istringstream stream(bytes, std::ios::binary | std::ios::in);
+        auto native_mesh = std::make_shared<TriangleMesh>();
+        cereal::BinaryInputArchive archive(stream);
+        archive(*native_mesh);
+        archive_context.input_meshes.emplace(mesh.key, std::move(native_mesh));
+    }
+
+    // Deserialize into a transient model and let Model's copy assignment
+    // rebuild ModelObject-owned volume/instance links. The transient is not
+    // retained by history; ProjectHistory owns only the keyed byte versions.
+    Model rebuilt_model = model_template;
+    rebuilt_model.clear_objects();
+    for (const auto& object : restored.model.mutable_objects) {
+        if (object.data.empty()) throw std::runtime_error("history object data is unavailable");
+        std::string bytes(object.data.begin(), object.data.end());
+        std::istringstream stream(bytes, std::ios::binary | std::ios::in);
+        ModelObject* native_object = rebuilt_model.add_object();
+        NeoHistoryInputArchive archive(archive_context, stream);
+        archive(*native_object);
+
+        // Native ModelInstance deserialization intentionally constructs with
+        // an invalid ObjectID because Orca restores into an existing object
+        // graph. Neo stages a fresh Model instead, so materialize each decoded
+        // instance through ModelObject::add_instance() to allocate a valid
+        // runtime identity before the plate-session membership map is applied.
+        const std::size_t decoded_instance_count = native_object->instances.size();
+        for (std::size_t index = 0; index < decoded_instance_count; ++index) {
+            ModelInstance* decoded = native_object->instances[index];
+            ModelInstance* materialized = native_object->add_instance();
+            materialized->set_transformation(decoded->get_transformation());
+            if (decoded->is_assemble_initialized())
+                materialized->set_assemble_transformation(decoded->get_assemble_transformation());
+            materialized->set_offset_to_assembly(decoded->get_offset_to_assembly());
+            materialized->print_volume_state = decoded->print_volume_state;
+            materialized->printable = decoded->printable;
+            materialized->auto_drop = decoded->auto_drop;
+            materialized->use_loaded_id_for_label = decoded->use_loaded_id_for_label;
+            materialized->arrange_order = decoded->arrange_order;
+            materialized->loaded_id = decoded->loaded_id;
+        }
+        for (std::size_t index = 0; index < decoded_instance_count; ++index)
+            native_object->delete_instance(0);
+    }
+    return rebuilt_model;
+}
+
+bool model_state_equal(const ModelState& lhs, const ModelState& rhs)
+{
+    if (lhs.serialized != rhs.serialized || lhs.mutable_objects.size() != rhs.mutable_objects.size() ||
+        lhs.immutable_meshes.size() != rhs.immutable_meshes.size())
+        return false;
+    for (std::size_t index = 0; index < lhs.mutable_objects.size(); ++index) {
+        const auto& left = lhs.mutable_objects[index];
+        const auto& right = rhs.mutable_objects[index];
+        if (left.id != right.id || left.timestamp != right.timestamp || left.data != right.data)
+            return false;
+    }
+    for (std::size_t index = 0; index < lhs.immutable_meshes.size(); ++index) {
+        const auto& left = lhs.immutable_meshes[index];
+        const auto& right = rhs.immutable_meshes[index];
+        const auto bytes_equal = [](const auto& a, const auto& b) {
+            return (!a && !b) || (a && b && *a == *b);
+        };
+        if (left.key != right.key || left.optional != right.optional ||
+            !bytes_equal(left.resident, right.resident) || !bytes_equal(left.deferred, right.deferred))
+            return false;
+    }
+    return true;
+}
+
+} // namespace Slic3r::Neo::History::Codec
+
+namespace Slic3r::Neo::Bridge::HistoryMetadata {
+
+std::string history_entry_id(const std::uint64_t id)
+{
+    return std::string("entry-") + std::to_string(id);
+}
+
+bool parse_history_entry_id(const char* value, std::uint64_t& id)
+{
+    if (!value) return false;
+    const std::string text(value);
+    if (text.rfind("entry-", 0) != 0 || text.size() == 6) return false;
+    try {
+        std::size_t consumed = 0;
+        id = std::stoull(text.substr(6), &consumed);
+        return consumed == text.size() - 6;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool parse_history_jump_direction(const char* value, History::JumpDirection& direction)
+{
+    if (!value) return false;
+    const std::string text(value);
+    if (text == "undo") { direction = History::JumpDirection::Undo; return true; }
+    if (text == "redo") { direction = History::JumpDirection::Redo; return true; }
+    return false;
+}
+
+json parse_history_context(const char* context_cstr)
+{
+    if (!context_cstr || !*context_cstr)
+        throw std::runtime_error("history context is required");
+    const json context = json::parse(context_cstr);
+    if (!context.is_object() || !context.contains("selection") ||
+        !context["selection"].is_object() ||
+        !context.contains("activePlateId") ||
+        !(context["activePlateId"].is_null() || context["activePlateId"].is_string()) ||
+        !context.contains("gizmo") ||
+        !(context["gizmo"].is_null() || context["gizmo"].is_object()) ||
+        !context.contains("projectConfigOverlay") ||
+        !context["projectConfigOverlay"].is_object())
+        throw std::runtime_error("invalid history context");
+    if (context.contains("filamentState") &&
+        (!context["filamentState"].is_object() || context["filamentState"].value("version", 0) != 1))
+        throw std::runtime_error("invalid history filament state");
+    const auto& selection = context["selection"];
+    if (!selection.contains("mode") || !selection["mode"].is_string() ||
+        !selection.contains("objectIds") || !selection["objectIds"].is_array() ||
+        !selection.contains("partIds") || !selection["partIds"].is_array() ||
+        !selection.contains("instanceIds") || !selection["instanceIds"].is_array())
+        throw std::runtime_error("invalid history selection");
+    for (const char* key : {"objectIds", "partIds", "instanceIds"})
+        for (const auto& id : selection[key])
+            if (!id.is_number_integer() || id.get<std::int64_t>() < 0)
+                throw std::runtime_error("invalid history selection id");
+    if (context["gizmo"].is_object() &&
+        (!context["gizmo"].contains("type") || !context["gizmo"]["type"].is_string()))
+        throw std::runtime_error("invalid history gizmo");
+    return context;
+}
+
+json default_history_context(const BridgeState& state,
+                             const json& plate_session,
+                             const json& filament_state)
+{
+    return json{
+        {"selection", {{"mode", "object"}, {"objectIds", json::array()},
+                        {"partIds", json::array()}, {"instanceIds", json::array()}}},
+        {"activePlateId", state.current_plate_id.empty() ? json(nullptr) : json(state.current_plate_id)},
+        {"gizmo", nullptr}, {"projectConfigOverlay", state.project_config_overlay},
+        {"plateSession", plate_session},
+        {"filamentState", filament_state},
+    };
+}
+
+json canonical_history_context(const BridgeState& state,
+                               json context,
+                               const json& plate_session,
+                               const json& filament_state)
+{
+    if (!context.is_object()) context = default_history_context(state, plate_session, filament_state);
+    // The Worker is authoritative for plate identity, collection, membership,
+    // and revisions. React contributes only the projected editing context.
+    context["activePlateId"] = state.current_plate_id.empty()
+        ? json(nullptr) : json(state.current_plate_id);
+    context["plateSession"] = plate_session;
+    context["projectConfigOverlay"] = state.project_config_overlay;
+    // Filament presets, colours, routing, matrices, and per-project config
+    // are not part of ModelState. Every authoritative history context must
+    // therefore carry the current native filament state.
+    context["filamentState"] = filament_state;
+    return context;
+}
+
+void record_history_context(BridgeState& state,
+                            const std::string& label,
+                            const json& requested,
+                            const json& plate_session,
+                            const json& filament_state,
+                            const History::ModelState& model_state)
+{
+    if (state.active_history_transaction) return;
+    const json context = canonical_history_context(state, requested, plate_session, filament_state);
+    if (state.history.entries().empty()) {
+        const json baseline = default_history_context(state, plate_session, filament_state);
+        const std::string encoded = baseline.dump();
+        const History::Bytes context_bytes(encoded.begin(), encoded.end());
+        state.history.commit("", History::Category::Project, model_state, context_bytes);
+        state.history.mark_current_as_saved();
+    }
+    const std::string encoded = context.dump();
+    const History::Bytes context_bytes(encoded.begin(), encoded.end());
+    // Context-only records intentionally do not advance history_revision: the
+    // model, filament rack, and slice inputs remain unchanged.
+    state.history.commit(label, History::Category::Context, model_state, context_bytes);
+}
+
+void record_active_plate_context(BridgeState& state,
+                                 const json& plate_session,
+                                 const json& filament_state,
+                                 const History::ModelState& model_state)
+{
+    json context = default_history_context(state, plate_session, filament_state);
+    if (!state.history.entries().empty()) {
+        try {
+            const auto& current = state.history.current();
+            context = json::parse(std::string(current.context.begin(), current.context.end()));
+        } catch (...) { context = default_history_context(state, plate_session, filament_state); }
+    }
+    context["activePlateId"] = state.current_plate_id.empty()
+        ? json(nullptr) : json(state.current_plate_id);
+    record_history_context(state, "Active Plate", context, plate_session, filament_state, model_state);
+}
+
+json history_status_json(const BridgeState& state)
+{
+    const auto entries = state.history.entries();
+    const std::size_t cursor = state.history.cursor();
+    json undo = json::array();
+    json redo = json::array();
+    for (std::size_t i = cursor; i > 0; --i) {
+        const auto& entry = entries[i];
+        if (entry.category != History::Category::Project || entry.id == 0) continue;
+        undo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
+                            {"category", entry.category == History::Category::Project ? "project" : "context"}});
+    }
+    for (std::size_t i = cursor + 1; i < entries.size(); ++i) {
+        const auto& entry = entries[i];
+        if (entry.category != History::Category::Project || entry.id == 0) continue;
+        redo.push_back(json{{"id", history_entry_id(entry.id)}, {"label", entry.label},
+                            {"category", entry.category == History::Category::Project ? "project" : "context"}});
+    }
+    const auto* undo_entry = state.history.undo_entry();
+    const auto* redo_entry = state.history.redo_entry();
+    const auto saved = state.history.saved_checkpoint();
+    const auto resources = state.history.resource_diagnostics();
+    return json{
+        {"canUndo", state.history.can_undo()}, {"canRedo", state.history.can_redo()},
+        {"undoLabel", undo_entry ? json(undo_entry->label) : json(nullptr)},
+        {"redoLabel", redo_entry ? json(redo_entry->label) : json(nullptr)},
+        {"undoEntries", std::move(undo)}, {"redoEntries", std::move(redo)},
+        {"cursor", cursor},
+        {"savedCheckpoint", saved == std::numeric_limits<std::size_t>::max() ? json(nullptr) : json(saved)},
+        {"savedCheckpointEvicted", state.history.saved_checkpoint_evicted()},
+        {"dirty", state.history.project_modified()},
+        {"bytesUsed", state.history.bytes_used()}, {"byteBudget", state.history.byte_budget()},
+        {"optionalBytesReleased", resources.optional_bytes_released},
+        {"evictedEntryCount", resources.evicted_entry_count},
+        {"lastEvictedEntryId", resources.last_evicted_entry_id == 0
+            ? json(nullptr) : json(history_entry_id(resources.last_evicted_entry_id))},
+        {"oldestRetainedEntryId", state.history.entries().empty()
+            ? json(nullptr) : json(history_entry_id(resources.oldest_retained_entry_id))},
+        {"oversizedEntryRetained", resources.oversized_entry_retained},
+        {"disabled", state.history_disabled},
+        {"activeTransactionId", state.active_history_transaction ? json(state.active_history_transaction->id) : json(nullptr)},
+        {"revision", state.history_revision},
+    };
+}
+
+json restore_diagnostics_json(const BridgeState& state)
+{
+    return json{
+        {"minimalMutableRestoreCount", state.history_minimal_mutable_restore_count},
+        {"fullPresetBundleCopyCount", state.full_preset_bundle_copy_count},
+    };
+}
+
+} // namespace Slic3r::Neo::Bridge::HistoryMetadata
 
 namespace Slic3r::Neo::Bridge::HistoryRuntime {
 

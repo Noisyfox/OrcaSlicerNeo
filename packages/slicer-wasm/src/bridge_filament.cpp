@@ -206,8 +206,7 @@ void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
 #include <utility>
 #include <vector>
 
-#include "bridge_history_codec.hpp"
-#include "bridge_history_metadata.hpp"
+#include "bridge_history.hpp"
 #include "bridge_plate_session.hpp"
 #include "bridge_project_overlay.hpp"
 #include "bridge_slicing_pipeline.hpp"

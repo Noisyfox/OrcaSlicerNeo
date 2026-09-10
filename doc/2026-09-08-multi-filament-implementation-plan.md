@@ -1020,7 +1020,8 @@ submodule remains outside this phase's write set.
 The second modularization step is complete at the pure codec boundary only.
 `NeoHistoryArchiveContext`, its cereal adapters, mesh serialization/hash,
 `ModelState` capture, retained-state model staging, and model-state equality
-now live in `packages/slicer-wasm/src/bridge_history_codec.{hpp,cpp}`. The
+now live in the aggregated `packages/slicer-wasm/src/bridge_history.{hpp,cpp}`.
+The
 codec receives its `const Model&` and restore data explicitly and has no
 `state()`, `BridgeState`, or `PresetBundle` dependency. `bridge.cpp` retains
 history transactions, direct filament frames, plate/session coordination, and
@@ -1029,7 +1030,8 @@ all extern-C exports; no broader history split is claimed by this step.
 ### 4.2 History metadata/context/status narrow step (2026-09-10)
 
 This independently testable bridge-maintenance step extracts the history
-metadata layer into `packages/slicer-wasm/src/bridge_history_metadata.{hpp,cpp}`.
+metadata layer into the aggregated
+`packages/slicer-wasm/src/bridge_history.{hpp,cpp}` module.
 History entry-id and direction parsing, context validation, default/canonical
 context construction, context-only recording (including active-plate context),
 public history status JSON, and restore diagnostics JSON now accept explicit
@@ -1240,8 +1242,8 @@ remain required before this step is marked complete.
 ### 4.10 History transaction/runtime bridge module (2026-09-10)
 
 This independently testable bridge-maintenance step extracts the history
-transaction and restore runtime into
-`packages/slicer-wasm/src/bridge_history_runtime.{hpp,cpp}`. The module owns
+transaction and restore runtime into the aggregated
+`packages/slicer-wasm/src/bridge_history.{hpp,cpp}` module. The module owns
 the history transaction ABI, context canonicalization/recording adapters,
 status and restore diagnostics, model/plate/mutable-filament restore staging,
 direct filament history-frame restoration, cursor fencing, rollback, and
@@ -1258,6 +1260,16 @@ compiles the module and the pinned native submodule remains outside the write
 set. The facade is reduced from 1940 to 1240 lines; all history restore helpers
 and history ABI definitions now live in the dedicated module. No product
 behaviour is changed by this structural step.
+
+### 4.10a History module aggregation (2026-09-10)
+
+The codec, metadata, and runtime translation units are now structurally
+aggregated into `bridge_history.hpp/.cpp`. Their internal `History::Codec`,
+`Bridge::HistoryMetadata`, and `Bridge::HistoryRuntime` namespaces and all
+function signatures remain unchanged; only include and CMake ownership was
+consolidated. The six split files were removed, with no compatibility
+forwarders or legacy aliases. The 77-export ABI, field-level history state,
+stale fencing, and slot-latency behaviour remain unchanged.
 
 ### 4.11 Plate lifecycle command bridge module (2026-09-10)
 

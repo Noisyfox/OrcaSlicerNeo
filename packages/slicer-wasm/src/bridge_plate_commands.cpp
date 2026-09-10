@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-#include "bridge_history_runtime.hpp"
+#include "bridge_history.hpp"
 #include "bridge_plate_session.hpp"
 #include "bridge_state.hpp"
 
