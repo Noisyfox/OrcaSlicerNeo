@@ -1,9 +1,8 @@
 // ----------------------------------------------------------------
-// Plate/session ownership for the Neo bridge.
+// Plate-domain ownership for the Neo bridge.
 //
-// This module owns the runtime multi-plate identity, membership, snapshots,
-// revision fences, and plate-local geometry helpers. Project persistence and
-// the extern "C" ABI remain in bridge.cpp.
+// This module owns the complete runtime multi-plate domain: identity,
+// membership, snapshots, geometry, lifecycle commands, and the plate ABI.
 // ----------------------------------------------------------------
 #pragma once
 
@@ -93,3 +92,12 @@ json shared_configuration_mutation_snapshot();
 json attach_plate_mutation(json result, const json& mutation);
 
 } // namespace Slic3r::Neo::Bridge::PlateSession
+
+namespace Slic3r::Neo::Bridge::PlateCommands {
+
+using json = nlohmann::json;
+
+json plate_configuration_mutation_snapshot(const std::string& plate_id,
+                                            const char* reason);
+
+} // namespace Slic3r::Neo::Bridge::PlateCommands

@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "bridge_buffers.hpp"
-#include "bridge_plate_session.hpp"
+#include "bridge_plate.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_state.hpp"
 #include "libslic3r/Exception.hpp"

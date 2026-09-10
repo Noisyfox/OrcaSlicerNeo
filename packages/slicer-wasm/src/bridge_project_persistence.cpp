@@ -24,7 +24,7 @@
 #include "bridge_filament.hpp"
 #include "bridge_history.hpp"
 #include "bridge_model_operations.hpp"
-#include "bridge_plate_session.hpp"
+#include "bridge_plate.hpp"
 #include "bridge_profiles.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "history/ProjectHistory.hpp"

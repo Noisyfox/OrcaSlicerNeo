@@ -13,8 +13,7 @@
 
 #include "bridge_filament.hpp"
 #include "bridge_model_operations.hpp"
-#include "bridge_plate_commands.hpp"
-#include "bridge_plate_session.hpp"
+#include "bridge_plate.hpp"
 #include "libslic3r/Exception.hpp"
 
 using namespace Slic3r;

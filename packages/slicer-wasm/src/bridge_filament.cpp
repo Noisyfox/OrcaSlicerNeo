@@ -207,7 +207,7 @@ void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
 #include <vector>
 
 #include "bridge_history.hpp"
-#include "bridge_plate_session.hpp"
+#include "bridge_plate.hpp"
 #include "bridge_project_overlay.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/FlushVolCalc.hpp"
@@ -1719,7 +1719,7 @@ json delete_or_merge_filament_command(const json& request, const bool merge, con
 #include <emscripten/emscripten.h>
 
 #include "bridge_project_overlay.hpp"
-#include "bridge_plate_session.hpp"
+#include "bridge_plate.hpp"
 #include "bridge_state.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"

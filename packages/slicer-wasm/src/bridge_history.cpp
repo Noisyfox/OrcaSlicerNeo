@@ -18,7 +18,7 @@
 
 #include "bridge_history.hpp"
 #include "bridge_filament.hpp"
-#include "bridge_plate_session.hpp"
+#include "bridge_plate.hpp"
 #include "bridge_project_overlay.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/Model.hpp"

@@ -1367,3 +1367,21 @@ history, and field-level history boundary remain unchanged. No legacy or
 backward-compatibility aliases were added, no history/plate/project modules
 were aggregated, and the pinned native submodule remains outside the write
 set. The six superseded state/commands/session files are removed.
+
+### 4.16 Plate domain aggregation (2026-09-10)
+
+This independently testable bridge-maintenance step aggregates the previously
+over-split plate session and lifecycle command modules into the single
+`packages/slicer-wasm/src/bridge_plate.{hpp,cpp}` domain module. The header and
+translation unit retain the `PlateSession` and `PlateCommands` internal
+namespaces for readability, while the complete plate identity, membership,
+geometry, snapshots, lifecycle commands, and plate ABI share one feature-level
+module. All consumers include the domain header and CMake compiles one plate
+source instead of two.
+
+The refactor is structural only: all 77 `orc_*` export names and complete
+signatures, JSON/error contracts, stale revision fence, millisecond slot
+history, and field-level history boundary remain unchanged. No legacy or
+backward-compatibility aliases were added, no complete `PresetBundle` is used
+by history operations, and the pinned native submodule remains outside the
+write set. The four superseded plate session/commands files are removed.

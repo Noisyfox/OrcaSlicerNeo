@@ -16,7 +16,7 @@
 #include <utility>
 #include <emscripten/emscripten.h>
 #include "bridge_buffers.hpp"
-#include "bridge_plate_session.hpp"
+#include "bridge_plate.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TriangleMesh.hpp"
