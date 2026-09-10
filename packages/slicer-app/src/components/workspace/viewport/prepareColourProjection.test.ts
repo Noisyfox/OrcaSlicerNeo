@@ -36,9 +36,19 @@ describe('Prepare colour projection', () => {
     const plateSession = { instances: [{ objectIndex: 0, instanceIndex: 0, outOfBounds: true, unprintable: false, member: true }] } as any;
     expect(prepareColourForVolume(volume(0), structure, snapshot, plateSession)).not.toBe('#123456');
   });
-  it('preserves overlay precedence: selection wins while transparency remains active', () => {
+  it('brightens the effective filament colour using OrcaSlicer HSL selection rendering', () => {
+    expect(resolvePrepareMaterial({ baseColour: '#123456', selected: true }).colour).toBe('#2874bf');
+    expect(resolvePrepareMaterial({ baseColour: '#ff0000', selected: true }).colour).toBe('#ff8080');
+    expect(resolvePrepareMaterial({ baseColour: '#00ff00', selected: true }).colour).toBe('#80ff80');
+  });
+  it('lifts pure and very dark colours before brightening them', () => {
+    expect(resolvePrepareMaterial({ baseColour: '#000000', selected: true }).colour).toBe('#737373');
+    expect(resolvePrepareMaterial({ baseColour: '#1a1a1a', selected: true }).colour).toBe('#737373');
+  });
+  it('preserves the unselected colour and keeps transparency independent', () => {
+    expect(resolvePrepareMaterial({ baseColour: '#123456' }).colour).toBe('#123456');
     expect(resolvePrepareMaterial({ baseColour: '#123456', selected: true, disabled: true, outOfBounds: true, transparent: true })).toEqual({
-      colour: '#3b82f6', opacity: 0.15, transparent: true, depthWrite: false,
+      colour: '#2874bf', opacity: 0.15, transparent: true, depthWrite: false,
     });
     expect(resolvePrepareMaterial({ baseColour: '#123456', disabled: true })).toMatchObject({ opacity: 1, transparent: false, depthWrite: true });
   });

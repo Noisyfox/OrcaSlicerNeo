@@ -11,9 +11,10 @@ export interface PrepareMaterialOverlay {
   depthWrite: boolean;
 }
 
-/** Compose Prepare's slot colour with renderer overlays. Selection wins over
- * the configured colour, while transparency remains an independent overlay;
- * callers cannot accidentally erase either state while changing a slot. */
+/** Compose Prepare's slot colour with renderer overlays. Selection brightens
+ * the effective slot colour using OrcaSlicer's GLVolume algorithm, while
+ * transparency remains an independent overlay; callers cannot accidentally
+ * erase either state while changing a slot. */
 export function resolvePrepareMaterial(options: {
   baseColour: string;
   selected?: boolean;
@@ -23,7 +24,9 @@ export function resolvePrepareMaterial(options: {
 }): PrepareMaterialOverlay {
   const dimmed = options.disabled || options.outOfBounds;
   return {
-    colour: options.selected ? '#3b82f6' : dimmed ? shade(options.baseColour, 0.52) : normalizeHex(options.baseColour),
+    colour: options.selected
+      ? brightenForSelection(options.baseColour)
+      : dimmed ? shade(options.baseColour, 0.52) : normalizeHex(options.baseColour),
     opacity: options.transparent ? 0.15 : 1,
     transparent: Boolean(options.transparent),
     depthWrite: !options.transparent,
@@ -38,6 +41,64 @@ function shade(hex: string, factor: number): string {
   const value = normalizeHex(hex).slice(1);
   const channels = [0, 2, 4].map((offset) => Math.max(0, Math.min(255, Math.round(Number.parseInt(value.slice(offset, offset + 2), 16) * factor))));
   return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * Match OrcaSlicer's selection rendering for an opaque CSS hex colour.
+ *
+ * Native GLVolume first lifts a colour whose three RGB channels are all below
+ * 0.2, then converts RGB to HSL and adds 0.25 to lightness (clamped to 1).
+ * The bridge/session owns the actual alpha semantics; Prepare's selection
+ * overlay is intentionally RGB-only so Preview transparency stays independent.
+ */
+function brightenForSelection(hex: string): string {
+  let [r, g, b] = hexToRgb(normalizeHex(hex));
+  if (r < 0.2 && g < 0.2 && b < 0.2) r = g = b = 0.2;
+
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  let h = 0;
+  let s = 0;
+  let l = (max + min) / 2;
+
+  if (delta !== 0) {
+    s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+    if (max === r) h = (g - b) / delta + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / delta + 2;
+    else h = (r - g) / delta + 4;
+    h /= 6;
+  }
+
+  l = Math.min(l + 0.25, 1);
+  if (s === 0) return rgbToHex(l, l, l);
+
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return rgbToHex(
+    hueToRgb(p, q, h + 1 / 3),
+    hueToRgb(p, q, h),
+    hueToRgb(p, q, h - 1 / 3),
+  );
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const value = hex.slice(1);
+  return [0, 2, 4].map((offset) => Number.parseInt(value.slice(offset, offset + 2), 16) / 255) as [number, number, number];
+}
+
+function hueToRgb(p: number, q: number, input: number): number {
+  let t = input;
+  if (t < 0) t += 1;
+  if (t > 1) t -= 1;
+  if (t < 1 / 6) return p + (q - p) * 6 * t;
+  if (t < 1 / 2) return q;
+  if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+  return p;
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return `#${[r, g, b].map((channel) => Math.round(Math.max(0, Math.min(1, channel)) * 255).toString(16).padStart(2, '0')).join('')}`;
 }
 
 function stableVolume(
