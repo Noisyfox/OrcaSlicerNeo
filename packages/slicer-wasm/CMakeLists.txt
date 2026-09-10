@@ -329,28 +329,25 @@ target_compile_options(deps_core PRIVATE
 )
 
 # ---- Module: bridge + CLI driver -> single WASM module ----
-# bridge.cpp is a Task-10 deliverable; the module links with the CLI driver
-# alone until it lands (the bridge smoke then picks it up automatically).
-set(ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
-                   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp")
-# Neo-owned, headless project history. Keep this source outside the pinned
-# Orca submodule; the C bridge and Worker transaction adapters remain Neo code.
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp")
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp")
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament.cpp")
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp")
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_model_operations.cpp")
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_profiles.cpp")
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_plate.cpp")
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_slicing_pipeline.cpp")
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_project_persistence.cpp")
-list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_project_overlay.cpp")
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
-  list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp")
-endif()
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp")
-  list(APPEND ORCA_SLICE_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp")
-endif()
+# Explicitly list every Neo bridge and CLI translation unit. Keep this source
+# set outside the pinned Orca submodule; the C bridge and Worker transaction
+# adapters remain Neo code.
+set(ORCA_SLICE_SRC
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_history.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_model_operations.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_profiles.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_plate.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_slicing_pipeline.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_project_persistence.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_project_overlay.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp"
+)
 add_executable(orca_slice ${ORCA_SLICE_SRC})
 if(NEO_PROJECT_HISTORY_TEST)
   add_executable(project_history_core_test
