@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -32,6 +33,7 @@ struct ProfileTransitionState {
     DynamicPrintConfig project_config;
     std::vector<std::vector<std::string>> ams_multi_colour_filment;
     Preset edited_filament;
+    std::uint64_t history_revision;
 };
 
 ProfileTransitionState capture_profile_transition_state()
@@ -43,7 +45,8 @@ ProfileTransitionState capture_profile_transition_state()
             bundle.filament_presets,
             bundle.project_config,
             bundle.ams_multi_color_filment,
-            bundle.filaments.get_edited_preset()};
+            bundle.filaments.get_edited_preset(),
+            state().history_revision};
 }
 
 void restore_profile_transition_state(ProfileTransitionState&& before)
@@ -59,6 +62,7 @@ void restore_profile_transition_state(ProfileTransitionState&& before)
     bundle.project_config = std::move(before.project_config);
     bundle.ams_multi_color_filment = std::move(before.ams_multi_colour_filment);
     bundle.filaments.get_edited_preset() = std::move(before.edited_filament);
+    state().history_revision = before.history_revision;
 }
 
 void validate_profile_transition()
@@ -327,11 +331,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
                 state().presets.update_multi_material_filament_presets();
             }
             Profiles::validate_profile_transition();
+            const auto response = Profiles::preset_snapshot_json().dump();
+            ++state().history_revision;
+            return Profiles::duplicate_json(response);
         } catch (...) {
             Profiles::restore_profile_transition_state(std::move(before));
             throw;
         }
-        return Profiles::duplicate_json(Profiles::preset_snapshot_json().dump());
     } catch (const std::exception& e) {
         return Profiles::error_json(e.what());
     } catch (...) {

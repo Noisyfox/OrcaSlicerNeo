@@ -1394,7 +1394,11 @@ slot-indexed project array with the authoritative rack, recalculates flushing
 for the selected nozzle count, validates every slot preset, and publishes one
 complete session snapshot. Failure restores only the captured profile
 selections and mutable filament fields, so it is atomic without copying a
-complete `PresetBundle`. This fixes the reproducible dual-to-single-nozzle
+complete `PresetBundle`. Each successful printer or print transition advances
+the filament session revision exactly once without creating a history entry or
+dirtying history; a failed transition restores the prior revision. This makes
+every pre-transition filament command stale even when the target printer has
+no remembered rack to apply. This fixes the reproducible dual-to-single-nozzle
 `Bambu Lab H2D Pro 0.8 nozzle` to `Bambu Lab H2S 0.2 nozzle` transition, where
 the old update left a two-plane flushing matrix and could leave slot arrays at
 the wrong size. The UI also retains its last complete rack while a replacement

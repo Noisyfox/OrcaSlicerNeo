@@ -28,6 +28,7 @@ const names = new Set(initial.printers.map((printer) => printer.name));
 const dual = 'Bambu Lab H2D Pro 0.8 nozzle';
 const single = 'Bambu Lab H2S 0.2 nozzle';
 assert.ok(names.has(dual) && names.has(single), 'regression printer profiles are missing');
+const historyAtStart = callJson('orc_history_status');
 
 const dualSelected = callJson('orc_select_preset', ['string', 'string'], ['printer', dual]);
 assert.equal(dualSelected.ok, true, JSON.stringify(dualSelected));
@@ -37,14 +38,45 @@ assert.equal(before.capabilities.nozzle_count, 2);
 
 const selected = callJson('orc_select_preset', ['string', 'string'], ['printer', single]);
 assert.equal(selected.ok, true, JSON.stringify(selected));
-const rack = callJson('orc_get_filament_session_snapshot');
+let rack = callJson('orc_get_filament_session_snapshot');
 assert.equal(rack.ok, true, JSON.stringify(rack));
+assert.equal(rack.revisions.session, before.revisions.session + 1,
+  'printer transition must advance the filament session fence exactly once');
 assert.ok(rack.slots.length > 0);
 assert.equal(rack.capabilities.nozzle_count, 1);
 assert.equal(rack.flushing.plane_count, 1);
 assert.equal(rack.flushing.matrix.length, rack.slots.length ** 2);
 const compatible = new Set(selected.filament_catalog.map((entry) => entry.name));
 assert.ok(rack.slots.every((slot) => compatible.has(slot.preset.name)));
+
+const staleMutation = callJson('orc_add_filament_slot', ['string'], [JSON.stringify({
+  version: 1, revision: before.revisions.session,
+})]);
+assert.equal(staleMutation.ok, false);
+assert.equal(staleMutation.error_code, 'stale_revision');
+assert.deepEqual(callJson('orc_get_filament_session_snapshot'), rack,
+  'stale pre-transition revision must not mutate the post-transition rack');
+
+const nextPrint = selected.prints.find((preset) => preset.name !== selected.print.name);
+assert.ok(nextPrint, 'regression printer must expose another compatible print profile');
+const beforePrint = rack;
+const printSelected = callJson('orc_select_preset', ['string', 'string'], ['print', nextPrint.name]);
+assert.equal(printSelected.ok, true, JSON.stringify(printSelected));
+rack = callJson('orc_get_filament_session_snapshot');
+assert.equal(rack.revisions.session, beforePrint.revisions.session + 1,
+  'print transition must advance the filament session fence exactly once');
+const staleAfterPrint = callJson('orc_add_filament_slot', ['string'], [JSON.stringify({
+  version: 1, revision: beforePrint.revisions.session,
+})]);
+assert.equal(staleAfterPrint.ok, false);
+assert.equal(staleAfterPrint.error_code, 'stale_revision');
+assert.deepEqual(callJson('orc_get_filament_session_snapshot'), rack,
+  'stale pre-print revision must not mutate the post-transition rack');
+const historyAfterProfiles = callJson('orc_history_status');
+assert.equal(historyAfterProfiles.cursor, historyAtStart.cursor);
+assert.equal(historyAfterProfiles.dirty, historyAtStart.dirty);
+assert.deepEqual(historyAfterProfiles.undoEntries, historyAtStart.undoEntries);
+assert.deepEqual(historyAfterProfiles.redoEntries, historyAtStart.redoEntries);
 
 const historyBefore = callJson('orc_history_status');
 const request = { version: 1, revision: rack.revisions.session,
