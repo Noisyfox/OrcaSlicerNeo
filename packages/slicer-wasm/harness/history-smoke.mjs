@@ -151,10 +151,8 @@ const configTx = callJson('orc_history_begin', ['string', 'string', 'string', 's
 if (!configTx.ok || typeof configTx.transactionId !== 'string') throw new Error(JSON.stringify(configTx));
 const configured = callJson('orc_set_project_config_override',
   ['string', 'string', 'string', 'string'], ['project', '', 'wipe_tower_x', '101,202']);
-if (!configured.ok || configured.overlay?.project?.wipe_tower_x !== '101,202' ||
-    configured.overlay?.plates?.[plateAfterRedo.plates[0].plate_id]?.wipe_tower_x !== '101' ||
-    configured.overlay?.plates?.[plateAfterRedo.plates[1].plate_id]?.wipe_tower_x !== '202')
-  throw new Error(`project coordinate array did not update the authoritative config: ${JSON.stringify(configured)}`);
+if (configured.ok || configured.error_code !== 'unsupported_reference')
+  throw new Error(`generic X/Y setting unexpectedly accepted: ${JSON.stringify(configured)}`);
 const configuredCommit = callJson('orc_history_commit', ['string', 'string'],
   [configTx.transactionId, JSON.stringify(context)]);
 const configuredAfter = callJson('orc_get_plate_session_snapshot', [], []);
@@ -380,9 +378,7 @@ function coordinateArraysMatchPlateCount(session) {
   return ['wipe_tower_x', 'wipe_tower_y'].every((key) =>
     typeof overlay.overlay.project?.[key] === 'string' && overlay.overlay.project[key].split(',').length === session.plates.length) &&
     session.plates.every((plate, index) => !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x') &&
-      !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_y') &&
-      Number(overlay.overlay.plates?.[plate.plate_id]?.wipe_tower_x) === Number(overlay.overlay.project.wipe_tower_x.split(',')[index]) &&
-      Number(overlay.overlay.plates?.[plate.plate_id]?.wipe_tower_y) === Number(overlay.overlay.project.wipe_tower_y.split(',')[index]));
+      !Object.hasOwn(plate.settings ?? {}, 'wipe_tower_y'));
 }
 function coordinateArrayAt(session, plateId, key) {
   const plate = session.plates.find((entry) => entry.plate_id === plateId);
@@ -403,16 +399,14 @@ function setProjectCoordinate(key, value) {
     ['string', 'string', 'string', 'string'], ['project', '', key, String(value)]);
   if (!result.ok) throw new Error(`set project ${key} failed: ${JSON.stringify(result)}`);
 }
-setProjectCoordinate('wipe_tower_x', '101,202,303');
-setProjectCoordinate('wipe_tower_y', '201,302,403');
 const coordinateBaselineReset = callJson('orc_history_reset', ['string'], [JSON.stringify(context)]);
 historyCheck('coordinate baseline reset retains no extra history entry',
   coordinateBaselineReset.canUndo === false, JSON.stringify(coordinateBaselineReset));
 structuralBaseline = callJson('orc_get_plate_session_snapshot', [], []);
 const expectedBaselineCoordinates = {
-  [fixturePlateOne]: { index: 0, wipe_tower_x: 101, wipe_tower_y: 201 },
-  [fixturePlateTwo]: { index: 1, wipe_tower_x: 202, wipe_tower_y: 302 },
-  [fixturePlateThree]: { index: 2, wipe_tower_x: 303, wipe_tower_y: 403 },
+  [fixturePlateOne]: { index: 0, wipe_tower_x: coordinateArrayAt(structuralBaseline, fixturePlateOne, 'wipe_tower_x')[0], wipe_tower_y: coordinateArrayAt(structuralBaseline, fixturePlateOne, 'wipe_tower_y')[0] },
+  [fixturePlateTwo]: { index: 1, wipe_tower_x: coordinateArrayAt(structuralBaseline, fixturePlateTwo, 'wipe_tower_x')[1], wipe_tower_y: coordinateArrayAt(structuralBaseline, fixturePlateTwo, 'wipe_tower_y')[1] },
+  [fixturePlateThree]: { index: 2, wipe_tower_x: coordinateArrayAt(structuralBaseline, fixturePlateThree, 'wipe_tower_x')[2], wipe_tower_y: coordinateArrayAt(structuralBaseline, fixturePlateThree, 'wipe_tower_y')[2] },
 };
 historyCheck('structural baseline coordinate arrays match plate count',
   coordinateArraysMatchPlateCount(structuralBaseline));
@@ -459,8 +453,8 @@ historyCheck('delete compacts coordinate arrays without a separate repair histor
   coordinateArraysMatchPlateCount(deleteAfter));
 historyCheck('delete compacts surviving coordinate identity order',
   coordinateIdentityValues(deleteAfter, {
-    [fixturePlateOne]: { index: 0, wipe_tower_x: 101, wipe_tower_y: 201 },
-    [fixturePlateThree]: { index: 1, wipe_tower_x: 303, wipe_tower_y: 403 },
+    [fixturePlateOne]: { index: 0, wipe_tower_x: expectedBaselineCoordinates[fixturePlateOne].wipe_tower_x, wipe_tower_y: expectedBaselineCoordinates[fixturePlateOne].wipe_tower_y },
+    [fixturePlateThree]: { index: 1, wipe_tower_x: expectedBaselineCoordinates[fixturePlateThree].wipe_tower_x, wipe_tower_y: expectedBaselineCoordinates[fixturePlateThree].wipe_tower_y },
   }));
 commitHistory('Delete Plate', deleteTransaction);
 const deleteUndo = callJson('orc_history_undo', [], []);
@@ -481,8 +475,8 @@ historyCheck('Delete Plate redo keeps coordinate arrays at two plates',
   coordinateArraysMatchPlateCount(deleteRedoSession));
 historyCheck('Delete Plate redo restores compact coordinate identity order',
   coordinateIdentityValues(deleteRedoSession, {
-    [fixturePlateOne]: { index: 0, wipe_tower_x: 101, wipe_tower_y: 201 },
-    [fixturePlateThree]: { index: 1, wipe_tower_x: 303, wipe_tower_y: 403 },
+    [fixturePlateOne]: { index: 0, wipe_tower_x: expectedBaselineCoordinates[fixturePlateOne].wipe_tower_x, wipe_tower_y: expectedBaselineCoordinates[fixturePlateOne].wipe_tower_y },
+    [fixturePlateThree]: { index: 1, wipe_tower_x: expectedBaselineCoordinates[fixturePlateThree].wipe_tower_x, wipe_tower_y: expectedBaselineCoordinates[fixturePlateThree].wipe_tower_y },
   }));
 
 // Return to the baseline, then exercise the release's plate-order change
@@ -501,8 +495,8 @@ historyCheck('reorder compacts coordinate arrays to two plates',
   coordinateArraysMatchPlateCount(reorderAfter));
 historyCheck('reorder compacts coordinate identity order',
   coordinateIdentityValues(reorderAfter, {
-    [fixturePlateTwo]: { index: 0, wipe_tower_x: 202, wipe_tower_y: 302 },
-    [fixturePlateThree]: { index: 1, wipe_tower_x: 303, wipe_tower_y: 403 },
+    [fixturePlateTwo]: { index: 0, wipe_tower_x: expectedBaselineCoordinates[fixturePlateTwo].wipe_tower_x, wipe_tower_y: expectedBaselineCoordinates[fixturePlateTwo].wipe_tower_y },
+    [fixturePlateThree]: { index: 1, wipe_tower_x: expectedBaselineCoordinates[fixturePlateThree].wipe_tower_x, wipe_tower_y: expectedBaselineCoordinates[fixturePlateThree].wipe_tower_y },
   }));
 commitHistory('Reorder Plate', reorderTransaction);
 historyCheck('Reorder Plate undo succeeds', callJson('orc_history_undo', [], []).ok === true);
@@ -517,8 +511,8 @@ historyCheck('reorder Redo keeps coordinate arrays at two plates',
   coordinateArraysMatchPlateCount(reorderRedoSession));
 historyCheck('reorder Redo restores compact coordinate identity order',
   coordinateIdentityValues(reorderRedoSession, {
-    [fixturePlateTwo]: { index: 0, wipe_tower_x: 202, wipe_tower_y: 302 },
-    [fixturePlateThree]: { index: 1, wipe_tower_x: 303, wipe_tower_y: 403 },
+    [fixturePlateTwo]: { index: 0, wipe_tower_x: expectedBaselineCoordinates[fixturePlateTwo].wipe_tower_x, wipe_tower_y: expectedBaselineCoordinates[fixturePlateTwo].wipe_tower_y },
+    [fixturePlateThree]: { index: 1, wipe_tower_x: expectedBaselineCoordinates[fixturePlateThree].wipe_tower_x, wipe_tower_y: expectedBaselineCoordinates[fixturePlateThree].wipe_tower_y },
   }));
 historyCheck('locked plate state survives reorder Undo/Redo',
   reorderAfter.plates.find((plate) => plate.plate_id === lockedPlateId)?.locked === true);

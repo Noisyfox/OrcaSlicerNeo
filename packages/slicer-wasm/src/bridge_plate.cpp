@@ -621,6 +621,11 @@ json shared_configuration_mutation_snapshot()
     const auto bounds = selected_plate_bounds();
     const auto changed = reflow_plate_origins_for_bounds(bounds);
     refresh_existing_plate_validity(bounds);
+    // Printer/process/settings transitions use the same native coordinates
+    // for both projection and slicing. The caller decides whether this
+    // mutation is history-backed; this lifecycle step merely publishes the
+    // normalized arrays in the current Worker state.
+    PrimeTower::normalize_coordinate_positions();
     const auto affected = all_plate_ids();
     for (const auto& id : affected) ++state().plate_input_revisions[id];
     json result = plate_session_snapshot_json(reflow_instance_transforms(changed));
@@ -665,27 +670,6 @@ const char* error_json(const std::string& message)
 }
 
 } // namespace
-
-namespace Slic3r::Neo::Bridge::PlateCommands {
-
-json plate_configuration_mutation_snapshot(const std::string& plate_id,
-                                            const char* reason)
-{
-    ensure_plate_session_state();
-    if (find_plate(plate_id) == nullptr)
-        throw std::runtime_error("plate not found");
-    ++state().plate_input_revisions[plate_id];
-    const std::set<std::string> affected{plate_id};
-    json result = plate_session_snapshot_json();
-    result["input_revisions"] = plate_revisions_json();
-    result["affected_plate_ids_before"] = plate_id_array(affected);
-    result["affected_plate_ids_after"] = plate_id_array(affected);
-    result["affected_plate_ids"] = plate_id_array(affected);
-    result["dirty_reasons"] = {reason};
-    return result;
-}
-
-} // namespace Slic3r::Neo::Bridge::PlateCommands
 
 extern "C" {
 
@@ -768,6 +752,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
             plate.display_index = static_cast<int>(index);
             plate.origin = plate_origin_for_index(static_cast<int>(index), new_count, bounds);
         }
+        Neo::Bridge::PrimeTower::normalize_coordinate_positions();
         state().current_plate_id = id;
         const auto mutation = plate_mutation_snapshot(affected_before, {"plate-structure"},
                                                        reflow_instance_transforms(changed));
@@ -842,6 +827,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
             const size_t selected_index = std::min(deleted_index, state().plate_session_plates.size() - 1);
             state().current_plate_id = state().plate_session_plates[selected_index].id;
         }
+        Neo::Bridge::PrimeTower::normalize_coordinate_positions();
         const auto mutation = plate_mutation_snapshot(affected_before, {"plate-structure"},
                                                        reflow_instance_transforms(changed));
         return dup_json(mutation.dump());

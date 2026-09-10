@@ -22,28 +22,24 @@ async function commitSharedConfigurationMutationNow(
   value?: string,
   target: ProjectConfigOverrideTarget = { scope: 'project' },
 ): Promise<PlateSessionMutation> {
-  const markConfiguration = platform.runtime.markSharedConfigurationMutation;
-  const setOverride = platform.runtime.setProjectConfigOverride;
-  if (typeof markConfiguration !== 'function' && typeof setOverride !== 'function') {
-    throw new Error('runtime does not support shared configuration mutations');
-  }
   let mutation;
   try {
     mutation = (await runProjectHistoryMutation(
       platform.runtime,
       'Change Project Configuration',
       async () => {
-        if (optionKey !== undefined && typeof setOverride === 'function') {
-          const result = await setOverride.call(platform.runtime, target, optionKey, value ?? '');
+        if (optionKey !== undefined) {
+          const result = await platform.runtime.setProjectConfigOverride(target, optionKey, value ?? '');
           if (!result.ok) throw new Error(result.error);
           if (result.configurationStatus?.state === 'ready' && result.configurationStatus.errors.length > 0)
             throw new Error(result.configurationStatus.errors.join('; '));
           if (result.configurationStatus?.state === 'ready' && result.configurationStatus.warnings.length > 0)
             useSlicerStore.getState().setError(`[Warning] ${result.configurationStatus.warnings.join('; ')}`);
           useSettingsStore.getState().setOverlay(result.overlay);
-          return result.plateSession ?? await markConfiguration.call(platform.runtime);
+          if (result.plateSession === undefined) throw new Error('configuration override returned no plate session');
+          return result.plateSession;
         }
-        return markConfiguration.call(platform.runtime, optionKey, value);
+        return platform.runtime.markSharedConfigurationMutation();
       },
     )).result;
   } catch (error) {
@@ -99,7 +95,7 @@ export async function applyPresetConfigurationMutation(platform: PlatformCapabil
 
 /** Clear stale slice UI after a successful shared configuration commit. */
 export function invalidateAfterSharedConfigurationMutation(affectedPlateIds?: readonly string[]): void {
-  // Native object/part/plate overrides return their exact affected plate set;
+  // Native object/part overrides return their exact affected plate set;
   // consume it so an edit cannot discard an unrelated completed plate.  A
   // missing set denotes the shared project/preset boundary and conservatively
   // clears every result.

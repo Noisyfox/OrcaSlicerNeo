@@ -13,6 +13,7 @@
 #include <string>
 
 #include "history/ProjectHistory.hpp"
+#include "libslic3r/Model.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "nlohmann/json.hpp"
 
@@ -48,6 +49,17 @@ void set_coordinate_settings(DynamicPrintConfig& settings, std::size_t plate_ind
                              double x, double y, double fallback_x, double fallback_y);
 void normalize_coordinate_settings(DynamicPrintConfig& settings, std::size_t plate_count,
                                    double fallback_x, double fallback_y);
+// Clamp the authoritative project-level coordinates to the current native
+// footprint. This is intentionally Worker-owned: callers choose whether the
+// surrounding operation is a silent lifecycle transition or a history
+// transaction, while this helper only mutates the native arrays and their
+// projection metadata.
+bool normalize_coordinate_positions();
+
+// Slice-time validation is native and advisory. The renderer never parses
+// geometry or native validation text; it receives these stable warning strings
+// alongside the normal successful slice status.
+json slice_warnings_for_plate(const std::string& plate_id);
 double coordinate_value(const DynamicPrintConfig& settings, const char* key,
                         std::size_t plate_index, double fallback);
 void set_coordinate_option_value(DynamicPrintConfig& settings, const char* key,

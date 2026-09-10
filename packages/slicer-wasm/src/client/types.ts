@@ -205,8 +205,9 @@ export type PrimeTowerMoveResultOrError = AtomicCommandResult<PrimeTowerMoveResu
 
 /** Worker-owned project configuration overrides. Keys are native option names;
  * values are their native serialized representations. IDs are stable object /
- * part IDs, never renderer indices. The plate bucket is a derived projection
- * of the authoritative project-level Prime Tower arrays, keyed by plate ID. */
+ * part IDs, never renderer indices. Prime Tower X/Y are intentionally absent:
+ * their native project-level arrays are edited only by the typed scene move
+ * command, never through this generic overlay. */
 export interface ProjectConfigOverlay {
   readonly project: Readonly<Record<string, string>>;
   readonly objects: Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -214,7 +215,7 @@ export interface ProjectConfigOverlay {
   readonly plates: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
-export type ProjectConfigScope = 'project' | 'object' | 'part' | 'plate';
+export type ProjectConfigScope = 'project' | 'object' | 'part';
 
 export interface ProjectConfigOverrideTarget {
   readonly scope: ProjectConfigScope;
@@ -414,7 +415,7 @@ export interface ProjectLoadResult {
   presetSnapshot?: ProfileSnapshot;
   /** Authoritative plate membership returned by the native model transaction. */
   plateSession?: PlateSessionMutation;
-  /** Project/object/part/plate overrides retained by the Worker. */
+  /** Project/object/part overrides plus retained plate metadata. */
   projectConfigOverlay?: ProjectConfigOverlay;
   error?: string;
 }
@@ -601,6 +602,8 @@ export interface ModelStructureResult {
 export interface SliceResultStatus {
   ok: boolean;
   unrecognized_keys: string[];
+  /** Native slice-time advisory warnings; these never replace hard errors. */
+  warnings?: string[];
   error?: string;
 }
 
@@ -1047,8 +1050,8 @@ export interface SlicerClient {
   deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;
   /** Advance every existing plate for a committed shared configuration edit. */
-  markSharedConfigurationMutation(optionKey?: string, value?: string): Promise<PlateSessionMutationResult>;
-  /** Read the canonical Worker-owned project/object/part/plate overrides. */
+  markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
+  /** Read canonical Worker-owned project/object/part overrides plus plate metadata. */
   getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
   /** Set one supported override and return the affected plate projection. */
   setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError>;

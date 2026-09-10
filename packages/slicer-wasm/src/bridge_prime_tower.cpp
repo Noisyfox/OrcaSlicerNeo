@@ -468,6 +468,131 @@ json projection_json()
                              {"max_z", bounds.max_z}}}, {"plates", std::move(plates)}};
 }
 
+bool normalize_coordinate_positions()
+{
+    if (state().plate_session_plates.empty()) return false;
+    normalize_coordinate_settings(state().presets.project_config,
+                                  state().plate_session_plates.size(), 15., 220.);
+    const PlateBounds bounds = selected_plate_bounds();
+    bool changed = false;
+    for (std::size_t index = 0; index < state().plate_session_plates.size(); ++index) {
+        const auto& plate = state().plate_session_plates[index];
+        const DynamicPrintConfig config = effective_config(plate);
+        std::string model_error;
+        const auto model = make_current_plate_model(plate, model_error);
+        if (!model) continue;
+        const auto slots = used_slots(*model, config, state().presets.filament_presets.size(),
+                                      static_cast<int>(plate.display_index));
+        const bool smooth = config.opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlSmooth;
+        const auto* wrapping = config.opt<ConfigOptionBool>("enable_wrapping_detection");
+        const auto* wrapping_area = config.opt<ConfigOptionPoints>("wrapping_exclude_area");
+        const bool forced = smooth || (wrapping != nullptr && wrapping->value && wrapping_area != nullptr &&
+                                       wrapping_area->values.size() > 2);
+        const bool by_object = config.opt_enum<PrintSequence>("print_sequence") == PrintSequence::ByObject;
+        std::size_t printable_instances = 0;
+        for (const ModelObject* object : model->objects)
+            if (object != nullptr)
+                printable_instances += static_cast<std::size_t>(std::count_if(object->instances.begin(), object->instances.end(),
+                    [](const ModelInstance* instance) { return instance != nullptr && instance->is_printable(); }));
+        if (!config.opt_bool("enable_prime_tower") || slots.empty() || (slots.size() < 2 && !forced) ||
+            (by_object && printable_instances != 1)) continue;
+
+        const Placement placement = placement_for(config, &*model, slots.size(),
+                                                  static_cast<int>(plate.display_index));
+        const double old_x = indexed_float(config, "wipe_tower_x", index, 15.);
+        const double old_y = indexed_float(config, "wipe_tower_y", index, 220.);
+        bool too_large = false;
+        const double x = clamp_axis(old_x, placement.min_offset_x, placement.max_offset_x,
+                                    placement.brim, bounds.min_x, bounds.max_x, too_large);
+        const double y = clamp_axis(old_y, placement.min_offset_y, placement.max_offset_y,
+                                    placement.brim, bounds.min_y, bounds.max_y, too_large);
+        if (std::abs(old_x - x) <= 1e-12 && std::abs(old_y - y) <= 1e-12) continue;
+        set_coordinate_settings(state().presets.project_config, index, x, y, old_x, old_y);
+        changed = true;
+    }
+    if (changed) {
+        state().project_config_overlay["project"]["wipe_tower_x"] =
+            state().presets.project_config.option("wipe_tower_x")->serialize();
+        state().project_config_overlay["project"]["wipe_tower_y"] =
+            state().presets.project_config.option("wipe_tower_y")->serialize();
+    }
+    return changed;
+}
+
+json slice_warnings_for_plate(const std::string& plate_id)
+{
+    using namespace Neo::Bridge::PlateSession;
+    ensure_plate_session_state();
+    const auto* plate = find_plate(plate_id);
+    if (plate == nullptr) return json::array();
+    const auto index_it = std::find_if(state().plate_session_plates.begin(), state().plate_session_plates.end(),
+        [&](const auto& candidate) { return candidate.id == plate_id; });
+    if (index_it == state().plate_session_plates.end()) return json::array();
+    const std::size_t index = static_cast<std::size_t>(std::distance(state().plate_session_plates.begin(), index_it));
+    const DynamicPrintConfig config = effective_config(*plate);
+    std::string model_error;
+    const auto model = make_current_plate_model(*plate, model_error);
+    if (!model) return json::array();
+    const auto slots = used_slots(*model, config, state().presets.filament_presets.size(),
+                                  static_cast<int>(plate->display_index));
+    const bool smooth = config.opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlSmooth;
+    const auto* wrapping = config.opt<ConfigOptionBool>("enable_wrapping_detection");
+    const auto* wrapping_area = config.opt<ConfigOptionPoints>("wrapping_exclude_area");
+    const bool forced = smooth || (wrapping != nullptr && wrapping->value && wrapping_area != nullptr &&
+                                   wrapping_area->values.size() > 2);
+    const bool by_object = config.opt_enum<PrintSequence>("print_sequence") == PrintSequence::ByObject;
+    std::size_t printable_instances = 0;
+    for (const ModelObject* object : model->objects)
+        if (object != nullptr)
+            printable_instances += static_cast<std::size_t>(std::count_if(object->instances.begin(), object->instances.end(),
+                [](const ModelInstance* instance) { return instance != nullptr && instance->is_printable(); }));
+    if (!config.opt_bool("enable_prime_tower") || slots.empty() || (slots.size() < 2 && !forced) ||
+        (by_object && printable_instances != 1)) return json::array();
+
+    const Placement placement = placement_for(config, &*model, slots.size(), static_cast<int>(plate->display_index));
+    const double x = indexed_float(config, "wipe_tower_x", index, 15.);
+    const double y = indexed_float(config, "wipe_tower_y", index, 220.);
+    const json footprint = placement_footprint(placement, x, y);
+    const double min_x = footprint["min_x"].get<double>();
+    const double max_x = footprint["max_x"].get<double>();
+    const double min_y = footprint["min_y"].get<double>();
+    const double max_y = footprint["max_y"].get<double>();
+    const auto intersects = [&](double other_min_x, double other_max_x,
+                                double other_min_y, double other_max_y) {
+        return max_x >= other_min_x && min_x <= other_max_x &&
+               max_y >= other_min_y && min_y <= other_max_y;
+    };
+    json warnings = json::array();
+    for (const ModelObject* object : model->objects) {
+        if (object == nullptr) continue;
+        const auto& box = object->bounding_box_exact();
+        if (box.defined && intersects(box.min.x(), box.max.x(), box.min.y(), box.max.y())) {
+            warnings.push_back("Prime Tower intersects a model.");
+            break;
+        }
+    }
+    const auto area_intersects = [&](const ConfigOptionPoints* area) {
+        if (area == nullptr || area->values.size() < 3) return false;
+        double area_min_x = std::numeric_limits<double>::infinity();
+        double area_max_x = -std::numeric_limits<double>::infinity();
+        double area_min_y = std::numeric_limits<double>::infinity();
+        double area_max_y = -std::numeric_limits<double>::infinity();
+        for (const Vec2d& point : area->values) {
+            area_min_x = std::min(area_min_x, point.x()); area_max_x = std::max(area_max_x, point.x());
+            area_min_y = std::min(area_min_y, point.y()); area_max_y = std::max(area_max_y, point.y());
+        }
+        return intersects(area_min_x, area_max_x, area_min_y, area_max_y);
+    };
+    if (area_intersects(config.opt<ConfigOptionPoints>("bed_exclude_area")))
+        warnings.push_back("Prime Tower intersects an exclusion area.");
+    if (area_intersects(config.opt<ConfigOptionPoints>("wrapping_exclude_area")))
+        warnings.push_back("Prime Tower intersects a wrapping-detection area.");
+    const PlateBounds bounds = selected_plate_bounds();
+    if (min_x < bounds.min_x || max_x > bounds.max_x || min_y < bounds.min_y || max_y > bounds.max_y)
+        warnings.push_back("Prime Tower is outside the printable area.");
+    return warnings;
+}
+
 json move_error(const char* code, const std::string& message)
 {
     return { {"ok", false}, {"version", 1}, {"error", message}, {"error_code", code},

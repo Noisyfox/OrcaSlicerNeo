@@ -1099,10 +1099,8 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_recompute_plate_membership', [], []));
     },
 
-    async markSharedConfigurationMutation(optionKey?: string, value?: string): Promise<PlateSessionMutationResult> {
+    async markSharedConfigurationMutation(): Promise<PlateSessionMutationResult> {
       const m = await module();
-      // Legacy callers use this operation only to advance plate revisions;
-      // option overrides use setProjectConfigOverride below.
       return normalizePlateMutationResult(callJson(m, 'orc_mark_shared_configuration_mutation', [], []));
     },
 

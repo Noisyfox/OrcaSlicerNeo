@@ -30,7 +30,6 @@ using Neo::Bridge::state;
 using Neo::Bridge::Filament::State::config_metadata_json;
 using Neo::Bridge::ModelOperations::find_object_by_id;
 using Neo::Bridge::ModelOperations::find_volume_by_id;
-using Neo::Bridge::PlateCommands::plate_configuration_mutation_snapshot;
 using namespace Neo::Bridge::PlateSession;
 
 static constexpr const char* kNeoConfigOverlaySchema = "org.orcaslicerneo.config-overlay";
@@ -185,17 +184,14 @@ json project_config_overlay_result()
     json overlay = state().project_config_overlay;
     json& plates = overlay["plates"];
     if (!plates.is_object()) plates = json::object();
-    const auto* x = state().presets.project_config.opt<ConfigOptionFloats>("wipe_tower_x");
-    const auto* y = state().presets.project_config.opt<ConfigOptionFloats>("wipe_tower_y");
-    for (std::size_t index = 0; index < state().plate_session_plates.size(); ++index) {
-        const auto& plate = state().plate_session_plates[index];
-        json values = plates[plate.id].is_object() ? plates[plate.id] : json::object();
-        if (x != nullptr && index < x->values.size() && std::isfinite(x->values[index]))
-            values["wipe_tower_x"] = ConfigOptionFloat(x->values[index]).serialize();
-        if (y != nullptr && index < y->values.size() && std::isfinite(y->values[index]))
-            values["wipe_tower_y"] = ConfigOptionFloat(y->values[index]).serialize();
-        plates[plate.id] = std::move(values);
-    }
+    // Coordinates are one native project-level array pair. Never recreate a
+    // plate bucket projection: it would become a second authoritative store
+    // and would make generic overlay/history callers appear to own X/Y.
+    for (auto& values : plates)
+        if (values.is_object()) {
+            values.erase("wipe_tower_x");
+            values.erase("wipe_tower_y");
+        }
     return json{{"ok", true}, {"overlay", std::move(overlay)}};
 }
 
@@ -234,9 +230,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
         const auto configuration_error = [](const std::string& code, const std::string& message) {
             return ProjectOverlay::native_configuration_error_json(code, message);
         };
-        if (scope != "project" && scope != "object" && scope != "part" && scope != "plate")
+        if (scope != "project" && scope != "object" && scope != "part")
             return configuration_error("invalid_command", "invalid project configuration scope");
         if (key.empty()) return configuration_error("invalid_command", "option key is required");
+        if (key == "wipe_tower_x" || key == "wipe_tower_y")
+            return configuration_error("unsupported_reference", "prime tower coordinates are scene-only");
         if (Slic3r::print_config_def.options.find(key) == Slic3r::print_config_def.options.end())
             return configuration_error("unsupported_reference", "unsupported project configuration option: " + key);
         if (scope != "project" && id.empty()) return configuration_error("invalid_command", "scope id is required");
@@ -253,10 +251,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
             project_candidate = state().presets.project_config;
             apply_overlay_to_config(project_candidate, state().project_config_overlay["project"]);
             project_candidate.set_deserialize(key, value, substitutions);
-            if ((key == "wipe_tower_x" || key == "wipe_tower_y") &&
-                !PlateSession::coordinate_arrays_match_plate_count(
-                    project_candidate, state().plate_session_plates.size()))
-                return configuration_error("native_validation_failure", "prime tower coordinate arrays must match plate count");
             configuration_status = native_configuration_status(project_candidate, key, value);
             effective_value = effective_for(project_candidate);
         } else if (scope == "object") {
@@ -275,41 +269,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
             configuration_status = native_configuration_status(candidate, key, value);
             effective_value = effective_for(candidate);
             volume->config.assign_config(candidate);
-        } else {
-            if (key != "wipe_tower_x" && key != "wipe_tower_y")
-                return configuration_error("unsupported_reference", "plate scope only supports prime tower coordinates");
-            auto* plate = PlateSession::find_plate_mutable(id);
-            if (plate == nullptr) return configuration_error("unsupported_reference", "plate not found");
-            if (!PlateSession::coordinate_arrays_match_plate_count(
-                    state().presets.project_config, state().plate_session_plates.size()))
-                return configuration_error("native_validation_failure", "prime tower coordinate array invariant failed");
-            ConfigOptionFloat parsed;
-            if (!parsed.deserialize(value) || !std::isfinite(parsed.value))
-                return configuration_error("native_validation_failure", "prime tower coordinate must be finite");
-            project_candidate = state().presets.project_config;
-            const auto plate_it = std::find_if(state().plate_session_plates.begin(), state().plate_session_plates.end(),
-                [&](const auto& candidate) { return candidate.id == id; });
-            const auto plate_index = static_cast<std::size_t>(
-                std::distance(state().plate_session_plates.begin(), plate_it));
-            PrimeTower::set_coordinate_option_value(project_candidate, key.c_str(), plate_index, parsed.value, 0.);
-            effective_value = parsed.serialize();
-            json corrections = json::array();
-            if (effective_value != value)
-                corrections.push_back({{"key", key}, {"requested", value}, {"effective", effective_value}});
-            configuration_status = json{{"state", "ready"}, {"corrections", std::move(corrections)},
-                                        {"warnings", json::array()}, {"errors", json::array()}};
         }
-        if (scope != "plate") {
-            json& bucket = scope == "project" ? state().project_config_overlay["project"]
-                : scope == "object" ? state().project_config_overlay["objects"][id]
-                : state().project_config_overlay["parts"][id];
-            bucket[key] = effective_value;
-        }
-        if (scope == "project" || scope == "plate")
+        json& bucket = scope == "project" ? state().project_config_overlay["project"]
+            : scope == "object" ? state().project_config_overlay["objects"][id]
+            : state().project_config_overlay["parts"][id];
+        bucket[key] = effective_value;
+        if (scope == "project")
             state().presets.project_config = std::move(project_candidate);
-        const auto mutation = scope == "plate"
-            ? PlateCommands::plate_configuration_mutation_snapshot(id, "prime-tower-position")
-            : PlateSession::shared_configuration_mutation_snapshot();
+        const auto mutation = PlateSession::shared_configuration_mutation_snapshot();
         json result = project_config_overlay_result();
         result["plate_session"] = mutation;
         if (configuration_status.has_value()) result["configuration_status"] = *configuration_status;

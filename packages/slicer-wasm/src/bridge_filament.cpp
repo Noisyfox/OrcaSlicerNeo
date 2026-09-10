@@ -210,6 +210,7 @@ void apply_mutable(BridgeState& bridge, PresetBundle& bundle,
 
 #include "bridge_history.hpp"
 #include "bridge_plate.hpp"
+#include "bridge_prime_tower.hpp"
 #include "bridge_project_overlay.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "libslic3r/FlushVolCalc.hpp"
@@ -943,6 +944,10 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             }
             validate_filament_candidate(state().presets, state().model, state().plate_session_plates,
                                         state().project_config_overlay);
+            // Filament edits can change the native tower footprint. Clamp in
+            // this same mutation before its history context/frame is built so
+            // Undo/Redo restores the rack and coordinates atomically.
+            Neo::Bridge::PrimeTower::normalize_coordinate_positions();
             // Commit the fieldwise staged native session as one Worker
             // operation. The projection is the final validation, so malformed
             // native arrays can never be published to the client.
@@ -1099,6 +1104,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             }
             validate_filament_candidate(state().presets, state().model, state().plate_session_plates,
                                         state().project_config_overlay);
+            Neo::Bridge::PrimeTower::normalize_coordinate_positions();
             ensure_plate_session_state();
             for (const auto& plate_id : all_plate_ids()) ++state().plate_input_revisions[plate_id];
             const auto final_snapshot = filament_snapshot_json();
@@ -1381,6 +1387,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             state().plate_session_plates = std::move(staged_plates);
             state().project_config_overlay = std::move(staged_overlay);
             ensure_plate_session_state();
+            Neo::Bridge::PrimeTower::normalize_coordinate_positions();
             for (const auto& plate_id : affected_plates) ++state().plate_input_revisions[plate_id];
             auto context = default_command_history_context();
             context["filamentSessionRevision"] = state().history_revision + 1;

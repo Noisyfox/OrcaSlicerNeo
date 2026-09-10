@@ -45,7 +45,6 @@ interface SettingsState {
   setValue: (key: string, value: string) => void;
   setValues: (values: Record<string, string>) => void;
   setOverlay: (overlay: ProjectConfigOverlay) => void;
-  setOverlayValue: (scope: 'project' | 'object' | 'part' | 'plate', id: string | undefined, key: string, value: string) => void;
   setModelLoaded: (v: boolean) => void;
   /** Re-fetch the current model mesh (delete etc.) without toggling load state. */
   refreshModel: () => void;
@@ -100,20 +99,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // so removing an override restores that native value.
     values: effectiveValues(s.baseValues, overlay),
   })),
-  setOverlayValue: (scope, id, key, value) => set((s) => {
-    const overlay = structuredClone(s.overlay) as {
-      project: Record<string, string>;
-      objects: Record<string, Record<string, string>>;
-      parts: Record<string, Record<string, string>>;
-      plates: Record<string, Record<string, string>>;
-    };
-    const bucket = scope === 'project' ? overlay.project
-      : scope === 'object' ? (overlay.objects[id ?? ''] ??= {})
-        : scope === 'part' ? (overlay.parts[id ?? ''] ??= {})
-          : (overlay.plates[id ?? ''] ??= {});
-    bucket[key] = value;
-    return { overlay, values: effectiveValues(s.baseValues, overlay) };
-  }),
   setModelLoaded: (modelLoaded) => set((s) => ({ modelLoaded, modelRevision: s.modelRevision + 1 })),
   refreshModel: () => set((s) => ({ modelRevision: s.modelRevision + 1 })),
 }));

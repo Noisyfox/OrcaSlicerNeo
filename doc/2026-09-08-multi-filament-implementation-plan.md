@@ -1566,6 +1566,16 @@ clamp, undo/redo, immediate enable/disable projection, all three warning classes
 remaining non-blocking, and unrelated validation errors remaining blocking;
 focused Settings component test; `git diff --check`.
 
+**Step 13 implementation record (2026-09-11):** Native project-level coordinate
+normalization now runs from the shared Worker lifecycle and typed prime-tower
+move path; project load and profile transitions remain silent, while setting,
+assignment, painting, and filament mutations retain one transaction boundary.
+Generic Settings no longer exposes X/Y, plate metadata strips any stale X/Y
+projection, and successful slice results carry native advisory warnings without
+weakening unrelated validation failures. The focused threaded lifecycle harness
+is `multi-filament-prime-tower-step13-smoke.mjs` and is included in the threaded
+acceptance checklist.
+
 **Root acceptance:** Independently audit all mutation entry points named above,
 rerun the lifecycle harness and Settings tests, compare pre/post history counts
 and full-bundle diagnostics, and verify no compatibility path or hidden X/Y

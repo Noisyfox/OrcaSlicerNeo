@@ -26,6 +26,7 @@
 #include "bridge_model_operations.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_profiles.hpp"
+#include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "history/ProjectHistory.hpp"
 #include "libslic3r/Exception.hpp"
@@ -966,6 +967,11 @@ static const char* orc_load_project_impl(const char* data, int len,
                     state().presets.project_config, state().plate_session_plates.size());
                 // Results are deliberately not loaded from PlateData.
                 rebuild_plate_membership(true);
+                // Loading a project is a clean lifecycle transition: clamp
+                // saved native coordinates in memory, but establish the
+                // history baseline only after that normalization so no dirty
+                // entry is created. A later explicit save persists it.
+                Neo::Bridge::PrimeTower::normalize_coordinate_positions();
                 state().history.clear();
                 state().active_history_transaction.reset();
                 state().nested_history_transactions.clear();

@@ -140,8 +140,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       nozzle_temperature: { type: 'float' },
       enable_prime_tower: { type: 'bool' },
       prime_tower_width: { type: 'float' },
-      wipe_tower_x: { type: 'float' },
-      wipe_tower_y: { type: 'float' },
       printable_area: { type: 'points' },
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'] },
     };
@@ -318,15 +316,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   };
   const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {} });
   function overlayProjection(): MockOverlay & { plates: Record<string, Record<string, string>> } {
-    const parse = (key: string, fallback: number) => {
-      const values = (projectConfigOverlay.project[key] ?? '').split(',').filter(Boolean).map(Number);
-      return plateIds.map((_, index) => Number.isFinite(values[index]) ? values[index] : fallback);
-    };
-    const x = parse('wipe_tower_x', 15);
-    const y = parse('wipe_tower_y', 220);
-    return { ...clone(projectConfigOverlay), plates: Object.fromEntries(plateIds.map((id, index) => [id, {
-      wipe_tower_x: String(x[index]), wipe_tower_y: String(y[index]),
-    }])) };
+    // Prime Tower coordinates are one native project-level array pair. The
+    // generic overlay carries an empty plate bucket, never a derived X/Y
+    // compatibility projection.
+    return { ...clone(projectConfigOverlay), plates: {} };
   }
   let projectConfigOverlay = emptyOverlay();
   let exportedProjectConfigOverlay = emptyOverlay();
@@ -1360,36 +1353,15 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_set_project_config_override(scope: string, id: string, optionKey: string, value: string) {
       if (opts.projectConfigOverride !== undefined) return opts.projectConfigOverride;
-      if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
+      if (!['project', 'object', 'part'].includes(scope)) return { error: 'invalid project configuration scope' };
       if (!optionKey) return { error: 'option key is required' };
+      if (optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y')
+        return { ok: false, error: 'prime tower coordinates are scene-only', error_code: 'unsupported_reference' };
       if (scope !== 'project' && !id) return { error: 'scope id is required' };
-      if (scope === 'plate') {
-        if (!['wipe_tower_x', 'wipe_tower_y'].includes(optionKey) || !plateIds.includes(id))
-          return { error: 'unsupported reference' };
-        const index = plateIds.indexOf(id);
-        const key = optionKey;
-        const values = (projectConfigOverlay.project[key] ?? '').split(',').filter(Boolean).map(Number);
-        while (values.length < plateIds.length) values.push(key === 'wipe_tower_x' ? 15 : 220);
-        const parsed = Number(value);
-        const effective = Number.isFinite(parsed) ? parsed : values[index];
-        values[index] = effective;
-        projectConfigOverlay.project[key] = values.join(',');
-        const affected = [id];
-        plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
-        const mutation = plateSessionSnapshot(true) as Record<string, unknown>;
-        mutation.affected_plate_ids_before = affected;
-        mutation.affected_plate_ids_after = affected;
-        mutation.affected_plate_ids = affected;
-        mutation.dirty_reasons = ['prime-tower-position'];
-        return { ok: true, overlay: overlayProjection(), plate_session: mutation,
-          configuration_status: { state: 'ready', corrections: String(effective) === value ? [] : [{ key, requested: value, effective: String(effective) }], warnings: [], errors: [] } };
-      }
       const bucket = scope === 'project' ? projectConfigOverlay.project
         : scope === 'object' ? (projectConfigOverlay.objects[id] ??= {})
           : (projectConfigOverlay.parts[id] ??= {});
-      const coordinateValue = optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y';
-      const coordinateValues = coordinateValue ? value.split(',').map((entry) => Number(entry.trim())) : [];
-      const effective = coordinateValue && (coordinateValues.length === 0 || coordinateValues.some((entry) => !Number.isFinite(entry))) ? '0' : value;
+      const effective = value;
       bucket[optionKey] = effective;
       const mutation = bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>;
       return { ok: true, overlay: overlayProjection(), plate_session: mutation,

@@ -25,6 +25,7 @@
 
 #include "bridge_buffers.hpp"
 #include "bridge_plate.hpp"
+#include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_state.hpp"
 #include "libslic3r/Exception.hpp"
@@ -298,7 +299,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             // substitutions.unrecogized_keys, which we surface below.
             config.set_deserialize(key, value, substitutions);
         }
-        // Project and plate overrides are canonical Worker state and win over
+        // Project overrides and imported plate settings are canonical Worker state and win over
         // any renderer payload supplied for this slice request.  PlateData
         // carries native per-plate filament/tool mappings (for example a
         // H2D plate can map logical slots 1 and 2 to physical tools 2 and 1)
@@ -346,11 +347,36 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // authoritative world-space editing model and is never changed by a
         // slice operation.
         state().print.apply(*local_model, config);
+        // Native validation also checks whether the generated prime tower
+        // footprint overlaps a configured exclusion/wrapping area.  Those
+        // three tower collision classes are slice-time advisories in Neo;
+        // compute the typed warning projection before validation so only the
+        // corresponding native tower diagnostics can be downgraded.  All
+        // unrelated native validation failures remain blocking.
+        json tower_warnings = json::array();
+        try { tower_warnings = Neo::Bridge::PrimeTower::slice_warnings_for_plate(plate_id); }
+        catch (...) { /* warning computation cannot affect native validation */ }
         // Drift at the pinned SHA: validate() returns StringObjectException
         // (PrintBase.hpp:30); use its .string member (same adaptation as
         // slice_main.cpp:55).
         const StringObjectException validation_error = state().print.validate();
-        if (!validation_error.string.empty()) return error_json(validation_error.string);
+        if (!validation_error.string.empty()) {
+            const auto has_tower_warning = [&tower_warnings](const char* warning) {
+                return std::find(tower_warnings.begin(), tower_warnings.end(), warning) != tower_warnings.end();
+            };
+            const auto is_exact_diagnostic = [&validation_error](const char* diagnostic) {
+                std::string actual = validation_error.string;
+                while (!actual.empty() && (actual.back() == '\r' || actual.back() == '\n')) actual.pop_back();
+                return actual == diagnostic;
+            };
+            const bool exclusion_advisory =
+                has_tower_warning("Prime Tower intersects an exclusion area.") &&
+                is_exact_diagnostic("Prime Tower is too close to an exclusion area, and collisions will be caused.");
+            const bool wrapping_advisory =
+                has_tower_warning("Prime Tower intersects a wrapping-detection area.") &&
+                is_exact_diagnostic("Prime Tower is too close to clumping detection area, and collisions will be caused.");
+            if (!exclusion_advisory && !wrapping_advisory) return error_json(validation_error.string);
+        }
 
         // Drift at the pinned SHA: SlicingStatus is nested as
         // PrintBase::SlicingStatus (PrintBase.hpp:440), not a Slic3r-top-level
@@ -376,7 +402,11 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             dropped.push_back(k);
         state().preview_plate_id = plate_id;
         state().preview_plate_revision = revision;
-        return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)}}.dump());
+        json warnings = std::move(tower_warnings);
+        try { warnings = Neo::Bridge::PrimeTower::slice_warnings_for_plate(plate_id); }
+        catch (...) { /* advisory warnings must never turn a successful slice into a hard error */ }
+        return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)},
+                             {"warnings", std::move(warnings)}}.dump());
     } catch (const std::exception& e) {
         stop_progress();
         // process() is where libslic3r throws SlicingErrors (GCode.cpp:2250);

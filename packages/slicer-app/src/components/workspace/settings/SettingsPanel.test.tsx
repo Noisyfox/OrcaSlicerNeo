@@ -244,27 +244,18 @@ describe('SettingsPanel preset transitions', () => {
       .toBeLessThan(runtime.getFilamentSessionSnapshot.mock.invocationCallOrder.at(-1)!);
   });
 
-  it('renders prime-tower controls with project and current-plate scope', async () => {
+  it('renders prime-tower controls without exposing scene-owned coordinates', async () => {
     resetStores();
     useSettingsStore.setState({ metadata: {
       enable_prime_tower: { type: 'bool', label: 'Enable Prime Tower', default: '0' },
       prime_tower_width: { type: 'float', label: 'Prime Tower Width', default: '20' },
-      wipe_tower_x: { type: 'float', label: 'Prime Tower X', default: '0' },
-      wipe_tower_y: { type: 'float', label: 'Prime Tower Y', default: '0' },
     } });
-    usePlateSessionStore.getState().setSnapshot({
-      ok: true, version: 1, currentPlateId: 'plate-2',
-      plates: [{ plateId: 'plate-1', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' },
-        { plateId: 'plate-2', displayIndex: 1, origin: [220, 0, 0], name: 'Plate 2' }],
-      inputRevisions: { 'plate-1': 4, 'plate-2': 7 }, instanceTransforms: [],
-    });
     const { container, root } = await render(makePlatform(async () => resolvedSnapshot).platform);
     roots.push(root);
     expect(container.querySelector('#enable_prime_tower')).toBeTruthy();
     expect(container.querySelector('#prime_tower_width')).toBeTruthy();
-    expect(container.querySelector('#wipe_tower_x')).toBeTruthy();
-    expect(container.querySelector('#wipe_tower_y')).toBeTruthy();
-    expect(container.querySelector('#wipe_tower_x')?.getAttribute('value')).toBe('0');
+    expect(container.querySelector('#wipe_tower_x')).toBeNull();
+    expect(container.querySelector('#wipe_tower_y')).toBeNull();
   });
 
 });

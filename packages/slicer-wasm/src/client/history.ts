@@ -45,7 +45,7 @@ export interface HistoryContext {
   readonly selection: HistorySelection;
   readonly activePlateId: StablePlateId | null;
   readonly gizmo: HistoryGizmoContext | null;
-  /** Project/object/part/plate overrides, never global preset preferences. */
+  /** Project/object/part overrides and retained plate metadata, never global preset preferences. */
   readonly projectConfigOverlay: HistoryJsonObject;
 }
 

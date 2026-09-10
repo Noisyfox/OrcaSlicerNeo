@@ -95,12 +95,3 @@ json shared_configuration_mutation_snapshot();
 json attach_plate_mutation(json result, const json& mutation);
 
 } // namespace Slic3r::Neo::Bridge::PlateSession
-
-namespace Slic3r::Neo::Bridge::PlateCommands {
-
-using json = nlohmann::json;
-
-json plate_configuration_mutation_snapshot(const std::string& plate_id,
-                                            const char* reason);
-
-} // namespace Slic3r::Neo::Bridge::PlateCommands

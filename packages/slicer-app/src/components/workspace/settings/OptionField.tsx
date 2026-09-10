@@ -18,11 +18,6 @@ export async function commitOptionFieldChange(
   target: ProjectConfigOverrideTarget = { scope: 'project' },
 ): Promise<void> {
   const mutation = await commitSharedConfigurationMutation(platform, optionKey, next, target);
-  // The Worker response already installed the native serialized effective
-  // value in the overlay.  Only legacy runtimes without the typed override
-  // command need the requested value mirrored locally.
-  if (typeof platform.runtime.setProjectConfigOverride !== 'function')
-    useSettingsStore.getState().setOverlayValue(target.scope, target.id === undefined ? undefined : String(target.id), optionKey, next);
   invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
 }
 
@@ -35,7 +30,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
   const value = useSettingsStore((s) => {
     if (target.scope === 'project') return s.values[optionKey] ?? meta.default ?? '';
     const id = target.id === undefined ? '' : String(target.id);
-    return s.overlay[target.scope === 'plate' ? 'plates' : target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey]
+    return s.overlay[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey]
       ?? meta.default ?? '';
   });
   const [draft, setDraft] = useState(value);
@@ -52,7 +47,7 @@ export function OptionField({ optionKey, meta, target = { scope: 'project' } }: 
       const id = target.id === undefined ? '' : String(target.id);
       const effective = target.scope === 'project'
         ? state.values[optionKey]
-        : state.overlay[target.scope === 'plate' ? 'plates' : target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey];
+        : state.overlay[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey];
       setDraft(effective ?? next);
     } catch (error) {
       setError(errorText(error));

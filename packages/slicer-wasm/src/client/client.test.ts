@@ -582,9 +582,9 @@ describe('SlicerClient bridge contract', () => {
     expect(revalidated).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
   });
 
-  it('normalizes native prime-tower corrections and rejects malformed status envelopes', async () => {
+  it('rejects generic prime-tower coordinates and malformed status envelopes', async () => {
     const corrected = await makeClient().setProjectConfigOverride({ scope: 'project' }, 'wipe_tower_x', '1,2,3');
-    expect(corrected).toMatchObject({ ok: true, overlay: { project: { wipe_tower_x: '1,2,3' } } });
+    expect(corrected).toMatchObject({ ok: false, errorCode: 'unsupported_reference' });
 
     const malformed = await createClient(async () => createMockModule({ projectConfigOverride: {
       ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} },
