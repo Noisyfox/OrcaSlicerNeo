@@ -1165,8 +1165,32 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_merge_filament_slots(requestJson: string) {
       return filamentMutation(requestJson, 'merge');
     },
-    orc_restore_filament_rack(requestJson: string) {
-      return filamentMutation(requestJson, 'restore-rack');
+    orc_apply_remembered_filament_rack(requestJson: string) {
+      let request: any;
+      try { request = JSON.parse(requestJson); } catch { return { ok: false, version: 1, error: 'invalid command', error_code: 'invalid_command', status: { state: 'error', error: 'invalid command' } }; }
+      const current: any = filamentSessionSnapshot();
+      if (!request || request.version !== 1 || !Array.isArray(request.slots) || request.slots.length === 0)
+        return { ok: false, version: 1, error: 'invalid remembered filament rack', error_code: 'invalid_command', status: { state: 'error', error: 'invalid remembered filament rack' } };
+      if (!Number.isSafeInteger(request.revision) || request.revision !== current.revisions.session)
+        return { ok: false, version: 1, error: 'filament session revision is stale', error_code: 'stale_revision', status: { state: 'error', error: 'filament session revision is stale' } };
+      const next: any = clone(current);
+      next.slots = request.slots.map((slot: any, index: number) => ({ slot: index + 1,
+        preset: { id: slot.preset, name: slot.preset }, colour: { effective: slot.colour, provenance: 'user' } }));
+      const slotCount = next.slots.length;
+      next.mappings.filament = Array(slotCount).fill(1);
+      next.mappings.volume = Array(slotCount).fill(0);
+      next.mappings.nozzle = Array(slotCount).fill(1);
+      next.mappings.filament2 = Array(slotCount).fill(1);
+      next.flushing.matrix = Array(slotCount * slotCount * next.flushing.plane_count).fill(0);
+      next.flushing.matrix_dimension = slotCount;
+      next.capabilities.can_add = next.capabilities.flexible && slotCount < next.capabilities.max_slots;
+      next.capabilities.can_delete = next.capabilities.flexible && slotCount > next.capabilities.min_slots;
+      next.capabilities.can_merge = next.capabilities.can_delete;
+      next.revisions.session += 1;
+      next.revisions.project = next.revisions.session;
+      filamentSessionState = next;
+      historyRevision = next.revisions.session;
+      return clone(next);
     },
     orc_assign_filament(requestJson: string) {
       return filamentAssignmentMutation(requestJson, 'assign');
@@ -2018,7 +2042,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_add_filament_slot: { ret: 'number', args: ['string'] },
     orc_delete_filament_slot: { ret: 'number', args: ['string'] },
     orc_merge_filament_slots: { ret: 'number', args: ['string'] },
-    orc_restore_filament_rack: { ret: 'number', args: ['string'] },
+    orc_apply_remembered_filament_rack: { ret: 'number', args: ['string'] },
     orc_assign_filament: { ret: 'number', args: ['string'] },
     orc_set_filament_routing: { ret: 'number', args: ['string'] },
     orc_reset_plate_session: { ret: 'number', args: [] },

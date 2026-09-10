@@ -28,7 +28,7 @@ import type {
   FilamentMutationResultOrError, FilamentMutationResult,
   FilamentSlotPresetRequest, FilamentSlotColourRequest,
   FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
-  FilamentRackRestoreRequest,
+  RememberedFilamentRackRequest,
   FilamentAssignmentRequest, FilamentRoutingRequest,
 } from './types';
 import type {
@@ -889,9 +889,9 @@ export function createClient(
       return normalizeFilamentMutationResult(callJson(m, 'orc_merge_filament_slots', ['string'], [JSON.stringify(request)]));
     },
 
-    async restoreFilamentRack(request: FilamentRackRestoreRequest): Promise<FilamentMutationResultOrError> {
+    async applyRememberedFilamentRack(request: RememberedFilamentRackRequest): Promise<FilamentSessionSnapshotResult> {
       const m = await module();
-      return normalizeFilamentMutationResult(callJson(m, 'orc_restore_filament_rack', ['string'], [JSON.stringify(request)]));
+      return normalizeFilamentSessionResult(callJson(m, 'orc_apply_remembered_filament_rack', ['string'], [JSON.stringify(request)]));
     },
 
     async assignFilament(request: FilamentAssignmentRequest): Promise<FilamentMutationResultOrError> {

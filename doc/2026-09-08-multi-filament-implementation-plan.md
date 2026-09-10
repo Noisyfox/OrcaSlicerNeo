@@ -1385,3 +1385,42 @@ history, and field-level history boundary remain unchanged. No legacy or
 backward-compatibility aliases were added, no complete `PresetBundle` is used
 by history operations, and the pinned native submodule remains outside the
 write set. The four superseded plate session/commands files are removed.
+
+### 4.17 Printer and remembered-rack lifecycle coherence (2026-09-10)
+
+Printer profile selection is now a single validated native transition. After
+Orca resolves printer/process/filament compatibility, the bridge aligns every
+slot-indexed project array with the authoritative rack, recalculates flushing
+for the selected nozzle count, validates every slot preset, and publishes one
+complete session snapshot. Failure restores only the captured profile
+selections and mutable filament fields, so it is atomic without copying a
+complete `PresetBundle`. This fixes the reproducible dual-to-single-nozzle
+`Bambu Lab H2D Pro 0.8 nozzle` to `Bambu Lab H2S 0.2 nozzle` transition, where
+the old update left a two-plane flushing matrix and could leave slot arrays at
+the wrong size. The UI also retains its last complete rack while a replacement
+read is rejected, rather than rendering a transient empty list.
+
+Remembered racks are now applied through the lifecycle-only
+`orc_apply_remembered_filament_rack` command. It is revision-fenced, validates
+and commits the complete rack atomically, returns the resulting authoritative
+snapshot, and never publishes a user history entry. The former restore-named
+API is removed rather than retained as a compatibility alias. Bootstrap
+restores printer and process first, applies that printer's remembered rack,
+then resets history and publishes one clean initial baseline. A successful
+printer switch waits for any queued preference write, reads and applies the
+target printer's remembered rack, and only then publishes the coherent profile
+and rack state; preference IO failure leaves the native compatible defaults in
+place. This prevents an older asynchronous preference write from winning a
+fast printer round trip.
+
+New Project no longer reapplies a preference rack as a history mutation. If
+the restored system printer is unchanged, it preserves the current valid rack;
+if leaving project scope selects a different system printer, it applies that
+printer's remembered rack as part of the lifecycle transition. One final
+history reset establishes the empty project's saved baseline, with no undo or
+redo entries, no `Restore remembered filament rack` label, and `dirty=false`.
+Real serial and threaded regression harnesses cover profile-transition
+dimensions, non-empty compatible racks, atomic remembered-rack application,
+stale revision rejection, and clean history. The threaded acceptance suite
+completes within the two-minute budget; slot history remains millisecond-scale
+and its full-`PresetBundle` copy diagnostic remains unchanged at `2 -> 2`.

@@ -100,8 +100,8 @@ std::vector<std::vector<int>> min_flush_volumes_for_config(
     const DynamicPrintConfig& full, std::size_t filament_count,
     std::size_t nozzle_count);
 
-const char* restore_filament_rack_command(const char* request_cstr,
-                                          const Runtime& runtime);
+const char* apply_remembered_filament_rack_command(const char* request_cstr,
+                                                    const Runtime& runtime);
 json select_filament_slot_preset_command(const json& request, const Runtime& runtime);
 json set_filament_slot_colour_command(const json& request, const Runtime& runtime);
 json add_filament_command(const json& request, const Runtime& runtime);

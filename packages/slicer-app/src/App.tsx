@@ -15,7 +15,8 @@ import type { SceneInteractionController } from './components/workspace/viewport
 import type { WorkspaceSliceCoordinator } from './components/workspace/sliceCoordinator';
 import type { HistoryRestoreCoordinator } from './history/restoreCoordinator';
 import { usePlatform } from '@orca/platform-contract';
-import { persistRestoredSelections, restoreSelections } from './preferences';
+import { persistRestoredSelections, restoreBootstrapSession } from './preferences';
+import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 import { addModel, clearScene } from './components/workspace/actions/sceneActions';
 import { exportGcode, sliceModel } from './components/workspace/actions/sliceActions';
 import { createCommandDispatcher, registerNativeMenuCommands } from './menu/commands';
@@ -30,7 +31,7 @@ import {
 import { cancelProjectOperation, newProject, noticesFor, openProject, projectDirtyStatus, saveProject, saveProjectAs } from './projectActions';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
-import type { ProjectLoadResult } from '@slicer/client';
+import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
 import { registerProjectDropHandlers } from './dropHandling';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
 import { historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
@@ -354,8 +355,16 @@ export default function App() {
         // Restore only names; compatibility and defaults remain authoritative
         // in the C++ preset bundle. The bridge response is written back so a
         // missing/corrupt selection is healed for the next boot.
-        const restored = await restoreSelections(platform.runtime, preferences);
+        const restored = await restoreBootstrapSession(platform.runtime, preferences, {
+          selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+          activePlateId: null,
+          gizmo: null,
+          projectConfigOverlay: (overlay.ok ? overlay.overlay : {
+            project: {}, objects: {}, parts: {}, plates: {},
+          }) as unknown as HistoryContext['projectConfigOverlay'],
+        });
         if (cancelled) return;
+        useFilamentSessionStore.setState({ snapshot: restored.filament, rejected: null });
         await persistRestoredSelections(platform.preferences, restored.preferences);
         if (cancelled) return;
         hydrateProfileSnapshot(restored.snapshot);

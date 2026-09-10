@@ -16,11 +16,72 @@
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Utils.hpp"
 
+#include "bridge_filament.hpp"
+
 using namespace Slic3r;
 
 namespace Slic3r::Neo::Bridge::Profiles {
 
 namespace {
+
+struct ProfileTransitionState {
+    std::string printer;
+    std::string print;
+    std::string filament;
+    std::vector<std::string> filament_presets;
+    DynamicPrintConfig project_config;
+    std::vector<std::vector<std::string>> ams_multi_colour_filment;
+    Preset edited_filament;
+};
+
+ProfileTransitionState capture_profile_transition_state()
+{
+    const auto& bundle = state().presets;
+    return {bundle.printers.get_selected_preset_name(),
+            bundle.prints.get_selected_preset_name(),
+            bundle.filaments.get_selected_preset_name(),
+            bundle.filament_presets,
+            bundle.project_config,
+            bundle.ams_multi_color_filment,
+            bundle.filaments.get_edited_preset()};
+}
+
+void restore_profile_transition_state(ProfileTransitionState&& before)
+{
+    auto& bundle = state().presets;
+    if (!before.printer.empty()) bundle.printers.select_preset_by_name(before.printer, true);
+    bundle.update_compatible(PresetSelectCompatibleType::Always);
+    if (!before.print.empty()) bundle.prints.select_preset_by_name(before.print, true);
+    bundle.update_compatible(PresetSelectCompatibleType::Never,
+                             PresetSelectCompatibleType::Always);
+    if (!before.filament.empty()) bundle.filaments.select_preset_by_name(before.filament, true);
+    bundle.filament_presets = std::move(before.filament_presets);
+    bundle.project_config = std::move(before.project_config);
+    bundle.ams_multi_color_filment = std::move(before.ams_multi_colour_filment);
+    bundle.filaments.get_edited_preset() = std::move(before.edited_filament);
+}
+
+void validate_profile_transition()
+{
+    auto& bundle = state().presets;
+    if (bundle.filament_presets.empty())
+        throw std::runtime_error("printer transition produced an empty filament rack");
+    // Native compatibility may append a slot when a fixed multi-extruder
+    // printer is selected, but that helper updates only the preset-name list.
+    // Drive the canonical slot resizer at the final count so every project
+    // slot array is aligned before flushing and session validation.
+    bundle.set_num_filaments(static_cast<unsigned int>(bundle.filament_presets.size()));
+    for (const auto& name : bundle.filament_presets)
+        if (name.empty() || bundle.filaments.find_preset(name, false, true) == nullptr)
+            throw std::runtime_error("printer transition produced an incompatible filament rack");
+    Filament::Commands::recalculate_filament_flush(bundle);
+    Filament::Commands::validate_filament_candidate(
+        bundle, state().model, state().plate_session_plates,
+        state().project_config_overlay, true, true);
+    const auto snapshot = Filament::Session::filament_session_snapshot_json();
+    if (!snapshot.value("ok", false))
+        throw std::runtime_error(snapshot.value("error", "invalid filament rack after profile transition"));
+}
 
 const char* dup_json(const std::string& value)
 {
@@ -253,15 +314,22 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
         if (!requested->is_visible) return Profiles::error_json("preset is not visible: " + name);
         if (kind != "printer" && !requested->is_compatible)
             return Profiles::error_json("preset is incompatible: " + name);
-        if (!collection->select_preset_by_name(name, true))
-            return Profiles::error_json("could not select preset: " + name);
-        if (kind == "printer") {
-            state().presets.update_compatible(PresetSelectCompatibleType::Always);
-            state().presets.update_multi_material_filament_presets();
-        } else if (kind == "print") {
-            state().presets.update_compatible(PresetSelectCompatibleType::Never,
-                                               PresetSelectCompatibleType::Always);
-            state().presets.update_multi_material_filament_presets();
+        auto before = Profiles::capture_profile_transition_state();
+        try {
+            if (!collection->select_preset_by_name(name, true))
+                throw std::runtime_error("could not select preset: " + name);
+            if (kind == "printer") {
+                state().presets.update_compatible(PresetSelectCompatibleType::Always);
+                state().presets.update_multi_material_filament_presets();
+            } else if (kind == "print") {
+                state().presets.update_compatible(PresetSelectCompatibleType::Never,
+                                                   PresetSelectCompatibleType::Always);
+                state().presets.update_multi_material_filament_presets();
+            }
+            Profiles::validate_profile_transition();
+        } catch (...) {
+            Profiles::restore_profile_transition_state(std::move(before));
+            throw;
         }
         return Profiles::duplicate_json(Profiles::preset_snapshot_json().dump());
     } catch (const std::exception& e) {

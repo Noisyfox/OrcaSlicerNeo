@@ -1,12 +1,18 @@
 import type { ProfileSnapshot } from '@slicer/client';
 import type { RememberedFilamentRack, UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, SlicerClient } from '@slicer/client';
+import type { HistoryContext, HistoryStatus } from '@slicer/client';
 
 export interface RestoredSelections {
   /** The engine-resolved names to persist for the next launch. */
   preferences: UserPreferences;
   /** The final coherent picker state; do not rebuild it with legacy list reads. */
   snapshot: ProfileSnapshot;
+}
+
+export interface RestoredBootstrapSession extends RestoredSelections {
+  filament: FilamentSessionSnapshot;
+  history: HistoryStatus;
 }
 
 // Rack edits are UI state first and preference state second.  Serialize
@@ -72,8 +78,8 @@ export function rememberedFilamentRack(
  * Each native command remains revision-fenced; a missing/incompatible preset
  * simply leaves the fresh session at its engine-selected defaults.
  */
-export async function restoreRememberedFilamentRack(
-  runtime: Pick<SlicerClient, 'getFilamentSessionSnapshot' | 'restoreFilamentRack'>,
+export async function applyRememberedFilamentRack(
+  runtime: Pick<SlicerClient, 'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack'>,
   preferences: UserPreferences,
   printer: string,
 ): Promise<FilamentSessionSnapshot | null> {
@@ -82,10 +88,28 @@ export async function restoreRememberedFilamentRack(
   try {
     const current = await runtime.getFilamentSessionSnapshot();
     if (!current.ok) return null;
-    const result = await runtime.restoreFilamentRack({ version: 1, revision: current.revisions.session, slots: rack.slots });
-    return result.ok ? result.result.snapshot : null;
+    const result = await runtime.applyRememberedFilamentRack({ version: 1, revision: current.revisions.session, slots: rack.slots });
+    return result.ok ? result : null;
   } catch (error) {
     console.warn('remembered filament rack restore failed; keeping native defaults', error);
+    return null;
+  }
+}
+
+/** Wait for any in-flight rack publication before reading the target
+ * printer's preference. This prevents a fast printer round-trip from applying
+ * an older repository value after the newest rack has already been queued. */
+export async function applyRememberedFilamentRackFromRepository(
+  repository: UserPreferencesRepository,
+  runtime: Pick<SlicerClient, 'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack'>,
+  printer: string,
+): Promise<FilamentSessionSnapshot | null> {
+  const pending = rackWriteQueues.get(repository)?.get(printer);
+  if (pending) await pending.catch(() => undefined);
+  try {
+    return applyRememberedFilamentRack(runtime, await repository.load(), printer);
+  } catch (error) {
+    console.warn('remembered filament rack load failed; keeping native defaults', error);
     return null;
   }
 }
@@ -133,6 +157,23 @@ export async function restoreSelections(
   }
 
   return { preferences: resolvedPreferences(preferences, snapshot), snapshot };
+}
+
+/** Restore the complete native boot session before React publishes any part
+ * of it. The remembered rack is applied after native printer/process
+ * compatibility, then history is reset so boot exposes one clean baseline. */
+export async function restoreBootstrapSession(
+  runtime: Pick<SlicerClient, 'getProfileSnapshot' | 'selectProfile' |
+    'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'resetHistory'>,
+  preferences: UserPreferences,
+  context: HistoryContext,
+): Promise<RestoredBootstrapSession> {
+  const restored = await restoreSelections(runtime, preferences);
+  await applyRememberedFilamentRack(runtime, preferences, restored.snapshot.printer.name);
+  const history = await runtime.resetHistory(context);
+  const filament = await runtime.getFilamentSessionSnapshot();
+  if (!filament.ok) throw new Error(filament.error ?? 'filament session unavailable after bootstrap');
+  return { ...restored, filament, history };
 }
 
 /** Preference persistence must never invalidate an already-resolved boot state. */

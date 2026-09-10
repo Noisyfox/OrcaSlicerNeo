@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract';
+import type { PlatformCapabilities, ProjectInput, UserPreferences } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, PlateSessionMutation, ProfileSnapshot, ProjectLoadResult } from '@slicer/client';
 import { useProjectStore } from './stores/useProjectStore';
 import { useSettingsStore } from './stores/useSettingsStore';
@@ -45,6 +45,7 @@ function platformFor(load: Record<string, unknown> = {}) {
     getProfileSnapshot: vi.fn(async () => snapshot),
     selectProfile: vi.fn(async () => snapshot),
     getFilamentSessionSnapshot: vi.fn(async () => filamentSnapshot(0)),
+    applyRememberedFilamentRack: vi.fn(async () => filamentSnapshot(1)),
     resetHistory: vi.fn(async () => null),
     cancel: vi.fn(async () => ({ ok: true })),
     runProjectHistoryTransaction: vi.fn(async <T>(
@@ -60,7 +61,8 @@ function platformFor(load: Record<string, unknown> = {}) {
     save: vi.fn(async () => ({ status: 'ok' as const })),
     saveAs: vi.fn(async () => ({ status: 'ok' as const })),
   };
-  return { runtime, projects, platform: { runtime, projects } as unknown as PlatformCapabilities };
+  const preferences = { load: vi.fn(async () => ({ version: 1 as const, selectedProfiles: {}, ui: {} })), save: vi.fn(async () => {}) };
+  return { runtime, projects, preferences, platform: { runtime, projects, preferences } as unknown as PlatformCapabilities };
 }
 function addPreflight(runtime: ReturnType<typeof platformFor>['runtime'], result: ProjectLoadResult, commitResult: ProjectLoadResult = result) {
   const preflightRuntime = runtime as typeof runtime & {
@@ -220,6 +222,51 @@ describe('transactional project actions', () => {
     expect(result.status).toBe('ok'); expect(runtime.clearModel).toHaveBeenCalled();
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Untitled', dirty: false, scope: 'system', hasContent: false });
     expect(runtime.selectProfile).toHaveBeenCalledWith('printer', 'System printer');
+  });
+
+  it('New preserves the current legal rack for the same system printer and creates one clean baseline', async () => {
+    const { platform, runtime } = platformFor();
+    const currentRack = filamentSnapshot(7);
+    runtime.getFilamentSessionSnapshot.mockResolvedValue(currentRack);
+    useFilamentSessionStore.setState({ snapshot: currentRack, rejected: null });
+    useProjectStore.getState().setProject({ scope: 'system', systemPresets: { printer: 'System printer', print: 'System process' }, dirty: true, hasContent: true });
+
+    const result = await newProject(platform, { decideDirty: () => 'dont-save' });
+
+    expect(result.status).toBe('ok');
+    expect(runtime.applyRememberedFilamentRack).not.toHaveBeenCalled();
+    expect(runtime.resetHistory).toHaveBeenCalledOnce();
+    expect(runtime.resetHistory.mock.invocationCallOrder[0])
+      .toBeLessThan(runtime.getFilamentSessionSnapshot.mock.invocationCallOrder[0]);
+    expect(useFilamentSessionStore.getState().snapshot).toBe(currentRack);
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [], scope: 'system', hasContent: false });
+  });
+
+  it('New applies the target system printer rack before the clean baseline when leaving another project printer', async () => {
+    const { platform, runtime, preferences } = platformFor();
+    const systemSnapshot = { ...snapshot,
+      printer: { name: 'System printer', idx: 1 }, print: { name: 'System process', idx: 1 } };
+    runtime.selectProfile.mockResolvedValue(systemSnapshot);
+    const beforeRack = filamentSnapshot(5);
+    const targetRack = { ...filamentSnapshot(6), slots: [{ ...filamentSnapshot(6).slots[0], preset: { id: 'system-pla', name: 'System PLA' } }] };
+    runtime.getFilamentSessionSnapshot.mockResolvedValueOnce(beforeRack).mockResolvedValue(targetRack);
+    runtime.applyRememberedFilamentRack.mockResolvedValue(targetRack);
+    preferences.load.mockResolvedValue({ version: 1, selectedProfiles: {}, ui: {},
+      rememberedFilamentRacks: { 'System printer': { version: 1, slots: [{ preset: 'System PLA', colour: '#112233' }] } } } as UserPreferences);
+    useSettingsStore.setState({ selectedPrinter: 'Project printer', selectedPrint: 'Project process' });
+    useProjectStore.getState().setProject({ scope: 'project', systemPresets: { printer: 'System printer', print: 'System process' }, hasContent: true, dirty: true });
+
+    const result = await newProject(platform, { decideDirty: () => 'dont-save' });
+
+    expect(result.status).toBe('ok');
+    expect(runtime.applyRememberedFilamentRack).toHaveBeenCalledWith({ version: 1, revision: 5,
+      slots: [{ preset: 'System PLA', colour: '#112233' }] });
+    expect(runtime.applyRememberedFilamentRack.mock.invocationCallOrder[0])
+      .toBeLessThan(runtime.resetHistory.mock.invocationCallOrder[0]);
+    expect(runtime.resetHistory.mock.invocationCallOrder[0])
+      .toBeLessThan(runtime.getFilamentSessionSnapshot.mock.invocationCallOrder.at(-1)!);
+    expect(useFilamentSessionStore.getState().snapshot).toBe(targetRack);
+    expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [], scope: 'system', hasContent: false });
   });
 
   it('New clears the renderer projection and resets a multi-plate session after runtime success', async () => {

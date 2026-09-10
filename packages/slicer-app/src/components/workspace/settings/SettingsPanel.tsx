@@ -15,6 +15,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { applyPresetConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
 import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { applyRememberedFilamentRackFromRepository } from '../../../preferences';
 import {
   Combobox,
   ComboboxContent,
@@ -65,12 +66,20 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
     try {
       const r = await platform.runtime.selectProfile(kind, name);
       if (!r.ok) throw new Error(r.error ?? 'selectProfile failed');
-      await refreshFilamentSession(platform.runtime);
+      if (kind === 'printer') {
+        await applyRememberedFilamentRackFromRepository(
+          platform.preferences,
+          platform.runtime,
+          r.printer.name,
+        );
+      }
       // Preset selection changes the shared slice input for every plate. The
       // bridge owns the complete plate set and advances all revisions in one
       // typed transaction; its response is the sole source for revisions and
       // affected plates recorded by the shared action.
       await applyPresetConfigurationMutation(platform);
+      const filament = await refreshFilamentSession(platform.runtime);
+      if (!filament?.ok) throw new Error(filament?.error ?? 'filament session refresh failed');
       // The bridge's arrays are already the complete picker-ready candidate
       // sets, in engine order. Replace every picker and resolved name together
       // rather than composing a selection with independently fetched lists.

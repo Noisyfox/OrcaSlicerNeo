@@ -65,7 +65,7 @@ async function readFilamentSnapshot(
     const result = await runtime.getFilamentSessionSnapshot();
     if (!isCurrent()) return result;
     if (isSnapshot(result)) set({ snapshot: result, rejected: null });
-    else set({ snapshot: null, rejected: result.error });
+    else set({ rejected: result.error });
     return result;
   } catch (error) {
     const result = {
@@ -74,7 +74,7 @@ async function readFilamentSnapshot(
       error: error instanceof Error ? error.message : String(error),
       errorCode: 'runtime_failure',
     };
-    if (isCurrent()) set({ snapshot: null, rejected: result.error });
+    if (isCurrent()) set({ rejected: result.error });
     return result;
   }
 }

@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities, type UserPreferences } from '@orca/platform-contract';
-import type { PresetInfo, ProfileSnapshot, ProfileSnapshotResult } from '@slicer/client';
+import type { FilamentSessionSnapshot, PresetInfo, ProfileSnapshot, ProfileSnapshotResult } from '@slicer/client';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
@@ -40,6 +40,17 @@ const resolvedSnapshot: ProfileSnapshot = {
   print: { name: 'Resolved Process', idx: 8 },
 };
 
+const resolvedRack: FilamentSessionSnapshot = {
+  ok: true, version: 1,
+  slots: [{ slot: 1, preset: { id: 'Resolved Filament', name: 'Resolved Filament' }, colour: { effective: '#112233', provenance: 'preset' } }],
+  mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
+  flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' },
+  capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
+  assignments: { objects: [], parts: [], modifiers: [] },
+  revisions: { session: 1, project: 1, result: 0, plates: {} },
+  status: { state: 'ready', error: null },
+};
+
 function resetStores() {
   useProjectStore.getState().reset();
   usePlateSessionStore.getState().reset();
@@ -64,10 +75,10 @@ function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) =
     load: vi.fn(async () => preferences),
     save: vi.fn(async (next: UserPreferences) => { Object.assign(preferences, next); }),
   };
-  return {
-    platform: {
-      runtime: {
+  const runtime = {
         selectProfile: vi.fn(selectProfile),
+        getFilamentSessionSnapshot: vi.fn(async () => resolvedRack),
+        applyRememberedFilamentRack: vi.fn(async () => resolvedRack),
         markSharedConfigurationMutation: vi.fn(async () => ({
           ok: true,
           version: 1,
@@ -80,10 +91,13 @@ function makePlatform(selectProfile: (kind: 'printer' | 'print', name: string) =
           affectedPlateIds: ['plate-1'],
           dirtyReasons: ['shared-configuration'],
         })),
-      },
+      };
+  return {
+    platform: {
+      runtime,
       preferences: repository,
     } as unknown as PlatformCapabilities,
-    runtime: { selectProfile: undefined as unknown as ReturnType<typeof vi.fn> },
+    runtime,
     repository,
     preferences,
   };
@@ -189,8 +203,8 @@ describe('SettingsPanel preset transitions', () => {
 
   it('keeps the resolved session state when preference persistence fails', async () => {
     resetStores();
-    const { platform, repository } = makePlatform(async () => resolvedSnapshot);
-    repository.load.mockRejectedValueOnce(new Error('storage unavailable'));
+    const { platform, repository, preferences } = makePlatform(async () => resolvedSnapshot);
+    repository.load.mockResolvedValueOnce(preferences).mockRejectedValueOnce(new Error('storage unavailable'));
     const log = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { container, root } = await render(platform);
     roots.push(root);
@@ -206,6 +220,28 @@ describe('SettingsPanel preset transitions', () => {
       expect.any(Error),
     );
     expect((container.querySelector('[data-testid="preset-select"]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('applies the resolved printer remembered rack before publishing the profile transition', async () => {
+    resetStores();
+    const { platform, runtime, preferences } = makePlatform(async () => resolvedSnapshot);
+    preferences.rememberedFilamentRacks = {
+      'New Printer': { version: 1, slots: [{ preset: 'Resolved Filament', colour: '#112233' }] },
+    };
+    const { container, root } = await render(platform);
+    roots.push(root);
+
+    await selectOption(container, 'preset-select', 'New Printer');
+    await act(async () => { await Promise.resolve(); });
+
+    expect(runtime.applyRememberedFilamentRack).toHaveBeenCalledWith({
+      version: 1, revision: 1,
+      slots: [{ preset: 'Resolved Filament', colour: '#112233' }],
+    });
+    expect(runtime.applyRememberedFilamentRack.mock.invocationCallOrder[0])
+      .toBeLessThan(runtime.markSharedConfigurationMutation.mock.invocationCallOrder[0]);
+    expect(runtime.markSharedConfigurationMutation.mock.invocationCallOrder[0])
+      .toBeLessThan(runtime.getFilamentSessionSnapshot.mock.invocationCallOrder.at(-1)!);
   });
 
   it('renders prime-tower controls with project and current-plate scope', async () => {

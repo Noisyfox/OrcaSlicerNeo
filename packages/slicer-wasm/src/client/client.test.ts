@@ -139,6 +139,26 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(beforeInjected);
   });
 
+  it('applies a remembered rack as a revision-fenced session baseline', async () => {
+    const c = makeClient();
+    const before = await c.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const applied = await c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
+      slots: [
+        { preset: 'Generic PLA @System', colour: '#112233' },
+        { preset: 'Generic PETG @System', colour: '#445566' },
+      ] });
+    expect(applied).toMatchObject({ ok: true, slots: [
+      { slot: 1, preset: { name: 'Generic PLA @System' }, colour: { effective: '#112233', provenance: 'user' } },
+      { slot: 2, preset: { name: 'Generic PETG @System' }, colour: { effective: '#445566', provenance: 'user' } },
+    ] });
+    if (!applied.ok) throw new Error(applied.error);
+    await expect(c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
+      slots: [{ preset: 'Generic PLA @System', colour: '#112233' }] }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(applied);
+  });
+
   it('keeps the filament command fence stable across context-only history', async () => {
     const c = makeClient();
     const before = await c.getFilamentSessionSnapshot();

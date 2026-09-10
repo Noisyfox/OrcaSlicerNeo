@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreSelections } from './preferences';
+import { applyRememberedFilamentRackFromRepository, rememberedFilamentRack, rememberedRackFromSnapshot, persistRestoredSelections, publishRememberedFilamentRack, restoreBootstrapSession, restoreSelections } from './preferences';
 import type { UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import type { ProfileSnapshot } from '@slicer/client';
 
@@ -160,5 +160,84 @@ describe('selection restoration', () => {
     ]);
     expect(saved).toHaveLength(2);
     expect(saved.at(-1)?.rememberedFilamentRacks?.['Printer A'].slots[0].preset).toBe('Second');
+  });
+
+  it('waits for the newest queued rack write before a printer transition reads it', async () => {
+    const current = {
+      ok: true as const, version: 1 as const,
+      slots: [{ slot: 1, preset: { id: 'old', name: 'Old' }, colour: { effective: '#112233', provenance: 'preset' as const } }],
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
+      flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' as const },
+      capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 4, project: 4, result: 0, plates: {} },
+      status: { state: 'ready' as const, error: null },
+    };
+    let stored: UserPreferences = { version: 1, selectedProfiles: {}, ui: {} };
+    let release!: () => void;
+    const saveGate = new Promise<void>((resolve) => { release = resolve; });
+    const repository: UserPreferencesRepository = {
+      load: vi.fn(async () => stored),
+      save: vi.fn(async (value) => { await saveGate; stored = value; }),
+    };
+    const newest = { ...current, slots: [{ ...current.slots[0], preset: { id: 'new', name: 'Newest' } }] };
+    const publish = publishRememberedFilamentRack(repository, 'Printer A', newest);
+    await Promise.resolve();
+    const apply = vi.fn(async () => ({ ...newest, revisions: { ...newest.revisions, session: 5, project: 5 } }));
+    const transition = applyRememberedFilamentRackFromRepository(repository, {
+      getFilamentSessionSnapshot: vi.fn(async () => current),
+      applyRememberedFilamentRack: apply,
+    }, 'Printer A');
+    await Promise.resolve();
+    expect(apply).not.toHaveBeenCalled();
+    release();
+    await publish;
+    await transition;
+    expect(apply).toHaveBeenCalledWith({ version: 1, revision: 4,
+      slots: [{ preset: 'Newest', colour: '#112233' }] });
+  });
+
+  it('keeps the native printer defaults when its remembered rack cannot be read', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const getFilamentSessionSnapshot = vi.fn();
+    const applyRememberedFilamentRack = vi.fn();
+    await expect(applyRememberedFilamentRackFromRepository({
+      load: vi.fn(async () => { throw new Error('storage unavailable'); }),
+      save: vi.fn(),
+    }, { getFilamentSessionSnapshot, applyRememberedFilamentRack }, 'Printer A')).resolves.toBeNull();
+    expect(getFilamentSessionSnapshot).not.toHaveBeenCalled();
+    expect(applyRememberedFilamentRack).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('remembered filament rack load failed; keeping native defaults', expect.any(Error));
+    warn.mockRestore();
+  });
+
+  it('restores profiles, applies that printer rack, then establishes one clean boot baseline', async () => {
+    const initial = snapshot('default-printer', 'default-print', 'default-filament');
+    const resolved = snapshot('P', 'Q', 'PLA');
+    const current = {
+      ok: true as const, version: 1 as const,
+      slots: [{ slot: 1, preset: { id: 'PLA', name: 'PLA' }, colour: { effective: '#111111', provenance: 'preset' as const } }],
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
+      flushing: { matrix: [0], vector: [], matrixDimension: 1, planeCount: 1, source: 'native' as const },
+      capabilities: { minSlots: 1, maxSlots: 64, nozzleCount: 1, flexible: true, canAdd: true, canDelete: false, canMerge: false },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 2, project: 2, result: 0, plates: {} },
+      status: { state: 'ready' as const, error: null },
+    };
+    const restoredRack = { ...current, slots: [{ ...current.slots[0], colour: { effective: '#abcdef', provenance: 'user' as const } }], revisions: { ...current.revisions, session: 3, project: 3 } };
+    const finalRack = { ...restoredRack, revisions: { ...restoredRack.revisions, session: 4, project: 4 } };
+    const calls: string[] = [];
+    const getRack = vi.fn(async () => { calls.push('get-rack'); return getRack.mock.calls.length === 1 ? current : finalRack; });
+    const result = await restoreBootstrapSession({
+      getProfileSnapshot: vi.fn(async () => initial),
+      selectProfile: vi.fn(async (kind) => { calls.push(`select-${kind}`); return resolved; }),
+      getFilamentSessionSnapshot: getRack,
+      applyRememberedFilamentRack: vi.fn(async () => { calls.push('apply-rack'); return restoredRack; }),
+      resetHistory: vi.fn(async () => { calls.push('reset-history'); return { dirty: false, canUndo: false, undoEntries: [] } as never; }),
+    }, { ...prefs, rememberedFilamentRacks: { P: { version: 1, slots: [{ preset: 'PLA', colour: '#abcdef' }] } } }, {
+      selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] }, activePlateId: null, gizmo: null,
+      projectConfigOverlay: { project: {}, objects: {}, parts: {}, plates: {} },
+    });
+    expect(calls).toEqual(['select-printer', 'select-print', 'get-rack', 'apply-rack', 'reset-history', 'get-rack']);
+    expect(result.filament).toBe(finalRack);
+    expect(result.history).toMatchObject({ dirty: false, canUndo: false, undoEntries: [] });
   });
 });

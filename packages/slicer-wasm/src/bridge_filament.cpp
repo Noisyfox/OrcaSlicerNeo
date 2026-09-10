@@ -1162,7 +1162,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
     }
 }
 
-const char* restore_filament_rack_command(const char* request_cstr, const Runtime& runtime)
+const char* apply_remembered_filament_rack_command(const char* request_cstr, const Runtime& runtime)
 {
     RuntimeScope scope(runtime);
     try {
@@ -1171,26 +1171,54 @@ const char* restore_filament_rack_command(const char* request_cstr, const Runtim
             !request["revision"].is_number_unsigned() || !request.contains("slots") ||
             !request["slots"].is_array() || request["slots"].empty() || request["slots"].size() > 64)
             return duplicate_json(command_error("invalid_command", "invalid remembered filament rack").dump());
-        return duplicate_json(run_filament_mutation(request, "Restore remembered filament rack",
-            [&](PresetBundle& bundle, Model&, std::vector<BridgeState::PlateSessionPlate>&,
-                json&, std::size_t) -> json {
-                std::vector<std::string> colours;
-                colours.reserve(request["slots"].size());
-                bundle.set_num_filaments(static_cast<unsigned int>(request["slots"].size()));
-                for (std::size_t index = 0; index < request["slots"].size(); ++index) {
-                    const auto& slot = request["slots"][index];
-                    if (!slot.is_object() || !slot.contains("preset") || !slot["preset"].is_string() ||
-                        slot["preset"].get<std::string>().empty() || !slot.contains("colour") || !slot["colour"].is_string())
-                        throw FilamentCommandFailure("invalid_command", "invalid remembered filament slot");
-                    const std::string preset = slot["preset"].get<std::string>();
-                    if (bundle.filaments.find_preset(preset, false, true) == nullptr)
-                        throw FilamentCommandFailure("incompatible_preset", "remembered filament preset is unavailable: " + preset);
-                    bundle.set_filament_preset(index, preset);
-                    colours.push_back(slot["colour"].get<std::string>());
-                }
-                bundle.project_config.set_key_value("filament_colour", new ConfigOptionStrings(colours));
-                return json{{"restored_slots", colours.size()}, {"atomic", true}};
-            }).dump());
+        const auto before_snapshot = filament_snapshot_json();
+        if (!before_snapshot.value("ok", false)) return duplicate_json(before_snapshot.dump());
+        const auto expected = request["revision"].get<std::uint64_t>();
+        if (expected != before_snapshot["revisions"]["session"].get<std::uint64_t>())
+            return duplicate_json(command_error("stale_revision", "filament session revision is stale").dump());
+
+        auto& bundle = state().presets;
+        const auto before_names = bundle.filament_presets;
+        const auto before_project = bundle.project_config;
+        const auto before_ams = bundle.ams_multi_color_filment;
+        const auto before_edited = bundle.filaments.get_edited_preset();
+        const auto before_revision = state().history_revision;
+        try {
+            std::vector<std::string> colours;
+            colours.reserve(request["slots"].size());
+            bundle.set_num_filaments(static_cast<unsigned int>(request["slots"].size()));
+            for (std::size_t index = 0; index < request["slots"].size(); ++index) {
+                const auto& slot = request["slots"][index];
+                if (!slot.is_object() || !slot.contains("preset") || !slot["preset"].is_string() ||
+                    slot["preset"].get<std::string>().empty() || !slot.contains("colour") || !slot["colour"].is_string() ||
+                    !valid_filament_colour(slot["colour"].get<std::string>()))
+                    throw FilamentCommandFailure("invalid_command", "invalid remembered filament slot");
+                const std::string preset = slot["preset"].get<std::string>();
+                if (bundle.filaments.find_preset(preset, false, true) == nullptr)
+                    throw FilamentCommandFailure("incompatible_preset", "remembered filament preset is unavailable: " + preset);
+                bundle.set_filament_preset(index, preset);
+                colours.push_back(slot["colour"].get<std::string>());
+            }
+            bundle.project_config.set_key_value("filament_colour", new ConfigOptionStrings(colours));
+            recalculate_filament_flush(bundle);
+            validate_filament_candidate(bundle, state().model, state().plate_session_plates,
+                                        state().project_config_overlay, true, true);
+            ++state().history_revision;
+            const auto result = filament_snapshot_json();
+            if (!result.value("ok", false)) throw std::runtime_error(result.value("error", "invalid remembered filament rack"));
+            state().print.clear();
+            invalidate_preview_source();
+            return duplicate_json(result.dump());
+        } catch (...) {
+            bundle.filament_presets = before_names;
+            bundle.project_config = before_project;
+            bundle.ams_multi_color_filment = before_ams;
+            bundle.filaments.get_edited_preset() = before_edited;
+            state().history_revision = before_revision;
+            throw;
+        }
+    } catch (const FilamentCommandFailure& e) {
+        return duplicate_json(command_error(e.code, e.what()).dump());
     } catch (const std::exception& e) {
         return duplicate_json(command_error("invalid_command", e.what()).dump());
     } catch (...) {
@@ -2001,9 +2029,9 @@ Filament::Commands::Runtime filament_command_runtime()
 
 extern "C" {
 
-EMSCRIPTEN_KEEPALIVE const char* orc_restore_filament_rack(const char* request_cstr)
+EMSCRIPTEN_KEEPALIVE const char* orc_apply_remembered_filament_rack(const char* request_cstr)
 {
-    return Slic3r::Neo::Bridge::Filament::Commands::restore_filament_rack_command(
+    return Slic3r::Neo::Bridge::Filament::Commands::apply_remembered_filament_rack_command(
         request_cstr, Slic3r::Neo::Bridge::Filament::Session::filament_command_runtime());
 }
 

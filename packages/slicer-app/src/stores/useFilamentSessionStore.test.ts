@@ -112,7 +112,7 @@ describe('filament session store lifecycle', () => {
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-b']);
   });
 
-  it('clears an external snapshot and records thrown refresh failures without rejecting', async () => {
+  it('preserves the last complete snapshot and records thrown refresh failures', async () => {
     const initial = snapshot(7);
     const runtime = { getFilamentSessionSnapshot: vi.fn(async () => { throw new Error('worker unavailable'); }) } as unknown as SlicerClient;
     useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
@@ -120,11 +120,11 @@ describe('filament session store lifecycle', () => {
     const result = await useFilamentSessionStore.getState().refresh(runtime);
 
     expect(result).toMatchObject({ ok: false, error: 'worker unavailable', errorCode: 'runtime_failure' });
-    expect(useFilamentSessionStore.getState().snapshot).toBeNull();
+    expect(useFilamentSessionStore.getState().snapshot).toBe(initial);
     expect(useFilamentSessionStore.getState().rejected).toBe('worker unavailable');
   });
 
-  it('clears an external snapshot when the Worker returns a rejected refresh envelope', async () => {
+  it('preserves the last complete snapshot when the Worker rejects a refresh', async () => {
     const initial = snapshot(8);
     const runtime = { getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, version: 1, error: 'replacement unavailable', errorCode: 'runtime_unavailable' })) } as unknown as SlicerClient;
     useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
@@ -132,7 +132,7 @@ describe('filament session store lifecycle', () => {
     const result = await useFilamentSessionStore.getState().refresh(runtime);
 
     expect(result.ok).toBe(false);
-    expect(useFilamentSessionStore.getState().snapshot).toBeNull();
+    expect(useFilamentSessionStore.getState().snapshot).toBe(initial);
     expect(useFilamentSessionStore.getState().rejected).toBe('replacement unavailable');
   });
 });

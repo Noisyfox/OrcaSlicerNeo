@@ -851,7 +851,7 @@ export interface FilamentSlotMergeRequest extends FilamentCommandRequest {
   readonly destination: number;
 }
 
-export interface FilamentRackRestoreRequest extends FilamentCommandRequest {
+export interface RememberedFilamentRackRequest extends FilamentCommandRequest {
   readonly slots: readonly { preset: string; colour: string }[];
 }
 
@@ -908,7 +908,7 @@ export interface SlicerClient {
   addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
   deleteFilamentSlot(request: FilamentSlotDeleteRequest): Promise<FilamentMutationResultOrError>;
   mergeFilamentSlots(request: FilamentSlotMergeRequest): Promise<FilamentMutationResultOrError>;
-  restoreFilamentRack(request: FilamentRackRestoreRequest): Promise<FilamentMutationResultOrError>;
+  applyRememberedFilamentRack(request: RememberedFilamentRackRequest): Promise<FilamentSessionSnapshotResult>;
   assignFilament(request: FilamentAssignmentRequest): Promise<FilamentMutationResultOrError>;
   setFilamentRouting(request: FilamentRoutingRequest): Promise<FilamentMutationResultOrError>;
   /** Begin/commit/abort are serialized by the Worker; transaction IDs are opaque. */

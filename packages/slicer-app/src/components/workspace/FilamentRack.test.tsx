@@ -107,7 +107,7 @@ describe('FilamentRack runtime interaction', () => {
     expect(rendered.container.querySelector('[data-testid="filament-rejected"]')).not.toBeNull();
   });
 
-  it('renders a rejected load state without an unhandled rejection or stale project rack', async () => {
+  it('renders a rejected load state without discarding the last coherent rack', async () => {
     const initial = makeSnapshot();
     useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
     const runtime = { getFilamentSessionSnapshot: vi.fn(async () => { throw new Error('replacement read failed'); }) };
@@ -115,7 +115,7 @@ describe('FilamentRack runtime interaction', () => {
 
     await act(async () => { await Promise.resolve(); });
 
-    expect(useFilamentSessionStore.getState().snapshot).toBeNull();
+    expect(useFilamentSessionStore.getState().snapshot).toBe(initial);
     expect(rendered.container.querySelector('[data-testid="filament-rejected"]')).not.toBeNull();
   });
 });

@@ -150,19 +150,27 @@ const fourth = callJson('orc_preflight_project', ['pointer', 'number', 'string']
 const committed = callJson('orc_commit_project_preflight', ['string'], [fourth.preflight_token]);
 check('commit preflight', committed.ok === true && committed.mode === 'project');
 const baselineRack = callJson('orc_get_filament_session_snapshot', [], []);
-const badRack = callJson('orc_restore_filament_rack', ['string'], [JSON.stringify({ version: 1, revision: baselineRack.revisions.session, slots: [
+const badRack = callJson('orc_apply_remembered_filament_rack', ['string'], [JSON.stringify({ version: 1, revision: baselineRack.revisions.session, slots: [
   { preset: baselineRack.slots[0].preset.name, colour: '#112233' }, { preset: '__missing__', colour: '#445566' },
 ] })]);
 check('incompatible rack rejected', badRack.ok === false);
 const afterBadRack = callJson('orc_get_filament_session_snapshot', [], []);
 check('incompatible rack is atomic', JSON.stringify(afterBadRack) === JSON.stringify(baselineRack));
 const validRack = { version: 1, revision: baselineRack.revisions.session, slots: [{ preset: baselineRack.slots[0].preset.name, colour: '#112233' }] };
-const restoredRack = callJson('orc_restore_filament_rack', ['string'], [JSON.stringify(validRack)]);
-check('valid rack restores atomically', restoredRack.ok === true && restoredRack.result?.mutation?.history_entry_delta === 1);
+const historyBeforeRack = callJson('orc_history_status', [], []);
+const restoredRack = callJson('orc_apply_remembered_filament_rack', ['string'], [JSON.stringify(validRack)]);
+check('valid remembered rack applies atomically', restoredRack.ok === true && restoredRack.slots?.[0]?.colour?.effective === '#112233');
+const historyAfterRack = callJson('orc_history_status', [], []);
+check('remembered rack application does not publish user history',
+  historyAfterRack.undoEntries.length === historyBeforeRack.undoEntries.length
+  && historyAfterRack.redoEntries.length === historyBeforeRack.redoEntries.length
+  && historyAfterRack.cursor === historyBeforeRack.cursor
+  && ![...historyAfterRack.undoEntries, ...historyAfterRack.redoEntries]
+    .some((entry) => entry.label === 'Restore remembered filament rack'));
 const injectedBefore = callJson('orc_get_filament_session_snapshot', [], []);
-const injected = callJson('orc_restore_filament_rack', ['string'], [JSON.stringify({ ...validRack, revision: injectedBefore.revisions.session, inject_failure: true })]);
-check('injected rack failure rejected', injected.ok === false);
-check('injected rack failure preserves state', JSON.stringify(callJson('orc_get_filament_session_snapshot', [], [])) === JSON.stringify(injectedBefore));
+const stale = callJson('orc_apply_remembered_filament_rack', ['string'], [JSON.stringify(validRack)]);
+check('stale remembered rack rejected', stale.ok === false && stale.error_code === 'stale_revision');
+check('stale remembered rack preserves state', JSON.stringify(callJson('orc_get_filament_session_snapshot', [], [])) === JSON.stringify(injectedBefore));
 Module._free(projectPtr);
 if (failures) process.exit(1);
 console.log('project preflight/rack atomic smoke passed');

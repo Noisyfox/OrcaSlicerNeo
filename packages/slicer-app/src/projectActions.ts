@@ -12,7 +12,7 @@ import type { SceneResetTarget } from './components/workspace/actions/resetScene
 import { resetSceneState } from './components/workspace/actions/resetSceneState';
 import { runProjectHistoryMutation, syncHistoryStatus as syncWorkerHistoryStatus } from './components/workspace/actions/historyMutation';
 import { refreshFilamentSession } from './stores/useFilamentSessionStore';
-import { restoreRememberedFilamentRack } from './preferences';
+import { applyRememberedFilamentRackFromRepository } from './preferences';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -31,8 +31,8 @@ export interface ProjectActionOptions {
   sceneResetTarget?: SceneResetTarget | null;
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'runProjectHistoryTransaction'> &
-  Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory' | 'restoreFilamentRack' | 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
+type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
+  Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory' | 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -153,23 +153,24 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
   const previous = useProjectStore.getState(); setOperation('loading', 0, 'Creating project');
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
+    const sourcePrinter = currentPresets().printer;
     const runtime = runtimeOf(platform); const cleared = await runtime.clearModel(); if (!cleared.ok) throw new Error(cleared.error ?? 'new project failed');
     resetSceneState(options.sceneResetTarget, { clearSettings: true });
     usePlateSessionStore.getState().setSnapshot(cleared.plateSession ?? null);
-    await resetHistory(runtime);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);
-    try {
-      const preferences = await platform.preferences.load();
-      if (runtime.restoreFilamentRack) {
-        const seeded = await restoreRememberedFilamentRack(runtime as Required<Pick<Runtime, 'getFilamentSessionSnapshot' | 'restoreFilamentRack'>>, preferences, useSettingsStore.getState().selectedPrinter);
-        // Remembered state is a new-project seed, not an edit. Establish the
-        // clean checkpoint only after the seed has completed.
-        if (seeded) await resetHistory(runtime);
-      }
-    } catch (error) {
-      console.warn('remembered filament rack unavailable; keeping native defaults', error);
+    const targetPrinter = currentPresets().printer;
+    if (targetPrinter !== sourcePrinter) {
+      await applyRememberedFilamentRackFromRepository(
+        platform.preferences,
+        runtime,
+        targetPrinter,
+      );
     }
-    await refreshFilamentSession(runtimeOf(platform));
+    // The active system printer already owns its correctly restored rack.
+    // New Project preserves that live rack and only establishes a clean model,
+    // plate, and history baseline; it never replays a preference as an edit.
+    await resetHistory(runtime);
+    await refreshFilamentSession(runtime);
     const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
