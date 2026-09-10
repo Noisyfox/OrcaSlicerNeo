@@ -21,7 +21,7 @@ async function addPrimitive(page: Page, primitive: string): Promise<void> {
   await expect(page.getByTestId('ctx-menu')).toBeHidden();
 }
 
-test('new project slots remain assignable after adding Cube and opening its context menu', async () => {
+test('new project slots remain assignable from the ObjectList select and context menu', async () => {
   const app = await launchApp();
   try {
     const page = await app.firstWindow();
@@ -45,14 +45,24 @@ test('new project slots remain assignable after adding Cube and opening its cont
     await addPrimitive(page, 'cube');
     await expect(page.getByTestId('btn-slice')).toBeEnabled();
     const objectRow = page.locator('[data-testid^="object-"]').first();
+    const filamentSelect = page.locator('[data-testid^="filament-cell-object-"]').first();
     await expect(objectRow).toBeVisible();
+    await expect(filamentSelect).toHaveAttribute('data-slot', 'select-trigger');
+    await expect(filamentSelect).toHaveAttribute('role', 'combobox');
+    await expect(page.locator('select[data-testid^="filament-cell-object-"]')).toHaveCount(0);
+
+    await filamentSelect.click();
+    await page.getByRole('option', { name: 'Slot 2', exact: true }).click();
+    await expect(filamentSelect).toContainText('Slot 2');
+    await expect(page.getByTestId('objectlist-ctx-menu')).toBeHidden();
+
     await objectRow.click({ button: 'right' });
     await expect(page.getByTestId('objectlist-ctx-menu')).toBeVisible();
 
-    await page.getByTestId('objectlist-change-filament-2').click();
+    await page.getByTestId('objectlist-change-filament-3').click();
     await expect(page.getByTestId('objectlist-ctx-menu')).toBeHidden();
     await expect(page.getByTestId('filament-rejected')).toBeHidden();
-    await expect.poll(async () => page.locator('[data-testid^="filament-cell-object-"]').first().inputValue()).toBe('2');
+    await expect(filamentSelect).toContainText('Slot 3');
   } finally {
     await app.close();
   }

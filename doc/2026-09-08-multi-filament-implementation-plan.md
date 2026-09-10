@@ -1428,3 +1428,21 @@ dimensions, non-empty compatible racks, atomic remembered-rack application,
 stale revision rejection, and clean history. The threaded acceptance suite
 completes within the two-minute budget; slot history remains millisecond-scale
 and its full-`PresetBundle` copy diagnostic remains unchanged at `2 -> 2`.
+
+### 4.18 ObjectList filament Select composition (2026-09-10)
+
+The ObjectList object/part filament control uses the existing shared
+base-mira shadcn Select instead of a native HTML select. Its composition is
+`Select` with `SelectTrigger`/`SelectValue` and a portalled `SelectContent`
+whose `SelectItem` children are contained by `SelectGroup`. Object rows expose
+only numbered slots; model-part rows additionally expose Default and show the
+effective inherited slot distinctly. Unavailable non-model parts retain the
+inert dash projection, while an active filament mutation disables assignable
+controls until the authoritative Worker snapshot is returned.
+
+Trigger and portalled-content pointer, click, and context-menu events are
+contained within the control. Selecting a slot therefore dispatches exactly
+one numeric assignment without selecting the ObjectList row or opening its
+context menu, and the existing row context-menu assignment path remains
+available independently. The shared shadcn Select implementation is reused
+unchanged; no parallel wrapper or native-select compatibility path is kept.

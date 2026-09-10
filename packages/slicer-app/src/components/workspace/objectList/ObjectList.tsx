@@ -60,6 +60,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const projection = useObjectListStore((s) => s.projection);
   const plateSession = usePlateSessionStore((s) => s.snapshot);
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
+  const filamentPending = useFilamentSessionStore((s) => s.pendingKind !== null);
   const runFilament = useFilamentSessionStore((s) => s.run);
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
@@ -428,6 +429,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                 snapshot={filamentSnapshot}
                 kind="object"
                 id={obj.id}
+                pending={filamentPending}
                 onAssign={(slot) => assignRow('object', obj.id, slot)}
               />
             </div>
@@ -491,6 +493,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                       id={vol.id}
                       assignable={vol.type === 'model_part'}
                       allowDefault={vol.type === 'model_part'}
+                      pending={filamentPending}
                       onAssign={(slot) => assignRow('part', vol.id, slot)}
                     />
                   </div>
