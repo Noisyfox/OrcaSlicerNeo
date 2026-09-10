@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
@@ -50,6 +50,42 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
   onMerge: (destination: number) => void;
 }) {
   const [mergeOpen, setMergeOpen] = useState(false);
+  const colourInputRef = useRef<HTMLInputElement>(null);
+  const authoritativeColour = slot.colour.effective.slice(0, 7).toLowerCase();
+  const [draftColour, setDraftColour] = useState<string | null>(null);
+
+  // A native colour picker emits input events while its value is being
+  // adjusted, then one change event when the picker interaction is accepted.
+  // Keep the intermediate swatch local to this card and commit only at that
+  // native change boundary. React's onChange normalization is intentionally
+  // not used here because it may map the browser's input stream differently
+  // for colour inputs.
+  useEffect(() => {
+    setDraftColour(null);
+  }, [authoritativeColour]);
+
+  useEffect(() => {
+    const input = colourInputRef.current;
+    if (!input) return;
+    const handleInput = () => setDraftColour(input.value);
+    const handleChange = () => {
+      const nextColour = input.value.toLowerCase();
+      if (nextColour === authoritativeColour) {
+        setDraftColour(null);
+        return;
+      }
+      setDraftColour(nextColour);
+      onColour(nextColour);
+    };
+    input.addEventListener('input', handleInput);
+    input.addEventListener('change', handleChange);
+    return () => {
+      input.removeEventListener('input', handleInput);
+      input.removeEventListener('change', handleChange);
+    };
+  }, [authoritativeColour, onColour]);
+
+  const displayedColour = draftColour ?? authoritativeColour;
   return (
     <article className="min-w-0 rounded-md border bg-background/40 p-2" data-testid={`filament-slot-${slot.slot}`} aria-busy={pending}>
       <div className="flex items-center gap-2">
@@ -57,12 +93,12 @@ function SlotCard({ slot, presetNames, mergeDestinations, canDelete, canMerge, p
           {slot.slot}
         </span>
         <input
+          ref={colourInputRef}
           aria-label={`Slot ${slot.slot} colour`}
           data-testid={`filament-colour-${slot.slot}`}
           type="color"
-          value={slot.colour.effective.slice(0, 7)}
+          value={displayedColour}
           disabled={pending}
-          onChange={(event) => onColour(event.target.value)}
           className="size-6 cursor-pointer rounded border-0 bg-transparent p-0"
         />
         <span className="min-w-0 flex-1 truncate text-xs font-medium">Slot {slot.slot}</span>
