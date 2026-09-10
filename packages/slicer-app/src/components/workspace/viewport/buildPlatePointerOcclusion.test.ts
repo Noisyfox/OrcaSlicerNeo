@@ -4,6 +4,7 @@ import {
   BUILD_PLATE_RAYCAST,
   filterBuildPlateOccludedIntersections,
   MODEL_BODY_RAYCAST,
+  topmostCurrentPrimeTowerHit,
 } from './buildPlatePointerOcclusion';
 
 function object(role?: string): THREE.Object3D {
@@ -38,5 +39,22 @@ describe('filterBuildPlateOccludedIntersections', () => {
     const gizmo = { distance: 12, object: object('gizmo') };
 
     expect(filterBuildPlateOccludedIntersections([plate, gizmo])).toEqual([gizmo]);
+  });
+
+  it('does not treat a current tower behind a model as the context-menu target', () => {
+    const tower = object();
+    tower.userData.primeTower = true;
+    tower.userData.plateCurrent = true;
+    const towerBand = object();
+    tower.add(towerBand);
+    const body = object(MODEL_BODY_RAYCAST);
+    expect(topmostCurrentPrimeTowerHit([
+      { distance: 8, object: body },
+      { distance: 12, object: towerBand },
+    ])).toBe(false);
+    expect(topmostCurrentPrimeTowerHit([
+      { distance: 8, object: towerBand },
+      { distance: 12, object: body },
+    ])).toBe(true);
   });
 });

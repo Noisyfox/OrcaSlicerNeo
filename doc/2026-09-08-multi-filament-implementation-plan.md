@@ -1616,6 +1616,22 @@ check, and verify one pointer-up produces one command/history entry while Previe
 contains no proxy. Pass means the visible behaviour matches the spec without
 regressing ordinary scene interaction.
 
+**Step 14 implementation record (2026-09-11):** Prepare now consumes the native
+per-plate projection as scene-only equal depth bands, keeps only the current
+plate selectable, and routes local body/gizmo gestures through one typed move
+command on release. Selection, bounds, X/Y-only gizmo state, cancellation, and
+native reconciliation remain outside the model/Object List history path. The
+shared external pointer owner prevents OrbitControls from joining body/gizmo
+gestures, and context-menu suppression uses the ordered topmost hit after bed
+occlusion filtering. The mock fixture now supplies an explicit eligible tower
+projection only in e2e mode; its focused Playwright path drives canvas body and
+X/Y gizmo gestures, cancellation, selection, and Prepare-versus-Preview
+visibility. The full slicer-app suite (72 files, 486 tests), desktop unit
+tests/typechecks, focused mock Electron test, and `git diff --check` pass. The
+focused interaction also reads the Worker-owned Undo menu: each successful
+pointer-up adds exactly one `Move Prime Tower` project entry, while transient
+and canceled gestures leave the entry list and tower position unchanged.
+
 ### Step 15 — Threaded real-Electron acceptance and documentation closeout
 
 **Functional boundary:** Add durable end-to-end evidence for the complete

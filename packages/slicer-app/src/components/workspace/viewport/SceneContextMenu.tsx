@@ -23,6 +23,7 @@ import {
   Box, Boxes, Circle, Cone, Cylinder, Disc3, Donut, FolderPlus, Shapes, Trash2,
   type LucideIcon,
 } from 'lucide-react';
+import * as THREE from 'three';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -43,7 +44,7 @@ import {
 } from '../actions/sceneActions';
 import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
 import { useObjectListStore } from '../objectList/useObjectListStore';
-import { pickTopmostModelVolume } from './buildPlatePointerOcclusion';
+import { pickTopmostModelVolume, topmostCurrentPrimeTowerHit } from './buildPlatePointerOcclusion';
 import type { SceneInteractionController } from './SceneInteractionController';
 
 // Icon per primitive matching the engine's label; the labels equal the
@@ -88,6 +89,17 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
     event.preventDefault();
     const state = sceneStateRef.current;
     const rect = state?.gl.domElement.getBoundingClientRect();
+    if (state && rect && pointHitsPrimeTower(state, {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    })) {
+      // The tower is a scene-only selection target; it has no context-menu
+      // surface. Keep the browser/native menu suppressed without opening the
+      // empty-scene menu behind it.
+      setMenuObject(null);
+      setMenuOpen(false);
+      return;
+    }
     const hitVolume = state && rect ? pickTopmostModelVolume(state, {
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
@@ -273,4 +285,14 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
       )}
     </ContextMenu>
   );
+}
+
+function pointHitsPrimeTower(state: RootState, point: { x: number; y: number }): boolean {
+  const rect = state.gl.domElement.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  state.raycaster.setFromCamera(new THREE.Vector2(
+    (point.x / rect.width) * 2 - 1,
+    -(point.y / rect.height) * 2 + 1,
+  ), state.camera);
+  return topmostCurrentPrimeTowerHit(state.raycaster.intersectObjects(state.scene.children, true));
 }

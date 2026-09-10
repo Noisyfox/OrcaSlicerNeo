@@ -80,6 +80,14 @@ describe('SceneInteractionController', () => {
     expect(port.abort).not.toHaveBeenCalled();
   });
 
+  it('shares pointer ownership with scene-only gestures so camera raycasting is disabled', () => {
+    expect(controller.claimExternalPointer()).toBe(true);
+    expect(controller.owner).toBe('external');
+    expect(controller.claimExternalPointer()).toBe(false);
+    controller.releaseExternalPointer();
+    expect(controller.owner).toBe('none');
+  });
+
   it('restores a cancelled drag locally without a commit or Worker write', async () => {
     const port = {
       begin: vi.fn(),

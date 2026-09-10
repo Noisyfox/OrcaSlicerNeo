@@ -27,7 +27,7 @@ import {
 export type OpenGizmo = 'move' | 'rotate' | 'scale' | null;
 /** Scale gizmo handle space; multi-selection always scales in world space. */
 export type ScaleSpace = 'world' | 'local';
-export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box';
+export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box' | 'external';
 type PointerOrigin = 'none' | 'gizmo' | 'non-gizmo';
 /** OrcaSlicer's homogeneous selection classes (Selection.cpp update_type). */
 export type SelectionKind = 'empty' | 'object' | 'instance' | 'part' | 'mixed';
@@ -493,6 +493,24 @@ export class SceneInteractionController {
     if (this.pointerOwner !== 'none') return;
     this.pointerOrigin = 'none';
     this.setGizmoGrabberHovered(false);
+  }
+
+  /** Claim the shared viewport pointer for a scene-only interaction. */
+  claimExternalPointer(): boolean {
+    if (this.pointerOwner !== 'none') return false;
+    this.pointerOwner = 'external';
+    this.emit();
+    return true;
+  }
+
+  /** Release a scene-only pointer claim after its native gesture settles. */
+  releaseExternalPointer(): boolean {
+    if (this.pointerOwner !== 'external') return false;
+    this.pointerOwner = 'none';
+    this.pointerOrigin = 'none';
+    this.gizmoGrabberHovered = false;
+    this.emit();
+    return true;
   }
 
   /** Clear all ephemeral scene interaction when a loaded collection is replaced. */

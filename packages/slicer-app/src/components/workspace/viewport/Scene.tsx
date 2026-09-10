@@ -18,10 +18,13 @@ import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 import { currentPreviewPlate, previewToolpathOrigin, previewVolumesForCurrentPlate } from './previewSceneProjection';
+import { PrimeTowerProxies } from './PrimeTowerMesh';
+import type { PrimeTowerInteractionController } from './PrimeTowerInteractionController';
 
-export function Scene({ activeTab, controller, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
+export function Scene({ activeTab, controller, primeTowerController, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
   controller: SceneInteractionController;
+  primeTowerController?: PrimeTowerInteractionController;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateSession?: PlateSessionSnapshot | null;
@@ -30,13 +33,15 @@ export function Scene({ activeTab, controller, glVolumes, toolpath, plateSession
 }) {
   return (
     <SceneInteractionProvider controller={controller}>
-      <SceneContents activeTab={activeTab} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} structure={structure} onEmptyBedClick={onEmptyBedClick} />
+      <SceneContents activeTab={activeTab} controller={controller} primeTowerController={primeTowerController} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} structure={structure} onEmptyBedClick={onEmptyBedClick} />
     </SceneInteractionProvider>
   );
 }
 
-function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
+function SceneContents({ activeTab, controller, primeTowerController, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
+  controller: SceneInteractionController;
+  primeTowerController?: PrimeTowerInteractionController;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateSession?: PlateSessionSnapshot | null;
@@ -69,7 +74,7 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
   // No-op in production builds (the e2e-only VITE_E2E flag is unset).
   const camera = useThree((s) => s.camera);
-  const controls = useThree((s) => s.controls as unknown as { target?: THREE.Vector3 } | undefined);
+  const controls = useThree((s) => s.controls as unknown as { target?: THREE.Vector3; enabled?: boolean } | undefined);
   const scene = useThree((s) => s.scene);
   const size = useThree((s) => s.size);
   useEffect(() => {
@@ -89,7 +94,7 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
           size: [number, number, number];
         } | null;
         gizmoAxis?: () => string | null;
-        pointerOwner?: () => 'none' | 'gizmo' | 'body' | 'box';
+        pointerOwner?: () => 'none' | 'gizmo' | 'body' | 'box' | 'external';
         selectionInstanceCount?: () => number;
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
         previewMarkerPresent?: () => boolean;
@@ -98,6 +103,7 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
           target: [number, number, number];
           near: number;
           far: number;
+          controlsEnabled?: boolean;
         };
         bedPlateStates?: () => Array<{
           plateId?: string;
@@ -172,6 +178,7 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
         target: controls?.target ? [controls.target.x, controls.target.y, controls.target.z] : [0, 0, 0],
         near: camera.near,
         far: camera.far,
+        controlsEnabled: controls?.enabled !== false,
       }),
       bedPlateStates: () => {
         const beds: Array<{
@@ -250,6 +257,8 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
           : <BedPlate />}
       {isPreviewTab(activeTab) ? (
         <PreviewScene
+          controller={controller}
+          primeTowerController={primeTowerController}
           glVolumes={previewVolumes}
           toolpath={toolpath}
           plateOrigin={previewToolpathOrigin(plateSession)}
@@ -257,7 +266,7 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
           plateSession={plateSession}
         />
       ) : (
-        <PrepareScene glVolumes={glVolumes} toolpath={toolpath} structure={structure} plateSession={plateSession} />
+        <PrepareScene glVolumes={glVolumes} toolpath={toolpath} structure={structure} plateSession={plateSession} controller={controller} primeTowerController={primeTowerController} />
       )}
     </>
   );
@@ -269,26 +278,30 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, structure
  * mode-specific rendering/interaction policy is intentionally layered here
  * by the later Preview implementation step.
  */
-function PrepareScene({ glVolumes, toolpath, structure, plateSession }: {
+function PrepareScene({ glVolumes, toolpath, structure, plateSession, controller, primeTowerController }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   structure: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
+  controller: SceneInteractionController;
+  primeTowerController?: PrimeTowerInteractionController;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive structure={structure} plateSession={plateSession} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive structure={structure} plateSession={plateSession} controller={controller} primeTowerController={primeTowerController} />;
 }
 
-function PreviewScene({ glVolumes, toolpath, plateOrigin, structure, plateSession }: {
+function PreviewScene({ glVolumes, toolpath, plateOrigin, structure, plateSession, controller, primeTowerController }: {
+  controller: SceneInteractionController;
+  primeTowerController?: PrimeTowerInteractionController;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateOrigin: readonly [number, number, number];
   structure?: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview plateOrigin={plateOrigin} structure={structure} plateSession={plateSession} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview plateOrigin={plateOrigin} structure={structure} plateSession={plateSession} controller={controller} primeTowerController={primeTowerController} />;
 }
 
-function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, plateOrigin = [0, 0, 0], structure = [], plateSession }: {
+function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, plateOrigin = [0, 0, 0], structure = [], plateSession, controller, primeTowerController }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   interactive: boolean;
@@ -296,11 +309,14 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, p
   plateOrigin?: readonly [number, number, number];
   structure?: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
+  controller: SceneInteractionController;
+  primeTowerController?: PrimeTowerInteractionController;
 }) {
   return (
     <>
+      {interactive && primeTowerController && <PrimeTowerProxies controller={primeTowerController} plateSession={plateSession} />}
       {glVolumes.map((volume) => (
-        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession} />
+        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession} onModelSelection={primeTowerController ? () => primeTowerController.clearSelection() : undefined} />
       ))}
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}

@@ -34,6 +34,28 @@ export function filterBuildPlateOccludedIntersections<T extends RaycastIntersect
   });
 }
 
+/** Whether the topmost visible scene target is the current prime tower. */
+export function topmostCurrentPrimeTowerHit<T extends RaycastIntersection>(intersections: T[]): boolean {
+  const visible = filterBuildPlateOccludedIntersections(intersections);
+  const target = visible.find((hit) => {
+    if (hasRaycastRole(hit.object, MODEL_BODY_RAYCAST)) return true;
+    let current: THREE.Object3D | null = hit.object as THREE.Object3D;
+    while (current) {
+      if (current.userData.primeTower === true && current.userData.plateCurrent === true) return true;
+      current = current.parent;
+    }
+    return false;
+  });
+  if (!target) return false;
+  if (hasRaycastRole(target.object, MODEL_BODY_RAYCAST)) return false;
+  let current: THREE.Object3D | null = target.object as THREE.Object3D;
+  while (current) {
+    if (current.userData.primeTower === true && current.userData.plateCurrent === true) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
 /** The topmost visible model body under a viewport-CSS point, or null. */
 export function pickTopmostModelVolume(
   state: RootState | null,

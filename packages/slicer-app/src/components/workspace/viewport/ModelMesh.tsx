@@ -29,12 +29,13 @@ function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransfo
   group.updateMatrix();
 }
 
-export function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession }: {
+export function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession, onModelSelection }: {
   data: GLVolume;
   interactive?: boolean;
   preview?: boolean;
   structure?: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
+  onModelSelection?: () => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const volumeGroupRef = useRef<THREE.Group>(null);
@@ -75,6 +76,7 @@ export function GLVolumeMesh({ data, interactive = true, preview = false, struct
         userData={{ orcaRaycastRole: MODEL_BODY_RAYCAST, orcaVolume: data }}
         onPointerDown={interactive ? (event) => {
           if (event.nativeEvent.button !== 0) return;
+          onModelSelection?.();
           if (!sceneInteraction.pointerStartsOnGizmo) {
             event.nativeEvent.stopImmediatePropagation();
           }

@@ -26,15 +26,18 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useObjectListStore } from './objectList/useObjectListStore';
 import { PreviewPlateList } from './PreviewPlateList';
-import { selectPlateSessionAndClearSelection } from './plateSessionActions';
+import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from './plateSessionActions';
 import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { TransformHistoryCoordinator } from './actions/transformHistory';
+import { syncHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import type { ProjectConfigOverlay } from '@slicer/client';
 import { FilamentRack } from './FilamentRack';
-import { refreshFilamentSession } from '../../stores/useFilamentSessionStore';
+import { refreshFilamentSession, useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import { publishRememberedFilamentRack } from '../../preferences';
 import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
+import { PrimeTowerInteractionController } from './viewport/PrimeTowerInteractionController';
+import type { PrimeTowerMoveResultOrError } from '@slicer/client';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -74,6 +77,8 @@ export function Workspace({
   const structure = useObjectListStore((s) => s.structure);
   const currentPlateId = usePlateSessionStore((s) => s.snapshot?.currentPlateId ?? null);
   const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
+  const settingsOverlay = useSettingsStore((s) => s.overlay);
+  const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const glVolumes = useModelLoader();
   const sliceResult = useSliceResult();
   // Workspace is kept mounted by AppShell. Keep the controller here, beside
@@ -84,6 +89,35 @@ export function Workspace({
     sceneInteractionRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
   }
   const sceneInteraction = sceneInteractionRef.current;
+  const primeTowerRefreshRef = useRef<(() => Promise<void>) | null>(null);
+  const primeTowerControllerRef = useRef<PrimeTowerInteractionController | null>(null);
+  if (!primeTowerControllerRef.current) {
+    primeTowerControllerRef.current = new PrimeTowerInteractionController({
+      move: async (request): Promise<PrimeTowerMoveResultOrError> => {
+        const result = await platform.runtime.movePrimeTower(request);
+        if (result.ok) {
+          applyPlateSessionResponse(platform, result.result.plateSession);
+          await syncHistoryStatus(platform.runtime);
+        }
+        return result;
+      },
+      reconcile: async () => { await primeTowerRefreshRef.current?.(); },
+      revision: (plateId) => usePlateSessionStore.getState().snapshot?.inputRevisions?.[plateId] ?? -1,
+    });
+  }
+  const primeTowerController = primeTowerControllerRef.current;
+  const refreshPrimeTowerProjection = useCallback(async () => {
+    try {
+      const result = await platform.runtime.getPrimeTowerProjection();
+      primeTowerController.setProjection(result.ok ? result : null);
+    } catch {
+      primeTowerController.setProjection(null);
+    }
+  }, [platform.runtime, primeTowerController]);
+  primeTowerRefreshRef.current = refreshPrimeTowerProjection;
+  useEffect(() => {
+    void refreshPrimeTowerProjection();
+  }, [filamentSnapshot, glVolumes, plateSession, refreshPrimeTowerProjection, settingsOverlay, structure]);
   // Structural edits replace the renderer collection asynchronously. Prune
   // only after the fresh stable-ID mesh is installed so deleted entities do
   // not remain selected through stale positional indices.
@@ -399,6 +433,7 @@ export function Workspace({
       <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card">
         <Viewport
           sceneInteraction={sceneInteraction}
+          primeTowerController={primeTowerController}
           activeTab={isPreviewTab(activeTab) || previewRenderPending ? 'preview' : 'prepare'}
           glVolumes={glVolumes}
           structure={structure}
