@@ -218,6 +218,12 @@ export interface ProfileSnapshot {
   print: PresetSelection;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printable_area?: Array<[number, number]>;
+  /**
+   * Effective native project/process configuration before the Neo overlay.
+   * The settings UI uses this as its base value source; slicing remains
+   * Worker-owned and applies the same native config plus the overlay.
+   */
+  project_config?: Record<string, string>;
 }
 
 /** A bridge rejection has no partial snapshot and leaves engine state unchanged. */

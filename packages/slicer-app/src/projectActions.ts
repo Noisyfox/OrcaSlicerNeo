@@ -3,7 +3,7 @@ import type { ProjectLoadResult, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
 import { useProjectStore, projectPresetSelections, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
-import { useSettingsStore } from './stores/useSettingsStore';
+import { emptyProjectConfigOverlay, useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
@@ -255,7 +255,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
     useSettingsStore.getState().hydrateProfileSnapshot(snapshot);
-    if (load.projectConfigOverlay) useSettingsStore.getState().setOverlay(load.projectConfigOverlay);
+    useSettingsStore.getState().setOverlay(load.projectConfigOverlay ?? emptyProjectConfigOverlay());
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
     const history = await resetHistory(runtime);
     // resetHistory establishes the new native history revision. Read the

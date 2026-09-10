@@ -1,6 +1,6 @@
 // packages/slicer-app/src/stores/useSettingsStore.test.ts
 import { describe, it, expect } from 'vitest';
-import { useSettingsStore } from './useSettingsStore';
+import { emptyProjectConfigOverlay, useSettingsStore } from './useSettingsStore';
 import type { ProfileSnapshot } from '@slicer/client';
 
 const bootSnapshot: ProfileSnapshot = {
@@ -45,5 +45,63 @@ describe('useSettingsStore', () => {
     expect([state.selectedPrinter, state.selectedPrint]).toEqual(['P', 'Q']);
     expect(state.printableArea).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
     expect(state.values).toEqual({});
+  });
+
+  it('uses native project config as the settings base and overlays project overrides', () => {
+    useSettingsStore.getState().hydrateProfileSnapshot({
+      ...bootSnapshot,
+      project_config: { enable_prime_tower: '1', prime_tower_width: '28' },
+    });
+    expect(useSettingsStore.getState().values).toMatchObject({
+      enable_prime_tower: '1', prime_tower_width: '28',
+    });
+
+    useSettingsStore.getState().setOverlay({
+      project: { enable_prime_tower: '0' }, objects: {}, parts: {}, plates: {},
+    });
+    expect(useSettingsStore.getState().values).toMatchObject({
+      enable_prime_tower: '0', prime_tower_width: '28',
+    });
+  });
+
+  it('does not carry an old project overlay into a new profile snapshot', () => {
+    useSettingsStore.getState().setOverlay({
+      project: { enable_prime_tower: '0' }, objects: {}, parts: {}, plates: {},
+    });
+    useSettingsStore.getState().hydrateProfileSnapshot({
+      ...bootSnapshot,
+      project_config: { enable_prime_tower: '1' },
+    });
+
+    expect(useSettingsStore.getState().overlay).toEqual(emptyProjectConfigOverlay());
+    expect(useSettingsStore.getState().values.enable_prime_tower).toBe('1');
+  });
+
+  it('restores the native base when a project replaces an old override with an empty overlay', () => {
+    useSettingsStore.getState().hydrateProfileSnapshot({
+      ...bootSnapshot,
+      project_config: { enable_prime_tower: '1' },
+    });
+    useSettingsStore.getState().setOverlay({
+      project: { enable_prime_tower: '0' }, objects: {}, parts: {}, plates: {},
+    });
+    useSettingsStore.getState().setOverlay(emptyProjectConfigOverlay());
+
+    expect(useSettingsStore.getState().values.enable_prime_tower).toBe('1');
+  });
+
+  it('clears both native base and effective values when settings are cleared', () => {
+    useSettingsStore.getState().hydrateProfileSnapshot({
+      ...bootSnapshot,
+      project_config: { enable_prime_tower: '1' },
+    });
+    useSettingsStore.getState().setOverlay({
+      project: { enable_prime_tower: '0' }, objects: {}, parts: {}, plates: {},
+    });
+    useSettingsStore.getState().setOverlay(emptyProjectConfigOverlay());
+    useSettingsStore.getState().setValues({});
+
+    expect(useSettingsStore.getState().baseValues).toEqual({});
+    expect(useSettingsStore.getState().values).toEqual({});
   });
 });

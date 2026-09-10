@@ -351,7 +351,6 @@ export default function App() {
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
         const metadata = await platform.runtime.getOptionMetadata();
         const overlay = await platform.runtime.getProjectConfigOverlay();
-        if (overlay.ok) setOverlay(overlay.overlay);
         // Restore only names; compatibility and defaults remain authoritative
         // in the C++ preset bundle. The bridge response is written back so a
         // missing/corrupt selection is healed for the next boot.
@@ -368,6 +367,7 @@ export default function App() {
         await persistRestoredSelections(platform.preferences, restored.preferences);
         if (cancelled) return;
         hydrateProfileSnapshot(restored.snapshot);
+        if (overlay.ok) setOverlay(overlay.overlay);
         useProjectStore.getState().setProject({
           systemPresets: {
             printer: restored.snapshot.printer.name,

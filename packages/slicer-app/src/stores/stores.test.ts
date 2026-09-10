@@ -52,10 +52,11 @@ describe('useSettingsStore', () => {
 
   it('setSelections updates printer/process responses while rack state stays separate', () => {
     const s = useSettingsStore.getState();
+    s.setValues({ layer_height: '0.2' });
     s.setSelections('P1S', 'Standard');
     expect(useSettingsStore.getState().selectedPrinter).toBe('P1S');
     expect(useSettingsStore.getState().selectedPrint).toBe('Standard');
-    expect(useSettingsStore.getState().values).toEqual({});
+    expect(useSettingsStore.getState().values).toEqual({ layer_height: '0.2' });
   });
 });
 

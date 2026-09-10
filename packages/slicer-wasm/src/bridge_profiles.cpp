@@ -268,7 +268,13 @@ json preset_snapshot_json()
                 {"filament_catalog", preset_candidates_json(state().presets.filaments, true, false)},
                 {"printer", preset_selection_json(state().presets.printers)},
                 {"print", preset_selection_json(state().presets.prints)},
-                {"printable_area", selected_printer_printable_area_json()}};
+                {"printable_area", selected_printer_printable_area_json()},
+                // Embedded project settings and the selected Process preset
+                // are both part of the native effective configuration even
+                // when the Neo overlay is empty.  Use the same merged config
+                // that slicing starts from so the UI cannot fall back to
+                // metadata defaults that disagree with slicing.
+                {"project_config", Filament::State::config_metadata_json(state().presets.full_config())}};
 }
 
 const char* init_profiles()
