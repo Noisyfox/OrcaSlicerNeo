@@ -2,8 +2,9 @@
 
 **Date:** 2026-09-08
 
-**Status:** Approved; implementation complete and acceptance verified at
-`07f276d` (2026-09-09).
+**Status:** Approved. The baseline implementation was acceptance-verified at
+`07f276d` (2026-09-09). The Prepare-view prime-tower model extension in
+Section 10.2 was approved on 2026-09-10 and is pending implementation.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -329,19 +330,123 @@ release.
 ### 10.2 Prime tower controls
 
 Prime tower remains native Process configuration rather than a property
-inferred solely from the number of slots. The first release exposes these
+inferred solely from the number of slots. The Settings surface exposes these
 basic controls:
 
 - `enable_prime_tower`;
-- per-plate X and Y position; and
 - `prime_tower_width`.
 
-All other prime-tower parameters retain their Process-preset values and remain
-round-trippable without a first-release editing surface. The session applies
-OrcaSlicer's normalization and validation for the actual used-filament count,
-print sequence, G-code flavour, layer constraints, and build-volume bounds.
-The UI presents returned corrections, errors, and warnings; it does not force
-the tower on merely because the project has multiple slots.
+Per-plate X and Y remain project-owned native configuration, but are edited
+only by dragging the tower in the Prepare scene. Settings must not expose
+separate X or Y fields. All other prime-tower parameters retain their Process-
+preset or imported-project values and remain round-trippable without an editing
+surface. In particular, an imported `wipe_tower_rotation_angle` is rendered but
+is read-only: the tower has no rotate or scale interaction.
+
+#### 10.2.1 Prepare-scene proxy
+
+Prepare renders a special prime-tower scene object when the native effective
+configuration enables the tower and OrcaSlicer's eligibility conditions hold.
+Ordinary plates require at least two actually used filaments; native forced
+cases such as smooth timelapse or wrapping detection remain eligible. An empty
+plate has no tower, and native By Object restrictions continue to apply. Neo
+does not force a tower merely because the project rack contains multiple slots.
+
+The Worker calculates the proxy independently for every plate from native
+OrcaSlicer state. It owns the native estimated width, depth, and height, the
+plate-local used-filament order, the effective colours, the saved position and
+rotation, and the effective brim margin. React must not duplicate those
+calculations. A zero estimated height is represented by the native minimum
+visible proxy height of 0.1 mm.
+
+The proxy deliberately remains the estimated pre-slice representation for its
+entire lifetime. Completing a slice does not replace it with the generated
+tower mesh or brim. The proxy body is split into equal depth-wise bands in the
+native used-filament order, using the effective filament colours with Orca-like
+dark-colour adjustment and approximately 0.66 opacity. Brim geometry is not
+drawn, but its native effective width participates in placement and boundary
+calculations.
+
+All eligible plates display their tower in Prepare. Only the current plate's
+tower is pickable and movable. The tower is a scene-only special object: it is
+not a `ModelObject`, does not appear in Object List, and has no delete, copy,
+scale, rotate, or context-menu commands. Selection retains the coloured bands
+and adds the ordinary selection bounds plus an X/Y-only Move gizmo. Direct body
+dragging and the Move gizmo edit the same per-plate position. Switching plates,
+disabling the tower, or otherwise removing the selected proxy clears its
+selection without producing history.
+
+The proxy exists only in Prepare. Preview continues to render the generated
+toolpath and never overlays the Prepare proxy.
+
+#### 10.2.2 Position, history, and invalidation
+
+When a new plate or project has no explicit tower coordinates, the Worker uses
+OrcaSlicer's native default placement. Direct dragging constrains the rotated
+tower footprint plus effective brim margin to the current plate's printable
+area. Z movement is unavailable.
+
+One completed pointer drag produces exactly one project-history entry. Pointer
+moves within that gesture do not write intermediate history. Undo and Redo
+restore only the affected per-plate coordinates through the narrow project
+delta; they must not copy or restore a complete `PresetBundle`. Moving a tower
+invalidates only that plate's slice result.
+
+Loading a project or changing Printer may make saved coordinates invalid for
+the new printable area. When a legal placement exists, Neo silently clamps the
+effective and persisted in-memory coordinates to the nearest legal placement.
+That normalization creates no history entry and does not by itself mark the
+project dirty. Rendering and slicing must consume the same normalized
+coordinates; a later explicit project save persists them.
+
+An explicit setting, assignment, painting, or filament mutation may change the
+estimated width, depth, rotation, or brim footprint without directly editing X
+or Y. If the new footprint can fit but the old position is no longer legal, the
+necessary position clamp is part of that same project transaction and history
+entry. It must not create a second automatic-move entry. Undo and Redo restore
+the triggering state and the corresponding tower coordinates atomically.
+
+If the rotated tower footprint plus brim is too large to fit anywhere, Neo does
+not shrink the tower, disable it, or invent a different process configuration.
+It keeps the native dimensions at the best available position and reports a
+non-blocking outside-boundary warning. Slicing may continue.
+
+Changing `enable_prime_tower` updates the proxy immediately. Disabling removes
+it and clears tower selection; enabling recreates it when the plate is eligible.
+An explicit enable/disable setting edit remains an ordinary project-history
+operation with its existing invalidation scope.
+
+#### 10.2.3 Collision policy
+
+Manual tower movement does not snap around or avoid models. Model, exclusion-
+area, and wrapping-detection-area intersections are evaluated during slice
+validation, not continuously during dragging. The tower retains its filament
+colours while moving.
+
+Neo intentionally differs from OrcaSlicer for exclusion and wrapping-detection
+areas: every tower intersection is reported as a warning and none of these
+intersection warnings alone blocks slicing. OrcaSlicer treats ordinary model
+proximity as a warning but returns hard validation errors for the two dangerous
+area types. This divergence is accepted product behaviour and must be tested
+explicitly rather than inherited accidentally from an unmodified native error.
+
+Neo currently has no Arrange feature. This specification therefore defines no
+Arrange interaction and implementation must not add dormant Arrange-specific
+prime-tower code. If Arrange is introduced later, tower participation requires
+a separate product decision.
+
+The proxy is part of the existing desktop-layout product scope. Mouse and
+precision-pointer dragging are supported in Electron and desktop Web. Mobile
+touch interaction is deferred and is not claimed by this extension; a narrow
+viewport may still render the proxy read-only under the existing fluid desktop
+layout. Native estimation adds Worker CPU work proportional to plate count and
+used-filament bands, while the renderer adds only the projected box-band meshes;
+neither path may trigger slicing merely to display the proxy.
+
+The session continues to apply native normalization and validation for actual
+used-filament count, print sequence, G-code flavour, and layer constraints. The
+UI presents the effective proxy state and returned warnings without
+reconstructing them from slot count or renderer geometry.
 
 ### 10.3 Support and raft filament
 
@@ -620,6 +725,19 @@ The deterministic fixture set covers at least:
 - imported painting and per-layer colour/tool-change preservation and remap;
 - imported custom flushing-matrix preservation followed by automatic
   replacement after the first flushing-input edit;
+- Prepare-only estimated prime-tower proxies for every eligible plate,
+  including native dimensions, band order and colours, read-only imported
+  rotation, one-gesture history, current-plate-only interaction, and
+  plate-local slice invalidation;
+- direct-drag boundary clamping with brim margin, silent non-history
+  normalization after project load or Printer change, and the too-large-to-fit
+  non-blocking warning case;
+- footprint-changing settings, assignment, painting, and filament edits that
+  atomically include any required position clamp in their existing single
+  history transaction;
+- non-blocking slice-time warnings for prime-tower intersections with models,
+  exclusion areas, and wrapping-detection areas, including explicit evidence
+  that the latter two do not leak OrcaSlicer's native hard-error behaviour;
 - project save/open, embedded preset retention, compatible fallback reporting,
   remembered-rack priority, and Undo/Redo of every exposed mutation;
 - mixed-temperature rejection for used slots and non-rejection for otherwise

@@ -1,8 +1,8 @@
 # Multi-Filament Support Implementation Plan
 
 **Date:** 2026-09-08
-**Status:** Complete and accepted; Steps 0–10 passed; documentation closeout
-recorded at `07f276d`
+**Status:** Baseline Steps 0–10 complete and accepted; Prepare-view Prime Tower
+extension Steps 11–15 approved and ready for execution
 **Scope:** The multi-filament behaviour accepted by [`spec/Multi-Filament Support.md`](../spec/Multi-Filament%20Support.md), for the shared Electron/Web application.
 **Execution rule:** Every step below is implemented by a new, fresh Luna High subagent. The subagent must implement the complete step and perform its self-verification. The root agent independently verifies the step and records evidence before dispatching the next subagent. Steps are strictly serial; a failed or incomplete gate stops the sequence.
 
@@ -1446,3 +1446,192 @@ one numeric assignment without selecting the ObjectList row or opening its
 context menu, and the existing row context-menu assignment path remains
 available independently. The shared shadcn Select implementation is reused
 unchanged; no parallel wrapper or native-select compatibility path is kept.
+
+## 5. Prepare-view Prime Tower extension (2026-09-10)
+
+The extension implements the accepted behaviour in
+[`spec/Multi-Filament Support.md`](../spec/Multi-Filament%20Support.md#102-prime-tower-controls).
+Steps 11–15 are strictly serial. Root starts a fresh Luna High subagent for one
+step only, the subagent implements and self-verifies that complete step, and
+root independently reviews the diff and reruns the gate before the next step is
+dispatched. Each accepted step is one separate commit. All implementation and
+routine real-WASM checks prefer the threaded artifact; serial is reserved for
+the final parity check required by the changed common bridge contract.
+
+The existing dirty `packages/slicer-wasm/cpp/` working tree remains read-only
+and outside every commit. No history path may copy a complete `PresetBundle`,
+and no legacy single-filament or compatibility API may be introduced.
+
+### Step 11 — Native proxy projection and typed read contract
+
+**Functional boundary:** Expose one read-only, versioned Worker projection for
+the estimated Prime Tower proxy of every plate. This step provides authoritative
+data but adds no mutation command and renders no tower.
+
+**Implementation requirements:**
+
+1. Compute eligibility from native effective configuration, actual plate-local
+   filament use, empty-plate state, forced timelapse/wrapping cases, and native
+   By Object restrictions. Rack slot count alone is never eligibility evidence.
+2. Compute native estimated width, depth, visible height, position, imported
+   read-only rotation, effective brim margin, used-slot order, adjusted colours,
+   and equal-band definitions in C++ on the Worker thread. A zero estimate uses
+   the accepted 0.1 mm visible height. React performs no slicer calculation.
+3. Return stable plate IDs and enough footprint/build-area data for rendering
+   and deterministic boundary assertions. All eligible plates are projected;
+   interactivity remains a later UI concern.
+4. Add the C ABI export in a feature-level bridge module, wire CMake in the
+   existing grouped source list, and add exact client/runtime types, validation,
+   mock-module behaviour, and focused deterministic fixtures.
+
+**Self-verification:** `pnpm --filter @orca/slicer-wasm test`; slicer-wasm and
+slicer-runtime typechecks and focused tests; threaded WASM quick build; a
+focused threaded harness proving one-filament hidden, painted/two-filament
+visible, forced one-filament visible, multi-plate projection, dimensions,
+rotation, brim margin, band order/colours, and zero-height handling; `git diff
+--check`.
+
+**Root acceptance:** Independently inspect the native source path and JSON
+ownership, reject any React-derived eligibility or geometry, rerun the focused
+client/runtime tests and threaded harness, verify exact export/type agreement,
+and confirm the submodule and unrelated paths are unchanged. Pass means every
+required field is native-derived and stable without any product mutation.
+
+### Step 12 — Narrow position command, history, and plate invalidation
+
+**Functional boundary:** Add the explicit plate-local X/Y movement transaction
+used later by direct drag and the Move gizmo. This step changes authoritative
+state but adds no scene renderer.
+
+**Implementation requirements:**
+
+1. Add one revision-fenced move command that accepts a plate identity and final
+   X/Y, clamps the rotated footprint plus brim to the printable area when it can
+   fit, and returns the authoritative proxy/session projection atomically.
+2. One completed command produces one history entry and invalidates only that
+   plate. Undo/Redo restores only the narrow coordinates and result validity;
+   it must not capture, copy, or restore a complete `PresetBundle`.
+3. Rejected stale, missing-plate, non-finite, or failed commands leave project
+   state, history, revisions, dirty status, and slice results unchanged.
+4. The too-large-to-fit case retains native dimensions and best available
+   position with a non-blocking outside warning.
+
+**Self-verification:** focused client/runtime command tests; slicer-wasm and
+slicer-runtime full tests/typechecks; threaded quick build and focused command
+harness covering clamp, rotation/brim footprint, stale rollback, one-entry
+history, undo/redo, plate-local invalidation, too-large warning, and the existing
+full-bundle-copy diagnostic; millisecond-scale command/history benchmark; `git
+diff --check`.
+
+**Root acceptance:** Review transaction and rollback ownership, independently
+rerun the focused threaded harness and benchmark, inspect history frames for
+field-level coordinates only, and prove an unaffected plate retains its result.
+Pass means the command is atomic, narrow, revision-safe, and one gesture can map
+to exactly one history operation.
+
+### Step 13 — Normalization lifecycle, warning policy, and Settings cleanup
+
+**Functional boundary:** Make proxy state coherent across project/profile/
+filament/configuration transitions and remove X/Y from Settings. This step does
+not render or interact with the scene object.
+
+**Implementation requirements:**
+
+1. On project load or Printer change, silently clamp a legally placeable tower
+   without adding history or dirtying the project. Rendering and slicing must
+   consume the same normalized in-memory coordinates, which a later save writes.
+2. When a setting, assignment, imported painting consequence, or filament
+   mutation changes the footprint, merge any required coordinate clamp into the
+   triggering transaction and its single history entry. Undo/Redo restores both
+   atomically. No second automatic-move history is allowed.
+3. Recompute proxy visibility/data after every relevant project, plate,
+   printer/process, rack, assignment/painting, setting, history, and new-project
+   transition. Disabling the tower removes its projection immediately.
+4. Convert tower intersections with models, exclusion areas, and wrapping-
+   detection areas into slice-time, non-blocking warnings. Preserve unrelated
+   native hard errors and do not implement a renderer-side validation parser.
+5. Remove `wipe_tower_x` and `wipe_tower_y` from the generic Settings surface
+   and its UI tests while retaining the native project fields and typed scene
+   movement command. Keep Enable Prime Tower and width controls.
+
+**Self-verification:** affected slicer-wasm, slicer-runtime, and slicer-app
+tests/typechecks; threaded quick build and focused lifecycle harness covering
+load/profile silent clamp, clean history/dirty state, same-transaction footprint
+clamp, undo/redo, immediate enable/disable projection, all three warning classes
+remaining non-blocking, and unrelated validation errors remaining blocking;
+focused Settings component test; `git diff --check`.
+
+**Root acceptance:** Independently audit all mutation entry points named above,
+rerun the lifecycle harness and Settings tests, compare pre/post history counts
+and full-bundle diagnostics, and verify no compatibility path or hidden X/Y
+control remains. Pass means every lifecycle returns a coherent proxy without
+spurious history or dirty state.
+
+### Step 14 — Prepare rendering, selection, and drag interaction
+
+**Functional boundary:** Render and manipulate the approved special scene proxy
+in the shared Prepare viewport. This step does not change slicing geometry or
+Preview toolpath rendering.
+
+**Implementation requirements:**
+
+1. Render every eligible plate's estimated tower as equal depth-wise,
+   approximately 0.66-alpha filament-colour bands. Do not draw brim geometry or
+   replace the proxy with the post-slice mesh.
+2. Only the current plate tower is pickable. It is scene-only and absent from
+   Object List and context menus. Selection keeps band colours, shows selection
+   bounds, and exposes an X/Y-only Move gizmo with no rotate, scale, or Z path.
+3. Direct body drag and the Move gizmo maintain local transient movement during
+   the gesture and issue exactly one Step 12 command on successful pointer-up.
+   Cancelled gestures write nothing. Switching plate, disabling, or removing a
+   selected tower clears selection without history.
+4. Render the proxy only in Prepare. Preview remains generated toolpath only.
+   Preserve ordinary model selection, dragging, camera controls, box selection,
+   and plate interaction.
+
+**Self-verification:** focused geometry/material, selection, pointer-gesture,
+gizmo-axis, ObjectList-absence, and Prepare/Preview component tests; full
+slicer-app test/typecheck; desktop unit tests/typecheck; focused mock Electron
+Playwright interaction when canvas wiring cannot be proved at component level;
+`git diff --check`.
+
+**Root acceptance:** Independently inspect scene ownership and hit testing,
+rerun focused and full shared-app tests, perform the focused Electron interaction
+check, and verify one pointer-up produces one command/history entry while Preview
+contains no proxy. Pass means the visible behaviour matches the spec without
+regressing ordinary scene interaction.
+
+### Step 15 — Threaded real-Electron acceptance and documentation closeout
+
+**Functional boundary:** Add durable end-to-end evidence for the complete
+extension, fix only defects within Steps 11–14, and synchronize accepted status.
+No new product behaviour is introduced.
+
+**Implementation requirements:**
+
+1. Extend the real Electron Playwright path that boots the threaded WASM app.
+   Open the approved 11-plate painted 3MF through File -> Open Project, remain on
+   plate 1, and assert the black/gold estimated tower proxy, current-plate-only
+   interaction, one-drag history, boundary clamp, hidden Settings X/Y, and
+   Prepare-only lifetime. Use stable semantic/test instrumentation rather than
+   ambiguous pixel-change assertions.
+2. Add deterministic E2E coverage for enable/disable, non-current plate display,
+   non-blocking collision/outside warnings, and slice-result invalidation where
+   the licensed real project is not the correct minimal fixture.
+3. Run the complete threaded multi-filament acceptance checklist within the
+   approved two-minute bound. Run serial only for focused common-contract parity,
+   not as the default development path.
+4. Update this living plan, the approved specification status, `spec/Grand
+   Plan.md`, and `doc/high_level_dev_plan.md` only after all gates pass.
+
+**Self-verification:** `pnpm test`; `pnpm typecheck`; both WASM quick builds;
+comprehensive/focused bridge coverage on threaded plus focused serial contract
+parity; threaded multi-filament acceptance checklist under two minutes; focused
+real Electron + threaded WASM Playwright; `git diff --check`.
+
+**Root acceptance:** Independently rerun the real threaded Electron scenario,
+the two-minute acceptance checklist, affected focused serial parity, root tests
+and typechecks; review the complete Step 11–15 diff and changed-flow/test impact;
+verify every commit boundary and unchanged dirty submodule. Pass means all
+approved behaviour has executable evidence and the roadmap/spec status is
+truthful.
