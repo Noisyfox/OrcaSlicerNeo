@@ -6,6 +6,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
 import { restoreProjectHistory } from '../components/workspace/actions/historyMutation';
+import { historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from './historyDiagnostics';
 
 export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string; direction: 'undo' | 'redo' };
 
@@ -66,7 +67,14 @@ export function createHistoryRestoreCoordinator({
       // model projection begins. A narrow tower receipt already performs
       // targeted native invalidation and must not clear other plates.
       if (restored.impact.preview === 'all') useSlicerStore.getState().invalidateSliceResult();
-      await refreshModel(restored.context, restored.impact, revision);
+      const projectionStartedAt = historyDiagnosticNow();
+      try {
+        await refreshModel(restored.context, restored.impact, revision);
+      } finally {
+        useHistoryDiagnosticsStore.getState().recordProjection(
+          historyRestorePath(restored.impact), historyDiagnosticNow() - projectionStartedAt,
+        );
+      }
       if (useHistoryRestoreStore.getState().revision !== revision) return;
       if (restored.impact.filamentRack) {
         try {

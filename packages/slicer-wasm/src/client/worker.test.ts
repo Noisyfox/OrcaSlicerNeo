@@ -134,4 +134,26 @@ describe('worker protocol', () => {
     await expect((workerClient as unknown as { jumpHistory(id: string): Promise<unknown> }).jumpHistory('entry-1'))
       .rejects.toThrow('malformed history jump request');
   });
+
+  it('publishes bounded Worker/client history timing diagnostics', async () => {
+    const { workerClient, channel } = setup();
+    const context = {
+      selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: null, gizmo: null, projectConfigOverlay: {},
+    };
+    await workerClient.runProjectHistoryTransaction('Add Cube', 'project', context,
+      async () => workerClient.addShape('Cube'), context);
+    await workerClient.undoHistory();
+
+    const observed = workerClient.getHistoryDiagnostics();
+    expect(observed).toMatchObject({ version: 1 });
+    expect(observed.worker.mutation.count).toBe(1);
+    expect(observed.client.mutation.count).toBe(1);
+    expect(observed.worker.fullRestore.count).toBe(1);
+    expect(observed.client.fullRestore.count).toBe(1);
+
+    // The direct path is a Worker event rather than a renderer-side guess.
+    channel.post({ type: 'history-diagnostic', diagnostic: { kind: 'restore', path: 'direct', durationMs: 1 } });
+    expect(workerClient.getHistoryDiagnostics().worker.directRestore).toMatchObject({ count: 1, lastMs: 1 });
+  });
 });

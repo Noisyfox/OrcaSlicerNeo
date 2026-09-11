@@ -20,6 +20,9 @@ const startedAt = performance.now();
 const stageTimes = [];
 let flexibleFilamentNames = [];
 const historyLatencies = [];
+// Warmed slot history is a large multi-colour regression guard. Keep this
+// deliberately local to the real bridge smoke rather than relying on logs.
+const FILAMENT_HISTORY_LATENCY_BUDGET_MS = 100;
 function markStage(name) {
   const stage = { name, elapsedMs: Math.round(performance.now() - startedAt) };
   stageTimes.push(stage);
@@ -301,8 +304,8 @@ await assertUndoRedo('merge', (before) => Promise.resolve(request('orc_merge_fil
 const slotHistoryLatencies = historyLatencies.filter((sample) => sample.label === 'add' || sample.label === 'delete');
 assert.equal(slotHistoryLatencies.length, 4, JSON.stringify(historyLatencies));
 for (const sample of slotHistoryLatencies) {
-  assert.ok(sample.durationMs < 100,
-    `warmed ${sample.label} ${sample.operation} must finish below 100ms, got ${sample.durationMs.toFixed(1)}ms`);
+  assert.ok(sample.durationMs < FILAMENT_HISTORY_LATENCY_BUDGET_MS,
+    `warmed ${sample.label} ${sample.operation} must finish below ${FILAMENT_HISTORY_LATENCY_BUDGET_MS}ms, got ${sample.durationMs.toFixed(1)}ms`);
 }
 const minimalHistoryDiagnostics = callJson('orc_history_restore_diagnostics');
 assert.equal(minimalHistoryDiagnostics.fullPresetBundleCopyCount,
@@ -602,6 +605,7 @@ assert.equal(fenceAssignment.ok, true, JSON.stringify(fenceAssignment));
 markStage('context-revision-fence');
 console.log(JSON.stringify({ commandSmokeDurationMs: Math.round(performance.now() - startedAt), stageTimes,
   slotHistoryLatencies,
+  filamentHistoryLatencyBudgetMs: FILAMENT_HISTORY_LATENCY_BUDGET_MS,
   fullPresetBundleCopyCountBeforeHistory: historyDiagnosticsBeforeUndoRedo.fullPresetBundleCopyCount,
   fullPresetBundleCopyCountAfterHistory: minimalHistoryDiagnostics.fullPresetBundleCopyCount,
   fullPresetBundleCopyCountBeforeFallback: fallbackDiagnosticsBefore.fullPresetBundleCopyCount,

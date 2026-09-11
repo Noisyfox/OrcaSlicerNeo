@@ -9,6 +9,7 @@ import { useSlicerStore } from '../../stores/useSlicerStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import type { PlateSessionSnapshot } from '@slicer/client';
 import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
+import { useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
 
 const sliceModelMock = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('./actions/sliceActions', () => ({ sliceModel: sliceModelMock }));
@@ -58,6 +59,7 @@ describe('Workspace ownership', () => {
     useSettingsStore.setState({ modelLoaded: false });
     useSlicerStore.setState({ status: 'idle', progress: 0, error: null });
     usePlateSessionStore.getState().reset();
+    useHistoryDiagnosticsStore.getState().reset();
     (platform as unknown as { runtime?: PlatformCapabilities['runtime'] }).runtime = undefined;
     sliceModelMock.mockClear();
   });
@@ -206,5 +208,8 @@ describe('Workspace ownership', () => {
     await act(async () => { await coordinator?.restore('undo'); });
     expect(getModelStructure).not.toHaveBeenCalled();
     expect(runtime.getPlateSessionSnapshot).toHaveBeenCalledTimes(plateReadsBeforeRestore + 1);
+    expect(useHistoryDiagnosticsStore.getState().app).toMatchObject({
+      directRestore: { count: 1 }, projection: { count: 1 }, directPrimeTowerModelReloads: 0,
+    });
   });
 });

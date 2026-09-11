@@ -1042,6 +1042,8 @@ export interface SlicerClient {
                        context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
   /** Clear the prior project session and establish a clean baseline. */
   resetHistory(context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
+  /** Compact Worker/client timing counters for smoke and E2E diagnostics. */
+  getHistoryDiagnostics(): import('./history').HistoryTransportDiagnostics;
   runProjectHistoryTransaction<T>(
     label: import('./history').HistoryLabel,
     category: import('./history').HistoryCategory,

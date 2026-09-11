@@ -13,6 +13,7 @@ import type { SceneInteractionController } from '../viewport/SceneInteractionCon
 import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 import { acquireProjectMutationLease, enqueueProjectMutationOperation } from '../../../history/projectMutationGate';
 import { projectHistoryStatus } from '../../../history/projectHistoryStatus';
+import { captureHistoryTransportDiagnostics, historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from '../../../history/historyDiagnostics';
 
 export { projectHistoryStatus } from '../../../history/projectHistoryStatus';
 
@@ -123,12 +124,17 @@ export async function readTransformReservationState(runtime: TransformReservatio
  * complete.
  */
 export function runProjectMutationOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const queuedAt = historyDiagnosticNow();
   return enqueueHistoryOperation(async () => {
+    const diagnostics = useHistoryDiagnosticsStore.getState();
+    diagnostics.recordQueue(historyDiagnosticNow() - queuedAt);
+    const startedAt = historyDiagnosticNow();
     const lease = acquireProjectMutationLease();
     try {
       return await operation();
     } finally {
       lease.release();
+      useHistoryDiagnosticsStore.getState().recordMutation(historyDiagnosticNow() - startedAt);
     }
   });
 }
@@ -153,7 +159,10 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
    * transaction for their obsolete draft. */
   preflight?: () => Promise<void> | void,
 ): Promise<HistoryMutationResult<T>> {
+  const queuedAt = historyDiagnosticNow();
   return enqueueHistoryOperation(async () => {
+    useHistoryDiagnosticsStore.getState().recordQueue(historyDiagnosticNow() - queuedAt);
+    const startedAt = historyDiagnosticNow();
     const lease = acquireProjectMutationLease();
     try {
       let response: HistoryMutationResult<T>;
@@ -202,6 +211,8 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
       return response;
     } finally {
       lease.release();
+      useHistoryDiagnosticsStore.getState().recordMutation(historyDiagnosticNow() - startedAt);
+      captureHistoryTransportDiagnostics(runtime);
     }
   });
 }
@@ -246,15 +257,20 @@ export function restoreProjectHistory(
   /** Runs inside the shared FIFO immediately before one native restore. */
   beforeRestore?: () => Promise<void> | void,
 ): Promise<import('@slicer/client').RestoreResult> {
+  const queuedAt = historyDiagnosticNow();
   return enqueueHistoryOperation(async () => {
+    useHistoryDiagnosticsStore.getState().recordQueue(historyDiagnosticNow() - queuedAt);
     const lease = acquireProjectMutationLease();
     try {
       let result: import('@slicer/client').RestoreResult;
       try {
         await beforeRestore?.();
+        const nativeStartedAt = historyDiagnosticNow();
         result = action === 'undo' ? await runtime.undoHistory()
           : action === 'redo' ? await runtime.redoHistory()
             : await runtime.jumpHistory(action.jump, action.direction);
+        if (result.ok)
+          useHistoryDiagnosticsStore.getState().recordRestore(historyRestorePath(result.impact), historyDiagnosticNow() - nativeStartedAt);
       } catch (error) {
         const status = await runtime.getHistoryStatus().catch(() => null);
         if (status) projectHistoryStatus(status);
@@ -262,13 +278,16 @@ export function restoreProjectHistory(
         return { ok: false, error: { code: 'unknown', message: error instanceof Error ? error.message : String(error), retryable: true }, status: status ?? undefined };
       }
       if (result.status) projectHistoryStatus(result.status);
+      const filamentStartedAt = historyDiagnosticNow();
       await refreshFilamentSession(runtime, undefined, lease);
+      useHistoryDiagnosticsStore.getState().recordFilamentRefresh(historyDiagnosticNow() - filamentStartedAt);
       if (result.ok) {
         await publish?.(result);
       }
       return result;
     } finally {
       lease.release();
+      captureHistoryTransportDiagnostics(runtime);
     }
   });
 }

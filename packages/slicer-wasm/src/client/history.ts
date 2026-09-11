@@ -129,6 +129,33 @@ export interface RestoreImpact {
   readonly preview: 'all' | 'current-plate';
 }
 
+/** A compact timing aggregate; it intentionally retains no operation history. */
+export interface HistoryTimingDiagnostic {
+  readonly count: number;
+  readonly totalMs: number;
+  readonly maxMs: number;
+  readonly lastMs: number;
+}
+
+/** Per-boundary timings collected for history work in the Worker and client. */
+export interface HistoryDiagnosticLayer {
+  readonly mutation: HistoryTimingDiagnostic;
+  readonly restore: HistoryTimingDiagnostic;
+  readonly directRestore: HistoryTimingDiagnostic;
+  readonly fullRestore: HistoryTimingDiagnostic;
+}
+
+/**
+ * Versioned, bounded Worker/client observability for history operations.
+ * These are counters and latest durations only, never retained frames, model
+ * data, contexts, or a renderer-owned history representation.
+ */
+export interface HistoryTransportDiagnostics {
+  readonly version: 1;
+  readonly worker: HistoryDiagnosticLayer;
+  readonly client: HistoryDiagnosticLayer;
+}
+
 export interface RestoreSuccess {
   readonly ok: true;
   readonly context: HistoryContext;

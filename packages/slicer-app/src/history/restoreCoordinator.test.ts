@@ -6,6 +6,7 @@ import { useSlicerStore } from '../stores/useSlicerStore';
 import { useProjectStore } from '../stores/useProjectStore';
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
 import { runProjectMutationOperation } from '../components/workspace/actions/historyMutation';
+import { useHistoryDiagnosticsStore } from './historyDiagnostics';
 
 const context: HistoryContext = {
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
@@ -23,6 +24,9 @@ const fullImpact = {
   version: 1 as const, model: 'full' as const, plateSession: true, filamentRack: true,
   projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const,
 };
+const directImpact = {
+  ...fullImpact, model: 'none' as const, filamentRack: false, preview: 'current-plate' as const,
+};
 const success = (revision = 1): RestoreResult => ({ ok: true, context,
   status: { ...status, revision }, impact: fullImpact });
 
@@ -38,6 +42,7 @@ describe('history restore coordinator', () => {
     useHistoryRestoreStore.getState().reset();
     useSlicerStore.getState().invalidateSliceResult();
     useProjectStore.getState().reset();
+    useHistoryDiagnosticsStore.getState().reset();
   });
 
   it('consumes the first shortcut by cancelling a draft drag', async () => {
@@ -165,6 +170,32 @@ describe('history restore coordinator', () => {
     expect(useHistoryRestoreStore.getState()).toMatchObject({
       phase: 'idle', error: 'mesh projection failed', snapshotSuppressed: false,
     });
+  });
+
+  it('reports split full/direct restore projection counters without retaining history data', async () => {
+    const direct: RestoreResult = { ok: true, context, status, impact: directImpact };
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: {
+        undoHistory: vi.fn(async () => direct), redoHistory: vi.fn(async () => success(2)), jumpHistory: vi.fn(),
+        cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })),
+        getHistoryStatus: vi.fn(async () => status),
+      },
+      sceneInteraction: fakeScene(), refreshModel: vi.fn(async () => undefined),
+    });
+
+    await expect(coordinator.restore('undo')).resolves.toBe(true);
+    let diagnostics = useHistoryDiagnosticsStore.getState().app;
+    expect(diagnostics.directRestore.count).toBe(1);
+    expect(diagnostics.fullRestore.count).toBe(0);
+    expect(diagnostics.projection.count).toBe(1);
+    expect(diagnostics.directPrimeTowerModelReloads).toBe(0);
+    expect(diagnostics.fullRestoreModelReloads).toBe(0);
+
+    await expect(coordinator.restore('redo')).resolves.toBe(true);
+    diagnostics = useHistoryDiagnosticsStore.getState().app;
+    expect(diagnostics.fullRestore.count).toBe(1);
+    expect(diagnostics.fullRestoreModelReloads).toBe(1);
+    expect(diagnostics.filamentRefresh.count).toBe(2);
   });
 
   it('keeps a successful native restore successful when rack publication fails', async () => {

@@ -36,10 +36,19 @@ import type {
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
-  HistoryCategory, HistoryTransactionOptions, RestoreResult,
+  HistoryCategory, HistoryDiagnosticLayer, HistoryTimingDiagnostic, HistoryTransactionOptions, RestoreResult,
 } from './history';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
+
+function emptyHistoryTiming(): HistoryTimingDiagnostic {
+  return { count: 0, totalMs: 0, maxMs: 0, lastMs: 0 };
+}
+
+function emptyHistoryDiagnosticLayer(): HistoryDiagnosticLayer {
+  return { mutation: emptyHistoryTiming(), restore: emptyHistoryTiming(),
+    directRestore: emptyHistoryTiming(), fullRestore: emptyHistoryTiming() };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -1081,6 +1090,7 @@ export function createClient(
     markHistorySaved,
     recordHistoryContext,
     resetHistory,
+    getHistoryDiagnostics: () => ({ version: 1 as const, worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
     runProjectHistoryTransaction,
 
     async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {
