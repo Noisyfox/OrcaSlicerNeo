@@ -25,7 +25,12 @@ function transactionRuntime() {
     after: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
   ): Promise<{ result: T; status: HistoryStatus }> => ({ result: await mutation('tx-1'), status: { ...status, revision: 3, undoLabel: before.activePlateId ?? 'mutation' } });
   const runProjectHistoryTransaction = vi.fn(implementation) as unknown as TransactionMock;
-  return { runProjectHistoryTransaction, getHistoryStatus: vi.fn(async () => status) };
+  const getFilamentSessionSnapshot = vi.fn(async () => ({
+    ok: true, version: 1, slots: [], mappings: {}, flushing: {}, capabilities: {},
+    assignments: { objects: [], parts: [], modifiers: [] },
+    revisions: { session: 3, project: 3, result: 0, plates: {} }, status: { state: 'ready', error: null },
+  } as never));
+  return { runProjectHistoryTransaction, getHistoryStatus: vi.fn(async () => status), getFilamentSessionSnapshot };
 }
 
 describe('structural history transaction boundary', () => {
@@ -65,6 +70,7 @@ describe('structural history transaction boundary', () => {
     const runtime = {
       runProjectHistoryTransaction: vi.fn(async () => { throw new Error('mutation failed'); }),
       getHistoryStatus: vi.fn(async () => ({ ...status, dirty: false, dirtyReasons: undefined })),
+      getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
     };
     useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
 
@@ -100,6 +106,7 @@ describe('structural history transaction boundary', () => {
         ok: true as const, version: 1 as const, currentPlateId: 'plate-b',
         plates: [{ plateId: 'plate-b', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], name: 'Plate 2' }],
       }),
+      getFilamentSessionSnapshot: async () => ({ ok: false, error: 'unused' } as never),
     };
     useObjectListStore.setState({
       structure: [{
@@ -121,5 +128,52 @@ describe('structural history transaction boundary', () => {
     await syncHistoryStatus(runtime);
     expect(useProjectStore.getState().dirty).toBe(true);
     expect(useProjectStore.getState().dirtyReasons).toEqual([]);
+  });
+
+  it('keeps its owned project fence through the filament refresh on success and failure', async () => {
+    const success = transactionRuntime();
+    const successPending: number[] = [];
+    success.getFilamentSessionSnapshot.mockImplementation(async () => {
+      successPending.push(useProjectStore.getState().projectMutationPendingCount);
+      return { ok: true, version: 1, slots: [], mappings: {}, flushing: {}, capabilities: {},
+        assignments: { objects: [], parts: [], modifiers: [] },
+        revisions: { session: 3, project: 3, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
+    });
+    await runProjectHistoryMutation(success, 'Rename Object', async () => ({ ok: true }));
+    expect(successPending).toEqual([1]);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+
+    useProjectStore.getState().reset();
+    const failurePending: number[] = [];
+    const failure = {
+      runProjectHistoryTransaction: vi.fn(async () => { throw new Error('mutation failed'); }),
+      getHistoryStatus: vi.fn(async () => status),
+      getFilamentSessionSnapshot: vi.fn(async () => {
+        failurePending.push(useProjectStore.getState().projectMutationPendingCount);
+        return { ok: true, version: 1, slots: [], mappings: {}, flushing: {}, capabilities: {},
+          assignments: { objects: [], parts: [], modifiers: [] },
+          revisions: { session: 4, project: 4, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
+      }),
+    };
+    await runProjectHistoryMutation(failure, 'Rename Object', async () => ({ ok: true }));
+    expect(failurePending).toEqual([1]);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+  });
+
+  it('does not own or release the fence when the caller retains it', async () => {
+    const runtime = transactionRuntime();
+    const pending: number[] = [];
+    runtime.getFilamentSessionSnapshot.mockImplementation(async () => {
+      pending.push(useProjectStore.getState().projectMutationPendingCount);
+      return { ok: true, version: 1, slots: [], mappings: {}, flushing: {}, capabilities: {},
+        assignments: { objects: [], parts: [], modifiers: [] },
+        revisions: { session: 3, project: 3, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
+    });
+    useProjectStore.getState().beginProjectMutation();
+    await runProjectHistoryMutation(runtime, 'Clear Scene', async () => ({ ok: true }), null,
+      { fenceProjectMutation: false });
+    expect(pending).toEqual([1]);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(1);
+    useProjectStore.getState().endProjectMutation();
   });
 });

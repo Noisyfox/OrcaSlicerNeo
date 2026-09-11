@@ -18,7 +18,6 @@ import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 import { resetSceneState } from './resetSceneState';
 import { runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
-import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 
 export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 
@@ -46,13 +45,10 @@ async function commitAddedImpl(
   const currentSettings = useSettingsStore.getState();
   if (currentSettings.modelLoaded && typeof platform.runtime.getModelMesh === 'function')
     await waitForGLVolumeRevision(currentSettings.modelRevision);
-  const history = await runProjectHistoryMutation(platform.runtime, `Add ${displayName}`, add, sceneInteraction);
+  const history = await runProjectHistoryMutation(platform.runtime, `Add ${displayName}`, add, sceneInteraction,
+    { fenceProjectMutation: false });
   const r = history.result;
   if (!r.ok) throw new Error(r.error ?? 'add failed');
-  // Add Primitive/model commits advance the native history revision. Start
-  // the session refresh before renderer mesh work so the filament command
-  // FIFO fences any ObjectList/context-menu command opened during loading.
-  const filamentRefresh = refreshFilamentSession(platform.runtime);
   applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
   const slicer = useSlicerStore.getState();
   const settings = useSettingsStore.getState();
@@ -69,7 +65,6 @@ async function commitAddedImpl(
   sceneInteraction?.resetForModel();
   if (typeof platform.runtime.getModelMesh === 'function')
     await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
-  await filamentRefresh;
   useProjectStore.getState().setProject({ hasContent: true });
   if (r.plateSession) {
     const previousPlateSession = usePlateSessionStore.getState().snapshot;
@@ -94,11 +89,11 @@ async function commitAdded(
   displayName: string,
   add: () => Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>,
 ): Promise<void> {
-  useProjectStore.getState().beginSceneMutation();
+  useProjectStore.getState().beginProjectMutation();
   try {
     await commitAddedImpl(platform, sceneInteraction, displayName, add);
   } finally {
-    useProjectStore.getState().endSceneMutation();
+    useProjectStore.getState().endProjectMutation();
   }
 }
 
@@ -210,8 +205,13 @@ export async function clearScene(
   const slicer = useSlicerStore.getState();
   const settings = useSettingsStore.getState();
   if (slicer.status === 'slicing' || !settings.modelLoaded) return;
+  // Keep the project fence across native history, renderer reset, and the
+  // resulting plate projection. The history helper refreshes the filament
+  // snapshot once while this outer fence is held.
+  useProjectStore.getState().beginProjectMutation();
   try {
-    const history = await runProjectHistoryMutation(platform.runtime, 'Clear Scene', () => platform.runtime.clearModel(), sceneInteraction);
+    const history = await runProjectHistoryMutation(platform.runtime, 'Clear Scene', () => platform.runtime.clearModel(), sceneInteraction,
+      { fenceProjectMutation: false });
     const r = history.result;
     if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
     applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
@@ -225,11 +225,12 @@ export async function clearScene(
     }
     else useProjectStore.getState().markDirty('model-clear');
     await syncHistoryStatus(platform.runtime);
-    await refreshFilamentSession(platform.runtime);
     sceneInteraction?.resetForModel();
     slicer.setError(null);
   } catch (err) {
     slicer.setError(errorText(err));
     console.error('clear scene failed:', err);
+  } finally {
+    useProjectStore.getState().endProjectMutation();
   }
 }

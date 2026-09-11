@@ -8,8 +8,9 @@ import { glVolumeCollection } from '../viewport/GLVolume';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms } from './syncModelTransforms';
 import { applySettledTransformSyncResult } from './persistModelTransforms';
+import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 
-type TransformHistoryRuntime = Pick<SlicerClient, 'runProjectHistoryTransaction' | 'setModelTransform'> &
+type TransformHistoryRuntime = Pick<SlicerClient, 'runProjectHistoryTransaction' | 'setModelTransform' | 'getFilamentSessionSnapshot'> &
   Partial<Pick<SlicerClient, 'recomputePlateMembership'>>;
 
 /** Build the Worker-owned context projection without retaining renderer state. */
@@ -71,6 +72,7 @@ export class TransformHistoryCoordinator {
 
   begin(label: string): void {
     const beforeContext = historyContextForScene(this.sceneInteraction);
+    useProjectStore.getState().beginProjectMutation();
     let release!: (command: GateCommand) => void;
     const gate = new Promise<GateCommand>((resolve) => { release = resolve; });
     let resolve!: () => void;
@@ -130,6 +132,7 @@ export class TransformHistoryCoordinator {
     if (!next) return;
     if (next.decision === 'abort' && !next.started) {
       this.pending.shift();
+      useProjectStore.getState().endProjectMutation();
       next.resolve();
       this.pump();
       return;
@@ -137,25 +140,40 @@ export class TransformHistoryCoordinator {
     if (next.started) return;
     next.started = true;
     this.running = next;
-    next.task = this.runtime.runProjectHistoryTransaction(
-      next.label,
-      'project',
-      next.beforeContext,
-      async () => {
-        const command = await next.gate;
-        if (command === 'abort') throw new TransformCancelledError();
-        const result = await syncModelTransforms(this.runtime, next.finalTransforms ?? this.captureTransforms());
-        if (!result.ok) throw new Error(result.error ?? 'model transform synchronization failed');
-        applySettledTransformSyncResult(result);
-        return result;
-      },
-      () => historyContextForScene(this.sceneInteraction),
-    );
+    try {
+      next.task = this.runtime.runProjectHistoryTransaction(
+        next.label,
+        'project',
+        next.beforeContext,
+        async () => {
+          const command = await next.gate;
+          if (command === 'abort') throw new TransformCancelledError();
+          const result = await syncModelTransforms(this.runtime, next.finalTransforms ?? this.captureTransforms());
+          if (!result.ok) throw new Error(result.error ?? 'model transform synchronization failed');
+          applySettledTransformSyncResult(result);
+          return result;
+        },
+        () => historyContextForScene(this.sceneInteraction),
+      );
+    } catch (error) {
+      try { this.onError(error); } catch { /* reporting must not retain the mutation fence */ }
+      this.running = null;
+      this.pending.shift();
+      useProjectStore.getState().endProjectMutation();
+      next.resolve();
+      this.pump();
+      return;
+    }
     void next.task.then((result) => {
       next.result = result;
     }).catch((error) => {
       this.onError(error);
-    }).finally(() => {
+    }).finally(async () => {
+      // The native history commit (or abort) advances the same session
+      // revision used by filament commands. Refresh before releasing the
+      // project fence so the next material command reads that revision.
+      await refreshFilamentSession(this.runtime);
+      useProjectStore.getState().endProjectMutation();
       this.running = null;
       this.pending.shift();
       next.resolve();

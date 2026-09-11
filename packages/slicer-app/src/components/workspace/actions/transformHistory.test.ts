@@ -6,6 +6,8 @@ import { GLVolume, glVolumeCollection } from '../viewport/GLVolume';
 import { TransformHistoryCoordinator } from './transformHistory';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
+import { useProjectStore } from '../../../stores/useProjectStore';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
 
 function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number): GLVolume {
   const buffer: ModelObjectBuffer = {
@@ -26,6 +28,7 @@ function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number): 
 function historyRuntime() {
   return {
     setModelTransform: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
+    getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
     runProjectHistoryTransaction: vi.fn(async (
       _label: string,
       _category: 'project' | 'context',
@@ -41,6 +44,8 @@ describe('TransformHistoryCoordinator', () => {
     glVolumeCollection.clear();
     useObjectListStore.getState().clear();
     usePlateSessionStore.getState().setSnapshot(null);
+    useProjectStore.getState().reset();
+    useFilamentSessionStore.getState().reset();
   });
 
   it('opens one Worker transaction and waits for the final commit gate', async () => {
@@ -48,6 +53,7 @@ describe('TransformHistoryCoordinator', () => {
     const mutationRelease = new Promise<void>((resolve) => { releaseMutation = resolve; });
     const runtime = {
       setModelTransform: vi.fn(async () => ({ ok: true })),
+      getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
         _category: 'project' | 'context',
@@ -89,6 +95,7 @@ describe('TransformHistoryCoordinator', () => {
   it('aborts a cancelled transaction without writing transforms', async () => {
     const runtime = {
       setModelTransform: vi.fn(async () => ({ ok: true })),
+      getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
         _category: 'project' | 'context',
@@ -108,6 +115,7 @@ describe('TransformHistoryCoordinator', () => {
     const started: string[] = [];
     const runtime = {
       setModelTransform: vi.fn(async () => ({ ok: true })),
+      getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       runProjectHistoryTransaction: vi.fn(async (
         label: string,
         _category: 'project' | 'context',
@@ -182,5 +190,67 @@ describe('TransformHistoryCoordinator', () => {
     expect(port.abort).toHaveBeenCalledTimes(1);
     expect(port.commit).not.toHaveBeenCalled();
     expect(runtime.setModelTransform).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the filament revision before releasing the project fence', async () => {
+    const snapshots = [{ pending: 0, revision: 2 }];
+    const runtime = {
+      setModelTransform: vi.fn(async () => ({ ok: true })),
+      getFilamentSessionSnapshot: vi.fn(async () => {
+        snapshots[0].pending = useProjectStore.getState().projectMutationPendingCount;
+        return {
+          ok: true,
+          version: 1,
+          slots: [],
+          mappings: {},
+          flushing: {},
+          capabilities: {},
+          assignments: { objects: [], parts: [], modifiers: [] },
+          revisions: { session: snapshots[0].revision, project: snapshots[0].revision, result: 0, plates: {} },
+          status: { state: 'ready', error: null },
+        } as never;
+      }),
+      runProjectHistoryTransaction: vi.fn(async (
+        _label: string,
+        _category: 'project' | 'context',
+        _before: unknown,
+        mutation: (tx: string) => Promise<unknown>,
+        _after: unknown | (() => unknown),
+      ) => ({ result: await mutation('tx-1'), status: { dirty: true, revision: 2 } as never })),
+    };
+    const controller = new SceneInteractionController(() => []);
+    const history = new TransformHistoryCoordinator(runtime as never, controller);
+
+    history.begin('Move');
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(1);
+    await history.commit();
+
+    expect(runtime.getFilamentSessionSnapshot).toHaveBeenCalledOnce();
+    expect(snapshots[0].pending).toBe(1);
+    expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(2);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+  });
+
+  it('does not leak the project fence when context setup throws', () => {
+    const controller = new SceneInteractionController(() => { throw new Error('scene projection failed'); });
+    const history = new TransformHistoryCoordinator(historyRuntime() as never, controller);
+
+    expect(() => history.begin('Move')).toThrow('scene projection failed');
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+  });
+
+  it('releases the project fence when starting the Worker transaction throws synchronously', () => {
+    const onError = vi.fn();
+    const runtime = {
+      setModelTransform: vi.fn(async () => ({ ok: true })),
+      getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
+      runProjectHistoryTransaction: vi.fn(() => { throw new Error('history unavailable'); }),
+    };
+    const history = new TransformHistoryCoordinator(runtime as never, new SceneInteractionController(() => []), onError);
+
+    history.begin('Move');
+
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: 'history unavailable' }));
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
   });
 });

@@ -175,7 +175,7 @@ describe('FilamentRack runtime interaction', () => {
     const initial = makeSnapshot();
     const runtime = { getFilamentSessionSnapshot: vi.fn(async () => initial), addFilamentSlot: vi.fn() };
     useFilamentSessionStore.setState({ snapshot: initial });
-    useProjectStore.setState({ sceneMutationPendingCount: 1 });
+    useProjectStore.setState({ projectMutationPendingCount: 1 });
     const rendered = renderRack(runtime); root = rendered.root;
     await act(async () => { await Promise.resolve(); });
     expect((rendered.container.querySelector('[data-testid="filament-add"]') as HTMLButtonElement).disabled).toBe(true);

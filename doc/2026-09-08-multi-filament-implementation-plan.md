@@ -1752,3 +1752,25 @@ real threaded WASM focused E2E passed once after staging the dual artifacts and
 building the real bundle, reached slot 2, and showed no stale-revision
 rejection. The pre-existing pinned `packages/slicer-wasm/cpp` submodule is
 unchanged.
+
+**Step 19 implementation record (2026-09-11, accepted):** The revision fence
+now covers every project-history mutation rather than only scene additions.
+Transform gestures hold a reference-counted project-mutation fence from begin
+through native history commit/abort and filament-session refresh; the generic
+project mutation helper applies the same refresh after successful or failed
+history transactions. The complete project fence is released only after the
+new authoritative filament snapshot is published, so a moved Cube cannot
+leave Add Filament holding the preceding session revision. Add/Clear Scene
+retain their wider renderer-publication fence without double-counting it.
+The transform unit regression proves the refresh occurs while the fence is
+held and that the store ends at the new revision; the focused Electron flow
+proves right-click Add Cube, one Cube drag, then Add Filament reaches slot 2
+without a stale-revision rejection; both the mock run and the exact real
+threaded-WASM run passed. `projectMutationPendingCount` replaces
+the add-only name, and no retry, compatibility path, full PresetBundle copy,
+or slice-result history retention was introduced. Self-verification passed:
+the focused slicer-app tests (36/36), full slicer-app suite (72 files,
+500 tests), slicer-app typecheck, desktop typecheck, focused mock Electron
+Playwright (1 passed), exact real threaded-WASM Electron Playwright (1 passed),
+and `git diff --check`. The pinned
+`packages/slicer-wasm/cpp` submodule remains unchanged.

@@ -138,7 +138,7 @@ export function FilamentRack() {
   const platform = usePlatform();
   const snapshot = useFilamentSessionStore((state) => state.snapshot);
   const pendingKind = useFilamentSessionStore((state) => state.pendingKind);
-  const sceneMutationPending = useProjectStore((state) => state.sceneMutationPendingCount > 0);
+  const projectMutationPending = useProjectStore((state) => state.projectMutationPendingCount > 0);
   const rejected = useFilamentSessionStore((state) => state.rejected);
   const load = useFilamentSessionStore((state) => state.load);
   const run = useFilamentSessionStore((state) => state.run);
@@ -156,7 +156,7 @@ export function FilamentRack() {
     () => compatiblePresetNames(snapshot, filamentCatalog.map((preset) => preset.name)),
     [filamentCatalog, snapshot],
   );
-  const pending = pendingKind !== null || sceneMutationPending;
+  const pending = pendingKind !== null || projectMutationPending;
 
   async function updateSlot(request: () => Promise<FilamentMutationResultOrError>) {
     const result = await run(platform.runtime, request);

@@ -117,13 +117,13 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
 
 /** Refresh the complete Worker projection after a model/project replacement.
  * Callers may fence publication when a newer history restore supersedes the
- * request. An unavailable legacy runtime is treated as a no-op by lifecycle
- * callers; the live native session remains authoritative whenever present. */
+ * request. An unavailable runtime is treated as a no-op by lifecycle callers;
+ * the live native session remains authoritative whenever present. */
 export async function refreshFilamentSession(
   runtime: Pick<SlicerClient, 'getFilamentSessionSnapshot'> | undefined,
   isCurrent?: () => boolean,
 ): Promise<FilamentSessionSnapshotResult | null> {
-  if (!runtime || typeof runtime.getFilamentSessionSnapshot !== 'function') return null;
+  if (!runtime) return null;
   return useFilamentSessionStore.getState().refresh(runtime as SlicerClient, isCurrent);
 }
 

@@ -10,6 +10,7 @@ import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
+import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 
 export type HistoryMutationResult<T> = {
   result: T;
@@ -17,6 +18,7 @@ export type HistoryMutationResult<T> = {
 };
 
 type HistoryMutationRuntime = Pick<SlicerRuntime, 'runProjectHistoryTransaction'> &
+  Pick<SlicerRuntime, 'getFilamentSessionSnapshot'> &
   Partial<Pick<SlicerRuntime, 'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot'>>;
 
 /** Build a JSON-safe context from the current stable-ID ObjectList projection. */
@@ -63,6 +65,10 @@ function projectContextOntoStructure(context: HistoryContext, structure: Awaited
 }
 
 type MutationResponse = { ok?: boolean; error?: string };
+export interface ProjectHistoryMutationOptions {
+  /** The caller owns a fence that must span post-transaction rendering work. */
+  fenceProjectMutation?: boolean;
+}
 
 /** Run one project mutation through the Worker-owned history transaction. */
 export async function runProjectHistoryMutation<T extends MutationResponse>(
@@ -70,41 +76,54 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
   label: string,
   mutation: () => Promise<T>,
   sceneInteraction?: SceneInteractionController | null,
+  options: ProjectHistoryMutationOptions = {},
 ): Promise<HistoryMutationResult<T>> {
   const before = historyContextForStructure(sceneInteraction);
+  // A project history commit advances the native filament-session revision
+  // even when the mutation itself does not touch materials. Hold the shared
+  // mutation fence until the complete post-commit projection is published so
+  // a filament command cannot read the preceding revision in that window.
+  const ownsProjectFence = options.fenceProjectMutation !== false;
+  if (ownsProjectFence) useProjectStore.getState().beginProjectMutation();
   try {
-    const response = await runtime.runProjectHistoryTransaction(
-      label,
-      'project',
-      before,
-      async () => {
-        const result = await mutation();
-        if (result.ok !== true) throw new Error(result.error ?? `${label} failed`);
-        return result;
-      },
-      async () => {
-        let context = historyContextForStructure(sceneInteraction);
-        const structure = typeof runtime.getModelStructure === 'function'
-          ? await runtime.getModelStructure().catch(() => null)
-          : null;
-        if (structure) context = projectContextOntoStructure(context, structure);
-        const plateSession = typeof runtime.getPlateSessionSnapshot === 'function'
-          ? await runtime.getPlateSessionSnapshot().catch(() => null)
-          : null;
-        if (plateSession?.ok) context = { ...context, activePlateId: plateSession.currentPlateId };
-        return context;
-      },
-    ) as unknown as HistoryMutationResult<T>;
-    return response;
-  } catch (error) {
-    const status = typeof runtime.getHistoryStatus === 'function'
-      ? await runtime.getHistoryStatus().catch(() => null)
-      : null;
-    if (status) projectHistoryStatus(status);
-    return {
-      result: { ok: false, error: error instanceof Error ? error.message : String(error) } as T,
-      status,
-    };
+    try {
+      const response = await runtime.runProjectHistoryTransaction(
+        label,
+        'project',
+        before,
+        async () => {
+          const result = await mutation();
+          if (result.ok !== true) throw new Error(result.error ?? `${label} failed`);
+          return result;
+        },
+        async () => {
+          let context = historyContextForStructure(sceneInteraction);
+          const structure = typeof runtime.getModelStructure === 'function'
+            ? await runtime.getModelStructure().catch(() => null)
+            : null;
+          if (structure) context = projectContextOntoStructure(context, structure);
+          const plateSession = typeof runtime.getPlateSessionSnapshot === 'function'
+            ? await runtime.getPlateSessionSnapshot().catch(() => null)
+            : null;
+          if (plateSession?.ok) context = { ...context, activePlateId: plateSession.currentPlateId };
+          return context;
+        },
+      ) as unknown as HistoryMutationResult<T>;
+      await refreshFilamentSession(runtime);
+      return response;
+    } catch (error) {
+      const status = typeof runtime.getHistoryStatus === 'function'
+        ? await runtime.getHistoryStatus().catch(() => null)
+        : null;
+      if (status) projectHistoryStatus(status);
+      await refreshFilamentSession(runtime);
+      return {
+        result: { ok: false, error: error instanceof Error ? error.message : String(error) } as T,
+        status,
+      };
+    }
+  } finally {
+    if (ownsProjectFence) useProjectStore.getState().endProjectMutation();
   }
 }
 

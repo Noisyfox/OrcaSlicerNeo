@@ -10,7 +10,7 @@ vi.mock('@orca/slicer-runtime', () => ({
   errorText: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
-import { addHandyModel, addModel, addPrimitive, HANDY_MODELS } from './sceneActions';
+import { addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS } from './sceneActions';
 import { useProjectStore } from '../../../stores/useProjectStore';
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
@@ -108,11 +108,40 @@ describe('scene add-model action', () => {
 
     const pending = addPrimitive(platform, null, 'Cube');
     await Promise.resolve();
-    expect(useProjectStore.getState().sceneMutationPendingCount).toBe(1);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(1);
 
     release({ ok: true });
     await pending;
-    expect(useProjectStore.getState().sceneMutationPendingCount).toBe(0);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+  });
+
+  it('keeps Clear Scene fenced through its single filament refresh', async () => {
+    const pendingAtRefresh: number[] = [];
+    const platform = {
+      runtime: {
+        clearModel: vi.fn(async () => ({ ok: true })),
+        runProjectHistoryTransaction: vi.fn(async (
+          _label: string,
+          _category: 'project',
+          _before: unknown,
+          mutation: (transactionId: string) => Promise<{ ok: boolean }>,
+          _after: unknown,
+        ) => ({ result: await mutation('tx-1'), status: null })),
+        getFilamentSessionSnapshot: vi.fn(async () => {
+          pendingAtRefresh.push(useProjectStore.getState().projectMutationPendingCount);
+          return { ok: true, version: 1, slots: [], mappings: {}, flushing: {}, capabilities: {},
+            assignments: { objects: [], parts: [], modifiers: [] },
+            revisions: { session: 1, project: 1, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
+        }),
+      },
+    } as unknown as PlatformCapabilities;
+    useSettingsStore.setState({ modelLoaded: true });
+
+    await clearScene(platform, null);
+
+    expect(platform.runtime.getFilamentSessionSnapshot).toHaveBeenCalledOnce();
+    expect(pendingAtRefresh).toEqual([1]);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
   });
 
   it('does not modify the scene when a bundled asset cannot be fetched', async () => {

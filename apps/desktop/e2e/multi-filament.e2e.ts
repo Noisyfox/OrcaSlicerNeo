@@ -21,6 +21,39 @@ async function addPrimitive(page: Page, primitive: string): Promise<void> {
   await expect(page.getByTestId('ctx-menu')).toBeHidden();
 }
 
+async function dragCubeOnce(page: Page): Promise<void> {
+  const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error('viewport canvas has no bounding box');
+  await expect.poll(() => page.evaluate(() =>
+    (window as unknown as {
+      __orcaE2e?: { modelWorldCenters?: () => Array<[number, number, number]> };
+    }).__orcaE2e?.modelWorldCenters?.() ?? [],
+  ), { timeout: 30_000 }).not.toHaveLength(0);
+  const worldCenter = await page.evaluate(() =>
+    (window as unknown as {
+      __orcaE2e?: { modelWorldCenters?: () => Array<[number, number, number]> };
+    }).__orcaE2e?.modelWorldCenters?.()[0] ?? null,
+  );
+  const point = worldCenter && await page.evaluate((p) =>
+    (window as unknown as {
+      __orcaE2e?: { projectWorldToScreen(q: [number, number, number]): { x: number; y: number } | null };
+    }).__orcaE2e?.projectWorldToScreen(p),
+    worldCenter,
+  );
+  if (!point) throw new Error('added cube center projection unavailable');
+  const start = { x: box.x + point.x, y: box.y + point.y };
+  await page.mouse.click(start.x, start.y);
+  await expect(page.getByTestId('gizmo-btn-move')).toBeEnabled();
+  await page.getByTestId('gizmo-btn-move').click();
+  const before = await page.getByTestId('move-x').inputValue();
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 32, start.y + 16, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => page.getByTestId('move-x').inputValue(), { timeout: 10_000 }).not.toBe(before);
+}
+
 test('new project slots remain assignable from the ObjectList select and context menu', async () => {
   const app = await launchApp();
   try {
@@ -84,6 +117,24 @@ test('adds a filament after two cubes from the scene context menu', async () => 
     await addPrimitive(page, 'cube');
     await expect.poll(() => objectRows.count(), { timeout: 30_000 }).toBe(initialObjectCount + 2);
 
+    await page.getByTestId('filament-add').click();
+    await expect(page.getByTestId('filament-slot-2')).toBeVisible();
+    await expect(page.getByTestId('filament-rejected')).toBeHidden();
+  } finally {
+    await app.close();
+  }
+});
+
+test('adds a filament after a scene cube has been moved', async () => {
+  const app = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('filament-slot-1')).toBeVisible();
+
+    await addPrimitive(page, 'cube');
+    await dragCubeOnce(page);
     await page.getByTestId('filament-add').click();
     await expect(page.getByTestId('filament-slot-2')).toBeVisible();
     await expect(page.getByTestId('filament-rejected')).toBeHidden();
