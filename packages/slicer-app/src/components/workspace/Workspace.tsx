@@ -36,7 +36,7 @@ import { FilamentRack } from './FilamentRack';
 import { refreshFilamentSession, useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import { publishRememberedFilamentRack } from '../../preferences';
 import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
-import { PrimeTowerInteractionController } from './viewport/PrimeTowerInteractionController';
+import { WipeTowerVolumeCollection } from './viewport/WipeTowerVolume';
 import type { PrimeTowerMoveResultOrError } from '@slicer/client';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
@@ -81,18 +81,10 @@ export function Workspace({
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const glVolumes = useModelLoader();
   const sliceResult = useSliceResult();
-  // Workspace is kept mounted by AppShell. Keep the controller here, beside
-  // the model/result hooks, so a Prepare↔Preview content-tree switch never
-  // recreates the interaction state or its volume collection.
-  const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
-  if (!sceneInteractionRef.current) {
-    sceneInteractionRef.current = new SceneInteractionController(() => glVolumeCollection.volumes);
-  }
-  const sceneInteraction = sceneInteractionRef.current;
   const primeTowerRefreshRef = useRef<(() => Promise<void>) | null>(null);
-  const primeTowerControllerRef = useRef<PrimeTowerInteractionController | null>(null);
-  if (!primeTowerControllerRef.current) {
-    primeTowerControllerRef.current = new PrimeTowerInteractionController({
+  const wipeTowerVolumesRef = useRef<WipeTowerVolumeCollection | null>(null);
+  if (!wipeTowerVolumesRef.current) {
+    wipeTowerVolumesRef.current = new WipeTowerVolumeCollection({
       move: async (request): Promise<PrimeTowerMoveResultOrError> => {
         const result = await platform.runtime.movePrimeTower(request);
         if (result.ok) {
@@ -105,19 +97,33 @@ export function Workspace({
       revision: (plateId) => usePlateSessionStore.getState().snapshot?.inputRevisions?.[plateId] ?? -1,
     });
   }
-  const primeTowerController = primeTowerControllerRef.current;
+  const wipeTowerVolumes = wipeTowerVolumesRef.current;
+  // Workspace is kept mounted by AppShell.  The shared controller sees both
+  // native model GLVolumes and scene-only wipe-tower GLVolumes, exactly like
+  // Orca's GLVolumeCollection.
+  const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
+  if (!sceneInteractionRef.current) {
+    sceneInteractionRef.current = new SceneInteractionController(() => [...glVolumeCollection.volumes, ...wipeTowerVolumes.volumes]);
+    sceneInteractionRef.current.setWipeTowerMovePort({ commit: (volume) => wipeTowerVolumes.commit(volume), busy: () => wipeTowerVolumes.busy });
+  }
+  const sceneInteraction = sceneInteractionRef.current;
   const refreshPrimeTowerProjection = useCallback(async () => {
     try {
       const result = await platform.runtime.getPrimeTowerProjection();
-      primeTowerController.setProjection(result.ok ? result : null);
+      wipeTowerVolumes.setProjection(result.ok ? result : null, usePlateSessionStore.getState().snapshot);
     } catch {
-      primeTowerController.setProjection(null);
+      wipeTowerVolumes.setProjection(null);
     }
-  }, [platform.runtime, primeTowerController]);
+  }, [platform.runtime, wipeTowerVolumes]);
   primeTowerRefreshRef.current = refreshPrimeTowerProjection;
   useEffect(() => {
     void refreshPrimeTowerProjection();
   }, [filamentSnapshot, glVolumes, plateSession, refreshPrimeTowerProjection, settingsOverlay, structure]);
+  useEffect(() => wipeTowerVolumes.subscribe(() => {
+    // Projection removal, eligibility and current-plate changes can replace
+    // scene-only volumes; prune the one shared Selection immediately.
+    sceneInteraction.pruneSelection();
+  }), [sceneInteraction, wipeTowerVolumes]);
   // Structural edits replace the renderer collection asynchronously. Prune
   // only after the fresh stable-ID mesh is installed so deleted entities do
   // not remain selected through stale positional indices.
@@ -433,7 +439,7 @@ export function Workspace({
       <main className="relative min-w-0 flex-1 overflow-hidden rounded-md border bg-card">
         <Viewport
           sceneInteraction={sceneInteraction}
-          primeTowerController={primeTowerController}
+          wipeTowerVolumes={wipeTowerVolumes}
           activeTab={isPreviewTab(activeTab) || previewRenderPending ? 'preview' : 'prepare'}
           glVolumes={glVolumes}
           structure={structure}

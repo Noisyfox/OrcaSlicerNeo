@@ -12,6 +12,9 @@ import { acceleratedRaycast } from 'three-mesh-bvh';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
 import { prepareColourForVolume, resolvePrepareMaterial } from './prepareColourProjection';
+import { WipeTowerVolume } from './WipeTowerVolume';
+
+const BAND_Z_FUDGE = 0.0005;
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
   if (transform.matrix) {
@@ -70,10 +73,9 @@ export function GLVolumeMesh({ data, interactive = true, preview = false, struct
 
   const modelMesh = (
     <group ref={volumeGroupRef}>
-      <mesh
-        geometry={data.geometry}
-        raycast={acceleratedRaycast}
-        userData={{ orcaRaycastRole: MODEL_BODY_RAYCAST, orcaVolume: data }}
+      <group
+        userData={{ orcaRaycastRole: data instanceof WipeTowerVolume ? 'prime-tower' : MODEL_BODY_RAYCAST, orcaVolume: data,
+          ...(data instanceof WipeTowerVolume ? { plateId: data.plateId, plateCurrent: interactive, primeTower: true } : {}) }}
         onPointerDown={interactive ? (event) => {
           if (event.nativeEvent.button !== 0) return;
           onModelSelection?.();
@@ -100,7 +102,14 @@ export function GLVolumeMesh({ data, interactive = true, preview = false, struct
           );
         } : undefined}
       >
-        <meshStandardMaterial
+        {data instanceof WipeTowerVolume ? data.projection.bands.map((band) => (
+          <mesh key={`${band.slot}-${band.startDepth}`} position={[data.projection.width / 2, (band.startDepth + band.endDepth) / 2, data.projection.height / 2]}>
+            <boxGeometry args={[data.projection.width, band.endDepth - band.startDepth, Math.max(data.projection.height, 0.1)]} />
+            <meshStandardMaterial color={band.colour} transparent opacity={band.opacity} depthWrite roughness={0.7}
+              polygonOffset polygonOffsetFactor={BAND_Z_FUDGE} />
+          </mesh>
+        )) : <mesh geometry={data.geometry} raycast={acceleratedRaycast}>
+          <meshStandardMaterial
           color={material.colour}
           roughness={0.6}
           metalness={0.1}
@@ -108,8 +117,9 @@ export function GLVolumeMesh({ data, interactive = true, preview = false, struct
           transparent={material.transparent}
           opacity={material.opacity}
           depthWrite={material.depthWrite}
-        />
-      </mesh>
+          />
+        </mesh>}
+      </group>
     </group>
   );
 

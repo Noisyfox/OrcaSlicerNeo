@@ -29,7 +29,7 @@ import { canAddPlate, canDeletePlate } from './plateControls';
 import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
 import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
 import { runProjectHistoryMutation, syncHistoryStatus } from '../actions/historyMutation';
-import type { PrimeTowerInteractionController } from './PrimeTowerInteractionController';
+import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
@@ -72,12 +72,12 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, primeTowerController, structure = [], previewFrameRequest, onSceneFrameRendered }: {
+export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wipeTowerVolumes, structure = [], previewFrameRequest, onSceneFrameRendered }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   sceneInteraction: SceneInteractionController;
-  primeTowerController?: PrimeTowerInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
   structure?: readonly ModelObjectStructure[];
   previewFrameRequest?: { plateId: string; token: number } | null;
   onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
@@ -148,15 +148,19 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
     };
   }, [projectWorldToViewport, sceneInteraction, updateRaycastingEnabled]);
   useEffect(() => {
-    if (!prepareTab) primeTowerController?.clearSelection();
-  }, [prepareTab, primeTowerController]);
-  useEffect(() => {
     return () => {
       unsubscribeSceneInteractionRef.current?.();
       detachBoxSelectRef.current?.();
       boxGestureRef.current = null;
     };
   }, []);
+  // A window interruption cancels the same shared scene drag regardless of
+  // whether its selected GL volume is a model or a wipe tower.
+  useEffect(() => {
+    const cancelSceneDrag = () => { sceneInteraction.cancelDrag(); };
+    window.addEventListener('blur', cancelSceneDrag);
+    return () => window.removeEventListener('blur', cancelSceneDrag);
+  }, [sceneInteraction]);
 
   const setCameraGestureActive = useCallback((active: boolean) => {
     cameraGestureActiveRef.current = active;
@@ -178,7 +182,6 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
       if (event.key === 'Escape') {
         event.preventDefault();
         sceneInteraction.clearSelection();
-        primeTowerController?.clearSelection();
         return;
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -189,20 +192,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
         return;
       }
       const key = event.key.toLowerCase();
-      if (primeTowerController?.selectedPlateId != null) {
-        if (key === 'm') {
-          event.preventDefault();
-          primeTowerController.toggleGizmo();
-        }
-        return;
-      }
       if (key === 'm') sceneInteraction.toggleGizmo('move');
       else if (key === 'r') sceneInteraction.toggleGizmo('rotate');
       else if (key === 's') sceneInteraction.toggleGizmo('scale');
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [platform.runtime, primeTowerController, previewTab, sceneInteraction, slicing]);
+  }, [platform.runtime, previewTab, sceneInteraction, slicing]);
 
   // Preview inspection shortcuts are scoped to the viewport focus and are
   // separate from Prepare's object-editing bindings above.
@@ -250,14 +246,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
     try {
       await selectPlateSessionAndClearSelection(platform, plateId, () => {
         sceneInteraction.clearSelection();
-        primeTowerController?.clearSelection();
       });
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
       setPlateActionPending(false);
     }
-  }, [plateActionPending, platform, plateSession?.currentPlateId, primeTowerController, sceneInteraction]);
+  }, [plateActionPending, platform, plateSession?.currentPlateId, sceneInteraction]);
 
   const addPlate = useCallback(async () => {
     if (plateActionPending || !canAddPlate(plateSession)) return;
@@ -456,7 +451,6 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
                 if (plateId) void selectPlate(plateId);
                 else {
                   sceneInteractionRef.current?.clearSelection();
-                  primeTowerController?.clearSelection();
                 }
               }
             }}
@@ -471,7 +465,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
             <Scene
               activeTab={activeTab}
               controller={sceneInteraction}
-              primeTowerController={primeTowerController}
+              wipeTowerVolumes={wipeTowerVolumes}
               glVolumes={glVolumes}
               toolpath={toolpath}
               plateSession={plateSession}
@@ -525,7 +519,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
       {prepareTab && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
       {previewTab && toolpath && <LayerScrubber data={toolpath} />}
       {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
-      {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} primeTowerController={primeTowerController} />}
+      {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
       {prepareTab && plateSession && <PlateControls
         plateSession={plateSession}
         pending={plateActionPending}

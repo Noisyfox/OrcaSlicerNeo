@@ -57,8 +57,8 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
       (window as unknown as { __orcaE2e?: { cameraState?: () => { controlsEnabled?: boolean } } }).__orcaE2e?.cameraState?.().controlsEnabled ?? false,
     );
     const readAxis = () => page.evaluate(() =>
-      (window as unknown as { __orcaE2e?: { primeTowerGizmoAxis?: () => string | null } })
-        .__orcaE2e?.primeTowerGizmoAxis?.() ?? null,
+      (window as unknown as { __orcaE2e?: { gizmoAxis?: () => string | null } })
+        .__orcaE2e?.gizmoAxis?.() ?? null,
     );
     const readPointerOwner = () => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.() ?? 'none',
@@ -131,6 +131,11 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await expect(page.getByTestId('gizmo-btn-scale')).toBeDisabled();
     await page.keyboard.press('m');
     await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('move-x')).toBeVisible();
+    await expect(page.getByTestId('move-y')).toBeVisible();
+    await expect(page.getByTestId('move-z')).toHaveCount(0);
+    await expect(page.getByTestId('move-drop-bed')).toHaveCount(0);
+    await expect(page.getByTestId('move-reset')).toHaveCount(0);
     await page.keyboard.press('m');
     await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByTestId('object-list')).not.toContainText('Prime tower');
@@ -165,7 +170,7 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await page.mouse.move(bodyDragScreen.x + 32, bodyDragScreen.y - 18, { steps: 4 });
     expect(await readMoves()).toBe(0);
     expect((await page.getByTestId('history-undo').getAttribute('aria-label'))).toBe(historyBeforeBody.undoButtonLabel);
-    expect(await readPointerOwner()).toBe('external');
+    expect(await readPointerOwner()).toBe('body');
     expect(await readCamera()).toEqual(cameraBefore);
     await page.mouse.up();
     await expect.poll(readMoves).toBe(1);
@@ -194,6 +199,11 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await expect.poll(async () => (await readHistoryUntilEntries()).undoLabels).toEqual(historyBeforeCancel.undoLabels);
     expect((await readTowers()).find((tower) => tower.current)?.position).toEqual(moved.position);
 
+    // Re-select through the same shared scene hit path before arming Move.
+    // This also proves selection never auto-arms the gizmo after cancellation.
+    const movedCenter: Point = [activeBed[0] + moved.position.x + 12, activeBed[1] + moved.position.y + 18, 9];
+    await page.mouse.click((await screenForWorld(movedCenter)).x, (await screenForWorld(movedCenter)).y);
+    await expect.poll(readSelection).toBe(moved.plateId);
     await expect.poll(readAxis).toBeNull();
     await page.getByTestId('gizmo-btn-move').click();
     await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'true');

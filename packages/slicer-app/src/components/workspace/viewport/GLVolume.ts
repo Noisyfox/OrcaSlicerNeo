@@ -51,6 +51,10 @@ export function rejectGLVolumeRevision(revision: number, error: unknown): void {
 
 /** JavaScript equivalent of the native canvas GLVolume. */
 export class GLVolume {
+  /** Orca keeps wipe towers in the shared GL volume collection, distinguished
+   * only by an identity flag.  Model volumes remain the default. */
+  kind: 'model' | 'wipe-tower' = 'model';
+  selectable = true;
   readonly buffer: ModelObjectBuffer;
   readonly geometry: THREE.BufferGeometry;
   readonly id: string;

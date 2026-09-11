@@ -18,13 +18,13 @@ import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
 import { currentPreviewPlate, previewToolpathOrigin, previewVolumesForCurrentPlate } from './previewSceneProjection';
-import { PrimeTowerProxies } from './PrimeTowerMesh';
-import type { PrimeTowerInteractionController } from './PrimeTowerInteractionController';
+import { WipeTowerVolumes } from './WipeTowerVolumeMesh';
+import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 
-export function Scene({ activeTab, controller, primeTowerController, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
+export function Scene({ activeTab, controller, wipeTowerVolumes, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
   controller: SceneInteractionController;
-  primeTowerController?: PrimeTowerInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateSession?: PlateSessionSnapshot | null;
@@ -33,15 +33,15 @@ export function Scene({ activeTab, controller, primeTowerController, glVolumes, 
 }) {
   return (
     <SceneInteractionProvider controller={controller}>
-      <SceneContents activeTab={activeTab} controller={controller} primeTowerController={primeTowerController} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} structure={structure} onEmptyBedClick={onEmptyBedClick} />
+      <SceneContents activeTab={activeTab} controller={controller} wipeTowerVolumes={wipeTowerVolumes} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} structure={structure} onEmptyBedClick={onEmptyBedClick} />
     </SceneInteractionProvider>
   );
 }
 
-function SceneContents({ activeTab, controller, primeTowerController, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
+function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
   controller: SceneInteractionController;
-  primeTowerController?: PrimeTowerInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateSession?: PlateSessionSnapshot | null;
@@ -258,7 +258,7 @@ function SceneContents({ activeTab, controller, primeTowerController, glVolumes,
       {isPreviewTab(activeTab) ? (
         <PreviewScene
           controller={controller}
-          primeTowerController={primeTowerController}
+          wipeTowerVolumes={wipeTowerVolumes}
           glVolumes={previewVolumes}
           toolpath={toolpath}
           plateOrigin={previewToolpathOrigin(plateSession)}
@@ -266,7 +266,7 @@ function SceneContents({ activeTab, controller, primeTowerController, glVolumes,
           plateSession={plateSession}
         />
       ) : (
-        <PrepareScene glVolumes={glVolumes} toolpath={toolpath} structure={structure} plateSession={plateSession} controller={controller} primeTowerController={primeTowerController} />
+        <PrepareScene glVolumes={glVolumes} toolpath={toolpath} structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />
       )}
     </>
   );
@@ -278,30 +278,30 @@ function SceneContents({ activeTab, controller, primeTowerController, glVolumes,
  * mode-specific rendering/interaction policy is intentionally layered here
  * by the later Preview implementation step.
  */
-function PrepareScene({ glVolumes, toolpath, structure, plateSession, controller, primeTowerController }: {
+function PrepareScene({ glVolumes, toolpath, structure, plateSession, controller, wipeTowerVolumes }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   structure: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
   controller: SceneInteractionController;
-  primeTowerController?: PrimeTowerInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive structure={structure} plateSession={plateSession} controller={controller} primeTowerController={primeTowerController} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />;
 }
 
-function PreviewScene({ glVolumes, toolpath, plateOrigin, structure, plateSession, controller, primeTowerController }: {
+function PreviewScene({ glVolumes, toolpath, plateOrigin, structure, plateSession, controller, wipeTowerVolumes }: {
   controller: SceneInteractionController;
-  primeTowerController?: PrimeTowerInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateOrigin: readonly [number, number, number];
   structure?: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview plateOrigin={plateOrigin} structure={structure} plateSession={plateSession} controller={controller} primeTowerController={primeTowerController} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview plateOrigin={plateOrigin} structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />;
 }
 
-function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, plateOrigin = [0, 0, 0], structure = [], plateSession, controller, primeTowerController }: {
+function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, plateOrigin = [0, 0, 0], structure = [], plateSession, controller, wipeTowerVolumes }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   interactive: boolean;
@@ -310,13 +310,13 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, p
   structure?: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
   controller: SceneInteractionController;
-  primeTowerController?: PrimeTowerInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
 }) {
   return (
     <>
-      {interactive && primeTowerController && <PrimeTowerProxies controller={primeTowerController} plateSession={plateSession} />}
+      {interactive && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} />}
       {glVolumes.map((volume) => (
-        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession} onModelSelection={primeTowerController ? () => primeTowerController.clearSelection() : undefined} />
+        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession} />
       ))}
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}

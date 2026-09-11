@@ -12,7 +12,6 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { addModel } from '../actions/sceneActions';
 import { useSceneInteractionVersion } from './SceneInteractionContext';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
-import { usePrimeTowerInteractionVersion, type PrimeTowerInteractionController } from './PrimeTowerInteractionController';
 
 const GIZMO_BUTTONS: ReadonlyArray<{
   mode: Exclude<OpenGizmo, null>;
@@ -27,13 +26,10 @@ const GIZMO_BUTTONS: ReadonlyArray<{
 
 export function GizmoToolbar({
   sceneInteraction,
-  primeTowerController,
 }: {
   sceneInteraction: SceneInteractionController | null;
-  primeTowerController?: PrimeTowerInteractionController;
 }) {
   useSceneInteractionVersion(sceneInteraction ?? undefined);
-  usePrimeTowerInteractionVersion(primeTowerController);
   const platform = usePlatform();
   // Boot loads the printer/process lists and the rack's filament catalogue
   // atomically; until they
@@ -44,10 +40,9 @@ export function GizmoToolbar({
     (s) => s.printers.length > 0 && s.prints.length > 0 && s.filamentCatalog.length > 0,
   );
   if (!sceneInteraction) return null;
-  const towerSelected = primeTowerController?.selectedPlateId != null;
-  // Prime Tower is a separate, mutually exclusive selection domain. It owns
-  // only the X/Y Move gizmo; Rotate and Scale stay unavailable while it is
-  // selected. Ordinary model selection keeps the shared scene controller.
+  const towerSelected = sceneInteraction.hasWipeTowerSelection;
+  // The tower is a tagged shared scene volume.  Its identity restricts the
+  // ordinary toolbar to Move; Rotate and Scale remain unavailable.
   return (
     <div
       className="absolute top-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-card/90 p-1 backdrop-blur"
@@ -67,9 +62,7 @@ export function GizmoToolbar({
       <div className="mx-0.5 h-4 w-px bg-border/60" aria-hidden="true" />
       {GIZMO_BUTTONS.map(({ mode, label, icon: Icon, testId }) => {
         const towerMode = towerSelected && mode === 'move';
-        const armed = towerMode
-          ? primeTowerController?.gizmoArmed === true
-          : !towerSelected && sceneInteraction.gizmo === mode;
+        const armed = sceneInteraction.gizmo === mode;
         const disabled = towerSelected ? !towerMode : sceneInteraction.selection.empty;
         return (
           <Button
@@ -81,9 +74,7 @@ export function GizmoToolbar({
             disabled={disabled}
             data-testid={testId}
             className={cn(armed && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
-            onClick={() => towerSelected
-              ? primeTowerController?.toggleGizmo()
-              : sceneInteraction.toggleGizmo(mode)}
+            onClick={() => sceneInteraction.toggleGizmo(mode)}
           >
             <Icon />
           </Button>

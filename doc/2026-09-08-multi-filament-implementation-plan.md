@@ -1691,14 +1691,28 @@ no complete PresetBundle or slice result, and wipe-tower X/Y arrays remain
 plate-lifecycle-owned. Only the pre-existing pinned `packages/slicer-wasm/cpp`
 submodule dirtiness remains.
 
-**Step 16 implementation record (2026-09-11, accepted):** Prime Tower selection
-now renders selection bounds without a gizmo; the controller-owned X/Y Move
-gizmo arms and toggles only through the Move toolbar action or `M`, while
-Rotate and Scale are unavailable for the tower. Current-bed clicks and canvas
-misses clear tower selection synchronously without history, and model/plate
-transitions retain ordinary scene ownership. Focused controller/plate tests,
-the full slicer-app suite (72 files, 490 tests), slicer-app and desktop
-typechecks, desktop unit tests (10 files, 67 tests), focused mock Electron
-Prime Tower Playwright (2 passed, 1 intentionally skipped warning fixture),
-and `git diff --check` pass. The pinned `packages/slicer-wasm/cpp` submodule
-remains the only pre-existing dirty path.
+**Step 16 implementation and root acceptance record (2026-09-11, accepted):** The
+Prepare proxy follows Orca's representation: a scene-only tagged wipe-tower
+volume, not a `ModelObject`, but resident in the same renderer volume
+collection and shared `Selection` as ordinary model GL volumes. The tagged
+`WipeTowerVolume` is rendered by the same `GLVolumeMesh` interaction wrapper
+as a model volume; only that shared mesh's child geometry/material branch draws
+the native-like per-filament translucent bands. `WipeTowerVolumeMesh` merely
+maps the collection into those shared mesh instances and provides E2E
+instrumentation. Selection bounds, pointer arbitration,
+body-drag, blank-canvas/bed deselection, keyboard routing, and the sole
+TransformControls instance are shared with model interaction. The identity
+flag makes selection mutually exclusive, permits Move only (X/Y; no Z),
+disables Rotate/Scale/delete/context-menu paths, and routes a completed move
+directly to the native per-plate `wipe_tower_x/y` command without adding a
+model-transform history frame. Agent self-verification passed: the slicer-app
+suite (72 files, 489 tests), slicer-app and desktop typechecks, and focused
+Electron Playwright (2 passed; one isolated warning-fixture case intentionally
+skipped), plus `git diff --check`. Root independently reran the slicer-app
+suite (72 files, 489 tests), desktop suite (10 files, 67 tests), slicer-app and
+desktop typechecks, the E2E build plus focused Electron Prime Tower flow (2
+passed; one isolated warning-fixture case intentionally skipped), and final
+`git diff --check`; all required checks passed. The real licensed threaded 3MF
+flow was intentionally not rerun because this refactor changes only React scene
+rendering/interaction and no runtime, client, bridge, or WASM path; Step 15's
+real threaded evidence remains applicable.
