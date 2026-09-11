@@ -500,7 +500,7 @@ describe('SceneInteractionController', () => {
     expect(controller.owner).toBe('body');
   });
 
-  it('retains the first body-drag delta after pointer-down selects an ordinary instance', async () => {
+  it('claims the pointer-down ordinary hit on the synchronous first drag move', async () => {
     const port = {
       begin: vi.fn(),
       commit: vi.fn(async () => undefined),
@@ -511,7 +511,10 @@ describe('SceneInteractionController', () => {
 
     expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(true);
     const start = controller.selectionPivot()!;
-    expect(controller.tryBeginBodyDrag()).toBe(true);
+    // Deliberately do not await or publish React selection between these
+    // calls: this is the same pointerdown -> thresholded pointermove turn.
+    expect(controller.tryBeginBodyDrag(volumes[0])).toBe(false);
+    expect(controller.tryBeginBodyDrag(volumes[2])).toBe(true);
     expect(controller.updateDragPivot(start.clone().add(new THREE.Vector3(3, -2, 0)))).toBe(true);
     expect(controller.endDrag()).toBe(true);
     await Promise.resolve();
@@ -522,6 +525,16 @@ describe('SceneInteractionController', () => {
     expect(port.begin).toHaveBeenCalledOnce();
     expect(port.commit).toHaveBeenCalledOnce();
     expect(port.abort).not.toHaveBeenCalled();
+  });
+
+  it('does not let an ordinary pointer-down candidate survive release', () => {
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+    expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(true);
+
+    controller.releasePointer();
+
+    expect(controller.tryBeginBodyDrag(volumes[2])).toBe(false);
+    expect(controller.owner).toBe('none');
   });
 
   it('gives a gizmo grabber priority over body dragging', () => {

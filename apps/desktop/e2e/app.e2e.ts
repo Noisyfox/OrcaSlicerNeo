@@ -1380,9 +1380,14 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
     if (!center) throw new Error('cube-center projection unavailable');
     const historyBefore = await page.getByTestId('history-undo').getAttribute('aria-label');
 
+    // Queue the trusted primary down and threshold-crossing move without an
+    // await between them. Separate awaited Playwright calls leave enough time
+    // for React to publish selection, which cannot reproduce the zero-wait
+    // race; DOM-dispatched PointerEvents are not accepted by this R3F path.
     await page.mouse.move(box.x + center.x, box.y + center.y);
-    await page.mouse.down();
-    await page.mouse.move(box.x + center.x + 8, box.y + center.y + 4);
+    const down = page.mouse.down();
+    const firstMove = page.mouse.move(box.x + center.x + 8, box.y + center.y + 4);
+    await Promise.all([down, firstMove]);
     await expect
       .poll(() => page.evaluate(() =>
         (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.(),
@@ -1395,7 +1400,6 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
         }).__orcaE2e?.selectionPivotWorld?.(),
       ))
       .not.toEqual([10, 10, 10]);
-    await page.mouse.move(box.x + center.x + 40, box.y + center.y + 20, { steps: 4 });
     await page.mouse.up();
 
     await expect

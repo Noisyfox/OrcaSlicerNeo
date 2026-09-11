@@ -134,9 +134,14 @@ export function GLVolumeMesh({ data, interactive = true, preview = false, struct
       ref={groupRef}
       autoTransform={false}
       axisLock="z"
-      dragConfig={{ enabled: sceneInteraction.bodyDragEnabled }}
+      // An ordinary body must be armed before its pointer-down handler can
+      // synchronously select it. Gating this through React selection state
+      // loses a same-frame first move; the controller still owns arbitration
+      // and only admits its pointer-down candidate. Preserve the Prime Tower
+      // path exactly as before.
+      dragConfig={{ enabled: data instanceof WipeTowerVolume ? sceneInteraction.bodyDragEnabled : true }}
       onDragStart={(origin) => {
-        if (!sceneInteraction.tryBeginBodyDrag()) return;
+        if (!sceneInteraction.tryBeginBodyDrag(data)) return;
         bodyStartRef.current.copy(origin);
       }}
       onDrag={(localMatrix) => {

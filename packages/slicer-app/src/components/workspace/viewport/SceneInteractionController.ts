@@ -91,6 +91,11 @@ export class SceneInteractionController {
   // move from a model body onto a handle cannot change that gesture into a
   // gizmo drag during the threshold window.
   private pointerOrigin: PointerOrigin = 'none';
+  // DragControls receives pointer-down before React can commit the selection
+  // caused by its child mesh. Keep the exact ordinary-model hit in controller
+  // state so the first threshold-crossing move can claim that same press
+  // without depending on a rerendered `enabled` prop or a later raycast.
+  private pendingBodyDragHit: GLVolume | null = null;
   private gizmoGrabberHovered = false;
   private gizmoGrabberHitTest: ((event: PointerEvent) => boolean) | null = null;
   private suppressPostDragClick = false;
@@ -416,6 +421,7 @@ export class SceneInteractionController {
   prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
     if (hit instanceof WipeTowerVolume) return this.selectFromHit(hit, false);
+    this.pendingBodyDragHit = hit;
     // A drag that starts on a member of an existing multi-selection must move
     // the complete group. Leave selection unchanged while DragControls
     // decides whether this press turns into a drag.
@@ -541,6 +547,7 @@ export class SceneInteractionController {
   /** Release the pointer-down arbitration latch when no gesture owns it. */
   releasePointer(): void {
     if (this.pointerOwner !== 'none') return;
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.setGizmoGrabberHovered(false);
   }
@@ -557,6 +564,7 @@ export class SceneInteractionController {
   releaseExternalPointer(): boolean {
     if (this.pointerOwner !== 'external') return false;
     this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     this.emit();
@@ -579,6 +587,7 @@ export class SceneInteractionController {
     this.drag = null;
     this.suppressPostDragClick = false;
     this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     this.boxSelect = null;
@@ -590,10 +599,16 @@ export class SceneInteractionController {
    * the pointer. The caller must not mutate a dragged group unless this
    * returns true.
    */
-  tryBeginBodyDrag(): boolean {
+  tryBeginBodyDrag(hit?: GLVolume): boolean {
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty) return false;
+    // Ordinary DragControls are always armed so the synchronous first move is
+    // not lost while React publishes selection. Only the wrapper whose mesh
+    // was hit at pointer-down may turn that pending press into a body drag.
+    if (hit && !(hit instanceof WipeTowerVolume) && this.pendingBodyDragHit !== hit) return false;
     if (this.hasWipeTowerSelection && this.wipeTowerBusy) return false;
-    return this.beginDrag('body');
+    const began = this.beginDrag('body');
+    if (began) this.pendingBodyDragHit = null;
+    return began;
   }
 
   /** Called synchronously by TransformControls on a confirmed grabber press. */
@@ -651,6 +666,7 @@ export class SceneInteractionController {
     const changed = this.dragHasChanged(this.drag);
     this.drag = null;
     this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     // DragControls and TransformControls can both leave a model-targeted
@@ -671,6 +687,7 @@ export class SceneInteractionController {
       // An active box gesture owns the pointer; clearSelection abandons it
       // explicitly instead of letting this drag-less reset clobber it.
       if (this.pointerOwner === 'none') {
+        this.pendingBodyDragHit = null;
         this.pointerOrigin = 'none';
         this.gizmoGrabberHovered = false;
       }
@@ -685,6 +702,7 @@ export class SceneInteractionController {
     }
     this.drag = null;
     this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     void this.transformHistory?.abort();
@@ -1017,6 +1035,7 @@ export class SceneInteractionController {
     if (!this.boxSelect) return false;
     this.boxSelect = null;
     this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     return true;
