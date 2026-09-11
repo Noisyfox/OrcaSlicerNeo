@@ -1,6 +1,7 @@
+import * as THREE from 'three';
 import type { PlateSessionSnapshot, PrimeTowerMoveRequest, PrimeTowerMoveResultOrError, PrimeTowerPlateProjection, PrimeTowerProjection } from '@slicer/client';
 import { useEffect, useState } from 'react';
-import { GLVolume } from './GLVolume';
+import { attachBoundsTree, disposeBVHGeometry, GLVolume, type BVHBufferGeometry } from './GLVolume';
 import { clampPrimeTowerPosition, type PrimeTowerPosition } from './primeTowerGeometry';
 
 const CUBE_INDICES = new Uint32Array([
@@ -19,6 +20,8 @@ export class WipeTowerVolume extends GLVolume {
   readonly plateId: string;
   private projectionState: PrimeTowerPlateProjection;
   private originState: readonly [number, number, number];
+  private bandGeometries: BVHBufferGeometry[] = [];
+  private bandGeometrySignature = '';
 
   constructor(projection: PrimeTowerPlateProjection, origin: readonly [number, number, number], ordinal: number) {
     const height = Math.max(projection.height, 0.1);
@@ -46,6 +49,7 @@ export class WipeTowerVolume extends GLVolume {
     this.plateId = projection.plateId;
     this.projectionState = projection;
     this.originState = origin;
+    this.rebuildBandGeometries(projection);
   }
 
   get projection(): PrimeTowerPlateProjection { return this.projectionState; }
@@ -58,6 +62,7 @@ export class WipeTowerVolume extends GLVolume {
   }
 
   reconcile(projection: PrimeTowerPlateProjection, origin: readonly [number, number, number]): void {
+    this.rebuildBandGeometries(projection);
     this.projectionState = projection;
     this.originState = origin;
     this.instanceTransform = {
@@ -76,6 +81,41 @@ export class WipeTowerVolume extends GLVolume {
       rotation: [0, 0, this.projectionState.rotation * Math.PI / 180],
       scale: [1, 1, 1], mirror: [1, 1, 1],
     };
+  }
+
+  /** Geometry is owned by the volume rather than by R3F's JSX primitives. */
+  getBandGeometry(index: number): BVHBufferGeometry {
+    const geometry = this.bandGeometries[index];
+    if (!geometry) throw new Error(`Missing Prime Tower band geometry ${index}`);
+    return geometry;
+  }
+
+  override dispose(): void {
+    for (const geometry of this.bandGeometries) disposeBVHGeometry(geometry);
+    this.bandGeometries = [];
+    super.dispose();
+  }
+
+  private rebuildBandGeometries(projection: PrimeTowerPlateProjection): void {
+    const signature = JSON.stringify({
+      width: projection.width,
+      height: Math.max(projection.height, 0.1),
+      bands: projection.bands.map((band, index) => ({
+        index,
+        startDepth: band.startDepth,
+        endDepth: band.endDepth,
+      })),
+    });
+    if (signature === this.bandGeometrySignature) return;
+
+    const next = projection.bands.map((band) => attachBoundsTree(new THREE.BoxGeometry(
+      projection.width,
+      band.endDepth - band.startDepth,
+      Math.max(projection.height, 0.1),
+    )));
+    for (const geometry of this.bandGeometries) disposeBVHGeometry(geometry);
+    this.bandGeometries = next;
+    this.bandGeometrySignature = signature;
   }
 }
 

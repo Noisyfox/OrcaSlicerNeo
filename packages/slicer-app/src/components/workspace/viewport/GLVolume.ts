@@ -3,6 +3,28 @@ import type { ModelObjectBuffer, ModelTransform } from '@slicer/client';
 import { matrixFromTransform, normalizeTransform } from './transformDeltaMath';
 import { computeBoundsTree, disposeBoundsTree } from 'three-mesh-bvh';
 
+/** BufferGeometry with the three-mesh-bvh extensions installed. */
+export type BVHBufferGeometry = THREE.BufferGeometry & {
+  boundsTree?: unknown;
+  computeBoundsTree: typeof computeBoundsTree;
+  disposeBoundsTree: typeof disposeBoundsTree;
+};
+
+/** Install and build the same BVH used by ordinary model volumes. */
+export function attachBoundsTree(geometry: THREE.BufferGeometry): BVHBufferGeometry {
+  const bvhGeometry = geometry as BVHBufferGeometry;
+  bvhGeometry.computeBoundsTree = computeBoundsTree;
+  bvhGeometry.disposeBoundsTree = disposeBoundsTree;
+  bvhGeometry.computeBoundsTree();
+  return bvhGeometry;
+}
+
+/** Release both the BVH and the GPU-side geometry owned by the caller. */
+export function disposeBVHGeometry(geometry: BVHBufferGeometry): void {
+  geometry.disposeBoundsTree();
+  geometry.dispose();
+}
+
 type RevisionWaiter = {
   resolve: () => void;
   reject: (error: Error) => void;
@@ -79,14 +101,11 @@ export class GLVolume {
     this.geometry.computeVertexNormals();
 
     // Set up BVH for faster raycasting.
-    this.geometry.computeBoundsTree = computeBoundsTree;
-    this.geometry.disposeBoundsTree = disposeBoundsTree;
-    this.geometry.computeBoundsTree();
+    attachBoundsTree(this.geometry);
   }
 
   dispose(): void {
-    this.geometry.disposeBoundsTree();
-    this.geometry.dispose();
+    disposeBVHGeometry(this.geometry as BVHBufferGeometry);
   }
 
   /**

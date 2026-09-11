@@ -1716,3 +1716,21 @@ passed; one isolated warning-fixture case intentionally skipped), and final
 flow was intentionally not rerun because this refactor changes only React scene
 rendering/interaction and no runtime, client, bridge, or WASM path; Step 15's
 real threaded evidence remains applicable.
+
+**Step 17 implementation and root acceptance record (2026-09-11, accepted):**
+Visible Prepare Prime Tower
+bands now use volume-owned `BufferGeometry` instances with the same
+`three-mesh-bvh` attachment and `acceleratedRaycast` path as ordinary model
+meshes. `WipeTowerVolume` rebuilds every band geometry when projection
+dimensions or band definitions change and releases the previous BVH and
+geometry; removal/disposal releases all remaining band resources while R3F
+continues to own the band materials. Focused WipeTower tests prove the
+accelerated raycast contract,
+per-band bounds trees, replacement disposal, and ordinary model BVH coverage;
+material/slot-only projection changes reuse the exact geometry/BVH instances,
+and the actual visible band mesh uses `BVH_RAYCAST`. Root independently reran
+the slicer-app suite (72 files, 492 tests), desktop suite (10 files, 67 tests),
+both package typechecks, the E2E build plus focused Electron Prime Tower flow
+(2 passed; one isolated warning-fixture case intentionally skipped), and
+`git diff --check`; all passed. The pinned `packages/slicer-wasm/cpp`
+submodule remains untouched.

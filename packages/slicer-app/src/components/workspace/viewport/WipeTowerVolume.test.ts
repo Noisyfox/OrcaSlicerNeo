@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { acceleratedRaycast } from 'three-mesh-bvh';
 import { GLVolume } from './GLVolume';
+import { BVH_RAYCAST } from './ModelMesh';
 import { SceneInteractionController } from './SceneInteractionController';
 import { WipeTowerVolume, WipeTowerVolumeCollection } from './WipeTowerVolume';
 
@@ -8,7 +10,10 @@ function tower() {
     plateId: 'plate-1', displayIndex: 0, eligible: true, forced: false, empty: false, usedSlots: [0], brimMargin: 0,
     position: { x: 20, y: 30 }, width: 20, depth: 16, height: 40,
     rotation: 0, footprint: { minX: 20, maxX: 40, minY: 30, maxY: 46 }, buildArea: { minX: 0, maxX: 220, minY: 0, maxY: 220, maxZ: 250 },
-    bands: [{ slot: 0, colour: '#ff0000', opacity: 0.66, startDepth: 0, endDepth: 16 }],
+    bands: [
+      { slot: 0, colour: '#ff0000', opacity: 0.66, startDepth: 0, endDepth: 8 },
+      { slot: 1, colour: '#0000ff', opacity: 0.66, startDepth: 8, endDepth: 16 },
+    ],
   }, [0, 0, 0], 0);
 }
 
@@ -22,6 +27,64 @@ function model() {
 }
 
 describe('WipeTowerVolume shared scene integration', () => {
+  it('owns BVH-backed geometry for every visible band and uses accelerated raycast', () => {
+    const wipe = tower();
+    const ordinary = model();
+
+    expect(BVH_RAYCAST).toBe(acceleratedRaycast);
+    const geometries = wipe.projection.bands.map((_, index) => wipe.getBandGeometry(index));
+    for (const geometry of geometries) {
+      expect(geometry.boundsTree).toBeDefined();
+      expect(geometry.getAttribute('position').count).toBeGreaterThan(0);
+    }
+    expect(ordinary.geometry.boundsTree).toBeDefined();
+    wipe.dispose();
+    ordinary.dispose();
+    for (const geometry of geometries) expect(geometry.boundsTree).toBeNull();
+  });
+
+  it('rebuilds and releases all band BVHs when dimensions or band geometry changes', () => {
+    const wipe = tower();
+    const oldGeometry = wipe.getBandGeometry(0);
+    const oldSecondGeometry = wipe.getBandGeometry(1);
+    const disposeBoundsTree = vi.spyOn(oldGeometry, 'disposeBoundsTree');
+    const disposeSecondBoundsTree = vi.spyOn(oldSecondGeometry, 'disposeBoundsTree');
+    const projection = { ...wipe.projection, width: 24, bands: [{ ...wipe.projection.bands[0]!, colour: '#00ff00' }] };
+
+    wipe.reconcile(projection, [0, 0, 0]);
+
+    const newGeometry = wipe.getBandGeometry(0);
+    expect(newGeometry).not.toBe(oldGeometry);
+    expect(newGeometry.boundsTree).toBeDefined();
+    expect(disposeBoundsTree).toHaveBeenCalledOnce();
+    expect(disposeSecondBoundsTree).toHaveBeenCalledOnce();
+    expect(oldGeometry.boundsTree).toBeNull();
+    expect(oldSecondGeometry.boundsTree).toBeNull();
+    wipe.dispose();
+  });
+
+  it('reuses band geometry when only material or filament-slot data changes', () => {
+    const wipe = tower();
+    const geometries = wipe.projection.bands.map((_, index) => wipe.getBandGeometry(index));
+    const disposeBoundsTrees = geometries.map((geometry) => vi.spyOn(geometry, 'disposeBoundsTree'));
+    const projection = {
+      ...wipe.projection,
+      bands: wipe.projection.bands.map((band, index) => ({
+        ...band,
+        slot: band.slot + 10 + index,
+        colour: index === 0 ? '#00ff00' : '#ffff00',
+        opacity: 0.42,
+      })),
+    };
+
+    wipe.reconcile(projection, [0, 0, 0]);
+
+    expect(wipe.projection.bands).toEqual(projection.bands);
+    expect(wipe.projection.bands.map((_, index) => wipe.getBandGeometry(index))).toEqual(geometries);
+    for (const disposeBoundsTree of disposeBoundsTrees) expect(disposeBoundsTree).not.toHaveBeenCalled();
+    wipe.dispose();
+  });
+
   it('uses shared selection and Move-only gizmo, then commits native X/Y without model history', async () => {
     const wipe = tower();
     const ordinary = model();
