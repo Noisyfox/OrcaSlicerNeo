@@ -205,6 +205,94 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(collection.volumes.find((volume) => volume.plateId === 'plate-2')?.position).toEqual({ x: 60, y: 70 });
   });
 
+  it('republishes selected bounds and the gizmo pivot from the authoritative move receipt', async () => {
+    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [
+      { plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const },
+    ] };
+    const authoritativePosition = { x: 42, y: 55 };
+    const authoritativeFootprint = { minX: 42, maxX: 62, minY: 55, maxY: 71 };
+    const move = vi.fn(async () => ({
+      ok: true as const,
+      version: 1 as const,
+      result: {
+        mutation: {
+          kind: 'move' as const, plateId: 'plate-1', historyEntryDelta: 1 as const,
+          revisionBefore: 1, revisionAfter: 2, dirty: true, affectedPlateIds: ['plate-1'],
+          position: authoritativePosition, footprint: authoritativeFootprint,
+        },
+        historyStatus: {
+          canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: 1,
+          savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true, bytesUsed: 0,
+          byteBudget: 1, optionalBytesReleased: 0, evictedEntryCount: 0,
+          lastEvictedEntryId: null, oldestRetainedEntryId: null, oversizedEntryRetained: false,
+          disabled: false, activeTransactionId: null, revision: 2,
+        },
+      },
+    }));
+    const collection = new WipeTowerVolumeCollection({ move, reconcile: vi.fn(async () => undefined), revision: vi.fn(() => 1) });
+    const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea, plates: [tower().projection] };
+    collection.setProjection(projection, session);
+    const scene = new SceneInteractionController(() => [...collection.volumes]);
+    collection.subscribe(() => scene.pruneSelection());
+    const volume = collection.volumes[0]!;
+    scene.selectFromHit(volume, false);
+    scene.toggleGizmo('move');
+
+    const observedPivots: Array<[number, number, number]> = [];
+    scene.subscribe(() => {
+      const pivot = scene.selectionPivot();
+      if (pivot) observedPivots.push([pivot.x, pivot.y, pivot.z]);
+    });
+    volume.setTransientPosition({ x: 70, y: 80 });
+    await collection.commit(volume);
+
+    expect(volume.position).toEqual(authoritativePosition);
+    expect(scene.selectionBounds()!.min.toArray()).toEqual([42, 55, 0]);
+    expect(scene.selectionBounds()!.max.toArray()).toEqual([62, 71, 40]);
+    // The render controller must be notified after the receipt replaces the
+    // local draft, otherwise SelectionBoundsBox and TransformControls keep
+    // their pre-receipt geometry even though the tower mesh is correct.
+    expect(observedPivots.at(-1)).toEqual([52, 63, 20]);
+
+    // Direct Prime Tower Undo/Redo is projected as a Worker refresh rather
+    // than a renderer-owned coordinate history. The retained selection must
+    // receive both authoritative transitions too.
+    collection.setProjection(projection, session);
+    expect(observedPivots.at(-1)).toEqual([30, 38, 20]);
+    collection.setProjection({
+      ...projection,
+      plates: [{ ...tower().projection, position: authoritativePosition, footprint: authoritativeFootprint }],
+    }, session);
+    expect(observedPivots.at(-1)).toEqual([52, 63, 20]);
+  });
+
+  it('rebuilds a retained selection from the Worker projection after a stale release', async () => {
+    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [
+      { plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const },
+    ] };
+    const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea, plates: [tower().projection] };
+    let collection: WipeTowerVolumeCollection;
+    const reconcile = vi.fn(async () => collection.setProjection(projection, session));
+    collection = new WipeTowerVolumeCollection({
+      move: vi.fn(async () => ({ ok: false as const, version: 1 as const, error: 'stale', errorCode: 'stale_revision' })),
+      reconcile,
+      revision: vi.fn(() => 1),
+    });
+    collection.setProjection(projection, session);
+    const scene = new SceneInteractionController(() => [...collection.volumes]);
+    collection.subscribe(() => scene.pruneSelection());
+    const volume = collection.volumes[0]!;
+    scene.selectFromHit(volume, false);
+    scene.toggleGizmo('move');
+    volume.setTransientPosition({ x: 70, y: 80 });
+
+    await collection.commit(volume);
+
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(volume.position).toEqual({ x: 20, y: 30 });
+    expect(scene.selectionPivot()!.toArray()).toEqual([30, 38, 20]);
+  });
+
   it('holds collection busy across a deferred native move and rejects a second commit', async () => {
     let rejectMove: ((reason?: unknown) => void) | undefined;
     const move = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectMove = reject; }));

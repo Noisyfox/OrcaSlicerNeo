@@ -375,6 +375,34 @@ function SelectionTransformGizmo() {
     };
   }, [sceneInteraction, syncPivot]);
 
+  // The attached TransformControls target is normally an implementation
+  // detail. E2E exposes just its world pivot so a real pointer gesture can
+  // prove it follows the same Worker-confirmed tower position as the mesh and
+  // selection bounds.
+  useEffect(() => {
+    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
+    if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
+    const w = window as unknown as {
+      __orcaE2e?: { gizmoTargetWorld?: () => [number, number, number] | null };
+    };
+    w.__orcaE2e = {
+      ...w.__orcaE2e,
+      gizmoTargetWorld: () => {
+        const group = pivotRef.current;
+        if (!group) return null;
+        group.updateWorldMatrix(true, false);
+        const position = new THREE.Vector3();
+        group.getWorldPosition(position);
+        return [position.x, position.y, position.z];
+      },
+    };
+    return () => {
+      if (!w.__orcaE2e) return;
+      const { gizmoTargetWorld: _target, ...rest } = w.__orcaE2e;
+      w.__orcaE2e = rest;
+    };
+  }, []);
+
   const mode: TransformGizmoMode | null =
     sceneInteraction.gizmo === 'move' ? 'translate'
       : sceneInteraction.gizmo === 'rotate' ? 'rotate'

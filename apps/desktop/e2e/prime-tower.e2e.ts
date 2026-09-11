@@ -17,6 +17,10 @@ type TowerState = {
   empty: boolean;
   selected: boolean;
   position: { x: number; y: number };
+  width: number;
+  depth: number;
+  height: number;
+  worldBounds: { min: number[]; max: number[]; center: number[] };
   bands: number;
   colours: string[];
   opacity: number[];
@@ -65,6 +69,22 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     const readPointerOwner = () => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.() ?? 'none',
     );
+    const readSelectionBounds = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { selectionBoundsWorld?: () => { min: number[]; max: number[]; center: number[] } | null } })
+        .__orcaE2e?.selectionBoundsWorld?.() ?? null,
+    );
+    const readRenderedSelectionBox = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { selectionBoxWorldSegments?: () => { min: number[]; max: number[]; segmentCount: number } | null } })
+        .__orcaE2e?.selectionBoxWorldSegments?.() ?? null,
+    );
+    const readGizmoTarget = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { gizmoTargetWorld?: () => [number, number, number] | null } })
+        .__orcaE2e?.gizmoTargetWorld?.() ?? null,
+    );
+    const expectedTowerBounds = (tower: TowerState) => ({
+      ...tower.worldBounds,
+      size: tower.worldBounds.max.map((value, axis) => value - tower.worldBounds.min[axis]!),
+    });
     const readHistory = async (): Promise<HistorySnapshot> => {
       const undoButtonLabel = await page.getByTestId('history-undo').getAttribute('aria-label');
       const menuTrigger = page.getByTestId('history-undo-menu-trigger');
@@ -187,6 +207,17 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     expect(afterBody.find((tower) => tower.current)?.position).not.toEqual(current!.position);
     const bodyPosition = afterBody.find((tower) => tower.current)?.position;
     expect(bodyPosition).toBeDefined();
+    // The canvas gesture ends in a Worker receipt. The mesh projection,
+    // rendered selection brackets, and the controller pivot must all consume
+    // that receipt rather than retaining the local drag-start/draft position.
+    const bodyTower = afterBody.find((tower) => tower.current)!;
+    const expectedBodyBounds = expectedTowerBounds(bodyTower);
+    await expect.poll(readSelectionBounds).toEqual(expectedBodyBounds);
+    await expect.poll(readRenderedSelectionBox).toEqual({
+      min: expectedBodyBounds.min,
+      max: expectedBodyBounds.max,
+      segmentCount: 24,
+    });
     await page.getByTestId('history-undo').click();
     await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.position)
       .toEqual(current!.position);
@@ -247,6 +278,10 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     }).toBe(true);
     await expect.poll(readPointerOwner).toBe('none');
     expect((await readTowers()).find((tower) => tower.current)?.position.x).not.toBe(moved.position.x);
+    const gizmoTower = (await readTowers()).find((tower) => tower.current)!;
+    const expectedGizmoBounds = expectedTowerBounds(gizmoTower);
+    await expect.poll(readSelectionBounds).toEqual(expectedGizmoBounds);
+    await expect.poll(readGizmoTarget).toEqual(expectedGizmoBounds.center);
 
     const historyBeforeGizmoCancel = await readHistoryUntilEntries();
     const positionBeforeGizmoCancel = (await readTowers()).find((tower) => tower.current)?.position;

@@ -500,10 +500,17 @@ export class SceneInteractionController {
 
   /** Call after the renderer collection changes. */
   pruneSelection(): boolean {
+    // A Prime Tower receipt can retain the same stable selected ID while
+    // replacing its authoritative X/Y projection. Selection.prune() correctly
+    // reports no identity change in that case, but SelectionBoundsBox and the
+    // TransformControls pivot subscribe to this controller rather than the
+    // collection. Publish the retained special selection so all three scene
+    // representations consume the same Worker-confirmed transform.
+    const hadWipeTowerSelection = this.hasWipeTowerSelection;
     const changed = this.selection.prune(this.getVolumes().filter((volume) => volume.selectable));
     this.syncGizmoToSelection();
     if (this.drag && this.selectedVolumes().length === 0) this.cancelDrag();
-    if (changed) this.emit();
+    if (changed || (hadWipeTowerSelection && this.hasWipeTowerSelection)) this.emit();
     return changed;
   }
 
