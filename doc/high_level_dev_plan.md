@@ -492,7 +492,7 @@ context. It excludes global preset selection, global/system preferences, full
 
 ### Milestone 17 — Multi-Filament Support
 
-> **Status: implemented and accepted 2026-09-09.** The normative product and
+> **Status: implemented and accepted 2026-09-11 (Steps 11–15).** The normative product and
 > compatibility boundary is [`spec/Multi-Filament Support.md`](../spec/Multi-Filament%20Support.md);
 > the sequential evidence is [`doc/2026-09-08-multi-filament-implementation-plan.md`](2026-09-08-multi-filament-implementation-plan.md).
 
@@ -511,6 +511,11 @@ context. It excludes global preset selection, global/system preferences, full
       the hard 120 s runner limit. Developer iteration supports
       `--threaded-only`; release acceptance runs serial and threaded. Electron
       target regression evidence is included in the acceptance record.
+- [x] Threaded Electron acceptance opened the exact approved 11-plate project,
+      verified plate-1-only slice/export, current-plate interaction, one-entry
+      drag history, boundary clamping, Prepare-only lifetime, and advisory
+      collision/outside warnings; the checklist completed in 50.300 s and the
+      licensed project run in 2m06s.
 
 ## G-code preview GPU streaming renderer (2026-09-02)
 

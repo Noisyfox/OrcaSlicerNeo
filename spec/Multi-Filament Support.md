@@ -2,9 +2,12 @@
 
 **Date:** 2026-09-08
 
-**Status:** Approved. The baseline implementation was acceptance-verified at
-`07f276d` (2026-09-09). The Prepare-view prime-tower model extension in
-Section 10.2 was approved on 2026-09-10 and is pending implementation.
+**Status:** Approved and accepted through Step 15 (2026-09-11). The baseline
+implementation was acceptance-verified at `07f276d` (2026-09-09); the
+Prepare-view prime-tower model extension in Section 10.2 was acceptance-
+verified by the Step 15 acceptance record with threaded real Electron evidence,
+deterministic warning/invalidation coverage, and the 50.300-second threaded
+checklist.
 
 **Scope:** Multi-filament material slots for the shared Electron and Web application.
 
@@ -788,7 +791,7 @@ may mark the milestone delivered only after this complete matrix passes.
 
 ## 14. Implementation closure and acceptance boundary
 
-The implementation at `07f276d` is the accepted multi-filament boundary:
+The Step 15 implementation record is the accepted multi-filament boundary:
 
 - Prepare exposes the multi-filament rack/session and slot assignment surfaces;
   the old single-filament selector, public API, preference field, project
@@ -804,6 +807,11 @@ The implementation at `07f276d` is the accepted multi-filament boundary:
 - Context-only history records do not advance the filament session fence.
   Project mutations remain revision-fenced, and stale commands are rejected
   without changing project, rack, history, or result state.
+- Prepare renders the native prime-tower projection only for eligible plates;
+  only the current plate accepts a move, each committed drag adds one history
+  entry, and disabling the tower clears eligibility without marking the plate
+  empty. Collision and outside-boundary warnings are advisory and do not block
+  a successful slice or Preview result.
 - The complete dual-variant real-WASM acceptance runner most recently finished
   in 95.018 s with `failed: []`; its hard wall-clock limit is 120 s. Developer
   iteration may use `--threaded-only`; release acceptance always runs both

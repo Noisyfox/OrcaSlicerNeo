@@ -20,6 +20,7 @@ export function PrimeTowerProxies({
 }) {
   usePrimeTowerInteractionVersion(controller);
   const projection = controller.projection;
+  const scene = useThree((state) => state.scene);
   useEffect(() => {
     const env = import.meta.env as { MODE?: string; VITE_E2E?: string; VITE_USE_MOCK?: string };
     if (env.MODE !== 'e2e' && env.VITE_E2E !== '1' && env.VITE_USE_MOCK !== '1') return;
@@ -28,13 +29,19 @@ export function PrimeTowerProxies({
         plateId: string;
         current: boolean;
         eligible: boolean;
+        empty: boolean;
         selected: boolean;
         position: { x: number; y: number };
         bands: number;
+        colours: string[];
         opacity: number[];
+        footprint: { minX: number; maxX: number; minY: number; maxY: number };
+        buildArea: { minX: number; maxX: number; minY: number; maxY: number };
+        outsideBoundaryWarning: boolean;
       }>;
       primeTowerSelection?: () => string | null;
       primeTowerMoveCommands?: () => number;
+      primeTowerProxyIds?: () => string[];
     } };
     w.__orcaE2e = {
       ...w.__orcaE2e,
@@ -42,21 +49,36 @@ export function PrimeTowerProxies({
         plateId: plate.plateId,
         current: plate.plateId === controller.projection?.currentPlateId,
         eligible: plate.eligible,
+        empty: plate.empty,
         selected: plate.plateId === controller.selectedPlateId,
         position: controller.transientPosition && plate.plateId === controller.selectedPlateId
           ? controller.transientPosition : plate.position,
         bands: plate.bands.length,
+        colours: plate.bands.map((band) => band.colour),
         opacity: plate.bands.map((band) => band.opacity),
+        footprint: { ...plate.footprint },
+        buildArea: { minX: plate.buildArea.minX, maxX: plate.buildArea.maxX, minY: plate.buildArea.minY, maxY: plate.buildArea.maxY },
+        outsideBoundaryWarning: plate.outsideBoundaryWarning === true,
       })) ?? [],
       primeTowerSelection: () => controller.selectedPlateId,
       primeTowerMoveCommands: () => controller.moveCommandCount,
+      // Enumerate the mounted Three.js groups, rather than the projection,
+      // so the hook proves which proxies are actually present in the scene.
+      primeTowerProxyIds: () => {
+        const ids = new Set<string>();
+        scene.traverse((object) => {
+          if (object.userData.primeTower !== true || typeof object.userData.plateId !== 'string') return;
+          ids.add(object.userData.plateId);
+        });
+        return [...ids].sort();
+      },
     };
     return () => {
       if (!w.__orcaE2e) return;
-      const { primeTowerStates: _states, primeTowerSelection: _selection, primeTowerMoveCommands: _commands, ...rest } = w.__orcaE2e;
+      const { primeTowerStates: _states, primeTowerSelection: _selection, primeTowerMoveCommands: _commands, primeTowerProxyIds: _proxyIds, ...rest } = w.__orcaE2e;
       w.__orcaE2e = rest;
     };
-  }, [controller]);
+  }, [controller, scene]);
   if (!projection || !plateSession) return null;
   return (
     <>

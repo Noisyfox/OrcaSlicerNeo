@@ -110,9 +110,6 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
     if (result.unrecognized_keys.length) {
       console.warn('unrecognized keys dropped by libslic3r:', result.unrecognized_keys);
     }
-    if (result.warnings?.length) {
-      useSlicerStore.getState().setError(`[Warning] ${result.warnings.join('; ')}`);
-    }
     // Read and retain the completed result while the worker still owns the
     // corresponding native Print. The immutable target guards against a
     // mutation/cancellation race; a late completion never becomes visible.
@@ -140,7 +137,7 @@ export async function sliceModel(platform: PlatformCapabilities): Promise<void> 
       }
       return;
     }
-    useSlicerStore.getState().setPlateResult(target, preview, exported.bytes);
+    useSlicerStore.getState().setPlateResult(target, preview, exported.bytes, result.warnings ?? []);
     useSlicerStore.getState().setActiveSliceTarget(null);
     const current = usePlateSessionStore.getState().snapshot?.currentPlateId;
     if (current === target.plateId) useSlicerStore.getState().activatePlateResult(target.plateId, target.inputRevision);

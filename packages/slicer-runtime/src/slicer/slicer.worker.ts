@@ -15,6 +15,7 @@ const mockInstanceCount = Number(import.meta.env.VITE_MOCK_INSTANCE_COUNT ?? 1);
 const mockVolumeCount = Number(import.meta.env.VITE_MOCK_VOLUME_COUNT ?? 1);
 const mockPresetTransitionDelayMs = Math.max(0, Number(import.meta.env.VITE_MOCK_PRESET_TRANSITION_DELAY_MS ?? 0) || 0);
 const mockPrimeTowerFixture = import.meta.env.VITE_MOCK_PRIME_TOWER === '1';
+const mockPrimeTowerWarnings = import.meta.env.VITE_MOCK_PRIME_TOWER_WARNINGS === '1';
 
 // The WASM module's boost::log severity filter is read from
 // globalThis.ORCA_LOG_LEVEL at orc_init (client forwards it; default "info").
@@ -27,7 +28,10 @@ if (envLogLevel) {
 }
 
 const factory: OrcaModuleFactory = useMock
-  ? async () => createMockModule({ instanceCount: mockInstanceCount, volumeCount: mockVolumeCount, primeTowerFixture: mockPrimeTowerFixture })
+  ? async () => createMockModule({ instanceCount: mockInstanceCount, volumeCount: mockVolumeCount, primeTowerFixture: mockPrimeTowerFixture,
+    sliceWarnings: mockPrimeTowerWarnings ? [
+      'Prime Tower intersects an exclusion area.', 'Prime Tower is outside the printable area.',
+    ] : undefined })
   : async () => {
       // The worker chunk is emitted below assets/ while the host's static
       // artifact is served from wasm/. Resolving against the deployment base

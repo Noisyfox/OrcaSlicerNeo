@@ -85,6 +85,8 @@ export interface MockModuleOptions {
   primeTowerProjection?: unknown;
   /** Deterministic eligible tower projections for mock Electron interaction tests. */
   primeTowerFixture?: boolean;
+  /** Native-shaped advisory warnings returned by the deterministic slice fixture. */
+  sliceWarnings?: readonly string[];
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -323,7 +325,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     // compatibility projection.
     return { ...clone(projectConfigOverlay), plates: {} };
   }
-  let projectConfigOverlay = emptyOverlay();
+  const sliceWarnings = opts.sliceWarnings ? [...opts.sliceWarnings] : [];
+  let projectConfigOverlay = opts.primeTowerFixture
+    ? { ...emptyOverlay(), project: { enable_prime_tower: '1' } }
+    : emptyOverlay();
   let exportedProjectConfigOverlay = emptyOverlay();
   let primeTowerProjectionState: any;
 
@@ -532,17 +537,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (primeTowerProjectionState !== undefined) return clone(primeTowerProjectionState);
     const area = { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 };
     if (opts.primeTowerFixture) {
+      const enabled = projectConfigOverlay.project.enable_prime_tower !== '0';
       return {
         ok: true, version: 1, current_plate_id: currentPlateId, build_area: area,
         plates: plateIds.map((plateId, index) => ({
-          plate_id: plateId, display_index: index, eligible: true, empty: false, forced: false,
-          used_slots: [1, 2], width: 24, depth: 36, height: 18,
+          plate_id: plateId, display_index: index, eligible: enabled, empty: false, forced: false,
+          used_slots: enabled ? [1, 2] : [], width: enabled ? 24 : 0, depth: enabled ? 36 : 0, height: enabled ? 18 : 0,
           position: { x: 30, y: 40 }, rotation: 0, brim_margin: 3,
           footprint: { min_x: 27, max_x: 57, min_y: 37, max_y: 77 },
-          bands: [
+          bands: enabled ? [
             { slot: 1, start_depth: 0, end_depth: 18, colour: '#333333', opacity: 0.66 },
             { slot: 2, start_depth: 18, end_depth: 36, colour: '#ffd700', opacity: 0.66 },
-          ], build_area: area,
+          ] : [], build_area: area,
         })),
       };
     }
@@ -910,7 +916,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     sliced = true;
     slicedPlateId = plateId;
     slicedPlateRevision = revision;
-    return { ok: true, unrecognized_keys: [] };
+    return { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings] };
   }
 
   // Serialize the current structure in the bridge's object/part/instance shape.

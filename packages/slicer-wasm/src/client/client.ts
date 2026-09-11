@@ -639,7 +639,7 @@ function normalizePrimeTowerProjection(raw: unknown): PrimeTowerProjectionResult
         endDepth: band.end_depth as number, colour: band.colour, opacity: band.opacity as number };
     });
     const typedBands = bands as PrimeTowerBand[];
-    if (bands.some((band) => band === null) || bands.length !== (item.used_slots as unknown[]).length ||
+    if (bands.some((band) => band === null) || bands.length !== (item.eligible ? (item.used_slots as unknown[]).length : 0) ||
         bands.some((band, index) => band!.slot !== (item.used_slots as number[])[index]) ||
         (typedBands.length > 0 && !same(typedBands[0].startDepth, 0)) ||
         typedBands.some((band, index) => index > 0 && !same(band.startDepth, typedBands[index - 1].endDepth)) ||

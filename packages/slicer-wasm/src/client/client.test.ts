@@ -13,6 +13,17 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('keeps disabled prime towers non-empty while clearing eligibility', async () => {
+    const module = createMockModule({ primeTowerFixture: true });
+    const c = createClient(async () => module);
+    const enabled = await c.getPrimeTowerProjection();
+    expect(enabled).toMatchObject({ ok: true, plates: [{ eligible: true, empty: false }] });
+    const disabled = await c.setProjectConfigOverride({ scope: 'project' }, 'enable_prime_tower', '0');
+    expect(disabled).toMatchObject({ ok: true });
+    const projection = await c.getPrimeTowerProjection();
+    expect(projection).toMatchObject({ ok: true, plates: [{ eligible: false, empty: false, usedSlots: [] }] });
+  });
+
   it('normalizes the native Prime Tower projection and keeps geometry out of React', async () => {
     const payload = {
       ok: true, version: 1, current_plate_id: 'plate-session-1-plate-1',

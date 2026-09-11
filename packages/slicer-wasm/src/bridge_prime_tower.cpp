@@ -430,8 +430,8 @@ json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
         (footprint["min_x"].get<double>() < bounds.min_x || footprint["max_x"].get<double>() > bounds.max_x ||
          footprint["min_y"].get<double>() < bounds.min_y || footprint["max_y"].get<double>() > bounds.max_y);
     json bands = json::array();
-    const double band_depth = slots.empty() ? 0. : depth / static_cast<double>(slots.size());
-    for (std::size_t band = 0; band < slots.size(); ++band) {
+    const double band_depth = eligible && !slots.empty() ? depth / static_cast<double>(slots.size()) : 0.;
+    for (std::size_t band = 0; eligible && band < slots.size(); ++band) {
         const int slot = slots[band];
         const std::string source = colours != nullptr && static_cast<std::size_t>(slot - 1) < colours->values.size()
             ? colours->values[slot - 1] : std::string{};

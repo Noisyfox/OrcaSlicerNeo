@@ -334,7 +334,7 @@ and drives structural operations through the typed client.
 
 ## Milestone 17: Multi-Filament Support
 
-> [!success] Implemented and accepted 2026-09-09. Normative specification:
+> [!success] Implemented and accepted 2026-09-11 (Steps 11–15). Normative specification:
 > [`Multi-Filament Support.md`](Multi-Filament%20Support.md). Execution and
 > acceptance evidence: [`2026-09-08-multi-filament-implementation-plan.md`](../doc/2026-09-08-multi-filament-implementation-plan.md).
 
@@ -352,6 +352,11 @@ and drives structural operations through the typed client.
 - [x] Dual-variant real-WASM acceptance completed in 95.018 s under the hard
       120 s limit. Developer runs may use `--threaded-only`; release runs both
       serial and threaded variants, with Electron target regression evidence
+- [x] Threaded real Electron acceptance opened the approved 11-plate project,
+      proved plate-1-only slicing, current-plate interaction, one-entry drag
+      history, clamping, Prepare-only lifetime, and non-blocking warnings; the
+      threaded checklist completed in 50.300 s and the licensed project flow
+      completed in 2m06s
 
 ## Cross-cutting titlebar/native menu implementation
 

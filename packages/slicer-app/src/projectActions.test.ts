@@ -278,7 +278,7 @@ describe('transactional project actions', () => {
     useSettingsStore.setState({ modelLoaded: true, values: { modelPath: 'old.stl', layer_height: '0.2' } });
     useSlicerStore.setState({
       status: 'done', resultExported: true, sliceTarget: { plateId: 'old-plate-2', inputRevision: 4 },
-      plateResults: { 'old-plate-2': { target: { plateId: 'old-plate-2', inputRevision: 4 }, result: {} as never } },
+      plateResults: { 'old-plate-2': { target: { plateId: 'old-plate-2', inputRevision: 4 }, result: {} as never, warnings: [] } },
     });
     usePlateSessionStore.getState().setSnapshot({
       ...freshPlateSession,

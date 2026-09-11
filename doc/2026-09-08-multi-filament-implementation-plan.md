@@ -1666,3 +1666,27 @@ and typechecks; review the complete Step 11–15 diff and changed-flow/test impa
 verify every commit boundary and unchanged dirty submodule. Pass means all
 approved behaviour has executable evidence and the roadmap/spec status is
 truthful.
+
+**Step 15 implementation record (2026-09-11, accepted):** The Step 15
+implementation adds the durable real Electron runner and semantic instrumentation. The exact
+licensed 11-plate painted project was opened through File → Open Project with
+threaded WASM; the real flow kept plate 1 current before slicing, after slice,
+after export, and in Preview, verified black/gold tower bands, non-current
+interaction rejection, one Worker-backed `Move Prime Tower` Undo entry per
+drag, boundary clamping, hidden X/Y settings, and removal of the Prepare-only
+proxy/hook in Preview. The deterministic mock Electron path covers
+enable/disable invalidation, disabled eligibility with `empty: false`, and
+native-shaped collision/outside advisory warnings that remain visible while
+Sliced and Preview complete; that warning case uses an isolated fixture build,
+while the default mock E2E slices remain warning-free.
+
+Final evidence: `pnpm test` and `pnpm typecheck` passed; both WASM quick builds
+passed; the threaded acceptance checklist completed in 50.300 seconds with
+`failed: []`; threaded comprehensive bridge smoke and serial focused Step 13
+contract/warning smoke passed; the real DRC Electron sanity flow passed in
+14.2 seconds; and the exact licensed project Electron flow passed in 2 minutes
+6 seconds. `git diff --check` passed. The native/client fix only permits
+ineligible single-filament plates to carry empty band arrays; history retains
+no complete PresetBundle or slice result, and wipe-tower X/Y arrays remain
+plate-lifecycle-owned. Only the pre-existing pinned `packages/slicer-wasm/cpp`
+submodule dirtiness remains.

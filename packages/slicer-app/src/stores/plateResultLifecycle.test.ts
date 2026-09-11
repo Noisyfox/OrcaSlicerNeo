@@ -46,4 +46,21 @@ describe('per-plate result lifecycle', () => {
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['b']);
     expect(useSlicerStore.getState().status).toBe('done');
   });
+
+  it('restores a cached plate warning through Preview activation', () => {
+    const store = useSlicerStore.getState();
+    store.setPlateResult(plate('a', 1), result(), undefined, ['Prime Tower intersects an exclusion area.']);
+    expect(store.activatePlateResult('a', 1)).toBe(true);
+    expect(useSlicerStore.getState().error).toBe('[Warning] Prime Tower intersects an exclusion area.');
+  });
+
+  it('clears a prior plate warning when activating a cached plate without warnings', () => {
+    const store = useSlicerStore.getState();
+    store.setPlateResult(plate('a', 1), result(), undefined, ['Prime Tower is outside the printable area.']);
+    store.setPlateResult(plate('b', 1), result());
+    expect(store.activatePlateResult('a', 1)).toBe(true);
+    expect(useSlicerStore.getState().error).toContain('outside the printable area');
+    expect(store.activatePlateResult('b', 1)).toBe(true);
+    expect(useSlicerStore.getState().error).toBeNull();
+  });
 });

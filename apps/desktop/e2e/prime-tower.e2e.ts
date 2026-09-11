@@ -3,8 +3,8 @@ import { resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
 
-async function launchApp(): Promise<ElectronApplication> {
-  const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
+async function launchApp(extraEnv: Record<string, string> = {}): Promise<ElectronApplication> {
+  const env = { ...process.env, ORCA_E2E: '1', ...extraEnv } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   const glFlag = process.platform === 'linux' ? ['--use-angle=swiftshader-webgl'] : [];
   return _electron.launch({ args: ['.', ...glFlag], cwd: DESKTOP_ROOT, env });
@@ -13,10 +13,15 @@ async function launchApp(): Promise<ElectronApplication> {
 type TowerState = {
   plateId: string;
   current: boolean;
+  empty: boolean;
   selected: boolean;
   position: { x: number; y: number };
   bands: number;
+  colours: string[];
   opacity: number[];
+  footprint?: { minX: number; maxX: number; minY: number; maxY: number };
+  buildArea?: { minX: number; maxX: number; minY: number; maxY: number };
+  outsideBoundaryWarning?: boolean;
 };
 type Point = [number, number, number];
 type HistorySnapshot = { undoLabels: string[]; undoButtonLabel: string | null };
@@ -91,7 +96,9 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
       return { x: box.x + projected.x, y: box.y + projected.y };
     };
     const hasExpectedBands = (towers: TowerState[]) => towers.length > 0
-      && towers.every((tower) => tower.bands === 2 && tower.opacity.every((opacity) => Math.abs(opacity - 0.66) < 0.01));
+      && towers.every((tower) => tower.bands === 2
+        && JSON.stringify(tower.colours) === JSON.stringify(['#333333', '#ffd700'])
+        && tower.opacity.every((opacity) => Math.abs(opacity - 0.66) < 0.01));
     await expect.poll(async () => hasExpectedBands(await readTowers())).toBe(true);
     await page.getByTestId('add-plate').click();
     await expect.poll(readTowers).toHaveLength(2);
@@ -100,7 +107,9 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     const other = towers.find((tower) => !tower.current);
     expect(current).toBeDefined();
     expect(other).toBeDefined();
-    expect(towers.every((tower) => tower.bands === 2 && tower.opacity.every((opacity) => Math.abs(opacity - 0.66) < 0.01))).toBe(true);
+    expect(towers.every((tower) => tower.bands === 2
+      && JSON.stringify(tower.colours) === JSON.stringify(['#333333', '#ffd700'])
+      && tower.opacity.every((opacity) => Math.abs(opacity - 0.66) < 0.01))).toBe(true);
 
     const beds = await page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; position: Point }> } })
@@ -225,6 +234,61 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'false');
     await expect.poll(() => page.evaluate(() => Boolean((window as unknown as { __orcaE2e?: { primeTowerStates?: () => unknown } }).__orcaE2e?.primeTowerStates?.()))).toBe(false);
     await expect.poll(() => page.evaluate(() => (window as unknown as { __orcaE2e?: { previewMarkerPresent?: () => boolean } }).__orcaE2e?.previewMarkerPresent?.() ?? false)).toBe(false);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Prepare prime tower enable/disable clears selection and invalidates the current result', async () => {
+  const app = await launchApp({ ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl') });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.locator('#app-tab-prepare').click();
+    const readTowers = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { primeTowerStates?: () => TowerState[] } }).__orcaE2e?.primeTowerStates?.() ?? [],
+    );
+    const readSelection = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { primeTowerSelection?: () => string | null } }).__orcaE2e?.primeTowerSelection?.() ?? null,
+    );
+    const toggleTower = () => page.locator('#enable_prime_tower').evaluate((input) => (input as HTMLInputElement).click());
+    await expect.poll(readTowers).toHaveLength(1);
+    await expect(page.locator('#enable_prime_tower')).toBeChecked();
+    expect((await readTowers())[0]).toMatchObject({ eligible: true, empty: false });
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await expect.poll(readTowers).toHaveLength(1);
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
+    await expect(page.getByTestId('slicer-error')).toHaveCount(0);
+    await toggleTower();
+    await expect.poll(readTowers).toEqual([]);
+    await expect.poll(readSelection).toBeNull();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
+    await page.locator('#app-tab-preview').click();
+    await expect.poll(readTowers).toEqual([]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('Prepare prime tower collision and outside warnings do not block slicing or Preview', async () => {
+  test.skip(process.env.ORCA_E2E_PRIME_TOWER_WARNINGS !== '1', 'requires the isolated warning fixture build');
+  const app = await launchApp({ ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl') });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
+    await expect(page.getByTestId('slicer-error')).toContainText('Prime Tower intersects an exclusion area.');
+    await expect(page.getByTestId('slicer-error')).toContainText('Prime Tower is outside the printable area.');
+    await page.locator('#app-tab-preview').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
+    await expect(page.getByTestId('slicer-error')).toContainText('Prime Tower intersects an exclusion area.');
+    await expect(page.getByTestId('slicer-error')).toContainText('Prime Tower is outside the printable area.');
   } finally {
     await app.close();
   }

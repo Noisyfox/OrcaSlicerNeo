@@ -23,6 +23,8 @@ export interface PlateSliceResult {
   result: ClientSliceResult;
   /** Host-neutral G-code bytes retained with the session result. */
   gcode?: Uint8Array;
+  /** Native advisory warnings scoped to this plate result. */
+  warnings: readonly string[];
 }
 
 export const DEFAULT_PREVIEW_STATE: PreviewState = {
@@ -63,7 +65,7 @@ interface SlicerState {
   setResultExported: (exported: boolean) => void;
   setSliceTarget: (target: PlateOperationTarget | null) => void;
   setActiveSliceTarget: (target: PlateOperationTarget | null) => void;
-  setPlateResult: (target: PlateOperationTarget, result: ClientSliceResult, gcode?: Uint8Array) => void;
+  setPlateResult: (target: PlateOperationTarget, result: ClientSliceResult, gcode?: Uint8Array, warnings?: readonly string[]) => void;
   activatePlateResult: (plateId: string, inputRevision: number) => boolean;
   invalidatePlateResults: (plateIds: readonly string[]) => void;
   discardPlateResult: (plateId: string) => void;
@@ -108,12 +110,13 @@ export const useSlicerStore = create<SlicerState>((set) => ({
   setResultExported: (resultExported) => set({ resultExported }),
   setSliceTarget: (sliceTarget) => set({ sliceTarget }),
   setActiveSliceTarget: (activeSliceTarget) => set({ activeSliceTarget }),
-  setPlateResult: (target, result, gcode) => set((state) => ({
-    plateResults: { ...state.plateResults, [target.plateId]: { target, result, ...(gcode ? { gcode } : {}) } },
+  setPlateResult: (target, result, gcode, warnings = []) => set((state) => ({
+    plateResults: { ...state.plateResults, [target.plateId]: { target, result, warnings: [...warnings], ...(gcode ? { gcode } : {}) } },
     // Keep the legacy active-result fields coherent for callers that only
     // render the current plate.
     ...(state.sliceTarget?.plateId === target.plateId || state.activeSliceTarget?.plateId === target.plateId
-      ? { sliceTarget: target, status: 'done' as const, resultExported: false, error: null }
+      ? { sliceTarget: target, status: 'done' as const, resultExported: false,
+        error: warnings.length ? `[Warning] ${warnings.join('; ')}` : null }
       : {}),
   })),
   activatePlateResult: (plateId, inputRevision) => {
@@ -139,7 +142,7 @@ export const useSlicerStore = create<SlicerState>((set) => ({
       status: 'done' as const,
       progress: 100,
       layers: cached.result.layers,
-      error: null,
+      error: cached.warnings.length ? `[Warning] ${cached.warnings.join('; ')}` : null,
       resultExported: false,
     };
     });
