@@ -13,6 +13,7 @@ import type {
 } from '@slicer/client';
 import { applyFilamentMutationResult } from './plateResultLifecycle';
 import { enqueueProjectMutationOperation, type ProjectMutationLease } from '../history/projectMutationGate';
+import { projectHistoryStatus } from '../history/projectHistoryStatus';
 
 /**
  * UI state for the material rack. `snapshot` is always the last complete
@@ -78,6 +79,10 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
       try {
         const result = await command();
         if (result.ok) {
+          // The native command and this receipt share one commit. Project it
+          // before any dependent session/result publication; do not issue a
+          // competing history-status read from this FIFO operation.
+          projectHistoryStatus(result.result.historyStatus);
           set({ snapshot: result.result.snapshot, rejected: null });
           await applyFilamentMutationResult(result.result.mutation, runtime);
         }

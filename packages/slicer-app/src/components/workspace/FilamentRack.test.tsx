@@ -6,7 +6,7 @@ import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-cont
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import { useProjectStore } from '../../stores/useProjectStore';
-import type { FilamentSessionSnapshot } from '@slicer/client';
+import type { FilamentSessionSnapshot, HistoryStatus } from '@slicer/client';
 
 function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): FilamentSessionSnapshot {
   return {
@@ -28,6 +28,16 @@ function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): Filamen
   } as FilamentSessionSnapshot;
 }
 
+function historyStatus(revision: number): HistoryStatus {
+  return {
+    canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
+    savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: true, bytesUsed: 1,
+    byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+    lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
+    disabled: false, activeTransactionId: null, revision,
+  };
+}
+
 function mutation(snapshot: FilamentSessionSnapshot, kind: 'add' | 'delete' | 'set-colour' = 'add') {
   return { ok: true as const, version: 1 as const, result: {
     snapshot,
@@ -36,6 +46,7 @@ function mutation(snapshot: FilamentSessionSnapshot, kind: 'add' | 'delete' | 's
       revisionAfter: snapshot.revisions.session, dirty: true as const,
       allPlateResultsInvalidated: true,
     },
+    historyStatus: historyStatus(snapshot.revisions.session),
   } };
 }
 

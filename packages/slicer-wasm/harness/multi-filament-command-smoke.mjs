@@ -29,7 +29,25 @@ function callJson(name, types = [], args = []) {
   const pointer = Number(Module.ccall(name, 'number', types, args));
   const result = JSON.parse(Module.UTF8ToString(pointer)); Module._free(pointer); return result;
 }
-function request(name, body) { return callJson(name, ['string'], [JSON.stringify(body)]); }
+const historyMutationCommands = new Set([
+  'orc_select_filament_slot_preset', 'orc_set_filament_slot_colour',
+  'orc_add_filament_slot', 'orc_delete_filament_slot', 'orc_merge_filament_slots',
+  'orc_assign_filament', 'orc_set_filament_routing',
+]);
+function request(name, body) {
+  const result = callJson(name, ['string'], [JSON.stringify(body)]);
+  if (result.ok && historyMutationCommands.has(name)) {
+    const receipt = result.result?.history_status;
+    assert.ok(receipt, `${name} must return post-commit history status in its mutation receipt`);
+    assert.equal(receipt.revision, result.result.mutation.revision_after, JSON.stringify(result));
+    assert.equal(receipt.dirty, result.result.mutation.dirty, JSON.stringify(result));
+    // The receipt is the UI source of truth. The direct native read is used
+    // here only to prove it was captured after the same commit, not as a
+    // renderer fallback.
+    assert.deepEqual(receipt, callJson('orc_history_status'), JSON.stringify(result));
+  }
+  return result;
+}
 function readBytes(pointer, length) {
   const bytes = Module.HEAPU8.slice(Number(pointer), Number(pointer) + Number(length));
   Module._free(Number(pointer));

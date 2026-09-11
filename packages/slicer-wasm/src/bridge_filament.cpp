@@ -1,4 +1,5 @@
 #include "bridge_filament.hpp"
+#include "bridge_history.hpp"
 
 #include <stdexcept>
 
@@ -862,7 +863,8 @@ void validate_filament_candidate(PresetBundle& bundle, Model& model,
 json filament_mutation_result(const json& mutation)
 {
     return { {"ok", true}, {"version", 1},
-             {"result", {{"snapshot", filament_snapshot_json()}, {"mutation", mutation}}} };
+             {"result", {{"snapshot", filament_snapshot_json()}, {"mutation", mutation},
+                         {"history_status", HistoryMetadata::history_status_json(state())}}} };
 }
 
 template <typename Mutator>

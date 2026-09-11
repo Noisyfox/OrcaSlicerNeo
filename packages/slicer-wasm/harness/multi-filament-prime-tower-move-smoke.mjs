@@ -98,6 +98,8 @@ const started = performance.now();
 const move = request('orc_move_prime_tower', { version: 1, plate_id: secondPlate, revision: beforeRevision, x: 999, y: 999 });
 const moveDurationMs = performance.now() - started;
 assert.equal(move.ok, true, JSON.stringify(move)); assert.ok(moveDurationMs < 1000, `move took ${moveDurationMs.toFixed(1)}ms`);
+assert.deepEqual(move.result.history_status, callJson('orc_history_status'), JSON.stringify(move));
+assert.equal(move.result.history_status.dirty, move.result.mutation.dirty, JSON.stringify(move));
 // The movement response is intentionally scalar-only. Returning a full
 // all-plate projection or session here made every release rebuild and copy a
 // large opened project despite an X/Y-only mutation.

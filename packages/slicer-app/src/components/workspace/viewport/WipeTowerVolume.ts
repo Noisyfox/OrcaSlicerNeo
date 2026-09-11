@@ -125,7 +125,7 @@ export interface WipeTowerMovePort {
   reconcile(): Promise<void>;
   revision(plateId: string): number;
   /** Project history status without re-entering the shared FIFO. */
-  publishHistoryStatus?(status?: HistoryStatus): Promise<void>;
+  publishHistoryStatus?(status: HistoryStatus): Promise<void>;
 }
 
 /** Worker projection and native X/Y commit boundary; it owns no selection,

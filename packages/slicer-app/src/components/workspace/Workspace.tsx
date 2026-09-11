@@ -29,7 +29,7 @@ import { PreviewPlateList } from './PreviewPlateList';
 import { applyPlateSessionResponse, applyPrimeTowerMoveMutation, selectPlateSessionAndClearSelection } from './plateSessionActions';
 import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { TransformHistoryCoordinator } from './actions/transformHistory';
-import { projectHistoryStatus, syncHistoryStatusWithinMutation } from './actions/historyMutation';
+import { projectHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import type { ProjectConfigOverlay } from '@slicer/client';
 import { FilamentRack } from './FilamentRack';
@@ -102,8 +102,7 @@ export function Workspace({
       reconcile: async () => { await primeTowerRefreshRef.current?.(); },
       revision: (plateId) => usePlateSessionStore.getState().snapshot?.inputRevisions?.[plateId] ?? -1,
       publishHistoryStatus: async (status) => {
-        if (status) projectHistoryStatus(status);
-        else await syncHistoryStatusWithinMutation(platform.runtime);
+        projectHistoryStatus(status);
       },
     });
   }

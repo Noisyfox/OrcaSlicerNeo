@@ -292,6 +292,7 @@ describe('structural history transaction boundary', () => {
           revisionBefore: 3, revisionAfter: 4, dirty: true as const,
           allPlateResultsInvalidated: false as const,
         },
+        historyStatus: { ...status, revision: 4, canUndo: true, canRedo: false, redoEntries: [], dirty: true },
       },
     } as never));
     const filament = useFilamentSessionStore.getState().run(runtime as never, command);
@@ -302,5 +303,10 @@ describe('structural history transaction boundary', () => {
     await Promise.all([project, filament]);
     expect(command).toHaveBeenCalledOnce();
     expect(useFilamentSessionStore.getState().rejected).toBeNull();
+    expect(useHistoryNavigationStore.getState().status).toMatchObject({ revision: 4, canRedo: false, dirty: true });
+    // A delayed pre-branch status must not re-enable Redo after the receipt
+    // from the same FIFO mutation has truncated that branch.
+    projectHistoryStatus({ ...status, revision: 3, canRedo: true, redoEntries: [{ id: 'redo-1', label: 'Undo Add Cube', category: 'project' }] });
+    expect(useHistoryNavigationStore.getState().status).toMatchObject({ revision: 4, canRedo: false });
   });
 });

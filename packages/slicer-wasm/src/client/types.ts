@@ -200,7 +200,7 @@ export interface PrimeTowerMoveMutation {
 export interface PrimeTowerMoveResult {
   readonly mutation: PrimeTowerMoveMutation;
   /** Native history status captured after the atomic move commit. */
-  readonly historyStatus?: import('./history').HistoryStatus;
+  readonly historyStatus: import('./history').HistoryStatus;
 }
 
 export type PrimeTowerMoveResultOrError = AtomicCommandResult<PrimeTowerMoveResult>;
@@ -928,6 +928,8 @@ export interface FilamentMutationSummary {
 export interface FilamentMutationResult {
   readonly snapshot: FilamentSessionSnapshot;
   readonly mutation: FilamentMutationSummary;
+  /** Native history status captured after the same successful commit. */
+  readonly historyStatus: import('./history').HistoryStatus;
 }
 
 export interface FilamentCommandRequest {

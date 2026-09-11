@@ -9,9 +9,11 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
 import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 import { acquireProjectMutationLease, enqueueProjectMutationOperation } from '../../../history/projectMutationGate';
+import { projectHistoryStatus } from '../../../history/projectHistoryStatus';
+
+export { projectHistoryStatus } from '../../../history/projectHistoryStatus';
 
 export type HistoryMutationResult<T> = {
   result: T;
@@ -221,12 +223,7 @@ export function restoreProjectHistory(
       }
       if (result.status) projectHistoryStatus(result.status);
       await refreshFilamentSession(runtime, undefined, lease);
-      // Restore publication may also update the native cursor through a
-      // narrow sidecar. Read the post-refresh checkpoint inside the same FIFO
-      // lease so redo/undo controls reflect the committed cursor immediately.
       if (result.ok) {
-        const refreshedStatus = await runtime.getHistoryStatus().catch(() => null);
-        if (refreshedStatus) projectHistoryStatus(refreshedStatus);
         await publish?.(result);
       }
       return result;
@@ -236,18 +233,6 @@ export function restoreProjectHistory(
   });
 }
 
-/** Keep the renderer's dirty projection aligned with the Worker checkpoint. */
-export function projectHistoryStatus(status: HistoryStatus): HistoryStatus {
-  // Worker responses can cross in flight with a later atomic mutation.  A
-  // delayed read must never roll navigation back to an older checkpoint after
-  // the mutation has published its authoritative status.
-  const current = useHistoryNavigationStore.getState().status;
-  if (current && status.revision < current.revision) return current;
-  useHistoryNavigationStore.getState().setStatus(status);
-  useProjectStore.getState().setProject({ dirty: status.dirty, dirtyReasons: [] });
-  return status;
-}
-
 export async function readProjectHistoryStatus(
   runtime: Pick<SlicerRuntime, 'getHistoryStatus'>,
   clearLegacyReasons = false,
@@ -255,9 +240,9 @@ export async function readProjectHistoryStatus(
   return enqueueProjectMutationOperation(async () => {
     try {
       const status = await runtime.getHistoryStatus();
-      useHistoryNavigationStore.getState().setStatus(status);
-      useProjectStore.getState().setProject({ dirty: status.dirty, ...(clearLegacyReasons ? { dirtyReasons: [] } : {}) });
-      return status;
+      const projected = projectHistoryStatus(status);
+      if (clearLegacyReasons) useProjectStore.getState().setProject({ dirtyReasons: [] });
+      return projected;
     } catch { return null; }
   });
 }
@@ -314,15 +299,4 @@ export async function syncHistoryStatus(runtime: Pick<SlicerRuntime, 'getHistory
       return null;
     }
   });
-}
-
-/** Project a status read that is already inside the shared FIFO. */
-export async function syncHistoryStatusWithinMutation(
-  runtime: Pick<SlicerRuntime, 'getHistoryStatus'>,
-): Promise<HistoryStatus | null> {
-  try {
-    return projectHistoryStatus(await runtime.getHistoryStatus());
-  } catch {
-    return null;
-  }
 }

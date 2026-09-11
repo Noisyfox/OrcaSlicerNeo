@@ -338,6 +338,11 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
   if (!snapshot.ok || !result.mutation || typeof result.mutation !== 'object')
     return { ok: false, version: 1, error: snapshot.ok ? 'invalid filament mutation summary' : snapshot.error,
       errorCode: 'invalid_response' };
+  if (!isRecord(result.history_status))
+    return { ok: false, version: 1, error: 'missing filament mutation history status', errorCode: 'invalid_response' };
+  let historyStatus: import('./history').HistoryStatus;
+  try { historyStatus = normalizeHistoryStatus(result.history_status); }
+  catch { return { ok: false, version: 1, error: 'invalid filament history status', errorCode: 'invalid_response' }; }
   const mutation = result.mutation as Record<string, unknown>;
   if (typeof mutation.kind !== 'string' || mutation.history_entry_delta !== 1 ||
       !Number.isSafeInteger(mutation.revision_before) || !Number.isSafeInteger(mutation.revision_after) ||
@@ -345,6 +350,8 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
       Number(mutation.revision_after) !== snapshot.revisions.session ||
       mutation.dirty !== true || typeof mutation.all_plate_results_invalidated !== 'boolean')
     return { ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' };
+  if (historyStatus.revision !== mutation.revision_after || historyStatus.dirty !== mutation.dirty)
+    return { ok: false, version: 1, error: 'filament mutation history status does not match receipt', errorCode: 'invalid_response' };
   const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing']);
   if (!validMutationKinds.has(String(mutation.kind)))
     return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
@@ -457,7 +464,7 @@ function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOr
     }) as FilamentMutationResult['mutation']['acceptedTargets'] } : {}),
     ...(typeof mutation.selector === 'string' ? { selector: mutation.selector } : {}),
   };
-  return { ok: true, version: 1, result: { snapshot, mutation: summary } };
+  return { ok: true, version: 1, result: { snapshot, mutation: summary, historyStatus } };
 }
 
 function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
@@ -705,11 +712,12 @@ function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrErro
     footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
       minY: footprint.min_y as number, maxY: footprint.max_y as number },
   };
-  const historyStatus = isRecord(result.history_status)
-    ? normalizeHistoryStatus(result.history_status)
-    : undefined;
-  return { ok: true, version: 1, result: { mutation: typedMutation,
-    ...(historyStatus ? { historyStatus } : {}) } } as PrimeTowerMoveResultOrError;
+  if (!isRecord(result.history_status))
+    return { ok: false, version: 1, error: 'invalid prime tower history status', errorCode: 'invalid_response' };
+  let historyStatus: import('./history').HistoryStatus;
+  try { historyStatus = normalizeHistoryStatus(result.history_status); }
+  catch { return { ok: false, version: 1, error: 'invalid prime tower history status', errorCode: 'invalid_response' }; }
+  return { ok: true, version: 1, result: { mutation: typedMutation, historyStatus } };
 }
 
 /** Convert the native profile/catalogue payload into the public profile

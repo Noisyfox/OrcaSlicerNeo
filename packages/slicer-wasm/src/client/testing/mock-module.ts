@@ -594,7 +594,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const area = plate.build_area;
     const x = clamp(request.x, offsetMinX, offsetMaxX, area.min_x, area.max_x);
     const y = clamp(request.y, offsetMinY, offsetMaxY, area.min_y, area.max_y);
-    if (x === old.x && y === old.y) return { ok: true, version: 1, result: { mutation: {
+    if (x === old.x && y === old.y) return { ok: true, version: 1, result: { history_status: historyStatus(), mutation: {
       kind: 'move', plate_id: request.plate_id, history_entry_delta: 0, revision_before: plateInputRevisions[request.plate_id] ?? 0,
       revision_after: plateInputRevisions[request.plate_id] ?? 0, dirty: false, affected_plate_ids: [], position: old, footprint: plate.footprint,
     } } };
@@ -626,7 +626,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyEntries.splice(historyCursor + 1);
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`, label: 'Move Prime Tower', category: 'project', context: clone(context) });
     historyCursor = historyEntries.length - 1;
-    return { ok: true, version: 1, result: { mutation: {
+    return { ok: true, version: 1, result: { history_status: historyStatus(), mutation: {
       kind: 'move', plate_id: request.plate_id, history_entry_delta: 1, revision_before: request.revision,
       revision_after: historyRevision, dirty: true, affected_plate_ids: [request.plate_id],
       clamped: x !== request.x || y !== request.y, outside_boundary_warning: widthX > area.max_x - area.min_x || widthY > area.max_y - area.min_y,
@@ -776,7 +776,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         : null;
       mutation.slot_count = next.slots.length;
     }
-    return { ok: true, version: 1, result: { snapshot: clone(next), mutation } };
+    return { ok: true, version: 1, result: { snapshot: clone(next), mutation,
+      history_status: { ...historyStatus(), revision: next.revisions.session, dirty: true } } };
   }
   function filamentAssignmentMutation(requestJson: string, kind: 'assign' | 'routing'): unknown {
     if (opts.filamentMutation !== undefined) return clone(opts.filamentMutation);
@@ -830,7 +831,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     }
     next.revisions.session += 1; next.revisions.project = next.revisions.session;
     filamentSessionState = next;
-    return { ok: true, version: 1, result: { snapshot: clone(next), mutation: {
+    return { ok: true, version: 1, result: { snapshot: clone(next), history_status: {
+      ...historyStatus(), revision: next.revisions.session, dirty: true }, mutation: {
       kind, history_entry_delta: 1, revision_before: request.revision, revision_after: next.revisions.session,
       dirty: true, all_plate_results_invalidated: kind === 'routing' && accepted.some((target: any) => target.kind === 'project'), accepted_targets: accepted,
       ...(kind === 'routing' ? { selector: request.selector, slot: request.slot } : { slot: request.slot }), affected_plate_ids: [],

@@ -88,6 +88,7 @@ describe('SlicerClient bridge contract', () => {
       dirty: true, affectedPlateIds: [plateId], clamped: true, outsideBoundaryWarning: false,
     } } });
     if (!moved.ok) throw new Error(moved.error);
+    expect(moved.result.historyStatus.revision).toBeGreaterThanOrEqual(1);
     if (!moved.result.mutation.position) throw new Error('move response omitted authoritative position');
     expect(moved.result.mutation.position.x).toBeLessThan(200);
     expect(moved.result.mutation.position.y).toBeLessThan(200);
@@ -279,20 +280,32 @@ describe('SlicerClient bridge contract', () => {
         entries.map((entry: { objectId: number; [name: string]: unknown }) => ({ ...entry, object_id: entry.objectId }))])),
     });
     const validSnapshot = { ...base, revisions: { ...base.revisions, session: 1 } };
+    const receipt = (revision = 1, dirty = true) => ({
+      canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
+      savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
+      byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+      lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
+      disabled: false, activeTransactionId: null, revision,
+    });
     const response = (mutation: Record<string, unknown>, snapshot = validSnapshot) => ({
-      ok: true, version: 1, result: { snapshot: toWire(snapshot), mutation: {
+      ok: true, version: 1, result: { snapshot: toWire(snapshot), history_status: receipt(), mutation: {
         kind: 'select-preset', history_entry_delta: 1, revision_before: 0,
         revision_after: 1, dirty: true, all_plate_results_invalidated: true,
         slot: 1, preset: 'p', ...mutation,
       } },
     });
     const assignmentResponse = (fields: Record<string, unknown>, snapshot = validSnapshot) => ({
-      ok: true, version: 1, result: { snapshot: toWire(snapshot), mutation: {
+      ok: true, version: 1, result: { snapshot: toWire(snapshot), history_status: receipt(), mutation: {
         kind: 'assign', history_entry_delta: 1, revision_before: 0, revision_after: 1,
         dirty: true, all_plate_results_invalidated: false, slot: 0,
         accepted_targets: [{ kind: 'object', id: 7, object_id: 7 }], affected_plate_ids: [], ...fields,
       } },
     });
+    const missingReceipt = response({});
+    delete (missingReceipt.result as Record<string, unknown>).history_status;
+    await expect(createClient(async () => createMockModule({ filamentMutation: missingReceipt }))
+      .selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'missing filament mutation history status', errorCode: 'invalid_response' });
     await expect(createClient(async () => createMockModule({
       filamentMutation: assignmentResponse({ preset: 'unexpected' }),
     })).assignFilament({ version: 1, revision: 0, slot: 0, targets: [{ kind: 'object', id: 7 }] }))
@@ -306,7 +319,7 @@ describe('SlicerClient bridge contract', () => {
     })).assignFilament({ version: 1, revision: 0, slot: 0, targets: [{ kind: 'object', id: 7 }] }))
       .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' });
     const routingResponse = (fields: Record<string, unknown>) => ({
-      ok: true, version: 1, result: { snapshot: toWire(validSnapshot), mutation: {
+      ok: true, version: 1, result: { snapshot: toWire(validSnapshot), history_status: receipt(), mutation: {
         kind: 'routing', history_entry_delta: 1, revision_before: 0, revision_after: 1,
         dirty: true, all_plate_results_invalidated: true, selector: 'support-base', slot: 1,
         accepted_targets: [{ kind: 'project', id: 0, object_id: 0 }], affected_plate_ids: ['plate-1'], ...fields,
@@ -352,7 +365,7 @@ describe('SlicerClient bridge contract', () => {
       capabilities: { ...twoSlot.capabilities, canDelete: false, canMerge: false },
     };
     const deleteMutation = (fields: Record<string, unknown>) => ({
-      ok: true, version: 1, result: { snapshot: toWire(oneSlot), mutation: {
+      ok: true, version: 1, result: { snapshot: toWire(oneSlot), history_status: receipt(), mutation: {
         kind: 'delete', history_entry_delta: 1, revision_before: 0, revision_after: 1,
         dirty: true, all_plate_results_invalidated: true, source: 2, destination: null,
         slot_count: 1, ...fields,
@@ -366,7 +379,7 @@ describe('SlicerClient bridge contract', () => {
       .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation slot count', errorCode: 'invalid_response' });
 
     const mergeResponse = {
-      ok: true, version: 1, result: { snapshot: toWire(oneSlot), mutation: {
+      ok: true, version: 1, result: { snapshot: toWire(oneSlot), history_status: receipt(), mutation: {
         kind: 'merge', history_entry_delta: 1, revision_before: 0, revision_after: 1,
         dirty: true, all_plate_results_invalidated: true, source: 2, destination: 2, slot_count: 1,
       } },

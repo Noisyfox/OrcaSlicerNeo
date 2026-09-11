@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useFilamentSessionStore } from './useFilamentSessionStore';
 import { useSlicerStore } from './useSlicerStore';
-import type { FilamentSessionSnapshot, SlicerClient } from '@slicer/client';
+import type { FilamentSessionSnapshot, HistoryStatus, SlicerClient } from '@slicer/client';
+import { useHistoryNavigationStore } from './useHistoryNavigationStore';
+import { useProjectStore } from './useProjectStore';
 
 function snapshot(revision: number): FilamentSessionSnapshot {
   return {
@@ -14,8 +16,20 @@ function snapshot(revision: number): FilamentSessionSnapshot {
   };
 }
 
+function historyStatus(revision: number, dirty = true): HistoryStatus {
+  return {
+    canUndo: dirty, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
+    savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
+    byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+    lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
+    disabled: false, activeTransactionId: null, revision,
+  };
+}
+
 afterEach(() => {
   useFilamentSessionStore.getState().reset();
+  useHistoryNavigationStore.getState().setStatus(null);
+  useProjectStore.getState().setProject({ dirty: false, dirtyReasons: [] });
 });
 
 describe('filament session store lifecycle', () => {
@@ -43,6 +57,7 @@ describe('filament session store lifecycle', () => {
       snapshot: assigned,
       mutation: { kind: 'assign' as const, historyEntryDelta: 1 as const, revisionBefore: 2, revisionAfter: 3,
         dirty: true as const, allPlateResultsInvalidated: false as const, affectedPlateIds: [] },
+      historyStatus: historyStatus(3),
     } }));
     const run = useFilamentSessionStore.getState().run(runtime, command);
     expect(command).not.toHaveBeenCalled();
@@ -63,8 +78,11 @@ describe('filament session store lifecycle', () => {
     await useFilamentSessionStore.getState().run(runtime, async () => ({ ok: true, version: 1, result: {
       snapshot: newer,
       mutation: { kind: 'add', historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 3, dirty: true, allPlateResultsInvalidated: true },
+      historyStatus: historyStatus(3),
     } }));
     expect(useFilamentSessionStore.getState().snapshot).toBe(newer);
+    expect(useHistoryNavigationStore.getState().status).toEqual(historyStatus(3));
+    expect(useProjectStore.getState().dirty).toBe(true);
   });
 
   it('invalidates shared rack results and cancels only an affected active plate', async () => {
@@ -73,6 +91,7 @@ describe('filament session store lifecycle', () => {
       snapshot: newer,
       mutation: { kind: 'set-colour' as const, historyEntryDelta: 1 as const, revisionBefore: 1, revisionAfter: 2,
         dirty: true as const, allPlateResultsInvalidated: true as const },
+      historyStatus: historyStatus(2),
     } };
     const cancel = vi.fn(async () => ({ ok: true }));
     const slicer = useSlicerStore.getState();
@@ -108,6 +127,7 @@ describe('filament session store lifecycle', () => {
     await useFilamentSessionStore.getState().run({} as SlicerClient, async () => ({ ok: true, version: 1, result: {
       snapshot: newer,
       mutation: { kind: 'assign', historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 2, dirty: true, allPlateResultsInvalidated: false, affectedPlateIds: ['plate-a'] },
+      historyStatus: historyStatus(2),
     } }));
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-b']);
   });
