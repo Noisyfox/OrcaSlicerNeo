@@ -12,6 +12,7 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { addModel } from '../actions/sceneActions';
 import { useSceneInteractionVersion } from './SceneInteractionContext';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
+import { usePrimeTowerInteractionVersion, type PrimeTowerInteractionController } from './PrimeTowerInteractionController';
 
 const GIZMO_BUTTONS: ReadonlyArray<{
   mode: Exclude<OpenGizmo, null>;
@@ -24,8 +25,15 @@ const GIZMO_BUTTONS: ReadonlyArray<{
   { mode: 'scale', label: 'Scale', icon: Scaling, testId: 'gizmo-btn-scale' },
 ];
 
-export function GizmoToolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
+export function GizmoToolbar({
+  sceneInteraction,
+  primeTowerController,
+}: {
+  sceneInteraction: SceneInteractionController | null;
+  primeTowerController?: PrimeTowerInteractionController;
+}) {
   useSceneInteractionVersion(sceneInteraction ?? undefined);
+  usePrimeTowerInteractionVersion(primeTowerController);
   const platform = usePlatform();
   // Boot loads the printer/process lists and the rack's filament catalogue
   // atomically; until they
@@ -36,9 +44,10 @@ export function GizmoToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
     (s) => s.printers.length > 0 && s.prints.length > 0 && s.filamentCatalog.length > 0,
   );
   if (!sceneInteraction) return null;
-  // The gizmos can only arm with a non-empty selection — the controller's
-  // toggleGizmo also refuses, and the buttons' disabled state surfaces it.
-  const disabled = sceneInteraction.selection.empty;
+  const towerSelected = primeTowerController?.selectedPlateId != null;
+  // Prime Tower is a separate, mutually exclusive selection domain. It owns
+  // only the X/Y Move gizmo; Rotate and Scale stay unavailable while it is
+  // selected. Ordinary model selection keeps the shared scene controller.
   return (
     <div
       className="absolute top-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-card/90 p-1 backdrop-blur"
@@ -57,7 +66,11 @@ export function GizmoToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
       </Button>
       <div className="mx-0.5 h-4 w-px bg-border/60" aria-hidden="true" />
       {GIZMO_BUTTONS.map(({ mode, label, icon: Icon, testId }) => {
-        const armed = sceneInteraction.gizmo === mode;
+        const towerMode = towerSelected && mode === 'move';
+        const armed = towerMode
+          ? primeTowerController?.gizmoArmed === true
+          : !towerSelected && sceneInteraction.gizmo === mode;
+        const disabled = towerSelected ? !towerMode : sceneInteraction.selection.empty;
         return (
           <Button
             key={mode}
@@ -68,7 +81,9 @@ export function GizmoToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
             disabled={disabled}
             data-testid={testId}
             className={cn(armed && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
-            onClick={() => sceneInteraction.toggleGizmo(mode)}
+            onClick={() => towerSelected
+              ? primeTowerController?.toggleGizmo()
+              : sceneInteraction.toggleGizmo(mode)}
           >
             <Icon />
           </Button>

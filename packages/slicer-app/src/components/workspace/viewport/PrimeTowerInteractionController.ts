@@ -9,9 +9,9 @@ import { clampPrimeTowerPosition, type PrimeTowerPosition } from './primeTowerGe
 
 export type PrimeTowerPointerOwner = 'none' | 'body' | 'gizmo';
 
-export function usePrimeTowerInteractionVersion(controller: PrimeTowerInteractionController): number {
+export function usePrimeTowerInteractionVersion(controller: PrimeTowerInteractionController | undefined): number {
   const [version, setVersion] = useState(0);
-  useEffect(() => controller.subscribe(() => setVersion((value) => value + 1)), [controller]);
+  useEffect(() => controller?.subscribe(() => setVersion((value) => value + 1)), [controller]);
   return version;
 }
 
@@ -31,6 +31,7 @@ export class PrimeTowerInteractionController {
   private readonly listeners = new Set<() => void>();
   private projectionState: PrimeTowerProjection | null = null;
   private selectedPlateIdState: string | null = null;
+  private gizmoArmedState = false;
   private pointerOwnerState: PrimeTowerPointerOwner = 'none';
   private startWorld: { x: number; y: number } | null = null;
   private startPosition: PrimeTowerPosition | null = null;
@@ -47,6 +48,7 @@ export class PrimeTowerInteractionController {
 
   get projection(): PrimeTowerProjection | null { return this.projectionState; }
   get selectedPlateId(): string | null { return this.selectedPlateIdState; }
+  get gizmoArmed(): boolean { return this.gizmoArmedState; }
   get owner(): PrimeTowerPointerOwner { return this.pointerOwnerState; }
   get transientPosition(): PrimeTowerPosition | null { return this.transientPositionState; }
   get moveCommandCount(): number { return this.moveCommandCountState; }
@@ -67,6 +69,7 @@ export class PrimeTowerInteractionController {
     if (this.pointerOwnerState !== 'none' || this.commitInFlight) return false;
     const plate = this.plate(plateId);
     if (!plate?.eligible || plateId !== this.projectionState?.currentPlateId) return false;
+    if (this.selectedPlateIdState !== plateId) this.gizmoArmedState = false;
     this.selectedPlateIdState = plateId;
     this.transientPositionState = { ...plate.position };
     this.emit();
@@ -74,8 +77,9 @@ export class PrimeTowerInteractionController {
   }
 
   clearSelection(emit = true): boolean {
-    const changed = this.selectedPlateIdState !== null || this.pointerOwnerState !== 'none';
+    const changed = this.selectedPlateIdState !== null || this.gizmoArmedState || this.pointerOwnerState !== 'none';
     this.selectedPlateIdState = null;
+    this.gizmoArmedState = false;
     this.pointerOwnerState = 'none';
     this.startWorld = null;
     this.startPosition = null;
@@ -84,9 +88,20 @@ export class PrimeTowerInteractionController {
     return changed;
   }
 
+  toggleGizmo(): boolean {
+    const plateId = this.selectedPlateIdState;
+    const plate = plateId ? this.plate(plateId) : undefined;
+    if (!plateId || !plate?.eligible || plateId !== this.projectionState?.currentPlateId
+      || this.pointerOwnerState !== 'none' || this.commitInFlight) return false;
+    this.gizmoArmedState = !this.gizmoArmedState;
+    this.emit();
+    return true;
+  }
+
   beginBody(plateId: string, world: { x: number; y: number }): boolean {
     const plate = this.plate(plateId);
     if (!plate?.eligible || plateId !== this.projectionState?.currentPlateId || this.commitInFlight) return false;
+    if (this.selectedPlateIdState !== plateId) this.gizmoArmedState = false;
     this.selectedPlateIdState = plateId;
     this.pointerOwnerState = 'body';
     this.startWorld = { ...world };
@@ -110,7 +125,8 @@ export class PrimeTowerInteractionController {
 
   beginGizmo(plateId: string): boolean {
     const plate = this.plate(plateId);
-    if (!plate?.eligible || plateId !== this.projectionState?.currentPlateId || this.commitInFlight) return false;
+    if (!this.gizmoArmedState || !plate?.eligible || plateId !== this.selectedPlateIdState
+      || plateId !== this.projectionState?.currentPlateId || this.commitInFlight) return false;
     this.selectedPlateIdState = plateId;
     this.pointerOwnerState = 'gizmo';
     this.startPosition = { ...plate.position };

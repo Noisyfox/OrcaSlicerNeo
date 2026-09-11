@@ -123,6 +123,7 @@ function PrimeTowerMesh({
   const raycaster = useThree((state) => state.raycaster);
   const invalidate = useThree((state) => state.invalidate);
   const selected = controller.selectedPlateId === projection.plateId;
+  const gizmoArmed = selected && controller.gizmoArmed;
   const position = selected && controller.transientPosition ? controller.transientPosition : projection.position;
 
   const syncGroup = useCallback(() => {
@@ -236,8 +237,8 @@ function PrimeTowerMesh({
           </mesh>
         ))}
       </group>
-      {selected && bounds && <PrimeTowerSelectionBounds bounds={bounds} />}
-      {selected && interactive && <PrimeTowerGizmo
+      {selected && !gizmoArmed && bounds && <PrimeTowerSelectionBounds bounds={bounds} />}
+      {gizmoArmed && interactive && <PrimeTowerGizmo
         target={target}
         projection={projection}
         plateOrigin={plateOrigin}

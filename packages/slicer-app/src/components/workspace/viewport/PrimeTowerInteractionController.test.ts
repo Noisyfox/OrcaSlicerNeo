@@ -44,6 +44,30 @@ describe('PrimeTowerInteractionController', () => {
     expect(runtime.move.mock.calls[0][0]).toMatchObject({ plateId: 'plate-1', x: 27, y: 28 });
   });
 
+  it('keeps selection bounds-only until the explicit move toggle is armed', () => {
+    const controller = new PrimeTowerInteractionController(port());
+    controller.setProjection(projection);
+
+    expect(controller.select('plate-1')).toBe(true);
+    expect(controller.gizmoArmed).toBe(false);
+    expect(controller.toggleGizmo()).toBe(true);
+    expect(controller.gizmoArmed).toBe(true);
+    expect(controller.toggleGizmo()).toBe(true);
+    expect(controller.gizmoArmed).toBe(false);
+    expect(controller.beginGizmo('plate-1')).toBe(false);
+  });
+
+  it('does not arm rotate or scale paths and closes the move gizmo with selection', () => {
+    const controller = new PrimeTowerInteractionController(port());
+    controller.setProjection(projection);
+    controller.select('plate-1');
+    controller.toggleGizmo();
+    expect(controller.gizmoArmed).toBe(true);
+    controller.clearSelection();
+    expect(controller.gizmoArmed).toBe(false);
+    expect(controller.selectedPlateId).toBeNull();
+  });
+
   it('cancels without writing and clears selection when the target disappears', () => {
     const runtime = port();
     const controller = new PrimeTowerInteractionController(runtime);

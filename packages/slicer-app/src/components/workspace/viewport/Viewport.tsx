@@ -189,6 +189,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
         return;
       }
       const key = event.key.toLowerCase();
+      if (primeTowerController?.selectedPlateId != null) {
+        if (key === 'm') {
+          event.preventDefault();
+          primeTowerController.toggleGizmo();
+        }
+        return;
+      }
       if (key === 'm') sceneInteraction.toggleGizmo('move');
       else if (key === 'r') sceneInteraction.toggleGizmo('rotate');
       else if (key === 's') sceneInteraction.toggleGizmo('scale');
@@ -241,8 +248,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
     if (plateActionPending) return;
     setPlateActionPending(true);
     try {
-      await selectPlateSessionAndClearSelection(platform, plateId, () => sceneInteraction.clearSelection());
-      primeTowerController?.clearSelection();
+      await selectPlateSessionAndClearSelection(platform, plateId, () => {
+        sceneInteraction.clearSelection();
+        primeTowerController?.clearSelection();
+      });
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
@@ -445,7 +454,10 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
                   y: event.clientY - rect.top,
                 });
                 if (plateId) void selectPlate(plateId);
-                else sceneInteractionRef.current?.clearSelection();
+                else {
+                  sceneInteractionRef.current?.clearSelection();
+                  primeTowerController?.clearSelection();
+                }
               }
             }}
           >
@@ -513,7 +525,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pri
       {prepareTab && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
       {previewTab && toolpath && <LayerScrubber data={toolpath} />}
       {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
-      {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
+      {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} primeTowerController={primeTowerController} />}
       {prepareTab && plateSession && <PlateControls
         plateSession={plateSession}
         pending={plateActionPending}

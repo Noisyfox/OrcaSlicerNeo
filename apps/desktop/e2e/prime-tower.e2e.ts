@@ -123,12 +123,39 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
 
     await page.mouse.click((await screenForWorld(currentCenter)).x, (await screenForWorld(currentCenter)).y);
     await expect.poll(readSelection).toBe(current!.plateId);
+    // Tower selection owns bounds only. Its X/Y gizmo is explicitly armed by
+    // Move, just like ordinary model selection.
+    await expect.poll(readAxis).toBeNull();
+    await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByTestId('gizmo-btn-rotate')).toBeDisabled();
+    await expect(page.getByTestId('gizmo-btn-scale')).toBeDisabled();
+    await page.keyboard.press('m');
+    await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('m');
+    await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByTestId('object-list')).not.toContainText('Prime tower');
     // The context-menu ray ordering is exercised by the focused occlusion
     // unit test; this fixture has no ObjectList/context-menu entry for the
     // scene-only tower.
 
     const activeBed = currentBed;
+    let blankBedFound = false;
+    for (const [blankLocalX, blankLocalY] of [[10, 10], [210, 10], [10, 210], [210, 210], [110, 110]]) {
+      const blankBedScreen = await screenForWorld([currentBed[0] + blankLocalX, currentBed[1] + blankLocalY, 0]);
+      await page.mouse.click(blankBedScreen.x, blankBedScreen.y);
+      if (await readSelection() === null) {
+        blankBedFound = true;
+        break;
+      }
+    }
+    expect(blankBedFound, 'an empty point on the current bed should clear tower selection').toBe(true);
+    const canvasBox = await canvas.boundingBox();
+    expect(canvasBox).not.toBeNull();
+    await page.mouse.click(canvasBox!.x + 5, canvasBox!.y + 5);
+    await expect.poll(readSelection).toBeNull();
+    await page.mouse.click((await screenForWorld(currentCenter)).x, (await screenForWorld(currentCenter)).y);
+    await expect.poll(readSelection).toBe(current!.plateId);
+    await expect.poll(readAxis).toBeNull();
     const bodyPoint: Point = [currentBed[0] + current!.position.x + 3, currentBed[1] + current!.position.y + 3, 9];
     const bodyDragScreen = await screenForWorld(bodyPoint);
     const historyBeforeBody = await readHistoryUntilEntries();
@@ -166,6 +193,10 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await expect.poll(readPointerOwner).toBe('none');
     await expect.poll(async () => (await readHistoryUntilEntries()).undoLabels).toEqual(historyBeforeCancel.undoLabels);
     expect((await readTowers()).find((tower) => tower.current)?.position).toEqual(moved.position);
+
+    await expect.poll(readAxis).toBeNull();
+    await page.getByTestId('gizmo-btn-move').click();
+    await expect(page.getByTestId('gizmo-btn-move')).toHaveAttribute('aria-pressed', 'true');
 
     // Locate a real X/Y TransformControls shaft by hovering projected world
     // candidates, then drag that canvas point. The helper only locates the

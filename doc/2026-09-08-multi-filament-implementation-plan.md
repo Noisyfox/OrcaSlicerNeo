@@ -1690,3 +1690,15 @@ ineligible single-filament plates to carry empty band arrays; history retains
 no complete PresetBundle or slice result, and wipe-tower X/Y arrays remain
 plate-lifecycle-owned. Only the pre-existing pinned `packages/slicer-wasm/cpp`
 submodule dirtiness remains.
+
+**Step 16 implementation record (2026-09-11, accepted):** Prime Tower selection
+now renders selection bounds without a gizmo; the controller-owned X/Y Move
+gizmo arms and toggles only through the Move toolbar action or `M`, while
+Rotate and Scale are unavailable for the tower. Current-bed clicks and canvas
+misses clear tower selection synchronously without history, and model/plate
+transitions retain ordinary scene ownership. Focused controller/plate tests,
+the full slicer-app suite (72 files, 490 tests), slicer-app and desktop
+typechecks, desktop unit tests (10 files, 67 tests), focused mock Electron
+Prime Tower Playwright (2 passed, 1 intentionally skipped warning fixture),
+and `git diff --check` pass. The pinned `packages/slicer-wasm/cpp` submodule
+remains the only pre-existing dirty path.
