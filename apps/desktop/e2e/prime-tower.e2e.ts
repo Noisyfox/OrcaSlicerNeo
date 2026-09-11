@@ -326,6 +326,91 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
   }
 });
 
+test('Prepare model and Prime Tower share the body and gizmo owner gesture matrix', async () => {
+  test.skip(REAL, 'the isolated mock fixture supplies deterministic projection hooks for both scene entities');
+  const app = await launchApp({ ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl') });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.locator('#app-tab-prepare').click();
+    await page.getByTestId('btn-add-model').click();
+
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const screenForWorld = async (point: Point): Promise<{ x: number; y: number }> => {
+      const projected = await page.evaluate((p) =>
+        (window as unknown as {
+          __orcaE2e?: { projectWorldToScreen?: (q: Point) => { x: number; y: number } | null };
+        }).__orcaE2e?.projectWorldToScreen?.(p) ?? null,
+        point,
+      );
+      if (!projected) throw new Error(`world projection unavailable for ${point.join(',')}`);
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      return { x: box.x + projected.x, y: box.y + projected.y };
+    };
+    const owner = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.() ?? 'none',
+    );
+    const axis = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { gizmoAxis?: () => string | null } }).__orcaE2e?.gizmoAxis?.() ?? null,
+    );
+    const boundsCenter = () => page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { selectionBoundsWorld?: () => { center: number[] } | null };
+      }).__orcaE2e?.selectionBoundsWorld?.()?.center ?? null,
+    );
+    const towers = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { primeTowerStates?: () => TowerState[] } })
+        .__orcaE2e?.primeTowerStates?.() ?? [],
+    );
+
+    await expect.poll(towers).toHaveLength(1);
+    const tower = (await towers())[0]!;
+    const bodyPoints: Array<{ name: string; point: Point }> = [
+      { name: 'model', point: [10, 10, 10] },
+      { name: 'Prime Tower', point: [tower.position.x + 3, tower.position.y + 3, 9] },
+    ];
+
+    for (const entity of bodyPoints) {
+      // Both unselected hits must synchronously select, cross the same
+      // DragControls threshold, and return the shared owner to idle.
+      const point = await screenForWorld(entity.point);
+      await page.mouse.move(point.x, point.y);
+      await page.mouse.down();
+      await page.mouse.move(point.x + 24, point.y + 12, { steps: 3 });
+      await expect.poll(owner).toBe('body');
+      await page.mouse.up();
+      await expect.poll(owner).toBe('none');
+
+      await expect.poll(boundsCenter).not.toBeNull();
+      const pivot = await boundsCenter();
+      if (!pivot) throw new Error(`${entity.name} selection bounds were not published`);
+      const pivotScreen = await screenForWorld(pivot as Point);
+      if (await page.getByTestId('gizmo-btn-move').getAttribute('aria-pressed') !== 'true')
+        await page.getByTestId('gizmo-btn-move').click();
+
+      let handle: { x: number; y: number } | null = null;
+      for (let dx = -140; dx <= 140 && !handle; dx += 10) {
+        for (let dy = -140; dy <= 140 && !handle; dy += 10) {
+          const candidate = { x: pivotScreen.x + dx, y: pivotScreen.y + dy };
+          await page.mouse.move(candidate.x, candidate.y);
+          if (await axis()) handle = candidate;
+        }
+      }
+      expect(handle, `${entity.name} Move gizmo handle should be discoverable`).not.toBeNull();
+      await page.mouse.down();
+      await expect.poll(owner).toBe('gizmo');
+      await page.mouse.move(handle!.x + 16, handle!.y, { steps: 3 });
+      await page.mouse.up();
+      await expect.poll(owner).toBe('none');
+      // Deliberately leave Move armed: changing the selected entity must not
+      // produce a second gizmo or a separate pointer state machine.
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 test('Prepare prime tower enable/disable clears selection and invalidates the current result', async () => {
   const app = await launchApp({ ORCA_E2E_MODEL: resolve(__dirname, '../../../packages/slicer-wasm/fixtures/cube.stl') });
   try {

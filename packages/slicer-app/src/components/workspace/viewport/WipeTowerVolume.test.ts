@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import * as THREE from 'three';
 import { acceleratedRaycast } from 'three-mesh-bvh';
 import { GLVolume } from './GLVolume';
 import { BVH_RAYCAST } from './ModelMesh';
@@ -117,6 +118,37 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(history.begin).not.toHaveBeenCalled();
     expect(scene.selectFromHit(ordinary, false)).toBe(true);
     expect(scene.selectedWipeTower()).toBeNull();
+  });
+
+  it('routes a regular volume and Prime Tower through the same pointer candidate and owner transitions', async () => {
+    const ordinary = model();
+    const wipe = tower();
+    const history = { begin: vi.fn(), commit: vi.fn(async () => undefined), abort: vi.fn(async () => undefined) };
+    const towerCommit = vi.fn(async () => undefined);
+    const scene = new SceneInteractionController(() => [ordinary, wipe], history);
+    scene.setWipeTowerMovePort({ commit: towerCommit });
+
+    for (const entity of [ordinary, wipe]) {
+      scene.clearSelection();
+      scene.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+
+      // Both entity types synchronously select on pointer-down, retain the
+      // exact hit until DragControls crosses its threshold, and make the same
+      // none -> body -> none ownership transition.
+      expect(scene.prepareBodyDragFromPointerDown(entity, false)).toBe(true);
+      expect(scene.selectedVolumes()).toEqual([entity]);
+      expect(scene.tryBeginBodyDrag(entity)).toBe(true);
+      expect(scene.owner).toBe('body');
+      const pivot = scene.selectionPivot()!;
+      expect(scene.updateDragPivot(pivot.clone().add(new THREE.Vector3(4, 3, 0)))).toBe(true);
+      expect(scene.endDrag()).toBe(true);
+      expect(scene.owner).toBe('none');
+      await Promise.resolve();
+    }
+
+    expect(history.begin).toHaveBeenCalledOnce();
+    expect(history.commit).toHaveBeenCalledOnce();
+    expect(towerCommit).toHaveBeenCalledWith(wipe);
   });
 
   it('rejects unselectable non-current towers and blocks a new gesture while the native move is busy', () => {

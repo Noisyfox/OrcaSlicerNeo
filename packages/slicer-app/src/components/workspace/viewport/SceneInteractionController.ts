@@ -92,7 +92,7 @@ export class SceneInteractionController {
   // gizmo drag during the threshold window.
   private pointerOrigin: PointerOrigin = 'none';
   // DragControls receives pointer-down before React can commit the selection
-  // caused by its child mesh. Keep the exact ordinary-model hit in controller
+  // caused by its child mesh. Keep the exact scene-entity hit in controller
   // state so the first threshold-crossing move can claim that same press
   // without depending on a rerendered `enabled` prop or a later raycast.
   private pendingBodyDragHit: GLVolume | null = null;
@@ -221,7 +221,12 @@ export class SceneInteractionController {
 
   get hasWipeTowerSelection(): boolean { return this.selectedWipeTower() !== null; }
 
-  private get wipeTowerBusy(): boolean { return this.wipeTowerMovePort?.busy?.() === true; }
+  /** The selected entity's commit adapter may reject a new draft while its
+   * previous Worker mutation is being reconciled. Pointer ownership remains
+   * controller-owned regardless of which adapter will ultimately commit. */
+  private get activeCommitBusy(): boolean {
+    return this.hasWipeTowerSelection && this.wipeTowerMovePort?.busy?.() === true;
+  }
 
   /** Unique object indices behind the current selection, sorted ascending.
    *  Deleting removes the complete objects that own the selected instances. */
@@ -420,7 +425,6 @@ export class SceneInteractionController {
    */
   prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
-    if (hit instanceof WipeTowerVolume) return this.selectFromHit(hit, false);
     this.pendingBodyDragHit = hit;
     // A drag that starts on a member of an existing multi-selection must move
     // the complete group. Leave selection unchanged while DragControls
@@ -601,11 +605,12 @@ export class SceneInteractionController {
    */
   tryBeginBodyDrag(hit?: GLVolume): boolean {
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty) return false;
-    // Ordinary DragControls are always armed so the synchronous first move is
-    // not lost while React publishes selection. Only the wrapper whose mesh
-    // was hit at pointer-down may turn that pending press into a body drag.
-    if (hit && !(hit instanceof WipeTowerVolume) && this.pendingBodyDragHit !== hit) return false;
-    if (this.hasWipeTowerSelection && this.wipeTowerBusy) return false;
+    // DragControls are always armed so the synchronous first move is not lost
+    // while React publishes selection. Only the wrapper whose mesh was hit at
+    // pointer-down may turn that pending press into a body drag. This applies
+    // equally to regular model volumes and the scene-only Prime Tower.
+    if (hit && this.pendingBodyDragHit !== hit) return false;
+    if (this.activeCommitBusy) return false;
     const began = this.beginDrag('body');
     if (began) this.pendingBodyDragHit = null;
     return began;
@@ -615,7 +620,7 @@ export class SceneInteractionController {
   beginGizmoDrag(): boolean {
     if (this.pointerOrigin !== 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty || this.openGizmo === null) return false;
     if (this.hasWipeTowerSelection && this.openGizmo !== 'move') return false;
-    if (this.hasWipeTowerSelection && this.wipeTowerBusy) return false;
+    if (this.activeCommitBusy) return false;
     return this.beginDrag('gizmo');
   }
 
@@ -673,11 +678,7 @@ export class SceneInteractionController {
     // click behind after mouseup. It is part of the completed gesture, not a
     // new selection request, even when the cursor ends over one group member.
     this.suppressPostDragClick = true;
-    const wipeTower = this.selectedWipeTower();
-    if (wipeTower) {
-      if (changed) void this.wipeTowerMovePort?.commit(wipeTower);
-    } else if (changed) void this.transformHistory?.commit();
-    else void this.transformHistory?.abort();
+    this.finishDragCommit(changed);
     this.emit();
     return true;
   }
@@ -705,7 +706,7 @@ export class SceneInteractionController {
     this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
-    void this.transformHistory?.abort();
+    this.abortDragCommit();
     this.emit();
     return true;
   }
@@ -756,7 +757,7 @@ export class SceneInteractionController {
     if (!pivot || this.selection.empty) return false;
     const wipeTower = this.selectedWipeTower();
     if (wipeTower) {
-      if (this.wipeTowerBusy || !this.wipeTowerMovePort) return false;
+      if (this.activeCommitBusy || !this.wipeTowerMovePort) return false;
       const delta = nextPivot.clone().sub(pivot);
       const before = wipeTower.position;
       wipeTower.setTransientPosition({ x: wipeTower.position.x + delta.x, y: wipeTower.position.y + delta.y });
@@ -877,10 +878,7 @@ export class SceneInteractionController {
   private beginDrag(kind: 'gizmo' | 'body'): boolean {
     const pivot = this.selectionPivot();
     if (!pivot) return false;
-    if (!this.hasWipeTowerSelection) {
-      const label = kind === 'body' ? 'Move' : (this.openGizmo === 'move' ? 'Move' : this.openGizmo === 'rotate' ? 'Rotate' : 'Scale');
-      if (this.transformHistory?.begin(label) === false) return false;
-    }
+    if (!this.beginDragCommit(kind)) return false;
     this.pointerOwner = kind;
     this.drag = {
       kind,
@@ -892,6 +890,34 @@ export class SceneInteractionController {
     };
     this.emit();
     return true;
+  }
+
+  /**
+   * The controller owns the full pointer/threshold/drag state machine for
+   * every entity. These three helpers are its only split: normal model
+   * transforms use the history adapter, while a selected Prime Tower uses the
+   * Worker X/Y commit adapter after the same local draft completes.
+   */
+  private beginDragCommit(kind: 'gizmo' | 'body'): boolean {
+    if (this.hasWipeTowerSelection) return true;
+    const label = kind === 'body' ? 'Move' : (this.openGizmo === 'move' ? 'Move' : this.openGizmo === 'rotate' ? 'Rotate' : 'Scale');
+    return this.transformHistory?.begin(label) !== false;
+  }
+
+  private finishDragCommit(changed: boolean): void {
+    const wipeTower = this.selectedWipeTower();
+    if (wipeTower) {
+      if (changed) void this.wipeTowerMovePort?.commit(wipeTower);
+      return;
+    }
+    if (changed) void this.transformHistory?.commit();
+    else void this.transformHistory?.abort();
+  }
+
+  private abortDragCommit(): void {
+    // A Prime Tower draft has no native transaction until the same release
+    // path above hands it to its Worker commit adapter.
+    if (!this.hasWipeTowerSelection) void this.transformHistory?.abort();
   }
 
   /**

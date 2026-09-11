@@ -1,7 +1,7 @@
 # Multi-Filament Prime Tower Drag Remediation
 
 **Date:** 2026-09-11
-**Status:** Implemented — locally verified
+**Status:** Implemented — interaction convergence verified
 
 ## Accepted behaviour
 
@@ -23,6 +23,16 @@
 - Rejected/stale releases reconcile from the Worker projection, and direct
   Prime Tower Undo/Redo uses that same authoritative projection refresh before
   its scene publication fence is released.
+- Prime Tower and ordinary model volumes enter the same pointer-down pending
+  hit, DragControls threshold, pointer-owner, cancel/release, selection-bounds,
+  and TransformControls-pivot state machine. There is no tower-specific
+  DragControls enablement or parallel pointer/drag state.
+- The only intentional difference after a shared local draft is its adapter:
+  normal model transforms commit through the history transaction adapter,
+  while the scene-only tower render transform commits X/Y through its Worker
+  mutation adapter. Current-plate/locked eligibility and Prime Tower's
+  move-only render capability remain selection/render constraints, not a
+  second interaction owner.
 - The fix does not change the pinned upstream submodule or weaken Worker
   revision validation, gesture reservation, FIFO ordering, or asynchronous
   projection fences.
@@ -50,7 +60,15 @@
 - The focused mock Electron Prime Tower canvas E2E passes with real body and
   TransformControls gestures, one history entry per completed release, and
   matching tower/bounds/gizmo coordinates.
+- The mock Electron interaction-matrix E2E drives an unselected ordinary model
+  and an unselected Prime Tower through the same body and Move-gizmo gesture
+  transitions (`none -> body/gizmo -> none`).
 - The real-WASM Prime Tower smoke passes against the available serial and
   threaded artifacts. Both runs created two Cube objects with different
   filament slots, accepted the move using the published plate revision, and
   verified the coordinate history entry plus Undo/Redo.
+- The interaction-convergence regression passes with 69 focused controller/
+  tower tests and the complete `@orca/slicer-app` suite (73 files, 528 tests).
+  Root workspace typecheck passes. The focused Electron `prime-tower.e2e.ts`
+  run passes its three mock cases (one unrelated real-artifact warning case is
+  skipped), including the model-and-tower shared owner matrix.
