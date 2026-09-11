@@ -983,7 +983,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                                             Neo::History::Codec::capture_model_state(state().model), context_bytes))
                     throw Slic3r::RuntimeError("could not establish project history baseline");
                 state().history.mark_current_as_saved();
-                state().history_revision++;
+                HistoryMetadata::advance_history_epoch(state());
                 if (state().inject_project_commit_failure) {
                     state().inject_project_commit_failure = false;
                     throw Slic3r::RuntimeError("injected project commit failure after publication");

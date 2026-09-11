@@ -112,7 +112,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         state().nested_history_transactions.clear();
         state().history_disabled = false;
         state().next_filament_colour_index = 0;
-        state().history_revision++;
+        Slic3r::Neo::Bridge::HistoryMetadata::advance_history_epoch(state());
         // First bridge log record — proves the sink pipeline end-to-end
         // (console + /tmp/orca.log).
         BOOST_LOG_TRIVIAL(info) << "orc_init: bridge ready, log level "

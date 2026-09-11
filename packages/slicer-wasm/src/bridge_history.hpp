@@ -81,4 +81,10 @@ void record_active_plate_context(BridgeState& state,
 json history_status_json(const BridgeState& state);
 json restore_diagnostics_json(const BridgeState& state);
 
+// The sole mutation path for the Worker-owned history epoch. Call this after
+// a committed mutation/restore or an externally visible abort. Exceptional
+// compensation may restore a saved epoch directly, but normal epochs never
+// move backwards.
+std::uint64_t advance_history_epoch(BridgeState& state);
+
 } // namespace Slic3r::Neo::Bridge::HistoryMetadata

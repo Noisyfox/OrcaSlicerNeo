@@ -781,7 +781,7 @@ json move_position_json(const char* request_cstr)
     // Publication is now complete. These operations are scalar/clear-only and
     // intentionally live outside the rollback scope so a post-publish path
     // cannot report failure after history has advanced.
-    ++state().history_revision;
+    HistoryMetadata::advance_history_epoch(state());
     if (state().preview_plate_id == plate_id) {
         // This is the post-publication path. Keep it non-throwing so a native
         // cleanup failure cannot report an error after history has advanced.

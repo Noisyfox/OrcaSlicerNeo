@@ -373,7 +373,7 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
     }
     state().print.clear();
     if (runtime.invalidate_preview) runtime.invalidate_preview();
-    ++state().history_revision;
+    HistoryMetadata::advance_history_epoch(state());
     return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
                 {"entryId", history_entry_id(plan.state.entry.id)}, {"direct", true},
                 // A direct filament frame still replaces a complete native
@@ -432,7 +432,7 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
         try { invalidate_preview_source(); } catch (...) {}
         try { if (runtime.invalidate_preview) runtime.invalidate_preview(); } catch (...) {}
     }
-    ++state().history_revision;
+    HistoryMetadata::advance_history_epoch(state());
     // Restore publication needs the complete renderer context even though the
     // native coordinate edit itself is represented by the narrow frame.
     return json{{"ok", true}, {"context", current_context(runtime)},
@@ -517,7 +517,7 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
     }
     state().print.clear();
     if (runtime.invalidate_preview) runtime.invalidate_preview();
-    ++state().history_revision;
+    HistoryMetadata::advance_history_epoch(state());
     return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
                 {"entryId", history_entry_id(plan.state.entry.id)},
                 // A full restore may have changed any model-owned domain. Do
@@ -974,6 +974,11 @@ json history_status_json(const BridgeState& state)
     };
 }
 
+std::uint64_t advance_history_epoch(BridgeState& state)
+{
+    return ++state.history_revision;
+}
+
 json restore_diagnostics_json(const BridgeState& state)
 {
     json out = {
@@ -1069,7 +1074,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const std::string text = after_context.dump();
         const Neo::History::Bytes bytes(text.begin(), text.end());
         if (state().history.commit(tx.label, tx.category, capture_model_state(state().model), bytes))
-            ++state().history_revision;
+            HistoryMetadata::advance_history_epoch(state());
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
         return duplicate_json(history_status_json().dump());
@@ -1090,7 +1095,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             state().nested_history_transactions.pop_back();
             state().print.clear();
             if (runtime.invalidate_preview) runtime.invalidate_preview();
-            ++state().history_revision;
+            HistoryMetadata::advance_history_epoch(state());
             return duplicate_json(json{{"ok", true}, {"context", tx.before_context}, {"status", history_status_json()}}.dump());
         }
         if (requested != state().active_history_transaction->id)
@@ -1103,7 +1108,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
         if (runtime.invalidate_preview) runtime.invalidate_preview();
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
-        if (model_changed) ++state().history_revision;
+        if (model_changed) HistoryMetadata::advance_history_epoch(state());
         return duplicate_json(json{{"ok", true}, {"context", tx.before_context}, {"status", history_status_json()}}.dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }
@@ -1177,7 +1182,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr)
         if (!state().history.commit("", Neo::History::Category::Project, capture_model_state(state().model), bytes))
             return error_json("could not establish history baseline");
         state().history.mark_current_as_saved();
-        ++state().history_revision;
+        HistoryMetadata::advance_history_epoch(state());
         return duplicate_json(history_status_json().dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }

@@ -1003,7 +1003,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             if (!history_committed) rollback_published();
             throw;
         }
-        state().history_revision++;
+        HistoryMetadata::advance_history_epoch(state());
         state().print.clear();
         invalidate_preview_source();
         mutation["history_entry_delta"] = 1;
@@ -1147,7 +1147,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
                 return command_error("native_validation_failure", "history commit rejected filament mutation");
             }
             history_committed = true;
-            state().history_revision++;
+            HistoryMetadata::advance_history_epoch(state());
             state().print.clear();
             invalidate_preview_source();
             mutation["history_entry_delta"] = 1;
@@ -1213,7 +1213,7 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
             recalculate_filament_flush(bundle);
             validate_filament_candidate(bundle, state().model, state().plate_session_plates,
                                         state().project_config_overlay, true, true);
-            ++state().history_revision;
+            HistoryMetadata::advance_history_epoch(state());
             const auto result = filament_snapshot_json();
             if (!result.value("ok", false)) throw std::runtime_error(result.value("error", "invalid remembered filament rack"));
             state().print.clear();
@@ -1417,7 +1417,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             if (!history_committed) rollback();
             throw;
         }
-        state().history_revision++;
+        HistoryMetadata::advance_history_epoch(state());
         if (affected_plates.find(state().current_plate_id) != affected_plates.end()) {
             state().print.clear();
             invalidate_preview_source();

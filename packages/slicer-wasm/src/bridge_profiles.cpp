@@ -18,6 +18,7 @@
 #include "libslic3r/Utils.hpp"
 
 #include "bridge_filament.hpp"
+#include "bridge_history.hpp"
 #include "bridge_prime_tower.hpp"
 
 using namespace Slic3r;
@@ -343,7 +344,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_preset(const char* kind_cstr, const 
             }
             Profiles::validate_profile_transition();
             const auto response = Profiles::preset_snapshot_json().dump();
-            ++state().history_revision;
+            HistoryMetadata::advance_history_epoch(state());
             return Profiles::duplicate_json(response);
         } catch (...) {
             Profiles::restore_profile_transition_state(std::move(before));
