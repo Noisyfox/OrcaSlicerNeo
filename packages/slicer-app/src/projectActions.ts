@@ -10,8 +10,13 @@ import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import type { SceneResetTarget } from './components/workspace/actions/resetSceneState';
 import { resetSceneState } from './components/workspace/actions/resetSceneState';
-import { runProjectHistoryMutation, syncHistoryStatus as syncWorkerHistoryStatus } from './components/workspace/actions/historyMutation';
-import { refreshFilamentSession } from './stores/useFilamentSessionStore';
+import {
+  runProjectHistoryMutation,
+  readProjectHistoryStatus,
+  markProjectHistorySaved,
+  resetProjectHistory,
+  recordProjectHistoryContext,
+} from './components/workspace/actions/historyMutation';
 import { applyRememberedFilamentRackFromRepository } from './preferences';
 
 export interface ProjectActionOptions {
@@ -31,8 +36,9 @@ export interface ProjectActionOptions {
   sceneResetTarget?: SceneResetTarget | null;
 }
 export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
-  Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory' | 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
+type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
+  Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'> &
+  Partial<Pick<SlicerClient, 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
@@ -59,47 +65,30 @@ function projectedHistoryContext(): HistoryContext {
     projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
   };
 }
-function syncHistoryStatus(status: HistoryStatus | null, clearLegacyReasons = true): HistoryStatus | null {
-  if (status) useProjectStore.getState().setProject({
-    dirty: status.dirty,
-    ...(clearLegacyReasons ? { dirtyReasons: [] } : {}),
-  });
+async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus> {
+  const status = await readProjectHistoryStatus(runtime, false);
+  if (!status) throw new Error('project history status read failed');
   return status;
 }
-async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus | null> {
-  if (!runtime.getHistoryStatus) return null;
-  try { return syncHistoryStatus(await runtime.getHistoryStatus(), false); }
-  catch (error) { console.warn('history status unavailable; using legacy dirty projection', error); return null; }
-}
-/** Read the Worker checkpoint state for lifecycle guards. The Zustand field is
- * only a synchronous UI projection and remains the compatibility fallback for
- * runtimes predating the history protocol. */
+/** Read the Worker checkpoint state for lifecycle guards. */
 export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
   const projectedBeforeQuery = useProjectStore.getState();
   const status = await currentHistoryStatus(runtimeOf(platform));
-  if (!status) return useProjectStore.getState().dirty;
-  // Ordinary editing commands are not all history-wrapped yet. Preserve their
-  // existing lifecycle protection until those commands begin committing Worker
-  // project entries; history-backed saves/resets clear this compatibility
-  // projection, and context-only records never populate dirtyReasons.
   return status.dirty || projectedBeforeQuery.dirtyReasons.length > 0;
 }
-async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus | null> {
-  if (!runtime.markHistorySaved) return null;
-  return syncHistoryStatus(await runtime.markHistorySaved(projectedHistoryContext()));
+async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus> {
+  return markProjectHistorySaved(runtime, projectedHistoryContext());
 }
-async function resetHistory(runtime: Runtime): Promise<HistoryStatus | null> {
-  if (!runtime.resetHistory) return null;
-  return syncHistoryStatus(await runtime.resetHistory(projectedHistoryContext()));
+async function resetHistory(runtime: Runtime): Promise<HistoryStatus> {
+  return resetProjectHistory(runtime, projectedHistoryContext());
 }
 export async function recordHistoryContext(
   platform: PlatformCapabilities,
   label: string,
   context: HistoryContext,
-): Promise<HistoryStatus | null> {
+): Promise<HistoryStatus> {
   const runtime = runtimeOf(platform);
-  if (!runtime.recordHistoryContext) return null;
-  return syncHistoryStatus(await runtime.recordHistoryContext(label, context), false);
+  return recordProjectHistoryContext(runtime, label, context);
 }
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
   if (!selections) return;
@@ -134,7 +123,7 @@ export async function saveProject(platform: PlatformCapabilities): Promise<Proje
     const saved = await platform.projects.save({ displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location });
     if (saved.status !== 'ok') { setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed'); return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error); }
     const history = await markHistorySaved(runtimeOf(platform));
-    useProjectStore.getState().setProject({ dirty: history?.dirty ?? false, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
+    useProjectStore.getState().setProject({ dirty: history.dirty, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 export async function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectActionResult> {
@@ -170,7 +159,6 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
     // New Project preserves that live rack and only establishes a clean model,
     // plate, and history baseline; it never replays a preference as an edit.
     await resetHistory(runtime);
-    await refreshFilamentSession(runtime);
     const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
@@ -179,26 +167,32 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const runtime = runtimeOf(platform);
-    const load = (await runProjectHistoryMutation(
+    const history = await runProjectHistoryMutation(
       runtime,
       'Import Geometry',
       () => runtime.importProjectGeometry(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message)),
-    )).result;
+      null,
+      {
+        publish: async (published) => {
+          if (!published.ok) throw new Error(published.error ?? 'geometry import failed');
+          applyPlateSessionTransforms(published.plateSession, glVolumeCollection.volumes);
+          invalidateInput();
+          const existing = useProjectStore.getState();
+          const incomingNotices = noticesFor(published);
+          const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
+          if (published.plateSession) {
+            usePlateSessionStore.getState().setSnapshot(published.plateSession);
+            useProjectStore.getState().recordPlateMutation(published.plateSession);
+          }
+          else useProjectStore.getState().markDirty('model-import');
+          useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
+          useSettingsStore.getState().setModelLoaded(true);
+        },
+      },
+    );
+    const load = history.result;
     if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
-    applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
-    invalidateInput();
-    const existing = useProjectStore.getState();
-    const incomingNotices = noticesFor(load);
-    const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
-    if (load.plateSession) {
-      usePlateSessionStore.getState().setSnapshot(load.plateSession);
-      useProjectStore.getState().recordPlateMutation(load.plateSession);
-    }
-    else useProjectStore.getState().markDirty('model-import');
-    await refreshFilamentSession(runtimeOf(platform));
-    await syncWorkerHistoryStatus(runtime);
-    useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
-    useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
+    setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 async function openProjectInput(platform: PlatformCapabilities, input: ProjectInput, options: ProjectActionOptions): Promise<ProjectActionResult> {
@@ -258,11 +252,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     useSettingsStore.getState().setOverlay(load.projectConfigOverlay ?? emptyProjectConfigOverlay());
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
     const history = await resetHistory(runtime);
-    // resetHistory establishes the new native history revision. Read the
-    // filament projection only after that fence so the mirror cannot retain
-    // a pre-reset revision and reject the first user command as stale.
-    await refreshFilamentSession(runtime);
-    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history?.dirty ?? false, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 

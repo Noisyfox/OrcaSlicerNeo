@@ -8,6 +8,7 @@ import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
 
 function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number): GLVolume {
   const buffer: ModelObjectBuffer = {
@@ -25,10 +26,19 @@ function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number): 
   return new GLVolume(buffer);
 }
 
+const emptyProjection = {
+  getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
+  getPlateSessionSnapshot: vi.fn(async () => ({
+    ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [],
+  })),
+};
+
 function historyRuntime() {
   return {
+    ...emptyProjection,
     setModelTransform: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
     getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
+    getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
     runProjectHistoryTransaction: vi.fn(async (
       _label: string,
       _category: 'project' | 'context',
@@ -54,6 +64,8 @@ describe('TransformHistoryCoordinator', () => {
     const runtime = {
       setModelTransform: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
+      getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
+      ...emptyProjection,
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
         _category: 'project' | 'context',
@@ -96,6 +108,8 @@ describe('TransformHistoryCoordinator', () => {
     const runtime = {
       setModelTransform: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
+      getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
+      ...emptyProjection,
       runProjectHistoryTransaction: vi.fn(async (
         _label: string,
         _category: 'project' | 'context',
@@ -116,6 +130,8 @@ describe('TransformHistoryCoordinator', () => {
     const runtime = {
       setModelTransform: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
+      getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
+      ...emptyProjection,
       runProjectHistoryTransaction: vi.fn(async (
         label: string,
         _category: 'project' | 'context',
@@ -192,6 +208,46 @@ describe('TransformHistoryCoordinator', () => {
     expect(runtime.setModelTransform).not.toHaveBeenCalled();
   });
 
+  it('projects the authoritative Move status and preserves one history entry', async () => {
+    const status = {
+      dirty: true,
+      canUndo: true,
+      canRedo: false,
+      undoEntries: [{ id: 'move-1', label: 'Move', category: 'project' }],
+      redoEntries: [],
+      cursor: 1,
+      savedCheckpoint: 0,
+      savedCheckpointEvicted: false,
+      bytesUsed: 1,
+      byteBudget: 256 * 1024 * 1024,
+      disabled: false,
+      activeTransactionId: null,
+      revision: 1,
+    } as never;
+    const runtime = {
+      setModelTransform: vi.fn(async () => ({ ok: true })),
+      getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
+      getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
+      ...emptyProjection,
+      runProjectHistoryTransaction: vi.fn(async (
+        _label: string,
+        _category: 'project' | 'context',
+        _before: unknown,
+        mutation: (tx: string) => Promise<unknown>,
+        _after: unknown | (() => unknown),
+      ) => ({ result: await mutation('tx-1'), status })),
+    };
+    const history = new TransformHistoryCoordinator(runtime as never, new SceneInteractionController(() => []));
+
+    history.begin('Move');
+    await history.commit();
+
+    expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledOnce();
+    expect(useHistoryNavigationStore.getState().status).toEqual(status);
+    expect(useProjectStore.getState().dirty).toBe(true);
+    expect(useHistoryNavigationStore.getState().status?.undoEntries).toHaveLength(1);
+  });
+
   it('refreshes the filament revision before releasing the project fence', async () => {
     const snapshots = [{ pending: 0, revision: 2 }];
     const runtime = {
@@ -244,6 +300,8 @@ describe('TransformHistoryCoordinator', () => {
     const runtime = {
       setModelTransform: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
+      getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
+      ...emptyProjection,
       runProjectHistoryTransaction: vi.fn(() => { throw new Error('history unavailable'); }),
     };
     const history = new TransformHistoryCoordinator(runtime as never, new SceneInteractionController(() => []), onError);

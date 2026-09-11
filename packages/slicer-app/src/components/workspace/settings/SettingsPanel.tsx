@@ -77,7 +77,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       // affected plates recorded by the shared action.
       await applyPresetConfigurationMutation(platform);
       const filament = await refreshFilamentSession(platform.runtime);
-      if (!filament?.ok) throw new Error(filament?.error ?? 'filament session refresh failed');
+      if (!filament.ok) throw new Error(filament.error ?? 'filament session refresh failed');
       // The bridge's arrays are already the complete picker-ready candidate
       // sets, in engine order. Replace every picker and resolved name together
       // rather than composing a selection with independently fetched lists.

@@ -1774,3 +1774,36 @@ the focused slicer-app tests (36/36), full slicer-app suite (72 files,
 Playwright (1 passed), exact real threaded-WASM Electron Playwright (1 passed),
 and `git diff --check`. The pinned
 `packages/slicer-wasm/cpp` submodule remains unchanged.
+
+**Step 20 implementation record (2026-09-11, pending independent root review):**
+Project history orchestration is now one application-owned ordered stream in
+`historyMutation.ts`, backed by the shared FIFO in
+`history/projectMutationGate.ts`. Every project transaction, undo/redo/jump
+restore, and filament command is ordered before entering the Worker. History
+operations acquire an idempotent `ProjectMutationLease`, project the
+authoritative `HistoryStatus` before any renderer publication, refresh the
+complete filament session revision through a non-reentrant lease read, and
+release the lease only after the caller-provided publication barrier completes.
+Thus a filament command waits for a pending project operation and executes with
+the refreshed revision; it is not rejected merely because the project is busy.
+Transform gestures use the same entrypoint while retaining their existing gate,
+so cancelled gestures write no model/history state and one completed gesture
+remains one history entry. Boot reset, save checkpoint, context records, and
+toolbar status reads also route through the coordinator; all public history
+status reads use the same FIFO, so an older blocked read cannot overwrite a
+newer mutation response. Meaningful configuration and delete-selection
+projections now run inside `publish`, and
+duplicate restore snapshot refreshes, redundant post-publish status reads, and
+manual transform/scene fence ownership were removed. History status, model and
+plate projection, and filament snapshot APIs are required at this boundary;
+no legacy no-op
+contracts remain. A deterministic source boundary test rejects production
+calls to native history methods outside the coordinator and rejects direct
+gate access outside the coordinator or filament store. The queue and lease
+tests cover success, failure, cancellation, overlap, synchronous start failure,
+cleanup, authoritative Move status/dirty projection, no extra success status
+read, and filament/project ordering. The exact real threaded Electron regressions for
+Add Cube → drag → Add Filament and Add Cube → Add Cube → Add Filament both pass;
+no retry, compatibility path, full PresetBundle copy, or slice result retention
+was introduced. The pinned `packages/slicer-wasm/cpp` submodule remains
+untouched.

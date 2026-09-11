@@ -2,15 +2,16 @@ import type { HistoryContext, SlicerClient } from '@slicer/client';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { projectSelection } from '../objectList/projection';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { syncModelTransforms } from './syncModelTransforms';
 import { applySettledTransformSyncResult } from './persistModelTransforms';
-import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
+import { executeProjectHistoryTransaction } from './historyMutation';
 
-type TransformHistoryRuntime = Pick<SlicerClient, 'runProjectHistoryTransaction' | 'setModelTransform' | 'getFilamentSessionSnapshot'> &
+type TransformHistoryRuntime = Pick<SlicerClient,
+  'runProjectHistoryTransaction' | 'setModelTransform' | 'getFilamentSessionSnapshot' |
+  'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot'> &
   Partial<Pick<SlicerClient, 'recomputePlateMembership'>>;
 
 /** Build the Worker-owned context projection without retaining renderer state. */
@@ -37,7 +38,7 @@ export function historyContextForScene(sceneInteraction: SceneInteractionControl
 type GateCommand = 'commit' | 'abort';
 type TransactionResult = {
   result: { ok: boolean; error?: string; plateSession?: import('@slicer/client').PlateSessionMutation };
-  status: import('@slicer/client').HistoryStatus;
+  status: import('@slicer/client').HistoryStatus | null;
 };
 
 type PendingTransformTransaction = {
@@ -72,7 +73,6 @@ export class TransformHistoryCoordinator {
 
   begin(label: string): void {
     const beforeContext = historyContextForScene(this.sceneInteraction);
-    useProjectStore.getState().beginProjectMutation();
     let release!: (command: GateCommand) => void;
     const gate = new Promise<GateCommand>((resolve) => { release = resolve; });
     let resolve!: () => void;
@@ -100,11 +100,6 @@ export class TransformHistoryCoordinator {
     current.decision = 'commit';
     current.release('commit');
     await current.completion;
-    if (current.result) {
-      // Transform edits are now history-authoritative; do not leave a legacy
-      // dirty reason competing with the saved-checkpoint projection.
-      useProjectStore.getState().setProject({ dirty: current.result.status.dirty, dirtyReasons: [] });
-    }
   }
 
   async abort(): Promise<void> {
@@ -132,7 +127,6 @@ export class TransformHistoryCoordinator {
     if (!next) return;
     if (next.decision === 'abort' && !next.started) {
       this.pending.shift();
-      useProjectStore.getState().endProjectMutation();
       next.resolve();
       this.pump();
       return;
@@ -141,9 +135,9 @@ export class TransformHistoryCoordinator {
     next.started = true;
     this.running = next;
     try {
-      next.task = this.runtime.runProjectHistoryTransaction(
+      next.task = executeProjectHistoryTransaction(
+        this.runtime,
         next.label,
-        'project',
         next.beforeContext,
         async () => {
           const command = await next.gate;
@@ -154,26 +148,23 @@ export class TransformHistoryCoordinator {
           return result;
         },
         () => historyContextForScene(this.sceneInteraction),
+        undefined,
+        (error) => { try { this.onError(error); } catch { /* reporting cannot retain the fence */ } },
       );
     } catch (error) {
       try { this.onError(error); } catch { /* reporting must not retain the mutation fence */ }
       this.running = null;
       this.pending.shift();
-      useProjectStore.getState().endProjectMutation();
       next.resolve();
       this.pump();
       return;
     }
-    void next.task.then((result) => {
+    const task = next.task;
+    void task!.then((result) => {
       next.result = result;
     }).catch((error) => {
       this.onError(error);
     }).finally(async () => {
-      // The native history commit (or abort) advances the same session
-      // revision used by filament commands. Refresh before releasing the
-      // project fence so the next material command reads that revision.
-      await refreshFilamentSession(this.runtime);
-      useProjectStore.getState().endProjectMutation();
       this.running = null;
       this.pending.shift();
       next.resolve();

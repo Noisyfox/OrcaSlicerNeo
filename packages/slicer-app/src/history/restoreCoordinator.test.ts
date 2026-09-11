@@ -38,7 +38,7 @@ describe('history restore coordinator', () => {
     const scene = fakeScene(true) as { activeDrag: object | null; cancelDrag: ReturnType<typeof vi.fn> };
     const undoHistory = vi.fn(async () => success());
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: scene as never,
       refreshModel: vi.fn(async () => undefined),
     });
@@ -54,7 +54,7 @@ describe('history restore coordinator', () => {
     const cancelAndWait = vi.fn(async () => { releaseSlice(); await slice; });
     const refreshModel = vi.fn(async () => undefined);
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(async () => ({ ok: true })) },
+      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(async () => ({ ok: true })), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: fakeScene(),
       sliceCoordinator: { cancelAndWait },
       refreshModel,
@@ -77,7 +77,7 @@ describe('history restore coordinator', () => {
       code: 'restore-failed', message: 'invalid staged model', retryable: true,
     } };
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory: vi.fn(async () => failed), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      runtime: { undoHistory: vi.fn(async () => failed), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: fakeScene(),
       refreshModel,
     });
@@ -94,7 +94,7 @@ describe('history restore coordinator', () => {
     const undoHistory = vi.fn(async () => saved);
     const redoHistory = vi.fn(async () => dirtyAgain);
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory, redoHistory, jumpHistory: vi.fn(), cancel: vi.fn() },
+      runtime: { undoHistory, redoHistory, jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: fakeScene(),
       refreshModel: vi.fn(async () => undefined),
     });
@@ -113,7 +113,7 @@ describe('history restore coordinator', () => {
     const refreshModel = vi.fn(async () => projection);
     const undoHistory = vi.fn(async () => success());
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: fakeScene(),
       refreshModel,
     });
@@ -133,7 +133,7 @@ describe('history restore coordinator', () => {
     let releaseProjection!: () => void;
     const projection = new Promise<void>((resolve) => { releaseProjection = resolve; });
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: fakeScene(),
       refreshModel: vi.fn(async () => projection),
     });
@@ -148,7 +148,7 @@ describe('history restore coordinator', () => {
 
   it('cleans up the restore barrier when mesh/context projection fails', async () => {
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: fakeScene(),
       refreshModel: vi.fn(async () => { throw new Error('mesh projection failed'); }),
     });
@@ -161,7 +161,7 @@ describe('history restore coordinator', () => {
 
   it('keeps a successful native restore successful when rack publication fails', async () => {
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn() },
+      runtime: { undoHistory: vi.fn(async () => success()), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: fakeScene(),
       refreshModel: vi.fn(async () => undefined),
       publishRestoredFilamentRack: vi.fn(async () => { throw new Error('preference read failed'); }),

@@ -249,6 +249,25 @@ entrypoint that serializes begin, model mutation, and commit, aborting on
 error. Once migration is complete, every project-mutating bridge operation
 requires an active transaction ID.
 
+At the shared application boundary, `packages/slicer-app` has one history
+coordinator for this stream, backed by a shared FIFO revision-operation gate.
+It serializes project transactions, navigation requests, and filament
+mutations before entering the Worker, owns an idempotent project-mutation
+lease, projects the returned `HistoryStatus` before publication, refreshes the
+complete filament-session snapshot after every native revision change through
+a non-reentrant lease read, and releases the lease only after the supplied
+renderer/model publication barrier settles. A filament command that arrives
+while a project operation is pending waits in the same FIFO and therefore uses
+the refreshed session revision; it is not rejected merely because the project
+is busy. Public history-status reads also enter the FIFO, so an older blocked
+read cannot overwrite a newer mutation's authoritative projection. Transform
+gestures, scene additions/clears, configuration edits,
+boot resets, and undo/redo/jumps must use this coordinator; no feature may
+call the native history methods or manually pair a pending flag with a
+filament refresh. A failed or cancelled operation releases its lease in all
+paths, while a synchronous bridge-start failure releases immediately because
+no native revision was entered.
+
 The adapted history core lives in Neo-owned
 `packages/slicer-wasm/src/history/ProjectHistory.{hpp,cpp}`. `bridge.cpp`
 exposes only the C API; the typed client, Worker RPC, shared runtime, and React

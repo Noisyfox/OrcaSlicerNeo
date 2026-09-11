@@ -37,6 +37,8 @@ function makeRuntime(): SlicerRuntime {
     addInstance: vi.fn(async () => ({ ok: true, objectId: 1, instanceId: 22 })),
     removeInstance: vi.fn(async () => ({ ok: true })),
     getModelStructure: vi.fn(async () => structure),
+    getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
+    getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
     runProjectHistoryTransaction: vi.fn(async <T>(
       _label: string,
       _category: 'project' | 'context',

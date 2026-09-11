@@ -17,7 +17,7 @@ import { glVolumeCollection, waitForGLVolumeRevision } from '../viewport/GLVolum
 import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
 import { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 import { resetSceneState } from './resetSceneState';
-import { runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
+import { runProjectHistoryMutation } from './historyMutation';
 
 export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 
@@ -45,56 +45,42 @@ async function commitAddedImpl(
   const currentSettings = useSettingsStore.getState();
   if (currentSettings.modelLoaded && typeof platform.runtime.getModelMesh === 'function')
     await waitForGLVolumeRevision(currentSettings.modelRevision);
-  const history = await runProjectHistoryMutation(platform.runtime, `Add ${displayName}`, add, sceneInteraction,
-    { fenceProjectMutation: false });
-  const r = history.result;
-  if (!r.ok) throw new Error(r.error ?? 'add failed');
-  applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
-  const slicer = useSlicerStore.getState();
-  const settings = useSettingsStore.getState();
-  slicer.setStatus('idle');
-  slicer.setResultExported(false);
-  // Shared state receives only the display name; host-private absolute
-  // paths must never cross the platform boundary.
-  settings.setValue('modelPath', displayName);
-  settings.setModelLoaded(true);
-  // Clear the previous selection before waiting for the replacement mesh. The
-  // loader/Scene effect also resets on publication, but doing it here avoids
-  // an async add completing after a caller has already started inspecting the
-  // newly published collection.
-  sceneInteraction?.resetForModel();
-  if (typeof platform.runtime.getModelMesh === 'function')
-    await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
-  useProjectStore.getState().setProject({ hasContent: true });
-  if (r.plateSession) {
-    const previousPlateSession = usePlateSessionStore.getState().snapshot;
-    usePlateSessionStore.getState().setSnapshot(r.plateSession);
-    applyPlateResultMutation(r.plateSession, previousPlateSession);
-    useProjectStore.getState().recordPlateMutation(r.plateSession);
-  }
-  else useProjectStore.getState().markDirty('model-import');
-  await syncHistoryStatus(platform.runtime);
-  slicer.setError(null);
+  const history = await runProjectHistoryMutation(platform.runtime, `Add ${displayName}`, add, sceneInteraction, {
+    publish: async (r) => {
+      if (!r.ok) throw new Error(r.error ?? 'add failed');
+      applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
+      const slicer = useSlicerStore.getState();
+      const settings = useSettingsStore.getState();
+      slicer.setStatus('idle');
+      slicer.setResultExported(false);
+      // Shared state receives only the display name; host-private absolute
+      // paths must never cross the platform boundary.
+      settings.setValue('modelPath', displayName);
+      settings.setModelLoaded(true);
+      sceneInteraction?.resetForModel();
+      if (typeof platform.runtime.getModelMesh === 'function')
+        await waitForGLVolumeRevision(useSettingsStore.getState().modelRevision);
+      useProjectStore.getState().setProject({ hasContent: true });
+      if (r.plateSession) {
+        const previousPlateSession = usePlateSessionStore.getState().snapshot;
+        usePlateSessionStore.getState().setSnapshot(r.plateSession);
+        applyPlateResultMutation(r.plateSession, previousPlateSession);
+        useProjectStore.getState().recordPlateMutation(r.plateSession);
+      }
+      else useProjectStore.getState().markDirty('model-import');
+      slicer.setError(null);
+    },
+  });
+  if (!history.result.ok) throw new Error(history.result.error ?? 'add failed');
 }
 
-/**
- * Keep the complete add-model transaction visible to other mutation surfaces.
- * The native history revision advances before the renderer mesh and filament
- * projections finish publishing; exposing that interval lets the rack disable
- * revision-fenced filament commands instead of sending an old revision.
- */
 async function commitAdded(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
   displayName: string,
   add: () => Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>,
 ): Promise<void> {
-  useProjectStore.getState().beginProjectMutation();
-  try {
-    await commitAddedImpl(platform, sceneInteraction, displayName, add);
-  } finally {
-    useProjectStore.getState().endProjectMutation();
-  }
+  await commitAddedImpl(platform, sceneInteraction, displayName, add);
 }
 
 /**
@@ -208,29 +194,27 @@ export async function clearScene(
   // Keep the project fence across native history, renderer reset, and the
   // resulting plate projection. The history helper refreshes the filament
   // snapshot once while this outer fence is held.
-  useProjectStore.getState().beginProjectMutation();
   try {
-    const history = await runProjectHistoryMutation(platform.runtime, 'Clear Scene', () => platform.runtime.clearModel(), sceneInteraction,
-      { fenceProjectMutation: false });
-    const r = history.result;
-    if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
-    applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
-    resetSceneState(sceneInteraction);
-    useProjectStore.getState().setProject({ hasContent: false });
-    if (r.plateSession) {
-      const previousPlateSession = usePlateSessionStore.getState().snapshot;
-      usePlateSessionStore.getState().setSnapshot(r.plateSession);
-      applyPlateResultMutation(r.plateSession, previousPlateSession);
-      useProjectStore.getState().recordPlateMutation(r.plateSession);
-    }
-    else useProjectStore.getState().markDirty('model-clear');
-    await syncHistoryStatus(platform.runtime);
-    sceneInteraction?.resetForModel();
-    slicer.setError(null);
+    const history = await runProjectHistoryMutation(platform.runtime, 'Clear Scene', () => platform.runtime.clearModel(), sceneInteraction, {
+      publish: async (r) => {
+        if (!r.ok) throw new Error(r.error ?? 'clear scene failed');
+        applyPlateSessionTransforms(r.plateSession, glVolumeCollection.volumes);
+        resetSceneState(sceneInteraction);
+        useProjectStore.getState().setProject({ hasContent: false });
+        if (r.plateSession) {
+          const previousPlateSession = usePlateSessionStore.getState().snapshot;
+          usePlateSessionStore.getState().setSnapshot(r.plateSession);
+          applyPlateResultMutation(r.plateSession, previousPlateSession);
+          useProjectStore.getState().recordPlateMutation(r.plateSession);
+        }
+        else useProjectStore.getState().markDirty('model-clear');
+        sceneInteraction?.resetForModel();
+        slicer.setError(null);
+      },
+    });
+    if (!history.result.ok) throw new Error(history.result.error ?? 'clear scene failed');
   } catch (err) {
     slicer.setError(errorText(err));
     console.error('clear scene failed:', err);
-  } finally {
-    useProjectStore.getState().endProjectMutation();
   }
 }

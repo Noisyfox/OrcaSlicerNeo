@@ -4,7 +4,10 @@ import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from '../objectList/useObjectListStore';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
 import { historyContextForStructure, runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
+import { acquireProjectMutationLease } from '../../../history/projectMutationGate';
 
 const status: HistoryStatus = {
   canUndo: true, canRedo: false, undoLabel: 'Delete', undoEntries: [], redoEntries: [],
@@ -30,7 +33,18 @@ function transactionRuntime() {
     assignments: { objects: [], parts: [], modifiers: [] },
     revisions: { session: 3, project: 3, result: 0, plates: {} }, status: { state: 'ready', error: null },
   } as never));
-  return { runProjectHistoryTransaction, getHistoryStatus: vi.fn(async () => status), getFilamentSessionSnapshot };
+  return {
+    runProjectHistoryTransaction,
+    getHistoryStatus: vi.fn(async () => status),
+    getFilamentSessionSnapshot,
+    getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
+    getPlateSessionSnapshot: vi.fn(async () => ({
+      ok: true as const,
+      version: 1 as const,
+      currentPlateId: 'plate-a',
+      plates: [],
+    })),
+  };
 }
 
 describe('structural history transaction boundary', () => {
@@ -58,6 +72,7 @@ describe('structural history transaction boundary', () => {
     }));
     expect(before.selection.objectIds).toEqual([42]);
     expect(response.result).toEqual({ ok: true, deleted: 1 });
+    expect(runtime.getHistoryStatus).not.toHaveBeenCalled();
   });
 
   it('returns a failed result after the transaction aborts', async () => {
@@ -71,6 +86,8 @@ describe('structural history transaction boundary', () => {
       runProjectHistoryTransaction: vi.fn(async () => { throw new Error('mutation failed'); }),
       getHistoryStatus: vi.fn(async () => ({ ...status, dirty: false, dirtyReasons: undefined })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
+      getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
+      getPlateSessionSnapshot: vi.fn(async () => ({ ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
     };
     useProjectStore.getState().setProject({ dirty: true, dirtyReasons: ['model-transform'] });
 
@@ -106,6 +123,7 @@ describe('structural history transaction boundary', () => {
         ok: true as const, version: 1 as const, currentPlateId: 'plate-b',
         plates: [{ plateId: 'plate-b', displayIndex: 0, origin: [0, 0, 0] as [number, number, number], name: 'Plate 2' }],
       }),
+      getHistoryStatus: async () => status,
       getFilamentSessionSnapshot: async () => ({ ok: false, error: 'unused' } as never),
     };
     useObjectListStore.setState({
@@ -128,6 +146,40 @@ describe('structural history transaction boundary', () => {
     await syncHistoryStatus(runtime);
     expect(useProjectStore.getState().dirty).toBe(true);
     expect(useProjectStore.getState().dirtyReasons).toEqual([]);
+  });
+
+  it('orders an older status read before a queued mutation', async () => {
+    let releaseStatus!: (value: HistoryStatus) => void;
+    const oldStatus = { ...status, dirty: false, revision: 1 };
+    const newStatus = {
+      ...status,
+      dirty: true,
+      revision: 2,
+      undoEntries: [{ id: 'add-cube', label: 'Add Cube', category: 'project' as const }],
+    };
+    const runtime = transactionRuntime();
+    runtime.getHistoryStatus.mockImplementationOnce(() => new Promise<HistoryStatus>((resolve) => {
+      releaseStatus = resolve;
+    }));
+    runtime.runProjectHistoryTransaction.mockImplementationOnce(async <T>(
+      _label: string,
+      _category: 'project',
+      _before: HistoryContext,
+      mutation: (id: string) => Promise<T>,
+    ) => ({ result: await mutation('tx-1'), status: newStatus }));
+
+    const read = syncHistoryStatus(runtime);
+    const mutation = runProjectHistoryMutation(runtime, 'Add Cube', async () => ({ ok: true }));
+    await Promise.resolve();
+    expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
+
+    releaseStatus(oldStatus);
+    await read;
+    expect(useHistoryNavigationStore.getState().status).toEqual(oldStatus);
+    await mutation;
+    expect(useHistoryNavigationStore.getState().status).toEqual(newStatus);
+    expect(useProjectStore.getState().dirty).toBe(true);
+    expect(runtime.getHistoryStatus).toHaveBeenCalledOnce();
   });
 
   it('keeps its owned project fence through the filament refresh on success and failure', async () => {
@@ -154,13 +206,15 @@ describe('structural history transaction boundary', () => {
           assignments: { objects: [], parts: [], modifiers: [] },
           revisions: { session: 4, project: 4, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
       }),
+      getModelStructure: vi.fn(async () => ({ ok: true as const, objects: [] })),
+      getPlateSessionSnapshot: vi.fn(async () => ({ ok: true as const, version: 1 as const, currentPlateId: 'plate-a', plates: [] })),
     };
     await runProjectHistoryMutation(failure, 'Rename Object', async () => ({ ok: true }));
     expect(failurePending).toEqual([1]);
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
   });
 
-  it('does not own or release the fence when the caller retains it', async () => {
+  it('nests its own lease while a caller retains an outer lease', async () => {
     const runtime = transactionRuntime();
     const pending: number[] = [];
     runtime.getFilamentSessionSnapshot.mockImplementation(async () => {
@@ -169,11 +223,76 @@ describe('structural history transaction boundary', () => {
         assignments: { objects: [], parts: [], modifiers: [] },
         revisions: { session: 3, project: 3, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
     });
-    useProjectStore.getState().beginProjectMutation();
+    const lease = acquireProjectMutationLease();
     await runProjectHistoryMutation(runtime, 'Clear Scene', async () => ({ ok: true }), null,
-      { fenceProjectMutation: false });
-    expect(pending).toEqual([1]);
+    );
+    expect(pending).toEqual([2]);
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(1);
-    useProjectStore.getState().endProjectMutation();
+    lease.release();
+  });
+
+  it('serializes overlapping project transactions and refreshes each revision in order', async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const started: string[] = [];
+    const runtime = transactionRuntime();
+    runtime.runProjectHistoryTransaction.mockImplementation(async <T>(label: string, _category: 'project', before: HistoryContext, mutation: (id: string) => Promise<T>) => {
+      started.push(label);
+      if (label === 'First') await firstGate;
+      return { result: await mutation('tx-1'), status: { ...status, revision: label === 'First' ? 3 : 4, undoLabel: before.activePlateId ?? label } };
+    });
+    const first = runProjectHistoryMutation(runtime, 'First', async () => ({ ok: true }));
+    const second = runProjectHistoryMutation(runtime, 'Second', async () => ({ ok: true }));
+    await Promise.resolve();
+    expect(started).toEqual(['First']);
+    releaseFirst();
+    await Promise.all([first, second]);
+    expect(started).toEqual(['First', 'Second']);
+    expect(runtime.getFilamentSessionSnapshot).toHaveBeenCalledTimes(2);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+  });
+
+  it('queues a filament mutation behind a pending project transaction without stale rejection', async () => {
+    let releaseProject!: () => void;
+    const projectGate = new Promise<void>((resolve) => { releaseProject = resolve; });
+    const runtime = transactionRuntime();
+    runtime.runProjectHistoryTransaction.mockImplementation(async <T>(
+      _label: string,
+      _category: 'project',
+      _before: HistoryContext,
+      mutation: (id: string) => Promise<T>,
+    ) => {
+      const result = await mutation('tx-1');
+      await projectGate;
+      return { result, status };
+    });
+    const project = runProjectHistoryMutation(runtime, 'Add Cube', async () => ({ ok: true }));
+    const command = vi.fn(async () => ({
+      ok: true as const,
+      version: 1 as const,
+      result: {
+        snapshot: {
+          ok: true as const,
+          version: 1 as const,
+          slots: [], mappings: {}, flushing: {}, capabilities: {},
+          assignments: { objects: [], parts: [], modifiers: [] },
+          revisions: { session: 4, project: 4, result: 0, plates: {} },
+          status: { state: 'ready' as const, error: null },
+        },
+        mutation: {
+          kind: 'assign' as const, historyEntryDelta: 1 as const,
+          revisionBefore: 3, revisionAfter: 4, dirty: true as const,
+          allPlateResultsInvalidated: false as const,
+        },
+      },
+    } as never));
+    const filament = useFilamentSessionStore.getState().run(runtime as never, command);
+
+    await Promise.resolve();
+    expect(command).not.toHaveBeenCalled();
+    releaseProject();
+    await Promise.all([project, filament]);
+    expect(command).toHaveBeenCalledOnce();
+    expect(useFilamentSessionStore.getState().rejected).toBeNull();
   });
 });

@@ -11,15 +11,16 @@ import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
 import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
+import { acquireProjectMutationLease, enqueueProjectMutationOperation } from '../../../history/projectMutationGate';
 
 export type HistoryMutationResult<T> = {
   result: T;
   status: HistoryStatus | null;
 };
 
-type HistoryMutationRuntime = Pick<SlicerRuntime, 'runProjectHistoryTransaction'> &
-  Pick<SlicerRuntime, 'getFilamentSessionSnapshot'> &
-  Partial<Pick<SlicerRuntime, 'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot'>>;
+type HistoryMutationRuntime = Pick<SlicerRuntime,
+  'runProjectHistoryTransaction' | 'getFilamentSessionSnapshot' | 'getHistoryStatus' |
+  'getModelStructure' | 'getPlateSessionSnapshot'>;
 
 /** Build a JSON-safe context from the current stable-ID ObjectList projection. */
 export function historyContextForStructure(sceneInteraction?: SceneInteractionController | null): HistoryContext {
@@ -65,9 +66,85 @@ function projectContextOntoStructure(context: HistoryContext, structure: Awaited
 }
 
 type MutationResponse = { ok?: boolean; error?: string };
-export interface ProjectHistoryMutationOptions {
-  /** The caller owns a fence that must span post-transaction rendering work. */
-  fenceProjectMutation?: boolean;
+export interface ProjectHistoryMutationOptions<T extends MutationResponse = MutationResponse> {
+  /** Renderer/application publication that must complete before the fence is released. */
+  publish?: (result: T, status: HistoryStatus | null) => Promise<void> | void;
+}
+
+/**
+ * Application history is a single ordered stream.  The Worker already
+ * rejects overlapping native transactions, but that is too late to protect
+ * the React projections (and the filament revision token).  Keeping the
+ * queue here means every history-producing command and restore has one
+ * lifecycle: acquire fence -> mutate/restore -> refresh projections ->
+ * publish -> release fence.
+ */
+function enqueueHistoryOperation<T>(operation: () => Promise<T>): Promise<T> {
+  return enqueueProjectMutationOperation(operation);
+}
+
+type HistoryTransactionRuntime = HistoryMutationRuntime & {
+  runProjectHistoryTransaction: SlicerRuntime['runProjectHistoryTransaction'];
+};
+
+/** Central low-level project transaction entrypoint. */
+export function executeProjectHistoryTransaction<T extends MutationResponse>(
+  runtime: HistoryTransactionRuntime,
+  label: string,
+  beforeContext: HistoryContext | (() => HistoryContext),
+  mutation: (transactionId: string) => Promise<T>,
+  afterContext: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
+  publish?: (result: T, status: HistoryStatus | null) => Promise<void> | void,
+  onSynchronousError?: (error: unknown) => void,
+): Promise<HistoryMutationResult<T>> {
+  return enqueueHistoryOperation(async () => {
+    const lease = acquireProjectMutationLease();
+    try {
+      let response: HistoryMutationResult<T>;
+      let nativeTransaction: Promise<HistoryMutationResult<T>>;
+      try {
+        const resolvedBeforeContext = typeof beforeContext === 'function' ? beforeContext() : beforeContext;
+        nativeTransaction = runtime.runProjectHistoryTransaction(
+          label,
+          'project',
+          resolvedBeforeContext,
+          mutation,
+          afterContext,
+        ) as unknown as Promise<HistoryMutationResult<T>>;
+      } catch (error) {
+        // A synchronous bridge-start failure means no native transaction was
+        // entered, so there is no revision window to fence. Release now so
+        // callers that handle the start failure synchronously cannot observe
+        // a leaked pending state; the best-effort projection refresh follows.
+        try { onSynchronousError?.(error); } catch { /* reporting cannot break cleanup */ }
+        lease.release();
+        const status = await runtime.getHistoryStatus().catch(() => null);
+        if (status) projectHistoryStatus(status);
+        await refreshFilamentSession(runtime, undefined, lease);
+        return {
+          result: { ok: false, error: error instanceof Error ? error.message : String(error) } as T,
+          status,
+        };
+      }
+      try {
+        response = await nativeTransaction;
+      } catch (error) {
+        const status = await runtime.getHistoryStatus().catch(() => null);
+        if (status) projectHistoryStatus(status);
+        await refreshFilamentSession(runtime, undefined, lease);
+        return {
+          result: { ok: false, error: error instanceof Error ? error.message : String(error) } as T,
+          status,
+        };
+      }
+      if (response.status) projectHistoryStatus(response.status);
+      await refreshFilamentSession(runtime, undefined, lease);
+      await publish?.(response.result, response.status);
+      return response;
+    } finally {
+      lease.release();
+    }
+  });
 }
 
 /** Run one project mutation through the Worker-owned history transaction. */
@@ -76,55 +153,60 @@ export async function runProjectHistoryMutation<T extends MutationResponse>(
   label: string,
   mutation: () => Promise<T>,
   sceneInteraction?: SceneInteractionController | null,
-  options: ProjectHistoryMutationOptions = {},
+  options: ProjectHistoryMutationOptions<T> = {},
 ): Promise<HistoryMutationResult<T>> {
-  const before = historyContextForStructure(sceneInteraction);
-  // A project history commit advances the native filament-session revision
-  // even when the mutation itself does not touch materials. Hold the shared
-  // mutation fence until the complete post-commit projection is published so
-  // a filament command cannot read the preceding revision in that window.
-  const ownsProjectFence = options.fenceProjectMutation !== false;
-  if (ownsProjectFence) useProjectStore.getState().beginProjectMutation();
-  try {
+  return executeProjectHistoryTransaction(
+    runtime,
+    label,
+    () => historyContextForStructure(sceneInteraction),
+    async () => {
+      const result = await mutation();
+      if (result.ok !== true) throw new Error(result.error ?? `${label} failed`);
+      return result;
+    },
+    async () => {
+      let context = historyContextForStructure(sceneInteraction);
+      const structure = await runtime.getModelStructure().catch(() => null);
+      if (structure) context = projectContextOntoStructure(context, structure);
+      const plateSession = await runtime.getPlateSessionSnapshot().catch(() => null);
+      if (plateSession?.ok) context = { ...context, activePlateId: plateSession.currentPlateId };
+      return context;
+    },
+    options.publish,
+  );
+}
+
+export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string; direction: 'undo' | 'redo' };
+
+/** Central restore entrypoint; model/UI publication runs under the same fence. */
+export function restoreProjectHistory(
+  runtime: Pick<SlicerRuntime, 'undoHistory' | 'redoHistory' | 'jumpHistory'> &
+    Pick<SlicerRuntime, 'getFilamentSessionSnapshot' | 'getHistoryStatus'>,
+  action: HistoryRestoreAction,
+  publish?: (result: Extract<import('@slicer/client').RestoreResult, { ok: true }>) => Promise<void> | void,
+): Promise<import('@slicer/client').RestoreResult> {
+  return enqueueHistoryOperation(async () => {
+    const lease = acquireProjectMutationLease();
     try {
-      const response = await runtime.runProjectHistoryTransaction(
-        label,
-        'project',
-        before,
-        async () => {
-          const result = await mutation();
-          if (result.ok !== true) throw new Error(result.error ?? `${label} failed`);
-          return result;
-        },
-        async () => {
-          let context = historyContextForStructure(sceneInteraction);
-          const structure = typeof runtime.getModelStructure === 'function'
-            ? await runtime.getModelStructure().catch(() => null)
-            : null;
-          if (structure) context = projectContextOntoStructure(context, structure);
-          const plateSession = typeof runtime.getPlateSessionSnapshot === 'function'
-            ? await runtime.getPlateSessionSnapshot().catch(() => null)
-            : null;
-          if (plateSession?.ok) context = { ...context, activePlateId: plateSession.currentPlateId };
-          return context;
-        },
-      ) as unknown as HistoryMutationResult<T>;
-      await refreshFilamentSession(runtime);
-      return response;
-    } catch (error) {
-      const status = typeof runtime.getHistoryStatus === 'function'
-        ? await runtime.getHistoryStatus().catch(() => null)
-        : null;
-      if (status) projectHistoryStatus(status);
-      await refreshFilamentSession(runtime);
-      return {
-        result: { ok: false, error: error instanceof Error ? error.message : String(error) } as T,
-        status,
-      };
+      let result: import('@slicer/client').RestoreResult;
+      try {
+        result = action === 'undo' ? await runtime.undoHistory()
+          : action === 'redo' ? await runtime.redoHistory()
+            : await runtime.jumpHistory(action.jump, action.direction);
+      } catch (error) {
+        const status = await runtime.getHistoryStatus().catch(() => null);
+        if (status) projectHistoryStatus(status);
+        await refreshFilamentSession(runtime, undefined, lease);
+        return { ok: false, error: { code: 'unknown', message: error instanceof Error ? error.message : String(error), retryable: true }, status: status ?? undefined };
+      }
+      if (result.status) projectHistoryStatus(result.status);
+      await refreshFilamentSession(runtime, undefined, lease);
+      if (result.ok) await publish?.(result);
+      return result;
+    } finally {
+      lease.release();
     }
-  } finally {
-    if (ownsProjectFence) useProjectStore.getState().endProjectMutation();
-  }
+  });
 }
 
 /** Keep the renderer's dirty projection aligned with the Worker checkpoint. */
@@ -134,13 +216,70 @@ export function projectHistoryStatus(status: HistoryStatus): HistoryStatus {
   return status;
 }
 
+export async function readProjectHistoryStatus(
+  runtime: Pick<SlicerRuntime, 'getHistoryStatus'>,
+  clearLegacyReasons = false,
+): Promise<HistoryStatus | null> {
+  return enqueueProjectMutationOperation(async () => {
+    try {
+      const status = await runtime.getHistoryStatus();
+      useHistoryNavigationStore.getState().setStatus(status);
+      useProjectStore.getState().setProject({ dirty: status.dirty, ...(clearLegacyReasons ? { dirtyReasons: [] } : {}) });
+      return status;
+    } catch { return null; }
+  });
+}
+
+export async function markProjectHistorySaved(
+  runtime: Pick<SlicerRuntime, 'markHistorySaved'>,
+  context: HistoryContext,
+): Promise<HistoryStatus> {
+  return enqueueHistoryOperation(async () => {
+    const lease = acquireProjectMutationLease();
+    try {
+      const status = await runtime.markHistorySaved(context);
+      return projectHistoryStatus(status);
+    } finally { lease.release(); }
+  });
+}
+
+export async function resetProjectHistory(
+  runtime: Pick<SlicerRuntime, 'resetHistory' | 'getFilamentSessionSnapshot'>,
+  context: HistoryContext,
+): Promise<HistoryStatus> {
+  return enqueueHistoryOperation(async () => {
+    const lease = acquireProjectMutationLease();
+    try {
+      const status = await runtime.resetHistory(context);
+      projectHistoryStatus(status);
+      await refreshFilamentSession(runtime, undefined, lease);
+      return status;
+    } finally { lease.release(); }
+  });
+}
+
+export async function recordProjectHistoryContext(
+  runtime: Pick<SlicerRuntime, 'recordHistoryContext'>,
+  label: string,
+  context: HistoryContext,
+): Promise<HistoryStatus> {
+  return enqueueHistoryOperation(async () => {
+    const lease = acquireProjectMutationLease();
+    try {
+      const status = await runtime.recordHistoryContext(label, context);
+      return projectHistoryStatus(status);
+    } finally { lease.release(); }
+  });
+}
+
 /** Read and project the Worker's current checkpoint state. */
-export async function syncHistoryStatus(runtime: Partial<Pick<SlicerRuntime, 'getHistoryStatus'>>): Promise<HistoryStatus | null> {
-  if (typeof runtime.getHistoryStatus !== 'function') return null;
-  try {
-    const status = await runtime.getHistoryStatus();
-    return projectHistoryStatus(status);
-  } catch {
-    return null;
-  }
+export async function syncHistoryStatus(runtime: Pick<SlicerRuntime, 'getHistoryStatus'>): Promise<HistoryStatus | null> {
+  return enqueueProjectMutationOperation(async () => {
+    try {
+      const status = await runtime.getHistoryStatus();
+      return projectHistoryStatus(status);
+    } catch {
+      return null;
+    }
+  });
 }

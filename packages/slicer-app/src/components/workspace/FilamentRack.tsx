@@ -148,7 +148,6 @@ export function FilamentRack() {
   const [impact, setImpact] = useState<PendingImpact>(null);
 
   useEffect(() => {
-    if (!platform.runtime || typeof platform.runtime.getFilamentSessionSnapshot !== 'function') return;
     void load(platform.runtime);
   }, [load, platform.runtime]);
 

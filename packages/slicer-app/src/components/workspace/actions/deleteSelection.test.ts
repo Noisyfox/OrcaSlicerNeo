@@ -23,6 +23,8 @@ function makeRuntime(): SlicerRuntime {
     deleteObjects: vi.fn(async () => ({ ok: true, objects: 0, deleted: 1 })),
     deleteVolumes: vi.fn(async () => ({ ok: true, objects: 1, deleted: 1 })),
     getModelStructure: vi.fn(async () => structure),
+    getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
+    getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
     runProjectHistoryTransaction: vi.fn(async <T>(
       _label: string,
       _category: 'project' | 'context',

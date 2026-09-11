@@ -29,6 +29,11 @@ function runProjectHistoryTransaction<T>(
   return mutationCallback('tx-1').then((result) => ({ result, status: undefined as never }));
 }
 
+const historyProjectionRuntime = {
+  getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
+  getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
+};
+
 describe('commitSharedConfigurationMutation', () => {
   beforeEach(() => {
     useProjectStore.getState().reset();
@@ -43,7 +48,7 @@ describe('commitSharedConfigurationMutation', () => {
       overlay: { project: { layer_height: '0.3' }, objects: {}, parts: {}, plates: {} },
       plateSession: mutation,
     }));
-    const platform = { runtime: { markSharedConfigurationMutation: mark, setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await commitOptionFieldChange(platform, 'layer_height', '0.3');
     expect(setOverride).toHaveBeenCalledWith({ scope: 'project' }, 'layer_height', '0.3');
     expect(mark).not.toHaveBeenCalled();
@@ -53,7 +58,7 @@ describe('commitSharedConfigurationMutation', () => {
 
   it('records the authoritative runtime transaction, including its revisions', async () => {
     const mark = vi.fn(async () => mutation);
-    const platform = { runtime: { markSharedConfigurationMutation: mark, setProjectConfigOverride: vi.fn(), runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setProjectConfigOverride: vi.fn(), runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await expect(commitSharedConfigurationMutation(platform)).resolves.toBe(mutation);
     expect(mark).toHaveBeenCalledOnce();
     expect(useProjectStore.getState()).toMatchObject({
@@ -65,7 +70,7 @@ describe('commitSharedConfigurationMutation', () => {
 
   it('surfaces a rejected bridge transaction without dirtying the store', async () => {
     const mark = vi.fn(async () => ({ ok: false as const, error: 'bridge rejected' }));
-    const platform = { runtime: { markSharedConfigurationMutation: mark, setProjectConfigOverride: vi.fn(), runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, markSharedConfigurationMutation: mark, setProjectConfigOverride: vi.fn(), runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await expect(commitSharedConfigurationMutation(platform)).rejects.toThrow('bridge rejected');
     expect(useProjectStore.getState()).toMatchObject({ dirty: false, dirtyReasons: [], plateInputRevisions: {} });
     expect(useSlicerStore.getState().error).toBe('bridge rejected');
@@ -78,7 +83,7 @@ describe('commitSharedConfigurationMutation', () => {
       configurationStatus: { state: 'ready' as const, corrections: [{ key: 'prime_tower_width', requested: 'invalid', effective: '20' }], warnings: [], errors: [] },
       plateSession: mutation,
     }));
-    const platform = { runtime: { setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await commitOptionFieldChange(platform, 'prime_tower_width', 'invalid');
     expect(setOverride).toHaveBeenCalledWith({ scope: 'project' }, 'prime_tower_width', 'invalid');
     expect(useSettingsStore.getState().overlay.project.prime_tower_width).toBe('20');
@@ -95,7 +100,7 @@ describe('commitSharedConfigurationMutation', () => {
       overlay: { project: {}, objects: { '42': { layer_height: '0.15' } }, parts: {}, plates: {} },
       plateSession: { ...mutation, inputRevisions: { 'plate-1': 9 }, affectedPlateIds: ['plate-1'] },
     }));
-    const platform = { runtime: { setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const platform = { runtime: { ...historyProjectionRuntime, setProjectConfigOverride: setOverride, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
     await commitOptionFieldChange(platform, 'layer_height', '0.15', { scope: 'object', id: 42 });
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['plate-2']);
   });

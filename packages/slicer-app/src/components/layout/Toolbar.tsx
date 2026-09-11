@@ -13,6 +13,7 @@ import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 import { useHistoryNavigationStore } from '../../stores/useHistoryNavigationStore';
 import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { historyNavigationDisabled, historyNextOperationLabel, projectHistoryEntries } from '../../history/historyNavigation';
+import { syncHistoryStatus } from '../workspace/actions/historyMutation';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,12 +50,11 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
   // initiated outside this toolbar (ObjectList, settings, or a native menu).
   // This is a status read, never a second frontend history list.
   useEffect(() => {
-    if (typeof platform.runtime.getHistoryStatus !== 'function') return;
     let active = true;
     const refresh = async () => {
       try {
-        const status = await platform.runtime.getHistoryStatus();
-        if (active) setHistoryStatus(status);
+        const status = await syncHistoryStatus(platform.runtime);
+        if (active && status) setHistoryStatus(status);
       } catch { /* startup/teardown can race Worker availability */ }
     };
     void refresh();

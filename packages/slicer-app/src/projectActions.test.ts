@@ -46,7 +46,10 @@ function platformFor(load: Record<string, unknown> = {}) {
     selectProfile: vi.fn(async () => snapshot),
     getFilamentSessionSnapshot: vi.fn(async () => filamentSnapshot(0)),
     applyRememberedFilamentRack: vi.fn(async () => filamentSnapshot(1)),
-    resetHistory: vi.fn(async () => null),
+    getHistoryStatus: vi.fn(async () => ({ dirty: useProjectStore.getState().dirty } as never)),
+    markHistorySaved: vi.fn(async () => ({ dirty: false } as never)),
+    recordHistoryContext: vi.fn(async () => ({ dirty: false } as never)),
+    resetHistory: vi.fn(async () => ({ dirty: false } as never)),
     cancel: vi.fn(async () => ({ ok: true })),
     runProjectHistoryTransaction: vi.fn(async <T>(
       _label: string,
@@ -176,7 +179,7 @@ describe('transactional project actions', () => {
     runtime.resetHistory.mockImplementation(async () => {
       // The refresh must not run against the pre-reset history fence.
       expect(useFilamentSessionStore.getState().snapshot).toBe(beforeReset);
-      return null;
+      return { dirty: false } as never;
     });
 
     const result = await openProject(platform, { loadBehaviour: 'load_all' });

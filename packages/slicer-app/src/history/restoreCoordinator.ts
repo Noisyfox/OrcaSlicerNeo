@@ -5,7 +5,7 @@ import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
-import { projectHistoryStatus } from '../components/workspace/actions/historyMutation';
+import { restoreProjectHistory } from '../components/workspace/actions/historyMutation';
 
 export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string; direction: 'undo' | 'redo' };
 
@@ -17,7 +17,7 @@ export interface HistoryRestoreCoordinator {
 }
 
 export interface HistoryRestoreCoordinatorOptions {
-  runtime: Pick<SlicerClient, 'undoHistory' | 'redoHistory' | 'jumpHistory' | 'cancel'>;
+  runtime: Pick<SlicerClient, 'undoHistory' | 'redoHistory' | 'jumpHistory' | 'cancel' | 'getFilamentSessionSnapshot' | 'getHistoryStatus'>;
   sceneInteraction: SceneInteractionController;
   sliceCoordinator?: Pick<WorkspaceSliceCoordinator, 'cancelAndWait'>;
   /**
@@ -68,11 +68,21 @@ export function createHistoryRestoreCoordinator({
       }
       state.setPhase('restoring');
       const revision = state.advanceRevision();
+      useHistoryRestoreStore.getState().setSnapshotSuppressed(true);
+      useSlicerStore.getState().invalidateSliceResult();
       let result: RestoreResult;
       try {
-        result = action === 'undo' ? await runtime.undoHistory()
-          : action === 'redo' ? await runtime.redoHistory()
-            : await runtime.jumpHistory(action.jump, action.direction);
+        result = await restoreProjectHistory(runtime, action, async (restored) => {
+          await refreshModel(restored.context, revision);
+          if (useHistoryRestoreStore.getState().revision !== revision) return;
+          try {
+            await publishRestoredFilamentRack?.(revision);
+          } catch (error) {
+            // Rack preference persistence is best effort. Native history and
+            // the already-published model remain authoritative.
+            console.warn('remembered filament rack publication failed after history restore', error);
+          }
+        });
       } catch (error) {
         state.setError(error instanceof Error ? error.message : String(error));
         useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
@@ -87,23 +97,8 @@ export function createHistoryRestoreCoordinator({
         state.setPhase('idle');
         return false;
       }
-      // Do not project model or context before the Worker returns success.
-      projectHistoryStatus(result.status);
-      useHistoryRestoreStore.getState().setSnapshotSuppressed(true);
-      useSlicerStore.getState().invalidateSliceResult();
-      await refreshModel(result.context, revision);
-      // A newer restore supersedes this projection; never leave the UI in a
-      // restoring state for an obsolete request.
-      if (useHistoryRestoreStore.getState().revision !== revision) return false;
-      try {
-        await publishRestoredFilamentRack?.(revision);
-      } catch (error) {
-        // Preference mirroring is deliberately outside the native restore
-        // success boundary. A throwing snapshot read or repository callback
-        // must not turn an already committed history navigation into a failed
-        // restore or publish an obsolete request.
-        console.warn('remembered filament rack publication failed after history restore', error);
-      }
+      // The central history entrypoint projects status, refreshes the
+      // filament revision, and keeps its mutation fence through publication.
       if (useHistoryRestoreStore.getState().revision !== revision) return false;
       state.setPhase('idle');
       return true;

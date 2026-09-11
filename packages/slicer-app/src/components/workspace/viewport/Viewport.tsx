@@ -28,7 +28,7 @@ import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client'
 import { canAddPlate, canDeletePlate } from './plateControls';
 import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
 import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
-import { runProjectHistoryMutation, syncHistoryStatus } from '../actions/historyMutation';
+import { runProjectHistoryMutation } from '../actions/historyMutation';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
@@ -258,9 +258,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wip
     if (plateActionPending || !canAddPlate(plateSession)) return;
     setPlateActionPending(true);
     try {
-      const result = (await runProjectHistoryMutation(platform.runtime, 'Add Plate', () => platform.runtime.addPlate())).result;
-      if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
-      await syncHistoryStatus(platform.runtime);
+      await runProjectHistoryMutation(platform.runtime, 'Add Plate', () => platform.runtime.addPlate(), null, {
+        publish: async (result) => {
+          if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+        },
+      });
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
@@ -272,9 +274,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wip
     if (plateActionPending || !plateSession || !canDeletePlate(plateSession)) return;
     setPlateActionPending(true);
     try {
-      const result = (await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId))).result;
-      if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
-      await syncHistoryStatus(platform.runtime);
+      await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId), null, {
+        publish: async (result) => {
+          if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+        },
+      });
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {

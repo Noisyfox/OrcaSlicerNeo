@@ -5,6 +5,23 @@ import {
   type MutationOutcome,
 } from './actions';
 import { runProjectHistoryMutation } from '../actions/historyMutation';
+import type { PlateSessionMutation } from '@slicer/client';
+
+type StructuralMutation = { ok: boolean; error?: string; plateSession?: PlateSessionMutation };
+
+async function runStructuralHistory(
+  runtime: SlicerRuntime,
+  label: string,
+  mutation: () => Promise<StructuralMutation>,
+  dirtyReason: 'model-delete' | 'model-structure' = 'model-structure',
+): Promise<StructuralMutation> {
+  const history = await runProjectHistoryMutation(runtime, label, mutation, null, {
+    publish: async (result) => {
+      if (result.ok) await refreshAfterModelMutation(runtime, true, result.plateSession, dirtyReason);
+    },
+  });
+  return history.result;
+}
 
 /**
  * Structural (geometry-changing) object/part actions. Each calls the matching
@@ -17,102 +34,91 @@ import { runProjectHistoryMutation } from '../actions/historyMutation';
 export async function deleteObjectsInList(runtime: SlicerRuntime, objectIds: number[]): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Delete Objects', () => runtime.deleteObjects(objectIds))).result;
+  const r = await runStructuralHistory(runtime, 'Delete Objects', () => runtime.deleteObjects(objectIds), 'model-delete');
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true, r.plateSession, 'model-delete');
   return { ok: true };
 }
 
 export async function deleteVolumeInList(runtime: SlicerRuntime, volumeId: number): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Delete Part', () => runtime.deleteVolumes([volumeId]))).result;
+  const r = await runStructuralHistory(runtime, 'Delete Part', () => runtime.deleteVolumes([volumeId]), 'model-delete');
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true, r.plateSession, 'model-delete');
   return { ok: true };
 }
 
 export async function cloneObjectsInList(runtime: SlicerRuntime, objectIds: number[]): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Clone Objects', () => runtime.cloneObjects(objectIds))).result;
+  const r = await runStructuralHistory(runtime, 'Clone Objects', () => runtime.cloneObjects(objectIds));
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
   return { ok: true };
 }
 
 export async function splitVolumeToPartsInList(runtime: SlicerRuntime, volumeId: number): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Split to Parts', () => runtime.splitVolumeToParts(volumeId))).result;
+  const r = await runStructuralHistory(runtime, 'Split to Parts', () => runtime.splitVolumeToParts(volumeId));
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
   return { ok: true };
 }
 
 export async function splitObjectToObjectsInList(runtime: SlicerRuntime, objectId: number): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Split to Objects', () => runtime.splitObjectToObjects(objectId))).result;
+  const r = await runStructuralHistory(runtime, 'Split to Objects', () => runtime.splitObjectToObjects(objectId));
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
   return { ok: true };
 }
 
 export async function assembleObjectsInList(runtime: SlicerRuntime, objectIds: number[], name = 'Assembly'): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Assemble Objects', () => runtime.mergeObjectsToMultipart(objectIds, name))).result;
+  const r = await runStructuralHistory(runtime, 'Assemble Objects', () => runtime.mergeObjectsToMultipart(objectIds, name));
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
   return { ok: true };
 }
 
 export async function separateInstancesInList(runtime: SlicerRuntime, objectId: number, instanceIds: number[]): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Separate Instances', () => runtime.separateInstances(objectId, instanceIds))).result;
+  const r = await runStructuralHistory(runtime, 'Separate Instances', () => runtime.separateInstances(objectId, instanceIds));
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
   return { ok: true };
 }
 
 export async function reorderObjectsInList(runtime: SlicerRuntime, fromObjectId: number, toIndex: number): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Reorder Objects', () => runtime.reorderObjects(fromObjectId, toIndex))).result;
+  const r = await runStructuralHistory(runtime, 'Reorder Objects', () => runtime.reorderObjects(fromObjectId, toIndex));
   if (!r.ok) return { ok: false, error: r.error };
   // Reordering objects changes their positional indices. The viewport mesh
   // buffers are keyed by those indices, so reload them to keep the scene, the
   // selection, and the ObjectList structure in the same index space (otherwise
   // the selection-to-list highlight maps to the wrong row).
-  await refreshAfterModelMutation(runtime, true);
   return { ok: true };
 }
 
 export async function reorderVolumesInList(runtime: SlicerRuntime, objectId: number, fromVolumeId: number, toIndex: number): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Reorder Parts', () => runtime.reorderVolumes(objectId, fromVolumeId, toIndex))).result;
+  const r = await runStructuralHistory(runtime, 'Reorder Parts', () => runtime.reorderVolumes(objectId, fromVolumeId, toIndex));
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
   return { ok: true };
 }
 
 export async function addInstanceInList(runtime: SlicerRuntime, objectId: number): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Add Instance', () => runtime.addInstance(objectId))).result;
+  const r = await runStructuralHistory(runtime, 'Add Instance', () => runtime.addInstance(objectId));
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
   return { ok: true };
 }
 
 export async function removeInstanceInList(runtime: SlicerRuntime, objectId: number, instanceId: number): Promise<MutationOutcome> {
   const settled = await waitForPendingModelTransforms();
   if (!settled.ok) return settled;
-  const r = (await runProjectHistoryMutation(runtime, 'Remove Instance', () => runtime.removeInstance(objectId, instanceId))).result;
+  const r = await runStructuralHistory(runtime, 'Remove Instance', () => runtime.removeInstance(objectId, instanceId));
   if (!r.ok) return { ok: false, error: r.error };
-  await refreshAfterModelMutation(runtime, true);
   return { ok: true };
 }

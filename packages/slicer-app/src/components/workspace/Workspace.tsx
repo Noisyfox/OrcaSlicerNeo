@@ -33,7 +33,7 @@ import { syncHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import type { ProjectConfigOverlay } from '@slicer/client';
 import { FilamentRack } from './FilamentRack';
-import { refreshFilamentSession, useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
+import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import { publishRememberedFilamentRack } from '../../preferences';
 import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 import { WipeTowerVolumeCollection } from './viewport/WipeTowerVolume';
@@ -193,11 +193,6 @@ export function Workspace({
           if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
             usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
         }
-        const filament = await refreshFilamentSession(platform.runtime, () => historyRestoreRef.current?.currentRevision() === revision);
-        if (filament && !filament.ok)
-          console.warn('filament projection refresh failed after committed history restore', filament.error);
-        if (historyRestoreRef.current?.currentRevision() !== revision) return;
-
         sceneInteraction.restoreHistoryContext(context, structure);
       },
       publishRestoredFilamentRack: async (revision) => {

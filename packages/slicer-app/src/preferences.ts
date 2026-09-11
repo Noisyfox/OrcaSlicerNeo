@@ -2,6 +2,8 @@ import type { ProfileSnapshot } from '@slicer/client';
 import type { RememberedFilamentRack, UserPreferences, UserPreferencesRepository } from '@orca/platform-contract';
 import type { FilamentSessionSnapshot, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
+import { resetProjectHistory } from './components/workspace/actions/historyMutation';
+import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 
 export interface RestoredSelections {
   /** The engine-resolved names to persist for the next launch. */
@@ -170,8 +172,8 @@ export async function restoreBootstrapSession(
 ): Promise<RestoredBootstrapSession> {
   const restored = await restoreSelections(runtime, preferences);
   await applyRememberedFilamentRack(runtime, preferences, restored.snapshot.printer.name);
-  const history = await runtime.resetHistory(context);
-  const filament = await runtime.getFilamentSessionSnapshot();
+  const history = await resetProjectHistory(runtime, context);
+  const filament = useFilamentSessionStore.getState().snapshot ?? await runtime.getFilamentSessionSnapshot();
   if (!filament.ok) throw new Error(filament.error ?? 'filament session unavailable after bootstrap');
   return { ...restored, filament, history };
 }

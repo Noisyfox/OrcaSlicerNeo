@@ -1,5 +1,5 @@
 import type { PlatformCapabilities } from '@orca/platform-contract';
-import type { PlateSessionMutation, ProjectConfigOverrideTarget } from '@slicer/client';
+import type { PlateSessionMutation, PlateSessionMutationResult, ProjectConfigOverrideTarget } from '@slicer/client';
 import { errorText } from '@orca/slicer-runtime';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
@@ -7,7 +7,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { applyPlateSessionTransforms } from '../actions/syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
-import { runProjectHistoryMutation, syncHistoryStatus } from '../actions/historyMutation';
+import { runProjectHistoryMutation } from '../actions/historyMutation';
 
 let configurationMutationQueue: Promise<void> = Promise.resolve();
 
@@ -22,9 +22,9 @@ async function commitSharedConfigurationMutationNow(
   value?: string,
   target: ProjectConfigOverrideTarget = { scope: 'project' },
 ): Promise<PlateSessionMutation> {
-  let mutation;
+  let mutation: PlateSessionMutationResult | undefined;
   try {
-    mutation = (await runProjectHistoryMutation(
+    const history = await runProjectHistoryMutation(
       platform.runtime,
       'Change Project Configuration',
       async () => {
@@ -41,7 +41,23 @@ async function commitSharedConfigurationMutationNow(
         }
         return platform.runtime.markSharedConfigurationMutation();
       },
-    )).result;
+      null,
+      {
+        publish: async (published) => {
+          if (!published.ok) return;
+          mutation = published;
+          const activeJob = useSlicerStore.getState().activeSliceTarget;
+          if (activeJob && (published.affectedPlateIds ?? []).includes(activeJob.plateId)) {
+            useSlicerStore.getState().invalidatePlateResults([activeJob.plateId]);
+            void platform.runtime.cancel().catch(() => undefined);
+          }
+          applyPlateSessionTransforms(published, glVolumeCollection.volumes);
+          usePlateSessionStore.getState().setSnapshot(published);
+          useProjectStore.getState().recordPlateMutation(published);
+        },
+      },
+    );
+    mutation = history.result;
   } catch (error) {
     const message = errorText(error);
     useSlicerStore.getState().setError(message);
@@ -52,15 +68,7 @@ async function commitSharedConfigurationMutationNow(
     useSlicerStore.getState().setError(message);
     throw new Error(message);
   }
-  const activeJob = useSlicerStore.getState().activeSliceTarget;
-  if (activeJob && (mutation.affectedPlateIds ?? []).includes(activeJob.plateId)) {
-    useSlicerStore.getState().invalidatePlateResults([activeJob.plateId]);
-    void platform.runtime.cancel().catch(() => undefined);
-  }
-  applyPlateSessionTransforms(mutation, glVolumeCollection.volumes);
-  usePlateSessionStore.getState().setSnapshot(mutation);
-  useProjectStore.getState().recordPlateMutation(mutation);
-  await syncHistoryStatus(platform.runtime);
+  if (!mutation) throw new Error('shared configuration mutation was not published');
   return mutation;
 }
 
