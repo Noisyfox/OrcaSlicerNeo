@@ -67,3 +67,27 @@ test('new project slots remain assignable from the ObjectList select and context
     await app.close();
   }
 });
+
+test('adds a filament after two cubes from the scene context menu', async () => {
+  const app = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('filament-slot-1')).toBeVisible();
+
+    const objectRows = page.getByTestId('object-list').locator(
+      'section[data-testid^="plate-group-"] > div[data-testid^="object-"]',
+    );
+    const initialObjectCount = await objectRows.count();
+    await addPrimitive(page, 'cube');
+    await addPrimitive(page, 'cube');
+    await expect.poll(() => objectRows.count(), { timeout: 30_000 }).toBe(initialObjectCount + 2);
+
+    await page.getByTestId('filament-add').click();
+    await expect(page.getByTestId('filament-slot-2')).toBeVisible();
+    await expect(page.getByTestId('filament-rejected')).toBeHidden();
+  } finally {
+    await app.close();
+  }
+});

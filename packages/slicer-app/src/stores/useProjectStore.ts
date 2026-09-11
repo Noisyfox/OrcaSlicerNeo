@@ -47,6 +47,9 @@ export interface ProjectSessionState {
   /** Host-private token, opaque to shared code and UI. */
   location?: OpaqueProjectLocation;
   hasContent: boolean;
+  /** Number of scene/model mutations whose native and renderer projections
+   * have not completed yet. Filament commands must not overtake them. */
+  sceneMutationPendingCount: number;
   /** Synchronous UI projection of Worker HistoryStatus.dirty when history is available. */
   dirty: boolean;
   /** Legacy mutation reasons for the pre-history editing surface; lifecycle
@@ -61,6 +64,8 @@ export interface ProjectSessionState {
   notices: ProjectNotice[];
   operation: ProjectOperation;
   setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'scope' | 'systemPresets' | 'projectPresets' | 'flattenedMultiPlate' | 'notices'>>) => void;
+  beginSceneMutation: () => void;
+  endSceneMutation: () => void;
   /** Compatibility projection for ordinary edits not yet migrated to history. */
   markDirty: (reason?: ProjectDirtyReason) => void;
   /** Advance every known plate input for one shared configuration commit. */
@@ -80,10 +85,11 @@ export const DEFAULT_PROJECT_PRESETS: ProjectPresetSelections = {
   printer: '', print: '',
 };
 
-const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' | 'recordSharedConfigurationMutation' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
+const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'beginSceneMutation' | 'endSceneMutation' | 'markDirty' | 'recordSharedConfigurationMutation' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
   projectName: 'Untitled',
   location: undefined,
   hasContent: false,
+  sceneMutationPendingCount: 0,
   dirty: false,
   dirtyReasons: [],
   plateInputRevisions: {},
@@ -98,6 +104,8 @@ const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' 
 export const useProjectStore = create<ProjectSessionState>((set) => ({
   ...initialSession(),
   setProject: (value) => set(value),
+  beginSceneMutation: () => set((state) => ({ sceneMutationPendingCount: state.sceneMutationPendingCount + 1 })),
+  endSceneMutation: () => set((state) => ({ sceneMutationPendingCount: Math.max(0, state.sceneMutationPendingCount - 1) })),
   markDirty: (reason) => set((state) => ({
     dirty: true,
     ...(reason && !state.dirtyReasons.includes(reason) ? { dirtyReasons: [...state.dirtyReasons, reason] } : {}),

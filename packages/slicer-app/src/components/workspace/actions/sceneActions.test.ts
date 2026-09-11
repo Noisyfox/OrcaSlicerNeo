@@ -10,7 +10,8 @@ vi.mock('@orca/slicer-runtime', () => ({
   errorText: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
-import { addHandyModel, addModel, HANDY_MODELS } from './sceneActions';
+import { addHandyModel, addModel, addPrimitive, HANDY_MODELS } from './sceneActions';
+import { useProjectStore } from '../../../stores/useProjectStore';
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
   const addModel = vi.fn(async () => result);
@@ -89,6 +90,29 @@ describe('scene add-model action', () => {
       2, Uint8Array.from(['/handy-models/OrcaPlug_v2.drc'.length]), 'drc', 'OrcaPlug_v2.drc',
     );
     expect(useSettingsStore.getState().values.modelPath).toBe('Orca Cube');
+  });
+
+  it('keeps filament mutations fenced while a primitive add is still publishing', async () => {
+    let release!: (value: { ok: boolean }) => void;
+    const addShape = vi.fn(() => new Promise<{ ok: boolean }>((resolve) => { release = resolve; }));
+    const runProjectHistoryTransaction = vi.fn(async (
+      _label: string,
+      _category: 'project',
+      _before: unknown,
+      mutation: (transactionId: string) => Promise<{ ok: boolean }>,
+      _after: unknown,
+    ) => ({ result: await mutation('tx-1'), status: null }));
+    const platform = {
+      runtime: { addShape, runProjectHistoryTransaction },
+    } as unknown as PlatformCapabilities;
+
+    const pending = addPrimitive(platform, null, 'Cube');
+    await Promise.resolve();
+    expect(useProjectStore.getState().sceneMutationPendingCount).toBe(1);
+
+    release({ ok: true });
+    await pending;
+    expect(useProjectStore.getState().sceneMutationPendingCount).toBe(0);
   });
 
   it('does not modify the scene when a bundled asset cannot be fetched', async () => {

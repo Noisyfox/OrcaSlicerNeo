@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { useProjectStore } from '../../stores/useProjectStore';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import type { FilamentMutationResultOrError } from '@slicer/client';
 import { publishRememberedFilamentRack } from '../../preferences';
@@ -137,6 +138,7 @@ export function FilamentRack() {
   const platform = usePlatform();
   const snapshot = useFilamentSessionStore((state) => state.snapshot);
   const pendingKind = useFilamentSessionStore((state) => state.pendingKind);
+  const sceneMutationPending = useProjectStore((state) => state.sceneMutationPendingCount > 0);
   const rejected = useFilamentSessionStore((state) => state.rejected);
   const load = useFilamentSessionStore((state) => state.load);
   const run = useFilamentSessionStore((state) => state.run);
@@ -154,7 +156,7 @@ export function FilamentRack() {
     () => compatiblePresetNames(snapshot, filamentCatalog.map((preset) => preset.name)),
     [filamentCatalog, snapshot],
   );
-  const pending = pendingKind !== null;
+  const pending = pendingKind !== null || sceneMutationPending;
 
   async function updateSlot(request: () => Promise<FilamentMutationResultOrError>) {
     const result = await run(platform.runtime, request);

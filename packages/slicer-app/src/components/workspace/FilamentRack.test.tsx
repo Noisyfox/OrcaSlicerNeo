@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PlatformProvider, type PlatformCapabilities } from '@orca/platform-contract';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
+import { useProjectStore } from '../../stores/useProjectStore';
 import type { FilamentSessionSnapshot } from '@slicer/client';
 
 function makeSnapshot(overrides: Partial<FilamentSessionSnapshot> = {}): FilamentSessionSnapshot {
@@ -52,6 +53,7 @@ describe('FilamentRack runtime interaction', () => {
   afterEach(() => {
     root?.unmount(); root = undefined; document.body.innerHTML = '';
     useFilamentSessionStore.getState().reset();
+    useProjectStore.getState().reset();
   });
 
   it('dispatches Add and renders the complete returned snapshot, not an optimistic slot', async () => {
@@ -167,6 +169,16 @@ describe('FilamentRack runtime interaction', () => {
     expect(rendered.container.querySelector('[data-testid="filament-rack"]')?.getAttribute('aria-busy')).toBe('true');
     await act(async () => { release?.(rejected); await Promise.resolve(); });
     expect(rendered.container.querySelector('[data-testid="filament-rejected"]')).not.toBeNull();
+  });
+
+  it('disables Add while a scene mutation is publishing its projections', async () => {
+    const initial = makeSnapshot();
+    const runtime = { getFilamentSessionSnapshot: vi.fn(async () => initial), addFilamentSlot: vi.fn() };
+    useFilamentSessionStore.setState({ snapshot: initial });
+    useProjectStore.setState({ sceneMutationPendingCount: 1 });
+    const rendered = renderRack(runtime); root = rendered.root;
+    await act(async () => { await Promise.resolve(); });
+    expect((rendered.container.querySelector('[data-testid="filament-add"]') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('renders a rejected load state without discarding the last coherent rack', async () => {

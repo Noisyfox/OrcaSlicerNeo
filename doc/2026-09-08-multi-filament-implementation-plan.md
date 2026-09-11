@@ -1734,3 +1734,21 @@ both package typechecks, the E2E build plus focused Electron Prime Tower flow
 (2 passed; one isolated warning-fixture case intentionally skipped), and
 `git diff --check`; all passed. The pinned `packages/slicer-wasm/cpp`
 submodule remains untouched.
+
+**Step 18 implementation record (2026-09-11, accepted):** Scene context-menu
+Add Primitive actions now publish an explicit project-store pending count for
+the complete native mutation, renderer mesh publication, and filament-session
+refresh interval. The Filament rack disables Add/Delete/Merge/preset/colour
+commands while that count is non-zero, so a revision-fenced filament command
+cannot overtake a just-added Cube or observe the preceding snapshot revision.
+The count is reference-counted and decremented in a `finally` block, including
+native or renderer failures; it does not add history entries, retry commands,
+copy a full preset bundle, or retain slice results. A focused scene-action unit
+test covers the pending lifecycle, the rack component test covers the command
+guard, and Electron E2E covers two right-click Cube additions followed by Add
+Filament using a baseline-relative increase of two precise object rows. The
+mock focused E2E passed once and in the preceding repeated run (10/10); the
+real threaded WASM focused E2E passed once after staging the dual artifacts and
+building the real bundle, reached slot 2, and showed no stale-revision
+rejection. The pre-existing pinned `packages/slicer-wasm/cpp` submodule is
+unchanged.

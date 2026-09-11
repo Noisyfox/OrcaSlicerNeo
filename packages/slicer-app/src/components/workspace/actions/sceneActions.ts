@@ -29,7 +29,7 @@ export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
  * interaction. Only a successful add changes the plate — a dialog cancel or
  * parse failure must leave the existing scene and its sliced result intact.
  */
-async function commitAdded(
+async function commitAddedImpl(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
   displayName: string,
@@ -80,6 +80,26 @@ async function commitAdded(
   else useProjectStore.getState().markDirty('model-import');
   await syncHistoryStatus(platform.runtime);
   slicer.setError(null);
+}
+
+/**
+ * Keep the complete add-model transaction visible to other mutation surfaces.
+ * The native history revision advances before the renderer mesh and filament
+ * projections finish publishing; exposing that interval lets the rack disable
+ * revision-fenced filament commands instead of sending an old revision.
+ */
+async function commitAdded(
+  platform: PlatformCapabilities,
+  sceneInteraction: SceneInteractionController | null,
+  displayName: string,
+  add: () => Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>,
+): Promise<void> {
+  useProjectStore.getState().beginSceneMutation();
+  try {
+    await commitAddedImpl(platform, sceneInteraction, displayName, add);
+  } finally {
+    useProjectStore.getState().endSceneMutation();
+  }
 }
 
 /**
