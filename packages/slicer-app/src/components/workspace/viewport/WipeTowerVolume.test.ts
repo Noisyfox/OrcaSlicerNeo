@@ -190,6 +190,21 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(removedDispose).toHaveBeenCalledOnce();
   });
 
+  it('patches only the moved plate from the narrow native response', () => {
+    const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
+    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };
+    const second = { ...tower().projection, plateId: 'plate-2', displayIndex: 1, position: { x: 60, y: 70 } };
+    const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea,
+      plates: [tower().projection, second] };
+    const collection = new WipeTowerVolumeCollection({ move: vi.fn(), reconcile: vi.fn(), revision: vi.fn(() => 1) });
+    collection.setProjection(projection, session);
+
+    collection.setPlatePosition('plate-1', { x: 35, y: 45 }, { minX: 35, maxX: 55, minY: 45, maxY: 61 });
+
+    expect(collection.volumes.find((volume) => volume.plateId === 'plate-1')?.position).toEqual({ x: 35, y: 45 });
+    expect(collection.volumes.find((volume) => volume.plateId === 'plate-2')?.position).toEqual({ x: 60, y: 70 });
+  });
+
   it('holds collection busy across a deferred native move and rejects a second commit', async () => {
     let rejectMove: ((reason?: unknown) => void) | undefined;
     const move = vi.fn(() => new Promise<never>((_resolve, reject) => { rejectMove = reject; }));

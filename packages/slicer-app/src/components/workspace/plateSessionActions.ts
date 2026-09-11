@@ -1,5 +1,5 @@
 import type { PlatformCapabilities } from '@orca/platform-contract';
-import type { HistoryContext, PlateSessionMutationResult, PlateSessionSnapshotResult } from '@slicer/client';
+import type { HistoryContext, PlateSessionMutationResult, PlateSessionSnapshotResult, PrimeTowerMoveMutation } from '@slicer/client';
 import { glVolumeCollection } from './viewport/GLVolume';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
@@ -49,6 +49,26 @@ export function applyPlateSessionResponse(
   if (typeof revision === 'number' && Number.isSafeInteger(revision)) {
     useSlicerStore.getState().activatePlateResult(result.currentPlateId, revision);
   }
+  return true;
+}
+
+/** Apply the deliberately narrow, plate-local response from a Prime Tower move. */
+export function applyPrimeTowerMoveMutation(
+  platform: PlatformCapabilities,
+  mutation: PrimeTowerMoveMutation,
+): boolean {
+  const previous = usePlateSessionStore.getState().snapshot;
+  if (!previous || !previous.plates.some((plate) => plate.plateId === mutation.plateId)) return false;
+  const slicer = useSlicerStore.getState();
+  if (mutation.affectedPlateIds.includes(mutation.plateId)) {
+    slicer.invalidatePlateResults([mutation.plateId]);
+    if (slicer.activeSliceTarget?.plateId === mutation.plateId)
+      void platform.runtime.cancel().catch(() => undefined);
+  }
+  usePlateSessionStore.getState().setSnapshot({
+    ...previous,
+    inputRevisions: { ...previous.inputRevisions, [mutation.plateId]: mutation.revisionAfter },
+  });
   return true;
 }
 

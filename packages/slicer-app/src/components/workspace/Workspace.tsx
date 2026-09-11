@@ -26,7 +26,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useObjectListStore } from './objectList/useObjectListStore';
 import { PreviewPlateList } from './PreviewPlateList';
-import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from './plateSessionActions';
+import { applyPlateSessionResponse, applyPrimeTowerMoveMutation, selectPlateSessionAndClearSelection } from './plateSessionActions';
 import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { projectHistoryStatus, syncHistoryStatusWithinMutation } from './actions/historyMutation';
@@ -89,9 +89,13 @@ export function Workspace({
   if (!wipeTowerVolumesRef.current) {
     wipeTowerVolumesRef.current = new WipeTowerVolumeCollection({
       move: async (request): Promise<PrimeTowerMoveResultOrError> => {
+        // Invalidate reads started by a preceding filament/structure refresh.
+        // Without this fence a late pre-move projection can overwrite the
+        // authoritative result below and make the released tower snap back.
+        primeTowerRefreshGenerationRef.current += 1;
         const result = await platform.runtime.movePrimeTower(request);
         if (result.ok) {
-          applyPlateSessionResponse(platform, result.result.plateSession);
+          applyPrimeTowerMoveMutation(platform, result.result.mutation);
         }
         return result;
       },

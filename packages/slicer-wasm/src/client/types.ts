@@ -191,13 +191,13 @@ export interface PrimeTowerMoveMutation {
   readonly clamped?: boolean;
   readonly outsideBoundaryWarning?: boolean;
   readonly warning?: string;
-  readonly position?: Readonly<{ x: number; y: number }>;
-  readonly footprint?: PrimeTowerFootprint;
+  /** Authoritative, clamped coordinates for the moved plate. */
+  readonly position: Readonly<{ x: number; y: number }>;
+  /** Authoritative footprint at the returned coordinates. */
+  readonly footprint: PrimeTowerFootprint;
 }
 
 export interface PrimeTowerMoveResult {
-  readonly projection: PrimeTowerProjection;
-  readonly plateSession: PlateSessionSnapshot;
   readonly mutation: PrimeTowerMoveMutation;
   /** Native history status captured after the atomic move commit. */
   readonly historyStatus?: import('./history').HistoryStatus;

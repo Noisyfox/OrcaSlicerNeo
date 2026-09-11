@@ -677,10 +677,8 @@ function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrErro
   if (raw.version !== 1 || !isRecord(raw.result))
     return { ok: false, version: 1, error: 'invalid prime tower move result envelope', errorCode: 'invalid_response' };
   const result = raw.result;
-  const projection = normalizePrimeTowerProjection(result.projection);
-  const plateSession = normalizePlateSessionResult(result.plate_session);
   const mutation = result.mutation;
-  if (!projection.ok || !plateSession.ok || !isRecord(mutation))
+  if (!isRecord(mutation))
     return { ok: false, version: 1, error: 'invalid prime tower move result', errorCode: 'invalid_response' };
   if (mutation.kind !== 'move' || typeof mutation.plate_id !== 'string' ||
       ![mutation.history_entry_delta, mutation.revision_before, mutation.revision_after].every((value) => typeof value === 'number' && Number.isSafeInteger(value)) ||
@@ -690,10 +688,10 @@ function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrErro
     return { ok: false, version: 1, error: 'invalid prime tower move mutation', errorCode: 'invalid_response' };
   const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
   const position = mutation.position;
-  if (position !== undefined && (!isRecord(position) || !finite(position.x) || !finite(position.y)))
+  if (!isRecord(position) || !finite(position.x) || !finite(position.y))
     return { ok: false, version: 1, error: 'invalid prime tower move position', errorCode: 'invalid_response' };
   const footprint = mutation.footprint;
-  if (footprint !== undefined && (!isRecord(footprint) || ![footprint.min_x, footprint.max_x, footprint.min_y, footprint.max_y].every(finite)))
+  if (!isRecord(footprint) || ![footprint.min_x, footprint.max_x, footprint.min_y, footprint.max_y].every(finite))
     return { ok: false, version: 1, error: 'invalid prime tower move footprint', errorCode: 'invalid_response' };
   const typedMutation = {
     kind: 'move' as const, plateId: mutation.plate_id,
@@ -703,14 +701,14 @@ function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrErro
     ...(typeof mutation.clamped === 'boolean' ? { clamped: mutation.clamped } : {}),
     ...(typeof mutation.outside_boundary_warning === 'boolean' ? { outsideBoundaryWarning: mutation.outside_boundary_warning } : {}),
     ...(typeof mutation.warning === 'string' && mutation.warning.length > 0 ? { warning: mutation.warning } : {}),
-    ...(isRecord(position) ? { position: { x: position.x as number, y: position.y as number } } : {}),
-    ...(isRecord(footprint) ? { footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
-      minY: footprint.min_y as number, maxY: footprint.max_y as number } } : {}),
+    position: { x: position.x as number, y: position.y as number },
+    footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
+      minY: footprint.min_y as number, maxY: footprint.max_y as number },
   };
   const historyStatus = isRecord(result.history_status)
     ? normalizeHistoryStatus(result.history_status)
     : undefined;
-  return { ok: true, version: 1, result: { projection, plateSession, mutation: typedMutation,
+  return { ok: true, version: 1, result: { mutation: typedMutation,
     ...(historyStatus ? { historyStatus } : {}) } } as PrimeTowerMoveResultOrError;
 }
 

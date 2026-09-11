@@ -176,6 +176,16 @@ export class WipeTowerVolumeCollection {
     this.emit();
   }
 
+  /** Apply the plate-local authoritative response from a completed tower move. */
+  setPlatePosition(plateId: string, position: PrimeTowerPosition, footprint: PrimeTowerPlateProjection['footprint']): void {
+    const projection = this.projectionState;
+    if (!projection || !projection.plates.some((candidate) => candidate.plateId === plateId)) return;
+    this.setProjection({
+      ...projection,
+      plates: projection.plates.map((candidate) => candidate.plateId === plateId ? { ...candidate, position, footprint } : candidate),
+    });
+  }
+
   async commit(volume: WipeTowerVolume): Promise<void> {
     if (this.commitInFlight) return;
     this.commitInFlight = true;
@@ -192,7 +202,7 @@ export class WipeTowerVolumeCollection {
         const position = volume.position;
         const result = await this.port.move({ version: 1, plateId: volume.plateId, revision: this.port.revision(volume.plateId), x: position.x, y: position.y });
         if (result.ok) {
-          this.setProjection(result.result.projection);
+          this.setPlatePosition(result.result.mutation.plateId, result.result.mutation.position, result.result.mutation.footprint);
           await this.port.publishHistoryStatus?.(result.result.historyStatus);
         }
         else await this.port.reconcile();

@@ -594,9 +594,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     const area = plate.build_area;
     const x = clamp(request.x, offsetMinX, offsetMaxX, area.min_x, area.max_x);
     const y = clamp(request.y, offsetMinY, offsetMaxY, area.min_y, area.max_y);
-    if (x === old.x && y === old.y) return { ok: true, version: 1, result: { projection: current, plate_session: plateSessionSnapshot(), mutation: {
+    if (x === old.x && y === old.y) return { ok: true, version: 1, result: { mutation: {
       kind: 'move', plate_id: request.plate_id, history_entry_delta: 0, revision_before: plateInputRevisions[request.plate_id] ?? 0,
-      revision_after: plateInputRevisions[request.plate_id] ?? 0, dirty: false, affected_plate_ids: [],
+      revision_after: plateInputRevisions[request.plate_id] ?? 0, dirty: false, affected_plate_ids: [], position: old, footprint: plate.footprint,
     } } };
     const beforeState = captureHistoryState();
     const next = clone(current) as any;
@@ -613,7 +613,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     projectConfigOverlay.project.wipe_tower_y = yValues.join(',');
     historyRevision += 1;
     if (slicedPlateId === request.plate_id) sliced = false;
-    const plateSession = plateMutation('prime-tower-position');
+    plateMutation('prime-tower-position');
     const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
       activePlateId: currentPlateId, gizmo: null, projectConfigOverlay: clone(projectConfigOverlay),
       primeTowerMove: { plateId: request.plate_id, before: old, after: { x, y } } };
@@ -626,7 +626,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyEntries.splice(historyCursor + 1);
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`, label: 'Move Prime Tower', category: 'project', context: clone(context) });
     historyCursor = historyEntries.length - 1;
-    return { ok: true, version: 1, result: { projection: next, plate_session: plateSession, mutation: {
+    return { ok: true, version: 1, result: { mutation: {
       kind: 'move', plate_id: request.plate_id, history_entry_delta: 1, revision_before: request.revision,
       revision_after: historyRevision, dirty: true, affected_plate_ids: [request.plate_id],
       clamped: x !== request.x || y !== request.y, outside_boundary_warning: widthX > area.max_x - area.min_x || widthY > area.max_y - area.min_y,

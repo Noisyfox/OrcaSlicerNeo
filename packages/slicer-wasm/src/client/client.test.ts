@@ -91,7 +91,6 @@ describe('SlicerClient bridge contract', () => {
     if (!moved.result.mutation.position) throw new Error('move response omitted authoritative position');
     expect(moved.result.mutation.position.x).toBeLessThan(200);
     expect(moved.result.mutation.position.y).toBeLessThan(200);
-    expect(moved.result.plateSession.inputRevisions?.[plateId]).toBe(1);
     const noOp = await c.movePrimeTower({ version: 1, plateId, revision: 1,
       x: moved.result.mutation.position.x, y: moved.result.mutation.position.y });
     expect(noOp).toMatchObject({ ok: true, result: { mutation: {

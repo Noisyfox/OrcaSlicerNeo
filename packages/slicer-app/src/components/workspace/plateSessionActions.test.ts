@@ -3,7 +3,7 @@ import type { PlateSessionSnapshot } from '@slicer/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
-import { selectPlateSessionAndClearSelection } from './plateSessionActions';
+import { applyPrimeTowerMoveMutation, selectPlateSessionAndClearSelection } from './plateSessionActions';
 
 const plateA: PlateSessionSnapshot = {
   ok: true,
@@ -55,5 +55,22 @@ describe('plate selection actions', () => {
 
     expect(clearSelection).toHaveBeenCalledOnce();
     expect(usePlateSessionStore.getState().snapshot?.currentPlateId).toBe('a');
+  });
+
+  it('patches only the moved Prime Tower plate revision instead of replacing the complete session', () => {
+    usePlateSessionStore.getState().setSnapshot(plateA);
+    const cancel = vi.fn(async () => undefined);
+
+    expect(applyPrimeTowerMoveMutation({ runtime: { cancel } } as unknown as PlatformCapabilities, {
+      kind: 'move', plateId: 'a', historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 2,
+      dirty: true, affectedPlateIds: ['a'], position: { x: 30, y: 40 },
+      footprint: { minX: 30, maxX: 50, minY: 40, maxY: 60 },
+    })).toBe(true);
+
+    expect(usePlateSessionStore.getState().snapshot).toMatchObject({
+      currentPlateId: 'a', inputRevisions: { a: 2, b: 1 },
+      plates: [{ plateId: 'a' }, { plateId: 'b' }],
+    });
+    expect(cancel).not.toHaveBeenCalled();
   });
 });

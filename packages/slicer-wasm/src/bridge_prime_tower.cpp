@@ -687,15 +687,13 @@ json move_position_json(const char* request_cstr)
     const double old_y = indexed_float(config, "wipe_tower_y", plate_index, 220.);
     const std::uint64_t plate_revision_before = state().plate_input_revisions[plate_id];
     if (std::abs(old_x - x) <= 1e-12 && std::abs(old_y - y) <= 1e-12) {
-        json projection = projection_json();
         return { {"ok", true}, {"version", 1}, {"result", {
-            {"projection", std::move(projection)},
-            {"plate_session", plate_session_snapshot_json()},
             {"history_status", HistoryMetadata::history_status_json(state())},
             {"mutation", {{"kind", "move"}, {"plate_id", plate_id}, {"history_entry_delta", 0},
                            {"revision_before", plate_revision_before},
                            {"revision_after", plate_revision_before}, {"dirty", false},
-                           {"affected_plate_ids", json::array()}}}
+                           {"affected_plate_ids", json::array()}, {"position", {{"x", old_x}, {"y", old_y}}},
+                           {"footprint", placement_footprint(placement, old_x, old_y)}}}
         }} };
     }
 
@@ -729,6 +727,11 @@ json move_position_json(const char* request_cstr)
         state().project_config_overlay["project"]["wipe_tower_y"] =
             state().presets.project_config.option("wipe_tower_y")->serialize();
         ++state().plate_input_revisions[plate_id];
+        // ConfigOptionFloat canonically stores this value at float precision.
+        // Publish that stored value so the immediate drag result matches a
+        // subsequent projection/history restore exactly.
+        const double stored_x = indexed_float(config, "wipe_tower_x", plate_index, x);
+        const double stored_y = indexed_float(config, "wipe_tower_y", plate_index, y);
         const auto after_settings = snapshot_coordinate_settings(state().presets.project_config, plate_index);
         frame.after_x = after_settings.x;
         frame.after_y = after_settings.y;
@@ -741,21 +744,15 @@ json move_position_json(const char* request_cstr)
         const auto before_bytes = Neo::History::Bytes(before_context.begin(), before_context.end());
         const auto after_bytes = Neo::History::Bytes(after_context.begin(), after_context.end());
         const bool first_history_entry = state().history.entries().empty();
-        const auto response_projection = projection_json();
-        const auto moved = std::find_if(response_projection["plates"].begin(), response_projection["plates"].end(),
-            [&](const auto& value) { return value.value("plate_id", "") == plate_id; });
-        if (moved == response_projection["plates"].end()) throw std::runtime_error("prime tower plate disappeared during move");
         response = { {"ok", true}, {"version", 1}, {"result", {
-            {"projection", response_projection},
-            {"plate_session", plate_session_snapshot_json()},
             {"mutation", {{"kind", "move"}, {"plate_id", plate_id},
                            {"history_entry_delta", 1}, {"revision_before", plate_revision_before},
                            {"revision_after", plate_revision_before + 1}, {"dirty", true},
                            {"affected_plate_ids", {plate_id}}, {"clamped", x != requested_x || y != requested_y},
                            {"outside_boundary_warning", too_large},
                            {"warning", too_large ? "Prime Tower is too large to fit within the printable area." : ""},
-                           {"position", {{"x", x}, {"y", y}}},
-                           {"footprint", (*moved)["footprint"]}}}
+                           {"position", {{"x", stored_x}, {"y", stored_y}}},
+                           {"footprint", placement_footprint(placement, stored_x, stored_y)}}}
         }} };
         if (request.value("inject_failure_stage", "") == "before-publish")
             throw std::runtime_error("injected prime tower post-validation failure");
