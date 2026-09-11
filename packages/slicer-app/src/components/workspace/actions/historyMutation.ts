@@ -1,6 +1,7 @@
 import type {
   HistoryContext,
   HistoryStatus,
+  ModelStructureResult,
 } from '@slicer/client';
 import type { SlicerRuntime } from '@orca/platform-contract';
 import { useObjectListStore } from '../objectList/useObjectListStore';
@@ -86,6 +87,33 @@ function enqueueHistoryOperation<T>(operation: () => Promise<T>): Promise<T> {
 }
 
 /**
+ * A short read-only reservation shares ordering with mutations but deliberately
+ * does not acquire the publication lease. Renderer gestures use it at
+ * pointer-down, then release the FIFO immediately instead of blocking an
+ * in-progress drag.
+ */
+export function readProjectMutationReservation<T>(operation: () => Promise<T>): Promise<T> {
+  return enqueueHistoryOperation(operation);
+}
+
+export type TransformReservationState = {
+  status: HistoryStatus;
+  structure: ModelStructureResult;
+};
+
+type TransformReservationRuntime = Pick<SlicerRuntime, 'getHistoryStatus' | 'getModelStructure'>;
+
+/** Capture the two native facts that a renderer gesture can retain while idle. */
+export function captureTransformReservationState(runtime: TransformReservationRuntime): Promise<TransformReservationState> {
+  return readProjectMutationReservation(() => readTransformReservationState(runtime));
+}
+
+/** The release caller is already inside the FIFO; do not enqueue this read again. */
+export async function readTransformReservationState(runtime: TransformReservationRuntime): Promise<TransformReservationState> {
+  return { status: await runtime.getHistoryStatus(), structure: await runtime.getModelStructure() };
+}
+
+/**
  * Run a native project mutation that owns its own atomic history command.
  *
  * Most edits use runProjectHistoryMutation because the Worker transaction
@@ -119,6 +147,11 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
   publish?: (result: T, status: HistoryStatus | null) => Promise<void> | void,
   onSynchronousError?: (error: unknown) => void,
   reconcileOnFailure?: () => Promise<void> | void,
+  /** Runs under the shared FIFO immediately before the native transaction is
+   * opened.  It is used by renderer-local gestures to reject a reservation
+   * invalidated by an intervening Worker mutation without ever opening a
+   * transaction for their obsolete draft. */
+  preflight?: () => Promise<void> | void,
 ): Promise<HistoryMutationResult<T>> {
   return enqueueHistoryOperation(async () => {
     const lease = acquireProjectMutationLease();
@@ -126,6 +159,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
       let response: HistoryMutationResult<T>;
       let nativeTransaction: Promise<HistoryMutationResult<T>>;
       try {
+        if (preflight) await preflight();
         const resolvedBeforeContext = typeof beforeContext === 'function' ? beforeContext() : beforeContext;
         nativeTransaction = runtime.runProjectHistoryTransaction(
           label,

@@ -58,9 +58,11 @@ interface RendererTransformSnapshot {
 /** Narrow bridge adapter supplied by Workspace; the controller remains host
  * and Worker agnostic and only owns local three.js draft transforms. */
 export interface TransformHistoryPort {
-  begin(label: string): void;
-  commit(): Promise<void>;
-  abort(): Promise<void>;
+  begin(label: string): boolean | void;
+  /** Concrete coordinators return a consumable gesture result; scene adapters
+   * may ignore it because pointer release is deliberately fire-and-forget. */
+  commit(): Promise<unknown>;
+  abort(): Promise<unknown>;
 }
 
 /** Scene-only tower movement commits to native per-plate X/Y, never history. */
@@ -850,9 +852,11 @@ export class SceneInteractionController {
   private beginDrag(kind: 'gizmo' | 'body'): boolean {
     const pivot = this.selectionPivot();
     if (!pivot) return false;
+    if (!this.hasWipeTowerSelection) {
+      const label = kind === 'body' ? 'Move' : (this.openGizmo === 'move' ? 'Move' : this.openGizmo === 'rotate' ? 'Rotate' : 'Scale');
+      if (this.transformHistory?.begin(label) === false) return false;
+    }
     this.pointerOwner = kind;
-    if (!this.hasWipeTowerSelection)
-      this.transformHistory?.begin(kind === 'body' ? 'Move' : (this.openGizmo === 'move' ? 'Move' : this.openGizmo === 'rotate' ? 'Rotate' : 'Scale'));
     this.drag = {
       kind,
       startPivot: pivot,
@@ -904,7 +908,7 @@ export class SceneInteractionController {
   private applyDiscreteTransform(label: string, apply: () => void): boolean {
     const before = this.captureDragTargets();
     if (before.length === 0) return false;
-    this.transformHistory?.begin(label);
+    if (this.transformHistory?.begin(label) === false) return false;
     apply();
     if (this.targetsEqual(before)) void this.transformHistory?.abort();
     else void this.transformHistory?.commit();
