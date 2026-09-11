@@ -35,6 +35,21 @@ function assertNoPlateCoordinates(snapshot) {
   for (const plate of snapshot.plates)
     assert.equal(Object.hasOwn(plate.settings ?? {}, 'wipe_tower_x') || Object.hasOwn(plate.settings ?? {}, 'wipe_tower_y'), false);
 }
+function historyEntryId(label) {
+  const status = callJson('orc_history_status');
+  const entry = [...(status.undoEntries ?? []), ...(status.redoEntries ?? [])].find((candidate) => candidate.label === label);
+  assert.equal(typeof entry?.id, 'string', `missing history entry ${label}: ${JSON.stringify(status)}`);
+  return entry.id;
+}
+function modelShape() {
+  const model = callJson('orc_get_model_structure');
+  assert.equal(model.ok, true, JSON.stringify(model));
+  return model.objects.map((object) => ({
+    index: object.index, name: object.name, printable: object.printable, instanceCount: object.instanceCount,
+    instances: object.instances.map((instance) => ({ index: instance.index, printable: instance.printable })),
+    volumes: object.volumes.map((volume) => ({ index: volume.index, name: volume.name, type: volume.type })),
+  }));
+}
 
 assert.equal(callJson('orc_init', ['string'], ['']).ok, true);
 for (let index = 0; index < 12; index++)
@@ -108,11 +123,75 @@ assert.equal(callJson('orc_history_restore_diagnostics').previewPlateId, thirdPl
 assert.equal(callJson('orc_history_redo').ok, true); assert.deepEqual(projectArray('wipe_tower_x'), after); assert.deepEqual(projectArray('wipe_tower_y'), afterY);
 assert.equal(callJson('orc_history_restore_diagnostics').previewPlateId, thirdPlate);
 
+// A narrow Prime Tower frame followed by an ordinary model mutation must not
+// bypass the target model restore. Exercise one-step navigation in both
+// directions plus directional jumps across the mixed sequence.
+const mixedModelBefore = modelShape();
+const mixedCoordinatesBefore = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
+const mixedRevisionBefore = session().input_revisions[secondPlate];
+assert.equal(request('orc_move_prime_tower', {
+  version: 1, plate_id: secondPlate, revision: mixedRevisionBefore, x: 20, y: 20,
+}).ok, true);
+const mixedTowerCoordinates = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
+const mixedTowerEntryId = historyEntryId('Move Prime Tower');
+const mixedHistoryContext = {
+  selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+  activePlateId: null, gizmo: null, projectConfigOverlay: {},
+};
+const mixedTransaction = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Prime Tower mixed structural model', 'project', JSON.stringify(mixedHistoryContext), '']);
+assert.equal(typeof mixedTransaction.transactionId, 'string', JSON.stringify(mixedTransaction));
+assert.equal(callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Prime Tower mixed restore object']).ok, true);
+const mixedCommit = callJson('orc_history_commit', ['string', 'string'], [mixedTransaction.transactionId, JSON.stringify(mixedHistoryContext)]);
+assert.equal(mixedCommit.canUndo, true, JSON.stringify(mixedCommit));
+const mixedStructuralEntryId = historyEntryId('Prime Tower mixed structural model');
+const mixedModelAfter = modelShape();
+assert.equal(mixedModelAfter.length, mixedModelBefore.length + 1);
+
+const mixedUndo = callJson('orc_history_undo');
+assert.equal(mixedUndo.ok, true, JSON.stringify(mixedUndo));
+assert.notEqual(mixedUndo.direct, true, JSON.stringify(mixedUndo));
+assert.deepEqual(modelShape(), mixedModelBefore);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
+const mixedRedo = callJson('orc_history_redo');
+assert.equal(mixedRedo.ok, true, JSON.stringify(mixedRedo));
+assert.notEqual(mixedRedo.direct, true, JSON.stringify(mixedRedo));
+assert.deepEqual(modelShape(), mixedModelAfter);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
+
+assert.equal(callJson('orc_history_undo').ok, true);
+const towerUndo = callJson('orc_history_undo');
+assert.equal(towerUndo.ok, true, JSON.stringify(towerUndo));
+assert.equal(towerUndo.direct, true, JSON.stringify(towerUndo));
+assert.deepEqual(modelShape(), mixedModelBefore);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedCoordinatesBefore);
+const towerRedo = callJson('orc_history_redo');
+assert.equal(towerRedo.ok, true, JSON.stringify(towerRedo));
+assert.equal(towerRedo.direct, true, JSON.stringify(towerRedo));
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
+assert.equal(callJson('orc_history_redo').ok, true);
+
+const jumpBeforeTower = callJson('orc_history_jump', ['string', 'string'], [mixedTowerEntryId, 'undo']);
+assert.equal(jumpBeforeTower.ok, true, JSON.stringify(jumpBeforeTower));
+assert.notEqual(jumpBeforeTower.direct, true, JSON.stringify(jumpBeforeTower));
+assert.deepEqual(modelShape(), mixedModelBefore);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedCoordinatesBefore);
+const jumpToTower = callJson('orc_history_jump', ['string', 'string'], [mixedTowerEntryId, 'redo']);
+assert.equal(jumpToTower.ok, true, JSON.stringify(jumpToTower));
+assert.equal(jumpToTower.direct, true, JSON.stringify(jumpToTower));
+assert.deepEqual(modelShape(), mixedModelBefore);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
+const jumpToStructural = callJson('orc_history_jump', ['string', 'string'], [mixedStructuralEntryId, 'redo']);
+assert.equal(jumpToStructural.ok, true, JSON.stringify(jumpToStructural));
+assert.notEqual(jumpToStructural.direct, true, JSON.stringify(jumpToStructural));
+assert.deepEqual(modelShape(), mixedModelAfter);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
+
 const targetRevision = session().input_revisions[secondPlate];
 assert.equal(callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', secondPlate, targetRevision]).ok, true);
 assert.equal(callJson('orc_get_slice_result').ok, true);
 assert.ok(callJson('orc_history_restore_diagnostics').previewResultId > 0);
-assert.equal(request('orc_move_prime_tower', { version: 1, plate_id: secondPlate, revision: targetRevision, x: 20, y: 20 }).ok, true);
+assert.equal(request('orc_move_prime_tower', { version: 1, plate_id: secondPlate, revision: targetRevision, x: 30, y: 30 }).ok, true);
 let invalid = callJson('orc_history_restore_diagnostics'); assert.equal(invalid.previewPlateId, ''); assert.equal(invalid.previewResultId, 0);
 assert.equal(callJson('orc_history_undo').ok, true); invalid = callJson('orc_history_restore_diagnostics'); assert.equal(invalid.previewPlateId, ''); assert.equal(invalid.previewResultId, 0);
 assert.equal(callJson('orc_history_redo').ok, true); invalid = callJson('orc_history_restore_diagnostics'); assert.equal(invalid.previewPlateId, ''); assert.equal(invalid.previewResultId, 0);

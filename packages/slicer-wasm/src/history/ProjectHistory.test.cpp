@@ -351,6 +351,7 @@ int main()
     CHECK(restored.direct_frame);
     CHECK(restored.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower);
     CHECK(restored.direct_frame->payload.get() == prime_before_payload.get());
+    CHECK(restored.model.serialized == retained_model.serialized);
     CHECK(!narrow.project_modified());
     CHECK(narrow.redo(restored));
     CHECK(restored.direct_frame);
@@ -359,6 +360,31 @@ int main()
     CHECK(narrow.commit_reusing_current_model("branched prime move", Category::Project,
                                               bytes(0x43, 20), prime_after));
     CHECK(!narrow.can_redo());
+
+    // A Prime Tower direct frame is only an adjacent coordinate-transition
+    // fast path. When a later project mutation is undone to that checkpoint,
+    // the target model remains mandatory. Directional jumps must retain the
+    // same full-restore requirement when they skip the direct transition.
+    ProjectHistory mixed_narrow(1u << 20);
+    CHECK(mixed_narrow.commit("baseline", Category::Project, model(1), bytes(0x61, 16)));
+    CHECK(mixed_narrow.commit_reusing_current_model("Move Prime Tower", Category::Project,
+                                                    bytes(0x62, 20), prime_after, prime_before));
+    CHECK(mixed_narrow.commit("Transform", Category::Project, model(2), bytes(0x63, 24)));
+    RestorePlan mixed_undo;
+    CHECK(mixed_narrow.prepare_undo(mixed_undo));
+    CHECK(mixed_undo.state.model.serialized == bytes(1));
+    CHECK(!mixed_undo.direct_frame_transition);
+    CHECK(mixed_narrow.commit_restore(mixed_undo));
+    RestorePlan mixed_redo;
+    CHECK(mixed_narrow.prepare_redo(mixed_redo));
+    CHECK(mixed_redo.state.model.serialized == bytes(2));
+    CHECK(!mixed_redo.direct_frame_transition);
+    CHECK(mixed_narrow.commit_restore(mixed_redo));
+    const auto mixed_entries = mixed_narrow.entries();
+    RestorePlan mixed_jump;
+    CHECK(mixed_narrow.prepare_jump(mixed_entries[1].id, JumpDirection::Undo, mixed_jump));
+    CHECK(mixed_jump.state.model.serialized == bytes(1));
+    CHECK(!mixed_jump.direct_frame_transition);
 
     // The sidecar transaction also restores a partially-mutated branch when
     // the append throws. This exercises the same predecessor/direct-frame

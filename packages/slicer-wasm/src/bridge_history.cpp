@@ -378,37 +378,6 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
                 {"entryId", history_entry_id(plan.state.entry.id)}, {"direct", true}};
 }
 
-std::optional<NarrowHistoryFrame> parse_narrow_history_frame(const json& context)
-{
-    if (!context.is_object() || context.value("version", 0) != 1 || context.value("kind", "") != "primeTower" ||
-        !context.contains("plate_id") || !context["plate_id"].is_string() ||
-        !context.contains("before") || !context["before"].is_object() ||
-        !context.contains("after") || !context["after"].is_object()) return std::nullopt;
-    NarrowHistoryFrame frame;
-    frame.plate_id = context["plate_id"].get<std::string>();
-    const auto read_coordinate = [](const json& value, NarrowHistoryFrame::CoordinateValue& result) {
-        if (!value.is_object() || !value.contains("present") || !value["present"].is_boolean() ||
-            !value.contains("value") ||
-            !(value["value"].is_null() || value["value"].is_string())) return false;
-        result.option_present = value["present"].get<bool>();
-        result.value = value["value"].is_null() ? std::nullopt : std::optional<std::string>(value["value"].get<std::string>());
-        return !result.value || result.option_present;
-    };
-    const auto read_state = [&read_coordinate](const json& value, NarrowHistoryFrame::CoordinateValue& x,
-                                                NarrowHistoryFrame::CoordinateValue& y, std::uint64_t& revision) {
-        if (!value.contains("x") || !value.contains("y") ||
-            !value.contains("revision") || !value["revision"].is_number_unsigned() ||
-            !read_coordinate(value["x"], x) || !read_coordinate(value["y"], y)) return false;
-        revision = value["revision"].get<std::uint64_t>();
-        return true;
-    };
-    if (!read_state(context["before"], frame.before_x, frame.before_y, frame.before_revision) ||
-        !read_state(context["after"], frame.after_x, frame.after_y, frame.after_revision)) return std::nullopt;
-    frame.after_state = context.value("state", "") == "after";
-    if (!frame.after_state && context.value("state", "") != "before") return std::nullopt;
-    return frame;
-}
-
 json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::RestorePlan& plan,
                                const NarrowHistoryFrame& frame)
 {
@@ -469,15 +438,8 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
 json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& plan)
 {
     const auto parsed = json::parse(std::string(plan.state.context.begin(), plan.state.context.end()));
-    // The command context identifies the narrow restore contract. A loaded
-    // project may retain an unrelated filament sidecar on the target
-    // checkpoint; never route a Prime Tower context through that validator.
-    if (parsed.value("kind", "") == "primeTower") {
-        const auto frame = parse_narrow_history_frame(parsed);
-        if (!frame) throw std::runtime_error("prime tower narrow history context is invalid");
-        return restore_prime_tower_frame(runtime, plan, *frame);
-    }
-    if (plan.state.direct_frame && plan.state.direct_frame->kind == History::RestoreState::DirectFrame::Kind::PrimeTower) {
+    if (plan.direct_frame_transition && plan.state.direct_frame &&
+        plan.state.direct_frame->kind == History::RestoreState::DirectFrame::Kind::PrimeTower) {
         if (!plan.state.direct_frame->payload || plan.state.direct_frame->bytes == 0)
             throw std::runtime_error("prime tower narrow history frame is unavailable");
         const auto frame = std::static_pointer_cast<const NarrowHistoryFrame>(plan.state.direct_frame->payload);
@@ -490,7 +452,9 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
         return restore_prime_tower_frame(runtime, plan, *frame);
     }
     const json context = parse_history_context(parsed.dump().c_str());
-    if (plan.state.direct_frame) return restore_direct_frame(runtime, plan, context);
+    if (plan.state.direct_frame &&
+        plan.state.direct_frame->kind == History::RestoreState::DirectFrame::Kind::Filament)
+        return restore_direct_frame(runtime, plan, context);
     const auto live_model_state = capture_model_state(state().model);
     Model staged_model = Neo::History::Codec::model_state_equal(live_model_state, plan.state.model)
         ? Model(state().model) : Neo::History::Codec::stage_model(state().model, plan.state);

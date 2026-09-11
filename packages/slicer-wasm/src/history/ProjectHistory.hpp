@@ -83,6 +83,9 @@ struct RestorePlan {
     RestoreState state;
     std::size_t from_cursor { 0 };
     std::size_t target_cursor { 0 };
+    // A direct frame can optimize the one adjacent transition it describes.
+    // It never makes the target model/context optional for other navigation.
+    bool direct_frame_transition { false };
 };
 
 // Half-open version interval used by the object history implementation.  It

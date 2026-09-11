@@ -431,6 +431,7 @@ bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
 
 bool ProjectHistory::prepare_undo(RestorePlan& result) const
 {
+    result.direct_frame_transition = false;
     const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
     const std::size_t target = current_project == kNoProject
         ? kNoProject : previous_project(m_impl->states, current_project);
@@ -438,8 +439,7 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
-    if (!state.state.direct_frame || state.state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower)
-        result.state.model = Impl::restore_model(state.state);
+    result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
     result.state.direct_frame = state.state.direct_frame;
@@ -448,15 +448,17 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
     // Prime Tower entry still owns the exact narrow before/after frame; pass
     // that frame through so restore never falls back to filament validation.
     const auto& source = m_impl->states[current_project];
-    if ((!result.state.direct_frame || result.state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower) &&
-        source.info.label == "Move Prime Tower" && source.state.direct_frame &&
-        source.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower)
+    if (source.info.label == "Move Prime Tower" && source.state.direct_frame &&
+        source.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower) {
         result.state.direct_frame = source.state.direct_frame;
+        result.direct_frame_transition = true;
+    }
     return true;
 }
 
 bool ProjectHistory::prepare_redo(RestorePlan& result) const
 {
+    result.direct_frame_transition = false;
     const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
     if (current_project == kNoProject) return false;
     const std::size_t target = next_project(m_impl->states, current_project);
@@ -464,23 +466,24 @@ bool ProjectHistory::prepare_redo(RestorePlan& result) const
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
-    if (!state.state.direct_frame || state.state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower)
-        result.state.model = Impl::restore_model(state.state);
+    result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
     result.state.direct_frame = state.state.direct_frame;
+    result.direct_frame_transition = state.info.label == "Move Prime Tower" && state.state.direct_frame &&
+        state.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower;
     return true;
 }
 
 bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) const
 {
+    result.direct_frame_transition = false;
     auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
         [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
     if (it == m_impl->states.end()) return false;
     result.from_cursor = m_cursor;
     result.target_cursor = static_cast<std::size_t>(std::distance(m_impl->states.begin(), it));
-    if (!it->state.direct_frame || it->state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower)
-        result.state.model = Impl::restore_model(it->state);
+    result.state.model = Impl::restore_model(it->state);
     result.state.context = it->state.context;
     result.state.entry = it->info;
     result.state.direct_frame = it->state.direct_frame;
@@ -489,6 +492,7 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
 
 bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection direction, RestorePlan& result) const
 {
+    result.direct_frame_transition = false;
     auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
         [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
     if (it == m_impl->states.end()) return false;
@@ -510,11 +514,21 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& target_entry = m_impl->states[target];
-    if (!target_entry.state.direct_frame || target_entry.state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower)
-        result.state.model = Impl::restore_model(target_entry.state);
+    result.state.model = Impl::restore_model(target_entry.state);
     result.state.context = target_entry.state.context;
     result.state.entry = target_entry.info;
     result.state.direct_frame = target_entry.state.direct_frame;
+    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    if (direction == JumpDirection::Undo && selected == current_project &&
+        it->info.label == "Move Prime Tower" && it->state.direct_frame &&
+        it->state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower) {
+        result.state.direct_frame = it->state.direct_frame;
+        result.direct_frame_transition = true;
+    } else if (direction == JumpDirection::Redo && selected == current_project + 1 &&
+               target_entry.info.label == "Move Prime Tower" && target_entry.state.direct_frame &&
+               target_entry.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower) {
+        result.direct_frame_transition = true;
+    }
     return true;
 }
 

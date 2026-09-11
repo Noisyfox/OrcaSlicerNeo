@@ -599,17 +599,6 @@ json move_error(const char* code, const std::string& message)
              {"status", {{"state", "error"}, {"error", message}}} };
 }
 
-json narrow_frame_json(const NarrowHistoryFrame& frame)
-{
-    const auto coordinate = [](const NarrowHistoryFrame::CoordinateValue& value) -> json {
-        return {{"present", value.option_present},
-                {"value", value.value ? json(*value.value) : json(nullptr)}};
-    };
-    return { {"version", 1}, {"kind", "primeTower"}, {"state", frame.after_state ? "after" : "before"}, {"plate_id", frame.plate_id},
-             {"before", {{"x", coordinate(frame.before_x)}, {"y", coordinate(frame.before_y)}, {"revision", frame.before_revision}}},
-             {"after", {{"x", coordinate(frame.after_x)}, {"y", coordinate(frame.after_y)}, {"revision", frame.after_revision}}} };
-}
-
 json move_position_json(const char* request_cstr)
 {
     ensure_plate_session_state();
@@ -705,6 +694,8 @@ json move_position_json(const char* request_cstr)
         ? std::optional<std::string>(state().project_config_overlay["project"]["wipe_tower_y"].get<std::string>())
         : std::nullopt;
     const std::uint64_t before_revision = plate_revision_before;
+    const auto history_runtime = HistoryRuntime::runtime();
+    const auto before_history_context = HistoryRuntime::default_history_context(history_runtime);
     NarrowHistoryFrame frame;
     frame.plate_id = plate_id;
     frame.before_x = before_settings.x;
@@ -739,8 +730,11 @@ json move_position_json(const char* request_cstr)
         after_frame.after_state = true;
         const auto before_direct = make_narrow_history_frame(before_frame);
         const auto after_direct = make_narrow_history_frame(after_frame);
-        const auto before_context = narrow_frame_json(before_frame).dump();
-        const auto after_context = narrow_frame_json(after_frame).dump();
+        // Keep complete checkpoints for mixed navigation. The direct frame is
+        // only a scalar X/Y transition optimization; it cannot stand in for a
+        // target model or unrelated project-owned state.
+        const auto before_context = before_history_context.dump();
+        const auto after_context = HistoryRuntime::default_history_context(history_runtime).dump();
         const auto before_bytes = Neo::History::Bytes(before_context.begin(), before_context.end());
         const auto after_bytes = Neo::History::Bytes(after_context.begin(), after_context.end());
         const bool first_history_entry = state().history.entries().empty();
