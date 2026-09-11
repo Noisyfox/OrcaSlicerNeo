@@ -982,7 +982,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
             const auto direct_frame = make_direct_frame(
                 state(), std::make_shared<Model>(state().model), after_history_model);
-            const bool committed = [&]() {
+            const bool committed = HistoryMetadata::commit_history_entry(state(), [&]() {
                 if (!state().history.entries().empty())
                     return state().history.commit(label, Neo::History::Category::Project,
                                                   after_history_model, bytes, direct_frame,
@@ -993,7 +993,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
                     label, Neo::History::Category::Project,
                     before_history_model, baseline_bytes, after_history_model, bytes,
                     predecessor_direct, direct_frame);
-            }();
+            });
             if (!committed) {
                 rollback_published();
                 return command_error("native_validation_failure", "history commit rejected filament mutation");
@@ -1003,7 +1003,6 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             if (!history_committed) rollback_published();
             throw;
         }
-        HistoryMetadata::advance_history_epoch(state());
         state().print.clear();
         invalidate_preview_source();
         mutation["history_entry_delta"] = 1;
@@ -1130,7 +1129,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
                 ? std::make_shared<Model>(state().model) : direct_before_model;
             const auto direct_frame = make_direct_frame(state(), direct_after_model,
                                                         after_history_model);
-            const bool committed = [&]() {
+            const bool committed = HistoryMetadata::commit_history_entry(state(), [&]() {
                 if (!state().history.entries().empty())
                     return state().history.commit(label, Neo::History::Category::Project,
                                                   after_history_model, bytes, direct_frame,
@@ -1141,13 +1140,12 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
                     label, Neo::History::Category::Project,
                     before_history_model, baseline_bytes, after_history_model, bytes,
                     predecessor_direct, direct_frame);
-            }();
+            });
             if (!committed) {
                 rollback();
                 return command_error("native_validation_failure", "history commit rejected filament mutation");
             }
             history_committed = true;
-            HistoryMetadata::advance_history_epoch(state());
             state().print.clear();
             invalidate_preview_source();
             mutation["history_entry_delta"] = 1;
@@ -1400,7 +1398,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
             const auto direct_frame = make_direct_frame(
                 state(), std::make_shared<Model>(state().model), after_history_model);
-            const bool committed = [&]() {
+            const bool committed = HistoryMetadata::commit_history_entry(state(), [&]() {
                 if (!state().history.entries().empty())
                     return state().history.commit(label, Neo::History::Category::Project,
                                                   after_history_model, bytes, direct_frame,
@@ -1410,14 +1408,13 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
                 return state().history.commit_with_baseline(label, Neo::History::Category::Project,
                     before_history_model, baseline_bytes, after_history_model, bytes,
                     predecessor_direct, direct_frame);
-            }();
+            });
             if (!committed) throw std::runtime_error("history commit rejected filament assignment");
             history_committed = true;
         } catch (...) {
             if (!history_committed) rollback();
             throw;
         }
-        HistoryMetadata::advance_history_epoch(state());
         if (affected_plates.find(state().current_plate_id) != affected_plates.end()) {
             state().print.clear();
             invalidate_preview_source();

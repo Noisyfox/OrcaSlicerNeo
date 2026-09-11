@@ -753,12 +753,15 @@ json move_position_json(const char* request_cstr)
         bool committed = false;
         if (first_history_entry) {
             const auto model_state = Neo::History::Codec::capture_model_state(state().model);
-            committed = state().history.commit_with_baseline("Move Prime Tower", Neo::History::Category::Project,
-                model_state, before_bytes, model_state, after_bytes, before_direct, after_direct);
+            committed = HistoryMetadata::commit_history_entry(state(), [&]() {
+                return state().history.commit_with_baseline("Move Prime Tower", Neo::History::Category::Project,
+                    model_state, before_bytes, model_state, after_bytes, before_direct, after_direct);
+            });
         } else {
-            committed = state().history.commit_reusing_current_model("Move Prime Tower", Neo::History::Category::Project,
-                                                                       Neo::History::Bytes(after_bytes.begin(), after_bytes.end()),
-                                                                       after_direct, before_direct);
+            committed = HistoryMetadata::commit_history_entry(state(), [&]() {
+                return state().history.commit_reusing_current_model("Move Prime Tower", Neo::History::Category::Project,
+                    Neo::History::Bytes(after_bytes.begin(), after_bytes.end()), after_direct, before_direct);
+            });
         }
         if (!committed) throw std::runtime_error("could not commit prime tower move history");
     } catch (const std::exception& e) {
@@ -781,7 +784,6 @@ json move_position_json(const char* request_cstr)
     // Publication is now complete. These operations are scalar/clear-only and
     // intentionally live outside the rollback scope so a post-publish path
     // cannot report failure after history has advanced.
-    HistoryMetadata::advance_history_epoch(state());
     if (state().preview_plate_id == plate_id) {
         // This is the post-publication path. Keep it non-throwing so a native
         // cleanup failure cannot report an error after history has advanced.

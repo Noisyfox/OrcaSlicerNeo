@@ -87,4 +87,9 @@ json restore_diagnostics_json(const BridgeState& state);
 // move backwards.
 std::uint64_t advance_history_epoch(BridgeState& state);
 
+// Execute one revision-producing ProjectHistory append as the bridge's atomic
+// history-publication boundary. Callers supply only the append operation; a
+// successful append is the sole condition that advances the observed epoch.
+bool commit_history_entry(BridgeState& state, const std::function<bool()>& append);
+
 } // namespace Slic3r::Neo::Bridge::HistoryMetadata

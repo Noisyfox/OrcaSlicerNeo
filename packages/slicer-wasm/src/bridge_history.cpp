@@ -979,6 +979,13 @@ std::uint64_t advance_history_epoch(BridgeState& state)
     return ++state.history_revision;
 }
 
+bool commit_history_entry(BridgeState& state, const std::function<bool()>& append)
+{
+    if (!append()) return false;
+    advance_history_epoch(state);
+    return true;
+}
+
 json restore_diagnostics_json(const BridgeState& state)
 {
     json out = {
@@ -1073,8 +1080,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const auto tx = *state().active_history_transaction;
         const std::string text = after_context.dump();
         const Neo::History::Bytes bytes(text.begin(), text.end());
-        if (state().history.commit(tx.label, tx.category, capture_model_state(state().model), bytes))
-            HistoryMetadata::advance_history_epoch(state());
+        HistoryMetadata::commit_history_entry(state(), [&]() {
+            return state().history.commit(tx.label, tx.category, capture_model_state(state().model), bytes);
+        });
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
         return duplicate_json(history_status_json().dump());
@@ -1179,10 +1187,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr)
         state().history_disabled = false;
         const std::string text = context.dump();
         const Neo::History::Bytes bytes(text.begin(), text.end());
-        if (!state().history.commit("", Neo::History::Category::Project, capture_model_state(state().model), bytes))
+        if (!HistoryMetadata::commit_history_entry(state(), [&]() {
+            return state().history.commit("", Neo::History::Category::Project, capture_model_state(state().model), bytes);
+        }))
             return error_json("could not establish history baseline");
         state().history.mark_current_as_saved();
-        HistoryMetadata::advance_history_epoch(state());
         return duplicate_json(history_status_json().dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }
