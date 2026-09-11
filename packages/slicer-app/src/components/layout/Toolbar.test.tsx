@@ -158,7 +158,7 @@ describe('Toolbar send navigation', () => {
     expect(coordinator.restore).toHaveBeenCalledWith('undo');
   });
 
-  it('disables both buttons while the restore lifecycle is active', async () => {
+  it('keeps navigation available while restoring so the coordinator can queue Worker-validated intents', async () => {
     const { platform } = makePlatform();
     const coordinator = { restore: vi.fn(async () => true), currentRevision: () => 0 };
     useHistoryNavigationStore.getState().setStatus(navigationStatus);
@@ -169,8 +169,8 @@ describe('Toolbar send navigation', () => {
       root?.render(<PlatformProvider value={platform}><Toolbar activeTab="prepare" historyRestoreCoordinator={coordinator} /></PlatformProvider>);
     });
     await act(async () => { useHistoryRestoreStore.getState().setPhase('restoring'); });
-    expect((container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement).disabled).toBe(true);
-    expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('[data-testid="history-undo"]') as HTMLButtonElement).disabled).toBe(false);
+    expect((container.querySelector('[data-testid="history-redo"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it.each(['home', 'preview', 'device'] as const)('disables history controls outside Prepare on %s', async (activeTab) => {

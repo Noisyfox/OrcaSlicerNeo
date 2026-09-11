@@ -4,6 +4,8 @@ import { createHistoryRestoreCoordinator } from './restoreCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
 import { useProjectStore } from '../stores/useProjectStore';
+import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
+import { runProjectMutationOperation } from '../components/workspace/actions/historyMutation';
 
 const context: HistoryContext = {
   selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
@@ -117,7 +119,7 @@ describe('history restore coordinator', () => {
     const refreshModel = vi.fn(async () => projection);
     const undoHistory = vi.fn(async () => success());
     const coordinator = createHistoryRestoreCoordinator({
-      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
+      runtime: { undoHistory, redoHistory: vi.fn(async () => success(2)), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
       sceneInteraction: fakeScene(),
       refreshModel,
     });
@@ -126,10 +128,12 @@ describe('history restore coordinator', () => {
     await vi.waitFor(() => expect(refreshModel).toHaveBeenCalledOnce());
     expect(useHistoryRestoreStore.getState().phase).toBe('restoring');
     expect(useHistoryRestoreStore.getState().snapshotSuppressed).toBe(true);
-    expect(coordinator.restore('redo')).toBe(restore);
+    const redo = coordinator.restore('redo');
+    expect(redo).not.toBe(restore);
 
     releaseProjection();
     await expect(restore).resolves.toBe(true);
+    await expect(redo).resolves.toBe(true);
     expect(useHistoryRestoreStore.getState().phase).toBe('idle');
   });
 
@@ -189,5 +193,117 @@ describe('history restore coordinator', () => {
     await expect(coordinator.restore('undo')).resolves.toBe(true);
     expect(refreshModel).toHaveBeenCalledWith(context, narrow.impact, expect.any(Number));
     expect(publishRestoredFilamentRack).not.toHaveBeenCalled();
+  });
+
+  it('executes every rapid same-direction intent serially instead of joining or dropping it', async () => {
+    const calls: number[] = [];
+    let active = 0;
+    let maximumActive = 0;
+    let revision = 1;
+    const undoHistory = vi.fn(async () => {
+      calls.push(calls.length + 1);
+      active += 1;
+      maximumActive = Math.max(maximumActive, active);
+      await Promise.resolve();
+      active -= 1;
+      return success(++revision);
+    });
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory, redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
+      sceneInteraction: fakeScene(), refreshModel: vi.fn(async () => undefined),
+    });
+
+    await expect(Promise.all([
+      coordinator.restore('undo'), coordinator.restore('undo'), coordinator.restore('undo'),
+    ])).resolves.toEqual([true, true, true]);
+    expect(calls).toEqual([1, 2, 3]);
+    expect(maximumActive).toBe(1);
+  });
+
+  it('resolves a queued opposite direction on the cursor committed by the earlier intent', async () => {
+    let cursor = 2;
+    let revision = 1;
+    const undoHistory = vi.fn(async () => {
+      expect(cursor).toBe(2);
+      cursor -= 1;
+      return success(++revision);
+    });
+    const redoHistory = vi.fn(async () => {
+      // This assertion proves the coordinator did not reject Redo from the
+      // stale React status that existed before the queued Undo committed.
+      expect(cursor).toBe(1);
+      cursor += 1;
+      return success(++revision);
+    });
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory, redoHistory, jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
+      sceneInteraction: fakeScene(), refreshModel: vi.fn(async () => undefined),
+    });
+
+    await expect(Promise.all([coordinator.restore('undo'), coordinator.restore('redo')])).resolves.toEqual([true, true]);
+    expect(cursor).toBe(2);
+  });
+
+  it('keeps direct jumps ordered with ordinary project mutations and validates them at the latest native revision', async () => {
+    const events: string[] = [];
+    let nativeRevision = 0;
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: {
+        undoHistory: vi.fn(async () => {
+          events.push(`undo@${nativeRevision}`);
+          nativeRevision += 1;
+          return success(nativeRevision);
+        }),
+        redoHistory: vi.fn(),
+        jumpHistory: vi.fn(async (entryId: string, direction: string) => {
+          events.push(`jump:${entryId}:${direction}@${nativeRevision}`);
+          expect(nativeRevision).toBe(2);
+          nativeRevision += 1;
+          return success(nativeRevision);
+        }),
+        cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status),
+      },
+      sceneInteraction: fakeScene(), refreshModel: vi.fn(async () => undefined),
+    });
+
+    const undo = coordinator.restore('undo');
+    const mutation = runProjectMutationOperation(async () => {
+      events.push(`mutation@${nativeRevision}`);
+      nativeRevision += 1;
+    });
+    const jump = coordinator.restore({ jump: 'retained-entry', direction: 'redo' });
+
+    await expect(Promise.all([undo, mutation, jump])).resolves.toEqual([true, undefined, true]);
+    expect(events).toEqual(['undo@0', 'mutation@1', 'jump:retained-entry:redo@2']);
+  });
+
+  it('holds later native navigation behind a slow projection and leaves the newer status projected last', async () => {
+    let releaseFirstProjection!: () => void;
+    let releaseSecondProjection!: () => void;
+    const firstProjection = new Promise<void>((resolve) => { releaseFirstProjection = resolve; });
+    const secondProjection = new Promise<void>((resolve) => { releaseSecondProjection = resolve; });
+    const revision = useHistoryNavigationStore.getState().status?.revision ?? 0;
+    let projectionCount = 0;
+    const refreshModel = vi.fn(async () => {
+      projectionCount += 1;
+      return projectionCount === 1 ? firstProjection : secondProjection;
+    });
+    const redoHistory = vi.fn(async () => success(revision + 2));
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory: vi.fn(async () => success(revision + 1)), redoHistory, jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
+      sceneInteraction: fakeScene(), refreshModel,
+    });
+
+    const undo = coordinator.restore('undo');
+    const redo = coordinator.restore('redo');
+    await vi.waitFor(() => expect(refreshModel).toHaveBeenCalledOnce());
+    expect(redoHistory).not.toHaveBeenCalled();
+    releaseFirstProjection();
+    await expect(undo).resolves.toBe(true);
+    await vi.waitFor(() => expect(redoHistory).toHaveBeenCalledOnce());
+    expect(useHistoryNavigationStore.getState().status?.revision).toBe(revision + 2);
+    releaseSecondProjection();
+    await expect(redo).resolves.toBe(true);
+    expect(useHistoryNavigationStore.getState().status?.revision).toBe(revision + 2);
   });
 });

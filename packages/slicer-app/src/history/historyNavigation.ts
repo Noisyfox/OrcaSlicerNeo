@@ -23,14 +23,28 @@ export function historyNextOperationLabel(
   return label ? `${direction === 'undo' ? 'Undo' : 'Redo'} ${label}` : direction === 'undo' ? 'Undo' : 'Redo';
 }
 
+/**
+ * A displayed HistoryStatus is a projection, so it cannot reject a navigation
+ * intent while another restore is advancing the native cursor.  The Worker
+ * decides availability for those queued intents at the FIFO head.
+ */
+export function historyNavigationIntentAllowed(
+  status: HistoryStatus | null | undefined,
+  direction: HistoryNavigationDirection,
+  restoring: boolean,
+): boolean {
+  if (!status || status.disabled || status.activeTransactionId !== null) return false;
+  if (restoring) return true;
+  return direction === 'undo' ? status.canUndo : status.canRedo;
+}
+
 export function historyNavigationDisabled(
   status: HistoryStatus | null | undefined,
   direction: HistoryNavigationDirection,
   restoring: boolean,
   hasCoordinator: boolean,
 ): boolean {
-  if (!hasCoordinator || restoring || !status || status.disabled || status.activeTransactionId !== null) return true;
-  return direction === 'undo' ? !status.canUndo : !status.canRedo;
+  return !hasCoordinator || !historyNavigationIntentAllowed(status, direction, restoring);
 }
 
 /** Native text editing owns its own Ctrl/Cmd+Z/Y semantics. */

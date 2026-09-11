@@ -243,12 +243,15 @@ export function restoreProjectHistory(
     Pick<SlicerRuntime, 'getFilamentSessionSnapshot' | 'getHistoryStatus'>,
   action: HistoryRestoreAction,
   publish?: (result: Extract<import('@slicer/client').RestoreResult, { ok: true }>) => Promise<void> | void,
+  /** Runs inside the shared FIFO immediately before one native restore. */
+  beforeRestore?: () => Promise<void> | void,
 ): Promise<import('@slicer/client').RestoreResult> {
   return enqueueHistoryOperation(async () => {
     const lease = acquireProjectMutationLease();
     try {
       let result: import('@slicer/client').RestoreResult;
       try {
+        await beforeRestore?.();
         result = action === 'undo' ? await runtime.undoHistory()
           : action === 'redo' ? await runtime.redoHistory()
             : await runtime.jumpHistory(action.jump, action.direction);

@@ -34,7 +34,7 @@ import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/
 import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
 import { registerProjectDropHandlers } from './dropHandling';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
-import { historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
+import { historyNavigationIntentAllowed, historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
 import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 
 export function handleMenuKeyDown(
@@ -297,8 +297,8 @@ export default function App() {
       const coordinator = historyRestoreCoordinatorRef.current;
       if (!coordinator) return;
       const historyStatus = useHistoryNavigationStore.getState().status;
-      if (!historyStatus || historyStatus.disabled || useHistoryRestoreStore.getState().phase !== 'idle' ||
-          (action === 'undo' ? !historyStatus.canUndo : !historyStatus.canRedo)) return;
+      const restoring = useHistoryRestoreStore.getState().phase !== 'idle';
+      if (!historyNavigationIntentAllowed(historyStatus, action, restoring)) return;
       event.preventDefault();
       void coordinator.restore(action);
     };
