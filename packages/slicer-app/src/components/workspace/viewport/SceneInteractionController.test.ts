@@ -500,6 +500,30 @@ describe('SceneInteractionController', () => {
     expect(controller.owner).toBe('body');
   });
 
+  it('retains the first body-drag delta after pointer-down selects an ordinary instance', async () => {
+    const port = {
+      begin: vi.fn(),
+      commit: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    };
+    controller.setTransformHistoryPort(port);
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+
+    expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(true);
+    const start = controller.selectionPivot()!;
+    expect(controller.tryBeginBodyDrag()).toBe(true);
+    expect(controller.updateDragPivot(start.clone().add(new THREE.Vector3(3, -2, 0)))).toBe(true);
+    expect(controller.endDrag()).toBe(true);
+    await Promise.resolve();
+
+    expect(volumes.map((volume) => volume.instanceTransform.offset)).toEqual([
+      [0, 0, 0], [0, 0, 0], [23, 3, 0], [23, 3, 0],
+    ]);
+    expect(port.begin).toHaveBeenCalledOnce();
+    expect(port.commit).toHaveBeenCalledOnce();
+    expect(port.abort).not.toHaveBeenCalled();
+  });
+
   it('gives a gizmo grabber priority over body dragging', () => {
     controller.selectFromHit(volumes[0], false);
     controller.toggleGizmo('move');

@@ -1355,6 +1355,64 @@ test('scene context menu: right-click on a model body opens the object menu', as
 });
 
 
+test('scene selection: an unselected body keeps its first drag gesture', async () => {
+  test.skip(REAL, 'the real fixture does not expose deterministic canvas projection hooks');
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await page.getByTestId('btn-add-model').click();
+
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('viewport canvas has no bounding box');
+    await expect.poll(() => page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { selectionPivotWorld?: () => [number, number, number] | null };
+      }).__orcaE2e?.selectionPivotWorld?.(),
+    )).toBeNull();
+    const center = await page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { projectWorldToScreen(q: [number, number, number]): { x: number; y: number } | null };
+      }).__orcaE2e?.projectWorldToScreen([10, 10, 10]),
+    );
+    if (!center) throw new Error('cube-center projection unavailable');
+    const historyBefore = await page.getByTestId('history-undo').getAttribute('aria-label');
+
+    await page.mouse.move(box.x + center.x, box.y + center.y);
+    await page.mouse.down();
+    await page.mouse.move(box.x + center.x + 8, box.y + center.y + 4);
+    await expect
+      .poll(() => page.evaluate(() =>
+        (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.(),
+      ))
+      .toBe('body');
+    await expect
+      .poll(() => page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectionPivotWorld?: () => [number, number, number] | null };
+        }).__orcaE2e?.selectionPivotWorld?.(),
+      ))
+      .not.toEqual([10, 10, 10]);
+    await page.mouse.move(box.x + center.x + 40, box.y + center.y + 20, { steps: 4 });
+    await page.mouse.up();
+
+    await expect
+      .poll(() => page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectionPivotWorld?: () => [number, number, number] | null };
+        }).__orcaE2e?.selectionPivotWorld?.(),
+      ))
+      .not.toEqual([10, 10, 10]);
+    await expect.poll(() => page.getByTestId('history-undo').getAttribute('aria-label'))
+      .not.toBe(historyBefore);
+    await expect(page.getByTestId('history-undo')).toContainText('Move');
+  } finally {
+    await app.close();
+  }
+});
+
 // Scene-owned selection: a TransformControls handle wins over an overlapping
 // DragControls body, and the move panel edits the aggregate pivot for every
 // selected instance. The mock e2e fixture has two 20 mm instances at X=0/50.
