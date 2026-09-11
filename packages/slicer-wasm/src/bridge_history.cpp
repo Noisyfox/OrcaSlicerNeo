@@ -459,9 +459,9 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
         try { if (runtime.invalidate_preview) runtime.invalidate_preview(); } catch (...) {}
     }
     ++state().history_revision;
-    return json{{"ok", true}, {"context", { {"version", 1}, {"kind", "primeTower"},
-                                                {"state", frame.after_state ? "after" : "before"},
-                                                {"plate_id", frame.plate_id} }},
+    // Restore publication needs the complete renderer context even though the
+    // native coordinate edit itself is represented by the narrow frame.
+    return json{{"ok", true}, {"context", current_context(runtime)},
                 {"status", history_status_json()}, {"entryId", history_entry_id(plan.state.entry.id)},
                 {"direct", true}, {"narrow", true}};
 }
@@ -469,16 +469,24 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
 json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& plan)
 {
     const auto parsed = json::parse(std::string(plan.state.context.begin(), plan.state.context.end()));
+    // The command context identifies the narrow restore contract. A loaded
+    // project may retain an unrelated filament sidecar on the target
+    // checkpoint; never route a Prime Tower context through that validator.
+    if (parsed.value("kind", "") == "primeTower") {
+        const auto frame = parse_narrow_history_frame(parsed);
+        if (!frame) throw std::runtime_error("prime tower narrow history context is invalid");
+        return restore_prime_tower_frame(runtime, plan, *frame);
+    }
     if (plan.state.direct_frame && plan.state.direct_frame->kind == History::RestoreState::DirectFrame::Kind::PrimeTower) {
         if (!plan.state.direct_frame->payload || plan.state.direct_frame->bytes == 0)
             throw std::runtime_error("prime tower narrow history frame is unavailable");
         const auto frame = std::static_pointer_cast<const NarrowHistoryFrame>(plan.state.direct_frame->payload);
         if (!frame) throw std::runtime_error("prime tower narrow history frame is unavailable");
-        return restore_prime_tower_frame(runtime, plan, *frame);
-    }
-    if (parsed.value("kind", "") == "primeTower") {
-        const auto frame = parse_narrow_history_frame(parsed);
-        if (!frame) throw std::runtime_error("prime tower narrow history context is invalid");
+        if (plan.target_cursor < plan.from_cursor) {
+            auto before = *frame;
+            before.after_state = false;
+            return restore_prime_tower_frame(runtime, plan, before);
+        }
         return restore_prime_tower_frame(runtime, plan, *frame);
     }
     const json context = parse_history_context(parsed.dump().c_str());
@@ -962,7 +970,10 @@ json history_status_json(const BridgeState& state)
     const auto saved = state.history.saved_checkpoint();
     const auto resources = state.history.resource_diagnostics();
     return json{
-        {"canUndo", state.history.can_undo()}, {"canRedo", state.history.can_redo()},
+        // The visible navigation list is the filtered project stream. Keep
+        // its booleans derived from the same stream so context checkpoints
+        // cannot disagree with the entries exposed to the renderer.
+        {"canUndo", !undo.empty()}, {"canRedo", !redo.empty()},
         {"undoLabel", undo_entry ? json(undo_entry->label) : json(nullptr)},
         {"redoLabel", redo_entry ? json(redo_entry->label) : json(nullptr)},
         {"undoEntries", std::move(undo)}, {"redoEntries", std::move(redo)},

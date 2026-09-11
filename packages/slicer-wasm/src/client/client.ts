@@ -707,7 +707,11 @@ function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrErro
     ...(isRecord(footprint) ? { footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
       minY: footprint.min_y as number, maxY: footprint.max_y as number } } : {}),
   };
-  return { ok: true, version: 1, result: { projection, plateSession, mutation: typedMutation } } as PrimeTowerMoveResultOrError;
+  const historyStatus = isRecord(result.history_status)
+    ? normalizeHistoryStatus(result.history_status)
+    : undefined;
+  return { ok: true, version: 1, result: { projection, plateSession, mutation: typedMutation,
+    ...(historyStatus ? { historyStatus } : {}) } } as PrimeTowerMoveResultOrError;
 }
 
 /** Convert the native profile/catalogue payload into the public profile

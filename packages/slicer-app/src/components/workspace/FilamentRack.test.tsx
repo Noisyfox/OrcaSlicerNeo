@@ -171,14 +171,14 @@ describe('FilamentRack runtime interaction', () => {
     expect(rendered.container.querySelector('[data-testid="filament-rejected"]')).not.toBeNull();
   });
 
-  it('disables Add while a scene mutation is publishing its projections', async () => {
+  it('keeps Add visually enabled while a scene mutation is publishing its projections', async () => {
     const initial = makeSnapshot();
     const runtime = { getFilamentSessionSnapshot: vi.fn(async () => initial), addFilamentSlot: vi.fn() };
     useFilamentSessionStore.setState({ snapshot: initial });
     useProjectStore.setState({ projectMutationPendingCount: 1 });
     const rendered = renderRack(runtime); root = rendered.root;
     await act(async () => { await Promise.resolve(); });
-    expect((rendered.container.querySelector('[data-testid="filament-add"]') as HTMLButtonElement).disabled).toBe(true);
+    expect((rendered.container.querySelector('[data-testid="filament-add"]') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('renders a rejected load state without discarding the last coherent rack', async () => {

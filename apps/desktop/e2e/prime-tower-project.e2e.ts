@@ -48,6 +48,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     if (await confirmation.isVisible({ timeout: 30_000 }).catch(() => false))
       await page.getByTestId('project-load-confirmation-dialog-continue').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
+    await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0, { timeout: 300_000 });
 
     // The loaded project owns eleven plates and the first plate is the active
     // slicing target for this regression.
@@ -87,7 +88,12 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       await page.keyboard.press('Escape');
       return labels;
     };
-    await expect.poll(async () => (await readTowers()).length, { timeout: 300_000 }).toBe(11);
+    // The project owns eleven plates, but native eligibility intentionally
+    // projects only its eight painted/multi-filament plates.  The remaining
+    // single-filament plates are not Prime Tower scene volumes.
+    await expect.poll(async () => (await readTowers()).length, { timeout: 300_000 }).toBe(8);
+    await expect(page.getByTestId('project-progress-message')).toHaveCount(0, { timeout: 300_000 });
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0, { timeout: 300_000 });
     const towers = await readTowers();
     await expect.poll(readProxyIds, { timeout: 30_000 }).toEqual(towers.filter((tower) => tower.eligible).map((tower) => tower.plateId).sort());
     const current = towers.find((tower) => tower.current);
@@ -121,8 +127,31 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       const beds = (window as unknown as { __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; position: [number, number, number] }> } }).__orcaE2e?.bedPlateStates?.() ?? [];
       return beds.find((bed) => bed.plateId === plateId)?.position ?? [0, 0, 0];
     }, current!.plateId);
-    const start = await projectWorldToScreen([currentBed[0] + current!.position.x + 4, currentBed[1] + current!.position.y + 4, 9]);
-    expect(start).not.toBeNull();
+    // Locate a body point through the same scene ray path used by the user.
+    // Imported projects can place/rotate towers differently, so a fixed
+    // corner pixel is not a reliable hit even when the proxy is present.
+    let start: { x: number; y: number } | null = null;
+    const footprint = current!.footprint;
+    expect(footprint).toBeDefined();
+    const footprintWidth = Math.max(20, footprint!.maxX - footprint!.minX);
+    const footprintDepth = Math.max(20, footprint!.maxY - footprint!.minY);
+    for (let dx = 4; dx <= footprintWidth; dx += 8) {
+      for (let dy = 4; dy <= footprintDepth; dy += 8) {
+        const candidate = await projectWorldToScreen([
+          currentBed[0] + current!.position.x + dx,
+          currentBed[1] + current!.position.y + dy,
+          9,
+        ]);
+        if (!candidate) continue;
+        await page.mouse.click(box!.x + candidate.x, box!.y + candidate.y);
+        if (await readSelection() === current!.plateId) {
+          start = candidate;
+          break;
+        }
+      }
+      if (start) break;
+    }
+    expect(start, 'current Prime Tower body should be selectable through the real canvas ray').not.toBeNull();
     const historyBefore = await readHistory();
     const movesBefore = await readMoves();
     await page.mouse.move(box!.x + start!.x, box!.y + start!.y);
@@ -131,11 +160,30 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     expect(await readMoves()).toBe(movesBefore);
     await page.mouse.up();
     await expect.poll(readMoves).toBe(movesBefore + 1);
+    // The native move commits before the toolbar's FIFO status publication;
+    // wait for that authoritative label before opening the history menu.
+    await expect(page.getByTestId('history-undo')).toHaveAttribute(
+      'aria-label', 'Undo Move Prime Tower', { timeout: 30_000 });
     await expect.poll(async () => {
       const labels = await readHistory();
       return labels.length === historyBefore.length + 1 && labels[0] === 'Move Prime Tower';
-    }).toBe(true);
+    }, { timeout: 30_000 }).toBe(true);
     const clamped = (await readTowers()).find((tower) => tower.current);
+    expect(clamped?.position).not.toEqual(current!.position);
+    const movedPosition = clamped?.position;
+    expect(movedPosition).toBeDefined();
+
+    // Pointer-up must publish the native wipe_tower_x/y values immediately;
+    // undo and redo then exercise the same authoritative config path rather
+    // than replaying a renderer-only projection.
+    await page.getByTestId('history-undo').click();
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.position)
+      .toEqual(current!.position);
+    await expect(page.getByTestId('history-redo')).toBeEnabled({ timeout: 30_000 });
+    await page.getByTestId('history-redo').click();
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.position)
+      .toEqual(movedPosition);
+
     // Coordinates cross the native ConfigOptionFloat wire at six decimal
     // places, so accept only the tiny serialization edge while proving the
     // clamped footprint cannot leave the build area in a material amount.

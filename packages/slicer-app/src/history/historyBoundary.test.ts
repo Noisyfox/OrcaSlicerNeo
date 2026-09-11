@@ -20,4 +20,11 @@ describe('application history boundary', () => {
     }
     expect(bypasses).toEqual([]);
   });
+
+  it('does not poll native history from the toolbar', () => {
+    const files = import.meta.glob('../components/layout/Toolbar.tsx', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
+    const toolbar = Object.values(files)[0] ?? '';
+    expect(toolbar).not.toMatch(/setInterval\s*\(/);
+    expect(toolbar).not.toMatch(/syncHistoryStatus\s*\(/);
+  });
 });

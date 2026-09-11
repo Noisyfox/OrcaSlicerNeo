@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { useProjectStore } from '../../stores/useProjectStore';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import type { FilamentMutationResultOrError } from '@slicer/client';
 import { publishRememberedFilamentRack } from '../../preferences';
@@ -138,7 +137,6 @@ export function FilamentRack() {
   const platform = usePlatform();
   const snapshot = useFilamentSessionStore((state) => state.snapshot);
   const pendingKind = useFilamentSessionStore((state) => state.pendingKind);
-  const projectMutationPending = useProjectStore((state) => state.projectMutationPendingCount > 0);
   const rejected = useFilamentSessionStore((state) => state.rejected);
   const load = useFilamentSessionStore((state) => state.load);
   const run = useFilamentSessionStore((state) => state.run);
@@ -155,7 +153,11 @@ export function FilamentRack() {
     () => compatiblePresetNames(snapshot, filamentCatalog.map((preset) => preset.name)),
     [filamentCatalog, snapshot],
   );
-  const pending = pendingKind !== null || projectMutationPending;
+  // The project mutation fence is a safety/ordering mechanism, not a rack
+  // presentation state. Filament commands are queued behind model/history
+  // work by the shared gate, while the rack remains visually stable and
+  // interactive-looking. Only this rack's own native command is pending here.
+  const pending = pendingKind !== null;
 
   async function updateSlot(request: () => Promise<FilamentMutationResultOrError>) {
     const result = await run(platform.runtime, request);

@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import type { PlateSessionSnapshot, PrimeTowerMoveRequest, PrimeTowerMoveResultOrError, PrimeTowerPlateProjection, PrimeTowerProjection } from '@slicer/client';
+import type { HistoryStatus, PlateSessionSnapshot, PrimeTowerMoveRequest, PrimeTowerMoveResultOrError, PrimeTowerPlateProjection, PrimeTowerProjection } from '@slicer/client';
 import { useEffect, useState } from 'react';
 import { attachBoundsTree, disposeBVHGeometry, GLVolume, type BVHBufferGeometry } from './GLVolume';
 import { clampPrimeTowerPosition, type PrimeTowerPosition } from './primeTowerGeometry';
+import { runProjectMutationOperation } from '../actions/historyMutation';
 
 const CUBE_INDICES = new Uint32Array([
   0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7,
@@ -123,6 +124,8 @@ export interface WipeTowerMovePort {
   move(request: PrimeTowerMoveRequest): Promise<PrimeTowerMoveResultOrError>;
   reconcile(): Promise<void>;
   revision(plateId: string): number;
+  /** Project history status without re-entering the shared FIFO. */
+  publishHistoryStatus?(status?: HistoryStatus): Promise<void>;
 }
 
 /** Worker projection and native X/Y commit boundary; it owns no selection,
@@ -179,11 +182,24 @@ export class WipeTowerVolumeCollection {
     this.moveCommandCountState += 1;
     this.emit();
     try {
-      const position = volume.position;
-      const result = await this.port.move({ version: 1, plateId: volume.plateId, revision: this.port.revision(volume.plateId), x: position.x, y: position.y });
-      if (result.ok) this.setProjection(result.result.projection);
-      else await this.port.reconcile();
+      // Prime Tower is a native history-producing project mutation even
+      // though its bridge command is a single atomic operation rather than a
+      // begin/commit transaction. Keep it in the same FIFO and hold the
+      // publication fence through the authoritative projection update. This
+      // prevents a filament command or model history operation from observing
+      // the old wipe_tower_x/y revision between pointer-up and publication.
+      await runProjectMutationOperation(async () => {
+        const position = volume.position;
+        const result = await this.port.move({ version: 1, plateId: volume.plateId, revision: this.port.revision(volume.plateId), x: position.x, y: position.y });
+        if (result.ok) {
+          this.setProjection(result.result.projection);
+          await this.port.publishHistoryStatus?.(result.result.historyStatus);
+        }
+        else await this.port.reconcile();
+      });
     } catch {
+      // The native command already reconciles its own validation failures;
+      // this catch is only for unexpected queue/transport failures.
       await this.port.reconcile();
     } finally {
       this.commitInFlight = false;

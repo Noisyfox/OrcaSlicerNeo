@@ -29,7 +29,7 @@ import { PreviewPlateList } from './PreviewPlateList';
 import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from './plateSessionActions';
 import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { TransformHistoryCoordinator } from './actions/transformHistory';
-import { syncHistoryStatus } from './actions/historyMutation';
+import { projectHistoryStatus, syncHistoryStatusWithinMutation } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import type { ProjectConfigOverlay } from '@slicer/client';
 import { FilamentRack } from './FilamentRack';
@@ -79,9 +79,12 @@ export function Workspace({
   const setPlateSnapshot = usePlateSessionStore((s) => s.setSnapshot);
   const settingsOverlay = useSettingsStore((s) => s.overlay);
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
+  const historyRestorePhase = useHistoryRestoreStore((s) => s.phase);
+  const historyRestoreRevision = useHistoryRestoreStore((s) => s.revision);
   const glVolumes = useModelLoader();
   const sliceResult = useSliceResult();
   const primeTowerRefreshRef = useRef<(() => Promise<void>) | null>(null);
+  const primeTowerRefreshGenerationRef = useRef(0);
   const wipeTowerVolumesRef = useRef<WipeTowerVolumeCollection | null>(null);
   if (!wipeTowerVolumesRef.current) {
     wipeTowerVolumesRef.current = new WipeTowerVolumeCollection({
@@ -89,12 +92,15 @@ export function Workspace({
         const result = await platform.runtime.movePrimeTower(request);
         if (result.ok) {
           applyPlateSessionResponse(platform, result.result.plateSession);
-          await syncHistoryStatus(platform.runtime);
         }
         return result;
       },
       reconcile: async () => { await primeTowerRefreshRef.current?.(); },
       revision: (plateId) => usePlateSessionStore.getState().snapshot?.inputRevisions?.[plateId] ?? -1,
+      publishHistoryStatus: async (status) => {
+        if (status) projectHistoryStatus(status);
+        else await syncHistoryStatusWithinMutation(platform.runtime);
+      },
     });
   }
   const wipeTowerVolumes = wipeTowerVolumesRef.current;
@@ -107,18 +113,30 @@ export function Workspace({
     sceneInteractionRef.current.setWipeTowerMovePort({ commit: (volume) => wipeTowerVolumes.commit(volume), busy: () => wipeTowerVolumes.busy });
   }
   const sceneInteraction = sceneInteractionRef.current;
-  const refreshPrimeTowerProjection = useCallback(async () => {
+  const refreshPrimeTowerProjection = useCallback(async (forceDuringRestore = false) => {
+    // A projection read started before a history restore may complete after
+    // native Undo/Redo and otherwise re-publish the pre-restore coordinates.
+    // The restore callback explicitly opts in once the native operation has
+    // committed; ordinary reactive refreshes stay out of that window.
+    if (!forceDuringRestore && useHistoryRestoreStore.getState().phase !== 'idle') return;
+    const generation = ++primeTowerRefreshGenerationRef.current;
+    const historyRevision = useHistoryRestoreStore.getState().revision;
     try {
       const result = await platform.runtime.getPrimeTowerProjection();
+      if (generation !== primeTowerRefreshGenerationRef.current ||
+          historyRevision !== useHistoryRestoreStore.getState().revision) return;
       wipeTowerVolumes.setProjection(result.ok ? result : null, usePlateSessionStore.getState().snapshot);
     } catch {
+      if (generation !== primeTowerRefreshGenerationRef.current ||
+          historyRevision !== useHistoryRestoreStore.getState().revision) return;
       wipeTowerVolumes.setProjection(null);
     }
   }, [platform.runtime, wipeTowerVolumes]);
   primeTowerRefreshRef.current = refreshPrimeTowerProjection;
   useEffect(() => {
     void refreshPrimeTowerProjection();
-  }, [filamentSnapshot, glVolumes, plateSession, refreshPrimeTowerProjection, settingsOverlay, structure]);
+  }, [filamentSnapshot, glVolumes, historyRestorePhase, historyRestoreRevision, plateSession,
+    refreshPrimeTowerProjection, settingsOverlay, structure]);
   useEffect(() => wipeTowerVolumes.subscribe(() => {
     // Projection removal, eligibility and current-plate changes can replace
     // scene-only volumes; prune the one shared Selection immediately.
@@ -194,6 +212,11 @@ export function Workspace({
             usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
         }
         sceneInteraction.restoreHistoryContext(context, structure);
+        // History restores change native wipe_tower_x/y without necessarily
+        // changing model structure or the settings overlay reference. Refresh
+        // the scene-only Prime Tower projection explicitly so Undo/Redo cannot
+        // leave the released tower at its previous renderer position.
+        await refreshPrimeTowerProjection(true);
       },
       publishRestoredFilamentRack: async (revision) => {
         if (useHistoryRestoreStore.getState().revision !== revision) return;

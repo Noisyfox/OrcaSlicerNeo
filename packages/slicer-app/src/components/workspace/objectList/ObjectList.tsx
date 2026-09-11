@@ -137,7 +137,15 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
       if (encoded === lastHistoryContextRef.current) return;
       lastHistoryContextRef.current = encoded;
       historyContextQueueRef.current = historyContextQueueRef.current
-        .then(() => recordHistoryContext(platform, 'Selection', context))
+        .then(() => {
+          // A selection projection can queue just before a native history
+          // restore enters its fenced phase. Re-check at execution time so a
+          // late context-only commit cannot branch away the redo project
+          // entries restored by the Worker.
+          const restore = useHistoryRestoreStore.getState();
+          if (restore.phase !== 'idle' || restore.snapshotSuppressed) return;
+          return recordHistoryContext(platform, 'Selection', context);
+        })
         .catch((error) => { console.warn('selection history context unavailable', error); });
     };
     update();

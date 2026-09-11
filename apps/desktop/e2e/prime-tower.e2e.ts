@@ -2,6 +2,7 @@ import { _electron, expect, test, type ElectronApplication, type Page } from '@p
 import { resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
+const REAL = process.env.ORCA_E2E_REAL === '1';
 
 async function launchApp(extraEnv: Record<string, string> = {}): Promise<ElectronApplication> {
   const env = { ...process.env, ORCA_E2E: '1', ...extraEnv } as Record<string, string>;
@@ -27,6 +28,7 @@ type Point = [number, number, number];
 type HistorySnapshot = { undoLabels: string[]; undoButtonLabel: string | null };
 
 test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and no Preview proxy', async () => {
+  test.skip(REAL, 'uses the isolated mock Prime Tower band fixture; real projects use prime-tower-project.e2e.ts');
   const app = await launchApp();
   try {
     const page = await app.firstWindow();
@@ -183,6 +185,15 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await expect.poll(readCamera).toEqual(cameraBefore);
     const afterBody = await readTowers();
     expect(afterBody.find((tower) => tower.current)?.position).not.toEqual(current!.position);
+    const bodyPosition = afterBody.find((tower) => tower.current)?.position;
+    expect(bodyPosition).toBeDefined();
+    await page.getByTestId('history-undo').click();
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.position)
+      .toEqual(current!.position);
+    await expect(page.getByTestId('history-redo')).toBeEnabled();
+    await page.getByTestId('history-redo').click();
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.position)
+      .toEqual(bodyPosition);
 
     // A canceled canvas gesture restores the native position and does not add history.
     const moved = afterBody.find((tower) => tower.current)!;

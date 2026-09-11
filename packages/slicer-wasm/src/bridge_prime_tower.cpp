@@ -691,6 +691,7 @@ json move_position_json(const char* request_cstr)
         return { {"ok", true}, {"version", 1}, {"result", {
             {"projection", std::move(projection)},
             {"plate_session", plate_session_snapshot_json()},
+            {"history_status", HistoryMetadata::history_status_json(state())},
             {"mutation", {{"kind", "move"}, {"plate_id", plate_id}, {"history_entry_delta", 0},
                            {"revision_before", plate_revision_before},
                            {"revision_after", plate_revision_before}, {"dirty", false},
@@ -796,6 +797,7 @@ json move_position_json(const char* request_cstr)
         try { state().print.clear(); } catch (...) {}
         try { SlicingPipeline::invalidate_preview_source(); } catch (...) {}
     }
+    response["result"]["history_status"] = HistoryMetadata::history_status_json(state());
     return response;
 }
 

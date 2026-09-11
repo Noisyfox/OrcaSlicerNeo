@@ -1631,6 +1631,13 @@ tests/typechecks, focused mock Electron test, and `git diff --check` pass. The
 focused interaction also reads the Worker-owned Undo menu: each successful
 pointer-up adds exactly one `Move Prime Tower` project entry, while transient
 and canceled gestures leave the entry list and tower position unchanged.
+The shared scene hit path also preserves ordinary model interaction: a
+right-click on a model resolves the hit through its tagged mesh parent,
+selects the clicked instance, and opens the object-specific menu; empty-space
+right-click remains the background menu and special scene-only targets retain
+their existing behavior.
+The focused Electron assertion is `apps/desktop/e2e/app.e2e.ts` with grep
+`scene context menu: right-click on a model body opens the object menu`.
 
 ### Step 15 — Threaded real-Electron acceptance and documentation closeout
 
@@ -1716,6 +1723,18 @@ passed; one isolated warning-fixture case intentionally skipped), and final
 flow was intentionally not rerun because this refactor changes only React scene
 rendering/interaction and no runtime, client, bridge, or WASM path; Step 15's
 real threaded evidence remains applicable.
+The completed body/gizmo move also remains authoritative after pointer-up:
+the native per-plate `wipe_tower_x/y` projection is published before the
+shared mutation lease is released, so the released position does not snap back
+and Undo/Redo restores the same per-plate coordinates without slice-result or
+full-bundle history.
+The focused Electron assertion is `apps/desktop/e2e/prime-tower.e2e.ts` with
+grep `Prepare prime tower uses real canvas selection`; the threaded project
+fixture's body-release, native-coordinate persistence, and history path are
+covered by `apps/desktop/e2e/prime-tower-project.e2e.ts` with grep
+`opened project keeps prime-tower UI`. The isolated band fixture is explicitly
+mock-only and is skipped when `ORCA_E2E_REAL=1`, so a real runner cannot report
+a false missing-band failure.
 
 **Step 17 implementation and root acceptance record (2026-09-11, accepted):**
 Visible Prepare Prime Tower
@@ -1738,9 +1757,10 @@ submodule remains untouched.
 **Step 18 implementation record (2026-09-11, accepted):** Scene context-menu
 Add Primitive actions now publish an explicit project-store pending count for
 the complete native mutation, renderer mesh publication, and filament-session
-refresh interval. The Filament rack disables Add/Delete/Merge/preset/colour
-commands while that count is non-zero, so a revision-fenced filament command
-cannot overtake a just-added Cube or observe the preceding snapshot revision.
+refresh interval. The shared FIFO keeps Add/Delete/Merge/preset/colour commands
+behind that interval, so a revision-fenced filament command cannot overtake a
+just-added Cube or observe the preceding snapshot revision; the rack's visual
+controls remain stable while waiting.
 The count is reference-counted and decremented in a `finally` block, including
 native or renderer failures; it does not add history entries, retry commands,
 copy a full preset bundle, or retain slice results. A focused scene-action unit
@@ -1807,3 +1827,11 @@ Add Cube → drag → Add Filament and Add Cube → Add Cube → Add Filament bo
 no retry, compatibility path, full PresetBundle copy, or slice result retention
 was introduced. The pinned `packages/slicer-wasm/cpp` submodule remains
 untouched.
+The same presentation rule applies during transform gestures and history
+Undo/Redo: the broad project lease remains a safety fence, while only a
+filament command's own in-flight state and native capability flags disable its
+controls. The real threaded Electron assertion is
+`apps/desktop/e2e/multi-filament.e2e.ts` with grep
+`filament rack remains enabled during history restore`; it observes every
+disabled-attribute transition during Undo and Redo without dispatching an
+unrelated filament mutation. The focused real run passed in 13.1 seconds.

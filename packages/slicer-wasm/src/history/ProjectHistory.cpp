@@ -259,8 +259,13 @@ bool ProjectHistory::commit(std::string label, Category category, const ModelSta
         // A fast frame describes the currently retained predecessor.  Attach
         // it only as part of the same transactional branch append so a failed
         // commit cannot leave a newly charged side payload behind.
-        if (!m_impl->states[m_cursor].state.direct_frame && predecessor_direct_frame &&
-            predecessor_direct_frame->payload && predecessor_direct_frame->bytes != 0)
+        // A narrow edit can follow a different narrow edit.  Keep the
+        // predecessor frame supplied by the caller even when the current
+        // checkpoint has another direct-frame kind (for example a Prime Tower
+        // move after a filament mutation).  The serialized context remains
+        // the complete logical predecessor; retaining the unrelated frame
+        // would route Undo through the wrong restore validator.
+        if (predecessor_direct_frame && predecessor_direct_frame->payload && predecessor_direct_frame->bytes != 0)
             m_impl->states[m_cursor].state.direct_frame = std::move(predecessor_direct_frame);
         // Build the complete retained state before touching the current branch.
         // Serialization/allocation failures must not discard redo entries or move
@@ -346,8 +351,11 @@ bool ProjectHistory::commit_reusing_current_model(std::string label, Category ca
     backup.m_last_evicted_entry_id = m_last_evicted_entry_id;
     backup.m_object_intervals = m_object_intervals;
     try {
-        if (!m_impl->states[m_cursor].state.direct_frame && predecessor_direct_frame &&
-            predecessor_direct_frame->payload && predecessor_direct_frame->bytes != 0)
+        // A narrow edit may follow a different narrow edit.  The supplied
+        // predecessor frame describes this command's exact restore boundary;
+        // retaining an unrelated frame would route Undo through the wrong
+        // validator (for example filament state instead of Prime Tower X/Y).
+        if (predecessor_direct_frame && predecessor_direct_frame->payload && predecessor_direct_frame->bytes != 0)
             m_impl->states[m_cursor].state.direct_frame = std::move(predecessor_direct_frame);
 
         StoredState prepared;
@@ -435,6 +443,15 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
     result.state.context = state.state.context;
     result.state.entry = state.info;
     result.state.direct_frame = state.state.direct_frame;
+    // Undoing a Prime Tower command targets the predecessor checkpoint, whose
+    // retained sidecar may belong to an earlier filament edit.  The current
+    // Prime Tower entry still owns the exact narrow before/after frame; pass
+    // that frame through so restore never falls back to filament validation.
+    const auto& source = m_impl->states[current_project];
+    if ((!result.state.direct_frame || result.state.direct_frame->kind != RestoreState::DirectFrame::Kind::PrimeTower) &&
+        source.info.label == "Move Prime Tower" && source.state.direct_frame &&
+        source.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower)
+        result.state.direct_frame = source.state.direct_frame;
     return true;
 }
 

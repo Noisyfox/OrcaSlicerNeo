@@ -6,7 +6,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
 import { useHistoryNavigationStore } from '../../../stores/useHistoryNavigationStore';
-import { historyContextForStructure, runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
+import { historyContextForStructure, projectHistoryStatus, runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
 import { acquireProjectMutationLease } from '../../../history/projectMutationGate';
 
 const status: HistoryStatus = {
@@ -58,6 +58,7 @@ describe('structural history transaction boundary', () => {
       ok: true, version: 1, currentPlateId: 'plate-a', plates: [{ plateId: 'plate-a', displayIndex: 0, origin: [0, 0, 0], name: 'Plate 1' }],
     });
     useProjectStore.getState().setProject({ dirty: false, dirtyReasons: [] });
+    useHistoryNavigationStore.getState().reset();
   });
 
   it('captures stable object and plate IDs and commits one project transaction', async () => {
@@ -146,6 +147,13 @@ describe('structural history transaction boundary', () => {
     await syncHistoryStatus(runtime);
     expect(useProjectStore.getState().dirty).toBe(true);
     expect(useProjectStore.getState().dirtyReasons).toEqual([]);
+  });
+
+  it('does not let a delayed older status overwrite an atomic move checkpoint', () => {
+    const current = { ...status, revision: 7, undoLabel: 'Move Prime Tower' };
+    useHistoryNavigationStore.getState().setStatus(current);
+    expect(projectHistoryStatus({ ...status, revision: 6, undoLabel: 'Undo' })).toBe(current);
+    expect(useHistoryNavigationStore.getState().status).toBe(current);
   });
 
   it('orders an older status read before a queued mutation', async () => {

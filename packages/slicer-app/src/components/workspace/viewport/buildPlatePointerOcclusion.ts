@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { RootState } from '@react-three/fiber';
-import type { GLVolume } from './GLVolume';
+import { GLVolume } from './GLVolume';
 
 export const BUILD_PLATE_RAYCAST = 'build-plate-raycast';
 export const MODEL_BODY_RAYCAST = 'model-body-raycast';
@@ -10,6 +10,15 @@ type RaycastIntersection = Pick<THREE.Intersection, 'distance' | 'object'>;
 
 function hasRaycastRole(object: RaycastObject, role: string): boolean {
   return object.userData.orcaRaycastRole === role;
+}
+
+function hasRaycastRoleInParents(object: THREE.Object3D, role: string): boolean {
+  let current: THREE.Object3D | null = object;
+  while (current) {
+    if (hasRaycastRole(current, role)) return true;
+    current = current.parent;
+  }
+  return false;
 }
 
 /**
@@ -22,14 +31,14 @@ export function filterBuildPlateOccludedIntersections<T extends RaycastIntersect
   intersections: T[],
 ): T[] {
   const plateDistance = intersections.reduce<number | null>((nearest, hit) => {
-    if (!hasRaycastRole(hit.object, BUILD_PLATE_RAYCAST)) return nearest;
+    if (!hasRaycastRoleInParents(hit.object as THREE.Object3D, BUILD_PLATE_RAYCAST)) return nearest;
     return nearest === null ? hit.distance : Math.min(nearest, hit.distance);
   }, null);
 
   return intersections.filter((hit) => {
-    if (hasRaycastRole(hit.object, BUILD_PLATE_RAYCAST)) return false;
+    if (hasRaycastRoleInParents(hit.object as THREE.Object3D, BUILD_PLATE_RAYCAST)) return false;
     return plateDistance === null
-      || !hasRaycastRole(hit.object, MODEL_BODY_RAYCAST)
+      || !hasRaycastRoleInParents(hit.object as THREE.Object3D, MODEL_BODY_RAYCAST)
       || hit.distance <= plateDistance;
   });
 }
@@ -38,7 +47,7 @@ export function filterBuildPlateOccludedIntersections<T extends RaycastIntersect
 export function topmostCurrentPrimeTowerHit<T extends RaycastIntersection>(intersections: T[]): boolean {
   const visible = filterBuildPlateOccludedIntersections(intersections);
   const target = visible.find((hit) => {
-    if (hasRaycastRole(hit.object, MODEL_BODY_RAYCAST)) return true;
+    if (hasRaycastRoleInParents(hit.object as THREE.Object3D, MODEL_BODY_RAYCAST)) return true;
     let current: THREE.Object3D | null = hit.object as THREE.Object3D;
     while (current) {
       if (current.userData.primeTower === true && current.userData.plateCurrent === true) return true;
@@ -70,10 +79,15 @@ export function pickTopmostModelVolume(
   const hits = filterBuildPlateOccludedIntersections(
     state.raycaster.intersectObjects(state.scene.children, true),
   );
-  const hit = hits.find(
-    (h) => (h.object.userData as { orcaRaycastRole?: string }).orcaRaycastRole === MODEL_BODY_RAYCAST,
-  );
-  return (hit?.object.userData as { orcaVolume?: GLVolume } | undefined)?.orcaVolume ?? null;
+  const hit = hits.find((candidate) => hasRaycastRoleInParents(candidate.object as THREE.Object3D, MODEL_BODY_RAYCAST));
+  if (!hit) return null;
+  let current: THREE.Object3D | null = hit.object as THREE.Object3D;
+  while (current) {
+    const volume = current.userData.orcaVolume;
+    if (volume instanceof GLVolume) return volume;
+    current = current.parent;
+  }
+  return null;
 }
 
 /** Return the bed identity under a viewport-relative CSS point. */

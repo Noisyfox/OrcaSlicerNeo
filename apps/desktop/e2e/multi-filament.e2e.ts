@@ -2,9 +2,11 @@ import { _electron, expect, test, type ElectronApplication, type Page } from '@p
 import { resolve } from 'node:path';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
+const REAL = process.env.ORCA_E2E_REAL === '1';
+const MODEL_PATH = resolve(DESKTOP_ROOT, '../../packages/slicer-wasm/fixtures/cube.stl');
 
-async function launchApp(): Promise<ElectronApplication> {
-  const env = { ...process.env, ORCA_E2E: '1' } as Record<string, string>;
+async function launchApp(extraEnv: Record<string, string> = {}): Promise<ElectronApplication> {
+  const env = { ...process.env, ORCA_E2E: '1', ...extraEnv } as Record<string, string>;
   delete env.ELECTRON_RUN_AS_NODE;
   return _electron.launch({ args: ['.'], cwd: DESKTOP_ROOT, env });
 }
@@ -138,6 +140,54 @@ test('adds a filament after a scene cube has been moved', async () => {
     await page.getByTestId('filament-add').click();
     await expect(page.getByTestId('filament-slot-2')).toBeVisible();
     await expect(page.getByTestId('filament-rejected')).toBeHidden();
+  } finally {
+    await app.close();
+  }
+});
+
+test.skip(!REAL, 'requires ORCA_E2E_REAL=1 and the threaded WASM acceptance runner');
+test('filament rack remains enabled during history restore', async () => {
+  const app = await launchApp({ ORCA_E2E_MODEL: MODEL_PATH });
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('filament-add')).toBeEnabled({ timeout: 30_000 });
+
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 60_000 });
+    const undo = page.getByTestId('history-undo');
+    const redo = page.getByTestId('history-redo');
+    await expect(undo).toBeEnabled({ timeout: 30_000 });
+
+    // Observe every disabled-state transition during the real restore. The
+    // project lease may queue work, but it must never turn the rack into a
+    // read-only surface. The only operation clicked here is the history
+    // restore itself; Add Filament is intentionally never dispatched.
+    const installDisabledObserver = () => page.evaluate(() => {
+      const button = document.querySelector('[data-testid="filament-add"]') as HTMLButtonElement | null;
+      if (!button) throw new Error('filament add control is missing');
+      const states = [button.disabled];
+      const observer = new MutationObserver(() => states.push(button.disabled));
+      observer.observe(button, { attributes: true, attributeFilter: ['disabled'] });
+      (window as unknown as { __orcaRackDisabledStates?: boolean[]; __orcaStopRackObserver?: () => void }).__orcaRackDisabledStates = states;
+      (window as unknown as { __orcaStopRackObserver?: () => void }).__orcaStopRackObserver = () => observer.disconnect();
+    });
+    const readDisabledStates = () => page.evaluate(() => {
+      const w = window as unknown as { __orcaRackDisabledStates?: boolean[]; __orcaStopRackObserver?: () => void };
+      w.__orcaStopRackObserver?.();
+      return w.__orcaRackDisabledStates ?? [];
+    });
+
+    await installDisabledObserver();
+    await undo.click();
+    await expect(redo).toBeEnabled({ timeout: 60_000 });
+    expect((await readDisabledStates()).some(Boolean)).toBe(false);
+
+    await installDisabledObserver();
+    await redo.click();
+    await expect(undo).toBeEnabled({ timeout: 60_000 });
+    expect((await readDisabledStates()).some(Boolean)).toBe(false);
   } finally {
     await app.close();
   }

@@ -6,6 +6,10 @@ const command = (name) => process.platform === 'win32' ? `${name}.cmd` : name;
 const env = {
   ...process.env,
   ORCA_E2E_REAL: '1',
+  // apps/desktop/.env enables the mock for ordinary development; override it
+  // explicitly so this runner always exercises the staged threaded/serial WASM
+  // artifact selected by the Worker.
+  VITE_USE_MOCK: '0',
   // Keep the stable semantic viewport hooks in the real acceptance bundle;
   // this is a test-only Vite flag and is never set by production hosts.
   VITE_E2E: '1',
@@ -16,6 +20,7 @@ const env = {
 // substituting its small fixture into unrelated 20 mm STL regressions.
 const testRuns = [
   ['e2e/app.e2e.ts', '-g', 'real DRC flow'],
+  ['e2e/multi-filament.e2e.ts', '-g', 'filament rack remains enabled during history restore'],
   ['e2e/prime-tower-project.e2e.ts', '-g', 'opened project keeps prime-tower UI'],
 ];
 

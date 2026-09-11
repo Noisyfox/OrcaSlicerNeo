@@ -199,6 +199,8 @@ export interface PrimeTowerMoveResult {
   readonly projection: PrimeTowerProjection;
   readonly plateSession: PlateSessionSnapshot;
   readonly mutation: PrimeTowerMoveMutation;
+  /** Native history status captured after the atomic move commit. */
+  readonly historyStatus?: import('./history').HistoryStatus;
 }
 
 export type PrimeTowerMoveResultOrError = AtomicCommandResult<PrimeTowerMoveResult>;

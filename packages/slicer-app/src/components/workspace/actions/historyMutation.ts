@@ -83,6 +83,26 @@ function enqueueHistoryOperation<T>(operation: () => Promise<T>): Promise<T> {
   return enqueueProjectMutationOperation(operation);
 }
 
+/**
+ * Run a native project mutation that owns its own atomic history command.
+ *
+ * Most edits use runProjectHistoryMutation because the Worker transaction
+ * itself is coordinated here. A few native commands (currently Prime Tower
+ * placement) expose one atomic command instead; they still must use this same
+ * FIFO and hold the publication fence until their renderer projection is
+ * complete.
+ */
+export function runProjectMutationOperation<T>(operation: () => Promise<T>): Promise<T> {
+  return enqueueHistoryOperation(async () => {
+    const lease = acquireProjectMutationLease();
+    try {
+      return await operation();
+    } finally {
+      lease.release();
+    }
+  });
+}
+
 type HistoryTransactionRuntime = HistoryMutationRuntime & {
   runProjectHistoryTransaction: SlicerRuntime['runProjectHistoryTransaction'];
 };
@@ -201,7 +221,14 @@ export function restoreProjectHistory(
       }
       if (result.status) projectHistoryStatus(result.status);
       await refreshFilamentSession(runtime, undefined, lease);
-      if (result.ok) await publish?.(result);
+      // Restore publication may also update the native cursor through a
+      // narrow sidecar. Read the post-refresh checkpoint inside the same FIFO
+      // lease so redo/undo controls reflect the committed cursor immediately.
+      if (result.ok) {
+        const refreshedStatus = await runtime.getHistoryStatus().catch(() => null);
+        if (refreshedStatus) projectHistoryStatus(refreshedStatus);
+        await publish?.(result);
+      }
       return result;
     } finally {
       lease.release();
@@ -211,6 +238,11 @@ export function restoreProjectHistory(
 
 /** Keep the renderer's dirty projection aligned with the Worker checkpoint. */
 export function projectHistoryStatus(status: HistoryStatus): HistoryStatus {
+  // Worker responses can cross in flight with a later atomic mutation.  A
+  // delayed read must never roll navigation back to an older checkpoint after
+  // the mutation has published its authoritative status.
+  const current = useHistoryNavigationStore.getState().status;
+  if (current && status.revision < current.revision) return current;
   useHistoryNavigationStore.getState().setStatus(status);
   useProjectStore.getState().setProject({ dirty: status.dirty, dirtyReasons: [] });
   return status;
@@ -282,4 +314,15 @@ export async function syncHistoryStatus(runtime: Pick<SlicerRuntime, 'getHistory
       return null;
     }
   });
+}
+
+/** Project a status read that is already inside the shared FIFO. */
+export async function syncHistoryStatusWithinMutation(
+  runtime: Pick<SlicerRuntime, 'getHistoryStatus'>,
+): Promise<HistoryStatus | null> {
+  try {
+    return projectHistoryStatus(await runtime.getHistoryStatus());
+  } catch {
+    return null;
+  }
 }
