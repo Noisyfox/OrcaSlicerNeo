@@ -26,7 +26,7 @@ export type {
   ProjectConfigOverlayResult, ProjectConfigOverlayError, ProjectConfigOverlayResultOrError,
   ProfileSnapshotError, ProfileSnapshotResult,
   OptionMetadata, OptionMeta,
-  LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelObjectBuffer, ModelTransform,
+  LoadModelResult, ProjectLoadMode, ProjectLoadResult, ModelMeshResult, ModelObjectBuffer, ModelTransform, ModelTransformMutation,
   DeleteObjectsResult, DeleteVolumesResult, CloneObjectsResult,
   ReorderStructureResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, MutationResult,

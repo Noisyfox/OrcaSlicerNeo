@@ -1016,7 +1016,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
             const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
             state().nested_history_transactions.push_back({id, label,
                 category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
-                before_context, capture_model_state(state().model), true, parent_target});
+                before_context, capture_model_state(state().model), true, parent_target,
+                state().history_revision});
             return duplicate_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
         }
         if (state().history.entries().empty()) {
@@ -1027,7 +1028,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
         const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
         state().active_history_transaction = BridgeState::HistoryTransaction{
             id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
-            before_context, capture_model_state(state().model), false, {}};
+            before_context, capture_model_state(state().model), false, {}, state().history_revision};
         return duplicate_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }
@@ -1080,12 +1081,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
         if (requested != state().active_history_transaction->id)
             return error_json("history transaction is stale or belongs to another writer");
         const auto tx = *state().active_history_transaction;
+        const bool model_changed = !Neo::History::Codec::model_state_equal(
+            capture_model_state(state().model), tx.before_model);
         restore_history_transaction_state(tx.before_context, tx.before_model);
         state().print.clear();
         if (runtime.invalidate_preview) runtime.invalidate_preview();
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
-        ++state().history_revision;
+        if (model_changed) ++state().history_revision;
         return duplicate_json(json{{"ok", true}, {"context", tx.before_context}, {"status", history_status_json()}}.dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }

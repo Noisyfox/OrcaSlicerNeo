@@ -244,8 +244,9 @@ function commitTransform(label, transform) {
   const started = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
     [label, 'project', JSON.stringify(context), '']);
   if (!started.ok || typeof started.transactionId !== 'string') throw new Error(JSON.stringify(started));
-  const result = callJson('orc_set_model_transform', ['number', 'number', 'number', 'string', 'string'],
-    [0, 0, 0, JSON.stringify(transform), JSON.stringify(modelMesh().volume_transform)]);
+  const result = callJson('orc_set_model_transforms', ['string', 'string'], [started.transactionId,
+    JSON.stringify([{ objectIdx: 0, volumeIdx: 0, instanceIdx: 0,
+      instanceTransform: transform, volumeTransform: modelMesh().volume_transform }])]);
   if (!result.ok) throw new Error(`${label} transform failed: ${JSON.stringify(result)}`);
   const status = callJson('orc_history_commit', ['string', 'string'],
     [started.transactionId, JSON.stringify(context)]);
@@ -277,6 +278,46 @@ for (const [label, edit] of transformCases) {
   if (!redoneTransform.ok) throw new Error(`${label} redo failed: ${JSON.stringify(redoneTransform)}`);
   assertTransformEqual(modelMesh().instance_transform, next, `${label} redo`);
 }
+
+// A multi-object renderer gesture is one atomic Worker command and one
+// history entry. Rejecting its second target must leave the first untouched;
+// stale transaction IDs are rejected before any model write.
+const atomicBefore = callJson('orc_get_model_mesh', [], []);
+const atomicTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Atomic multi-object Move', 'project', JSON.stringify(context), '']);
+if (!atomicTx.ok || typeof atomicTx.transactionId !== 'string') throw new Error(JSON.stringify(atomicTx));
+const atomicTransforms = atomicBefore.objects.slice(0, 2).map((entry, index) => ({
+  objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
+  instanceTransform: { ...entry.instance_transform,
+    offset: [entry.instance_transform.offset[0] + (index + 1) * 11, entry.instance_transform.offset[1], entry.instance_transform.offset[2]] },
+  volumeTransform: entry.volume_transform,
+}));
+const atomicMoved = callJson('orc_set_model_transforms', ['string', 'string'],
+  [atomicTx.transactionId, JSON.stringify(atomicTransforms)]);
+historyCheck('atomic multi-object transform receipt', atomicMoved.ok === true && Array.isArray(atomicMoved.instance_transforms));
+const atomicCommit = callJson('orc_history_commit', ['string', 'string'], [atomicTx.transactionId, JSON.stringify(context)]);
+historyCheck('atomic multi-object transform commits one history entry', atomicCommit.undoEntries.filter((entry) => entry.label === 'Atomic multi-object Move').length === 1);
+const atomicUndo = callJson('orc_history_undo', [], []);
+historyCheck('atomic multi-object transform undo', atomicUndo.ok === true &&
+  callJson('orc_get_model_mesh', [], []).objects.slice(0, 2).every((entry, index) =>
+    entry.instance_transform.offset[0] === atomicBefore.objects[index].instance_transform.offset[0]));
+const atomicRedo = callJson('orc_history_redo', [], []);
+historyCheck('atomic multi-object transform redo', atomicRedo.ok === true);
+const rejectedTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Rejected Atomic Move', 'project', JSON.stringify(context), '']);
+const beforeRejected = callJson('orc_get_model_mesh', [], []);
+const rejected = callJson('orc_set_model_transforms', ['string', 'string'], [rejectedTx.transactionId,
+  JSON.stringify([atomicTransforms[0], { ...atomicTransforms[1], objectIdx: 999 }])]);
+historyCheck('atomic second target rejection rolls back all targets', rejected.ok === false &&
+  JSON.stringify(callJson('orc_get_model_mesh', [], []).objects.slice(0, 2).map((entry) => entry.instance_transform)) ===
+    JSON.stringify(beforeRejected.objects.slice(0, 2).map((entry) => entry.instance_transform)));
+const rejectedAbort = callJson('orc_history_abort', ['string'], [rejectedTx.transactionId]);
+historyCheck('atomic rejected transaction abort is revision-stable', rejectedAbort.ok === true && rejectedAbort.status.revision === atomicRedo.status.revision);
+const staleTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Stale Atomic Move', 'project', JSON.stringify(context), '']);
+const stale = callJson('orc_set_model_transforms', ['string', 'string'], ['tx-stale', JSON.stringify([atomicTransforms[0]])]);
+historyCheck('atomic stale transaction is rejected', stale.ok === false);
+callJson('orc_history_abort', ['string'], [staleTx.transactionId]);
 // Branching after undo must truncate the old redo entry and preserve the new
 // transform as the sole redo target.
 const branchBase = cloneTransform(modelMesh().instance_transform);

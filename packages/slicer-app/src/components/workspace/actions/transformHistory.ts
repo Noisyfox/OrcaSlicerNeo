@@ -5,12 +5,12 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { syncModelTransforms } from './syncModelTransforms';
+import { syncModelTransforms, syncModelTransformsAtomically } from './syncModelTransforms';
 import { applySettledTransformSyncResult } from './persistModelTransforms';
 import { executeProjectHistoryTransaction } from './historyMutation';
 
 type TransformHistoryRuntime = Pick<SlicerClient,
-  'runProjectHistoryTransaction' | 'setModelTransform' | 'getFilamentSessionSnapshot' |
+  'runProjectHistoryTransaction' | 'setModelTransforms' | 'getFilamentSessionSnapshot' |
   'getHistoryStatus' | 'getModelStructure' | 'getPlateSessionSnapshot'> &
   Partial<Pick<SlicerClient, 'recomputePlateMembership'>>;
 
@@ -69,7 +69,12 @@ export class TransformHistoryCoordinator {
     private readonly runtime: TransformHistoryRuntime,
     private readonly sceneInteraction: SceneInteractionController,
     private readonly onError: (error: unknown) => void = (error) => console.warn('transform history unavailable', error),
+    private reconcile: (() => Promise<void>) | null = null,
   ) {}
+
+  /** Installed by Workspace so every cancelled/failed draft is rebuilt from
+   * the Worker before the shared mutation fence is released. */
+  setReconcile(reconcile: (() => Promise<void>) | null): void { this.reconcile = reconcile; }
 
   begin(label: string): void {
     const beforeContext = historyContextForScene(this.sceneInteraction);
@@ -139,10 +144,11 @@ export class TransformHistoryCoordinator {
         this.runtime,
         next.label,
         next.beforeContext,
-        async () => {
+        async (transactionId) => {
           const command = await next.gate;
           if (command === 'abort') throw new TransformCancelledError();
-          const result = await syncModelTransforms(this.runtime, next.finalTransforms ?? this.captureTransforms());
+          const result = await syncModelTransformsAtomically(this.runtime, transactionId,
+            next.finalTransforms ?? this.captureTransforms());
           if (!result.ok) throw new Error(result.error ?? 'model transform synchronization failed');
           applySettledTransformSyncResult(result);
           return result;
@@ -150,6 +156,7 @@ export class TransformHistoryCoordinator {
         () => historyContextForScene(this.sceneInteraction),
         undefined,
         (error) => { try { this.onError(error); } catch { /* reporting cannot retain the fence */ } },
+        async () => { await this.reconcile?.(); },
       );
     } catch (error) {
       try { this.onError(error); } catch { /* reporting must not retain the mutation fence */ }

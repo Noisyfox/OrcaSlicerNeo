@@ -1364,6 +1364,17 @@ export function createClient(
       ) as { ok: boolean; error?: string };
     },
 
+    async setModelTransforms(transactionId, transforms) {
+      const m = await module();
+      const raw = callJson(m, 'orc_set_model_transforms', ['string', 'string'],
+        [transactionId, JSON.stringify(transforms)]);
+      if (!raw || typeof raw !== 'object' || (raw as Record<string, unknown>).ok !== true)
+        return { ok: false, error: typeof (raw as Record<string, unknown> | null)?.error === 'string'
+          ? (raw as Record<string, unknown>).error as string : 'atomic model transform failed' };
+      const plateSession = normalizePlateMutationResult(raw);
+      return plateSession.ok ? { ok: true, plateSession } : { ok: false, error: plateSession.error };
+    },
+
     async getModelMesh(): Promise<ModelMeshResult> {
       const m = await module();
       const r = callJson(m, 'orc_get_model_mesh', [], []) as {

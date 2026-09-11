@@ -118,6 +118,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
   afterContext: HistoryContext | (() => HistoryContext | Promise<HistoryContext>),
   publish?: (result: T, status: HistoryStatus | null) => Promise<void> | void,
   onSynchronousError?: (error: unknown) => void,
+  reconcileOnFailure?: () => Promise<void> | void,
 ): Promise<HistoryMutationResult<T>> {
   return enqueueHistoryOperation(async () => {
     const lease = acquireProjectMutationLease();
@@ -140,6 +141,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
         // a leaked pending state; the best-effort projection refresh follows.
         try { onSynchronousError?.(error); } catch { /* reporting cannot break cleanup */ }
         lease.release();
+        await reconcileOnFailure?.();
         const status = await runtime.getHistoryStatus().catch(() => null);
         if (status) projectHistoryStatus(status);
         await refreshFilamentSession(runtime, undefined, lease);
@@ -151,6 +153,7 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
       try {
         response = await nativeTransaction;
       } catch (error) {
+        await reconcileOnFailure?.();
         const status = await runtime.getHistoryStatus().catch(() => null);
         if (status) projectHistoryStatus(status);
         await refreshFilamentSession(runtime, undefined, lease);

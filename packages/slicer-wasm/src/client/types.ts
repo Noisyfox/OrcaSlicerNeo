@@ -609,6 +609,15 @@ export interface SliceResultStatus {
   error?: string;
 }
 
+/** One renderer CompositeID transform in an atomic Worker transform command. */
+export interface ModelTransformMutation {
+  readonly objectIdx: number;
+  readonly volumeIdx: number;
+  readonly instanceIdx: number;
+  readonly instanceTransform: ModelTransform;
+  readonly volumeTransform: ModelTransform;
+}
+
 /** Immutable identity captured when a current-plate operation starts. */
 export interface PlateOperationTarget {
   readonly plateId: string;
@@ -1089,6 +1098,11 @@ export interface SlicerClient {
     objIdx: number, volumeIdx: number, instIdx: number,
     instanceTransform: ModelTransform, volumeTransform: ModelTransform,
   ): Promise<{ ok: boolean; error?: string }>;
+  /** Apply every transform from one gesture atomically inside its history transaction. */
+  setModelTransforms(
+    transactionId: import('./history').HistoryTransactionId,
+    transforms: readonly ModelTransformMutation[],
+  ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>;
   getModelMesh(): Promise<ModelMeshResult>;
   /** Read the complete object/part/instance tree with stable IDs. */
   getModelStructure(): Promise<ModelStructureResult>;

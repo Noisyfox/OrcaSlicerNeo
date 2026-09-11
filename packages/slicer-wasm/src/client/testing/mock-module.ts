@@ -1174,10 +1174,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return { ok: true, context: clone(nested.beforeContext), status: historyStatus() };
       }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
+      const modelChanged = JSON.stringify(captureHistoryState()) !== JSON.stringify(historyTransaction.before);
       restoreHistoryState(historyTransaction.before);
       const context = historyTransaction.beforeContext;
       historyTransaction = null;
-      historyRevision++;
+      if (modelChanged) historyRevision++;
       return { ok: true, context: clone(context), status: historyStatus() };
     },
     orc_history_undo() {
@@ -1813,6 +1814,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectVolumeTransforms[obj][volume] = JSON.parse(volumeJson);
       return { ok: true };
     },
+    orc_set_model_transforms(transactionId: string, transformsJson: string) {
+      if (transactionId !== historyTransaction?.id) return { error: 'history transaction is stale or belongs to another writer' };
+      const transforms = JSON.parse(transformsJson) as Array<{ objectIdx: number; volumeIdx: number; instanceIdx: number; instanceTransform: unknown; volumeTransform: unknown }>;
+      if (!Array.isArray(transforms)) return { error: 'transforms must be an array' };
+      for (const transform of transforms) {
+        if (!Number.isInteger(transform.objectIdx) || !Number.isInteger(transform.volumeIdx) || !Number.isInteger(transform.instanceIdx) ||
+            transform.objectIdx < 0 || transform.objectIdx >= objectTransforms.length ||
+            transform.volumeIdx < 0 || transform.volumeIdx >= objectVolumeTransforms[transform.objectIdx].length ||
+            transform.instanceIdx < 0 || transform.instanceIdx >= objectTransforms[transform.objectIdx].length)
+          return { error: 'no such composite id' };
+      }
+      for (const transform of transforms) {
+        objectTransforms[transform.objectIdx][transform.instanceIdx] = clone(transform.instanceTransform as ReturnType<typeof identityTransform>);
+        objectVolumeTransforms[transform.objectIdx][transform.volumeIdx] = clone(transform.volumeTransform as ReturnType<typeof identityTransform>);
+      }
+      return plateSessionSnapshot(true);
+    },
     orc_get_model_mesh() {
       if (!modelLoaded) return { error: 'no model loaded' };
       // Local coordinates — the bridge contract (bridge.cpp
@@ -2200,6 +2218,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_instance_printable: { ret: 'number', args: ['number', 'number'] },
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
+    orc_set_model_transforms: { ret: 'number', args: ['string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
     orc_get_model_structure: { ret: 'number', args: [] },
     orc_set_progress_callback: { ret: 'void', args: ['pointer'] },

@@ -35,6 +35,25 @@ export async function syncModelTransforms(
   return { ok: true };
 }
 
+/** Submit the final transforms for one history gesture as one native mutation.
+ * Unlike the defensive pre-slice synchronizer above, this path cannot leave a
+ * prefix of a multi-object selection applied when a later target is rejected.
+ */
+export async function syncModelTransformsAtomically(
+  client: Pick<SlicerClient, 'setModelTransforms'>,
+  transactionId: string,
+  volumes: readonly TransformableVolume[],
+): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }> {
+  if (volumes.length === 0) return { ok: false, error: 'no renderer transforms to commit' };
+  return client.setModelTransforms(transactionId, volumes.map((volume) => ({
+    objectIdx: volume.buffer.objectIdx,
+    volumeIdx: volume.buffer.volumeIdx,
+    instanceIdx: volume.buffer.instanceIdx,
+    instanceTransform: structuredClone(volume.instanceTransform),
+    volumeTransform: structuredClone(volume.volumeTransform),
+  })));
+}
+
 /** Apply authoritative world transforms returned by a plate mutation.
  * Membership is global, so updates are matched by the stable positional
  * identity in the bridge response and never filtered to the current selection.

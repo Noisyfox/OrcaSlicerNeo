@@ -36,7 +36,7 @@ const emptyProjection = {
 function historyRuntime() {
   return {
     ...emptyProjection,
-    setModelTransform: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
+    setModelTransforms: vi.fn(async (..._args: unknown[]) => ({ ok: true, plateSession: { ok: true, version: 1, currentPlateId: 'plate-1', plates: [], instanceTransforms: [] } })),
     getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
     getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
     runProjectHistoryTransaction: vi.fn(async (
@@ -62,7 +62,7 @@ describe('TransformHistoryCoordinator', () => {
     let releaseMutation!: () => void;
     const mutationRelease = new Promise<void>((resolve) => { releaseMutation = resolve; });
     const runtime = {
-      setModelTransform: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
       ...emptyProjection,
@@ -96,17 +96,17 @@ describe('TransformHistoryCoordinator', () => {
     const history = new TransformHistoryCoordinator(runtime as never, controller);
     history.begin('Move');
     expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledTimes(1);
-    expect(runtime.setModelTransform).not.toHaveBeenCalled();
+    expect(runtime.setModelTransforms).not.toHaveBeenCalled();
     const commit = history.commit();
     await Promise.resolve();
     releaseMutation();
     await commit;
-    expect(runtime.setModelTransform).not.toHaveBeenCalled();
+    expect(runtime.setModelTransforms).not.toHaveBeenCalled();
   });
 
   it('aborts a cancelled transaction without writing transforms', async () => {
     const runtime = {
-      setModelTransform: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
       ...emptyProjection,
@@ -122,13 +122,13 @@ describe('TransformHistoryCoordinator', () => {
     const history = new TransformHistoryCoordinator(runtime as never, controller);
     history.begin('Rotate');
     await history.abort();
-    expect(runtime.setModelTransform).not.toHaveBeenCalled();
+    expect(runtime.setModelTransforms).not.toHaveBeenCalled();
   });
 
   it('serializes rapid discrete commands until each Worker transaction settles', async () => {
     const started: string[] = [];
     const runtime = {
-      setModelTransform: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
       ...emptyProjection,
@@ -172,18 +172,16 @@ describe('TransformHistoryCoordinator', () => {
     expect(controller.tryBeginBodyDrag()).toBe(true);
     controller.updateDragPivot(new THREE.Vector3(2, 0, 0));
     controller.updateDragPivot(new THREE.Vector3(5, 0, 0));
-    expect(runtime.setModelTransform).not.toHaveBeenCalled();
+    expect(runtime.setModelTransforms).not.toHaveBeenCalled();
 
     expect(controller.endDrag()).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(runtime.setModelTransform).toHaveBeenCalledTimes(volumes.length);
-    expect(runtime.setModelTransform.mock.calls.map(([objectIdx, volumeIdx, instanceIdx]) => [objectIdx, volumeIdx, instanceIdx]))
-      .toEqual([[0, 0, 0], [0, 1, 0]]);
-    for (const [index, volume] of volumes.entries()) {
-      const call = runtime.setModelTransform.mock.calls[index];
-      expect(call[3]).toEqual(volume.instanceTransform);
-      expect(call[4]).toEqual(volume.volumeTransform);
-    }
+    expect(runtime.setModelTransforms).toHaveBeenCalledTimes(1);
+    expect(runtime.setModelTransforms.mock.calls[0]?.[0]).toBe('tx-1');
+    expect(runtime.setModelTransforms.mock.calls[0]?.[1]).toEqual(volumes.map((volume) => ({
+      objectIdx: volume.buffer.objectIdx, volumeIdx: volume.buffer.volumeIdx, instanceIdx: volume.buffer.instanceIdx,
+      instanceTransform: volume.instanceTransform, volumeTransform: volume.volumeTransform,
+    })));
   });
 
   it('aborts a no-op drag without any Worker transform writes', async () => {
@@ -205,7 +203,7 @@ describe('TransformHistoryCoordinator', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(port.abort).toHaveBeenCalledTimes(1);
     expect(port.commit).not.toHaveBeenCalled();
-    expect(runtime.setModelTransform).not.toHaveBeenCalled();
+    expect(runtime.setModelTransforms).not.toHaveBeenCalled();
   });
 
   it('projects the authoritative Move status and preserves one history entry', async () => {
@@ -225,7 +223,7 @@ describe('TransformHistoryCoordinator', () => {
       revision: 1,
     } as never;
     const runtime = {
-      setModelTransform: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
       ...emptyProjection,
@@ -237,7 +235,9 @@ describe('TransformHistoryCoordinator', () => {
         _after: unknown | (() => unknown),
       ) => ({ result: await mutation('tx-1'), status })),
     };
-    const history = new TransformHistoryCoordinator(runtime as never, new SceneInteractionController(() => []));
+    const volume = makeVolume(0, 0, 0);
+    glVolumeCollection.replace([volume]);
+    const history = new TransformHistoryCoordinator(runtime as never, new SceneInteractionController(() => [volume]));
 
     history.begin('Move');
     await history.commit();
@@ -251,7 +251,7 @@ describe('TransformHistoryCoordinator', () => {
   it('refreshes the filament revision before releasing the project fence', async () => {
     const snapshots = [{ pending: 0, revision: 2 }];
     const runtime = {
-      setModelTransform: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => {
         snapshots[0].pending = useProjectStore.getState().projectMutationPendingCount;
         return {
@@ -274,7 +274,9 @@ describe('TransformHistoryCoordinator', () => {
         _after: unknown | (() => unknown),
       ) => ({ result: await mutation('tx-1'), status: { dirty: true, revision: 2 } as never })),
     };
-    const controller = new SceneInteractionController(() => []);
+    const volume = makeVolume(0, 0, 0);
+    glVolumeCollection.replace([volume]);
+    const controller = new SceneInteractionController(() => [volume]);
     const history = new TransformHistoryCoordinator(runtime as never, controller);
 
     history.begin('Move');
@@ -284,6 +286,33 @@ describe('TransformHistoryCoordinator', () => {
     expect(runtime.getFilamentSessionSnapshot).toHaveBeenCalledOnce();
     expect(snapshots[0].pending).toBe(1);
     expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(2);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+  });
+
+  it('reconciles Worker authority after rejection, timeout, or a cancelled draft', async () => {
+    const volume = makeVolume(0, 0, 0);
+    glVolumeCollection.replace([volume]);
+    const reconcile = vi.fn(async () => undefined);
+    const onError = vi.fn();
+    const runtime = historyRuntime();
+    runtime.setModelTransforms.mockResolvedValue({ ok: false, error: 'second target rejected' } as never);
+    const history = new TransformHistoryCoordinator(runtime as never,
+      new SceneInteractionController(() => [volume]), onError, reconcile);
+
+    history.begin('Move');
+    await history.commit();
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+
+    history.begin('Move');
+    await history.abort();
+    expect(reconcile).toHaveBeenCalledTimes(2);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+
+    runtime.setModelTransforms.mockRejectedValueOnce(new Error('worker timeout'));
+    history.begin('Move');
+    await history.commit();
+    expect(reconcile).toHaveBeenCalledTimes(3);
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
   });
 
@@ -298,7 +327,7 @@ describe('TransformHistoryCoordinator', () => {
   it('releases the project fence when starting the Worker transaction throws synchronously', () => {
     const onError = vi.fn();
     const runtime = {
-      setModelTransform: vi.fn(async () => ({ ok: true })),
+      setModelTransforms: vi.fn(async () => ({ ok: true })),
       getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
       getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
       ...emptyProjection,

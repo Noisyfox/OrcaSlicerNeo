@@ -13,6 +13,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <emscripten/emscripten.h>
 #include "bridge_buffers.hpp"
@@ -934,6 +935,93 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
             state().pending_membership_instance_ids.insert(
                 object->instances[static_cast<size_t>(instance_idx)]->id().id);
         return dup_json(json{{"ok", true}}.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
+// Apply a complete renderer gesture as one Worker mutation.  The application
+// intentionally sends every affected CompositeID together: validate the full
+// request and the transaction revision first, then publish all transforms and
+// one plate-session receipt, or leave the live model untouched.
+EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
+    const char* transaction_id_cstr, const char* transforms_json)
+{
+    struct StagedTransform {
+        ModelObject* object;
+        ModelInstance* instance;
+        ModelVolume* volume;
+        Slic3r::Geometry::Transformation next_instance;
+        Slic3r::Geometry::Transformation next_volume;
+        Slic3r::Geometry::Transformation previous_instance;
+        Slic3r::Geometry::Transformation previous_volume;
+    };
+    try {
+        const std::string transaction_id = transaction_id_cstr ? transaction_id_cstr : "";
+        const auto& active = state().active_history_transaction;
+        if (!active || active->id != transaction_id)
+            return error_json("history transaction is stale or belongs to another writer");
+        if (active->base_history_revision != state().history_revision)
+            return error_json("history transaction revision is stale");
+
+        const json requests = json::parse(transforms_json ? transforms_json : "");
+        if (!requests.is_array() || requests.empty())
+            return error_json("transforms must be a non-empty array");
+        std::vector<StagedTransform> staged;
+        staged.reserve(requests.size());
+        std::set<std::tuple<int, int, int>> identities;
+        for (const auto& request : requests) {
+            if (!request.is_object()) return error_json("transform request must be an object");
+            const int object_idx = request.at("objectIdx").get<int>();
+            const int volume_idx = request.at("volumeIdx").get<int>();
+            const int instance_idx = request.at("instanceIdx").get<int>();
+            if (!identities.emplace(object_idx, volume_idx, instance_idx).second)
+                return error_json("transform request contains a duplicate composite id");
+            auto& model = state().model;
+            if (object_idx < 0 || object_idx >= static_cast<int>(model.objects.size()))
+                return error_json("object index out of range");
+            auto* object = model.objects[static_cast<size_t>(object_idx)];
+            if (volume_idx < 0 || volume_idx >= static_cast<int>(object->volumes.size()))
+                return error_json("volume index out of range");
+            if (instance_idx < 0 || instance_idx >= static_cast<int>(object->instances.size()))
+                return error_json("instance index out of range");
+            auto next_instance = object->instances[static_cast<size_t>(instance_idx)]->get_transformation();
+            auto next_volume = object->volumes[static_cast<size_t>(volume_idx)]->get_transformation();
+            set_transform(next_instance, request.at("instanceTransform"));
+            set_transform(next_volume, request.at("volumeTransform"));
+            staged.push_back({object, object->instances[static_cast<size_t>(instance_idx)],
+                object->volumes[static_cast<size_t>(volume_idx)], next_instance, next_volume,
+                object->instances[static_cast<size_t>(instance_idx)]->get_transformation(),
+                object->volumes[static_cast<size_t>(volume_idx)]->get_transformation()});
+        }
+
+        std::set<std::size_t> affected_instances;
+        for (const auto& item : staged) {
+            if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
+                affected_instances.insert(item.instance->id().id);
+        }
+        const auto affected_before = affected_instances.empty()
+            ? std::set<std::string>{} : member_plate_ids_for_instances(affected_instances);
+        try {
+            for (const auto& item : staged) {
+                item.instance->set_transformation(item.next_instance);
+                item.volume->set_transformation(item.next_volume);
+                item.object->invalidate_bounding_box();
+            }
+            rebuild_plate_membership(true);
+            const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
+                                                           json::array(), &affected_instances);
+            return dup_json(mutation.dump());
+        } catch (...) {
+            for (const auto& item : staged) {
+                item.instance->set_transformation(item.previous_instance);
+                item.volume->set_transformation(item.previous_volume);
+                item.object->invalidate_bounding_box();
+            }
+            throw;
+        }
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

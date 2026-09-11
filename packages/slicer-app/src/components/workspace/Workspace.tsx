@@ -235,6 +235,26 @@ export function Workspace({
     });
   }
   const historyRestore = historyRestoreRef.current;
+  // A transform draft is renderer-local until its atomic Worker command
+  // succeeds.  Rebuild every projection on cancellation or rejection so a
+  // partial/obsolete draft can never survive an aborted history transaction.
+  transformHistoryRef.current.setReconcile(async () => {
+    const structure = await platform.runtime.getModelStructure();
+    if (!structure.ok || !structure.objects)
+      throw new Error(structure.error ?? 'getModelStructure failed while reconciling transforms');
+    useSettingsStore.getState().setModelLoaded(structure.objects.length > 0);
+    const modelRevision = useSettingsStore.getState().modelRevision;
+    await waitForGLVolumeRevision(modelRevision);
+    useObjectListStore.getState().setStructure(structure.objects);
+    useObjectListStore.getState().setLoaded(structure.objects.length > 0);
+    const plateSession = await platform.runtime.getPlateSessionSnapshot();
+    if (!plateSession.ok)
+      throw new Error(plateSession.error ?? 'getPlateSessionSnapshot failed while reconciling transforms');
+    usePlateSessionStore.getState().setSnapshot(plateSession);
+    if (plateSession.instanceTransforms)
+      applyPlateSessionTransforms({ instanceTransforms: plateSession.instanceTransforms }, glVolumeCollection.volumes);
+    sceneInteraction.pruneSelection();
+  });
   const [previewRenderPending, setPreviewRenderPending] = useState(false);
   const [previewPlateSelectionPending, setPreviewPlateSelectionPending] = useState(false);
   const previewFrameTokenRef = useRef(0);

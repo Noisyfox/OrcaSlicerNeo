@@ -61,6 +61,10 @@ struct BridgeState {
         History::ModelState before_model;
         bool coalesced { false };
         std::string parent_id;
+        // Every command submitted through an active transaction must still
+        // target the model revision that transaction captured.  This prevents
+        // a delayed renderer gesture from mutating a newly restored branch.
+        std::uint64_t base_history_revision { 0 };
     };
     std::optional<HistoryTransaction> active_history_transaction;
     // Nested/coalesced transactions are intentionally dormant: they publish
