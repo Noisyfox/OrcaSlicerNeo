@@ -12,6 +12,7 @@ import type {
   SlicerClient,
 } from '@slicer/client';
 import { applyFilamentMutationResult } from './plateResultLifecycle';
+import { usePlateSessionStore } from './usePlateSessionStore';
 import { enqueueProjectMutationOperation, type ProjectMutationLease } from '../history/projectMutationGate';
 import { projectHistoryStatus } from '../history/projectHistoryStatus';
 
@@ -36,6 +37,26 @@ let pendingFilamentOperations = 0;
 
 function isSnapshot(result: FilamentSessionSnapshotResult): result is FilamentSessionSnapshot {
   return result.ok === true && Array.isArray(result.slots);
+}
+
+/**
+ * A filament receipt contains the authoritative input revision for every
+ * plate it changed. Keep the separate plate-session projection coherent
+ * before dependent scene work (notably a Prime Tower pointer-up) can read it.
+ */
+function projectFilamentPlateRevisions(snapshot: FilamentSessionSnapshot): void {
+  const plateSession = usePlateSessionStore.getState();
+  const current = plateSession.snapshot;
+  if (!current) return;
+  const inputRevisions = { ...current.inputRevisions };
+  let changed = false;
+  for (const plate of current.plates) {
+    const revision = snapshot.revisions.plates[plate.plateId];
+    if (!Number.isSafeInteger(revision) || inputRevisions[plate.plateId] === revision) continue;
+    inputRevisions[plate.plateId] = revision;
+    changed = true;
+  }
+  if (changed) plateSession.setSnapshot({ ...current, inputRevisions });
 }
 
 async function readFilamentSnapshot(
@@ -84,6 +105,7 @@ export const useFilamentSessionStore = create<FilamentSessionState>((set) => ({
           // competing history-status read from this FIFO operation.
           projectHistoryStatus(result.result.historyStatus);
           set({ snapshot: result.result.snapshot, rejected: null });
+          projectFilamentPlateRevisions(result.result.snapshot);
           await applyFilamentMutationResult(result.result.mutation, runtime);
         }
         else set({ rejected: result.error });

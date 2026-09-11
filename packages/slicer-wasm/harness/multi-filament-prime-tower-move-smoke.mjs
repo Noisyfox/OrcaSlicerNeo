@@ -71,6 +71,44 @@ const thirdPlate = session().current_plate_id;
 assert.equal(projectArray('wipe_tower_x').length, 3);
 assert.equal(projectArray('wipe_tower_y').length, 3); assertNoPlateCoordinates(session());
 
+// Regression: two independent cubes assigned to different filament slots must
+// publish the same per-plate revision that a subsequent Prime Tower drag uses.
+// This deliberately exercises the native assignment -> tower-move boundary,
+// rather than relying on a forced single-material tower fixture.
+let filament = callJson('orc_get_filament_session_snapshot');
+while (filament.slots.length < 2) {
+  const added = request('orc_add_filament_slot', { version: 1, revision: filament.revisions.session });
+  assert.equal(added.ok, true, JSON.stringify(added));
+  filament = added.result.snapshot;
+}
+const firstPlateObjects = callJson('orc_get_model_structure').objects.slice(0, 2);
+assert.equal(firstPlateObjects.length, 2, 'two Cube objects are required for the multi-filament drag regression');
+for (const [index, object] of firstPlateObjects.entries()) {
+  const assigned = request('orc_assign_filament', {
+    version: 1, revision: filament.revisions.session, slot: index + 1,
+    targets: [{ kind: 'object', id: object.id }],
+  });
+  assert.equal(assigned.ok, true, JSON.stringify(assigned));
+  filament = assigned.result.snapshot;
+}
+const multifilamentRevision = filament.revisions.plates[firstPlate];
+assert.equal(session().input_revisions[firstPlate], multifilamentRevision,
+  'the plate session must expose the filament receipt revision to a tower move');
+const multifilamentBefore = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
+const multifilamentHistory = callJson('orc_history_status');
+const multifilamentMove = request('orc_move_prime_tower', {
+  version: 1, plate_id: firstPlate, revision: multifilamentRevision, x: 30, y: 30,
+});
+assert.equal(multifilamentMove.ok, true, JSON.stringify(multifilamentMove));
+assert.equal(multifilamentMove.result.mutation.history_entry_delta, 1);
+assert.equal(callJson('orc_history_status').undoEntries.length, multifilamentHistory.undoEntries.length + 1);
+const multifilamentAfter = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
+assert.notDeepEqual(multifilamentAfter, multifilamentBefore, 'released tower coordinates must persist');
+assert.equal(callJson('orc_history_undo').ok, true);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, multifilamentBefore);
+assert.equal(callJson('orc_history_redo').ok, true);
+assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, multifilamentAfter);
+
 const thirdRevision = session().input_revisions[thirdPlate];
 const thirdSlice = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);
 assert.equal(thirdSlice.ok, true, JSON.stringify(thirdSlice));

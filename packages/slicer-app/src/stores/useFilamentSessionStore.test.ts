@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useFilamentSessionStore } from './useFilamentSessionStore';
 import { useSlicerStore } from './useSlicerStore';
-import type { FilamentSessionSnapshot, HistoryStatus, SlicerClient } from '@slicer/client';
+import type { FilamentSessionSnapshot, HistoryStatus, PlateSessionSnapshot, SlicerClient } from '@slicer/client';
 import { useHistoryNavigationStore } from './useHistoryNavigationStore';
 import { useProjectStore } from './useProjectStore';
+import { usePlateSessionStore } from './usePlateSessionStore';
 
 function snapshot(revision: number): FilamentSessionSnapshot {
   return {
@@ -28,6 +29,7 @@ function historyStatus(revision: number, dirty = true): HistoryStatus {
 
 afterEach(() => {
   useFilamentSessionStore.getState().reset();
+  usePlateSessionStore.getState().reset();
   useHistoryNavigationStore.getState().setStatus(null);
   useProjectStore.getState().setProject({ dirty: false, dirtyReasons: [] });
 });
@@ -83,6 +85,35 @@ describe('filament session store lifecycle', () => {
     expect(useFilamentSessionStore.getState().snapshot).toBe(newer);
     expect(useHistoryNavigationStore.getState().status).toEqual(historyStatus(3));
     expect(useProjectStore.getState().dirty).toBe(true);
+  });
+
+  it('projects filament receipt plate revisions before a Prime Tower move can read them', async () => {
+    const initial = snapshot(1);
+    const newer = {
+      ...snapshot(2),
+      revisions: { session: 2, project: 2, result: 0, plates: { 'plate-a': 2, 'plate-b': 1 } },
+    };
+    const plateSession: PlateSessionSnapshot = {
+      ok: true, version: 1, currentPlateId: 'plate-a',
+      plates: [
+        { plateId: 'plate-a', displayIndex: 0, origin: [0, 0, 0], name: 'Plate A' },
+        { plateId: 'plate-b', displayIndex: 1, origin: [250, 0, 0], name: 'Plate B' },
+      ],
+      inputRevisions: { 'plate-a': 1, 'plate-b': 1 },
+    };
+    useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
+    usePlateSessionStore.getState().setSnapshot(plateSession);
+
+    await useFilamentSessionStore.getState().run({} as SlicerClient, async () => ({ ok: true, version: 1, result: {
+      snapshot: newer,
+      mutation: { kind: 'assign', historyEntryDelta: 1, revisionBefore: 1, revisionAfter: 2,
+        dirty: true, allPlateResultsInvalidated: false, affectedPlateIds: ['plate-a'] },
+      historyStatus: historyStatus(2),
+    } }));
+
+    // WipeTowerVolumeCollection's move port obtains this exact value at
+    // pointer-up while it owns the same FIFO as the preceding assignment.
+    expect(usePlateSessionStore.getState().snapshot?.inputRevisions).toEqual({ 'plate-a': 2, 'plate-b': 1 });
   });
 
   it('invalidates shared rack results and cancels only an affected active plate', async () => {
