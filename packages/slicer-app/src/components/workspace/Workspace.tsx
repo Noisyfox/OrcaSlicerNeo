@@ -182,44 +182,56 @@ export function Workspace({
       runtime: platform.runtime,
       sceneInteraction,
       sliceCoordinator,
-      refreshModel: async (context, revision) => {
-        const structure = await platform.runtime.getModelStructure();
-        if (!structure.ok || !structure.objects)
-          throw new Error(structure.error ?? 'getModelStructure failed during history restore');
-        if (historyRestoreRef.current?.currentRevision() !== revision) return;
-        const overlay = context.projectConfigOverlay;
-        if (overlay && typeof overlay === 'object' && 'project' in overlay && 'objects' in overlay && 'parts' in overlay && 'plates' in overlay)
-          useSettingsStore.getState().setOverlay(overlay as unknown as ProjectConfigOverlay);
-        // A valid restore may legitimately land on the empty baseline. Keep
-        // the loader's modelLoaded gate aligned with the Worker model before
-        // its revision-fenced mesh request runs.
-        useSettingsStore.getState().setModelLoaded(structure.objects.length > 0);
-        const modelRevision = useSettingsStore.getState().modelRevision;
-        await waitForGLVolumeRevision(modelRevision);
-        if (historyRestoreRef.current?.currentRevision() !== revision) return;
-
-        useObjectListStore.getState().setStructure(structure.objects);
-        useObjectListStore.getState().setLoaded(structure.objects.length > 0);
+      refreshModel: async (context, impact, revision) => {
+        // Impact is atomically published by the Worker with the committed
+        // cursor. Only a validated full-model receipt may issue a structure
+        // read or wait on GL mesh replacement; old/missing descriptors are
+        // normalized to that safe path by the typed client.
+        let structure;
+        if (impact.model === 'full') {
+          structure = await platform.runtime.getModelStructure();
+          if (!structure.ok || !structure.objects)
+            throw new Error(structure.error ?? 'getModelStructure failed during history restore');
+          if (historyRestoreRef.current?.currentRevision() !== revision) return;
+          // A valid restore may legitimately land on the empty baseline. Keep
+          // the loader's modelLoaded gate aligned with the Worker model before
+          // its revision-fenced mesh request runs.
+          useSettingsStore.getState().setModelLoaded(structure.objects.length > 0);
+          const modelRevision = useSettingsStore.getState().modelRevision;
+          await waitForGLVolumeRevision(modelRevision);
+          if (historyRestoreRef.current?.currentRevision() !== revision) return;
+          useObjectListStore.getState().setStructure(structure.objects);
+          useObjectListStore.getState().setLoaded(structure.objects.length > 0);
+        } else {
+          // Direct Prime Tower restoration has no model mutation. Reuse the
+          // stable Worker-projected structure only for context ID resolution.
+          structure = { ok: true, objects: useObjectListStore.getState().structure };
+        }
+        if (impact.projectOverlay) {
+          const overlay = context.projectConfigOverlay;
+          if (overlay && typeof overlay === 'object' && 'project' in overlay && 'objects' in overlay && 'parts' in overlay && 'plates' in overlay)
+            useSettingsStore.getState().setOverlay(overlay as unknown as ProjectConfigOverlay);
+        }
 
         const getPlateSessionSnapshot = platform.runtime.getPlateSessionSnapshot;
-        if (typeof getPlateSessionSnapshot === 'function') {
+        if (impact.plateSession && typeof getPlateSessionSnapshot === 'function') {
           const session = await getPlateSessionSnapshot.call(platform.runtime);
           if (!session.ok) throw new Error(session.error ?? 'getPlateSessionSnapshot failed during history restore');
           if (historyRestoreRef.current?.currentRevision() !== revision) return;
           usePlateSessionStore.getState().setSnapshot(session);
           if (session.instanceTransforms)
             applyPlateSessionTransforms({ instanceTransforms: session.instanceTransforms }, glVolumeCollection.volumes);
-        } else {
+        } else if (impact.plateSession) {
           const session = usePlateSessionStore.getState().snapshot;
           if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
             usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
         }
-        sceneInteraction.restoreHistoryContext(context, structure);
+        if (impact.selectionContext) sceneInteraction.restoreHistoryContext(context, structure);
         // History restores change native wipe_tower_x/y without necessarily
         // changing model structure or the settings overlay reference. Refresh
         // the scene-only Prime Tower projection explicitly so Undo/Redo cannot
         // leave the released tower at its previous renderer position.
-        await refreshPrimeTowerProjection(true);
+        if (impact.primeTower) await refreshPrimeTowerProjection(true);
       },
       publishRestoredFilamentRack: async (revision) => {
         if (useHistoryRestoreStore.getState().revision !== revision) return;

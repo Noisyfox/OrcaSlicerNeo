@@ -113,11 +113,28 @@ export interface HistoryError {
   readonly transactionId?: HistoryTransactionId;
 }
 
+/**
+ * Worker-authored projection domains changed by one atomic restore commit.
+ * Missing, malformed, or newer-than-known descriptors deliberately normalize
+ * to the conservative full-model path in the typed client.
+ */
+export interface RestoreImpact {
+  readonly version: 1;
+  readonly model: 'full' | 'none';
+  readonly plateSession: boolean;
+  readonly filamentRack: boolean;
+  readonly projectOverlay: boolean;
+  readonly selectionContext: boolean;
+  readonly primeTower: boolean;
+  readonly preview: 'all' | 'current-plate';
+}
+
 export interface RestoreSuccess {
   readonly ok: true;
   readonly context: HistoryContext;
   readonly status: HistoryStatus;
   readonly entryId?: HistoryEntryId;
+  readonly impact: RestoreImpact;
 }
 
 export interface RestoreFailure {

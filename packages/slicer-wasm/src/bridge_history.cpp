@@ -375,7 +375,12 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
     if (runtime.invalidate_preview) runtime.invalidate_preview();
     ++state().history_revision;
     return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
-                {"entryId", history_entry_id(plan.state.entry.id)}, {"direct", true}};
+                {"entryId", history_entry_id(plan.state.entry.id)}, {"direct", true},
+                // A direct filament frame still replaces a complete native
+                // model/session. Keep its renderer descriptor conservative.
+                {"impact", {{"version", 1}, {"model", "full"}, {"plateSession", true},
+                            {"filamentRack", true}, {"projectOverlay", true}, {"selectionContext", true},
+                            {"primeTower", true}, {"preview", "all"}}}};
 }
 
 json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::RestorePlan& plan,
@@ -432,7 +437,12 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
     // native coordinate edit itself is represented by the narrow frame.
     return json{{"ok", true}, {"context", current_context(runtime)},
                 {"status", history_status_json()}, {"entryId", history_entry_id(plan.state.entry.id)},
-                {"direct", true}, {"narrow", true}};
+                {"direct", true}, {"narrow", true},
+                // This receipt is created after commit_restore. It is the sole
+                // authority for skipping the expensive model/GL projection.
+                {"impact", {{"version", 1}, {"model", "none"}, {"plateSession", true},
+                            {"filamentRack", false}, {"projectOverlay", true}, {"selectionContext", true},
+                            {"primeTower", true}, {"preview", "current-plate"}}}};
 }
 
 json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& plan)
@@ -509,7 +519,12 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
     if (runtime.invalidate_preview) runtime.invalidate_preview();
     ++state().history_revision;
     return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
-                {"entryId", history_entry_id(plan.state.entry.id)}};
+                {"entryId", history_entry_id(plan.state.entry.id)},
+                // A full restore may have changed any model-owned domain. Do
+                // not infer narrower effects from React's prior projection.
+                {"impact", {{"version", 1}, {"model", "full"}, {"plateSession", true},
+                            {"filamentRack", true}, {"projectOverlay", true}, {"selectionContext", true},
+                            {"primeTower", true}, {"preview", "all"}}}};
 }
 
 const char* restore_failure(const std::string& message)

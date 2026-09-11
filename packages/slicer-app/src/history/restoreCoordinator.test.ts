@@ -17,8 +17,12 @@ const status: HistoryStatus = {
   oversizedEntryRetained: false, disabled: false,
   activeTransactionId: null, revision: 1,
 };
+const fullImpact = {
+  version: 1 as const, model: 'full' as const, plateSession: true, filamentRack: true,
+  projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const,
+};
 const success = (revision = 1): RestoreResult => ({ ok: true, context,
-  status: { ...status, revision } });
+  status: { ...status, revision }, impact: fullImpact });
 
 function fakeScene(activeDrag = false) {
   return {
@@ -169,5 +173,21 @@ describe('history restore coordinator', () => {
     await expect(coordinator.restore('undo')).resolves.toBe(true);
     expect(useHistoryRestoreStore.getState().phase).toBe('idle');
     expect(useHistoryRestoreStore.getState().error).toBeNull();
+  });
+
+  it('passes a narrow Prime Tower receipt through without publishing a filament rack', async () => {
+    const narrow: RestoreResult = { ok: true, context, status, impact: {
+      version: 1, model: 'none', plateSession: true, filamentRack: false,
+      projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate',
+    } };
+    const refreshModel = vi.fn(async () => undefined);
+    const publishRestoredFilamentRack = vi.fn(async () => undefined);
+    const coordinator = createHistoryRestoreCoordinator({
+      runtime: { undoHistory: vi.fn(async () => narrow), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(), getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false as const, error: 'unused' })), getHistoryStatus: vi.fn(async () => status) },
+      sceneInteraction: fakeScene(), refreshModel, publishRestoredFilamentRack,
+    });
+    await expect(coordinator.restore('undo')).resolves.toBe(true);
+    expect(refreshModel).toHaveBeenCalledWith(context, narrow.impact, expect.any(Number));
+    expect(publishRestoredFilamentRack).not.toHaveBeenCalled();
   });
 });

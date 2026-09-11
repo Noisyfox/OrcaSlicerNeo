@@ -54,7 +54,10 @@ describe('history contracts', () => {
   });
 
   it('allows future callers to type a mock runtime without enabling history', async () => {
-    const restore: RestoreResult = { ok: true, context, status, entryId: 'entry-1' };
+    const restore: RestoreResult = { ok: true, context, status, entryId: 'entry-1', impact: {
+      version: 1, model: 'full', plateSession: true, filamentRack: true,
+      projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
+    } };
     const mock: MockHistoryRuntime = {
       getHistoryStatus: async () => status,
       undoHistory: async () => restore,

@@ -8,6 +8,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
 import type { PlateSessionSnapshot } from '@slicer/client';
+import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 
 const sliceModelMock = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('./actions/sliceActions', () => ({ sliceModel: sliceModelMock }));
@@ -179,5 +180,31 @@ describe('Workspace ownership', () => {
     expect(runtime.selectPlate).toHaveBeenCalledOnce();
     expect(previewClear).toHaveBeenCalledTimes(2);
     expect(testMocks.viewportProps.at(-1)?.previewFrameRequest).toEqual(frameRequest);
+  });
+
+  it('projects a direct Prime Tower restore without a model structure reload', async () => {
+    const getModelStructure = vi.fn(async () => ({ ok: true as const, objects: [] }));
+    const restore = {
+      ok: true as const,
+      context: { selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] }, activePlateId: 'plate-a', gizmo: null, projectConfigOverlay: {} },
+      status: { canUndo: false, canRedo: false, undoEntries: [], redoEntries: [], cursor: 0, savedCheckpoint: 0, savedCheckpointEvicted: false, dirty: false, bytesUsed: 0, byteBudget: 1, optionalBytesReleased: 0, evictedEntryCount: 0, lastEvictedEntryId: null, oldestRetainedEntryId: null, oversizedEntryRetained: false, disabled: false, activeTransactionId: null, revision: 1 },
+      impact: { version: 1 as const, model: 'none' as const, plateSession: true, filamentRack: false, projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate' as const },
+    };
+    const runtime = {
+      undoHistory: vi.fn(async () => restore), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(),
+      getModelStructure, getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
+      getPlateSessionSnapshot: vi.fn(async () => twoPlateSnapshot),
+      getPrimeTowerProjection: vi.fn(async () => ({ ok: true, plates: [] })),
+    };
+    platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
+    let coordinator: HistoryRestoreCoordinator | undefined;
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Workspace onHistoryRestoreCoordinatorChange={(value) => { coordinator = value ?? undefined; }} /></PlatformProvider>);
+    });
+    const plateReadsBeforeRestore = runtime.getPlateSessionSnapshot.mock.calls.length;
+    await act(async () => { await coordinator?.restore('undo'); });
+    expect(getModelStructure).not.toHaveBeenCalled();
+    expect(runtime.getPlateSessionSnapshot).toHaveBeenCalledTimes(plateReadsBeforeRestore + 1);
   });
 });

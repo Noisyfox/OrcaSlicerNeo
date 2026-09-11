@@ -428,8 +428,12 @@ assert.equal(ordinaryCommit.canUndo, true, JSON.stringify(ordinaryCommit));
 // Its undo/redo exercises the serialized/direct-missing fallback; the bridge
 // diagnostic must prove this path still never copies PresetBundle.
 const fallbackDiagnosticsBefore = callJson('orc_history_restore_diagnostics');
-assert.equal(callJson('orc_history_undo').ok, true, 'direct-missing fallback undo');
-assert.equal(callJson('orc_history_redo').ok, true, 'direct-missing fallback redo');
+const fallbackUndo = callJson('orc_history_undo');
+assert.equal(fallbackUndo.ok, true, 'direct-missing fallback undo');
+assert.equal(fallbackUndo.impact?.model, 'full', JSON.stringify(fallbackUndo));
+const fallbackRedo = callJson('orc_history_redo');
+assert.equal(fallbackRedo.ok, true, 'direct-missing fallback redo');
+assert.equal(fallbackRedo.impact?.filamentRack, true, JSON.stringify(fallbackRedo));
 const fallbackDiagnosticsAfter = callJson('orc_history_restore_diagnostics');
 assert.equal(fallbackDiagnosticsAfter.fullPresetBundleCopyCount,
   fallbackDiagnosticsBefore.fullPresetBundleCopyCount,
@@ -439,9 +443,14 @@ const ordinaryMutation = request('orc_set_filament_slot_colour', {
   version: 1, revision: callJson('orc_get_filament_session_snapshot').revisions.session, slot: 1, colour: '#123456',
 });
 assert.equal(ordinaryMutation.ok, true, JSON.stringify(ordinaryMutation));
-assert.equal(callJson('orc_history_undo').ok, true);
+const filamentUndo = callJson('orc_history_undo');
+assert.equal(filamentUndo.ok, true);
+assert.equal(filamentUndo.impact?.model, 'full', JSON.stringify(filamentUndo));
+assert.equal(filamentUndo.impact?.filamentRack, true, JSON.stringify(filamentUndo));
 assert.equal(semantic(callJson('orc_get_filament_session_snapshot')), ordinaryBeforeFilament);
-assert.equal(callJson('orc_history_redo').ok, true);
+const filamentRedo = callJson('orc_history_redo');
+assert.equal(filamentRedo.ok, true);
+assert.equal(filamentRedo.impact?.model, 'full', JSON.stringify(filamentRedo));
 assert.equal(semantic(callJson('orc_get_filament_session_snapshot')), semantic(ordinaryMutation.result.snapshot));
 
 // Real object/part and unrelated filament-valued settings are part of the

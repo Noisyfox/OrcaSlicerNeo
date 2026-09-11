@@ -1,4 +1,4 @@
-import type { HistoryContext, RestoreResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, RestoreImpact, RestoreResult, SlicerClient } from '@slicer/client';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from '../components/workspace/sliceCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
@@ -25,7 +25,7 @@ export interface HistoryRestoreCoordinatorOptions {
    * after structure, mesh, plate, selection, and gizmo projections are safe
    * for editing; the coordinator keeps the restoring phase until then.
    */
-  refreshModel: (context: HistoryContext, revision: number) => Promise<void>;
+  refreshModel: (context: HistoryContext, impact: RestoreImpact, revision: number) => Promise<void>;
   /** Best-effort preference mirror after a successful native restore. */
   publishRestoredFilamentRack?: (revision: number) => Promise<void>;
 }
@@ -69,18 +69,23 @@ export function createHistoryRestoreCoordinator({
       state.setPhase('restoring');
       const revision = state.advanceRevision();
       useHistoryRestoreStore.getState().setSnapshotSuppressed(true);
-      useSlicerStore.getState().invalidateSliceResult();
       let result: RestoreResult;
       try {
         result = await restoreProjectHistory(runtime, action, async (restored) => {
-          await refreshModel(restored.context, revision);
+          // Full restores must hide derived output before their asynchronous
+          // model projection begins. A narrow tower receipt already performs
+          // targeted native invalidation and must not clear other plates.
+          if (restored.impact.preview === 'all') useSlicerStore.getState().invalidateSliceResult();
+          await refreshModel(restored.context, restored.impact, revision);
           if (useHistoryRestoreStore.getState().revision !== revision) return;
-          try {
-            await publishRestoredFilamentRack?.(revision);
-          } catch (error) {
-            // Rack preference persistence is best effort. Native history and
-            // the already-published model remain authoritative.
-            console.warn('remembered filament rack publication failed after history restore', error);
+          if (restored.impact.filamentRack) {
+            try {
+              await publishRestoredFilamentRack?.(revision);
+            } catch (error) {
+              // Rack preference persistence is best effort. Native history and
+              // the already-published model remain authoritative.
+              console.warn('remembered filament rack publication failed after history restore', error);
+            }
           }
         });
       } catch (error) {

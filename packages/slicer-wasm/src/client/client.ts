@@ -841,12 +841,29 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (value.ok !== true) return historyFailure(raw, 'history restore failed');
   if (!value.context || typeof value.context !== 'object' || !value.status)
     return historyFailure(raw, 'invalid history restore response');
+  const impact = normalizeRestoreImpact(value.impact);
   return {
     ok: true,
     context: value.context as HistoryContext,
     status: normalizeHistoryStatus(value.status),
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
+    impact,
   };
+}
+
+export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
+  const fallback: import('./history').RestoreImpact = {
+    version: 1, model: 'full', plateSession: true, filamentRack: true,
+    projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
+  };
+  if (!raw || typeof raw !== 'object') return fallback;
+  const value = raw as Record<string, unknown>;
+  if (value.version !== 1 || (value.model !== 'full' && value.model !== 'none') ||
+      typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
+      typeof value.projectOverlay !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
+      typeof value.primeTower !== 'boolean' ||
+      (value.preview !== 'all' && value.preview !== 'current-plate')) return fallback;
+  return value as unknown as import('./history').RestoreImpact;
 }
 
 export function createClient(

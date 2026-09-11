@@ -153,11 +153,13 @@ assert.equal(mixedModelAfter.length, mixedModelBefore.length + 1);
 const mixedUndo = callJson('orc_history_undo');
 assert.equal(mixedUndo.ok, true, JSON.stringify(mixedUndo));
 assert.notEqual(mixedUndo.direct, true, JSON.stringify(mixedUndo));
+assert.equal(mixedUndo.impact?.model, 'full', JSON.stringify(mixedUndo));
 assert.deepEqual(modelShape(), mixedModelBefore);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
 const mixedRedo = callJson('orc_history_redo');
 assert.equal(mixedRedo.ok, true, JSON.stringify(mixedRedo));
 assert.notEqual(mixedRedo.direct, true, JSON.stringify(mixedRedo));
+assert.equal(mixedRedo.impact?.model, 'full', JSON.stringify(mixedRedo));
 assert.deepEqual(modelShape(), mixedModelAfter);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
 
@@ -165,11 +167,16 @@ assert.equal(callJson('orc_history_undo').ok, true);
 const towerUndo = callJson('orc_history_undo');
 assert.equal(towerUndo.ok, true, JSON.stringify(towerUndo));
 assert.equal(towerUndo.direct, true, JSON.stringify(towerUndo));
+assert.deepEqual(towerUndo.impact, {
+  version: 1, model: 'none', plateSession: true, filamentRack: false,
+  projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate',
+}, JSON.stringify(towerUndo));
 assert.deepEqual(modelShape(), mixedModelBefore);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedCoordinatesBefore);
 const towerRedo = callJson('orc_history_redo');
 assert.equal(towerRedo.ok, true, JSON.stringify(towerRedo));
 assert.equal(towerRedo.direct, true, JSON.stringify(towerRedo));
+assert.equal(towerRedo.impact?.model, 'none', JSON.stringify(towerRedo));
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
 assert.equal(callJson('orc_history_redo').ok, true);
 
@@ -205,4 +212,5 @@ assert.equal(session().plates.find((plate) => plate.plate_id === thirdPlate).dis
 
 console.log(JSON.stringify({ ok: true, plateId: secondPlate, moveDurationMs: Number(moveDurationMs.toFixed(2)),
   narrowFrameBytes: afterDiagnostics.currentDirectFrameBytes, retainedModelBytes: afterDiagnostics.currentModelBytes,
-  unaffectedPreviewPlate: thirdPlate, targetPreviewInvalidAfterUndoRedo: true }));
+  unaffectedPreviewPlate: thirdPlate, targetPreviewInvalidAfterUndoRedo: true,
+  directPrimeTowerModelReloads: 0, fullRestoreModelReloads: 2 }));

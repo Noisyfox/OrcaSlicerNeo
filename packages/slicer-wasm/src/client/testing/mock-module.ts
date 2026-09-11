@@ -436,7 +436,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   function historyRestore(entry: MockHistoryEntry) {
     restoreHistoryState(entry);
     historyRevision++;
-    return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id };
+    const narrowPrimeTower = entry.label === 'Move Prime Tower';
+    return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id,
+      impact: narrowPrimeTower
+        ? { version: 1, model: 'none', plateSession: true, filamentRack: false, projectOverlay: true,
+          selectionContext: true, primeTower: true, preview: 'current-plate' }
+        : { version: 1, model: 'full', plateSession: true, filamentRack: true, projectOverlay: true,
+          selectionContext: true, primeTower: true, preview: 'all' } };
   }
   function recordActivePlateContext(): void {
     if (historyTransaction || historyEntries.length === 0) return;
