@@ -237,6 +237,27 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(collection.volumes.find((volume) => volume.plateId === 'plate-2')?.position).toEqual({ x: 60, y: 70 });
   });
 
+  it('reports aggregate projection reconciliation and publication timings without retaining projection data', () => {
+    const plate = { plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const };
+    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate] };
+    const diagnostics = {
+      recordSetProjection: vi.fn(), recordReconcile: vi.fn(), recordEmit: vi.fn(),
+    };
+    const collection = new WipeTowerVolumeCollection(
+      { move: vi.fn(), reconcile: vi.fn(), revision: vi.fn(() => 1) }, diagnostics,
+    );
+    collection.setProjection({
+      ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea,
+      plates: [tower().projection],
+    }, session);
+
+    for (const callback of [diagnostics.recordSetProjection, diagnostics.recordReconcile, diagnostics.recordEmit]) {
+      expect(callback).toHaveBeenCalledOnce();
+      expect(callback.mock.calls[0]![0]).toEqual(expect.any(Number));
+      expect(callback.mock.calls[0]![0]).toBeGreaterThanOrEqual(0);
+    }
+  });
+
   it('republishes selected bounds and the gizmo pivot from the authoritative move receipt', async () => {
     const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [
       { plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const },

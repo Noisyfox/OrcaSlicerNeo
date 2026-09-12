@@ -143,6 +143,18 @@ export interface HistoryDiagnosticLayer {
   readonly restore: HistoryTimingDiagnostic;
   readonly directRestore: HistoryTimingDiagnostic;
   readonly fullRestore: HistoryTimingDiagnostic;
+  /**
+   * Read operations performed as part of a history projection. These remain
+   * aggregate-only so E2E can locate a slow projection boundary without
+   * retaining any project/session payload.
+   */
+  readonly reads?: HistoryReadDiagnosticLayer;
+}
+
+export interface HistoryReadDiagnosticLayer {
+  readonly plateSessionSnapshot: HistoryTimingDiagnostic;
+  readonly primeTowerProjection: HistoryTimingDiagnostic;
+  readonly filamentSessionSnapshot: HistoryTimingDiagnostic;
 }
 
 /**

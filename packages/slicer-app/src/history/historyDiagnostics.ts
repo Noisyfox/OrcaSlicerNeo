@@ -6,7 +6,19 @@ export type HistoryRestorePath = 'direct' | 'full';
 export interface HistoryAppDiagnostics extends HistoryDiagnosticLayer {
   readonly queue: HistoryTimingDiagnostic;
   readonly filamentRefresh: HistoryTimingDiagnostic;
+  /** The runtime read inside the history-owned filament refresh. */
+  readonly filamentSnapshot: HistoryTimingDiagnostic;
+  /** The best-effort persisted remembered-rack mirror, after native restore. */
+  readonly filamentPreferencePersistence: HistoryTimingDiagnostic;
   readonly projection: HistoryTimingDiagnostic;
+  /** The Worker/client round trip used to read the full tower projection. */
+  readonly primeTowerProjectionRead: HistoryTimingDiagnostic;
+  /** Split the collection publication so all-tower reconciliation is visible. */
+  readonly primeTowerSetProjection: HistoryTimingDiagnostic;
+  readonly primeTowerReconcile: HistoryTimingDiagnostic;
+  readonly primeTowerEmit: HistoryTimingDiagnostic;
+  /** A direct restore may require it; a direct tower move normally does not. */
+  readonly plateSessionSnapshot: HistoryTimingDiagnostic;
   /** A direct Prime Tower receipt must never enter model projection. */
   readonly directPrimeTowerModelReloads: number;
   /** Full receipts are allowed to rebuild the model and are counted explicitly. */
@@ -25,7 +37,14 @@ interface HistoryDiagnosticsState extends HistoryObservabilitySnapshot {
   recordQueue(durationMs: number): void;
   recordRestore(path: HistoryRestorePath, durationMs: number): void;
   recordFilamentRefresh(durationMs: number): void;
+  recordFilamentSnapshot(durationMs: number): void;
+  recordFilamentPreferencePersistence(durationMs: number): void;
   recordProjection(path: HistoryRestorePath, durationMs: number): void;
+  recordPrimeTowerProjectionRead(durationMs: number): void;
+  recordPrimeTowerSetProjection(durationMs: number): void;
+  recordPrimeTowerReconcile(durationMs: number): void;
+  recordPrimeTowerEmit(durationMs: number): void;
+  recordPlateSessionSnapshot(durationMs: number): void;
   setTransport(diagnostics: HistoryTransportDiagnostics | null): void;
   reset(): void;
 }
@@ -58,7 +77,10 @@ function emptyLayer(): HistoryDiagnosticLayer {
 
 function emptyApp(): HistoryAppDiagnostics {
   return {
-    ...emptyLayer(), queue: emptyTiming(), filamentRefresh: emptyTiming(), projection: emptyTiming(),
+    ...emptyLayer(), queue: emptyTiming(), filamentRefresh: emptyTiming(), filamentSnapshot: emptyTiming(),
+    filamentPreferencePersistence: emptyTiming(), projection: emptyTiming(), primeTowerProjectionRead: emptyTiming(),
+    primeTowerSetProjection: emptyTiming(), primeTowerReconcile: emptyTiming(), primeTowerEmit: emptyTiming(),
+    plateSessionSnapshot: emptyTiming(),
     directPrimeTowerModelReloads: 0, fullRestoreModelReloads: 0,
   };
 }
@@ -88,6 +110,10 @@ export const useHistoryDiagnosticsStore = create<HistoryDiagnosticsState>((set) 
   recordQueue: (durationMs) => set((state) => ({ app: { ...state.app, queue: addTiming(state.app.queue, durationMs) } })),
   recordRestore: (path, durationMs) => set((state) => ({ app: addRestore(state.app, path, durationMs) })),
   recordFilamentRefresh: (durationMs) => set((state) => ({ app: { ...state.app, filamentRefresh: addTiming(state.app.filamentRefresh, durationMs) } })),
+  recordFilamentSnapshot: (durationMs) => set((state) => ({ app: { ...state.app, filamentSnapshot: addTiming(state.app.filamentSnapshot, durationMs) } })),
+  recordFilamentPreferencePersistence: (durationMs) => set((state) => ({ app: {
+    ...state.app, filamentPreferencePersistence: addTiming(state.app.filamentPreferencePersistence, durationMs),
+  } })),
   recordProjection: (path, durationMs) => set((state) => ({
     app: {
       ...state.app,
@@ -98,6 +124,21 @@ export const useHistoryDiagnosticsStore = create<HistoryDiagnosticsState>((set) 
       fullRestoreModelReloads: state.app.fullRestoreModelReloads + (path === 'full' ? 1 : 0),
     },
   })),
+  recordPrimeTowerProjectionRead: (durationMs) => set((state) => ({ app: {
+    ...state.app, primeTowerProjectionRead: addTiming(state.app.primeTowerProjectionRead, durationMs),
+  } })),
+  recordPrimeTowerSetProjection: (durationMs) => set((state) => ({ app: {
+    ...state.app, primeTowerSetProjection: addTiming(state.app.primeTowerSetProjection, durationMs),
+  } })),
+  recordPrimeTowerReconcile: (durationMs) => set((state) => ({ app: {
+    ...state.app, primeTowerReconcile: addTiming(state.app.primeTowerReconcile, durationMs),
+  } })),
+  recordPrimeTowerEmit: (durationMs) => set((state) => ({ app: {
+    ...state.app, primeTowerEmit: addTiming(state.app.primeTowerEmit, durationMs),
+  } })),
+  recordPlateSessionSnapshot: (durationMs) => set((state) => ({ app: {
+    ...state.app, plateSessionSnapshot: addTiming(state.app.plateSessionSnapshot, durationMs),
+  } })),
   setTransport: (diagnostics) => set({ worker: diagnostics?.worker ?? null, client: diagnostics?.client ?? null }),
   reset: () => set({ worker: null, client: null, app: emptyApp() }),
 }));

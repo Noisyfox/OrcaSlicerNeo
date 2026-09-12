@@ -11,7 +11,13 @@
 //   worker → main: {type:'progress', percent, text}   (no id)
 // ----------------------------------------------------------------
 import type { SlicerClient, OrcaModuleFactory, ProgressMailbox } from './types';
-import type { HistoryDiagnosticLayer, HistoryTransportDiagnostics, HistoryTimingDiagnostic, RestoreResult } from './history';
+import type {
+  HistoryDiagnosticLayer,
+  HistoryReadDiagnosticLayer,
+  HistoryTransportDiagnostics,
+  HistoryTimingDiagnostic,
+  RestoreResult,
+} from './history';
 import { createClient } from './client';
 
 export type WorkerMessage =
@@ -22,8 +28,9 @@ export type WorkerMessage =
   | { type: 'progress-mailbox'; mailbox: ProgressMailbox };
 
 export interface HistoryWorkerDiagnostic {
-  readonly kind: 'mutation' | 'restore';
+  readonly kind: 'mutation' | 'restore' | 'read';
   readonly path?: 'direct' | 'full';
+  readonly read?: keyof HistoryReadDiagnosticLayer;
   readonly durationMs: number;
 }
 
@@ -52,26 +59,49 @@ function restorePath(result: unknown): 'direct' | 'full' {
   return impact?.model === 'none' ? 'direct' : 'full';
 }
 
+function historyReadForOperation(operation: string): keyof HistoryReadDiagnosticLayer | null {
+  switch (operation) {
+    case 'getPlateSessionSnapshot': return 'plateSessionSnapshot';
+    case 'getPrimeTowerProjection': return 'primeTowerProjection';
+    case 'getFilamentSessionSnapshot': return 'filamentSessionSnapshot';
+    default: return null;
+  }
+}
+
 function emptyTiming(): HistoryTimingDiagnostic {
   return { count: 0, totalMs: 0, maxMs: 0, lastMs: 0 };
 }
 
 function emptyLayer(): HistoryDiagnosticLayer {
-  return { mutation: emptyTiming(), restore: emptyTiming(), directRestore: emptyTiming(), fullRestore: emptyTiming() };
+  return {
+    mutation: emptyTiming(), restore: emptyTiming(), directRestore: emptyTiming(), fullRestore: emptyTiming(),
+    reads: { plateSessionSnapshot: emptyTiming(), primeTowerProjection: emptyTiming(), filamentSessionSnapshot: emptyTiming() },
+  };
 }
 
-function recordTiming(layer: HistoryDiagnosticLayer, key: keyof HistoryDiagnosticLayer, durationMs: number): HistoryDiagnosticLayer {
+function addTiming(current: HistoryTimingDiagnostic, durationMs: number): HistoryTimingDiagnostic {
   const duration = Math.max(0, Number.isFinite(durationMs) ? durationMs : 0);
-  const current = layer[key];
-  const next = { count: current.count + 1, totalMs: current.totalMs + duration,
+  return { count: current.count + 1, totalMs: current.totalMs + duration,
     maxMs: Math.max(current.maxMs, duration), lastMs: duration };
-  return { ...layer, [key]: next };
+}
+
+function recordTiming(
+  layer: HistoryDiagnosticLayer,
+  key: Exclude<keyof HistoryDiagnosticLayer, 'reads'>,
+  durationMs: number,
+): HistoryDiagnosticLayer {
+  return { ...layer, [key]: addTiming(layer[key], durationMs) };
 }
 
 function copyLayer(layer: HistoryDiagnosticLayer): HistoryDiagnosticLayer {
   return {
     mutation: { ...layer.mutation }, restore: { ...layer.restore },
     directRestore: { ...layer.directRestore }, fullRestore: { ...layer.fullRestore },
+    reads: layer.reads && {
+      plateSessionSnapshot: { ...layer.reads.plateSessionSnapshot },
+      primeTowerProjection: { ...layer.reads.primeTowerProjection },
+      filamentSessionSnapshot: { ...layer.reads.filamentSessionSnapshot },
+    },
   };
 }
 
@@ -192,6 +222,11 @@ export function startWorker(
         post({ type: 'history-diagnostic', diagnostic: {
           kind: 'mutation', durationMs: historyNow() - startedAt,
         } });
+      } else {
+        const read = historyReadForOperation(op);
+        if (read) post({ type: 'history-diagnostic', diagnostic: {
+          kind: 'read', read, durationMs: historyNow() - startedAt,
+        } });
       }
       post({ type: 'response', id, ok: true, result }, collectTransferables(result));
     } catch (err) {
@@ -219,6 +254,16 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   let diagnostics: HistoryTransportDiagnostics = { version: 1, worker: emptyLayer(), client: emptyLayer() };
 
   function recordLayer(layer: 'worker' | 'client', diagnostic: HistoryWorkerDiagnostic): void {
+    if (diagnostic.kind === 'read') {
+      if (!diagnostic.read) return;
+      const reads = diagnostics[layer].reads;
+      if (!reads) return;
+      diagnostics = {
+        ...diagnostics,
+        [layer]: { ...diagnostics[layer], reads: { ...reads, [diagnostic.read]: addTiming(reads[diagnostic.read], diagnostic.durationMs) } },
+      };
+      return;
+    }
     let next = recordTiming(diagnostics[layer], diagnostic.kind === 'mutation' ? 'mutation' : 'restore', diagnostic.durationMs);
     if (diagnostic.kind === 'restore')
       next = recordTiming(next, diagnostic.path === 'direct' ? 'directRestore' : 'fullRestore', diagnostic.durationMs);
@@ -279,6 +324,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
         recordLayer('client', { kind: 'restore', path: restorePath(msg.result), durationMs: historyNow() - p.startedAt });
       else if (historyMutationOperations.has(p.op))
         recordLayer('client', { kind: 'mutation', durationMs: historyNow() - p.startedAt });
+      else {
+        const read = historyReadForOperation(p.op);
+        if (read) recordLayer('client', { kind: 'read', read, durationMs: historyNow() - p.startedAt });
+      }
       p.resolve(msg.result);
     }
     else p.reject(new Error(msg.error ?? 'worker error'));

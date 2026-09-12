@@ -129,6 +129,17 @@ export interface PrimeTowerCommandPort {
   publishHistoryStatus?(status: HistoryStatus): Promise<void>;
 }
 
+/** Aggregate-only timing sink used by the E2E history diagnostic. */
+export interface PrimeTowerProjectionDiagnostics {
+  recordSetProjection(durationMs: number): void;
+  recordReconcile(durationMs: number): void;
+  recordEmit(durationMs: number): void;
+}
+
+function projectionDiagnosticNow(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
 /** Worker projection and native X/Y commit boundary; it owns no selection,
  * gizmo, or pointer state. */
 export class WipeTowerVolumeCollection {
@@ -139,7 +150,10 @@ export class WipeTowerVolumeCollection {
   private moveCommandCountState = 0;
   private commitInFlight = false;
 
-  constructor(private readonly commandPort: PrimeTowerCommandPort) {}
+  constructor(
+    private readonly commandPort: PrimeTowerCommandPort,
+    private readonly diagnostics?: PrimeTowerProjectionDiagnostics,
+  ) {}
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   get projection(): PrimeTowerProjection | null { return this.projectionState; }
   get volumes(): readonly WipeTowerVolume[] { return this.volumesState; }
@@ -147,13 +161,14 @@ export class WipeTowerVolumeCollection {
   get busy(): boolean { return this.commitInFlight; }
 
   setProjection(projection: PrimeTowerProjection | null, session?: PlateSessionSnapshot | null): void {
+    const setStartedAt = projectionDiagnosticNow();
     this.projectionState = projection;
     if (session !== undefined) this.sessionState = session;
     const activeSession = this.sessionState;
     if (!projection || !activeSession) {
       this.volumesState.forEach((volume) => volume.dispose());
       this.volumesState = [];
-      this.emit();
+      this.emitProjection(setStartedAt);
       return;
     }
     const prior = new Map(this.volumesState.map((volume) => [volume.plateId, volume]));
@@ -174,7 +189,7 @@ export class WipeTowerVolumeCollection {
     });
     for (const volume of this.volumesState) if (!next.includes(volume)) volume.dispose();
     this.volumesState = next;
-    this.emit();
+    this.emitProjection(setStartedAt);
   }
 
   /** Apply the plate-local authoritative response from a completed tower move. */
@@ -216,6 +231,14 @@ export class WipeTowerVolumeCollection {
       this.commitInFlight = false;
       this.emit();
     }
+  }
+
+  private emitProjection(setStartedAt: number): void {
+    this.diagnostics?.recordReconcile(projectionDiagnosticNow() - setStartedAt);
+    const emitStartedAt = projectionDiagnosticNow();
+    this.emit();
+    this.diagnostics?.recordEmit(projectionDiagnosticNow() - emitStartedAt);
+    this.diagnostics?.recordSetProjection(projectionDiagnosticNow() - setStartedAt);
   }
 
   private emit(): void { for (const listener of this.listeners) listener(); }

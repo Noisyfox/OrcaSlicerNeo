@@ -38,7 +38,7 @@ import { publishRememberedFilamentRack } from '../../preferences';
 import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 import { WipeTowerVolumeCollection } from './viewport/WipeTowerVolume';
 import type { PrimeTowerMoveResultOrError } from '@slicer/client';
-import { captureHistoryTransportDiagnostics, type HistoryObservabilitySnapshot, useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
+import { captureHistoryTransportDiagnostics, historyDiagnosticNow, type HistoryObservabilitySnapshot, useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
 
 const DEFAULT_SIDEBAR_WIDTH = 288; // matches the previous `w-72` (18rem)
 const MIN_SIDEBAR_WIDTH = 220;
@@ -105,6 +105,10 @@ export function Workspace({
       publishHistoryStatus: async (status) => {
         projectHistoryStatus(status);
       },
+    }, {
+      recordSetProjection: (durationMs) => useHistoryDiagnosticsStore.getState().recordPrimeTowerSetProjection(durationMs),
+      recordReconcile: (durationMs) => useHistoryDiagnosticsStore.getState().recordPrimeTowerReconcile(durationMs),
+      recordEmit: (durationMs) => useHistoryDiagnosticsStore.getState().recordPrimeTowerEmit(durationMs),
     });
   }
   const wipeTowerVolumes = wipeTowerVolumesRef.current;
@@ -125,6 +129,7 @@ export function Workspace({
     if (!forceDuringRestore && useHistoryRestoreStore.getState().phase !== 'idle') return;
     const generation = ++primeTowerRefreshGenerationRef.current;
     const historyRevision = useHistoryRestoreStore.getState().revision;
+    const projectionReadStartedAt = historyDiagnosticNow();
     try {
       const result = await platform.runtime.getPrimeTowerProjection();
       if (generation !== primeTowerRefreshGenerationRef.current ||
@@ -134,6 +139,10 @@ export function Workspace({
       if (generation !== primeTowerRefreshGenerationRef.current ||
           historyRevision !== useHistoryRestoreStore.getState().revision) return;
       wipeTowerVolumes.setProjection(null);
+    } finally {
+      useHistoryDiagnosticsStore.getState().recordPrimeTowerProjectionRead(
+        historyDiagnosticNow() - projectionReadStartedAt,
+      );
     }
   }, [platform.runtime, wipeTowerVolumes]);
   primeTowerRefreshRef.current = refreshPrimeTowerProjection;
@@ -216,7 +225,15 @@ export function Workspace({
 
         const getPlateSessionSnapshot = platform.runtime.getPlateSessionSnapshot;
         if (impact.plateSession && typeof getPlateSessionSnapshot === 'function') {
-          const session = await getPlateSessionSnapshot.call(platform.runtime);
+          const plateSessionStartedAt = historyDiagnosticNow();
+          let session;
+          try {
+            session = await getPlateSessionSnapshot.call(platform.runtime);
+          } finally {
+            useHistoryDiagnosticsStore.getState().recordPlateSessionSnapshot(
+              historyDiagnosticNow() - plateSessionStartedAt,
+            );
+          }
           if (!session.ok) throw new Error(session.error ?? 'getPlateSessionSnapshot failed during history restore');
           if (historyRestoreRef.current?.currentRevision() !== revision) return;
           usePlateSessionStore.getState().setSnapshot(session);
@@ -236,13 +253,28 @@ export function Workspace({
       },
       publishRestoredFilamentRack: async (revision) => {
         if (useHistoryRestoreStore.getState().revision !== revision) return;
-        const snapshot = await platform.runtime.getFilamentSessionSnapshot();
-        if (snapshot.ok && useHistoryRestoreStore.getState().revision === revision) {
-          await publishRememberedFilamentRack(
-            platform.preferences,
-            useSettingsStore.getState().selectedPrinter,
-            snapshot,
+        const filamentSnapshotStartedAt = historyDiagnosticNow();
+        let snapshot;
+        try {
+          snapshot = await platform.runtime.getFilamentSessionSnapshot();
+        } finally {
+          useHistoryDiagnosticsStore.getState().recordFilamentSnapshot(
+            historyDiagnosticNow() - filamentSnapshotStartedAt,
           );
+        }
+        if (snapshot.ok && useHistoryRestoreStore.getState().revision === revision) {
+          const preferencePersistenceStartedAt = historyDiagnosticNow();
+          try {
+            await publishRememberedFilamentRack(
+              platform.preferences,
+              useSettingsStore.getState().selectedPrinter,
+              snapshot,
+            );
+          } finally {
+            useHistoryDiagnosticsStore.getState().recordFilamentPreferencePersistence(
+              historyDiagnosticNow() - preferencePersistenceStartedAt,
+            );
+          }
         }
       },
     });
@@ -259,7 +291,11 @@ export function Workspace({
       historyDiagnostics: () => {
         captureHistoryTransportDiagnostics(platform.runtime);
         const { recordMutation: _mutation, recordQueue: _queue, recordRestore: _restore,
-          recordFilamentRefresh: _filament, recordProjection: _projection,
+          recordFilamentRefresh: _filament, recordFilamentSnapshot: _filamentSnapshot,
+          recordFilamentPreferencePersistence: _filamentPreferences,
+          recordProjection: _projection, recordPrimeTowerProjectionRead: _projectionRead,
+          recordPrimeTowerSetProjection: _setProjection, recordPrimeTowerReconcile: _reconcile,
+          recordPrimeTowerEmit: _emit, recordPlateSessionSnapshot: _plateSession,
           setTransport: _transport, reset: _reset, ...snapshot } = useHistoryDiagnosticsStore.getState();
         return snapshot;
       },

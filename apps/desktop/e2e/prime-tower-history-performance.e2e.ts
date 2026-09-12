@@ -7,12 +7,18 @@ import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 
-type Timing = { count: number; lastMs: number };
-type Layer = { mutation: Timing; restore: Timing; directRestore: Timing; fullRestore: Timing };
+type Timing = { count: number; totalMs: number; lastMs: number };
+type ReadLayer = { plateSessionSnapshot: Timing; primeTowerProjection: Timing; filamentSessionSnapshot: Timing };
+type Layer = { mutation: Timing; restore: Timing; directRestore: Timing; fullRestore: Timing; reads?: ReadLayer };
 type Diagnostics = {
   worker: Layer | null;
   client: Layer | null;
-  app: Layer & { queue: Timing; projection: Timing; filamentRefresh: Timing };
+  app: Layer & {
+    queue: Timing; projection: Timing; filamentRefresh: Timing; filamentSnapshot: Timing;
+    filamentPreferencePersistence: Timing; primeTowerProjectionRead: Timing;
+    primeTowerSetProjection: Timing; primeTowerReconcile: Timing; primeTowerEmit: Timing;
+    plateSessionSnapshot: Timing;
+  };
 };
 type ProjectLoadEvidence = {
   receipt: {
@@ -48,6 +54,18 @@ test.skip(!REAL || !existsSync(PROJECT_PATH),
 
 function withinLivenessLimit(label: string, durationMs: number): void {
   expect(durationMs, `${label} must settle within ${HISTORY_STAGE_LIVENESS_LIMIT_MS} ms`).toBeLessThan(HISTORY_STAGE_LIVENESS_LIMIT_MS);
+}
+
+function timingWhenAdvanced(before: Timing, after: Timing): number | null {
+  return after.count > before.count ? after.lastMs : null;
+}
+
+function countDelta(before: Timing, after: Timing): number {
+  return after.count - before.count;
+}
+
+function totalMsDelta(before: Timing, after: Timing): number {
+  return after.totalMs - before.totalMs;
 }
 
 test('measures Odyssey Prime Tower commit and history restore stages after a proven project load', async () => {
@@ -88,8 +106,8 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
         .__orcaE2e?.historyDiagnostics?.() ?? null,
     );
     const requireDiagnostics = (value: Diagnostics | null): Diagnostics => {
-      if (!value?.worker || !value.client)
-        throw new Error('history diagnostics must expose Worker and client timings in the real E2E build');
+      if (!value?.worker?.reads || !value.client?.reads)
+        throw new Error('history diagnostics must expose Worker/client read timings in the real E2E build');
       return value;
     };
 
@@ -265,6 +283,61 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
         clientRestoreRoundTripMs: undoDiagnosticsAfter.client!.directRestore.lastMs,
         appNativeRestoreMs: undoDiagnosticsAfter.app.directRestore.lastMs,
         appPrimeTowerProjectionMs: undoDiagnosticsAfter.app.projection.lastMs,
+        workerPlateSessionSnapshot: {
+          countDelta: countDelta(undoDiagnosticsBefore.worker!.reads!.plateSessionSnapshot, undoDiagnosticsAfter.worker!.reads!.plateSessionSnapshot),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.worker!.reads!.plateSessionSnapshot, undoDiagnosticsAfter.worker!.reads!.plateSessionSnapshot),
+        },
+        clientPlateSessionSnapshotRoundTrip: {
+          countDelta: countDelta(undoDiagnosticsBefore.client!.reads!.plateSessionSnapshot, undoDiagnosticsAfter.client!.reads!.plateSessionSnapshot),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.client!.reads!.plateSessionSnapshot, undoDiagnosticsAfter.client!.reads!.plateSessionSnapshot),
+        },
+        appPlateSessionSnapshot: {
+          countDelta: countDelta(undoDiagnosticsBefore.app.plateSessionSnapshot, undoDiagnosticsAfter.app.plateSessionSnapshot),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.app.plateSessionSnapshot, undoDiagnosticsAfter.app.plateSessionSnapshot),
+        },
+        workerPrimeTowerProjection: {
+          countDelta: countDelta(undoDiagnosticsBefore.worker!.reads!.primeTowerProjection, undoDiagnosticsAfter.worker!.reads!.primeTowerProjection),
+          totalMs: totalMsDelta(undoDiagnosticsBefore.worker!.reads!.primeTowerProjection, undoDiagnosticsAfter.worker!.reads!.primeTowerProjection),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.worker!.reads!.primeTowerProjection, undoDiagnosticsAfter.worker!.reads!.primeTowerProjection),
+        },
+        clientPrimeTowerProjectionRoundTrip: {
+          countDelta: countDelta(undoDiagnosticsBefore.client!.reads!.primeTowerProjection, undoDiagnosticsAfter.client!.reads!.primeTowerProjection),
+          totalMs: totalMsDelta(undoDiagnosticsBefore.client!.reads!.primeTowerProjection, undoDiagnosticsAfter.client!.reads!.primeTowerProjection),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.client!.reads!.primeTowerProjection, undoDiagnosticsAfter.client!.reads!.primeTowerProjection),
+        },
+        appPrimeTowerProjectionRead: {
+          countDelta: countDelta(undoDiagnosticsBefore.app.primeTowerProjectionRead, undoDiagnosticsAfter.app.primeTowerProjectionRead),
+          totalMs: totalMsDelta(undoDiagnosticsBefore.app.primeTowerProjectionRead, undoDiagnosticsAfter.app.primeTowerProjectionRead),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.app.primeTowerProjectionRead, undoDiagnosticsAfter.app.primeTowerProjectionRead),
+        },
+        appPrimeTowerSetProjection: {
+          countDelta: countDelta(undoDiagnosticsBefore.app.primeTowerSetProjection, undoDiagnosticsAfter.app.primeTowerSetProjection),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.app.primeTowerSetProjection, undoDiagnosticsAfter.app.primeTowerSetProjection),
+        },
+        appPrimeTowerReconcile: {
+          countDelta: countDelta(undoDiagnosticsBefore.app.primeTowerReconcile, undoDiagnosticsAfter.app.primeTowerReconcile),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.app.primeTowerReconcile, undoDiagnosticsAfter.app.primeTowerReconcile),
+        },
+        appPrimeTowerEmit: {
+          countDelta: countDelta(undoDiagnosticsBefore.app.primeTowerEmit, undoDiagnosticsAfter.app.primeTowerEmit),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.app.primeTowerEmit, undoDiagnosticsAfter.app.primeTowerEmit),
+        },
+        workerFilamentSnapshot: {
+          countDelta: countDelta(undoDiagnosticsBefore.worker!.reads!.filamentSessionSnapshot, undoDiagnosticsAfter.worker!.reads!.filamentSessionSnapshot),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.worker!.reads!.filamentSessionSnapshot, undoDiagnosticsAfter.worker!.reads!.filamentSessionSnapshot),
+        },
+        clientFilamentSnapshotRoundTrip: {
+          countDelta: countDelta(undoDiagnosticsBefore.client!.reads!.filamentSessionSnapshot, undoDiagnosticsAfter.client!.reads!.filamentSessionSnapshot),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.client!.reads!.filamentSessionSnapshot, undoDiagnosticsAfter.client!.reads!.filamentSessionSnapshot),
+        },
+        appRememberedFilamentSnapshot: {
+          countDelta: countDelta(undoDiagnosticsBefore.app.filamentSnapshot, undoDiagnosticsAfter.app.filamentSnapshot),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.app.filamentSnapshot, undoDiagnosticsAfter.app.filamentSnapshot),
+        },
+        appFilamentPreferencePersistence: {
+          countDelta: countDelta(undoDiagnosticsBefore.app.filamentPreferencePersistence, undoDiagnosticsAfter.app.filamentPreferencePersistence),
+          lastMs: timingWhenAdvanced(undoDiagnosticsBefore.app.filamentPreferencePersistence, undoDiagnosticsAfter.app.filamentPreferencePersistence),
+        },
         appFilamentRefreshMs: undoDiagnosticsAfter.app.filamentRefresh.lastMs,
       },
       redoToProjectionMs,
@@ -273,6 +346,61 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
         clientRestoreRoundTripMs: redoDiagnosticsAfter.client!.directRestore.lastMs,
         appNativeRestoreMs: redoDiagnosticsAfter.app.directRestore.lastMs,
         appPrimeTowerProjectionMs: redoDiagnosticsAfter.app.projection.lastMs,
+        workerPlateSessionSnapshot: {
+          countDelta: countDelta(redoDiagnosticsBefore.worker!.reads!.plateSessionSnapshot, redoDiagnosticsAfter.worker!.reads!.plateSessionSnapshot),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.worker!.reads!.plateSessionSnapshot, redoDiagnosticsAfter.worker!.reads!.plateSessionSnapshot),
+        },
+        clientPlateSessionSnapshotRoundTrip: {
+          countDelta: countDelta(redoDiagnosticsBefore.client!.reads!.plateSessionSnapshot, redoDiagnosticsAfter.client!.reads!.plateSessionSnapshot),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.client!.reads!.plateSessionSnapshot, redoDiagnosticsAfter.client!.reads!.plateSessionSnapshot),
+        },
+        appPlateSessionSnapshot: {
+          countDelta: countDelta(redoDiagnosticsBefore.app.plateSessionSnapshot, redoDiagnosticsAfter.app.plateSessionSnapshot),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.app.plateSessionSnapshot, redoDiagnosticsAfter.app.plateSessionSnapshot),
+        },
+        workerPrimeTowerProjection: {
+          countDelta: countDelta(redoDiagnosticsBefore.worker!.reads!.primeTowerProjection, redoDiagnosticsAfter.worker!.reads!.primeTowerProjection),
+          totalMs: totalMsDelta(redoDiagnosticsBefore.worker!.reads!.primeTowerProjection, redoDiagnosticsAfter.worker!.reads!.primeTowerProjection),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.worker!.reads!.primeTowerProjection, redoDiagnosticsAfter.worker!.reads!.primeTowerProjection),
+        },
+        clientPrimeTowerProjectionRoundTrip: {
+          countDelta: countDelta(redoDiagnosticsBefore.client!.reads!.primeTowerProjection, redoDiagnosticsAfter.client!.reads!.primeTowerProjection),
+          totalMs: totalMsDelta(redoDiagnosticsBefore.client!.reads!.primeTowerProjection, redoDiagnosticsAfter.client!.reads!.primeTowerProjection),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.client!.reads!.primeTowerProjection, redoDiagnosticsAfter.client!.reads!.primeTowerProjection),
+        },
+        appPrimeTowerProjectionRead: {
+          countDelta: countDelta(redoDiagnosticsBefore.app.primeTowerProjectionRead, redoDiagnosticsAfter.app.primeTowerProjectionRead),
+          totalMs: totalMsDelta(redoDiagnosticsBefore.app.primeTowerProjectionRead, redoDiagnosticsAfter.app.primeTowerProjectionRead),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.app.primeTowerProjectionRead, redoDiagnosticsAfter.app.primeTowerProjectionRead),
+        },
+        appPrimeTowerSetProjection: {
+          countDelta: countDelta(redoDiagnosticsBefore.app.primeTowerSetProjection, redoDiagnosticsAfter.app.primeTowerSetProjection),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.app.primeTowerSetProjection, redoDiagnosticsAfter.app.primeTowerSetProjection),
+        },
+        appPrimeTowerReconcile: {
+          countDelta: countDelta(redoDiagnosticsBefore.app.primeTowerReconcile, redoDiagnosticsAfter.app.primeTowerReconcile),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.app.primeTowerReconcile, redoDiagnosticsAfter.app.primeTowerReconcile),
+        },
+        appPrimeTowerEmit: {
+          countDelta: countDelta(redoDiagnosticsBefore.app.primeTowerEmit, redoDiagnosticsAfter.app.primeTowerEmit),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.app.primeTowerEmit, redoDiagnosticsAfter.app.primeTowerEmit),
+        },
+        workerFilamentSnapshot: {
+          countDelta: countDelta(redoDiagnosticsBefore.worker!.reads!.filamentSessionSnapshot, redoDiagnosticsAfter.worker!.reads!.filamentSessionSnapshot),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.worker!.reads!.filamentSessionSnapshot, redoDiagnosticsAfter.worker!.reads!.filamentSessionSnapshot),
+        },
+        clientFilamentSnapshotRoundTrip: {
+          countDelta: countDelta(redoDiagnosticsBefore.client!.reads!.filamentSessionSnapshot, redoDiagnosticsAfter.client!.reads!.filamentSessionSnapshot),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.client!.reads!.filamentSessionSnapshot, redoDiagnosticsAfter.client!.reads!.filamentSessionSnapshot),
+        },
+        appRememberedFilamentSnapshot: {
+          countDelta: countDelta(redoDiagnosticsBefore.app.filamentSnapshot, redoDiagnosticsAfter.app.filamentSnapshot),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.app.filamentSnapshot, redoDiagnosticsAfter.app.filamentSnapshot),
+        },
+        appFilamentPreferencePersistence: {
+          countDelta: countDelta(redoDiagnosticsBefore.app.filamentPreferencePersistence, redoDiagnosticsAfter.app.filamentPreferencePersistence),
+          lastMs: timingWhenAdvanced(redoDiagnosticsBefore.app.filamentPreferencePersistence, redoDiagnosticsAfter.app.filamentPreferencePersistence),
+        },
         appFilamentRefreshMs: redoDiagnosticsAfter.app.filamentRefresh.lastMs,
       },
     }));

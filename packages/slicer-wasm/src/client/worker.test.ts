@@ -144,6 +144,9 @@ describe('worker protocol', () => {
     await workerClient.runProjectHistoryTransaction('Add Cube', 'project', context,
       async () => workerClient.addShape('Cube'), context);
     await workerClient.undoHistory();
+    await workerClient.getPlateSessionSnapshot();
+    await workerClient.getPrimeTowerProjection();
+    await workerClient.getFilamentSessionSnapshot();
 
     const observed = workerClient.getHistoryDiagnostics();
     expect(observed).toMatchObject({ version: 1 });
@@ -151,6 +154,12 @@ describe('worker protocol', () => {
     expect(observed.client.mutation.count).toBe(1);
     expect(observed.worker.fullRestore.count).toBe(1);
     expect(observed.client.fullRestore.count).toBe(1);
+    expect(observed.worker.reads).toMatchObject({
+      plateSessionSnapshot: { count: 1 }, primeTowerProjection: { count: 1 }, filamentSessionSnapshot: { count: 1 },
+    });
+    expect(observed.client.reads).toMatchObject({
+      plateSessionSnapshot: { count: 1 }, primeTowerProjection: { count: 1 }, filamentSessionSnapshot: { count: 1 },
+    });
 
     // The direct path is a Worker event rather than a renderer-side guess.
     channel.post({ type: 'history-diagnostic', diagnostic: { kind: 'restore', path: 'direct', durationMs: 1 } });
