@@ -151,16 +151,13 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(towerCommit).toHaveBeenCalledWith(wipe);
   });
 
-  it('rejects unselectable non-current towers and blocks a new gesture while the native move is busy', () => {
+  it('allows every eligible tower and blocks a new gesture while the native move is busy', () => {
     const wipe = tower();
     const ordinary = model();
     let busy = false;
     const scene = new SceneInteractionController(() => [ordinary, wipe]);
     scene.setSceneEntityCommitPort({ commit: vi.fn(async () => undefined), busy: () => busy });
 
-    wipe.selectable = false;
-    expect(scene.selectFromHit(wipe, false)).toBe(false);
-    wipe.selectable = true;
     expect(scene.selectFromHit(wipe, false)).toBe(true);
     scene.selectVolumeIds([ordinary.id, wipe.id]);
     expect(scene.selectedWipeTower()).toBeNull();
@@ -191,7 +188,7 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(history.begin).not.toHaveBeenCalled();
   });
 
-  it('reuses matching volumes, disposes replaced/removed volumes, and prunes shared selection on current-plate changes', () => {
+  it('reuses matching volumes, disposes replaced/removed volumes, and preserves non-current selection', () => {
     const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
     const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };
     const project = (currentPlateId: string, width = 20) => ({ ok: true as const, version: 1 as const, currentPlateId, buildArea: tower().projection.buildArea, plates: [
@@ -212,9 +209,9 @@ describe('WipeTowerVolume shared scene integration', () => {
     scene.toggleGizmo('move');
     collection.setProjection(project('plate-2', 30), session);
     scene.pruneSelection();
-    expect(scene.selection.empty).toBe(true);
-    expect(scene.gizmo).toBeNull();
-    expect(collection.volumes[0]!.selectable).toBe(false);
+    expect(scene.selectedWipeTower()?.plateId).toBe('plate-1');
+    expect(scene.gizmo).toBe('move');
+    expect(collection.volumes[0]!.selectable).toBe(true);
     expect(collection.volumes[1]!.selectable).toBe(true);
     const removed = collection.volumes[1]!;
     const removedDispose = vi.spyOn(removed, 'dispose');

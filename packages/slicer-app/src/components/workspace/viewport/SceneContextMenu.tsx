@@ -44,7 +44,7 @@ import {
 } from '../actions/sceneActions';
 import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
 import { useObjectListStore } from '../objectList/useObjectListStore';
-import { pickTopmostModelVolume, topmostCurrentPrimeTowerHit } from './buildPlatePointerOcclusion';
+import { pickTopmostModelVolume, topmostPrimeTowerHit } from './buildPlatePointerOcclusion';
 import type { SceneInteractionController } from './SceneInteractionController';
 
 // Icon per primitive matching the engine's label; the labels equal the
@@ -294,5 +294,5 @@ function pointHitsPrimeTower(state: RootState, point: { x: number; y: number }):
     (point.x / rect.width) * 2 - 1,
     -(point.y / rect.height) * 2 + 1,
   ), state.camera);
-  return topmostCurrentPrimeTowerHit(state.raycaster.intersectObjects(state.scene.children, true));
+  return topmostPrimeTowerHit(state.raycaster.intersectObjects(state.scene.children, true));
 }

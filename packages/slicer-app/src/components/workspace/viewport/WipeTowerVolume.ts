@@ -184,7 +184,10 @@ export class WipeTowerVolumeCollection {
         && priorVolume.projection.height === plate.height
         ? priorVolume : new WipeTowerVolume(plate, sessionPlate.origin, ordinal);
       volume.reconcile(plate, sessionPlate.origin);
-      volume.selectable = plate.plateId === projection.currentPlateId;
+      // Every eligible tower is a first-class scene target.  Its plate-local
+      // identity is carried by the volume and the native move command; the
+      // current plate only controls which plate is active for slicing.
+      volume.selectable = true;
       next.push(volume);
     });
     for (const volume of this.volumesState) if (!next.includes(volume)) volume.dispose();

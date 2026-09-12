@@ -6,9 +6,8 @@ import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
-const PROJECT_PATH = process.env.ORCA_E2E_PRIME_TOWER_PROJECT
-  ? resolve(process.env.ORCA_E2E_PRIME_TOWER_PROJECT)
-  : 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-h2d.3mf';
+const configuredProjectPath = process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim();
+const PROJECT_PATH = configuredProjectPath ? resolve(configuredProjectPath) : '';
 const PROJECT_FILE_NAME = basename(PROJECT_PATH);
 const PROJECT_NAME = PROJECT_FILE_NAME.replace(/\.3mf$/i, '');
 const REAL = process.env.ORCA_E2E_REAL === '1';
@@ -43,6 +42,7 @@ test('commits the requested multi-plate project before dependent E2E assertions'
     ...process.env,
     ORCA_E2E: '1',
     ORCA_E2E_REAL: '1',
+    ORCA_E2E_PRIME_TOWER_PROJECT: PROJECT_PATH,
     ORCA_E2E_MODEL: PROJECT_PATH,
     ORCA_E2E_PREFERENCES: preferencesPath,
   } as Record<string, string>;

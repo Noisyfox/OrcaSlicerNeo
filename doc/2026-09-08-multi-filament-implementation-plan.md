@@ -1593,9 +1593,12 @@ Preview toolpath rendering.
 1. Render every eligible plate's estimated tower as equal depth-wise,
    approximately 0.66-alpha filament-colour bands. Do not draw brim geometry or
    replace the proxy with the post-slice mesh.
-2. Only the current plate tower is pickable. It is scene-only and absent from
-   Object List and context menus. Selection keeps band colours, shows selection
-   bounds, and exposes an X/Y-only Move gizmo with no rotate, scale, or Z path.
+2. Every eligible displayed-plate tower is pickable. Each tower is scene-only
+   and absent from Object List and context menus. Selection keeps band colours,
+   shows selection bounds, and exposes an X/Y-only Move gizmo with no rotate,
+   scale, or Z path. A move retains the selected tower's plateId, local origin,
+   and build-area clamp; it never switches the current plate or reassigns the
+   tower to another plate.
 3. Direct body drag and the Move gizmo maintain local transient movement during
    the gesture and issue exactly one Step 12 command on successful pointer-up.
    Cancelled gestures write nothing. Switching plate, disabling, or removing a
@@ -1617,10 +1620,13 @@ contains no proxy. Pass means the visible behaviour matches the spec without
 regressing ordinary scene interaction.
 
 **Step 14 implementation record (2026-09-11):** Prepare now consumes the native
-per-plate projection as scene-only equal depth bands, keeps only the current
-plate selectable, and routes local body/gizmo gestures through one typed move
-command on release. Selection, bounds, X/Y-only gizmo state, cancellation, and
-native reconciliation remain outside the model/Object List history path. The
+per-plate projection as scene-only equal depth bands, keeps every eligible
+displayed-plate tower selectable, and routes local body/gizmo gestures through
+one typed move command on release. Selection, bounds, X/Y-only gizmo state,
+cancellation, and native reconciliation remain outside the model/Object List
+history path. A non-current tower keeps its own plateId and local origin during
+selection, transient drag, native clamp, and Undo/Redo; crossing another
+plate's world area never reassigns it or changes the current plate. The
 shared external pointer owner prevents OrbitControls from joining body/gizmo
 gestures, and context-menu suppression uses the ordered topmost hit after bed
 occlusion filtering. The mock fixture now supplies an explicit eligible tower
@@ -1728,6 +1734,13 @@ the native per-plate `wipe_tower_x/y` projection is published before the
 shared mutation lease is released, so the released position does not snap back
 and Undo/Redo restores the same per-plate coordinates without slice-result or
 full-bundle history.
+All eligible towers use that same shared interaction and BVH/raycast path,
+including towers on non-current displayed plates. The selected volume's plateId
+is retained for the entire gesture and native move; pointer travel across a
+neighbouring plate's world area is clamped against the original plate's local
+footprint/build area. The current plate, other towers, and plate-session
+identity remain unchanged, while the narrow history entry and Undo/Redo restore
+only the moved plate's coordinates.
 The focused Electron assertion is `apps/desktop/e2e/prime-tower.e2e.ts` with
 grep `Prepare prime tower uses real canvas selection`; the threaded project
 fixture's body-release, native-coordinate persistence, and history path are

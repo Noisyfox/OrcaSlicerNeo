@@ -312,10 +312,53 @@ test('Prepare prime tower uses real canvas selection, body/gizmo gestures, and n
     await page.mouse.up();
     await expect.poll(readCamera).not.toEqual(cameraBeforeRecovery);
 
-    // Non-current tower body never selects; it is tested after the active
-    // gesture so the ordinary current-plate selection remains armed above.
+    // Every eligible tower shares the ordinary GLVolumeMesh interaction path.
+    // A non-current tower remains plate-local: selecting/dragging it must not
+    // switch the active plate or mutate the current tower.
     await page.mouse.click((await screenForWorld(otherCenter)).x, (await screenForWorld(otherCenter)).y);
-    await expect.poll(readSelection).not.toBe(other!.plateId);
+    await expect.poll(readSelection).toBe(other!.plateId);
+    const currentBeforeOtherDrag = (await readTowers()).find((tower) => tower.current)!;
+    const otherBeforeDrag = (await readTowers()).find((tower) => tower.plateId === other!.plateId)!;
+    const historyBeforeOther = await readHistoryUntilEntries();
+    const otherCanvasBox = await canvas.boundingBox();
+    expect(otherCanvasBox).not.toBeNull();
+    const otherDragTargets = [
+      { x: otherCanvasBox!.x - 800, y: otherCanvasBox!.y - 800 },
+      { x: otherCanvasBox!.x + otherCanvasBox!.width + 800, y: otherCanvasBox!.y - 800 },
+      { x: otherCanvasBox!.x - 800, y: otherCanvasBox!.y + otherCanvasBox!.height + 800 },
+      { x: otherCanvasBox!.x + otherCanvasBox!.width + 800, y: otherCanvasBox!.y + otherCanvasBox!.height + 800 },
+    ];
+    await page.mouse.move((await screenForWorld(otherCenter)).x, (await screenForWorld(otherCenter)).y);
+    await page.mouse.down();
+    let otherDrafted = false;
+    for (const target of otherDragTargets) {
+      await page.mouse.move(target.x, target.y, { steps: 4 });
+      const draft = (await readTowers()).find((tower) => tower.plateId === other!.plateId)?.position;
+      if (draft && (draft.x !== otherBeforeDrag.position.x || draft.y !== otherBeforeDrag.position.y)) {
+        otherDrafted = true;
+        break;
+      }
+    }
+    expect(otherDrafted, 'a non-current Prime Tower should produce a local draft').toBe(true);
+    await page.mouse.up();
+    await expect.poll(readMoves).toBe(3);
+    await expect.poll(async () => {
+      const history = await readHistoryUntilEntries();
+      return history.undoLabels.length === historyBeforeOther.undoLabels.length + 1
+        && history.undoLabels[0] === 'Move Prime Tower';
+    }).toBe(true);
+    const otherMoved = (await readTowers()).find((tower) => tower.plateId === other!.plateId)!;
+    expect(otherMoved.position).not.toEqual(otherBeforeDrag.position);
+    expect((await readTowers()).find((tower) => tower.current)?.position).toEqual(currentBeforeOtherDrag.position);
+    expect(await readSelection()).not.toBe(current!.plateId);
+    await page.getByTestId('history-undo').click();
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.plateId === other!.plateId)?.position)
+      .toEqual(otherBeforeDrag.position);
+    expect((await readTowers()).find((tower) => tower.current)?.position).toEqual(currentBeforeOtherDrag.position);
+    await page.getByTestId('history-redo').click();
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.plateId === other!.plateId)?.position)
+      .toEqual(otherMoved.position);
+    expect(await readSelection()).not.toBe(current!.plateId);
 
     await page.locator('#app-tab-preview').click();
     await expect(page.locator('#app-panel-workspace')).toHaveAttribute('aria-hidden', 'false');

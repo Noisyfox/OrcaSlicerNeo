@@ -76,7 +76,7 @@ export function GLVolumeMesh({ data, interactive = true, preview = false, struct
     <group ref={volumeGroupRef}>
       <group
         userData={{ orcaRaycastRole: data instanceof WipeTowerVolume ? 'prime-tower' : MODEL_BODY_RAYCAST, orcaVolume: data,
-          ...(data instanceof WipeTowerVolume ? { plateId: data.plateId, plateCurrent: interactive, primeTower: true } : {}) }}
+          ...(data instanceof WipeTowerVolume ? { plateId: data.plateId, primeTower: true } : {}) }}
         onPointerDown={interactive ? (event) => {
           if (event.nativeEvent.button !== 0) return;
           onModelSelection?.();

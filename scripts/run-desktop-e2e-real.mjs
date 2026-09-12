@@ -3,6 +3,10 @@ import { cp } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 const command = (name) => process.platform === 'win32' ? `${name}.cmd` : name;
+const projectPath = process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim();
+if (!projectPath) {
+  throw new Error('ORCA_E2E_PRIME_TOWER_PROJECT must name the exact real 3MF used by acceptance');
+}
 const env = {
   ...process.env,
   ORCA_E2E_REAL: '1',
@@ -13,8 +17,7 @@ const env = {
   // Keep the stable semantic viewport hooks in the real acceptance bundle;
   // this is a test-only Vite flag and is never set by production hosts.
   VITE_E2E: '1',
-  ORCA_E2E_PRIME_TOWER_PROJECT: process.env.ORCA_E2E_PRIME_TOWER_PROJECT
-    ?? 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-h2d.3mf',
+  ORCA_E2E_PRIME_TOWER_PROJECT: projectPath,
 };
 // The focused real run proves native DRC import through Electron without
 // substituting its small fixture into unrelated 20 mm STL regressions.

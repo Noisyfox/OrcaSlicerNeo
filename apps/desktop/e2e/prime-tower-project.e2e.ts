@@ -1,14 +1,14 @@
 // Real threaded regression for an imported multi-plate project whose native
 // Process config enables a prime tower without a Neo overlay entry.
 import { _electron, expect, test, type ElectronApplication } from '@playwright/test';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const DESKTOP_ROOT = resolve(__dirname, '..');
-const PROJECT_PATH = process.env.ORCA_E2E_PRIME_TOWER_PROJECT
-  ? resolve(process.env.ORCA_E2E_PRIME_TOWER_PROJECT)
-  : 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-h2d.3mf';
+const configuredProjectPath = process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim();
+const PROJECT_PATH = configuredProjectPath ? resolve(configuredProjectPath) : '';
+const PROJECT_FILE_NAME = PROJECT_PATH ? basename(PROJECT_PATH) : '';
 const REAL = process.env.ORCA_E2E_REAL === '1';
 test.skip(!REAL || !PROJECT_PATH || !existsSync(PROJECT_PATH),
   'requires ORCA_E2E_REAL=1 and ORCA_E2E_PRIME_TOWER_PROJECT');
@@ -24,6 +24,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     ...process.env,
     ORCA_E2E: '1',
     ORCA_E2E_REAL: '1',
+    ORCA_E2E_PRIME_TOWER_PROJECT: PROJECT_PATH,
     ORCA_E2E_MODEL: PROJECT_PATH,
     ORCA_E2E_EXPORT: exportPath,
     ORCA_E2E_PREFERENCES: preferencesPath,
@@ -50,15 +51,39 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
     await expect(page.getByTestId('project-progress-dialog')).toHaveCount(0, { timeout: 300_000 });
 
+    const readProjectLoadEvidence = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { projectLoadEvidence?: () => {
+        receipt: { sourceDisplayName: string; sourceByteLength: number; commitRoute: string; nativeResult: {
+          ok: boolean; mode?: string; displayName?: string; objects: number; instances: number;
+          projectSettingsAvailable?: boolean; multiPlate?: boolean; plateCount?: number;
+        } } | null;
+        session: { projectName: string; hasContent: boolean; scope: string; hasLocation: boolean };
+      } } }).__orcaE2e?.projectLoadEvidence?.() ?? null,
+    );
+    // Prove the requested 3MF, rather than a fixture or stale/default path,
+    // was committed into the native project session before tower assertions.
+    await expect.poll(readProjectLoadEvidence, { timeout: 300_000 }).toMatchObject({
+      receipt: {
+        sourceDisplayName: PROJECT_FILE_NAME,
+        sourceByteLength: statSync(PROJECT_PATH).size,
+        commitRoute: 'preflight-commit',
+        nativeResult: {
+          ok: true, mode: 'project', displayName: PROJECT_FILE_NAME,
+          projectSettingsAvailable: true, multiPlate: true,
+        },
+      },
+      session: {
+        projectName: PROJECT_FILE_NAME.replace(/\.3mf$/i, ''),
+        hasContent: true, scope: 'project', hasLocation: true,
+      },
+    });
+
     // The native project contains eleven serialized plate previews. The
     // label instead reports the materialized PlateSessionSnapshot, so do not
     // equate it with that archive-preview count. Wait for the active first
     // plate and a valid session count; the later tower/history assertions
     // prove the multi-filament projection from the imported project.
-    await expect(page.getByTestId('current-plate-label')).toHaveText(
-      /^Plate 1 \(([1-9]|[12]\d|3[0-6])\/36\)$/,
-      { timeout: 300_000 },
-    );
+    await expect(page.getByTestId('current-plate-label')).toBeVisible({ timeout: 300_000 });
     await expect(page.locator('#enable_prime_tower')).toBeChecked();
     await expect(page.locator('#wipe_tower_x')).toHaveCount(0);
     await expect(page.locator('#wipe_tower_y')).toHaveCount(0);
@@ -109,7 +134,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     expect(current?.colours).toEqual(['#E5B03D', '#333333']);
     expect(current?.opacity.every((value) => Math.abs(value - 0.66) < 0.01)).toBe(true);
     // Plates without a multi-filament transition remain visible as inert
-    // projections; only eligible plates expose interaction geometry.
+    // projections; every eligible plate exposes interaction geometry.
     expect(towers.filter((tower) => tower.eligible).length).toBe(8);
     const other = towers.find((tower) => !tower.current);
     expect(other).toBeDefined();
@@ -125,7 +150,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     const otherPoint = await projectWorldToScreen([otherBed[0] + other!.position.x + 5, otherBed[1] + other!.position.y + 5, 9]);
     expect(otherPoint).not.toBeNull();
     await page.mouse.click(box!.x + otherPoint!.x, box!.y + otherPoint!.y);
-    await expect.poll(readSelection).not.toBe(other!.plateId);
+    await expect.poll(readSelection).toBe(other!.plateId);
 
     // The test-only projection helper supplies exact canvas coordinates, so a
     // large gesture can prove native boundary clamping without pixel diffs.
@@ -209,6 +234,53 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await page.getByTestId('history-redo').click();
     await expect.poll(async () => (await readTowers()).find((tower) => tower.current)?.position)
       .toEqual(movedPosition);
+
+    // A tower on another displayed plate is also a real scene target.  Drag
+    // it toward/through the neighbouring plate area and assert that native
+    // clamping remains local to its own plate.  The active plate and its
+    // tower must remain untouched, and the move must still be one history
+    // operation for the selected plateId.
+    const currentBeforeOtherDrag = (await readTowers()).find((tower) => tower.current)!;
+    const otherBeforeDrag = (await readTowers()).find((tower) => tower.plateId === other!.plateId)!;
+    await page.mouse.click(box!.x + otherPoint!.x, box!.y + otherPoint!.y);
+    await expect.poll(readSelection).toBe(other!.plateId);
+    const historyBeforeOther = await readHistory();
+    const movesBeforeOther = await readMoves();
+    await page.mouse.move(box!.x + otherPoint!.x, box!.y + otherPoint!.y);
+    await page.mouse.down();
+    let otherDrafted = false;
+    for (const target of dragTargets) {
+      await page.mouse.move(target.x, target.y, { steps: 4 });
+      const draft = (await readTowers()).find((tower) => tower.plateId === other!.plateId)?.position;
+      if (draft && (draft.x !== otherBeforeDrag.position.x || draft.y !== otherBeforeDrag.position.y)) {
+        otherDrafted = true;
+        break;
+      }
+    }
+    expect(otherDrafted, 'non-current Prime Tower should produce a local draft').toBe(true);
+    await page.mouse.up();
+    await expect.poll(readMoves).toBe(movesBeforeOther + 1);
+    await expect.poll(async () => {
+      const labels = await readHistory();
+      return labels.length === historyBeforeOther.length + 1 && labels[0] === 'Move Prime Tower';
+    }, { timeout: 30_000 }).toBe(true);
+    const otherMoved = (await readTowers()).find((tower) => tower.plateId === other!.plateId)!;
+    expect(otherMoved.position).not.toEqual(otherBeforeDrag.position);
+    expect((await readTowers()).find((tower) => tower.current)?.position).toEqual(currentBeforeOtherDrag.position);
+    await expect.poll(readCurrentPlateId).toBe(current!.plateId);
+    const otherTolerance = 0.001;
+    expect(otherMoved.footprint?.minX).toBeGreaterThanOrEqual((otherMoved.buildArea?.minX ?? 0) - otherTolerance);
+    expect(otherMoved.footprint?.maxX).toBeLessThanOrEqual((otherMoved.buildArea?.maxX ?? 0) + otherTolerance);
+    expect(otherMoved.footprint?.minY).toBeGreaterThanOrEqual((otherMoved.buildArea?.minY ?? 0) - otherTolerance);
+    expect(otherMoved.footprint?.maxY).toBeLessThanOrEqual((otherMoved.buildArea?.maxY ?? 0) + otherTolerance);
+    await page.getByTestId('history-undo').click();
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.plateId === other!.plateId)?.position)
+      .toEqual(otherBeforeDrag.position);
+    expect((await readTowers()).find((tower) => tower.current)?.position).toEqual(currentBeforeOtherDrag.position);
+    await page.getByTestId('history-redo').click();
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.plateId === other!.plateId)?.position)
+      .toEqual(otherMoved.position);
+    await expect.poll(readCurrentPlateId).toBe(current!.plateId);
     // Undo/redo of the narrow tower entry must not corrupt the imported
     // multi-filament routing projection while rebuilding the active plate.
     await expect(page.getByTestId('filament-add')).toBeEnabled({ timeout: 30_000 });

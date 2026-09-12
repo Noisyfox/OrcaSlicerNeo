@@ -6,7 +6,7 @@ import {
   filterBuildPlateOccludedIntersections,
   MODEL_BODY_RAYCAST,
   pickTopmostModelVolume,
-  topmostCurrentPrimeTowerHit,
+  topmostPrimeTowerHit,
 } from './buildPlatePointerOcclusion';
 import { GLVolume } from './GLVolume';
 
@@ -70,18 +70,17 @@ describe('filterBuildPlateOccludedIntersections', () => {
     expect(filterBuildPlateOccludedIntersections([plate, gizmo])).toEqual([gizmo]);
   });
 
-  it('does not treat a current tower behind a model as the context-menu target', () => {
+  it('does not treat a tower behind a model as the context-menu target', () => {
     const tower = object();
     tower.userData.primeTower = true;
-    tower.userData.plateCurrent = true;
     const towerBand = object();
     tower.add(towerBand);
     const body = object(MODEL_BODY_RAYCAST);
-    expect(topmostCurrentPrimeTowerHit([
+    expect(topmostPrimeTowerHit([
       { distance: 8, object: body },
       { distance: 12, object: towerBand },
     ])).toBe(false);
-    expect(topmostCurrentPrimeTowerHit([
+    expect(topmostPrimeTowerHit([
       { distance: 8, object: towerBand },
       { distance: 12, object: body },
     ])).toBe(true);
@@ -90,15 +89,23 @@ describe('filterBuildPlateOccludedIntersections', () => {
   it('keeps a nested model hit ahead of a tower in context-menu ordering', () => {
     const tower = object();
     tower.userData.primeTower = true;
-    tower.userData.plateCurrent = true;
     const towerBand = object();
     tower.add(towerBand);
     const modelGroup = object(MODEL_BODY_RAYCAST);
     const modelMesh = object();
     modelGroup.add(modelMesh);
-    expect(topmostCurrentPrimeTowerHit([
+    expect(topmostPrimeTowerHit([
       { distance: 8, object: modelMesh },
       { distance: 12, object: towerBand },
     ])).toBe(false);
+  });
+
+  it('recognizes a non-current tower through its nested band mesh', () => {
+    const tower = object();
+    tower.userData.primeTower = true;
+    tower.userData.plateId = 'plate-2';
+    const towerBand = object();
+    tower.add(towerBand);
+    expect(topmostPrimeTowerHit([{ distance: 4, object: towerBand }])).toBe(true);
   });
 });
