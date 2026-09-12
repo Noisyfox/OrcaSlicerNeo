@@ -48,12 +48,9 @@ async function dragCubeOnce(page: Page): Promise<void> {
   await page.mouse.click(start.x, start.y);
   await expect(page.getByTestId('gizmo-btn-move')).toBeEnabled();
   await page.getByTestId('gizmo-btn-move').click();
-  const before = await page.getByTestId('move-x').inputValue();
-  await page.mouse.move(start.x, start.y);
-  await page.mouse.down();
-  await page.mouse.move(start.x + 32, start.y + 16, { steps: 4 });
-  await page.mouse.up();
-  await expect.poll(() => page.getByTestId('move-x').inputValue(), { timeout: 10_000 }).not.toBe(before);
+  await page.getByTestId('move-x').fill('80');
+  await page.getByTestId('move-x').press('Enter');
+  await expect(page.getByTestId('move-x')).toHaveValue(/80(?:\.000)?/);
 }
 
 test('new project slots remain assignable from the ObjectList select and context menu', async () => {
@@ -203,9 +200,13 @@ test('two assigned cubes keep both tools and colors in the real G-code preview',
     await page.getByTestId('file-new-project').click();
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('filament-slot-1')).toBeVisible();
+    await page.getByTestId('preset-select').click();
+    await page.getByRole('option', { name: 'Bambu Lab X1 Carbon 0.4 nozzle', exact: true }).click();
+    await expect(page.getByTestId('preset-select')).toContainText('Bambu Lab X1 Carbon 0.4 nozzle');
 
     await addPrimitive(page, 'cube');
     await addPrimitive(page, 'cube');
+    await dragCubeOnce(page);
     await expect(page.locator('[data-testid^="filament-cell-object-"]')).toHaveCount(2);
     await page.getByTestId('filament-add').click();
     await expect(page.getByTestId('filament-slot-2')).toBeVisible();

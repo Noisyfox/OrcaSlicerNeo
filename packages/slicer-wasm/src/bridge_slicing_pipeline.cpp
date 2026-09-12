@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "bridge_buffers.hpp"
+#include "bridge_filament.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
@@ -299,6 +300,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             // substitutions.unrecogized_keys, which we surface below.
             config.set_deserialize(key, value, substitutions);
         }
+        const DynamicPrintConfig native_full_config = state().presets.full_config(false);
         // Project overrides and imported plate settings are canonical Worker state and win over
         // any renderer payload supplied for this slice request.  PlateData
         // carries native per-plate filament/tool mappings (for example a
@@ -309,7 +311,19 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         if (const auto* plate = find_plate(plate_id))
             config.apply(plate->settings, true);
         apply_overlay_to_config(config, state().project_config_overlay["project"]);
-        if (const auto* plate = find_plate(plate_id)) {
+        // Plater's full_config() is assembled from every active filament
+        // preset. The renderer settings projection uses scalars for compact
+        // values, so restore native multi-slot vectors once after every
+        // overlay has been composed. Explicit JSON arrays remain authoritative.
+        for (const std::string& key : native_full_config.keys()) {
+            const auto* native_option = native_full_config.option(key);
+            const auto* requested_option = config.option(key, false);
+            if (native_option == nullptr || requested_option == nullptr ||
+                !native_option->is_vector() || native_option->is_nil())
+                continue;
+            const auto* native_vector = static_cast<const ConfigOptionVectorBase*>(native_option);
+            if (native_vector->size() > 1 && cfg.contains(key) && !cfg[key].is_array())
+                config.set_key_value(key, native_option->clone());
         }
         config.normalize_fdm();
         // Fix round 3: validate() invariant guarantee. A Marlin flavor with
@@ -540,22 +554,28 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         // default entries are not authoritative for a sliced project.
         // Plate-local geometry remains in the active Print; palette ownership
         // deliberately follows Orca's project-level configuration path.
-        DynamicPrintConfig preview_config = state().presets.project_config;
-        const auto* active_filament_colors =
-            preview_config.option<ConfigOptionStrings>("filament_colour");
+        // Read the live PresetBundle project config directly.  DynamicPrintConfig's
+        // copy path is intentionally a normalized print-config carrier and can
+        // omit project-only vector options such as filament_colour; Orca's
+        // Plater path reads PresetBundle::project_config in place as well.
+        const json filament_session = Filament::Session::filament_session_snapshot_json();
+        const json* active_slots = filament_session.value("ok", false) &&
+                filament_session.contains("slots") && filament_session["slots"].is_array()
+            ? &filament_session["slots"] : nullptr;
         json extruder_palette = json::array();
-        const size_t active_color_count = active_filament_colors
-            ? active_filament_colors->values.size() : 0;
+        const size_t active_color_count = active_slots ? active_slots->size() : 0;
         const size_t palette_count = active_color_count > 0
             ? active_color_count : gcode_result.extruder_colors.size();
         for (size_t tool = 0; tool < palette_count; ++tool) {
             ColorRGB color;
-            const std::string* source_color = nullptr;
-            if (active_filament_colors && tool < active_color_count)
-                source_color = &active_filament_colors->values[tool];
+            std::string source_color;
+            if (active_slots && tool < active_color_count &&
+                (*active_slots)[tool].is_object() &&
+                (*active_slots)[tool]["colour"].is_object())
+                source_color = (*active_slots)[tool]["colour"].value("effective", "");
             else if (tool < gcode_result.extruder_colors.size())
-                source_color = &gcode_result.extruder_colors[tool];
-            if (source_color == nullptr || !decode_color(*source_color, color)) continue;
+                source_color = gcode_result.extruder_colors[tool];
+            if (source_color.empty() || !decode_color(source_color, color)) continue;
             const std::string name = tool < gcode_result.settings_ids.filament.size() &&
                     !gcode_result.settings_ids.filament[tool].empty()
                 ? gcode_result.settings_ids.filament[tool]
