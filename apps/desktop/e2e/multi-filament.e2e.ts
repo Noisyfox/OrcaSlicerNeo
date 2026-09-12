@@ -192,3 +192,76 @@ test('filament rack remains enabled during history restore', async () => {
     await app.close();
   }
 });
+
+test.skip(!REAL, 'requires ORCA_E2E_REAL=1 and the threaded WASM acceptance runner');
+test('two assigned cubes keep both tools and colors in the real G-code preview', async () => {
+  const app = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 300_000 });
+    await page.getByTestId('menu-file-trigger').click();
+    await page.getByTestId('file-new-project').click();
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('filament-slot-1')).toBeVisible();
+
+    await addPrimitive(page, 'cube');
+    await addPrimitive(page, 'cube');
+    await expect(page.locator('[data-testid^="filament-cell-object-"]')).toHaveCount(2);
+    await page.getByTestId('filament-add').click();
+    await expect(page.getByTestId('filament-slot-2')).toBeVisible();
+
+    // Use the same native colour mutation as the rack, with deterministic
+    // values so the bridge palette and uploaded GPU colours are exact.
+    for (const [slot, colour] of [[1, '#ff0000'], [2, '#0000ff']] as const) {
+      const input = page.getByTestId(`filament-colour-${slot}`);
+      await input.evaluate((element, value) => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(element, value);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      }, colour);
+      await expect(input).toHaveValue(colour);
+      await expect(page.getByTestId(`filament-slot-${slot}`)).toHaveAttribute('aria-busy', 'false');
+    }
+
+    const assignments = page.locator('[data-testid^="filament-cell-object-"]');
+    await assignments.nth(0).click();
+    await page.locator('[role="option"]:visible').filter({ hasText: /^Slot 1$/ }).first().click();
+    await assignments.nth(1).click();
+    await page.locator('[role="option"]:visible').filter({ hasText: /^Slot 2$/ }).last().click();
+    await expect(assignments.nth(1)).toContainText('Slot 2');
+
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 300_000 });
+    await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('preview-color-scheme').click();
+    await page.getByTestId('preview-color-scheme-filament').click();
+    await expect(page.getByTestId('preview-scheme-visibility-filament-0')).toBeVisible();
+    await expect(page.getByTestId('preview-scheme-visibility-filament-1')).toBeVisible();
+
+    const evidence = () => page.evaluate(() => (window as unknown as {
+      __orcaE2e?: {
+        previewEvidence?: () => {
+          extrusionTools: number[];
+          toolChanges: number[];
+          palette: Array<{ tool: number; color: number[] }>;
+          renderedColors: Array<[number, number, number]>;
+        } | null;
+      };
+    }).__orcaE2e?.previewEvidence?.() ?? null);
+    await expect.poll(evidence, { timeout: 30_000 }).toEqual(expect.objectContaining({
+      extrusionTools: expect.arrayContaining([0, 1]),
+      toolChanges: expect.arrayContaining([1]),
+      palette: expect.arrayContaining([
+        expect.objectContaining({ tool: 0, color: [255, 0, 0] }),
+        expect.objectContaining({ tool: 1, color: [0, 0, 255] }),
+      ]),
+      renderedColors: expect.arrayContaining([
+        [1, 0, 0],
+        [0, 0, 1],
+      ]),
+    }));
+  } finally {
+    await app.close();
+  }
+});

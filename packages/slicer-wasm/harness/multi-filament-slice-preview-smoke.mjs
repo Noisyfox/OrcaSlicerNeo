@@ -55,6 +55,13 @@ while (session.slots.length < 2) {
 }
 const alternate = session.slots[1];
 assert.ok(alternate, JSON.stringify(session));
+for (const [slot, colour] of [[1, '#FF0000'], [alternate.slot, '#0000FF']]) {
+  const coloured = request('orc_set_filament_slot_colour', {
+    version: 1, revision: session.revisions.session, slot, colour,
+  });
+  assert.equal(coloured.ok, true, JSON.stringify(coloured));
+  session = coloured.result.snapshot;
+}
 // Deliberately make the two slots' recommended temperature ranges disjoint.
 // The first slice still uses only slot 1 and must pass; after the second
 // object is assigned slot 2, native Print::validate must reject the same
@@ -104,9 +111,23 @@ assert.equal(preview.preview_version, 2, JSON.stringify(preview));
 const count = Number(preview.toolpath?.segment_count ?? 0);
 assert.ok(count > 0, JSON.stringify(preview));
 const extruderIds = new Uint8Array(readBytes(preview.toolpath.extruder_id_ptr, count));
+const moveTypes = new Uint8Array(readBytes(preview.toolpath.move_type_ptr, count));
+// Slic3r::EMoveType::Extrude is 10 in the pinned Orca source. Travel and
+// tool-change moves carry an extruder id too, so only extrusion moves prove
+// that both assigned objects retained their native tool through export.
+const extrusionTools = [...new Set(extruderIds.filter((_, index) => moveTypes[index] === 10))]
+  .sort((a, b) => a - b);
 const uniqueTools = [...new Set(extruderIds)].sort((a, b) => a - b);
 assert.ok(uniqueTools.includes(0) && uniqueTools.includes(alternate.slot - 1), JSON.stringify({ uniqueTools, alternate: alternate.slot }));
-assert.ok(preview.metadata?.extruder_palette?.some((entry) => entry.tool === alternate.slot - 1), JSON.stringify(preview.metadata));
+assert.ok(extrusionTools.includes(0) && extrusionTools.includes(alternate.slot - 1), JSON.stringify({ extrusionTools, uniqueTools }));
+const palette = preview.metadata?.extruder_palette ?? [];
+assert.deepEqual(palette.find((entry) => entry.tool === 0)?.color, [255, 0, 0], JSON.stringify(palette));
+assert.deepEqual(palette.find((entry) => entry.tool === alternate.slot - 1)?.color, [0, 0, 255], JSON.stringify(palette));
+assert.notDeepEqual(
+  palette.find((entry) => entry.tool === 0)?.color,
+  palette.find((entry) => entry.tool === alternate.slot - 1)?.color,
+  JSON.stringify(palette),
+);
 
 const gcode = Buffer.from(Module.FS.readFile('/out.gcode')).toString('utf8');
 const toolChanges = [...gcode.matchAll(/^T(\d+)\s*$/gm)]
@@ -123,7 +144,8 @@ console.log(JSON.stringify({
   segments: count,
   oneSlot: { segments: oneSlotCount, tools: oneSlotTools },
   tools: uniqueTools,
+  extrusionTools,
   toolChanges,
-  palette: preview.metadata.extruder_palette,
+  palette,
   gcodeSemantics: { temperature: true, flushingOrPrimeTower: true },
 }, null, 2));

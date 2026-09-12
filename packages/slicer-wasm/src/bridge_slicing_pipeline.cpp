@@ -533,24 +533,29 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                          {"first_segment", range.first},
                                          {"segment_count", range.count}});
 
-        // A normal Orca preview uses the project filament_colour palette,
-        // indexed by logical filament slot. GCodeProcessorResult owns the
-        // equivalent palette for standalone G-code viewer input, but its
-        // default orange entries are not authoritative for a sliced project.
-        // Keep its values as a fallback for configs without a project palette.
+        // Match Orca's Plater::get_extruder_colors_from_plater_config() path:
+        // a sliced project uses PresetBundle::project_config's filament_colour
+        // palette, indexed by logical filament slot. GCodeProcessorResult owns
+        // the equivalent palette for standalone G-code viewer input, but its
+        // default entries are not authoritative for a sliced project.
+        // Plate-local geometry remains in the active Print; palette ownership
+        // deliberately follows Orca's project-level configuration path.
         DynamicPrintConfig preview_config = state().presets.project_config;
-        apply_overlay_to_config(preview_config, state().project_config_overlay["project"]);
-        const auto* project_filament_colors =
+        const auto* active_filament_colors =
             preview_config.option<ConfigOptionStrings>("filament_colour");
         json extruder_palette = json::array();
-        for (size_t tool = 0; tool < gcode_result.extruder_colors.size(); ++tool) {
+        const size_t active_color_count = active_filament_colors
+            ? active_filament_colors->values.size() : 0;
+        const size_t palette_count = active_color_count > 0
+            ? active_color_count : gcode_result.extruder_colors.size();
+        for (size_t tool = 0; tool < palette_count; ++tool) {
             ColorRGB color;
             const std::string* source_color = nullptr;
-            if (project_filament_colors && tool < project_filament_colors->values.size())
-                source_color = &project_filament_colors->values[tool];
-            else
+            if (active_filament_colors && tool < active_color_count)
+                source_color = &active_filament_colors->values[tool];
+            else if (tool < gcode_result.extruder_colors.size())
                 source_color = &gcode_result.extruder_colors[tool];
-            if (!decode_color(*source_color, color)) continue;
+            if (source_color == nullptr || !decode_color(*source_color, color)) continue;
             const std::string name = tool < gcode_result.settings_ids.filament.size() &&
                     !gcode_result.settings_ids.filament[tool].empty()
                 ? gcode_result.settings_ids.filament[tool]
