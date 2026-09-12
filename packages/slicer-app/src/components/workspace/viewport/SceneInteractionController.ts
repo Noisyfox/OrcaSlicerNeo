@@ -125,6 +125,15 @@ export class SceneInteractionController {
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
+  /**
+   * A selected body may still turn the current pointer press into a drag.
+   * Context-only history must not take the project lease during this short
+   * arbitration window, or it rejects the same gesture's transform draft.
+   */
+  get bodySelectionHistoryState(): 'idle' | 'pending' | 'dragging' {
+    if (this.pointerOwner === 'body') return 'dragging';
+    return this.pendingBodyDragHit === null ? 'idle' : 'pending';
+  }
   get selectionMode(): SelectionMode { return this.selectionModeState; }
   /** Distinct selected instances — the panels' multi-selection display rule. */
   get selectionInstanceCount(): number {
@@ -551,9 +560,11 @@ export class SceneInteractionController {
   /** Release the pointer-down arbitration latch when no gesture owns it. */
   releasePointer(): void {
     if (this.pointerOwner !== 'none') return;
+    const hadBodyCandidate = this.pendingBodyDragHit !== null;
     this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
-    this.setGizmoGrabberHovered(false);
+    if (this.gizmoGrabberHovered) this.setGizmoGrabberHovered(false);
+    else if (hadBodyCandidate) this.emit();
   }
 
   /** Claim the shared viewport pointer for a scene-only interaction. */

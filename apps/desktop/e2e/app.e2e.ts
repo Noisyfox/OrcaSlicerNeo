@@ -1363,6 +1363,7 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
     await page.setViewportSize({ width: 1280, height: 800 });
     await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
     await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 30_000 });
 
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
     const box = await canvas.boundingBox();
@@ -1380,14 +1381,17 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
     if (!center) throw new Error('cube-center projection unavailable');
     const historyBefore = await page.getByTestId('history-undo').getAttribute('aria-label');
 
-    // Queue the trusted primary down and threshold-crossing move without an
-    // await between them. Separate awaited Playwright calls leave enough time
-    // for React to publish selection, which cannot reproduce the zero-wait
-    // race; DOM-dispatched PointerEvents are not accepted by this R3F path.
+    // Send both native events inside one main-process task. Unlike parallel
+    // Playwright calls, this leaves no renderer turn in which React can first
+    // publish selection before the threshold-crossing movement arrives.
     await page.mouse.move(box.x + center.x, box.y + center.y);
-    const down = page.mouse.down();
-    const firstMove = page.mouse.move(box.x + center.x + 8, box.y + center.y + 4);
-    await Promise.all([down, firstMove]);
+    await page.waitForTimeout(0);
+    await app.evaluate(({ BrowserWindow }, { x, y }) => {
+      const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+      if (!contents) throw new Error('window missing');
+      contents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+      contents.sendInputEvent({ type: 'mouseMove', x: x + 8, y: y + 4, button: 'left' });
+    }, { x: box.x + center.x, y: box.y + center.y });
     await expect
       .poll(() => page.evaluate(() =>
         (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.(),
@@ -1400,7 +1404,9 @@ test('scene selection: an unselected body keeps its first drag gesture', async (
         }).__orcaE2e?.selectionPivotWorld?.(),
       ))
       .not.toEqual([10, 10, 10]);
-    await page.mouse.up();
+    await app.evaluate(({ BrowserWindow }, { x, y }) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+    }, { x: box.x + center.x + 8, y: box.y + center.y + 4 });
 
     await expect
       .poll(() => page.evaluate(() =>

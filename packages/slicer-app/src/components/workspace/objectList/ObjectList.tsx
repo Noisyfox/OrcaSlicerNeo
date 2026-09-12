@@ -75,6 +75,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [lastSelectedKey, setLastSelectedKey] = useState<string | null>(null);
   const lastHistoryContextRef = useRef<string | null>(null);
+  const deferredBodySelectionContextRef = useRef<{ encoded: string; context: HistoryContext } | null>(null);
   const historyContextQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const restorePhase = useHistoryRestoreStore((s) => s.phase);
   const consumeSnapshotSuppression = useHistoryRestoreStore((s) => s.consumeSnapshotSuppression);
@@ -134,8 +135,27 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
         projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
       };
       const encoded = JSON.stringify(context);
-      if (encoded === lastHistoryContextRef.current) return;
-      lastHistoryContextRef.current = encoded;
+      const bodySelectionHistoryState = sceneInteraction.bodySelectionHistoryState;
+      if (bodySelectionHistoryState === 'pending') {
+        // DragControls has not crossed its threshold yet. Writing a
+        // context-only Selection record here takes the project lease before
+        // the same pointer's Move transaction can begin.
+        deferredBodySelectionContextRef.current = { encoded, context };
+        return;
+      }
+      if (bodySelectionHistoryState === 'dragging') {
+        // Move captures this selection in its own before/after context. Do
+        // not insert a competing Selection record after the drag starts.
+        deferredBodySelectionContextRef.current = null;
+        lastHistoryContextRef.current = encoded;
+        return;
+      }
+      const deferred = deferredBodySelectionContextRef.current;
+      deferredBodySelectionContextRef.current = null;
+      const contextToRecord = deferred?.context ?? context;
+      const encodedToRecord = deferred?.encoded ?? encoded;
+      if (encodedToRecord === lastHistoryContextRef.current) return;
+      lastHistoryContextRef.current = encodedToRecord;
       historyContextQueueRef.current = historyContextQueueRef.current
         .then(() => {
           // A selection projection can queue just before a native history
@@ -144,7 +164,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
           // entries restored by the Worker.
           const restore = useHistoryRestoreStore.getState();
           if (restore.phase !== 'idle' || restore.snapshotSuppressed) return;
-          return recordHistoryContext(platform, 'Selection', context);
+          return recordHistoryContext(platform, 'Selection', contextToRecord);
         })
         .catch((error) => { console.warn('selection history context unavailable', error); });
     };

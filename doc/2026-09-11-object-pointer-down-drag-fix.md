@@ -4,8 +4,9 @@ Date: 2026-09-11
 Status: Verified
 Scope: Restore the existing viewport contract that a primary press on an
 unselected ordinary model instance selects it synchronously and may continue
-as the same body-drag gesture. Prime Tower behavior and the pinned WASM
-submodule are out of scope.
+as the same body-drag gesture. Ordinary models and Prime Tower share the same
+`DragControls` body-gesture path; only their renderers and commit adapters
+differ. The pinned WASM submodule is out of scope.
 
 ## Accepted behavior
 
@@ -14,25 +15,24 @@ submodule are out of scope.
 - A press followed by a same-event-turn movement past the body-drag threshold
   moves that newly selected instance in the same gesture; the first movement
   delta is retained without waiting for a React selection render.
-- Existing selected-object, multi-selection, lock, gizmo-priority, Prime Tower,
+- Existing selected-object, multi-selection, lock, gizmo-priority,
   cancellation, and one-history-entry-on-success behavior remains unchanged.
 
 ## Verification
 
-The controller regression performs pointer-down selection and its first
-threshold-crossing body-drag call synchronously, with no Promise/React render
-gap. It asserts that only the recorded pointer-down ordinary volume may claim
-the body gesture, retains the first delta, and commits one history entry.
+The controller exposes the body selection-history state as `pending`,
+`dragging`, or `idle`. ObjectList delays its context-only `Selection` history
+record while the body press is pending. A confirmed body drag discards that
+deferred record because the `Move` transaction captures the same selection in
+its before/after context. A click releases the pointer to `idle`, publishes the
+controller update, and records the deferred selection context normally.
 
-Ordinary `DragControls` remain armed at pointer-down rather than waiting for a
-selection-driven React prop update. `SceneInteractionController` records the
-ordinary pointer-down hit, synchronously selects its instance, and allows only
-that hit to claim the thresholded body gesture. It clears the pending candidate
-on release, cancellation, or successful ownership transfer. Prime Tower keeps
-its pre-existing conditional drag enablement and its scene-only movement path.
-The Electron mock-host regression queues trusted `pointerdown` and the first
-threshold-crossing `pointermove` without an await between them, checks immediate
-body ownership and a changed pivot, then verifies the single Move history entry
-after release. The focused controller and Prime Tower tests, complete
-`@orca/slicer-app` suite, root typecheck, and focused ordinary-body and gizmo
-Electron E2E all pass.
+This prevents a context-only history mutation from acquiring the project lease
+between `DragControls` pointer-down and its threshold-crossing first move. It
+does not add a native/window input path or a Prime Tower special case.
+
+The Electron mock-host regression sends native `mouseDown` and threshold-
+crossing `mouseMove` in one Electron main-process task, checks immediate body
+ownership and a changed pivot, then verifies the single Move history entry after
+release. The controller regression covers the matching pending → dragging →
+idle state transitions.
