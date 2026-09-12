@@ -23,6 +23,7 @@ const testRuns = [
   ['e2e/multi-filament.e2e.ts', '-g', 'filament rack remains enabled during history restore'],
   ['e2e/project-load-proof.e2e.ts', '-g', 'commits the requested multi-plate project'],
   ['e2e/prime-tower-project.e2e.ts', '-g', 'opened project keeps prime-tower UI'],
+  ['e2e/prime-tower-history-performance.e2e.ts', '-g', 'measures Odyssey Prime Tower commit'],
 ];
 
 for (const [name, childArgs] of [['electron-vite', ['build']]]) {
