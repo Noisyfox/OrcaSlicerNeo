@@ -90,7 +90,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
 
     const readTowers = () => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { primeTowerStates?: () => Array<{
-        plateId: string; current: boolean; eligible: boolean; position: { x: number; y: number };
+        plateId: string; displayIndex: number; current: boolean; eligible: boolean; position: { x: number; y: number };
         bands: number; colours: string[]; opacity: number[];
         footprint?: { minX: number; maxX: number; minY: number; maxY: number };
         buildArea?: { minX: number; maxX: number; minY: number; maxY: number };
@@ -297,6 +297,8 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     expect(clamped?.footprint?.maxY).toBeLessThanOrEqual((clamped?.buildArea?.maxY ?? 0) + boundaryTolerance);
 
     await expect.poll(readCurrentPlateId).toBe(current!.plateId);
+    const firstTowerAfterOperations = (await readTowers()).find((tower) => tower.current);
+    expect(firstTowerAfterOperations).toBeDefined();
     await page.getByTestId('btn-slice').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 300_000 });
     await expect.poll(readCurrentPlateId).toBe(current!.plateId);
@@ -308,6 +310,140 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     // filament-change/flush templates that may mention a tower without one.
     expect(gcode).toMatch(/^; WIPE_TOWER_START$/m);
     expect(gcode).toMatch(/^; FEATURE: Prime tower$/m);
+
+    // The reusable native Print is also exercised against two explicitly
+    // indexed plates.  Read the first two eligible scene projections in
+    // display order; imported projects may legitimately have non-eligible
+    // plates, so the selected native indices remain explicit in the proof.
+    const eligibleByIndex = towers.filter((tower) => tower.eligible).sort((a, b) => a.displayIndex - b.displayIndex);
+    expect(eligibleByIndex.length).toBeGreaterThanOrEqual(2);
+    const indexedFirst = eligibleByIndex[0]!;
+    const indexedSecond = eligibleByIndex[1]!;
+    expect(current?.displayIndex).toBe(indexedFirst.displayIndex);
+    expect(current?.plateId).toBe(indexedFirst.plateId);
+    expect(firstTowerAfterOperations!.plateId).toBe(indexedFirst.plateId);
+    expect(indexedSecond.displayIndex).toBeGreaterThan(indexedFirst.displayIndex);
+    const clickPlateBed = async (plateId: string) => {
+      // Keep the initial all-plate bed projection: slicing temporarily
+      // replaces the active scene projection and can hide non-current beds.
+      const bed = beds.find((candidate) => candidate.plateId === plateId);
+      if (!bed) {
+        await page.locator('#app-tab-preview').click();
+        const item = page.getByTestId(`preview-plate-${plateId}`);
+        await expect(item).toBeVisible({ timeout: 30_000 });
+        await item.scrollIntoViewIfNeeded();
+        await item.click();
+        await expect.poll(readCurrentPlateId, { timeout: 30_000 }).toBe(plateId);
+        await page.locator('#app-tab-prepare').click();
+        return;
+      }
+      const candidates: Array<[number, number]> = [[5, 5], [215, 5], [5, 215], [215, 215], [110, 110]];
+      for (const [x, y] of candidates) {
+        const point = await projectWorldToScreen([bed!.position[0] + x, bed!.position[1] + y, bed!.position[2]]);
+        if (!point) continue;
+        await page.mouse.click(box!.x + point.x, box!.y + point.y);
+        if (await readCurrentPlateId() === plateId) return;
+      }
+      // The preview list is the authoritative UI fallback after a slice has
+      // replaced the prepare scene with only the active bed.
+      await page.locator('#app-tab-preview').click();
+      const item = page.getByTestId(`preview-plate-${plateId}`);
+      await expect(item).toBeVisible({ timeout: 30_000 });
+      await item.scrollIntoViewIfNeeded();
+      await item.click();
+      await expect.poll(readCurrentPlateId, { timeout: 30_000 }).toBe(plateId);
+      await page.locator('#app-tab-prepare').click();
+    };
+    const readPrimeTowerEvidence = (source: string) => {
+      const xLines = [...source.matchAll(/^; wipe_tower_x = ([^\r\n]+)$/gm)].map((match) => match[1]!);
+      const yLines = [...source.matchAll(/^; wipe_tower_y = ([^\r\n]+)$/gm)].map((match) => match[1]!);
+      const xValues = xLines.find((line) => line.includes(','))?.split(',').map(Number) ?? [];
+      const yValues = yLines.find((line) => line.includes(','))?.split(',').map(Number) ?? [];
+      const selectedX = Number(xLines.find((line) => !line.includes(',')));
+      const selectedY = Number(yLines.find((line) => !line.includes(',')));
+      expect(Number.isFinite(selectedX), 'G-code must emit the selected native wipe_tower_x').toBe(true);
+      expect(Number.isFinite(selectedY), 'G-code must emit the selected native wipe_tower_y').toBe(true);
+      expect(xValues.length, 'G-code must retain the complete native wipe_tower_x array').toBeGreaterThan(1);
+      expect(yValues.length, 'G-code must retain the complete native wipe_tower_y array').toBe(xValues.length);
+      const marker = source.indexOf('; FEATURE: Prime tower');
+      expect(marker, 'Prime Tower feature marker is required').toBeGreaterThanOrEqual(0);
+      const start = source.indexOf('; WIPE_TOWER_START', marker);
+      const end = source.indexOf('; WIPE_TOWER_END', start);
+      expect(start, 'Prime Tower toolpath start marker is required').toBeGreaterThan(marker);
+      expect(end, 'Prime Tower toolpath end marker is required').toBeGreaterThan(start);
+      let x: number | undefined;
+      let y: number | undefined;
+      const points: Array<[number, number]> = [];
+      for (const line of source.slice(start, end).split(/\r?\n/)) {
+        if (!/^G[123]\b/.test(line)) continue;
+        const xMatch = line.match(/\bX(-?\d+(?:\.\d+)?)/);
+        const yMatch = line.match(/\bY(-?\d+(?:\.\d+)?)/);
+        if (xMatch) x = Number(xMatch[1]);
+        if (yMatch) y = Number(yMatch[1]);
+        if (x !== undefined && y !== undefined) points.push([x, y]);
+      }
+      expect(points.length, 'Prime Tower toolpath must contain XY motion').toBeGreaterThan(0);
+      return {
+        native: { x: xValues, y: yValues },
+        // Orca emits the selected scalar immediately before the complete
+        // array. This is the actual Print plate-index value consumed by the
+        // generated toolpath; the complete arrays are retained for mapping.
+        actual: { x: selectedX, y: selectedY },
+      };
+    };
+    const expectPrimeTowerPosition = (source: string, tower: typeof indexedFirst, label: string) => {
+      const evidence = readPrimeTowerEvidence(source);
+      const nativeX = evidence.native.x[tower.displayIndex];
+      const nativeY = evidence.native.y[tower.displayIndex];
+      expect(nativeX, `${label} native wipe_tower_x index`).toBeCloseTo(tower.position.x, 5);
+      expect(nativeY, `${label} native wipe_tower_y index`).toBeCloseTo(tower.position.y, 5);
+      // The selected scalar is the value consumed by Print for this export;
+      // unlike the full array it changes with Print::plate_index.
+      // G-code config scalars are emitted at three decimal places, while the
+      // native arrays retain their full parsed precision.
+      expect(evidence.actual.x, `${label} G-code Prime Tower X`).toBeCloseTo(nativeX!, 2);
+      expect(evidence.actual.y, `${label} G-code Prime Tower Y`).toBeCloseTo(nativeY!, 2);
+      return evidence;
+    };
+    const firstEvidence = expectPrimeTowerPosition(gcode, firstTowerAfterOperations!, `plate ${indexedFirst.displayIndex + 1}`);
+
+    // Select and really slice the next eligible plate. The export path is
+    // overwritten by the same Electron save boundary, then parsed from disk.
+    await clickPlateBed(indexedSecond.plateId);
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await expect.poll(async () => (await readTowers()).find((tower) => tower.plateId === indexedSecond.plateId), { timeout: 30_000 }).toBeDefined();
+    const secondTowerBeforeSlice = (await readTowers()).find((tower) => tower.plateId === indexedSecond.plateId);
+    expect(secondTowerBeforeSlice).toBeDefined();
+    expect(secondTowerBeforeSlice!.plateId).toBe(indexedSecond.plateId);
+    const firstExportMtime = statSync(exportPath).mtimeMs;
+    await page.getByTestId('btn-slice').click();
+    // Do not accept the previous plate's already-Sliced status as proof that
+    // the second target ran.  Wait for the real native slice transition and
+    // for the Electron export file to be replaced.
+    await expect.poll(() => page.getByTestId('slicer-status').textContent(), { timeout: 30_000 }).toMatch(/^Slicing/);
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 300_000 });
+    await page.getByTestId('btn-export').click();
+    await expect.poll(() => existsSync(exportPath) && statSync(exportPath).mtimeMs > firstExportMtime, { timeout: 30_000 }).toBe(true);
+    const secondGcode = readFileSync(exportPath, 'utf8');
+    const secondEvidence = expectPrimeTowerPosition(secondGcode, secondTowerBeforeSlice!, `plate ${indexedSecond.displayIndex + 1}`);
+    expect(secondTowerBeforeSlice!.position).not.toEqual(firstTowerAfterOperations!.position);
+    expect(secondEvidence.native.x[indexedSecond.displayIndex]).not.toBeCloseTo(firstEvidence.native.x[indexedFirst.displayIndex]!, 5);
+    expect(secondEvidence.native.y[indexedSecond.displayIndex]).not.toBeCloseTo(firstEvidence.native.y[indexedFirst.displayIndex]!, 5);
+    expect(secondEvidence.actual.x).not.toBeCloseTo(firstEvidence.native.x[indexedFirst.displayIndex]!, 5);
+    expect(secondEvidence.actual.y).not.toBeCloseTo(firstEvidence.native.y[indexedFirst.displayIndex]!, 5);
+
+    // Return to the first plate and activate its retained plate-local result.
+    // This must not inherit the second plate's native Print index or tower
+    // coordinates; it also proves the per-plate result cache remains isolated.
+    await clickPlateBed(indexedFirst.plateId);
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 30_000 });
+    const secondExportMtime = statSync(exportPath).mtimeMs;
+    await page.getByTestId('btn-export').click();
+    await expect.poll(() => existsSync(exportPath) && statSync(exportPath).mtimeMs > secondExportMtime, { timeout: 30_000 }).toBe(true);
+    const firstAgainGcode = readFileSync(exportPath, 'utf8');
+    const firstAgainEvidence = expectPrimeTowerPosition(firstAgainGcode, firstTowerAfterOperations!, `plate ${indexedFirst.displayIndex + 1} after return`);
+    expect(firstAgainEvidence.actual.x).not.toBeCloseTo(secondEvidence.native.x[indexedSecond.displayIndex]!, 5);
+    expect(firstAgainEvidence.actual.y).not.toBeCloseTo(secondEvidence.native.y[indexedSecond.displayIndex]!, 5);
     await page.locator('#app-tab-preview').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
     await expect.poll(readCurrentPlateId).toBe(current!.plateId);

@@ -1848,3 +1848,24 @@ controls. The real threaded Electron assertion is
 `filament rack remains enabled during history restore`; it observes every
 disabled-attribute transition during Undo and Redo without dispatching an
 unrelated filament mutation. The focused real run passed in 13.1 seconds.
+
+The multi-plate slice path is also now aligned with Orca's `PartPlate` binding:
+before the reusable `Print` enters `apply`, `validate`, or `process`, the
+bridge sets its native `plate_index` from the target plate's stable
+`display_index` and its `plate_origin` from the target session plate. Because
+`Print::apply` refreshes reusable state, the same binding is reapplied after
+`apply` and immediately before validation/process. The complete
+`wipe_tower_x/y` arrays remain intact; no target coordinate is copied to
+element zero. The serial and threaded native regression
+`multi-filament-slice-plate-index-smoke.mjs` slices plate 1, plate 2, and plate
+1 again with distinct coordinates and verifies the emitted Prime Tower moves
+use `[0]`, `[1]`, and `[0]` respectively. The real Electron + threaded WASM
+regression additionally opened the exact
+`OddseyHelmetFinalParts+(2)wholemorecolor-h2d.3mf` (45,201,991 bytes,
+`multiPlate=true`, 11 plates), sliced the first eligible plate, the second
+eligible plate, and the first again, and read each exported G-code's selected
+`wipe_tower_x/y` scalar plus complete arrays. It observed first-plate index 0,
+second-plate index 1, and first-plate index 0 again; the second selected
+coordinates differed from the first. This preserves plate ownership, origin
+handling, and per-plate result isolation while reusing the existing slice
+pipeline.

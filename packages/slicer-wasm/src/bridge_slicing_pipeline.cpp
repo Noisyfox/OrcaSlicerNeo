@@ -343,10 +343,18 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // Without it Bambu G-code takes the non-Bambu nozzle/context path and
         // a successful P1P slice can later yield an empty preview.
         state().print.is_BBL_printer() = state().presets.is_bbl_vendor();
+        const auto* target_plate = find_plate(plate_id);
+        if (target_plate == nullptr || target_plate->display_index < 0)
+            return error_json("plate operation target was not found");
         // Apply and process the isolated local model.  `state().model` is the
         // authoritative world-space editing model and is never changed by a
         // slice operation.
         state().print.apply(*local_model, config);
+        // Bind the reusable Print to the target plate before validate/process,
+        // matching Orca's PartPlate ownership. wipe_tower_x/y remain complete
+        // per-plate arrays; the Print plate index selects the target element.
+        state().print.set_plate_index(target_plate->display_index);
+        state().print.set_plate_origin(target_plate->origin);
         // Native validation also checks whether the generated prime tower
         // footprint overlaps a configured exclusion/wrapping area.  Those
         // three tower collision classes are slice-time advisories in Neo;
