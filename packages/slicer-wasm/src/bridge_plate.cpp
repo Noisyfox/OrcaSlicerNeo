@@ -281,46 +281,26 @@ std::vector<PlateInstanceRef> plate_instance_refs()
 }
 
 // Build the print input for one plate without touching the authoritative
-// editing model.  Model::add_object performs a deep copy of each selected
-// object; non-member instances are removed from that copy and every retained
-// instance is translated back into the printer's local coordinate system.
-// This is intentionally temporary data: the global model continues to carry
-// world-space coordinates for rendering, editing, and persistence.
+// editing model.  Orca's PartPlate passes a complete world-space Model to
+// Print after updating its print-volume state with the selected plate's
+// translated BuildVolume.  Print::apply then retains only printable instances
+// for that plate, while GCode::set_gcode_offset subtracts the selected origin
+// only when emitting printer-local coordinates.  Keeping this filtering in the
+// native Model state is important: copying just membership rows would bypass
+// the same BuildVolume/printable-instance semantics used by Orca.
 std::optional<Model> make_current_plate_model(const BridgeState::PlateSessionPlate& plate,
                                               std::string& error)
 {
-    Model local_model;
-    const Vec3d local_origin = plate.origin;
-    std::size_t selected_instances = 0;
-    for (ModelObject* source : state().model.objects) {
-        std::vector<std::size_t> selected_indices;
-        for (std::size_t index = 0; index < source->instances.size(); ++index) {
-            const auto instance_id = source->instances[index]->id().id;
-            const auto membership = state().instance_plate_ids.find(instance_id);
-            if (membership != state().instance_plate_ids.end() && membership->second == plate.id)
-                selected_indices.push_back(index);
-        }
-        if (selected_indices.empty()) continue;
-
-        ModelObject* copy = local_model.add_object(*source);
-        const std::set<std::size_t> selected_index_set(selected_indices.begin(), selected_indices.end());
-        for (std::size_t index = copy->instances.size(); index-- > 0;) {
-            if (selected_index_set.find(index) == selected_index_set.end())
-                copy->delete_instance(index);
-        }
-        for (ModelInstance* instance : copy->instances) {
-            auto transform = instance->get_transformation();
-            transform.set_offset(transform.get_offset() - local_origin);
-            instance->set_transformation(transform);
-        }
-        copy->invalidate_bounding_box();
-        selected_instances += copy->instances.size();
-    }
-    if (selected_instances == 0) {
+    Model plate_model = state().model;
+    plate_model.curr_plate_index = plate.display_index;
+    const PlateBounds bounds = selected_plate_bounds();
+    const auto printable_area = selected_printable_area(bounds, plate);
+    BuildVolume build_volume(printable_area, bounds.max_z, {}, {});
+    if (plate_model.update_print_volume_state(build_volume) == 0) {
         error = "current plate is empty";
         return std::nullopt;
     }
-    return local_model;
+    return plate_model;
 }
 
 bool validate_plate_operation_target(const std::string& plate_id,

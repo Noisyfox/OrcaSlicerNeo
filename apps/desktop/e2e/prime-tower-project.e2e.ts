@@ -69,7 +69,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
         commitRoute: 'preflight-commit',
         nativeResult: {
           ok: true, mode: 'project', displayName: PROJECT_FILE_NAME,
-          projectSettingsAvailable: true, multiPlate: true,
+          projectSettingsAvailable: true, multiPlate: true, plateCount: 11,
         },
       },
       session: {
@@ -389,6 +389,10 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
         // array. This is the actual Print plate-index value consumed by the
         // generated toolpath; the complete arrays are retained for mapping.
         actual: { x: selectedX, y: selectedY },
+        motion: {
+          minX: Math.min(...points.map(([x]) => x)), maxX: Math.max(...points.map(([x]) => x)),
+          minY: Math.min(...points.map(([, y]) => y)), maxY: Math.max(...points.map(([, y]) => y)),
+        },
       };
     };
     const expectPrimeTowerPosition = (source: string, tower: typeof indexedFirst, label: string) => {
@@ -403,9 +407,33 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
       // native arrays retain their full parsed precision.
       expect(evidence.actual.x, `${label} G-code Prime Tower X`).toBeCloseTo(nativeX!, 2);
       expect(evidence.actual.y, `${label} G-code Prime Tower Y`).toBeCloseTo(nativeY!, 2);
+      // The marker-scoped XY moves are the actual emitted tower geometry, not
+      // merely the configuration header.  They must stay inside the native
+      // plate-local projected footprint.
+      expect(evidence.motion.minX, `${label} G-code tower min X`).toBeGreaterThanOrEqual((tower.footprint?.minX ?? nativeX!) - 1);
+      expect(evidence.motion.maxX, `${label} G-code tower max X`).toBeLessThanOrEqual((tower.footprint?.maxX ?? nativeX!) + 1);
+      expect(evidence.motion.minY, `${label} G-code tower min Y`).toBeGreaterThanOrEqual((tower.footprint?.minY ?? nativeY!) - 1);
+      expect(evidence.motion.maxY, `${label} G-code tower max Y`).toBeLessThanOrEqual((tower.footprint?.maxY ?? nativeY!) + 1);
       return evidence;
     };
     const firstEvidence = expectPrimeTowerPosition(gcode, firstTowerAfterOperations!, `plate ${indexedFirst.displayIndex + 1}`);
+
+    const readPreviewToolpathWorldBounds = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { previewToolpathWorldBounds?: () => {
+        min: [number, number, number]; max: [number, number, number];
+      } | null } }).__orcaE2e?.previewToolpathWorldBounds?.() ?? null,
+    );
+    await page.locator('#app-tab-preview').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
+    await expect.poll(readCurrentPlateId).toBe(indexedFirst.plateId);
+    await expect.poll(readPreviewToolpathWorldBounds, { timeout: 30_000 }).not.toBeNull();
+    const firstPreviewBounds = await readPreviewToolpathWorldBounds();
+    expect(firstPreviewBounds).not.toBeNull();
+    const firstBed = beds.find((bed) => bed.plateId === indexedFirst.plateId)?.position ?? [0, 0, 0];
+    expect(firstPreviewBounds!.min[0]).toBeGreaterThanOrEqual(firstBed[0] - 5);
+    expect(firstPreviewBounds!.max[0]).toBeGreaterThan(firstPreviewBounds!.min[0]);
+    expect(firstPreviewBounds!.min[1]).toBeLessThanOrEqual(firstPreviewBounds!.max[1]);
+    await page.locator('#app-tab-prepare').click();
 
     // Select and really slice the next eligible plate. The export path is
     // overwritten by the same Electron save boundary, then parsed from disk.
@@ -431,6 +459,18 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     expect(secondEvidence.native.y[indexedSecond.displayIndex]).not.toBeCloseTo(firstEvidence.native.y[indexedFirst.displayIndex]!, 5);
     expect(secondEvidence.actual.x).not.toBeCloseTo(firstEvidence.native.x[indexedFirst.displayIndex]!, 5);
     expect(secondEvidence.actual.y).not.toBeCloseTo(firstEvidence.native.y[indexedFirst.displayIndex]!, 5);
+
+    await page.locator('#app-tab-preview').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
+    await expect.poll(readCurrentPlateId).toBe(indexedSecond.plateId);
+    await expect.poll(readPreviewToolpathWorldBounds, { timeout: 30_000 }).not.toBeNull();
+    const secondPreviewBounds = await readPreviewToolpathWorldBounds();
+    expect(secondPreviewBounds).not.toBeNull();
+    const secondBed = beds.find((bed) => bed.plateId === indexedSecond.plateId)?.position ?? [0, 0, 0];
+    expect(secondPreviewBounds!.min[0]).toBeGreaterThanOrEqual(secondBed[0] - 5);
+    expect(secondPreviewBounds!.max[0]).toBeGreaterThan(secondPreviewBounds!.min[0]);
+    expect(secondPreviewBounds!.min[1]).toBeLessThanOrEqual(secondPreviewBounds!.max[1]);
+    expect(Math.abs(secondPreviewBounds!.min[0] - firstPreviewBounds!.min[0])).toBeGreaterThan(100);
 
     // Return to the first plate and activate its retained plate-local result.
     // This must not inherit the second plate's native Print index or tower

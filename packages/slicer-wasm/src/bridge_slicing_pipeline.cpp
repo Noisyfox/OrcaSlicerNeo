@@ -346,15 +346,15 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         const auto* target_plate = find_plate(plate_id);
         if (target_plate == nullptr || target_plate->display_index < 0)
             return error_json("plate operation target was not found");
-        // Apply and process the isolated local model.  `state().model` is the
-        // authoritative world-space editing model and is never changed by a
-        // slice operation.
-        state().print.apply(*local_model, config);
-        // Bind the reusable Print to the target plate before validate/process,
-        // matching Orca's PartPlate ownership. wipe_tower_x/y remain complete
-        // per-plate arrays; the Print plate index selects the target element.
+        // PartPlate binds the reusable Print before applying the complete
+        // world-space Model.  The binding supplies both per-plate config
+        // selection and the target BuildVolume context used by apply/process.
         state().print.set_plate_index(target_plate->display_index);
         state().print.set_plate_origin(target_plate->origin);
+        // Apply and process the plate-filtered complete model.  The copied
+        // model retains authoritative world-space transforms; `state().model`
+        // itself is never changed by a slice operation.
+        state().print.apply(*local_model, config);
         // Native validation also checks whether the generated prime tower
         // footprint overlaps a configured exclusion/wrapping area.  Those
         // three tower collision classes are slice-time advisories in Neo;
@@ -489,18 +489,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                  {"toolpath", std::move(empty_toolpath)}}.dump());
         }
 
-        // The toolpath comes from post-processing the exported gcode
-        // (GCodeProcessor::process_file — the GUI's own mechanism). Export
-        // happens here so getSliceResult is self-contained; the client's
-        // exportGcode() later reads the same /out.gcode via FS. Drift
-        // surface: process_file/get_result signatures (Step 1).
-        print.export_gcode("/out.gcode", nullptr, nullptr);
-
         Slic3r::GCodeProcessorResult gcode_result;
-        {
-            Slic3r::GCodeProcessor processor;
-            processor.process_file("/out.gcode");
-            gcode_result = processor.get_result();
+        // Orca's Print::export_gcode configures GCode with the selected plate
+        // origin before emission. Passing a result sink keeps the native
+        // GCodeProcessorResult while /out.gcode remains printer-local for
+        // export/send. At this pinned SHA the processor keeps emitted
+        // MoveVertex values in the printer-local frame even when GCode has the
+        // plate offset; restore that frame once at the bridge result boundary
+        // so every renderer consumer receives the same world-space result.
+        print.export_gcode("/out.gcode", &gcode_result, nullptr);
+        const auto preview_origin = print.get_plate_origin();
+        if (preview_origin.x() != 0. || preview_origin.y() != 0.) {
+            for (auto& move : gcode_result.moves) {
+                move.position.x() += static_cast<float>(preview_origin.x());
+                move.position.y() += static_cast<float>(preview_origin.y());
+            }
         }
         {
             auto& bridge_state = state();

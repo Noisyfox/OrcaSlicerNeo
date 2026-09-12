@@ -113,6 +113,10 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         }>;
         modelWorldCenters?: () => Array<[number, number, number]>;
         previewToolpathWorldOrigin?: () => [number, number, number] | null;
+        previewToolpathWorldBounds?: () => {
+          min: [number, number, number];
+          max: [number, number, number];
+        } | null;
       };
     };
     const projectPoint = (p: THREE.Vector3) => {
@@ -215,6 +219,36 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         (renderedPath ?? group).getWorldPosition(position);
         return [position.x, position.y, position.z];
       },
+      previewToolpathWorldBounds: () => {
+        if (!toolpath || toolpath.segmentCount === 0) return null;
+        const min: [number, number, number] = [Infinity, Infinity, Infinity];
+        const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+        const include = (values: Float32Array, index: number) => {
+          for (let axis = 0; axis < 3; axis++) {
+            const value = values[index * 3 + axis];
+            if (!Number.isFinite(value)) continue;
+            min[axis] = Math.min(min[axis], value);
+            max[axis] = Math.max(max[axis], value);
+          }
+        };
+        for (let index = 0; index < toolpath.segmentCount; index++) {
+          // Only extrusion segments are part of the printed geometry. Travel
+          // and startup/control moves may legitimately park outside a bed and
+          // would make a plate-placement assertion about the printed path
+          // meaningless.
+          if (toolpath.moveTypes[index] !== 10) continue;
+          include(toolpath.source?.ends ?? toolpath.ends, index);
+          // GCodeProcessor intentionally begins with a dummy move at (0, 0,
+          // 0).  The first segment's start is that sentinel, not a rendered
+          // printer move; including it would falsely make every non-first
+          // plate appear to reach plate 1 in this diagnostic.
+          if (index > 0 && toolpath.source?.starts) include(toolpath.source.starts, index);
+        }
+        return {
+          min: [min[0], min[1], min[2]],
+          max: [max[0], max[1], max[2]],
+        };
+      },
     };
     return () => {
       if (w.__orcaE2e) {
@@ -231,12 +265,13 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           bedPlateStates: _beds,
           modelWorldCenters: _models,
           previewToolpathWorldOrigin: _toolpathOrigin,
+          previewToolpathWorldBounds: _toolpathBounds,
           ...rest
         } = w.__orcaE2e;
         w.__orcaE2e = rest;
       }
     };
-  }, [activeTab, camera, controls, glVolumes, plateSession, previewVolumes, scene, size, sceneInteraction]);
+  }, [activeTab, camera, controls, glVolumes, plateSession, previewVolumes, scene, size, sceneInteraction, toolpath]);
 
   return (
     <>
@@ -320,9 +355,9 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, p
       ))}
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}
-      {/* Slice results stay in printer-local coordinates. Preview applies the
-          selected plate origin only to this render group; export/send and the
-          retained result cache therefore remain untouched. */}
+      {/* The slicing bridge publishes world-space preview moves. The separate
+          source G-code remains printer-local for export/send, so this render
+          group deliberately has no plate translation. */}
       {toolpath && preview && <group name="preview-toolpath-world" position={plateOrigin}><ToolpathLines data={toolpath} /><ToolpathMarker data={toolpath} /></group>}
       {toolpath && !preview && <ToolpathLines data={toolpath} />}
       {toolpath && !preview && <ToolpathMarker data={toolpath} />}

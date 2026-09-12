@@ -42,8 +42,8 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
   } | null>(null);
   const activeRef = useRef<typeof active>(null);
   // GPU pages are attached to this component's render group instead of the
-  // root scene. This preserves local result buffers while allowing Preview's
-  // parent group to apply the selected plate's world origin.
+  // root scene. The source positions are already in the world frame published
+  // by the slicing bridge; the parent group is only a stable renderer seam.
   const renderGroupRef = useRef<THREE.Group>(null);
   const diagnosticRef = useRef<GpuStreamingDiagnostic | null>(null);
   activeRef.current = active;

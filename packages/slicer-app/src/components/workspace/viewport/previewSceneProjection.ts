@@ -38,7 +38,12 @@ export function previewVolumesForCurrentPlate(
   return volumes.filter((volume) => members.has(instanceKey(volume.buffer.objectIdx, volume.buffer.instanceIdx)));
 }
 
-/** Add the selected plate's world origin to local slice/toolpath coordinates. */
-export function previewToolpathOrigin(snapshot: PlateSessionSnapshot | null | undefined): readonly [number, number, number] {
-  return currentPreviewPlate(snapshot)?.origin ?? [0, 0, 0];
+/**
+ * Slice results already contain world-space coordinates restored at the WASM
+ * bridge boundary from the target Print's plate origin. Print emits
+ * printer-local G-code by subtracting that origin for export. The Preview
+ * scene therefore must not apply a second plate transform to the toolpath.
+ */
+export function previewToolpathOrigin(_snapshot: PlateSessionSnapshot | null | undefined): readonly [number, number, number] {
+  return [0, 0, 0];
 }
