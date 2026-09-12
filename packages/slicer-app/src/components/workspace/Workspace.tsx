@@ -52,6 +52,55 @@ function clampSidebarWidth(value: number | undefined): number {
   return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, value!));
 }
 
+/**
+ * The reactive effect is intentionally broad: any of these renderer inputs
+ * may make a Prime Tower projection stale.  A direct history restore also
+ * reads the projection explicitly while the restore barrier is active.  Once
+ * that read has been applied, the subsequent idle-phase effect sees this same
+ * identity and must not issue the identical expensive Worker read again.
+ */
+function samePrimeTowerProjectionInputs(
+  left: readonly unknown[] | null,
+  right: readonly unknown[],
+): boolean {
+  return left !== null && left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function primeTowerSessionInputs(): readonly unknown[] {
+  const filamentSnapshot = useFilamentSessionStore.getState().snapshot;
+  const plateSession = usePlateSessionStore.getState().snapshot;
+  // Runtime snapshots are intentionally fresh immutable objects. Compare the
+  // native revisions/content that influence the tower instead of object
+  // identity, so republishing an equivalent filament or plate snapshot after
+  // a direct history restore cannot invalidate an already-applied projection.
+  return [
+    JSON.stringify(filamentSnapshot?.revisions ?? null),
+    JSON.stringify(plateSession ? {
+      currentPlateId: plateSession.currentPlateId,
+      inputRevisions: plateSession.inputRevisions,
+    } : null),
+    JSON.stringify(useSettingsStore.getState().overlay),
+  ];
+}
+
+function capturePrimeTowerProjectionInputs(glVolumes: ReadonlyArray<{ id: string }>): readonly unknown[] {
+  const structure = useObjectListStore.getState().structure;
+  return [
+    useHistoryRestoreStore.getState().revision,
+    ...primeTowerSessionInputs(),
+    // The model loader and object list can republish equivalent arrays while
+    // React flushes store updates from one restore. Their stable IDs express
+    // the geometry/structure change relevant to tower eligibility without
+    // converting those harmless fresh array identities into Worker work.
+    glVolumes.map((volume) => volume.id).join(','),
+    structure.map((object) => [
+      object.id,
+      object.volumes.map((volume) => volume.id).join(','),
+      object.instances.map((instance) => instance.id).join(','),
+    ].join(':')).join('|'),
+  ];
+}
+
 export function Workspace({
   activeTab = 'prepare',
   onSceneInteractionChange,
@@ -84,8 +133,15 @@ export function Workspace({
   const historyRestoreRevision = useHistoryRestoreStore((s) => s.revision);
   const glVolumes = useModelLoader();
   const sliceResult = useSliceResult();
-  const primeTowerRefreshRef = useRef<(() => Promise<void>) | null>(null);
+  const primeTowerRefreshRef = useRef<((forceDuringRestore?: boolean, forceRead?: boolean) => Promise<void>) | null>(null);
   const primeTowerRefreshGenerationRef = useRef(0);
+  const primeTowerProjectionInputsRef = useRef<readonly unknown[] | null>(null);
+  const primeTowerProjectionReadRef = useRef<{
+    inputs: readonly unknown[];
+    promise: Promise<void>;
+  } | null>(null);
+  const primeTowerGlVolumesRef = useRef(glVolumes);
+  primeTowerGlVolumesRef.current = glVolumes;
   const wipeTowerVolumesRef = useRef<WipeTowerVolumeCollection | null>(null);
   if (!wipeTowerVolumesRef.current) {
     wipeTowerVolumesRef.current = new WipeTowerVolumeCollection({
@@ -97,10 +153,16 @@ export function Workspace({
         const result = await platform.runtime.movePrimeTower(request);
         if (result.ok) {
           applyPrimeTowerMoveMutation(platform, result.result.mutation);
+          // WipeTowerVolumeCollection applies the same authoritative move
+          // receipt (position and footprint) immediately after this command
+          // returns, within this one commit turn.
+          // The accompanying plate-revision publication must therefore not
+          // schedule a redundant full projection read that can overlap Undo.
+          primeTowerProjectionInputsRef.current = capturePrimeTowerProjectionInputs(primeTowerGlVolumesRef.current);
         }
         return result;
       },
-      reconcile: async () => { await primeTowerRefreshRef.current?.(); },
+      reconcile: async () => { await primeTowerRefreshRef.current?.(false, true); },
       revision: (plateId) => usePlateSessionStore.getState().snapshot?.inputRevisions?.[plateId] ?? -1,
       publishHistoryStatus: async (status) => {
         projectHistoryStatus(status);
@@ -121,32 +183,63 @@ export function Workspace({
     sceneInteractionRef.current.setSceneEntityCommitPort({ commit: (volume) => wipeTowerVolumes.commit(volume), busy: () => wipeTowerVolumes.busy });
   }
   const sceneInteraction = sceneInteractionRef.current;
-  const refreshPrimeTowerProjection = useCallback(async (forceDuringRestore = false) => {
+  const refreshPrimeTowerProjection = useCallback((forceDuringRestore = false, forceRead = false): Promise<void> => {
     // A projection read started before a history restore may complete after
     // native Undo/Redo and otherwise re-publish the pre-restore coordinates.
     // The restore callback explicitly opts in once the native operation has
     // committed; ordinary reactive refreshes stay out of that window.
-    if (!forceDuringRestore && useHistoryRestoreStore.getState().phase !== 'idle') return;
+    if (!forceDuringRestore && useHistoryRestoreStore.getState().phase !== 'idle') return Promise.resolve();
+    // Deliberately exclude restore phase: the explicit read happens while
+    // restoring and the reactive effect happens after it becomes idle.  They
+    // are one projection when every actual renderer input below is identical.
+    const inputs = capturePrimeTowerProjectionInputs(primeTowerGlVolumesRef.current);
+    if (!forceRead && samePrimeTowerProjectionInputs(primeTowerProjectionInputsRef.current, inputs)) return Promise.resolve();
+    const activeRead = primeTowerProjectionReadRef.current;
+    if (activeRead && samePrimeTowerProjectionInputs(activeRead.inputs, inputs)) return activeRead.promise;
     const generation = ++primeTowerRefreshGenerationRef.current;
-    const historyRevision = useHistoryRestoreStore.getState().revision;
+    const historyRevision = inputs[0];
     const projectionReadStartedAt = historyDiagnosticNow();
-    try {
-      const result = await platform.runtime.getPrimeTowerProjection();
-      if (generation !== primeTowerRefreshGenerationRef.current ||
-          historyRevision !== useHistoryRestoreStore.getState().revision) return;
-      wipeTowerVolumes.setProjection(result.ok ? result : null, usePlateSessionStore.getState().snapshot);
-    } catch {
-      if (generation !== primeTowerRefreshGenerationRef.current ||
-          historyRevision !== useHistoryRestoreStore.getState().revision) return;
-      wipeTowerVolumes.setProjection(null);
-    } finally {
-      useHistoryDiagnosticsStore.getState().recordPrimeTowerProjectionRead(
-        historyDiagnosticNow() - projectionReadStartedAt,
-      );
-    }
+    const read = (async () => {
+      let applied = false;
+      try {
+        const result = await platform.runtime.getPrimeTowerProjection();
+        if (generation !== primeTowerRefreshGenerationRef.current ||
+            historyRevision !== useHistoryRestoreStore.getState().revision) return;
+        wipeTowerVolumes.setProjection(result.ok ? result : null, usePlateSessionStore.getState().snapshot);
+        applied = true;
+      } catch {
+        if (generation !== primeTowerRefreshGenerationRef.current ||
+            historyRevision !== useHistoryRestoreStore.getState().revision) return;
+        wipeTowerVolumes.setProjection(null);
+        applied = true;
+      } finally {
+        // Record only a projection that was actually published.  A later
+        // input/revision can invalidate an in-flight read, and its result must
+        // neither overwrite nor satisfy the newer reactive projection.
+        if (applied) primeTowerProjectionInputsRef.current = inputs;
+        useHistoryDiagnosticsStore.getState().recordPrimeTowerProjectionRead(
+          historyDiagnosticNow() - projectionReadStartedAt,
+        );
+      }
+    })();
+    primeTowerProjectionReadRef.current = { inputs, promise: read };
+    void read.then(
+      () => {
+        if (primeTowerProjectionReadRef.current?.promise === read) primeTowerProjectionReadRef.current = null;
+      },
+      () => {
+        if (primeTowerProjectionReadRef.current?.promise === read) primeTowerProjectionReadRef.current = null;
+      },
+    );
+    return read;
   }, [platform.runtime, wipeTowerVolumes]);
   primeTowerRefreshRef.current = refreshPrimeTowerProjection;
   useEffect(() => {
+    // Effects queued by a render during restore may execute after a later
+    // commit has switched the shared store back to idle.  Gate on this
+    // render's phase before entering the callback, otherwise those obsolete
+    // effects turn into full projections after the explicit restore read.
+    if (historyRestorePhase !== 'idle') return;
     void refreshPrimeTowerProjection();
   }, [filamentSnapshot, glVolumes, historyRestorePhase, historyRestoreRevision, plateSession,
     refreshPrimeTowerProjection, settingsOverlay, structure]);

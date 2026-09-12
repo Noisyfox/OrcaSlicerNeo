@@ -7,6 +7,7 @@ import { Workspace } from './Workspace';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useSlicerStore } from '../../stores/useSlicerStore';
 import { usePlateSessionStore } from '../../stores/usePlateSessionStore';
+import { useHistoryRestoreStore } from '../../stores/useHistoryRestoreStore';
 import type { PlateSessionSnapshot } from '@slicer/client';
 import type { HistoryRestoreCoordinator } from '../../history/restoreCoordinator';
 import { useHistoryDiagnosticsStore } from '../../history/historyDiagnostics';
@@ -59,6 +60,7 @@ describe('Workspace ownership', () => {
     useSettingsStore.setState({ modelLoaded: false });
     useSlicerStore.setState({ status: 'idle', progress: 0, error: null });
     usePlateSessionStore.getState().reset();
+    useHistoryRestoreStore.getState().reset();
     useHistoryDiagnosticsStore.getState().reset();
     (platform as unknown as { runtime?: PlatformCapabilities['runtime'] }).runtime = undefined;
     sliceModelMock.mockClear();
@@ -184,7 +186,7 @@ describe('Workspace ownership', () => {
     expect(testMocks.viewportProps.at(-1)?.previewFrameRequest).toEqual(frameRequest);
   });
 
-  it('projects a direct Prime Tower restore without a model structure reload', async () => {
+  it('projects a direct Prime Tower restore once, then still refreshes for a real renderer input change', async () => {
     const getModelStructure = vi.fn(async () => ({ ok: true as const, objects: [] }));
     const restore = {
       ok: true as const,
@@ -195,7 +197,7 @@ describe('Workspace ownership', () => {
     const runtime = {
       undoHistory: vi.fn(async () => restore), redoHistory: vi.fn(), jumpHistory: vi.fn(), cancel: vi.fn(),
       getModelStructure, getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' })),
-      getPlateSessionSnapshot: vi.fn(async () => twoPlateSnapshot),
+      getPlateSessionSnapshot: vi.fn(async () => ({ ...twoPlateSnapshot, inputRevisions: { ...twoPlateSnapshot.inputRevisions } })),
       getPrimeTowerProjection: vi.fn(async () => ({ ok: true, plates: [] })),
     };
     platform.runtime = runtime as unknown as PlatformCapabilities['runtime'];
@@ -204,12 +206,27 @@ describe('Workspace ownership', () => {
     await act(async () => {
       root?.render(<PlatformProvider value={platform}><Workspace onHistoryRestoreCoordinatorChange={(value) => { coordinator = value ?? undefined; }} /></PlatformProvider>);
     });
+    // Mounting projects the empty shell, then the initial plate session and
+    // overlay. Those are independent real inputs; settle them before taking
+    // the direct-history baseline below.
+    await vi.waitFor(() => expect(runtime.getPrimeTowerProjection.mock.calls.length).toBeGreaterThan(0));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
     const plateReadsBeforeRestore = runtime.getPlateSessionSnapshot.mock.calls.length;
+    const projectionReadsBeforeRestore = runtime.getPrimeTowerProjection.mock.calls.length;
     await act(async () => { await coordinator?.restore('undo'); });
     expect(getModelStructure).not.toHaveBeenCalled();
     expect(runtime.getPlateSessionSnapshot).toHaveBeenCalledTimes(plateReadsBeforeRestore + 1);
+    // The direct restore publishes an explicit projection before returning to
+    // idle.  The idle-phase reactive effect sees that exact input identity and
+    // does not send a second full Worker request.
+    expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(projectionReadsBeforeRestore + 1);
     expect(useHistoryDiagnosticsStore.getState().app).toMatchObject({
       directRestore: { count: 1 }, projection: { count: 1 }, directPrimeTowerModelReloads: 0,
     });
+
+    await act(async () => {
+      useSettingsStore.getState().setOverlay({ project: { wipe_tower_x: '42' }, objects: {}, parts: {}, plates: {} });
+    });
+    await vi.waitFor(() => expect(runtime.getPrimeTowerProjection).toHaveBeenCalledTimes(projectionReadsBeforeRestore + 2));
   });
 });

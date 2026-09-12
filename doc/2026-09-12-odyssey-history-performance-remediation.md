@@ -72,3 +72,31 @@ by the generation/revision fence after consuming Worker work. The bottleneck
 is therefore native full Prime Tower projection and its redundant reactive
 read, not application-side collection reconciliation, emit, plate snapshot,
 filament refresh, or preference persistence.
+
+## Applied remediation
+
+- The projection gateway now treats a successful direct restore projection as
+  satisfying the same semantic renderer inputs seen by its following reactive
+  effect. Equivalent fresh Worker snapshot objects do not invalidate that
+  result; a real history revision, filament/plate revision, overlay, model
+  volume identity, or model structure identity still does.
+- It also joins concurrent reads for one input identity and keeps the existing
+  generation/revision fence. A failed Prime Tower mutation explicitly forces
+  reconciliation, so this coalescing never retains a local drag draft after a
+  rejected native command.
+- The reactive effect is gated by the phase of the render which created it.
+  Effects queued while the restore phase was active cannot execute later after
+  the shared store becomes idle and create obsolete full projection reads.
+- The existing successful move receipt already supplies authoritative position
+  and footprint to `WipeTowerVolumeCollection`; its plate-revision publication
+  is marked satisfied so it cannot enqueue a stale all-tower read ahead of an
+  immediate Undo.
+
+The focused real-project E2E now gives every direct Undo and Redo exactly one
+Worker/client/application Prime Tower projection read, and holds that count
+for one second after the visible restoration settles. On the same 45 MB,
+13-object, 11-plate Odyssey project, the one remaining Worker reads measured
+493.21 ms for Undo and 485.02 ms for Redo, replacing the prior approximately
+1,007 ms aggregate two-read cost. The test also proved the original and moved
+positions, retained Prime Tower selection/gizmo state, and a usable filament
+rack without routing or slicer errors.
