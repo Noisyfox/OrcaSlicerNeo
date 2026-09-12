@@ -100,3 +100,17 @@ for one second after the visible restoration settles. On the same 45 MB,
 1,007 ms aggregate two-read cost. The test also proved the original and moved
 positions, retained Prime Tower selection/gizmo state, and a usable filament
 rack without routing or slicer errors.
+
+## Accepted direct-restore receipt boundary
+
+- A committed narrow Prime Tower history restore now carries an optional,
+  version-1 `primeTowerReceipt` across the native bridge, Worker, typed client,
+  and runtime history result. It is not yet consumed by the viewport collection.
+- Its available form contains only the restored plate identity, post-restore
+  plate revision, authoritative X/Y, and the footprint captured with that
+  history frame. The bridge does not recompute a Prime Tower projection or infer
+  state from renderer data while producing it.
+- The union also reserves a `cleared` form for a future direct transition that
+  intentionally removes or disables a tower. Missing, legacy, non-direct, or
+  malformed receipt data is ignored by the client so the existing full
+  projection fallback remains authoritative.

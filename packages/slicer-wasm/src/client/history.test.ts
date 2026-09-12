@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { normalizePrimeTowerRestoreReceipt } from './client';
 import type {
   HistoryContext, HistoryStatus, MockHistoryRuntime, RestoreResult,
   StableInstanceId, StableObjectId, StablePartId, StablePlateId,
@@ -36,6 +37,11 @@ const status: HistoryStatus = {
 };
 
 describe('history contracts', () => {
+  const narrowImpact = {
+    version: 1 as const, model: 'none' as const, plateSession: true, filamentRack: false,
+    projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate' as const,
+  };
+
   it('keeps stable IDs distinct from positional context in a serializable shape', () => {
     const copy = JSON.parse(JSON.stringify(context)) as HistoryContext;
     expect(copy).toEqual(context);
@@ -66,5 +72,31 @@ describe('history contracts', () => {
     expect(await mock.getHistoryStatus?.()).toBe(status);
     expect(await mock.undoHistory?.()).toBe(restore);
     expect(mock.beginHistory).toBeUndefined();
+  });
+
+  it('normalizes only a versioned direct Prime Tower receipt and preserves the cleared state', () => {
+    expect(normalizePrimeTowerRestoreReceipt({
+      version: 1, state: 'available', plate_id: 'plate-1', revision: 7,
+      position: { x: 12.5, y: 34.5 }, footprint: { min_x: 10, max_x: 20, min_y: 30, max_y: 40 },
+    }, narrowImpact, true)).toEqual({
+      version: 1, state: 'available', plateId: 'plate-1', revision: 7,
+      position: { x: 12.5, y: 34.5 }, footprint: { minX: 10, maxX: 20, minY: 30, maxY: 40 },
+    });
+    expect(normalizePrimeTowerRestoreReceipt(
+      { version: 1, state: 'cleared', plate_id: 'plate-1', revision: 8 }, narrowImpact, true,
+    )).toEqual({ version: 1, state: 'cleared', plateId: 'plate-1', revision: 8 });
+  });
+
+  it('drops malformed or non-direct receipts so the caller keeps its projection fallback', () => {
+    expect(normalizePrimeTowerRestoreReceipt({
+      version: 1, state: 'available', plate_id: 'plate-1', revision: 7,
+      position: { x: Number.NaN, y: 34.5 }, footprint: { min_x: 10, max_x: 20, min_y: 30, max_y: 40 },
+    }, narrowImpact, true)).toBeUndefined();
+    expect(normalizePrimeTowerRestoreReceipt({
+      version: 1, state: 'cleared', plate_id: 'plate-1', revision: 7,
+    }, { ...narrowImpact, model: 'full' }, true)).toBeUndefined();
+    expect(normalizePrimeTowerRestoreReceipt({
+      version: 1, state: 'cleared', plate_id: 'plate-1', revision: 7,
+    }, narrowImpact, false)).toBeUndefined();
   });
 });

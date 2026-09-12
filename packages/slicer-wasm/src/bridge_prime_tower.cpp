@@ -708,6 +708,9 @@ json move_position_json(const char* request_cstr)
     frame.after_y.option_present = true;
     frame.before_revision = plate_revision_before;
     frame.after_revision = plate_revision_before + 1;
+    const json before_footprint = placement_footprint(placement, old_x, old_y);
+    frame.before_footprint = {before_footprint["min_x"].get<double>(), before_footprint["max_x"].get<double>(),
+                              before_footprint["min_y"].get<double>(), before_footprint["max_y"].get<double>()};
     const auto before_frame = frame;
 
     json response;
@@ -726,6 +729,9 @@ json move_position_json(const char* request_cstr)
         const DynamicPrintConfig stored_config = effective_config(*plate);
         const double stored_x = indexed_float(stored_config, "wipe_tower_x", plate_index, x);
         const double stored_y = indexed_float(stored_config, "wipe_tower_y", plate_index, y);
+        const json stored_footprint = placement_footprint(placement, stored_x, stored_y);
+        frame.after_footprint = {stored_footprint["min_x"].get<double>(), stored_footprint["max_x"].get<double>(),
+                                 stored_footprint["min_y"].get<double>(), stored_footprint["max_y"].get<double>()};
         const auto after_settings = snapshot_coordinate_settings(state().presets.project_config, plate_index);
         frame.after_x = after_settings.x;
         frame.after_y = after_settings.y;

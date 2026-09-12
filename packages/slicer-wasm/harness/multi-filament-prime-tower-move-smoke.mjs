@@ -104,10 +104,30 @@ assert.equal(multifilamentMove.result.mutation.history_entry_delta, 1);
 assert.equal(callJson('orc_history_status').undoEntries.length, multifilamentHistory.undoEntries.length + 1);
 const multifilamentAfter = { x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') };
 assert.notDeepEqual(multifilamentAfter, multifilamentBefore, 'released tower coordinates must persist');
-assert.equal(callJson('orc_history_undo').ok, true);
+const multifilamentUndo = callJson('orc_history_undo');
+assert.equal(multifilamentUndo.ok, true);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, multifilamentBefore);
-assert.equal(callJson('orc_history_redo').ok, true);
+const undoReceipt = multifilamentUndo.prime_tower_receipt;
+assert.equal(undoReceipt?.version, 1, JSON.stringify(multifilamentUndo));
+assert.equal(undoReceipt?.state, 'available', JSON.stringify(multifilamentUndo));
+assert.equal(undoReceipt?.plate_id, firstPlate, JSON.stringify(multifilamentUndo));
+assert.equal(undoReceipt?.revision, session().input_revisions[firstPlate], JSON.stringify(multifilamentUndo));
+assert.equal(undoReceipt?.position?.x, multifilamentBefore.x[0], JSON.stringify(multifilamentUndo));
+assert.equal(undoReceipt?.position?.y, multifilamentBefore.y[0], JSON.stringify(multifilamentUndo));
+assert.ok(Number.isFinite(undoReceipt?.footprint?.min_x) && Number.isFinite(undoReceipt?.footprint?.max_x) &&
+  Number.isFinite(undoReceipt?.footprint?.min_y) && Number.isFinite(undoReceipt?.footprint?.max_y) &&
+  undoReceipt.footprint.min_x <= undoReceipt.footprint.max_x && undoReceipt.footprint.min_y <= undoReceipt.footprint.max_y,
+JSON.stringify(multifilamentUndo));
+const multifilamentRedo = callJson('orc_history_redo');
+assert.equal(multifilamentRedo.ok, true);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, multifilamentAfter);
+const redoReceipt = multifilamentRedo.prime_tower_receipt;
+assert.equal(redoReceipt?.version, 1, JSON.stringify(multifilamentRedo));
+assert.equal(redoReceipt?.state, 'available', JSON.stringify(multifilamentRedo));
+assert.equal(redoReceipt?.plate_id, firstPlate, JSON.stringify(multifilamentRedo));
+assert.equal(redoReceipt?.revision, session().input_revisions[firstPlate], JSON.stringify(multifilamentRedo));
+assert.equal(redoReceipt?.position?.x, multifilamentAfter.x[0], JSON.stringify(multifilamentRedo));
+assert.equal(redoReceipt?.position?.y, multifilamentAfter.y[0], JSON.stringify(multifilamentRedo));
 
 const thirdRevision = session().input_revisions[thirdPlate];
 const thirdSlice = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);

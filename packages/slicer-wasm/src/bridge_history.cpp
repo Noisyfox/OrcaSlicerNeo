@@ -3,6 +3,7 @@
 #include <emscripten/emscripten.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -386,6 +387,11 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
 json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::RestorePlan& plan,
                                const NarrowHistoryFrame& frame)
 {
+    const auto valid_footprint = [](const NarrowHistoryFrame::Footprint& footprint) {
+        return std::isfinite(footprint.min_x) && std::isfinite(footprint.max_x) &&
+            std::isfinite(footprint.min_y) && std::isfinite(footprint.max_y) &&
+            footprint.min_x <= footprint.max_x && footprint.min_y <= footprint.max_y;
+    };
     if (frame.plate_id.empty() || !frame.before_x.option_present || !frame.before_y.option_present ||
         !frame.after_x.option_present || !frame.after_y.option_present ||
         !frame.before_x.value || !frame.before_y.value || !frame.after_x.value || !frame.after_y.value)
@@ -396,7 +402,20 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
     if (plate_it == state().plate_session_plates.end()) throw std::runtime_error("prime tower history plate is unavailable");
     const auto& x = frame.after_state ? frame.after_x : frame.before_x;
     const auto& y = frame.after_state ? frame.after_y : frame.before_y;
+    const auto& footprint = frame.after_state ? frame.after_footprint : frame.before_footprint;
     const std::uint64_t revision = frame.after_state ? frame.after_revision : frame.before_revision;
+    if (!valid_footprint(footprint)) throw std::runtime_error("invalid prime tower narrow history footprint");
+    const auto receipt_coordinate = [](const std::string& serialized) {
+        try {
+            const double coordinate = std::stod(serialized);
+            if (std::isfinite(coordinate)) return coordinate;
+        } catch (...) {}
+        throw std::runtime_error("invalid prime tower narrow history coordinate");
+    };
+    // Validate these before commit_restore. Publication must never fail after
+    // the cursor has advanced merely because its receipt was malformed.
+    const double receipt_x = receipt_coordinate(*x.value);
+    const double receipt_y = receipt_coordinate(*y.value);
     const std::size_t plate_index = static_cast<std::size_t>(
         std::distance(state().plate_session_plates.begin(), plate_it));
     const auto before_settings = Neo::Bridge::PrimeTower::snapshot_coordinate_settings(
@@ -433,11 +452,17 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
         try { if (runtime.invalidate_preview) runtime.invalidate_preview(); } catch (...) {}
     }
     HistoryMetadata::advance_history_epoch(state());
-    // Restore publication needs the complete renderer context even though the
-    // native coordinate edit itself is represented by the narrow frame.
+    // This is a post-commit, frame-owned receipt. It intentionally contains no
+    // renderer projection, model, or inferred live state; a later collection
+    // patch may consume it without requesting every plate's tower projection.
     return json{{"ok", true}, {"context", current_context(runtime)},
                 {"status", history_status_json()}, {"entryId", history_entry_id(plan.state.entry.id)},
                 {"direct", true}, {"narrow", true},
+                {"prime_tower_receipt", {{"version", 1}, {"state", "available"},
+                    {"plate_id", frame.plate_id}, {"revision", revision},
+                    {"position", {{"x", receipt_x}, {"y", receipt_y}}},
+                    {"footprint", {{"min_x", footprint.min_x}, {"max_x", footprint.max_x},
+                                    {"min_y", footprint.min_y}, {"max_y", footprint.max_y}}}}},
                 // This receipt is created after commit_restore. It is the sole
                 // authority for skipping the expensive model/GL projection.
                 {"impact", {{"version", 1}, {"model", "none"}, {"plateSession", true},

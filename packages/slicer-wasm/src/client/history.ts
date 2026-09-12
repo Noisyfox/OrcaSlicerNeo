@@ -129,6 +129,32 @@ export interface RestoreImpact {
   readonly preview: 'all' | 'current-plate';
 }
 
+/**
+ * Minimal native fact published only for a committed direct Prime Tower
+ * restore.  It is deliberately separate from the all-plate projection: a
+ * future collection patch can update one plate without deriving state from a
+ * stale renderer snapshot.
+ */
+export type PrimeTowerRestoreReceipt = PrimeTowerRestoreAvailableReceipt | PrimeTowerRestoreClearedReceipt;
+
+export interface PrimeTowerRestoreAvailableReceipt {
+  readonly version: 1;
+  readonly state: 'available';
+  readonly plateId: string;
+  /** Native plate input revision after the committed restore. */
+  readonly revision: number;
+  readonly position: Readonly<{ x: number; y: number }>;
+  readonly footprint: Readonly<{ minX: number; maxX: number; minY: number; maxY: number }>;
+}
+
+/** A future direct frame may intentionally remove or disable a tower. */
+export interface PrimeTowerRestoreClearedReceipt {
+  readonly version: 1;
+  readonly state: 'cleared';
+  readonly plateId: string;
+  readonly revision: number;
+}
+
 /** A compact timing aggregate; it intentionally retains no operation history. */
 export interface HistoryTimingDiagnostic {
   readonly count: number;
@@ -174,6 +200,8 @@ export interface RestoreSuccess {
   readonly status: HistoryStatus;
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;
+  /** Omitted for full restores, legacy artifacts, and malformed receipts. */
+  readonly primeTowerReceipt?: PrimeTowerRestoreReceipt;
 }
 
 export interface RestoreFailure {

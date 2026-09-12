@@ -33,6 +33,17 @@ struct NarrowHistoryFrame {
     CoordinateValue before_y;
     CoordinateValue after_x;
     CoordinateValue after_y;
+    struct Footprint {
+        double min_x { 0. };
+        double max_x { 0. };
+        double min_y { 0. };
+        double max_y { 0. };
+    };
+    // The direct restore receipt must be a frame-owned fact. Recomputing this
+    // from the restored model would turn a scalar X/Y history transition back
+    // into a costly projection read and could observe a different live state.
+    Footprint before_footprint;
+    Footprint after_footprint;
     std::uint64_t before_revision { 0 };
     std::uint64_t after_revision { 0 };
     bool after_state { false };

@@ -851,13 +851,45 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (!value.context || typeof value.context !== 'object' || !value.status)
     return historyFailure(raw, 'invalid history restore response');
   const impact = normalizeRestoreImpact(value.impact);
+  const primeTowerReceipt = normalizePrimeTowerRestoreReceipt(value.prime_tower_receipt, impact, value.narrow);
   return {
     ok: true,
     context: value.context as HistoryContext,
     status: normalizeHistoryStatus(value.status),
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
+    ...(primeTowerReceipt ? { primeTowerReceipt } : {}),
   };
+}
+
+/**
+ * Receipts are an optional acceleration contract. Invalid or legacy data is
+ * ignored so callers retain the existing authoritative projection fallback.
+ */
+export function normalizePrimeTowerRestoreReceipt(
+  raw: unknown,
+  impact: import('./history').RestoreImpact,
+  narrow: unknown,
+): import('./history').PrimeTowerRestoreReceipt | undefined {
+  if (narrow !== true || impact.model !== 'none' || !impact.primeTower || !raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  if (value.version !== 1 || typeof value.plate_id !== 'string' || value.plate_id.length === 0 ||
+      !Number.isSafeInteger(value.revision) || (value.revision as number) < 0) return undefined;
+  if (value.state === 'cleared') {
+    return { version: 1, state: 'cleared', plateId: value.plate_id, revision: value.revision as number };
+  }
+  if (value.state !== 'available' || !value.position || typeof value.position !== 'object' ||
+      !value.footprint || typeof value.footprint !== 'object') return undefined;
+  const position = value.position as Record<string, unknown>;
+  const footprint = value.footprint as Record<string, unknown>;
+  const finite = (entry: unknown): entry is number => typeof entry === 'number' && Number.isFinite(entry);
+  if (![position.x, position.y, footprint.min_x, footprint.max_x, footprint.min_y, footprint.max_y].every(finite) ||
+      (footprint.max_x as number) < (footprint.min_x as number) ||
+      (footprint.max_y as number) < (footprint.min_y as number)) return undefined;
+  return { version: 1, state: 'available', plateId: value.plate_id, revision: value.revision as number,
+    position: { x: position.x as number, y: position.y as number },
+    footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
+      minY: footprint.min_y as number, maxY: footprint.max_y as number } };
 }
 
 export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {

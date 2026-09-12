@@ -433,11 +433,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyLastEvictedEntryId = null;
     historyRevision++; historyDisabled = false;
   }
-  function historyRestore(entry: MockHistoryEntry) {
+  function primeTowerRestoreReceipt(plateId: string): unknown {
+    const projection = primeTowerProjection() as any;
+    const plate = projection.plates?.find((candidate: any) => candidate.plate_id === plateId);
+    const revision = plateInputRevisions[plateId];
+    if (!plate || !Number.isSafeInteger(revision))
+      return { version: 1, state: 'cleared', plate_id: plateId, revision: 0 };
+    if (plate.eligible !== true)
+      return { version: 1, state: 'cleared', plate_id: plateId, revision };
+    return { version: 1, state: 'available', plate_id: plateId, revision,
+      position: clone(plate.position), footprint: clone(plate.footprint) };
+  }
+  function historyRestore(entry: MockHistoryEntry, narrowPrimeTower = false, primeTowerPlateId?: string) {
     restoreHistoryState(entry);
     historyRevision++;
-    const narrowPrimeTower = entry.label === 'Move Prime Tower';
     return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id,
+      ...(narrowPrimeTower && primeTowerPlateId
+        ? { narrow: true, prime_tower_receipt: primeTowerRestoreReceipt(primeTowerPlateId) } : {}),
       impact: narrowPrimeTower
         ? { version: 1, model: 'none', plateSession: true, filamentRack: false, projectOverlay: true,
           selectionContext: true, primeTower: true, preview: 'current-plate' }
@@ -1199,8 +1211,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // The baseline is the valid restore target for the first project edit.
       if (!historyEntries[target] || (target > 0 && !project(historyEntries[target])))
         target = 0;
+      const source = historyEntries[currentProject];
       historyCursor = target;
-      return historyRestore(historyEntries[target]);
+      const primeTowerPlateId = source?.label === 'Move Prime Tower' ? source.context?.primeTowerMove?.plateId : undefined;
+      return historyRestore(historyEntries[target], typeof primeTowerPlateId === 'string', primeTowerPlateId);
     },
     orc_history_redo() {
       if (historyTransaction) return { error: 'history transaction is active' };
@@ -1208,8 +1222,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       let target = historyCursor + 1;
       while (target < historyEntries.length && !project(historyEntries[target])) target++;
       if (target >= historyEntries.length) return { error: 'no redo history' };
+      const source = historyEntries[historyCursor];
       historyCursor = target;
-      return historyRestore(historyEntries[target]);
+      const primeTowerPlateId = historyEntries[target]?.label === 'Move Prime Tower'
+        ? historyEntries[target].context?.primeTowerMove?.plateId
+        : source?.label === 'Move Prime Tower' ? source.context?.primeTowerMove?.plateId : undefined;
+      return historyRestore(historyEntries[target], typeof primeTowerPlateId === 'string', primeTowerPlateId);
     },
     orc_history_jump(entryId: string, direction: 'undo' | 'redo') {
       if (historyTransaction) return { error: 'history transaction is active' };
@@ -1233,7 +1251,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           return { error: 'history entry is outside the requested direction' };
         historyCursor = index;
       }
-      return historyRestore(historyEntries[historyCursor]);
+      const current = historyEntries[historyCursor];
+      const primeTowerPlateId = current?.label === 'Move Prime Tower' ? current.context?.primeTowerMove?.plateId : undefined;
+      return historyRestore(current, typeof primeTowerPlateId === 'string', primeTowerPlateId);
     },
     orc_history_status() {
       return historyStatus();

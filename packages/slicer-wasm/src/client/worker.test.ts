@@ -165,4 +165,26 @@ describe('worker protocol', () => {
     channel.post({ type: 'history-diagnostic', diagnostic: { kind: 'restore', path: 'direct', durationMs: 1 } });
     expect(workerClient.getHistoryDiagnostics().worker.directRestore).toMatchObject({ count: 1, lastMs: 1 });
   });
+
+  it('round-trips a direct Prime Tower restore receipt without an all-plate projection read', async () => {
+    const module = createMockModule({ primeTowerFixture: true });
+    const channel = new Channel();
+    const workerClient = createWorkerClient(channel);
+    void startWorker(async () => module, (msg, transfer) => channel.post(msg, transfer), (fn) => channel.onMessage(fn));
+    await workerClient.init();
+    const projection = await workerClient.getPrimeTowerProjection();
+    if (!projection.ok) throw new Error(projection.error);
+    const plateId = projection.currentPlateId;
+    const moved = await workerClient.movePrimeTower({ version: 1, plateId, revision: 0, x: 50, y: 60 });
+    if (!moved.ok) throw new Error(moved.error);
+    const restored = await workerClient.undoHistory();
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) return;
+    expect(restored.primeTowerReceipt).toMatchObject({
+      version: 1, state: 'available', plateId, revision: 0,
+      position: { x: 30, y: 40 }, footprint: { minX: 27, maxX: 57, minY: 37, maxY: 77 },
+    });
+    const diagnostics = workerClient.getHistoryDiagnostics();
+    expect(diagnostics.worker.reads?.primeTowerProjection.count).toBe(1);
+  });
 });

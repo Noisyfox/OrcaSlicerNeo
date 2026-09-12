@@ -46,6 +46,7 @@ export type {
   HistoryLabel, HistoryTransactionId, HistoryEntryId, HistoryJumpDirection, HistoryEntrySummary,
   HistoryStatus, HistoryErrorCode, HistoryError, RestoreSuccess, RestoreFailure,
   RestoreResult, RestoreImpact, HistoryTimingDiagnostic, HistoryDiagnosticLayer, HistoryReadDiagnosticLayer,
+  PrimeTowerRestoreReceipt, PrimeTowerRestoreAvailableReceipt, PrimeTowerRestoreClearedReceipt,
   HistoryTransportDiagnostics, HistoryRuntimeMethods, MockHistoryRuntime, HistoryMutation,
 } from './history';
 export { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_ALIGNMENT_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
