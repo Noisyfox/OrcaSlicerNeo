@@ -114,7 +114,7 @@ export function Workspace({
   const sceneInteractionRef = useRef<SceneInteractionController | null>(null);
   if (!sceneInteractionRef.current) {
     sceneInteractionRef.current = new SceneInteractionController(() => [...glVolumeCollection.volumes, ...wipeTowerVolumes.volumes]);
-    sceneInteractionRef.current.setWipeTowerMovePort({ commit: (volume) => wipeTowerVolumes.commit(volume), busy: () => wipeTowerVolumes.busy });
+    sceneInteractionRef.current.setSceneEntityCommitPort({ commit: (volume) => wipeTowerVolumes.commit(volume), busy: () => wipeTowerVolumes.busy });
   }
   const sceneInteraction = sceneInteractionRef.current;
   const refreshPrimeTowerProjection = useCallback(async (forceDuringRestore = false) => {

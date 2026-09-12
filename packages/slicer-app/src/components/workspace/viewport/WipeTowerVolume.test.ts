@@ -92,7 +92,7 @@ describe('WipeTowerVolume shared scene integration', () => {
     const history = { begin: vi.fn(), commit: vi.fn(), abort: vi.fn() };
     const commit = vi.fn(async () => undefined);
     const scene = new SceneInteractionController(() => [ordinary, wipe], history);
-    scene.setWipeTowerMovePort({ commit });
+    scene.setSceneEntityCommitPort({ commit });
 
     expect(scene.selectFromHit(wipe, false)).toBe(true);
     expect(scene.selectedWipeTower()).toBe(wipe);
@@ -126,7 +126,7 @@ describe('WipeTowerVolume shared scene integration', () => {
     const history = { begin: vi.fn(), commit: vi.fn(async () => undefined), abort: vi.fn(async () => undefined) };
     const towerCommit = vi.fn(async () => undefined);
     const scene = new SceneInteractionController(() => [ordinary, wipe], history);
-    scene.setWipeTowerMovePort({ commit: towerCommit });
+    scene.setSceneEntityCommitPort({ commit: towerCommit });
 
     for (const entity of [ordinary, wipe]) {
       scene.clearSelection();
@@ -156,7 +156,7 @@ describe('WipeTowerVolume shared scene integration', () => {
     const ordinary = model();
     let busy = false;
     const scene = new SceneInteractionController(() => [ordinary, wipe]);
-    scene.setWipeTowerMovePort({ commit: vi.fn(async () => undefined), busy: () => busy });
+    scene.setSceneEntityCommitPort({ commit: vi.fn(async () => undefined), busy: () => busy });
 
     wipe.selectable = false;
     expect(scene.selectFromHit(wipe, false)).toBe(false);
@@ -179,7 +179,7 @@ describe('WipeTowerVolume shared scene integration', () => {
     const history = { begin: vi.fn(), commit: vi.fn(), abort: vi.fn() };
     const commit = vi.fn(async () => undefined);
     const scene = new SceneInteractionController(() => [wipe], history);
-    scene.setWipeTowerMovePort({ commit });
+    scene.setSceneEntityCommitPort({ commit });
     scene.selectFromHit(wipe, false);
     const pivot = scene.selectionPivot()!;
     expect(scene.moveSelectionToPivot(pivot.clone())).toBe(false);

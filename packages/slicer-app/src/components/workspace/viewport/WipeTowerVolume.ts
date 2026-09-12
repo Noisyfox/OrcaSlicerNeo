@@ -120,7 +120,8 @@ export class WipeTowerVolume extends GLVolume {
   }
 }
 
-export interface WipeTowerMovePort {
+/** Worker command boundary for authoritative Prime Tower mutations. */
+export interface PrimeTowerCommandPort {
   move(request: PrimeTowerMoveRequest): Promise<PrimeTowerMoveResultOrError>;
   reconcile(): Promise<void>;
   revision(plateId: string): number;
@@ -138,7 +139,7 @@ export class WipeTowerVolumeCollection {
   private moveCommandCountState = 0;
   private commitInFlight = false;
 
-  constructor(private readonly port: WipeTowerMovePort) {}
+  constructor(private readonly commandPort: PrimeTowerCommandPort) {}
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   get projection(): PrimeTowerProjection | null { return this.projectionState; }
   get volumes(): readonly WipeTowerVolume[] { return this.volumesState; }
@@ -200,17 +201,17 @@ export class WipeTowerVolumeCollection {
       // the old wipe_tower_x/y revision between pointer-up and publication.
       await runProjectMutationOperation(async () => {
         const position = volume.position;
-        const result = await this.port.move({ version: 1, plateId: volume.plateId, revision: this.port.revision(volume.plateId), x: position.x, y: position.y });
+        const result = await this.commandPort.move({ version: 1, plateId: volume.plateId, revision: this.commandPort.revision(volume.plateId), x: position.x, y: position.y });
         if (result.ok) {
           this.setPlatePosition(result.result.mutation.plateId, result.result.mutation.position, result.result.mutation.footprint);
-          await this.port.publishHistoryStatus?.(result.result.historyStatus);
+          await this.commandPort.publishHistoryStatus?.(result.result.historyStatus);
         }
-        else await this.port.reconcile();
+        else await this.commandPort.reconcile();
       });
     } catch {
       // The native command already reconciles its own validation failures;
       // this catch is only for unexpected queue/transport failures.
-      await this.port.reconcile();
+      await this.commandPort.reconcile();
     } finally {
       this.commitInFlight = false;
       this.emit();

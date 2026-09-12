@@ -65,9 +65,9 @@ export interface TransformHistoryPort {
   abort(): Promise<unknown>;
 }
 
-/** Scene-only tower movement commits to native per-plate X/Y, never history. */
-export interface WipeTowerMovePort {
-  commit(volume: WipeTowerVolume): Promise<void>;
+/** Commit boundary for a scene entity after its local draft has changed. */
+export interface SceneEntityCommitPort<Entity extends GLVolume = GLVolume> {
+  commit(entity: Entity): Promise<void>;
   busy?(): boolean;
 }
 
@@ -102,7 +102,7 @@ export class SceneInteractionController {
   private drag: DragSnapshot | null = null;
   private boxSelect: { start: BoxPoint; current: BoxPoint; additive: boolean } | null = null;
   private boxSelectProjector: ((world: THREE.Vector3) => BoxPoint | null) | null = null;
-  private wipeTowerMovePort: WipeTowerMovePort | null = null;
+  private entityCommitPort: SceneEntityCommitPort<WipeTowerVolume> | null = null;
 
   constructor(
     private readonly getVolumes: () => readonly GLVolume[],
@@ -113,8 +113,8 @@ export class SceneInteractionController {
     this.transformHistory = port;
   }
 
-  setWipeTowerMovePort(port: WipeTowerMovePort | null): void {
-    this.wipeTowerMovePort = port;
+  setSceneEntityCommitPort(port: SceneEntityCommitPort<WipeTowerVolume> | null): void {
+    this.entityCommitPort = port;
   }
 
   subscribe(listener: () => void): () => void {
@@ -225,7 +225,7 @@ export class SceneInteractionController {
    * previous Worker mutation is being reconciled. Pointer ownership remains
    * controller-owned regardless of which adapter will ultimately commit. */
   private get activeCommitBusy(): boolean {
-    return this.hasWipeTowerSelection && this.wipeTowerMovePort?.busy?.() === true;
+    return this.hasWipeTowerSelection && this.entityCommitPort?.busy?.() === true;
   }
 
   /** Unique object indices behind the current selection, sorted ascending.
@@ -757,13 +757,13 @@ export class SceneInteractionController {
     if (!pivot || this.selection.empty) return false;
     const wipeTower = this.selectedWipeTower();
     if (wipeTower) {
-      if (this.activeCommitBusy || !this.wipeTowerMovePort) return false;
+      if (this.activeCommitBusy || !this.entityCommitPort) return false;
       const delta = nextPivot.clone().sub(pivot);
       const before = wipeTower.position;
       wipeTower.setTransientPosition({ x: wipeTower.position.x + delta.x, y: wipeTower.position.y + delta.y });
       const after = wipeTower.position;
       if (Math.abs(before.x - after.x) <= 1e-9 && Math.abs(before.y - after.y) <= 1e-9) return false;
-      void this.wipeTowerMovePort?.commit(wipeTower);
+      void this.entityCommitPort?.commit(wipeTower);
       this.emit();
       return true;
     }
@@ -907,7 +907,7 @@ export class SceneInteractionController {
   private finishDragCommit(changed: boolean): void {
     const wipeTower = this.selectedWipeTower();
     if (wipeTower) {
-      if (changed) void this.wipeTowerMovePort?.commit(wipeTower);
+      if (changed) void this.entityCommitPort?.commit(wipeTower);
       return;
     }
     if (changed) void this.transformHistory?.commit();
