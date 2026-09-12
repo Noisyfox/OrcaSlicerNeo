@@ -237,6 +237,53 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(collection.volumes.find((volume) => volume.plateId === 'plate-2')?.position).toEqual({ x: 60, y: 70 });
   });
 
+  it('applies an available direct-history receipt to one matching plate and preserves the other plates', () => {
+    const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
+    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', inputRevisions: { 'plate-1': 7, 'plate-2': 3 },
+      plates: [plate('plate-1', 0), plate('plate-2', 1)] };
+    const second = { ...tower().projection, plateId: 'plate-2', displayIndex: 1, position: { x: 60, y: 70 } };
+    const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea,
+      plates: [tower().projection, second] };
+    const collection = new WipeTowerVolumeCollection({ move: vi.fn(), reconcile: vi.fn(), revision: vi.fn(() => 1) });
+    collection.setProjection(projection, session);
+
+    expect(collection.applyRestoreReceipt({ version: 1, state: 'available', plateId: 'plate-1', revision: 7,
+      position: { x: 35, y: 45 }, footprint: { minX: 35, maxX: 55, minY: 45, maxY: 61 } }, session)).toBe(true);
+
+    expect(collection.volumes.find((volume) => volume.plateId === 'plate-1')?.position).toEqual({ x: 35, y: 45 });
+    expect(collection.volumes.find((volume) => volume.plateId === 'plate-2')?.position).toEqual({ x: 60, y: 70 });
+  });
+
+  it('removes exactly the receipt plate when a matching direct-history receipt is cleared', () => {
+    const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
+    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', inputRevisions: { 'plate-1': 7, 'plate-2': 3 },
+      plates: [plate('plate-1', 0), plate('plate-2', 1)] };
+    const second = { ...tower().projection, plateId: 'plate-2', displayIndex: 1, position: { x: 60, y: 70 } };
+    const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea,
+      plates: [tower().projection, second] };
+    const collection = new WipeTowerVolumeCollection({ move: vi.fn(), reconcile: vi.fn(), revision: vi.fn(() => 1) });
+    collection.setProjection(projection, session);
+
+    expect(collection.applyRestoreReceipt({ version: 1, state: 'cleared', plateId: 'plate-1', revision: 7 }, session)).toBe(true);
+
+    expect(collection.volumes.map((volume) => volume.plateId)).toEqual(['plate-2']);
+    expect(collection.projection?.plates.map((entry) => entry.plateId)).toEqual(['plate-2']);
+  });
+
+  it('rejects stale or mismatched restore receipts without changing its retained projection', () => {
+    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', inputRevisions: { 'plate-1': 7 },
+      plates: [{ plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const }] };
+    const projection = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea, plates: [tower().projection] };
+    const collection = new WipeTowerVolumeCollection({ move: vi.fn(), reconcile: vi.fn(), revision: vi.fn(() => 1) });
+    collection.setProjection(projection, session);
+
+    expect(collection.applyRestoreReceipt({ version: 1, state: 'cleared', plateId: 'plate-1', revision: 6 }, session)).toBe(false);
+    expect(collection.applyRestoreReceipt({ version: 1, state: 'cleared', plateId: 'other-plate', revision: 7 }, session)).toBe(false);
+
+    expect(collection.volumes.map((volume) => volume.plateId)).toEqual(['plate-1']);
+    expect(collection.projection).toBe(projection);
+  });
+
   it('reports aggregate projection reconciliation and publication timings without retaining projection data', () => {
     const plate = { plateId: 'plate-1', displayIndex: 0, name: 'plate-1', origin: [0, 0, 0] as const };
     const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate] };

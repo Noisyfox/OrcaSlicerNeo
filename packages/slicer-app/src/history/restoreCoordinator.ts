@@ -1,4 +1,4 @@
-import type { HistoryContext, RestoreImpact, RestoreResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, PrimeTowerRestoreReceipt, RestoreImpact, RestoreResult, SlicerClient } from '@slicer/client';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from '../components/workspace/sliceCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
@@ -26,7 +26,12 @@ export interface HistoryRestoreCoordinatorOptions {
    * after structure, mesh, plate, selection, and gizmo projections are safe
    * for editing; the coordinator keeps the restoring phase until then.
    */
-  refreshModel: (context: HistoryContext, impact: RestoreImpact, revision: number) => Promise<void>;
+  refreshModel: (
+    context: HistoryContext,
+    impact: RestoreImpact,
+    revision: number,
+    primeTowerReceipt?: PrimeTowerRestoreReceipt,
+  ) => Promise<void>;
   /** Best-effort preference mirror after a successful native restore. */
   publishRestoredFilamentRack?: (revision: number) => Promise<void>;
 }
@@ -69,7 +74,7 @@ export function createHistoryRestoreCoordinator({
       if (restored.impact.preview === 'all') useSlicerStore.getState().invalidateSliceResult();
       const projectionStartedAt = historyDiagnosticNow();
       try {
-        await refreshModel(restored.context, restored.impact, revision);
+        await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt);
       } finally {
         useHistoryDiagnosticsStore.getState().recordProjection(
           historyRestorePath(restored.impact), historyDiagnosticNow() - projectionStartedAt,

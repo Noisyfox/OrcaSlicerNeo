@@ -31,7 +31,7 @@ import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from 
 import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { projectHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
-import type { ProjectConfigOverlay } from '@slicer/client';
+import type { PlateSessionSnapshot, ProjectConfigOverlay } from '@slicer/client';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
 import { publishRememberedFilamentRack } from '../../preferences';
@@ -285,7 +285,7 @@ export function Workspace({
       runtime: platform.runtime,
       sceneInteraction,
       sliceCoordinator,
-      refreshModel: async (context, impact, revision) => {
+      refreshModel: async (context, impact, revision, primeTowerReceipt) => {
         // Impact is atomically published by the Worker with the committed
         // cursor. Only a validated full-model receipt may issue a structure
         // read or wait on GL mesh replacement; old/missing descriptors are
@@ -316,6 +316,7 @@ export function Workspace({
             useSettingsStore.getState().setOverlay(overlay as unknown as ProjectConfigOverlay);
         }
 
+        let freshPlateSession: PlateSessionSnapshot | null = null;
         const getPlateSessionSnapshot = platform.runtime.getPlateSessionSnapshot;
         if (impact.plateSession && typeof getPlateSessionSnapshot === 'function') {
           const plateSessionStartedAt = historyDiagnosticNow();
@@ -330,6 +331,7 @@ export function Workspace({
           if (!session.ok) throw new Error(session.error ?? 'getPlateSessionSnapshot failed during history restore');
           if (historyRestoreRef.current?.currentRevision() !== revision) return;
           usePlateSessionStore.getState().setSnapshot(session);
+          freshPlateSession = session;
           if (session.instanceTransforms)
             applyPlateSessionTransforms({ instanceTransforms: session.instanceTransforms }, glVolumeCollection.volumes);
         } else if (impact.plateSession) {
@@ -338,11 +340,31 @@ export function Workspace({
             usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
         }
         if (impact.selectionContext) sceneInteraction.restoreHistoryContext(context, structure);
-        // History restores change native wipe_tower_x/y without necessarily
-        // changing model structure or the settings overlay reference. Refresh
-        // the scene-only Prime Tower projection explicitly so Undo/Redo cannot
-        // leave the released tower at its previous renderer position.
-        if (impact.primeTower) await refreshPrimeTowerProjection(true);
+        // A normalized direct receipt is a narrow acceleration only. It may
+        // patch the retained all-plate projection solely after this restore's
+        // freshly-read plate session confirms the exact native plate revision.
+        // Any absent/mismatched receipt, full-model restore, stale generation,
+        // or collection state we cannot prove safe falls through to the
+        // authoritative all-plate Worker projection.
+        let receiptApplied = false;
+        if (impact.model === 'none' && impact.plateSession && primeTowerReceipt && freshPlateSession &&
+            historyRestoreRef.current?.currentRevision() === revision) {
+          try {
+            receiptApplied = wipeTowerVolumes.applyRestoreReceipt(primeTowerReceipt, freshPlateSession);
+          } catch {
+            receiptApplied = false;
+          }
+        }
+        if (receiptApplied) {
+          // Invalidate any older read and make the following idle-phase effect
+          // observe this native receipt as satisfying its exact inputs.
+          primeTowerRefreshGenerationRef.current += 1;
+          primeTowerProjectionInputsRef.current = capturePrimeTowerProjectionInputs(primeTowerGlVolumesRef.current);
+        } else if (impact.primeTower) {
+          // History restores change native wipe_tower_x/y without necessarily
+          // changing model structure or the settings overlay reference.
+          await refreshPrimeTowerProjection(true);
+        }
       },
       publishRestoredFilamentRack: async (revision) => {
         if (useHistoryRestoreStore.getState().revision !== revision) return;

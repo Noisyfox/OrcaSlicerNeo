@@ -224,6 +224,11 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
     }).toBe(true);
     const movedPosition = (await readTowers()).find((tower) => tower.current)?.position;
     expect(movedPosition).toBeDefined();
+    // The narrow move publication must keep the selected tower and the shared
+    // Move gizmo usable; otherwise a correct mesh coordinate can still leave
+    // the visible selection box/gizmo at an obsolete transform.
+    await expect.poll(readSelection).toBe(current!.plateId);
+    await expect(page.getByTestId('gizmo-btn-move')).toBeEnabled();
     const pointerUpToCommitMs = performance.now() - pointerUpAt;
     withinLivenessLimit('pointer-up to authoritative native commit', pointerUpToCommitMs);
     const moveDiagnosticsAfter = requireDiagnostics(await readDiagnostics());
@@ -247,15 +252,14 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
     await expect(page.getByTestId('slicer-error')).toHaveCount(0);
     const undoToProjectionMs = performance.now() - undoAt;
     withinLivenessLimit('undo to authoritative tower and valid filament rack', undoToProjectionMs);
-    // Let a stale idle-phase effect run if it was going to. A direct restore
-    // has already published this exact projection, so it must not consume a
-    // second half-second full Worker projection after the visible position is
-    // correct.
+    // Let the idle-phase effect run if it was going to. The matching direct
+    // receipt already patched the retained projection, so no all-plate Worker
+    // projection is permitted after the visible position is correct.
     await page.waitForTimeout(1_000);
     const undoDiagnosticsAfter = requireDiagnostics(await readDiagnostics());
-    expect(countDelta(undoDiagnosticsBefore.worker!.reads!.primeTowerProjection, undoDiagnosticsAfter.worker!.reads!.primeTowerProjection)).toBe(1);
-    expect(countDelta(undoDiagnosticsBefore.client!.reads!.primeTowerProjection, undoDiagnosticsAfter.client!.reads!.primeTowerProjection)).toBe(1);
-    expect(countDelta(undoDiagnosticsBefore.app.primeTowerProjectionRead, undoDiagnosticsAfter.app.primeTowerProjectionRead)).toBe(1);
+    expect(countDelta(undoDiagnosticsBefore.worker!.reads!.primeTowerProjection, undoDiagnosticsAfter.worker!.reads!.primeTowerProjection)).toBe(0);
+    expect(countDelta(undoDiagnosticsBefore.client!.reads!.primeTowerProjection, undoDiagnosticsAfter.client!.reads!.primeTowerProjection)).toBe(0);
+    expect(countDelta(undoDiagnosticsBefore.app.primeTowerProjectionRead, undoDiagnosticsAfter.app.primeTowerProjectionRead)).toBe(0);
 
     const redoDiagnosticsBefore = requireDiagnostics(await readDiagnostics());
     const redoAt = performance.now();
@@ -278,9 +282,9 @@ test('measures Odyssey Prime Tower commit and history restore stages after a pro
     withinLivenessLimit('redo to authoritative tower and valid filament rack', redoToProjectionMs);
     await page.waitForTimeout(1_000);
     const redoDiagnosticsAfter = requireDiagnostics(await readDiagnostics());
-    expect(countDelta(redoDiagnosticsBefore.worker!.reads!.primeTowerProjection, redoDiagnosticsAfter.worker!.reads!.primeTowerProjection)).toBe(1);
-    expect(countDelta(redoDiagnosticsBefore.client!.reads!.primeTowerProjection, redoDiagnosticsAfter.client!.reads!.primeTowerProjection)).toBe(1);
-    expect(countDelta(redoDiagnosticsBefore.app.primeTowerProjectionRead, redoDiagnosticsAfter.app.primeTowerProjectionRead)).toBe(1);
+    expect(countDelta(redoDiagnosticsBefore.worker!.reads!.primeTowerProjection, redoDiagnosticsAfter.worker!.reads!.primeTowerProjection)).toBe(0);
+    expect(countDelta(redoDiagnosticsBefore.client!.reads!.primeTowerProjection, redoDiagnosticsAfter.client!.reads!.primeTowerProjection)).toBe(0);
+    expect(countDelta(redoDiagnosticsBefore.app.primeTowerProjectionRead, redoDiagnosticsAfter.app.primeTowerProjectionRead)).toBe(0);
 
     console.log('[prime-tower-history-performance] timings (ms)', JSON.stringify({
       pointerUpToCommitMs,

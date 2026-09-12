@@ -214,7 +214,8 @@ describe('history restore coordinator', () => {
     const narrow: RestoreResult = { ok: true, context, status, impact: {
       version: 1, model: 'none', plateSession: true, filamentRack: false,
       projectOverlay: true, selectionContext: true, primeTower: true, preview: 'current-plate',
-    } };
+    }, primeTowerReceipt: { version: 1, state: 'available', plateId: 'plate-1', revision: 7,
+      position: { x: 12, y: 34 }, footprint: { minX: 12, maxX: 32, minY: 34, maxY: 50 } } };
     const refreshModel = vi.fn(async () => undefined);
     const publishRestoredFilamentRack = vi.fn(async () => undefined);
     const coordinator = createHistoryRestoreCoordinator({
@@ -222,7 +223,7 @@ describe('history restore coordinator', () => {
       sceneInteraction: fakeScene(), refreshModel, publishRestoredFilamentRack,
     });
     await expect(coordinator.restore('undo')).resolves.toBe(true);
-    expect(refreshModel).toHaveBeenCalledWith(context, narrow.impact, expect.any(Number));
+    expect(refreshModel).toHaveBeenCalledWith(context, narrow.impact, expect.any(Number), narrow.primeTowerReceipt);
     expect(publishRestoredFilamentRack).not.toHaveBeenCalled();
   });
 

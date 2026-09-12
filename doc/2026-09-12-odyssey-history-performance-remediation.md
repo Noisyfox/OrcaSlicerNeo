@@ -92,25 +92,34 @@ filament refresh, or preference persistence.
   is marked satisfied so it cannot enqueue a stale all-tower read ahead of an
   immediate Undo.
 
-The focused real-project E2E now gives every direct Undo and Redo exactly one
-Worker/client/application Prime Tower projection read, and holds that count
-for one second after the visible restoration settles. On the same 45 MB,
-13-object, 11-plate Odyssey project, the one remaining Worker reads measured
-493.21 ms for Undo and 485.02 ms for Redo, replacing the prior approximately
-1,007 ms aggregate two-read cost. The test also proved the original and moved
-positions, retained Prime Tower selection/gizmo state, and a usable filament
-rack without routing or slicer errors.
+The focused real-project E2E now gives every direct Undo and Redo **zero**
+Worker/client/application all-plate Prime Tower projection reads, and holds
+that count for one second after visible restoration settles. On the same 45 MB,
+13-object, 11-plate Odyssey project, the verified Undo/Redo visible restore
+times were 114.61 / 93.40 ms. Their remaining work was the narrow native restore
+(5.49 / 3.51 ms), fresh plate-session round trip (11.30 / 9.28 ms), filament
+refresh (20.50 / 18.91 ms), and collection patch (0.065 / 0.045 ms). This
+eliminates the prior approximately 1,007 ms aggregate two-read cost, then the
+roughly 493 / 485 ms single-read cost. The test also proved original and moved
+positions, a selected Prime Tower with a usable Move gizmo after its commit,
+and a usable filament rack without routing or slicer errors.
 
 ## Accepted direct-restore receipt boundary
 
 - A committed narrow Prime Tower history restore now carries an optional,
   version-1 `primeTowerReceipt` across the native bridge, Worker, typed client,
-  and runtime history result. It is not yet consumed by the viewport collection.
+  runtime history result, and viewport restore coordinator.
 - Its available form contains only the restored plate identity, post-restore
   plate revision, authoritative X/Y, and the footprint captured with that
   history frame. The bridge does not recompute a Prime Tower projection or infer
   state from renderer data while producing it.
 - The union also reserves a `cleared` form for a future direct transition that
-  intentionally removes or disables a tower. Missing, legacy, non-direct, or
-  malformed receipt data is ignored by the client so the existing full
-  projection fallback remains authoritative.
+  intentionally removes or disables a tower. The collection consumes either
+  form only for a direct `model: none` restore after a freshly fetched native
+  plate session has the exact receipt `plateId` and revision, and only when its
+  retained all-plate projection still contains that plate. `available` patches
+  only position/footprint while retaining other plates; `cleared` removes only
+  that plate. Missing, legacy, non-direct, malformed, stale, mismatched, or
+  otherwise unsafe receipts use the existing authoritative full-projection
+  fallback. A matching receipt marks the input identity satisfied, so the
+  subsequent idle reactive effect cannot reissue the all-plate read.
