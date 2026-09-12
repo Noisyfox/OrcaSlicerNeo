@@ -23,6 +23,9 @@ struct MutableObject {
     // know an object's content did not change.  The bytes remain authoritative.
     std::uint64_t timestamp { 0 };
     Bytes data;
+    // ModelVolume's native undo archive omits ObjectBase. Retain the ordered
+    // IDs separately so restore can reapply them after materialization.
+    std::vector<ObjectID> volume_ids;
 };
 
 // Immutable mesh data is shared by identity and can be discarded from the

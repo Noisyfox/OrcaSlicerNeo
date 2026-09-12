@@ -69,6 +69,51 @@ const context = { selection: { mode: 'object', objectIds: [], partIds: [], insta
   activePlateId: null, gizmo: null, projectConfigOverlay: {} };
 const init = callJson('orc_init', ['string'], ['{"log_level":"error"}']);
 if (!init.ok) throw new Error(JSON.stringify(init));
+// A freshly created project exercises the first ordinary body move: Undo must
+// restore the one-Cube frame and leave the complete filament projection valid.
+// In particular, routing uses stable native object/part IDs after archive
+// restoration; this is the exact projection consumed by the Prepare rack.
+historyCheck('reset fresh-project filament history fixture',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+const freshAddTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Add Cube', 'project', JSON.stringify(context), '']);
+if (!freshAddTx.ok || typeof freshAddTx.transactionId !== 'string') throw new Error(JSON.stringify(freshAddTx));
+historyCheck('fresh-project Cube add succeeds',
+  callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Fresh history Cube']).ok === true);
+const freshAddCommit = callJson('orc_history_commit', ['string', 'string'],
+  [freshAddTx.transactionId, JSON.stringify(context)]);
+if (!freshAddCommit.canUndo) throw new Error(`fresh Cube commit failed: ${JSON.stringify(freshAddCommit)}`);
+const freshBeforeMove = callJson('orc_get_model_mesh', [], []);
+const freshBeforeMoveStructure = callJson('orc_get_model_structure', [], []);
+const freshMoveTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Move', 'project', JSON.stringify(context), '']);
+if (!freshMoveTx.ok || typeof freshMoveTx.transactionId !== 'string') throw new Error(JSON.stringify(freshMoveTx));
+const freshBody = freshBeforeMove.objects?.[0];
+if (!freshBody) throw new Error(`fresh Cube mesh unavailable: ${JSON.stringify(freshBeforeMove)}`);
+const freshMove = { ...freshBody.instance_transform,
+  offset: [freshBody.instance_transform.offset[0] + 10, freshBody.instance_transform.offset[1], freshBody.instance_transform.offset[2]] };
+delete freshMove.matrix;
+historyCheck('fresh-project Cube move succeeds', callJson('orc_set_model_transforms', ['string', 'string'],
+  [freshMoveTx.transactionId, JSON.stringify([{ objectIdx: freshBody.object_idx, volumeIdx: freshBody.volume_idx,
+    instanceIdx: freshBody.instance_idx, instanceTransform: freshMove, volumeTransform: freshBody.volume_transform }])]).ok === true);
+const freshMoveCommit = callJson('orc_history_commit', ['string', 'string'],
+  [freshMoveTx.transactionId, JSON.stringify(context)]);
+if (!freshMoveCommit.canUndo) throw new Error(`fresh Cube move commit failed: ${JSON.stringify(freshMoveCommit)}`);
+const freshMoveUndo = callJson('orc_history_undo', [], []);
+if (!freshMoveUndo.ok) throw new Error(`fresh Cube move undo failed: ${JSON.stringify(freshMoveUndo)}`);
+const freshFilament = callJson('orc_get_filament_session_snapshot', [], []);
+const freshStructure = callJson('orc_get_model_structure', [], []);
+historyCheck('fresh-project move Undo keeps filament routing contract valid',
+  freshFilament.ok === true && Array.isArray(freshFilament.routing) &&
+  freshStructure.objects?.[0]?.volumes?.[0]?.id === freshBeforeMoveStructure.objects?.[0]?.volumes?.[0]?.id &&
+  freshFilament.routing.every((route) => route.target === 'project'
+    ? route.id === 0 && route.object_id === 0
+    : Number.isSafeInteger(route.id) && route.id > 0 && Number.isSafeInteger(route.object_id) && route.object_id > 0),
+  JSON.stringify({ freshFilament, freshStructure, freshBeforeMoveStructure }));
+historyCheck('reset fresh-project filament history fixture after regression',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
 const tx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'], ['Add Cubes', 'project', JSON.stringify(context), '']);
 if (!tx.ok || typeof tx.transactionId !== 'string') throw new Error(JSON.stringify(tx));
 for (const name of ['History Cube A', 'History Cube B']) {

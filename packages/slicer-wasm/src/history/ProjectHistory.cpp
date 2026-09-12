@@ -51,6 +51,7 @@ struct StoredMutable {
     ObjectID id { 0 };
     std::uint64_t timestamp { 0 };
     Blob data;
+    std::vector<ObjectID> volume_ids;
 };
 
 struct StoredMesh {
@@ -128,7 +129,8 @@ struct ProjectHistory::Impl {
         for (std::size_t i = 0; i < lhs.mutable_objects.size(); ++i) {
             const auto& a = lhs.mutable_objects[i];
             const auto& b = model.mutable_objects[i];
-            if (a.id != b.id || a.timestamp != b.timestamp || !bytes_equal(a.data, b.data))
+            if (a.id != b.id || a.timestamp != b.timestamp || !bytes_equal(a.data, b.data) ||
+                a.volume_ids != b.volume_ids)
                 return false;
         }
         for (std::size_t i = 0; i < lhs.immutable_meshes.size(); ++i) {
@@ -163,7 +165,7 @@ struct ProjectHistory::Impl {
                 if (it != previous->mutable_objects.end()) data = it->data;
             }
             if (!data) data = make_blob(object.data);
-            state.mutable_objects.push_back({ object.id, object.timestamp, std::move(data) });
+            state.mutable_objects.push_back({ object.id, object.timestamp, std::move(data), object.volume_ids });
         }
 
         state.immutable_meshes.reserve(model.immutable_meshes.size());
@@ -199,7 +201,7 @@ struct ProjectHistory::Impl {
         if (state.serialized) model.serialized = *state.serialized;
         model.mutable_objects.reserve(state.mutable_objects.size());
         for (const auto& object : state.mutable_objects)
-            model.mutable_objects.push_back({ object.id, object.timestamp, object.data ? *object.data : Bytes{} });
+            model.mutable_objects.push_back({ object.id, object.timestamp, object.data ? *object.data : Bytes{}, object.volume_ids });
         model.immutable_meshes.reserve(state.immutable_meshes.size());
         for (const auto& mesh : state.immutable_meshes)
             model.immutable_meshes.push_back({ mesh.key, mesh.resident, mesh.deferred, mesh.optional });
@@ -658,7 +660,10 @@ std::size_t ProjectHistory::bytes_used() const
         add_product(total, state.state.mutable_objects.capacity(), ResourceAccounting::kMutableObjectSlotBytes);
         add_product(total, state.state.immutable_meshes.capacity(), ResourceAccounting::kImmutableMeshSlotBytes);
         add_string_storage(total, state.info.label);
-        for (const auto& object : state.state.mutable_objects) count(object.data);
+        for (const auto& object : state.state.mutable_objects) {
+            count(object.data);
+            add_product(total, object.volume_ids.capacity(), sizeof(ObjectID));
+        }
         for (const auto& mesh : state.state.immutable_meshes) {
             add_string_storage(total, mesh.key);
             count(mesh.resident);

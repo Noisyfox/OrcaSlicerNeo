@@ -701,9 +701,13 @@ ModelState capture_model_state(const Model& model)
         NeoHistoryOutputArchive archive(archive_context, stream);
         archive(*object);
         const std::string encoded = stream.str();
+        std::vector<Neo::History::ObjectID> volume_ids;
+        volume_ids.reserve(object->volumes.size());
+        for (const ModelVolume* volume : object->volumes)
+            volume_ids.push_back(volume->id().id);
         result.mutable_objects.push_back({
             object->id().id, object->timestamp(),
-            Bytes(encoded.begin(), encoded.end())});
+            Bytes(encoded.begin(), encoded.end()), std::move(volume_ids)});
     }
     result.immutable_meshes.reserve(mesh_bytes_by_key.size());
     for (auto& [key, bytes] : mesh_bytes_by_key)
@@ -724,6 +728,13 @@ Model stage_model(const Model& model_template, const RestoreState& restored)
         archive(*native_mesh);
         archive_context.input_meshes.emplace(mesh.key, std::move(native_mesh));
     }
+    // ModelVolume's upstream undo archive deliberately omits ObjectBase, so
+    // deserializing an object creates volumes with invalid IDs. Re-encode each
+    // decoded volume into a normal ModelObject-created volume: the latter owns
+    // a valid runtime ID while the archive restores every mutable field and
+    // reconnects the retained immutable mesh.
+    for (const auto& [key, mesh] : archive_context.input_meshes)
+        archive_context.output_mesh_keys.emplace(mesh.get(), key);
 
     // Deserialize into a transient model and let Model's copy assignment
     // rebuild ModelObject-owned volume/instance links. The transient is not
@@ -737,6 +748,43 @@ Model stage_model(const Model& model_template, const RestoreState& restored)
         ModelObject* native_object = rebuilt_model.add_object();
         NeoHistoryInputArchive archive(archive_context, stream);
         archive(*native_object);
+
+        const std::size_t decoded_volume_count = native_object->volumes.size();
+        if (object.volume_ids.size() != decoded_volume_count ||
+            std::any_of(object.volume_ids.begin(), object.volume_ids.end(),
+                        [](Neo::History::ObjectID id) { return id == 0; }))
+            throw std::runtime_error("history volume identities are unavailable");
+        std::vector<Bytes> decoded_volumes;
+        decoded_volumes.reserve(decoded_volume_count);
+        for (const ModelVolume* decoded : native_object->volumes) {
+            std::ostringstream volume_stream(std::ios::binary | std::ios::out);
+            NeoHistoryOutputArchive volume_archive(archive_context, volume_stream);
+            volume_archive(*decoded);
+            const std::string encoded = volume_stream.str();
+            decoded_volumes.emplace_back(encoded.begin(), encoded.end());
+        }
+        for (std::size_t index = 0; index < decoded_volume_count; ++index)
+            native_object->delete_volume(0);
+        for (std::size_t index = 0; index < decoded_volumes.size(); ++index) {
+            const Bytes& encoded = decoded_volumes[index];
+            TriangleMesh placeholder;
+            ModelVolume* materialized = native_object->add_volume(
+                std::move(placeholder), ModelVolumeType::MODEL_PART, false);
+            std::string volume_bytes(encoded.begin(), encoded.end());
+            std::istringstream volume_stream(volume_bytes, std::ios::binary | std::ios::in);
+            NeoHistoryInputArchive volume_archive(archive_context, volume_stream);
+            volume_archive(*materialized);
+            // ModelVolume::load deliberately skips ObjectBase. Feed the
+            // separately retained native ID through the base serializer after
+            // loading the mutable volume payload.
+            std::ostringstream id_output(std::ios::binary | std::ios::out);
+            cereal::BinaryOutputArchive id_writer(id_output);
+            id_writer(Slic3r::ObjectID(object.volume_ids[index]));
+            const std::string id_bytes = id_output.str();
+            std::istringstream id_input(id_bytes, std::ios::binary | std::ios::in);
+            cereal::BinaryInputArchive id_reader(id_input);
+            id_reader(cereal::base_class<ObjectBase>(materialized));
+        }
 
         // Native ModelInstance deserialization intentionally constructs with
         // an invalid ObjectID because Orca restores into an existing object
@@ -772,7 +820,8 @@ bool model_state_equal(const ModelState& lhs, const ModelState& rhs)
     for (std::size_t index = 0; index < lhs.mutable_objects.size(); ++index) {
         const auto& left = lhs.mutable_objects[index];
         const auto& right = rhs.mutable_objects[index];
-        if (left.id != right.id || left.timestamp != right.timestamp || left.data != right.data)
+        if (left.id != right.id || left.timestamp != right.timestamp || left.data != right.data ||
+            left.volume_ids != right.volume_ids)
             return false;
     }
     for (std::size_t index = 0; index < lhs.immutable_meshes.size(); ++index) {
