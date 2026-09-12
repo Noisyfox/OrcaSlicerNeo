@@ -35,7 +35,26 @@ export interface ProjectActionOptions {
   /** Renderer cleanup hook used after a successful New Project runtime reset. */
   sceneResetTarget?: SceneResetTarget | null;
 }
-export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
+export type ProjectLoadCommitRoute = 'load-project' | 'preflight-commit';
+
+/**
+ * A completed project replacement receipt. It is deliberately limited to the
+ * caller's input identity and the native result: host locations remain opaque
+ * and are never included here.
+ */
+export interface ProjectLoadReceipt {
+  readonly sourceDisplayName: string;
+  readonly sourceByteLength: number;
+  readonly commitRoute: ProjectLoadCommitRoute;
+  readonly nativeResult: ProjectLoadResult;
+}
+
+export interface ProjectActionResult {
+  status: 'ok' | 'cancelled' | 'failed';
+  error?: unknown;
+  load?: ProjectLoadResult;
+  loadReceipt?: ProjectLoadReceipt;
+}
 type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
   Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'> &
   Partial<Pick<SlicerClient, 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
@@ -211,6 +230,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
     const runtime = runtimeOf(platform);
     let load: ProjectLoadResult;
+    let commitRoute: ProjectLoadCommitRoute;
     if (runtime.preflightProject && runtime.commitProjectPreflight && runtime.cancelProjectPreflight) {
       const preflight = await runtime.preflightProject(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message));
       if (!preflight.ok || !preflight.preflightToken) throw new Error(preflight.error ?? 'project preflight failed');
@@ -230,6 +250,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
           return { status: 'cancelled', load: preflight };
         }
         load = await runtime.commitProjectPreflight(preflight.preflightToken, (percent, message) => setOperation('loading', percent, message));
+        commitRoute = 'preflight-commit';
         if (!load.ok) throw new Error(load.error ?? 'project load failed');
       } catch (error) {
         // Confirmation cancellation, UI teardown, aborts, and commit errors
@@ -240,6 +261,7 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
       }
     } else {
       load = await runtime.loadProject(input.bytes, 'project', input.displayName, (percent, message) => setOperation('loading', percent, message));
+      commitRoute = 'load-project';
     }
     if (!load.ok) throw new Error(load.error ?? 'project load failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
@@ -252,7 +274,18 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
     useSettingsStore.getState().setOverlay(load.projectConfigOverlay ?? emptyProjectConfigOverlay());
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
     const history = await resetHistory(runtime);
-    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load), flattenedMultiPlate: false });
+    setOperation('completed', 100);
+    return {
+      status: 'ok',
+      load,
+      loadReceipt: {
+        sourceDisplayName: input.displayName,
+        sourceByteLength: input.bytes.byteLength,
+        commitRoute,
+        nativeResult: load,
+      },
+    };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 

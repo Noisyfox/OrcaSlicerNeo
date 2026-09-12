@@ -127,13 +127,31 @@ describe('transactional project actions', () => {
     expect(useProjectStore.getState()).toMatchObject({ projectName: 'Robot', scope: 'project', dirty: false });
   });
 
+  it('returns an identity-preserving receipt only after the native project commit succeeds', async () => {
+    const { platform, runtime } = platformFor({ displayName: 'Native Robot.3mf', multiPlate: true, plateCount: 4 });
+    const result = await openProject(platform, { loadBehaviour: 'load_all' });
+
+    expect(result).toMatchObject({
+      status: 'ok',
+      loadReceipt: {
+        sourceDisplayName: 'Robot.3mf',
+        sourceByteLength: input.bytes.byteLength,
+        commitRoute: 'load-project',
+        nativeResult: { ok: true, displayName: 'Native Robot.3mf', multiPlate: true, plateCount: 4 },
+      },
+    });
+    expect(runtime.resetHistory).toHaveBeenCalledTimes(1);
+  });
+
   it('auto-commits a clean preflight without opening a confirmation dialog', async () => {
     const { platform, runtime } = platformFor();
     const result: ProjectLoadResult = { ok: true, objects: 1, instances: 1, mode: 'project', compatibility: 'bambu', projectSettingsAvailable: true, preflightToken: 'clean-token', presetSnapshot: snapshot,
       embeddedPresetWarnings: { present: false, count: 0, printerCount: 0, processCount: 0, filamentCount: 0, modifiedPrinterGcode: false, modifiedFilamentGcode: false, missingSystemPreset: false, requiresConfirmation: false, filamentSlotChanges: [] } };
     const preflight = addPreflight(runtime, result);
     const confirm = vi.fn(() => true);
-    expect((await openProject(platform, { loadBehaviour: 'load_all', confirmProjectLoad: confirm })).status).toBe('ok');
+    const opened = await openProject(platform, { loadBehaviour: 'load_all', confirmProjectLoad: confirm });
+    expect(opened.status).toBe('ok');
+    expect(opened.loadReceipt?.commitRoute).toBe('preflight-commit');
     expect(confirm).not.toHaveBeenCalled();
     expect(preflight.commitProjectPreflight).toHaveBeenCalledWith('clean-token', expect.any(Function));
     expect(preflight.cancelProjectPreflight).not.toHaveBeenCalled();

@@ -28,7 +28,7 @@ import {
   ProjectPreferencesDialog,
   ProjectProgressDialog,
 } from './components/project/ProjectDialogs';
-import { cancelProjectOperation, newProject, noticesFor, openProject, projectDirtyStatus, saveProject, saveProjectAs } from './projectActions';
+import { cancelProjectOperation, newProject, noticesFor, openProject, projectDirtyStatus, saveProject, saveProjectAs, type ProjectLoadReceipt } from './projectActions';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
@@ -79,6 +79,10 @@ export default function App() {
   const dirtyResolver = useRef<((decision: DirtyProjectDecision) => void) | null>(null);
   const flattenResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const projectConfirmationResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  // The receipt comes from the same action that has applied the native result,
+  // reset history, and published the project session. Production UI does not
+  // consume it; E2E uses it to prove its selected project reached a commit.
+  const projectLoadReceiptRef = useRef<ProjectLoadReceipt | null>(null);
   const previewTransitionRef = useRef<PreviewRenderTransition | null>(null);
   const handleTabChange = useCallback((tab: AppTab) => {
     if (tab !== 'preview') {
@@ -159,7 +163,9 @@ export default function App() {
     if (result.status === 'ok') setActiveTab('prepare');
   }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);
   const runOpenProject = useCallback(async () => {
+    projectLoadReceiptRef.current = null;
     const result = await openProject(platform, { chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten, confirmProjectLoad });
+    if (result.status === 'ok' && result.loadReceipt) projectLoadReceiptRef.current = result.loadReceipt;
     reportProjectFailure(result);
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
   }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
@@ -308,6 +314,35 @@ export default function App() {
   useEffect(() => {
     if (projectState.notices.length > 0) setDialog('notice');
   }, [projectState.notices]);
+  useEffect(() => {
+    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
+    if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
+    const w = window as unknown as {
+      __orcaE2e?: {
+        projectLoadEvidence?: () => {
+          receipt: ProjectLoadReceipt | null;
+          session: { projectName: string; hasContent: boolean; scope: string; hasLocation: boolean };
+        };
+      };
+    };
+    w.__orcaE2e = {
+      ...w.__orcaE2e,
+      projectLoadEvidence: () => ({
+        receipt: projectLoadReceiptRef.current,
+        session: {
+          projectName: projectState.projectName,
+          hasContent: projectState.hasContent,
+          scope: projectState.scope,
+          hasLocation: projectState.location !== undefined,
+        },
+      }),
+    };
+    return () => {
+      if (!w.__orcaE2e) return;
+      const { projectLoadEvidence: _projectLoadEvidence, ...rest } = w.__orcaE2e;
+      w.__orcaE2e = rest;
+    };
+  }, [projectState.hasContent, projectState.location, projectState.projectName, projectState.scope]);
   const titleBar = (
     <TitleBar
       chrome={platform.chrome}
