@@ -15,6 +15,10 @@
 - One completed Prime Tower drag still creates exactly one native history
   entry; its authoritative coordinate remains projected, and Undo/Redo restore
   it correctly.
+- A successful native Prime Tower move receipt reads X/Y from the post-mutation
+  effective configuration. The renderer therefore receives the same canonical
+  coordinates as a following projection or history restore, rather than a
+  stale pre-move configuration snapshot.
 - When a Worker move receipt retains the selected tower's stable identity but
   changes its final X/Y (for example after native clamping), the scene
   controller republishes that retained selection. The tower mesh, selection
@@ -50,6 +54,15 @@
 - The real serial and threaded WASM Prime Tower smoke creates two cubes,
   assigns them distinct filament slots, moves the eligible tower, and verifies
   one history entry plus coordinate Undo/Redo.
+- The real imported-project E2E treats the active plate label as a
+  `PlateSessionSnapshot` projection, rather than equating it with the eleven
+  serialized plate previews in the checked Odyssey fixture.  It requires a
+  materialized `Plate 1` with a valid session count; its eight eligible Prime
+  Tower projections remain covered by the same move, history, slice, and
+  export journey.  Its boundary move searches the four outside-canvas
+  directions during one captured gesture, so a tower initially at any edge
+  must produce a changed, clamped coordinate for Undo/Redo without creating
+  a no-op history entry.
 
 ## Verification record
 

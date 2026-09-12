@@ -719,10 +719,13 @@ json move_position_json(const char* request_cstr)
             state().presets.project_config.option("wipe_tower_y")->serialize();
         ++state().plate_input_revisions[plate_id];
         // ConfigOptionFloat canonically stores this value at float precision.
-        // Publish that stored value so the immediate drag result matches a
-        // subsequent projection/history restore exactly.
-        const double stored_x = indexed_float(config, "wipe_tower_x", plate_index, x);
-        const double stored_y = indexed_float(config, "wipe_tower_y", plate_index, y);
+        // Read the post-write effective configuration: `config` is the
+        // pre-move snapshot used for eligibility/geometry and still contains
+        // the old coordinates. Publishing from it turns a successful native
+        // mutation into a renderer-visible no-op until a later refresh.
+        const DynamicPrintConfig stored_config = effective_config(*plate);
+        const double stored_x = indexed_float(stored_config, "wipe_tower_x", plate_index, x);
+        const double stored_y = indexed_float(stored_config, "wipe_tower_y", plate_index, y);
         const auto after_settings = snapshot_coordinate_settings(state().presets.project_config, plate_index);
         frame.after_x = after_settings.x;
         frame.after_y = after_settings.y;
