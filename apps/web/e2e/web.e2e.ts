@@ -403,7 +403,7 @@ test('multi-plate Prepare grid interactions use authoritative plates and preserv
   await expect(page.getByTestId('add-plate')).toBeDisabled();
 });
 
-test('multi-plate Preview renders only the current plate and applies its local toolpath origin', async ({ page }) => {
+test('multi-plate Preview renders only the current plate in world coordinates', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
       version: 1,
@@ -424,7 +424,7 @@ test('multi-plate Preview renders only the current plate and applies its local t
   await page.getByTestId('add-plate').click();
   await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
   const beds = await page.evaluate(() => (window as unknown as {
-    __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number] }> };
+    __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number]; bounds: { minX: number; maxX: number; minY: number; maxY: number } }> };
   }).__orcaE2e?.bedPlateStates?.() ?? []);
   const plate1 = beds.find((bed) => !bed.current);
   const plate2 = beds.find((bed) => bed.current);
@@ -440,14 +440,14 @@ test('multi-plate Preview renders only the current plate and applies its local t
   await page.locator('#app-tab-preview').click();
   await expect(page.getByTestId('preview-controls')).toBeVisible({ timeout: 30_000 });
   const readBeds = () => page.evaluate(() => (window as unknown as {
-    __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number] }> };
+    __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; current: boolean; position: [number, number, number]; bounds: { minX: number; maxX: number; minY: number; maxY: number } }> };
   }).__orcaE2e?.bedPlateStates?.() ?? []);
   const readModels = () => page.evaluate(() => (window as unknown as {
     __orcaE2e?: { modelWorldCenters?: () => Array<[number, number, number]> };
   }).__orcaE2e?.modelWorldCenters?.() ?? []);
-  const readToolpathOrigin = () => page.evaluate(() => (window as unknown as {
-    __orcaE2e?: { previewToolpathWorldOrigin?: () => [number, number, number] | null };
-  }).__orcaE2e?.previewToolpathWorldOrigin?.() ?? null);
+  const readToolpathBounds = () => page.evaluate(() => (window as unknown as {
+    __orcaE2e?: { previewToolpathWorldBounds?: () => { min: [number, number, number]; max: [number, number, number] } | null };
+  }).__orcaE2e?.previewToolpathWorldBounds?.() ?? null);
   const readCameraTarget = () => page.evaluate(() => (window as unknown as {
     __orcaE2e?: { cameraState?: () => { target: [number, number, number] } };
   }).__orcaE2e?.cameraState?.().target ?? null);
@@ -456,7 +456,17 @@ test('multi-plate Preview renders only the current plate and applies its local t
     expect.objectContaining({ plateId: plate2.plateId, current: true }),
   ]);
   await expect.poll(readModels).toHaveLength(1);
-  await expect.poll(readToolpathOrigin).toEqual([plate2.position[0], plate2.position[1], 0]);
+  await expect.poll(readToolpathBounds).not.toBeNull();
+  const plate2Bounds = await readToolpathBounds();
+  if (!plate2Bounds) throw new Error('plate 2 preview bounds are unavailable');
+  const bed2 = beds.find((bed) => bed.plateId === plate2.plateId)!;
+  expect(plate2Bounds.min[0]).toBeGreaterThanOrEqual(plate2.position[0] + bed2.bounds.minX - 0.5);
+  expect(plate2Bounds.max[0]).toBeLessThanOrEqual(plate2.position[0] + bed2.bounds.maxX + 0.5);
+  expect(plate2Bounds.min[1]).toBeGreaterThanOrEqual(plate2.position[1] + bed2.bounds.minY - 0.5);
+  expect(plate2Bounds.max[1]).toBeLessThanOrEqual(plate2.position[1] + bed2.bounds.maxY + 0.5);
+  expect(plate2Bounds.max[0]).toBeGreaterThan(plate2Bounds.min[0]);
+  expect(plate2Bounds.max[1]).toBeGreaterThan(plate2Bounds.min[1]);
+  expect(plate2Bounds.min[0]).toBeGreaterThan(plate1.position[0] + bed2.bounds.maxX + 0.5);
 
   // Preview exposes the same authoritative plate selection transaction in its
   // left sidebar. The first plate is valid but unsliced, so selecting it must
@@ -476,7 +486,16 @@ test('multi-plate Preview renders only the current plate and applies its local t
   ]);
   await expect.poll(readModels).toHaveLength(1);
   await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
-  await expect.poll(readToolpathOrigin).toEqual([plate1.position[0], plate1.position[1], 0]);
+  await expect.poll(readToolpathBounds).not.toBeNull();
+  const plate1Bounds = await readToolpathBounds();
+  if (!plate1Bounds) throw new Error('plate 1 preview bounds are unavailable');
+  const bed1 = beds.find((bed) => bed.plateId === plate1.plateId)!;
+  expect(plate1Bounds.min[0]).toBeGreaterThanOrEqual(plate1.position[0] + bed1.bounds.minX - 0.5);
+  expect(plate1Bounds.max[0]).toBeLessThanOrEqual(plate1.position[0] + bed1.bounds.maxX + 0.5);
+  expect(plate1Bounds.min[1]).toBeGreaterThanOrEqual(plate1.position[1] + bed1.bounds.minY - 0.5);
+  expect(plate1Bounds.max[1]).toBeLessThanOrEqual(plate1.position[1] + bed1.bounds.maxY + 0.5);
+  expect(plate1Bounds.max[0]).toBeGreaterThan(plate1Bounds.min[0]);
+  expect(plate1Bounds.max[1]).toBeGreaterThan(plate1Bounds.min[1]);
   await expect(plate1Option).toHaveAttribute('data-plate-status', 'sliced');
   // The text inspector must use the selected plate's retained G-code rather
   // than the one native Print currently held by the worker. This catches the

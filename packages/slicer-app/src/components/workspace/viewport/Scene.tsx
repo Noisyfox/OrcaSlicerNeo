@@ -5,7 +5,7 @@ import { useThree } from '@react-three/fiber';
 import type { LoadedObject } from './useModelLoader';
 import { glVolumeCollection } from './GLVolume';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { BedPlate } from './BedPlate';
+import { BedPlate, getPrintableAreaBounds, normalizePrintableArea } from './BedPlate';
 import { GLVolumeMesh } from './ModelMesh';
 import type { ToolpathGeometry } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
@@ -17,7 +17,7 @@ import { SelectionBoundsBox } from './SelectionBoundsBox';
 import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
 import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
-import { currentPreviewPlate, previewToolpathOrigin, previewVolumesForCurrentPlate } from './previewSceneProjection';
+import { currentPreviewPlate, previewVolumesForCurrentPlate } from './previewSceneProjection';
 import { WipeTowerVolumes } from './WipeTowerVolumeMesh';
 import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 
@@ -110,9 +110,9 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           current: boolean;
           outOfBounds: boolean;
           position: [number, number, number];
+          bounds: { minX: number; maxX: number; minY: number; maxY: number };
         }>;
         modelWorldCenters?: () => Array<[number, number, number]>;
-        previewToolpathWorldOrigin?: () => [number, number, number] | null;
         previewToolpathWorldBounds?: () => {
           min: [number, number, number];
           max: [number, number, number];
@@ -185,11 +185,13 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         controlsEnabled: controls?.enabled !== false,
       }),
       bedPlateStates: () => {
+        const printableBounds = getPrintableAreaBounds(normalizePrintableArea(useSettingsStore.getState().printableArea));
         const beds: Array<{
           plateId?: string;
           current: boolean;
           outOfBounds: boolean;
           position: [number, number, number];
+          bounds: { minX: number; maxX: number; minY: number; maxY: number };
         }> = [];
         scene.traverse((object) => {
           if (object.userData.orcaRaycastRole !== BUILD_PLATE_RAYCAST) return;
@@ -200,6 +202,12 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             current: Boolean(object.userData.plateCurrent),
             outOfBounds: Boolean(object.userData.plateOutOfBounds),
             position: [position.x, position.y, position.z],
+            bounds: {
+              minX: printableBounds.minX,
+              maxX: printableBounds.maxX,
+              minY: printableBounds.minY,
+              maxY: printableBounds.maxY,
+            },
           });
         });
         return beds;
@@ -208,17 +216,6 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
         return [center.x, center.y, center.z];
       }),
-      previewToolpathWorldOrigin: () => {
-        const group = scene.getObjectByName('preview-toolpath-world');
-        if (!group) return null;
-        let renderedPath: THREE.Object3D | null = null;
-        group.traverse((object) => {
-          if (!renderedPath && object !== group && object.type === 'InstancedMesh') renderedPath = object;
-        });
-        const position = new THREE.Vector3();
-        (renderedPath ?? group).getWorldPosition(position);
-        return [position.x, position.y, position.z];
-      },
       previewToolpathWorldBounds: () => {
         if (!toolpath || toolpath.segmentCount === 0) return null;
         const min: [number, number, number] = [Infinity, Infinity, Infinity];
@@ -264,7 +261,6 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           cameraState: _camera,
           bedPlateStates: _beds,
           modelWorldCenters: _models,
-          previewToolpathWorldOrigin: _toolpathOrigin,
           previewToolpathWorldBounds: _toolpathBounds,
           ...rest
         } = w.__orcaE2e;
@@ -296,7 +292,6 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           wipeTowerVolumes={wipeTowerVolumes}
           glVolumes={previewVolumes}
           toolpath={toolpath}
-          plateOrigin={previewToolpathOrigin(plateSession)}
           structure={structure}
           plateSession={plateSession}
         />
@@ -324,24 +319,22 @@ function PrepareScene({ glVolumes, toolpath, structure, plateSession, controller
   return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />;
 }
 
-function PreviewScene({ glVolumes, toolpath, plateOrigin, structure, plateSession, controller, wipeTowerVolumes }: {
+function PreviewScene({ glVolumes, toolpath, structure, plateSession, controller, wipeTowerVolumes }: {
   controller: SceneInteractionController;
   wipeTowerVolumes?: WipeTowerVolumeCollection;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
-  plateOrigin: readonly [number, number, number];
   structure?: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview plateOrigin={plateOrigin} structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />;
 }
 
-function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, plateOrigin = [0, 0, 0], structure = [], plateSession, controller, wipeTowerVolumes }: {
+function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, structure = [], plateSession, controller, wipeTowerVolumes }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   interactive: boolean;
   preview?: boolean;
-  plateOrigin?: readonly [number, number, number];
   structure?: readonly ModelObjectStructure[];
   plateSession?: PlateSessionSnapshot | null;
   controller: SceneInteractionController;
@@ -358,7 +351,7 @@ function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, p
       {/* The slicing bridge publishes world-space preview moves. The separate
           source G-code remains printer-local for export/send, so this render
           group deliberately has no plate translation. */}
-      {toolpath && preview && <group name="preview-toolpath-world" position={plateOrigin}><ToolpathLines data={toolpath} /><ToolpathMarker data={toolpath} /></group>}
+      {toolpath && preview && <group name="preview-toolpath-world"><ToolpathLines data={toolpath} /><ToolpathMarker data={toolpath} /></group>}
       {toolpath && !preview && <ToolpathLines data={toolpath} />}
       {toolpath && !preview && <ToolpathMarker data={toolpath} />}
     </>

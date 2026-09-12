@@ -142,7 +142,7 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
     const beds = await page.evaluate(() =>
-      (window as unknown as { __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; position: [number, number, number] }> } }).__orcaE2e?.bedPlateStates?.() ?? [],
+      (window as unknown as { __orcaE2e?: { bedPlateStates?: () => Array<{ plateId?: string; position: [number, number, number]; bounds?: { minX: number; maxX: number; minY: number; maxY: number } }> } }).__orcaE2e?.bedPlateStates?.() ?? [],
     );
     const otherBed = beds.find((bed) => bed.plateId === other!.plateId)?.position ?? [0, 0, 0];
     const projectWorldToScreen = (point: [number, number, number]) => page.evaluate((p) =>
@@ -423,16 +423,38 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
         min: [number, number, number]; max: [number, number, number];
       } | null } }).__orcaE2e?.previewToolpathWorldBounds?.() ?? null,
     );
+    const assertPreviewBounds = (
+      previewBounds: { min: [number, number, number]; max: [number, number, number] },
+      plate: { position: [number, number, number]; bounds?: { minX: number; maxX: number; minY: number; maxY: number } },
+      adjacentPlate: { position: [number, number, number] },
+      label: string,
+    ) => {
+      // Preview coordinates are world-space. Every extrusion endpoint must
+      // stay inside the selected plate's translated printable rectangle, and
+      // must not leak into the adjacent plate's footprint.
+      const bounds = plate.bounds ?? { minX: 0, maxX: 220, minY: 0, maxY: 220 };
+      const tolerance = 0.5;
+      expect(previewBounds.min[0], `${label} extrusion min X`).toBeGreaterThanOrEqual(plate.position[0] + bounds.minX - tolerance);
+      expect(previewBounds.max[0], `${label} extrusion max X`).toBeLessThanOrEqual(plate.position[0] + bounds.maxX + tolerance);
+      expect(previewBounds.min[1], `${label} extrusion min Y`).toBeGreaterThanOrEqual(plate.position[1] + bounds.minY - tolerance);
+      expect(previewBounds.max[1], `${label} extrusion max Y`).toBeLessThanOrEqual(plate.position[1] + bounds.maxY + tolerance);
+      expect(previewBounds.max[0], `${label} extrusion has X extent`).toBeGreaterThan(previewBounds.min[0]);
+      expect(previewBounds.max[1], `${label} extrusion has Y extent`).toBeGreaterThan(previewBounds.min[1]);
+      if (plate.position[0] >= adjacentPlate.position[0]) {
+        expect(previewBounds.min[0], `${label} extrusion excludes adjacent plate`).toBeGreaterThan(adjacentPlate.position[0] + bounds.maxX + tolerance);
+      } else {
+        expect(previewBounds.max[0], `${label} extrusion excludes adjacent plate`).toBeLessThan(adjacentPlate.position[0] + bounds.minX - tolerance);
+      }
+    };
     await page.locator('#app-tab-preview').click();
     await expect(page.getByTestId('slicer-status')).toHaveText('Sliced');
     await expect.poll(readCurrentPlateId).toBe(indexedFirst.plateId);
     await expect.poll(readPreviewToolpathWorldBounds, { timeout: 30_000 }).not.toBeNull();
     const firstPreviewBounds = await readPreviewToolpathWorldBounds();
     expect(firstPreviewBounds).not.toBeNull();
-    const firstBed = beds.find((bed) => bed.plateId === indexedFirst.plateId)?.position ?? [0, 0, 0];
-    expect(firstPreviewBounds!.min[0]).toBeGreaterThanOrEqual(firstBed[0] - 5);
-    expect(firstPreviewBounds!.max[0]).toBeGreaterThan(firstPreviewBounds!.min[0]);
-    expect(firstPreviewBounds!.min[1]).toBeLessThanOrEqual(firstPreviewBounds!.max[1]);
+    const firstBed = beds.find((bed) => bed.plateId === indexedFirst.plateId) ?? { position: [0, 0, 0] as [number, number, number] };
+    const firstAdjacentBed = beds.find((bed) => bed.plateId !== indexedFirst.plateId) ?? { position: [0, 0, 0] as [number, number, number] };
+    assertPreviewBounds(firstPreviewBounds!, firstBed, firstAdjacentBed, `plate ${indexedFirst.displayIndex + 1}`);
     await page.locator('#app-tab-prepare').click();
 
     // Select and really slice the next eligible plate. The export path is
@@ -466,10 +488,8 @@ test('opened project keeps prime-tower UI and first-plate slice in agreement', a
     await expect.poll(readPreviewToolpathWorldBounds, { timeout: 30_000 }).not.toBeNull();
     const secondPreviewBounds = await readPreviewToolpathWorldBounds();
     expect(secondPreviewBounds).not.toBeNull();
-    const secondBed = beds.find((bed) => bed.plateId === indexedSecond.plateId)?.position ?? [0, 0, 0];
-    expect(secondPreviewBounds!.min[0]).toBeGreaterThanOrEqual(secondBed[0] - 5);
-    expect(secondPreviewBounds!.max[0]).toBeGreaterThan(secondPreviewBounds!.min[0]);
-    expect(secondPreviewBounds!.min[1]).toBeLessThanOrEqual(secondPreviewBounds!.max[1]);
+    const secondBed = beds.find((bed) => bed.plateId === indexedSecond.plateId) ?? { position: [0, 0, 0] as [number, number, number] };
+    assertPreviewBounds(secondPreviewBounds!, secondBed, firstBed, `plate ${indexedSecond.displayIndex + 1}`);
     expect(Math.abs(secondPreviewBounds!.min[0] - firstPreviewBounds!.min[0])).toBeGreaterThan(100);
 
     // Return to the first plate and activate its retained plate-local result.

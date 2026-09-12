@@ -1,6 +1,6 @@
 import type { PlateSessionSnapshot } from '@slicer/client';
 import { describe, expect, it } from 'vitest';
-import { currentPreviewPlate, previewToolpathOrigin, previewVolumesForCurrentPlate } from './previewSceneProjection';
+import { currentPreviewPlate, previewVolumesForCurrentPlate } from './previewSceneProjection';
 
 function snapshot(overrides: Partial<PlateSessionSnapshot> = {}): PlateSessionSnapshot {
   return {
@@ -32,9 +32,8 @@ describe('Preview multi-plate scene projection', () => {
     expect(volumes).toHaveLength(3);
   });
 
-  it('does not reapply the plate origin to processor world-space moves', () => {
+  it('keeps the selected plate available for world-space scene projection', () => {
     expect(currentPreviewPlate(snapshot())?.plateId).toBe('plate-2');
-    expect(previewToolpathOrigin(snapshot())).toEqual([0, 0, 0]);
   });
 
   it('keeps retained world-space toolpath arrays unchanged by the render projection', () => {
@@ -44,8 +43,6 @@ describe('Preview multi-plate scene projection', () => {
     const endsBefore = ends.slice();
     // Scene keeps the processor's world-space moves unchanged. Export/send
     // still use the separate printer-local source G-code text.
-    const origin = previewToolpathOrigin(snapshot());
-    expect(origin).toEqual([0, 0, 0]);
     expect(starts).toEqual(startsBefore);
     expect(ends).toEqual(endsBefore);
   });
@@ -53,6 +50,5 @@ describe('Preview multi-plate scene projection', () => {
   it('keeps legacy snapshots renderable when membership rows are absent', () => {
     const volumes = [volume(0, 0), volume(0, 1)];
     expect(previewVolumesForCurrentPlate(volumes, snapshot({ instances: undefined }))).toEqual(volumes);
-    expect(previewToolpathOrigin(null)).toEqual([0, 0, 0]);
   });
 });

@@ -4,13 +4,11 @@ import type { LoadedObject } from './useModelLoader';
 export interface PreviewVolumeIdentity {
   readonly buffer: Pick<LoadedObject['buffer'], 'objectIdx' | 'instanceIdx'>;
 }
-
 /** Return the selected plate's world origin for the Preview scene. */
 export function currentPreviewPlate(snapshot: PlateSessionSnapshot | null | undefined) {
   if (!snapshot) return null;
   return snapshot.plates.find((plate) => plate.plateId === snapshot.currentPlateId) ?? null;
 }
-
 function instanceKey(objectIndex: number, instanceIndex: number): string {
   return `${objectIndex}:${instanceIndex}`;
 }
@@ -36,14 +34,4 @@ export function previewVolumesForCurrentPlate(
       .map((instance) => instanceKey(instance.objectIndex, instance.instanceIndex)),
   );
   return volumes.filter((volume) => members.has(instanceKey(volume.buffer.objectIdx, volume.buffer.instanceIdx)));
-}
-
-/**
- * Slice results already contain world-space coordinates restored at the WASM
- * bridge boundary from the target Print's plate origin. Print emits
- * printer-local G-code by subtracting that origin for export. The Preview
- * scene therefore must not apply a second plate transform to the toolpath.
- */
-export function previewToolpathOrigin(_snapshot: PlateSessionSnapshot | null | undefined): readonly [number, number, number] {
-  return [0, 0, 0];
 }

@@ -493,18 +493,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         // Orca's Print::export_gcode configures GCode with the selected plate
         // origin before emission. Passing a result sink keeps the native
         // GCodeProcessorResult while /out.gcode remains printer-local for
-        // export/send. At this pinned SHA the processor keeps emitted
-        // MoveVertex values in the printer-local frame even when GCode has the
-        // plate offset; restore that frame once at the bridge result boundary
-        // so every renderer consumer receives the same world-space result.
+        // export/send. GCodeProcessor's MoveVertex already adds that same
+        // origin to its rendering positions; the bridge therefore publishes
+        // those positions unchanged as world-space preview coordinates.
         print.export_gcode("/out.gcode", &gcode_result, nullptr);
-        const auto preview_origin = print.get_plate_origin();
-        if (preview_origin.x() != 0. || preview_origin.y() != 0.) {
-            for (auto& move : gcode_result.moves) {
-                move.position.x() += static_cast<float>(preview_origin.x());
-                move.position.y() += static_cast<float>(preview_origin.y());
-            }
-        }
         {
             auto& bridge_state = state();
             bridge_state.preview_result_id = gcode_result.id;
