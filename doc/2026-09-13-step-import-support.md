@@ -15,8 +15,8 @@ Electron and Web application through the existing Add Model flow.
   shared Add Model action and Worker/runtime path as the picker.  `.3mf` drops
   retain the existing Open Project path; unsupported files are consumed without
   navigation and text-only application drags remain available to their target.
-  Browser adapters read dropped File bytes, while Electron resolves native
-  dropped-file paths only inside its adapter.
+  Browser and Electron model drops pass File bytes through the shared boundary;
+  Electron opaque native paths remain limited to the existing 3MF project flow.
 - Parsing and meshing run entirely in the existing Worker-hosted WASM session.
   No server, cloud conversion service, system CAD installation, or host file
   path crosses the platform boundary.
@@ -181,7 +181,7 @@ starts until the root acceptance passes and the accepted step is committed.
 
 - External-drop routing coverage passed in the shared drop-handler and action
   tests, including `.stl`, `.drc`, `.step`, `.stp`, `.3mf`, unsupported/text-only
-  drops, browser byte conversion, and Electron adapter path resolution.
+  drops, and the existing Electron project path resolution.
 
 Threaded host execution is now accepted for this delivery.  The remaining
 scope limits are CAD metadata/material/GD&T exposure, automatic arrangement,

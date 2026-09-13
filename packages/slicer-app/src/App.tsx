@@ -31,7 +31,7 @@ import {
 import { cancelProjectOperation, newProject, noticesFor, openProject, projectDirtyStatus, saveProject, saveProjectAs, type ProjectLoadReceipt } from './projectActions';
 import { errorText } from '@orca/slicer-runtime';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
-import type { ModelDropFile, ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
+import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
 import { registerProjectDropHandlers } from './dropHandling';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
@@ -469,12 +469,10 @@ export default function App() {
   }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const handleDroppedModelFiles = useCallback(async (files: File[]) => {
     try {
-      const dropped = platform.models.importDropped
-        ? await platform.models.importDropped(files as readonly ModelDropFile[])
-        : await Promise.all(files.map(async (file) => ({
-            displayName: file.name,
-            bytes: new Uint8Array(await file.arrayBuffer()),
-          })));
+      const dropped = await Promise.all(files.map(async (file) => ({
+        displayName: file.name,
+        bytes: new Uint8Array(await file.arrayBuffer()),
+      })));
       await addDroppedModels(platform, sceneInteractionRef.current, dropped);
     } catch (error) {
       useSlicerStore.getState().setError(errorText(error));

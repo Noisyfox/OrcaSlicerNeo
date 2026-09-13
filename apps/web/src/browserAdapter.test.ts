@@ -26,11 +26,6 @@ describe('browser adapter', () => {
     expect([...result!.bytes]).toEqual([1, 2]);
   });
 
-  it('reads browser model drops as bytes without exposing a host path', async () => {
-    const file = { name: 'part.step', arrayBuffer: async () => Uint8Array.from([4, 5]).buffer };
-    const result = await createBrowserAdapter({} as never).models.importDropped?.([file]);
-    expect(result).toEqual([{ displayName: 'part.step', bytes: Uint8Array.from([4, 5]) }]);
-  });
 
   it('downloads gcode through a Blob URL', async () => {
     const anchor = document.createElement('a');

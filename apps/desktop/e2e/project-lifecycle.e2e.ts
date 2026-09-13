@@ -86,18 +86,20 @@ test('Electron STL drop uses the shared Add Model action', async () => {
     const page = await app.firstWindow();
     await ready(page);
     await expect(page.getByTestId('object-list')).toBeVisible();
-    await page.evaluate(({ path, bytes }) => {
+    await page.evaluate(({ bytes }) => {
       const transfer = new DataTransfer();
-      const file = new File([bytes], 'cube.stl');
-      // Electron OS drops expose a private source path; the renderer adapter
-      // resolves it without putting the path in shared application state.
-      Object.defineProperty(file, 'path', { value: path });
+      const file = new File([new Uint8Array(bytes)], 'cube.stl');
+      // Electron receives the browser File and forwards only its bytes to the
+      // shared Add Model/runtime path; native project paths stay 3MF-only.
       transfer.items.add(file);
       const target = document.querySelector('[data-testid="object-list"]') ?? document;
       target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    }, { path: MODEL_PATH, bytes: Array.from(readFileSync(MODEL_PATH)) });
+    }, { bytes: Array.from(readFileSync(MODEL_PATH)) });
     await expect(page.getByTestId('btn-slice')).toBeEnabled();
   } finally {
+    // The drop intentionally makes the session dirty; destroy the test
+    // window so the lifecycle confirmation does not block teardown.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
     await app.close();
   }
 });
