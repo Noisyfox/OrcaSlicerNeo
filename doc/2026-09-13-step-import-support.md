@@ -2,8 +2,7 @@
 
 **Date:** 2026-09-13
 
-**Status:** Gated integration delivered for the serial wasm64 Web path; the
-threaded OCCT host gate remains intentionally open
+**Status:** Full threaded/serial wasm64 host integration delivered
 
 **Scope:** Add local `.step` and `.stp` model import to the shared OrcaSlicerNeo
 Electron and Web application through the existing Add Model flow.
@@ -51,6 +50,10 @@ Electron and Web application through the existing Add Model flow.
   synchronous WASM-only execution path.  This preserves the Worker-only
   boundary and prevents the serial artifact's deferred Boost.Thread shim from
   deadlocking.  It is not a change to the global thread shim.
+- Under Emscripten, STEP meshing dispatches solids inline and disables OCCT's
+  internal mesh parallelism; native builds retain oneTBB/OCCT parallel meshing.
+  This avoids nested scheduler deadlock in browser/Electron Worker execution
+  while preserving the threaded module for the rest of the slicer.
 - The bridge keeps its extern "C", JSON-in/JSON-out contract.  The existing
   `orc_add_model` transaction explicitly dispatches `step` and `stp` to
   `Model::read_from_step()`; other formats retain their current loader paths.
@@ -95,8 +98,8 @@ that upstream STEP code's internal threading behaves correctly in the serial
 fallback.  A failed gate requires a new design decision before product code is
 changed.
 
-Verification will include focused client/action tests, serial and threaded
-WASM quick-build plus STEP import/slice harness coverage, and real Electron,
+Verification includes focused client/action tests, serial and threaded WASM
+quick-build plus STEP import/slice harness coverage, and real Electron,
 Web-threaded, and Web-serial import-and-slice flows.  Fixtures cover a
 millimetre part, an inch part, a named multi-solid assembly, and malformed
 input; success asserts dimensions, object/volume naming, append semantics, and
@@ -153,17 +156,23 @@ starts until the root acceptance passes and the accepted step is committed.
   --config ../../apps/web/playwright.config.ts --grep "real Web STEP flow"`:
   Add Model imported the fixture, exposed its named object, sliced it, and
   downloaded non-empty G-code.
-- The same real Web journey was run with the threaded, cross-origin-isolated
-  configuration and failed reproducibly after module/profile initialization:
-  progress reached 100%, but the scene remained `No objects` and Slice stayed
-  disabled for 120 seconds.  Real Electron uses the same isolated threaded
-  artifact; its focused STEP journey reproduced that failure, while the
-  existing real Electron DRC flow passed.  The focused threaded tests remain
-  opt-in reproductions (`ORCA_E2E_STEP_THREADED=1` for Electron); the Web test
-  is skipped in the threaded configuration so the accepted serial fallback
-  suite stays green.
+- The production-default threaded artifact was rebuilt with
+  `WASM_PTHREAD_POOL_SIZE=navigator.hardwareConcurrency` using the documented
+  `packages\\slicer-wasm\\build.bat` driver, staged, and used for the host
+  checks below.  The pool setting is owned by the WASM build configuration.
+- Real Web threaded verification passed with
+  `VITE_USE_MOCK=0 VITE_E2E=1 pnpm --filter @orca/desktop exec playwright test
+  --config ../../apps/web/playwright.config.ts --grep "real Web STEP flow"
+  --timeout=180000`: Add Model imported the licensed fixture, exposed its
+  named object, sliced it, and downloaded non-empty G-code.
+- Real Electron threaded verification passed with
+  `ORCA_E2E_REAL=1 VITE_USE_MOCK=0 VITE_E2E=1 pnpm
+  --filter @orca/desktop exec playwright test e2e/app.e2e.ts --grep "real STEP
+  flow" --timeout=180000`: Add Model imported the fixture, rendered the named
+  object, sliced it, and exported non-empty G-code.  The default real E2E
+  runner includes this STEP journey; the test is gated only on
+  `ORCA_E2E_REAL=1` for environments without production artifacts.
 
-Threaded OCCT STEP execution is therefore an intentional release limitation
-of this gated delivery.  No application behavior or pinned submodule was
-changed to mask it; resolving that gate requires a separate design/build
-decision and is outside this step.
+Threaded host execution is now accepted for this delivery.  The remaining
+scope limits are CAD metadata/material/GD&T exposure, automatic arrangement,
+mesh-settings UI, import progress UI, and cancellation controls.

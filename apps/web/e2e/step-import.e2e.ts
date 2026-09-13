@@ -7,17 +7,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const STEP_MODEL = resolve(here, '../../../packages/slicer-wasm/fixtures/step/step-box-20mm.step');
 
 test('real Web STEP flow: Add Model → renders named solid → slice → download G-code', async ({ page }) => {
-  test.skip(process.env.ORCA_WEB_NO_ISOLATION !== '1',
-    'threaded OCCT STEP host gate is currently unavailable; run the serial no-isolation journey');
-  await page.addInitScript(() => {
-    localStorage.setItem('orca-slicer-neo:preferences', JSON.stringify({
-      version: 1,
-      selectedProfiles: {},
-      ui: {},
-    }));
-  });
-  page.on('console', (message) => console.log(`[browser:${message.type()}] ${message.text()}`));
-  page.on('pageerror', (error) => console.log(`[browser:error] ${String(error)}`));
   await page.goto('/');
   await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 120_000 });
   await page.locator('#app-tab-prepare').click();

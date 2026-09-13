@@ -696,8 +696,7 @@ test('real DRC flow: import → slice → export gcode', async () => {
 });
 
 test('real STEP flow: Add Model → renders named solid → slice → export G-code', async () => {
-  test.skip(!REAL || process.env.ORCA_E2E_STEP_THREADED !== '1',
-    'threaded OCCT STEP host gate is currently unavailable; set ORCA_E2E_STEP_THREADED=1 to reproduce');
+  test.skip(!REAL, 'the production STEP path needs real wasm64 artifacts');
   const { app, exportPath } = await launchApp({ modelPath: STEP_MODEL_PATH });
   try {
     const page = await app.firstWindow();
