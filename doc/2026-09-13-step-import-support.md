@@ -2,7 +2,8 @@
 
 **Date:** 2026-09-13
 
-**Status:** In progress — OCCT wasm64 feasibility gate running
+**Status:** Gated integration delivered for the serial wasm64 Web path; the
+threaded OCCT host gate remains intentionally open
 
 **Scope:** Add local `.step` and `.stp` model import to the shared OrcaSlicerNeo
 Electron and Web application through the existing Add Model flow.
@@ -56,8 +57,34 @@ Electron and Web application through the existing Add Model flow.
 - The shared application continues to call only the typed runtime/client API.
   Host adapters only widen their existing file-picker filters.
 - OCCT licensing material, source provenance, and distribution notices are
-  included with the feature before release, consistent with OCCT's LGPL-2.1
-  licence and exception as well as the repository's AGPL-3.0 obligations.
+  recorded below before release, consistent with OCCT's LGPL-2.1 licence and
+  exception as well as the repository's AGPL-3.0 obligations.
+
+The release audit records the exact inputs used by the distributable build:
+
+- OCCT **7.6.0**, fetched from the [`V7_6_0` source archive](https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip)
+  with SHA-256 `28334f0e98f1b1629799783e9b4d21e05349d89e695809d7e6dfa45ea43e1dbc`.
+  The applicable [LGPL-2.1 text](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_6_0/LICENSE_LGPL_21.txt)
+  and [Open CASCADE exception 1.0](https://github.com/Open-Cascade-SAS/OCCT/blob/V7_6_0/OCCT_LGPL_EXCEPTION.txt)
+  are the upstream legal sources.
+- Emscripten 6.0.6's **FreeType 2.13.3** port is linked by
+  `-sUSE_FREETYPE=1` in both variants.  The upstream source is the
+  [`VER-2-13-3` archive](https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-3.zip);
+  its dual-license terms and attribution requirements are in
+  [`LICENSE.TXT`](https://github.com/freetype/freetype/blob/VER-2-13-3/LICENSE.TXT)
+  (the FreeType License or GPLv2; this AGPL-3.0 product uses the FreeType
+  License option).  FreeType is pinned by the Emscripten toolchain rather
+  than by a separate project checksum.
+- The imported meshStep fixture provenance remains in
+  [`fixtures/step/README.md`](../packages/slicer-wasm/fixtures/step/README.md):
+  it is the normalized `cube.step` from commit
+  [`a1a2841633bdb56a54cb91235800d87124af4091`](https://github.com/CNCKitchen/meshStep/blob/a1a2841633bdb56a54cb91235800d87124af4091/cube.step),
+  distributed under that repository's AGPL-3.0 terms.
+
+The repository has no package-wide third-party notice inventory beyond the
+existing fixture-local DRC notice.  Accordingly, this audit records the
+build-time notices here and keeps fixture provenance in the established STEP
+fixture README rather than introducing a second notice mechanism.
 
 ## Feasibility gate and verification
 
@@ -109,3 +136,34 @@ starts until the root acceptance passes and the accepted step is committed.
    required Level-3 checks pass (`pnpm test`, `pnpm typecheck`, both quick
    builds, bridge smoke, and affected host E2E), with every unavailable check
    reported explicitly.
+
+## Final verification and scope limits (2026-09-13)
+
+- `pnpm test` passed (all workspace packages: 839 tests).
+- `pnpm typecheck` passed (all eight workspace projects).
+- `cmd /c scripts\build-windows.bat quick --variant both -j 8` passed for
+  threaded and serial wasm64; `cmd /c scripts\build-windows.bat smoke --variant both`
+  passed the bridge, DRC, STEP import/atomicity, and slicing harnesses for both
+  artifacts.
+- `pnpm --filter @orca/profile-resources build`, `node scripts/stage.mjs`,
+  and `pnpm --filter @orca/web test:non-root` passed.  The latter is the
+  static-Web production build plus non-root base smoke.
+- Real Web serial verification passed with
+  `ORCA_WEB_NO_ISOLATION=1 pnpm --filter @orca/desktop exec playwright test
+  --config ../../apps/web/playwright.config.ts --grep "real Web STEP flow"`:
+  Add Model imported the fixture, exposed its named object, sliced it, and
+  downloaded non-empty G-code.
+- The same real Web journey was run with the threaded, cross-origin-isolated
+  configuration and failed reproducibly after module/profile initialization:
+  progress reached 100%, but the scene remained `No objects` and Slice stayed
+  disabled for 120 seconds.  Real Electron uses the same isolated threaded
+  artifact; its focused STEP journey reproduced that failure, while the
+  existing real Electron DRC flow passed.  The focused threaded tests remain
+  opt-in reproductions (`ORCA_E2E_STEP_THREADED=1` for Electron); the Web test
+  is skipped in the threaded configuration so the accepted serial fallback
+  suite stays green.
+
+Threaded OCCT STEP execution is therefore an intentional release limitation
+of this gated delivery.  No application behavior or pinned submodule was
+changed to mask it; resolving that gate requires a separate design/build
+decision and is outside this step.

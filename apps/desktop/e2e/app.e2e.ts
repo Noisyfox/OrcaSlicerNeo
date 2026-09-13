@@ -16,6 +16,10 @@ const DRC_MODEL_PATH = resolve(
   DESKTOP_ROOT,
   '../../packages/slicer-wasm/fixtures/drc/test_nm.obj.edgebreaker.cl4.2.2.drc',
 );
+const STEP_MODEL_PATH = resolve(
+  DESKTOP_ROOT,
+  '../../packages/slicer-wasm/fixtures/step/step-box-20mm.step',
+);
 const REAL = process.env.ORCA_E2E_REAL === '1';
 const MODEL_COUNT = Math.max(1, Number.parseInt(process.env.ORCA_E2E_MODEL_COUNT ?? '1', 10) || 1);
 // Creality's bed has no Bambu exclusion zones, making cube.stl a stable
@@ -686,6 +690,43 @@ test('real DRC flow: import → slice → export gcode', async () => {
     await page.getByTestId('btn-export').click();
     await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
     expect(readFileSync(exportPath, 'utf8')).toContain('G1');
+  } finally {
+    await app.close();
+  }
+});
+
+test('real STEP flow: Add Model → renders named solid → slice → export G-code', async () => {
+  test.skip(!REAL || process.env.ORCA_E2E_STEP_THREADED !== '1',
+    'threaded OCCT STEP host gate is currently unavailable; set ORCA_E2E_STEP_THREADED=1 to reproduce');
+  const { app, exportPath } = await launchApp({ modelPath: STEP_MODEL_PATH });
+  try {
+    const page = await app.firstWindow();
+    const diag = attachRendererDiagnostics(page);
+    try {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+      await selectStableRealPrinter(page);
+      await expect(page.getByTestId('btn-slice')).toBeDisabled();
+
+      // ORCA_E2E supplies the exact STEP path to the native Electron picker;
+      // this still exercises the renderer Add Model action and Worker bridge.
+      await page.getByTestId('btn-add-model').click();
+      await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 120_000 });
+      await expect(page.getByTestId('object-list')).toContainText('step-box-20mm.step', { timeout: 30_000 });
+      await expect(page.getByTestId('viewport')).toBeVisible();
+
+      await page.getByTestId('btn-slice').click();
+      await expect(page.getByTestId('slicer-status')).toHaveText('Sliced', { timeout: 120_000 });
+      await expect(page.getByTestId('btn-export')).toBeEnabled();
+      await page.getByTestId('btn-export').click();
+      await expect.poll(() => existsSync(exportPath), { timeout: 30_000 }).toBe(true);
+      const gcode = readFileSync(exportPath, 'utf8');
+      expect(gcode).toContain('G1');
+      expect(gcode).not.toHaveLength(0);
+    } catch (error) {
+      await diag.dump();
+      throw error;
+    }
   } finally {
     await app.close();
   }
