@@ -195,6 +195,16 @@ export class WipeTowerVolumeCollection {
     this.emitProjection(setStartedAt);
   }
 
+  /** Update only the active-plate marker after navigation. The all-plate
+   * projection and its scene volumes remain valid, so this must not issue a
+   * Worker projection read or rebuild any volume geometry. */
+  setCurrentPlate(plateId: string, session?: PlateSessionSnapshot | null): void {
+    if (session !== undefined) this.sessionState = session;
+    if (!this.projectionState || this.projectionState.currentPlateId === plateId) return;
+    this.projectionState = { ...this.projectionState, currentPlateId: plateId };
+    this.emit();
+  }
+
   /** Apply the plate-local authoritative response from a completed tower move. */
   setPlatePosition(plateId: string, position: PrimeTowerPosition, footprint: PrimeTowerPlateProjection['footprint']): void {
     const projection = this.projectionState;

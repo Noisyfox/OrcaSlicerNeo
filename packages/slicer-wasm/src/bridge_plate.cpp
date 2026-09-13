@@ -684,7 +684,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_plate(const char* plate_id_cstr)
         if (find_plate(requested) == nullptr)
             return error_json("plate not found");
         state().current_plate_id = requested;
-        return dup_json(plate_session_snapshot_json().dump());
+        return dup_json(json{{"ok", true}, {"version", 1},
+                             {"current_plate_id", state().current_plate_id}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

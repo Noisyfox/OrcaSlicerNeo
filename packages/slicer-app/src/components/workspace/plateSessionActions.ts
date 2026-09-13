@@ -79,7 +79,21 @@ export async function selectPlateSession(
 ): Promise<boolean> {
   const current = usePlateSessionStore.getState().snapshot?.currentPlateId;
   if (current === plateId) return true;
-  return applyPlateSessionResponse(platform, await platform.runtime.selectPlate(plateId));
+  const result = await platform.runtime.selectPlate(plateId);
+  if (!result.ok) {
+    useSlicerStore.getState().setError(result.error);
+    return false;
+  }
+  const previous = usePlateSessionStore.getState().snapshot;
+  if (!previous || !previous.plates.some((plate) => plate.plateId === result.currentPlateId)) {
+    useSlicerStore.getState().setError('plate selection returned an unknown plate');
+    return false;
+  }
+  usePlateSessionStore.getState().setSnapshot({ ...previous, currentPlateId: result.currentPlateId });
+  const revision = previous.inputRevisions?.[result.currentPlateId];
+  if (typeof revision === 'number' && Number.isSafeInteger(revision))
+    useSlicerStore.getState().activatePlateResult(result.currentPlateId, revision);
+  return true;
 }
 
 /** Select a different plate and clear the shared object selection only after

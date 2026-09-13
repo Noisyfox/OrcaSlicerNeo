@@ -8,7 +8,7 @@
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
   InitResult, ProfileSnapshot, ProfileSnapshotResult,
-  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult, PlateSelectionResult,
   PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
   PrimeTowerProjection, PrimeTowerProjectionResult, PrimeTowerMoveRequest,
   PrimeTowerMoveResultOrError,
@@ -584,6 +584,15 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   return result;
 }
 
+function normalizePlateSelectionResult(raw: unknown): PlateSelectionResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid plate selection response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'plate selection request failed' };
+  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || value.current_plate_id.length === 0)
+    return { ok: false, error: 'invalid plate selection response' };
+  return { ok: true, version: 1, currentPlateId: value.current_plate_id };
+}
+
 function normalizePlateMutationResult(raw: unknown): PlateSessionMutationResult {
   const result = normalizePlateSessionResult(raw);
   if (!result.ok) return result;
@@ -1148,9 +1157,9 @@ export function createClient(
       return normalizePlateSessionResult(callJson(m, 'orc_reset_plate_session', [], []));
     },
 
-    async selectPlate(plateId: string): Promise<PlateSessionSnapshotResult> {
+    async selectPlate(plateId: string): Promise<PlateSelectionResult> {
       const m = await module();
-      return normalizePlateSessionResult(callJson(m, 'orc_select_plate', ['string'], [plateId]));
+      return normalizePlateSelectionResult(callJson(m, 'orc_select_plate', ['string'], [plateId]));
     },
 
     async addPlate(): Promise<PlateSessionMutationResult> {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import type { HistoryContext, ModelObjectStructure } from '@slicer/client';
+import type { HistoryContext, ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
@@ -58,7 +58,15 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const highlightLevel = useObjectListStore((s) => s.highlightLevel);
   const collapsedInstances = useObjectListStore((s) => s.collapsedInstances);
   const projection = useObjectListStore((s) => s.projection);
-  const plateSession = usePlateSessionStore((s) => s.snapshot);
+  // Object List grouping and validity depend on plate membership, not on the
+  // navigational currentPlateId. Select the stable arrays independently so a
+  // pure plate click does not re-run the O(objects * instances) projection.
+  const plateSessionPlates = usePlateSessionStore((s) => s.snapshot?.plates);
+  const plateSessionInstances = usePlateSessionStore((s) => s.snapshot?.instances);
+  const plateSession = useMemo(() => {
+    if (!plateSessionPlates || !plateSessionInstances) return null;
+    return { plates: plateSessionPlates, instances: plateSessionInstances } as PlateSessionSnapshot;
+  }, [plateSessionPlates, plateSessionInstances]);
   const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
   const filamentPending = useFilamentSessionStore((s) => s.pendingKind !== null);
   const runFilament = useFilamentSessionStore((s) => s.run);

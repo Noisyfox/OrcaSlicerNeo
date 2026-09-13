@@ -18,7 +18,7 @@ export type {
   FilamentRoutingTarget, FilamentRoutingProjection, FilamentRoutingTargetRequest,
   FilamentRoutingSelector, FilamentRoutingRequest,
   PlateSessionPlate, PlateSessionInstance, PlateSessionInstanceTransform, PlateSessionSnapshot,
-  PlateSessionMutation, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult,
+  PlateSessionMutation, PlateSelection, PlateSessionSnapshotError, PlateSessionSnapshotResult, PlateSessionMutationResult, PlateSelectionResult,
   PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
   PrimeTowerProjection, PrimeTowerProjectionError, PrimeTowerProjectionResult,
   PrimeTowerMoveRequest, PrimeTowerMoveMutation, PrimeTowerMoveResult, PrimeTowerMoveResultOrError,

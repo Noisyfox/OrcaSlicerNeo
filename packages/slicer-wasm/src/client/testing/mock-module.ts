@@ -456,21 +456,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         : { version: 1, model: 'full', plateSession: true, filamentRack: true, projectOverlay: true,
           selectionContext: true, primeTower: true, preview: 'all' } };
   }
-  function recordActivePlateContext(): void {
-    if (historyTransaction || historyEntries.length === 0) return;
-    const previous = historyEntries[historyCursor];
-    const context = clone(previous.context);
-    if (context.activePlateId === currentPlateId) return;
-    context.activePlateId = currentPlateId;
-    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
-      savedHistoryCheckpointEvicted = true;
-    historyEntries.splice(historyCursor + 1);
-    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
-      label: 'Active Plate', category: 'context', context });
-    historyCursor = historyEntries.length - 1;
-    // Context-only history does not change the native project or filament
-    // session. Keep the command fence stable after selection/plate updates.
-  }
   function recordHistoryContext(label: string, context: any): void {
     if (historyTransaction) throw new Error('history transaction is active');
     if (historyEntries.length === 0) {
@@ -1358,8 +1343,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (typeof plateId !== 'string' || plateId.length === 0) return { error: 'plateId is required' };
       if (!plateIds.includes(plateId)) return { error: 'plate not found' };
       currentPlateId = plateId;
-      recordActivePlateContext();
-      return plateSessionSnapshot();
+      return { ok: true, version: 1, current_plate_id: currentPlateId };
     },
     orc_add_plate() {
       if (plateIds.length >= 36) return { error: 'maximum of 36 plates' };

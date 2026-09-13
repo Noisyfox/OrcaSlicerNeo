@@ -108,6 +108,13 @@ export interface PlateSessionSnapshot {
   dirtyReasons?: readonly string[];
 }
 
+/** Narrow authoritative receipt returned by pure plate navigation. */
+export interface PlateSelection {
+  readonly ok: true;
+  readonly version: 1;
+  readonly currentPlateId: string;
+}
+
 export interface PlateSessionMutation extends PlateSessionSnapshot {
   readonly instanceTransforms: readonly PlateSessionInstanceTransform[];
 }
@@ -269,6 +276,7 @@ export interface PlateSessionSnapshotError {
 
 export type PlateSessionSnapshotResult = PlateSessionSnapshot | PlateSessionSnapshotError;
 export type PlateSessionMutationResult = PlateSessionMutation | PlateSessionSnapshotError;
+export type PlateSelectionResult = PlateSelection | PlateSessionSnapshotError;
 
 /** Common identity and visibility fields for entries in the engine catalogue. */
 export interface FilamentCatalogItem {
@@ -1060,7 +1068,7 @@ export interface SlicerClient {
   /** Reset to one fresh default Plate 1 and return its new runtime identity. */
   resetPlateSession(): Promise<PlateSessionSnapshotResult>;
   /** Select an existing plate by its opaque runtime identity. */
-  selectPlate(plateId: string): Promise<PlateSessionSnapshotResult>;
+  selectPlate(plateId: string): Promise<PlateSelectionResult>;
   addPlate(): Promise<PlateSessionMutationResult>;
   deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;

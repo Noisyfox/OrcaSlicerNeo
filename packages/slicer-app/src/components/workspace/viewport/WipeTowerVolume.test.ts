@@ -219,6 +219,26 @@ describe('WipeTowerVolume shared scene integration', () => {
     expect(removedDispose).toHaveBeenCalledOnce();
   });
 
+  it('updates only the current-plate marker without rebuilding the projection', () => {
+    const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
+    const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };
+    const project = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', buildArea: tower().projection.buildArea, plates: [
+      { ...tower().projection, plateId: 'plate-1', displayIndex: 0 },
+      { ...tower().projection, plateId: 'plate-2', displayIndex: 1 },
+    ] };
+    const collection = new WipeTowerVolumeCollection({ move: vi.fn(), reconcile: vi.fn(), revision: vi.fn(() => 1) });
+    collection.setProjection(project, session);
+    const first = collection.volumes[0]!;
+    const second = collection.volumes[1]!;
+    const notify = vi.fn();
+    collection.subscribe(notify);
+    collection.setCurrentPlate('plate-2', { ...session, currentPlateId: 'plate-2' });
+    expect(collection.projection?.currentPlateId).toBe('plate-2');
+    expect(collection.volumes[0]).toBe(first);
+    expect(collection.volumes[1]).toBe(second);
+    expect(notify).toHaveBeenCalledOnce();
+  });
+
   it('patches only the moved plate from the narrow native response', () => {
     const plate = (id: string, index: number) => ({ plateId: id, displayIndex: index, name: id, origin: [index * 250, 0, 0] as const });
     const session = { ok: true as const, version: 1 as const, currentPlateId: 'plate-1', plates: [plate('plate-1', 0), plate('plate-2', 1)] };

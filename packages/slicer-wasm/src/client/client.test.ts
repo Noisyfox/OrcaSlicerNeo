@@ -490,7 +490,9 @@ describe('SlicerClient bridge contract', () => {
       name: 'Plate 1',
     }]);
     expect(await c.getPlateSessionSnapshot()).toEqual(first);
-    expect(await c.selectPlate(first.currentPlateId)).toEqual(first);
+    expect(await c.selectPlate(first.currentPlateId)).toEqual({
+      ok: true, version: 1, currentPlateId: first.currentPlateId,
+    });
     const reset = await c.resetPlateSession();
     expect(reset.ok).toBe(true);
     if (!reset.ok) throw new Error(reset.error);

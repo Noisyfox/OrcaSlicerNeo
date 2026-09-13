@@ -1,6 +1,6 @@
 // One renderer GLVolume. Prepare models forward pointer events to the scene
 // controller; Preview models are passive render-only shells.
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { DragControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
@@ -33,7 +33,7 @@ function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransfo
   group.updateMatrix();
 }
 
-export function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession, onModelSelection }: {
+export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession, onModelSelection }: {
   data: GLVolume;
   interactive?: boolean;
   preview?: boolean;
@@ -160,4 +160,12 @@ export function GLVolumeMesh({ data, interactive = true, preview = false, struct
       {modelMesh}
     </DragControls>
   );
-}
+}, (previous, next) => previous.data === next.data
+  && previous.interactive === next.interactive
+  && previous.preview === next.preview
+  && previous.structure === next.structure
+  // Selection navigation replaces only the outer session object. Membership
+  // and validity arrays remain identical, so avoid remounting every model
+  // mesh for a currentPlateId-only change.
+  && previous.plateSession?.instances === next.plateSession?.instances
+  && previous.onModelSelection === next.onModelSelection);

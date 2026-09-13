@@ -241,8 +241,11 @@ export function Workspace({
     // effects turn into full projections after the explicit restore read.
     if (historyRestorePhase !== 'idle') return;
     void refreshPrimeTowerProjection();
-  }, [filamentSnapshot, glVolumes, historyRestorePhase, historyRestoreRevision, plateSession,
+  }, [filamentSnapshot, glVolumes, historyRestorePhase, historyRestoreRevision,
     refreshPrimeTowerProjection, settingsOverlay, structure]);
+  useEffect(() => {
+    if (plateSession) wipeTowerVolumes.setCurrentPlate(plateSession.currentPlateId, plateSession);
+  }, [plateSession?.currentPlateId, wipeTowerVolumes]);
   useEffect(() => wipeTowerVolumes.subscribe(() => {
     // Projection removal, eligibility and current-plate changes can replace
     // scene-only volumes; prune the one shared Selection immediately.
