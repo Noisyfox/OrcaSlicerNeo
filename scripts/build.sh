@@ -153,7 +153,7 @@ discard_invalid_link_outputs() {
 # and invalidate the incremental artifact.
 apply_wasm_patches() {
   local p
-  for p in "$PKG"/patches/*.patch; do
+  for p in "$PKG"/patches/orca/*.patch; do
     [[ -e "$p" ]] || continue
     if git -C "$PKG/cpp" apply --ignore-space-change --check "$p" 2>/dev/null; then
       git -C "$PKG/cpp" apply --ignore-space-change "$p"

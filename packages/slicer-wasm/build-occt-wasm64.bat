@@ -26,7 +26,7 @@ set "OCCT_VER=7.6.0"
 set "OCCT_SOURCE=%DEPS%\occt-%OCCT_VER%"
 set "OCCT_BUILD=%WORK_DIR%\occt-build-%ARTIFACT_VARIANT%"
 set "OCCT_STAGE=%OCCT_SOURCE%\stage-wasm64-%ARTIFACT_VARIANT%"
-set "OCCT_PATCH=%PKG_DIR%\patches\0008-occt-7.6.0-freetype-a-tags.patch"
+set "OCCT_PATCH_DIR=%PKG_DIR%\patches\occt"
 set "OCCT_FLAGS=-m64 -sUSE_FREETYPE=1"
 if not "%WASM_THREADING%"=="0" set "OCCT_FLAGS=-m64 -sUSE_FREETYPE=1 -pthread"
 if "%WASM_THREADING%"=="0" if not "%OCCT_FLAGS%"=="-m64 -sUSE_FREETYPE=1" (echo [occt] ERROR: serial flags unexpectedly enable pthread.& exit /b 1)
@@ -46,13 +46,16 @@ if not exist "%OCCT_SOURCE%\CMakeLists.txt" call "%PKG_DIR%\fetch-deps.bat"
 if errorlevel 1 exit /b 1
 if not exist "%OCCT_SOURCE%\CMakeLists.txt" (echo [occt] ERROR: OCCT source unavailable.& exit /b 1)
 
-findstr /l /c:"const auto* aTags" "%OCCT_SOURCE%\src\StdPrs\StdPrs_BRepFont.cxx" >nul
-if errorlevel 1 (
-  if not exist "%OCCT_SOURCE%\.git" git -C "%OCCT_SOURCE%" init -q
-  git -C "%OCCT_SOURCE%" apply --check "%OCCT_PATCH%"
-  if errorlevel 1 (echo [occt] ERROR: could not validate OCCT patch.& exit /b 1)
-  git -C "%OCCT_SOURCE%" apply "%OCCT_PATCH%"
-  if errorlevel 1 (echo [occt] ERROR: could not apply OCCT patch.& exit /b 1)
+if not exist "%OCCT_SOURCE%\.git" git -C "%OCCT_SOURCE%" init -q
+for %%P in ("%OCCT_PATCH_DIR%\*.patch") do (
+  git -C "%OCCT_SOURCE%" apply --check --unidiff-zero "%%P" >nul 2>nul
+  if not errorlevel 1 (
+    git -C "%OCCT_SOURCE%" apply --unidiff-zero "%%P"
+    if errorlevel 1 (echo [occt] ERROR: could not apply OCCT patch %%~nxP.& exit /b 1)
+  ) else (
+    git -C "%OCCT_SOURCE%" apply --reverse --check --unidiff-zero "%%P" >nul 2>nul
+    if errorlevel 1 (echo [occt] ERROR: OCCT patch %%~nxP neither applies nor is already applied.& exit /b 1)
+  )
 )
 set "FREETYPE_SYSROOT=%EMSCRIPTEN%\cache\sysroot"
 if not exist "%FREETYPE_SYSROOT%\include\freetype2\ft2build.h" (echo [occt] ERROR: Emscripten FreeType headers missing.& exit /b 1)
@@ -68,8 +71,10 @@ if not exist "%FREETYPE_ARCHIVE%" (echo [occt] ERROR: wasm64 FreeType port archi
 echo [occt] Configuring OCCT %OCCT_VER% ^(%ARTIFACT_VARIANT% wasm64^)
 emcmake cmake -S "%OCCT_SOURCE%" -B "%OCCT_BUILD%" -G Ninja ^
   -DCMAKE_BUILD_TYPE=Release ^
+  -DCMAKE_SIZEOF_VOID_P:INTERNAL=8 ^
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ^
   -DCMAKE_CXX_STANDARD=17 ^
+  -DCMAKE_C_FLAGS="%OCCT_FLAGS%" ^
   -DCMAKE_CXX_FLAGS="%OCCT_FLAGS%" ^
   -DCMAKE_EXE_LINKER_FLAGS="%OCCT_FLAGS%" ^
   -DBUILD_LIBRARY_TYPE=Static ^

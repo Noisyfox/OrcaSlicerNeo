@@ -21,7 +21,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
-set(OCCT_ROOT "" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
+if(WASM_THREADING)
+  set(_OCCT_DEFAULT_VARIANT threaded)
+else()
+  set(_OCCT_DEFAULT_VARIANT serial)
+endif()
+set(OCCT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.work/deps/occt-7.6.0/stage-wasm64-${_OCCT_DEFAULT_VARIANT}" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone headless ProjectHistory test" OFF)
 # Debug build (build.sh/build.bat --debug or WASM_DEBUG=1): only the
 # libslic3r part (slic3r_core + bridge/CLI TUs) is rebuilt with -g -O0 so the

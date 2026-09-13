@@ -6,7 +6,7 @@
 # Emscripten module: real oneTBB pthread runtime, scaffold CMake, bridge + CLI driver.
 # Inherited from the phase-0 spike's build.sh and adapted: no clone step (the
 # submodule IS the source pin), wasm64-first, full preset bundle embedded.
-# patches/*.patch are applied to the submodule working tree here, at build
+# patches/orca/*.patch are applied to the submodule working tree here, at build
 # time — the submodule itself stays pristine (read-only, pinned SHA).
 #
 # NOT push-button — the WASM build is an iteration surface. Re-run after each
@@ -138,12 +138,13 @@ fi
 log "emcc: $(emcc --version | head -1)"
 
 # ---------------- Patch the submodule (build-time, idempotent) ----------------
-# The pinned submodule is pristine; every packages/slicer-wasm/patches/*.patch
-# is git-applied to its working tree here. Already-applied runs are skipped;
+# The pinned submodule is pristine; every packages/slicer-wasm/patches/orca/*.patch
+# is git-applied to its working tree here. OCCT source patches live under
+# patches/occt and are applied by build-occt-wasm64.sh. Already-applied runs are skipped;
 # a patch that neither applies nor is applied is a hard error.
 apply_patches() {
   local p
-  for p in "$PKG_DIR"/patches/*.patch; do
+  for p in "$PKG_DIR"/patches/orca/*.patch; do
     [[ -e "$p" ]] || continue
     if git -C "$ORCA_SRC" apply --check "$p" 2>/dev/null; then
       git -C "$ORCA_SRC" apply "$p"

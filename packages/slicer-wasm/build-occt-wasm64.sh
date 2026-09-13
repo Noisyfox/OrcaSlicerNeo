@@ -11,7 +11,7 @@ OCCT_VER="7.6.0"
 OCCT_SOURCE="$DEPS/occt-$OCCT_VER"
 OCCT_BUILD="$WORK_DIR/occt-build-$ARTIFACT_VARIANT"
 OCCT_STAGE="$OCCT_SOURCE/stage-wasm64-$ARTIFACT_VARIANT"
-OCCT_PATCH="$PKG_DIR/patches/0008-occt-7.6.0-freetype-a-tags.patch"
+OCCT_PATCH_DIR="$PKG_DIR/patches/occt"
 OCCT_FLAGS="-m64 -sUSE_FREETYPE=1"
 [[ "$WASM_THREADING" == "0" ]] || OCCT_FLAGS+=" -pthread"
 EXPECTED=(TKBO TKBRep TKCAF TKCDF TKernel TKG2d TKG3d TKGeomAlgo TKGeomBase TKHLR TKLCAF TKMath TKMesh TKPrim TKService TKShHealing TKSTEP TKSTEP209 TKSTEPAttr TKSTEPBase TKTopAlgo TKV3d TKVCAF TKXCAF TKXDESTEP TKXSBase)
@@ -30,10 +30,17 @@ command -v ninja >/dev/null 2>&1 || die "ninja not found"
 
 # The source archive is not a repository. git apply is used only as a
 # deterministic, whitespace-aware patcher and does not modify the pinned C++.
-if ! grep -q 'const auto\* aTags' "$OCCT_SOURCE/src/StdPrs/StdPrs_BRepFont.cxx"; then
-  [[ -d "$OCCT_SOURCE/.git" ]] || git -C "$OCCT_SOURCE" init -q
-  (cd "$OCCT_SOURCE" && git apply --check "$OCCT_PATCH" && git apply "$OCCT_PATCH") || die "could not apply OCCT patch"
-fi
+[[ -d "$OCCT_SOURCE/.git" ]] || git -C "$OCCT_SOURCE" init -q
+for patch in "$OCCT_PATCH_DIR"/*.patch; do
+  [[ -e "$patch" ]] || continue
+  if git -C "$OCCT_SOURCE" apply --check --unidiff-zero "$patch" 2>/dev/null; then
+    git -C "$OCCT_SOURCE" apply --unidiff-zero "$patch" || die "could not apply OCCT patch $(basename "$patch")"
+  elif git -C "$OCCT_SOURCE" apply --reverse --check --unidiff-zero "$patch" 2>/dev/null; then
+    : # Already applied.
+  else
+    die "OCCT patch $(basename "$patch") neither applies nor is already applied"
+  fi
+done
 
 FREETYPE_SYSROOT="$(cd "$EMSCRIPTEN/../" 2>/dev/null && pwd -P)/emscripten/cache/sysroot"
 if [[ ! -d "$FREETYPE_SYSROOT" ]]; then
@@ -54,8 +61,10 @@ fi
 echo "[occt] Configuring OCCT $OCCT_VER ($ARTIFACT_VARIANT wasm64)"
 emcmake cmake -S "$OCCT_SOURCE" -B "$OCCT_BUILD" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_SIZEOF_VOID_P:INTERNAL=8 \
   -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
   -DCMAKE_CXX_STANDARD=17 \
+  -DCMAKE_C_FLAGS="$OCCT_FLAGS" \
   -DCMAKE_CXX_FLAGS="$OCCT_FLAGS" \
   -DCMAKE_EXE_LINKER_FLAGS="$OCCT_FLAGS" \
   -DBUILD_LIBRARY_TYPE=Static \

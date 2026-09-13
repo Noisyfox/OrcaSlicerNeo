@@ -332,7 +332,7 @@ REM configure. Keep the pinned submodule source in the same patched state
 REM before Ninja so an incremental build cannot silently compile upstream
 REM Backup Manager code.
 :apply_wasm_patches
-for %%p in ("%PKG%\patches\*.patch") do (
+for %%p in ("%PKG%\patches\orca\*.patch") do (
   if exist "%%p" (
     git -C "%PKG%\cpp" apply --ignore-space-change --check "%%p" >nul 2>nul
     if not errorlevel 1 (
