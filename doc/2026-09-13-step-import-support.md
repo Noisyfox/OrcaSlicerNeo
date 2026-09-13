@@ -35,8 +35,12 @@ Electron and Web application through the existing Add Model flow.
   scope.
 - The first delivery uses the upstream default meshing values: linear
   deflection `0.003 mm`, angular deflection `0.5`, and no compound splitting.
-  It does not expose a mesh-settings dialog, import progress UI, or user
-  cancellation control.
+  Picker and external model drops use the existing global project-operation
+  progress dialog, titled **Importing model(s)**.  It is a non-cancellable,
+  batch-level progress surface: a multi-file drop reports completed files and
+  reaches 100% after the final file.  Native per-mesh progress is not exposed
+  because the current runtime has no per-mesh progress callback.  No
+  mesh-settings dialog or user cancellation control is exposed.
 - The STEP reader honours source units and produces model coordinates in
   millimetres.  No application-side axis conversion, mirroring, or implicit
   scale is applied.
@@ -185,4 +189,4 @@ starts until the root acceptance passes and the accepted step is committed.
 
 Threaded host execution is now accepted for this delivery.  The remaining
 scope limits are CAD metadata/material/GD&T exposure, automatic arrangement,
-mesh-settings UI, import progress UI, and cancellation controls.
+mesh-settings UI, native per-mesh import progress, and cancellation controls.

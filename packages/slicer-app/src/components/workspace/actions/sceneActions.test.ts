@@ -14,7 +14,7 @@ import { addDroppedModels, addHandyModel, addModel, addPrimitive, clearScene, HA
 import { useProjectStore } from '../../../stores/useProjectStore';
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
-  const addModel = vi.fn(async () => result);
+  const addModel = vi.fn(async (_bytes: Uint8Array, _ext: string, _name: string) => result);
   const runProjectHistoryTransaction = vi.fn(async <T>(
     _label: string,
     _category: 'project' | 'context',
@@ -25,7 +25,11 @@ function platformFor(fileName: string, result: { ok: boolean; error?: string }) 
   return {
     platform: {
       models: { pick: vi.fn(async () => ({ displayName: fileName, bytes: new Uint8Array([1]) })) },
-      runtime: { addModel, runProjectHistoryTransaction },
+      runtime: {
+        addModel,
+        runProjectHistoryTransaction,
+        getHistoryStatus: vi.fn(async () => ({ dirty: false })),
+      },
     } as unknown as PlatformCapabilities,
     addModel,
   };
@@ -36,6 +40,7 @@ describe('scene add-model action', () => {
     vi.restoreAllMocks();
     useSlicerStore.setState({ status: 'idle', error: null, resultExported: false });
     useSettingsStore.setState({ values: {}, modelLoaded: false });
+    useProjectStore.getState().resetOperation();
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
@@ -70,6 +75,54 @@ describe('scene add-model action', () => {
     ]);
     expect(runtimeAdd).toHaveBeenNthCalledWith(1, Uint8Array.from([1]), 'stl', 'cube.stl');
     expect(runtimeAdd).toHaveBeenNthCalledWith(2, Uint8Array.from([2]), 'step', 'part.step');
+    expect(useProjectStore.getState().operation).toMatchObject({ phase: 'completed', progress: 100 });
+  });
+
+  it('settles a cancelled picker import without showing a stale modal', async () => {
+    const { platform } = platformFor('unused.stl', { ok: true });
+    platform.models.pick = vi.fn(async () => null);
+    await addModel(platform, null);
+    expect(useProjectStore.getState().operation).toMatchObject({ phase: 'cancelled', progress: 0, cancellable: false });
+  });
+
+  it('reports deterministic completed-file progress for a dropped batch', async () => {
+    const progressDuringImport: number[] = [];
+    const addModel = vi.fn(async (_bytes: Uint8Array, _ext: string, _name: string) => {
+      progressDuringImport.push(useProjectStore.getState().operation.progress);
+      return { ok: true };
+    });
+    const runProjectHistoryTransaction = vi.fn(async <T>(
+      _label: string,
+      _category: 'project' | 'context',
+      _before: unknown,
+      mutation: (transactionId: string) => Promise<T>,
+      _after: unknown | (() => unknown | Promise<unknown>),
+    ) => ({ result: await mutation('tx-1'), status: {} as never }));
+    const platform = { runtime: { addModel, runProjectHistoryTransaction } } as unknown as PlatformCapabilities;
+    const load = vi.fn(async () => {
+      expect(useProjectStore.getState().operation).toMatchObject({ phase: 'model-import', progress: 0 });
+      return [
+        { displayName: 'a.stl', bytes: Uint8Array.from([1]) },
+        { displayName: 'b.stl', bytes: Uint8Array.from([2]) },
+      ];
+    });
+    await addDroppedModels(platform, null, load, 2);
+    expect(load).toHaveBeenCalledOnce();
+    expect(progressDuringImport).toEqual([0, 50]);
+    expect(useProjectStore.getState().operation).toMatchObject({ phase: 'completed', progress: 100, cancellable: false });
+  });
+
+  it('settles a partially failed dropped batch and retains the generic file error', async () => {
+    const { platform, addModel } = platformFor('unused.stl', { ok: true });
+    addModel.mockImplementation(async (_bytes: Uint8Array, _ext: string, name: string) => name === 'a.stl'
+      ? { ok: true }
+      : { ok: false, error: 'decoder detail' });
+    await addDroppedModels(platform, null, [
+      { displayName: 'a.stl', bytes: Uint8Array.from([1]) },
+      { displayName: 'b.stl', bytes: Uint8Array.from([2]) },
+    ]);
+    expect(useProjectStore.getState().operation).toMatchObject({ phase: 'failed', progress: 50, cancellable: false });
+    expect(useSlicerStore.getState().error).toBe('decoder detail');
   });
 
   it('imports the bundled 3DBenchy resource through the normal model pipeline', async () => {

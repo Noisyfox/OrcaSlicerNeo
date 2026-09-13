@@ -90,4 +90,19 @@ describe('project dialogs', () => {
     await act(async () => { (document.querySelector('[data-testid="project-progress-cancel"]') as HTMLElement).click(); });
     expect(onCancel).toHaveBeenCalledOnce();
   });
+
+  it('renders model-import progress as the shared global modal without cancellation', async () => {
+    await renderDialog(<ProjectProgressDialog operation={{ phase: 'model-import', progress: 50, message: 'Imported 1 of 2 model(s)', cancellable: false }} onCancel={vi.fn()} />);
+    expect(document.body.textContent).toContain('Importing model(s)');
+    expect(document.body.textContent).toContain('Imported 1 of 2 model(s)');
+    expect(document.querySelector('[data-testid="project-progress-dialog"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="project-progress"]')?.getAttribute('aria-label')).toBe('Model import progress');
+    expect(document.querySelector('[data-testid="project-progress-cancel"]')).toBeNull();
+  });
+
+  it('keeps the existing project-loading title for 3MF operations', async () => {
+    await renderDialog(<ProjectProgressDialog operation={{ phase: 'loading', progress: 20, message: 'Opening project', cancellable: true }} onCancel={vi.fn()} />);
+    expect(document.body.textContent).toContain('Opening project');
+    expect(document.body.textContent).not.toContain('Importing model(s)');
+  });
 });

@@ -200,7 +200,7 @@ function cloneState(value: unknown): MenuStateSnapshot | null {
     && typeof rawProject.dirty === 'boolean'
     && typeof rawProject.flattenedMultiPlate === 'boolean'
     && isRecord(rawProject.operation)
-    && isOneOf(['idle', 'waiting-for-load-choice', 'waiting-for-dirty-decision', 'loading', 'saving', 'completed', 'cancelled', 'failed'] as const, rawProject.operation.phase)
+    && isOneOf(['idle', 'waiting-for-load-choice', 'waiting-for-dirty-decision', 'loading', 'saving', 'model-import', 'completed', 'cancelled', 'failed'] as const, rawProject.operation.phase)
     && typeof rawProject.operation.progress === 'number'
     && Number.isFinite(rawProject.operation.progress)
     && rawProject.operation.progress >= 0 && rawProject.operation.progress <= 1

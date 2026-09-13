@@ -211,11 +211,14 @@ export function ProjectNoticeDialog({
 }
 
 export function ProjectProgressDialog({ operation, onCancel }: { operation: ProjectOperation; onCancel: () => void }) {
-  if (!['loading', 'saving'].includes(operation.phase)) return null;
+  if (!['loading', 'saving', 'model-import'].includes(operation.phase)) return null;
+  const title = operation.phase === 'saving'
+    ? 'Saving project'
+    : operation.phase === 'model-import' ? 'Importing model(s)' : 'Opening project';
   return (
-    <Modal title={operation.phase === 'saving' ? 'Saving project' : 'Opening project'} testId="project-progress-dialog">
-      <p className="text-sm text-muted-foreground" data-testid="project-progress-message">{operation.message ?? 'Working…'}</p>
-      <Progress max={100} value={operation.progress} aria-label="Project operation progress" data-testid="project-progress" />
+    <Modal title={title} testId="project-progress-dialog">
+      <p className="text-sm text-muted-foreground" data-testid="project-progress-message" role="status" aria-live="polite">{operation.message ?? 'Working…'}</p>
+      <Progress max={100} value={operation.progress} aria-label={operation.phase === 'model-import' ? 'Model import progress' : 'Project operation progress'} data-testid="project-progress" />
       {operation.cancellable && <div className="flex justify-end"><Button type="button" variant="ghost" onClick={onCancel} data-testid="project-progress-cancel">Cancel</Button></div>}
     </Modal>
   );

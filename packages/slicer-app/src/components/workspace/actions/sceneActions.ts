@@ -91,20 +91,38 @@ export async function addModel(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
 ): Promise<void> {
-  const file = await platform.models.pick();
-  if (!file) return;
-  await addModelFile(platform, sceneInteraction, file);
+  useProjectStore.getState().setOperation({
+    phase: 'model-import', progress: 0, message: 'Preparing model import…', cancellable: false,
+  });
+  try {
+    const file = await platform.models.pick();
+    if (!file) {
+      useProjectStore.getState().setOperation({ phase: 'cancelled', progress: 0, cancellable: false });
+      return;
+    }
+    const imported = await addModelFile(platform, sceneInteraction, file);
+    useProjectStore.getState().setOperation({
+      phase: imported ? 'completed' : 'failed',
+      progress: imported ? 100 : 0,
+      cancellable: false,
+    });
+  } catch (err) {
+    useSlicerStore.getState().setError(errorText(err));
+    console.error('model picker failed:', err);
+    useProjectStore.getState().setOperation({ phase: 'failed', progress: 0, message: errorText(err), cancellable: false });
+  }
 }
 
 async function addModelFile(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
   file: ModelFile,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const ext = (file.displayName.split('.').pop() ?? 'stl').toLowerCase();
     await commitAdded(platform, sceneInteraction, file.displayName,
       () => platform.runtime.addModel(file.bytes, ext, file.displayName));
+    return true;
   } catch (err) {
     // errorText unwraps "Error: <msg>" (String(err)); the status bar
     // already prefixes "Error" (StatusBar statusText).
@@ -115,6 +133,7 @@ async function addModelFile(
         : ext === 'drc' ? 'Unable to import DRC file' : errorText(err),
     );
     console.error('add model failed:', err);
+    return false;
   }
 }
 
@@ -122,9 +141,55 @@ async function addModelFile(
 export async function addDroppedModels(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
-  files: readonly ModelFile[],
+  files: readonly ModelFile[] | (() => Promise<readonly ModelFile[]>),
+  expectedCount?: number,
 ): Promise<void> {
-  for (const file of files) await addModelFile(platform, sceneInteraction, file);
+  const initialCount = expectedCount ?? (Array.isArray(files) ? files.length : 0);
+  useProjectStore.getState().setOperation({
+    phase: 'model-import',
+    progress: 0,
+    message: initialCount > 0 ? `Preparing ${initialCount} model(s)…` : 'Preparing model import…',
+    cancellable: false,
+  });
+  try {
+    const resolved = typeof files === 'function' ? await files() : files;
+    if (resolved.length === 0) {
+      useProjectStore.getState().setOperation({ phase: 'cancelled', progress: 0, cancellable: false });
+      return;
+    }
+    const total = resolved.length;
+    let completed = 0;
+    useProjectStore.getState().setOperation({
+      phase: 'model-import',
+      progress: 0,
+      message: `Importing 0 of ${total} model(s)…`,
+      cancellable: false,
+    });
+    for (const file of resolved) {
+      const imported = await addModelFile(platform, sceneInteraction, file);
+      if (!imported) {
+        useProjectStore.getState().setOperation({
+          phase: 'failed',
+          progress: Math.round((completed / total) * 100),
+          message: `Imported ${completed} of ${total} model(s) before failure`,
+          cancellable: false,
+        });
+        return;
+      }
+      completed += 1;
+      useProjectStore.getState().setOperation({
+        phase: 'model-import',
+        progress: Math.round((completed / total) * 100),
+        message: `Imported ${completed} of ${total} model(s)`,
+        cancellable: false,
+      });
+    }
+    useProjectStore.getState().setOperation({ phase: 'completed', progress: 100, cancellable: false });
+  } catch (err) {
+    useSlicerStore.getState().setError(errorText(err));
+    console.error('dropped model import failed:', err);
+    useProjectStore.getState().setOperation({ phase: 'failed', progress: 0, message: errorText(err), cancellable: false });
+  }
 }
 
 async function fetchHandyModelFile(fileName: string): Promise<Uint8Array> {
