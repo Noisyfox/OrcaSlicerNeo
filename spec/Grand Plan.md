@@ -336,7 +336,7 @@ and drives structural operations through the typed client.
 
 > [!success] Implemented and accepted 2026-09-11 (Steps 11–15). Normative specification:
 > [`Multi-Filament Support.md`](Multi-Filament%20Support.md). Execution and
-> acceptance evidence: [`2026-09-08-multi-filament-implementation-plan.md`](../doc/2026-09-08-multi-filament-implementation-plan.md).
+> final user experience: [`2026-09-13-multi-filament-user-experience.md`](../doc/2026-09-13-multi-filament-user-experience.md).
 
 - [x] Worker-owned multi-filament rack/session/slot state with native
       compatibility, atomic mutations, assignment/routing, flushing, prime

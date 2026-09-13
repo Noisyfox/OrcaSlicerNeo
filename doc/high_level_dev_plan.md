@@ -494,7 +494,7 @@ context. It excludes global preset selection, global/system preferences, full
 
 > **Status: implemented and accepted 2026-09-11 (Steps 11–15).** The normative product and
 > compatibility boundary is [`spec/Multi-Filament Support.md`](../spec/Multi-Filament%20Support.md);
-> the sequential evidence is [`doc/2026-09-08-multi-filament-implementation-plan.md`](2026-09-08-multi-filament-implementation-plan.md).
+> the final user experience is [`doc/2026-09-13-multi-filament-user-experience.md`](2026-09-13-multi-filament-user-experience.md).
 
 - [x] Worker-owned rack/session/slot state with native compatibility, atomic
       slot mutations, assignments, routing, flushing, prime tower, Preview,
