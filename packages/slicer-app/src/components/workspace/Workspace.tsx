@@ -107,6 +107,7 @@ export function Workspace({
   onSliceCoordinatorChange,
   onHistoryRestoreCoordinatorChange,
   onRequestPreview,
+  onModelAdded,
   onPreviewRenderReady,
   onPreviewTransitionChange,
 }: {
@@ -117,6 +118,8 @@ export function Workspace({
   onSliceCoordinatorChange?: (coordinator: WorkspaceSliceCoordinator | null) => void;
   onHistoryRestoreCoordinatorChange?: (coordinator: HistoryRestoreCoordinator | null) => void;
   onRequestPreview?: () => void;
+  // Shared model actions call this only after the scene mutation commits.
+  onModelAdded?: () => void;
   // Home/Device → Preview first renders the Preview tree while this persistent
   // workspace panel is still hidden, then App reveals the panel on this signal.
   onPreviewRenderReady?: () => void;
@@ -675,6 +678,7 @@ export function Workspace({
           structure={structure}
           toolpath={sliceResult.toolpath}
           previewFrameRequest={previewFrameRequest}
+          onModelAdded={onModelAdded}
           onSceneFrameRendered={handleSceneFrameRendered}
         />
       </main>

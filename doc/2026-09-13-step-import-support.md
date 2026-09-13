@@ -11,6 +11,13 @@ Electron and Web application through the existing Add Model flow.
 
 - Both Electron and Web expose `.step` and `.stp` in the existing **Add Model**
   picker.  STEP import appends to the current scene; it never replaces it.
+- Every successful Add Model operation switches the application to **Prepare**,
+  regardless of the tab that was active when the operation started.  Picker,
+  external model drops, and existing shared handy-model/scene Add Model
+  callers use the same post-commit rule.  Cancellation and failure leave the
+  active tab unchanged.  A model-drop batch that imports one or more files and
+  then fails still switches to Prepare because the scene was successfully
+  mutated; an empty/cancelled or wholly failed batch does not.
 - External OS/browser drops of `.stl`, `.drc`, `.step`, and `.stp` use the same
   shared Add Model action and Worker/runtime path as the picker.  `.3mf` drops
   retain the existing Open Project path; unsupported files are consumed without

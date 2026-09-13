@@ -39,7 +39,7 @@ import type { ModelObjectStructure } from '@slicer/client';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import {
-  addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS,
+  addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS, notifyModelAdded,
   PRIMITIVE_TYPES, type HandyModel, type PrimitiveType,
 } from '../actions/sceneActions';
 import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
@@ -60,9 +60,10 @@ const PRIMITIVE_ICONS: Record<PrimitiveType, LucideIcon> = {
 
 const RIGHT_DRAG_THRESHOLD_PX = 4;
 
-export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: {
+export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded, children }: {
   sceneInteraction: SceneInteractionController | null;
   sceneStateRef: React.RefObject<RootState | null>;
+  onModelAdded?: () => void;
   children: ReactNode;
 }) {
   const platform = usePlatform();
@@ -181,18 +182,24 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, children }: 
 
   const handleAddPrimitive = useCallback((type: PrimitiveType) => {
     closeMenu();
-    void addPrimitive(platform, sceneInteraction, type);
-  }, [platform, sceneInteraction, closeMenu]);
+    void addPrimitive(platform, sceneInteraction, type).then((imported) => {
+      notifyModelAdded(imported, onModelAdded);
+    });
+  }, [platform, sceneInteraction, closeMenu, onModelAdded]);
 
   const handleAddHandyModel = useCallback((model: HandyModel) => {
     closeMenu();
-    void addHandyModel(platform, sceneInteraction, model);
-  }, [platform, sceneInteraction, closeMenu]);
+    void addHandyModel(platform, sceneInteraction, model).then((imported) => {
+      notifyModelAdded(imported, onModelAdded);
+    });
+  }, [platform, sceneInteraction, closeMenu, onModelAdded]);
 
   const handleAddModel = useCallback(() => {
     closeMenu();
-    void addModel(platform, sceneInteraction);
-  }, [platform, sceneInteraction, closeMenu]);
+    void addModel(platform, sceneInteraction).then((imported) => {
+      notifyModelAdded(imported, onModelAdded);
+    });
+  }, [platform, sceneInteraction, closeMenu, onModelAdded]);
 
   const handleMenuOpenChange = useCallback((open: boolean) => {
     setMenuOpen(open);

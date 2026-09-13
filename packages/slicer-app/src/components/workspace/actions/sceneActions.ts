@@ -21,6 +21,11 @@ import { runProjectHistoryMutation } from './historyMutation';
 
 export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 
+/** Notify the shared shell only after an Add Model operation changed the scene. */
+export function notifyModelAdded(imported: boolean, onModelAdded?: () => void): void {
+  if (imported) onModelAdded?.();
+}
+
 /**
  * Shared post-add choreography for file imports and engine-built primitives:
  * wait for a just-finished transform commit, append the model through the
@@ -90,7 +95,7 @@ async function commitAdded(
 export async function addModel(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
-): Promise<void> {
+): Promise<boolean> {
   useProjectStore.getState().setOperation({
     phase: 'model-import', progress: 0, message: 'Preparing model import…', cancellable: false,
   });
@@ -98,7 +103,7 @@ export async function addModel(
     const file = await platform.models.pick();
     if (!file) {
       useProjectStore.getState().setOperation({ phase: 'cancelled', progress: 0, cancellable: false });
-      return;
+      return false;
     }
     const imported = await addModelFile(platform, sceneInteraction, file);
     useProjectStore.getState().setOperation({
@@ -106,10 +111,12 @@ export async function addModel(
       progress: imported ? 100 : 0,
       cancellable: false,
     });
+    return imported;
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
     console.error('model picker failed:', err);
     useProjectStore.getState().setOperation({ phase: 'failed', progress: 0, message: errorText(err), cancellable: false });
+    return false;
   }
 }
 
@@ -143,7 +150,7 @@ export async function addDroppedModels(
   sceneInteraction: SceneInteractionController | null,
   files: readonly ModelFile[] | (() => Promise<readonly ModelFile[]>),
   expectedCount?: number,
-): Promise<void> {
+): Promise<boolean> {
   const initialCount = expectedCount ?? (Array.isArray(files) ? files.length : 0);
   useProjectStore.getState().setOperation({
     phase: 'model-import',
@@ -155,7 +162,7 @@ export async function addDroppedModels(
     const resolved = typeof files === 'function' ? await files() : files;
     if (resolved.length === 0) {
       useProjectStore.getState().setOperation({ phase: 'cancelled', progress: 0, cancellable: false });
-      return;
+      return false;
     }
     const total = resolved.length;
     let completed = 0;
@@ -165,6 +172,7 @@ export async function addDroppedModels(
       message: `Importing 0 of ${total} model(s)…`,
       cancellable: false,
     });
+    let mutated = false;
     for (const file of resolved) {
       const imported = await addModelFile(platform, sceneInteraction, file);
       if (!imported) {
@@ -174,8 +182,12 @@ export async function addDroppedModels(
           message: `Imported ${completed} of ${total} model(s) before failure`,
           cancellable: false,
         });
-        return;
+        // A batch is one user operation, but the scene is already changed when
+        // an earlier file succeeded. Preserve that semantic for callers that
+        // navigate after a successful scene mutation.
+        return mutated;
       }
+      mutated = true;
       completed += 1;
       useProjectStore.getState().setOperation({
         phase: 'model-import',
@@ -185,10 +197,12 @@ export async function addDroppedModels(
       });
     }
     useProjectStore.getState().setOperation({ phase: 'completed', progress: 100, cancellable: false });
+    return mutated;
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
     console.error('dropped model import failed:', err);
     useProjectStore.getState().setOperation({ phase: 'failed', progress: 0, message: errorText(err), cancellable: false });
+    return false;
   }
 }
 
@@ -217,7 +231,7 @@ export async function addHandyModel(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
   model: HandyModel,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const files = await Promise.all(model.files.map(async (displayName) => ({
       displayName,
@@ -233,9 +247,11 @@ export async function addHandyModel(
       }
       return { ok: true, plateSession };
     });
+    return true;
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
     console.error(`add handy model failed: ${model.label}`, err);
+    return false;
   }
 }
 
@@ -257,12 +273,14 @@ export async function addPrimitive(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
   type: PrimitiveType,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await commitAdded(platform, sceneInteraction, type, () => platform.runtime.addShape(type));
+    return true;
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
     console.error(`add primitive failed: ${type}`, err);
+    return false;
   }
 }
 

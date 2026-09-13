@@ -10,7 +10,7 @@ vi.mock('@orca/slicer-runtime', () => ({
   errorText: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
-import { addDroppedModels, addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS } from './sceneActions';
+import { addDroppedModels, addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS, notifyModelAdded } from './sceneActions';
 import { useProjectStore } from '../../../stores/useProjectStore';
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
@@ -50,20 +50,27 @@ describe('scene add-model action', () => {
 
   it('passes the selected DRC basename to the runtime', async () => {
     const { platform, addModel: runtimeAdd } = platformFor('cube_att.drc', { ok: true });
-    await addModel(platform, null);
+    await expect(addModel(platform, null)).resolves.toBe(true);
     expect(runtimeAdd).toHaveBeenCalledWith(new Uint8Array([1]), 'drc', 'cube_att.drc');
     expect(useSettingsStore.getState().values.modelPath).toBe('cube_att.drc');
   });
 
   it('does not expose decoder diagnostics when DRC import fails', async () => {
     const { platform } = platformFor('broken.drc', { ok: false, error: 'Draco decoder detail' });
-    await addModel(platform, null);
+    await expect(addModel(platform, null)).resolves.toBe(false);
     expect(useSlicerStore.getState().error).toBe('Unable to import DRC file');
+  });
+
+  it('notifies the shell only when an add operation changed the scene', () => {
+    const onModelAdded = vi.fn();
+    notifyModelAdded(true, onModelAdded);
+    notifyModelAdded(false, onModelAdded);
+    expect(onModelAdded).toHaveBeenCalledOnce();
   });
 
   it.each(['broken.step', 'broken.stp'])('maps native %s failures to the generic STEP error', async (fileName) => {
     const { platform } = platformFor(fileName, { ok: false, error: 'OCCT diagnostic detail' });
-    await addModel(platform, null);
+    await expect(addModel(platform, null)).resolves.toBe(false);
     expect(useSlicerStore.getState().error).toBe('Unable to import STEP file');
   });
 
@@ -81,7 +88,7 @@ describe('scene add-model action', () => {
   it('settles a cancelled picker import without showing a stale modal', async () => {
     const { platform } = platformFor('unused.stl', { ok: true });
     platform.models.pick = vi.fn(async () => null);
-    await addModel(platform, null);
+    await expect(addModel(platform, null)).resolves.toBe(false);
     expect(useProjectStore.getState().operation).toMatchObject({ phase: 'cancelled', progress: 0, cancellable: false });
   });
 
@@ -106,7 +113,7 @@ describe('scene add-model action', () => {
         { displayName: 'b.stl', bytes: Uint8Array.from([2]) },
       ];
     });
-    await addDroppedModels(platform, null, load, 2);
+    await expect(addDroppedModels(platform, null, load, 2)).resolves.toBe(true);
     expect(load).toHaveBeenCalledOnce();
     expect(progressDuringImport).toEqual([0, 50]);
     expect(useProjectStore.getState().operation).toMatchObject({ phase: 'completed', progress: 100, cancellable: false });
@@ -117,12 +124,20 @@ describe('scene add-model action', () => {
     addModel.mockImplementation(async (_bytes: Uint8Array, _ext: string, name: string) => name === 'a.stl'
       ? { ok: true }
       : { ok: false, error: 'decoder detail' });
-    await addDroppedModels(platform, null, [
+    await expect(addDroppedModels(platform, null, [
       { displayName: 'a.stl', bytes: Uint8Array.from([1]) },
       { displayName: 'b.stl', bytes: Uint8Array.from([2]) },
-    ]);
+    ])).resolves.toBe(true);
     expect(useProjectStore.getState().operation).toMatchObject({ phase: 'failed', progress: 50, cancellable: false });
     expect(useSlicerStore.getState().error).toBe('decoder detail');
+  });
+
+  it('returns false for a wholly failed dropped batch so navigation stays unchanged', async () => {
+    const { platform } = platformFor('unused.stl', { ok: false, error: 'decoder detail' });
+    await expect(addDroppedModels(platform, null, [
+      { displayName: 'broken.stl', bytes: Uint8Array.from([1]) },
+    ])).resolves.toBe(false);
+    expect(useProjectStore.getState().operation).toMatchObject({ phase: 'failed', progress: 0 });
   });
 
   it('imports the bundled 3DBenchy resource through the normal model pipeline', async () => {

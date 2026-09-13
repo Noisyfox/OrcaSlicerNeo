@@ -105,6 +105,19 @@ describe('Workspace ownership', () => {
     expect(prepareProps?.toolpath).toBe(previewProps?.toolpath);
   });
 
+  it('threads the committed model-add callback to the viewport action surfaces', async () => {
+    const onModelAdded = vi.fn();
+    const container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+
+    await act(async () => {
+      root?.render(<PlatformProvider value={platform}><Workspace activeTab="prepare" onModelAdded={onModelAdded} /></PlatformProvider>);
+    });
+
+    expect(testMocks.viewportProps.at(-1)?.onModelAdded).toBe(onModelAdded);
+  });
+
   it('automatically ensures a slice on an actual transition into Preview', async () => {
     useSettingsStore.setState({ modelLoaded: true });
     const container = document.createElement('div');

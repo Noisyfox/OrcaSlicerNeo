@@ -9,7 +9,7 @@ import { usePlatform } from '@orca/platform-contract';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
-import { addModel } from '../actions/sceneActions';
+import { addModel, notifyModelAdded } from '../actions/sceneActions';
 import { useSceneInteractionVersion } from './SceneInteractionContext';
 import type { OpenGizmo, SceneInteractionController } from './SceneInteractionController';
 
@@ -26,8 +26,10 @@ const GIZMO_BUTTONS: ReadonlyArray<{
 
 export function GizmoToolbar({
   sceneInteraction,
+  onModelAdded,
 }: {
   sceneInteraction: SceneInteractionController | null;
+  onModelAdded?: () => void;
 }) {
   useSceneInteractionVersion(sceneInteraction ?? undefined);
   const platform = usePlatform();
@@ -51,7 +53,11 @@ export function GizmoToolbar({
       <Button
         size="icon"
         variant="ghost"
-        onClick={() => void addModel(platform, sceneInteraction)}
+        onClick={() => {
+          void addModel(platform, sceneInteraction).then((imported) => {
+            notifyModelAdded(imported, onModelAdded);
+          });
+        }}
         disabled={!presetsLoaded}
         title="Add Model"
         aria-label="Add Model"

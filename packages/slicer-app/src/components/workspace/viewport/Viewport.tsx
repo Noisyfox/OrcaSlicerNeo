@@ -72,7 +72,7 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wipeTowerVolumes, structure = [], previewFrameRequest, onSceneFrameRendered }: {
+export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wipeTowerVolumes, structure = [], previewFrameRequest, onModelAdded, onSceneFrameRendered }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
@@ -80,6 +80,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wip
   wipeTowerVolumes?: WipeTowerVolumeCollection;
   structure?: readonly ModelObjectStructure[];
   previewFrameRequest?: { plateId: string; token: number } | null;
+  onModelAdded?: () => void;
   onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
 }) {
   const platform = usePlatform();
@@ -418,7 +419,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wip
       onPointerCancelCapture={releaseViewportPointer}
     >
       <ViewportErrorBoundary>
-        <SceneContextMenu sceneInteraction={sceneInteraction} sceneStateRef={sceneStateRef}>
+        <SceneContextMenu sceneInteraction={sceneInteraction} sceneStateRef={sceneStateRef} onModelAdded={onModelAdded}>
           <Canvas
             events={viewportEvents}
             // WebGL's adapter-selection hint prefers a discrete/high-
@@ -523,7 +524,7 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wip
       {prepareTab && <BoxSelectionOverlay sceneInteraction={sceneInteraction} />}
       {previewTab && toolpath && <LayerScrubber data={toolpath} />}
       {previewTab && toolpath && showGcodeText && <GcodeTextWindow data={toolpath} onClose={() => setShowGcodeText(false)} />}
-      {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} />}
+      {prepareTab && <GizmoToolbar sceneInteraction={sceneInteraction} onModelAdded={onModelAdded} />}
       {prepareTab && plateSession && <PlateControls
         plateSession={plateSession}
         pending={plateActionPending}
