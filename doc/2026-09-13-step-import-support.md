@@ -100,9 +100,9 @@ changed.
 
 Verification includes focused client/action tests, serial and threaded WASM
 quick-build plus STEP import/slice harness coverage, and real Electron,
-Web-threaded, and Web-serial import-and-slice flows.  Fixtures cover a
-millimetre part, an inch part, a named multi-solid assembly, and malformed
-input; success asserts dimensions, object/volume naming, append semantics, and
+Web-threaded, and Web-serial import-and-slice flows.  The delivered fixtures
+cover the 20 mm named-solid part, `.stp` append coverage, and malformed input;
+success asserts dimensions, object/volume naming, append semantics, and
 non-empty G-code.
 
 ## Delivery sequence and acceptance gates
