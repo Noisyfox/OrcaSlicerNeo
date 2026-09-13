@@ -4,8 +4,22 @@ setlocal EnableExtensions
 set "PKG_DIR=%~dp0"
 for %%i in ("%PKG_DIR%.") do set "PKG_DIR=%%~fi"
 if defined WORK_DIR (set "WORK_DIR=%WORK_DIR%") else (set "WORK_DIR=%PKG_DIR%\.work")
-if defined WASM_THREADING (set "WASM_THREADING=%WASM_THREADING%") else (set "WASM_THREADING=1")
-if defined WASM_ARTIFACT_VARIANT (set "ARTIFACT_VARIANT=%WASM_ARTIFACT_VARIANT%") else if "%WASM_THREADING%"=="0" (set "ARTIFACT_VARIANT=serial") else (set "ARTIFACT_VARIANT=threaded")
+set "THREADING_EXPLICIT=0"
+if defined WASM_THREADING (
+  set "THREADING_EXPLICIT=1"
+  set "WASM_THREADING=%WASM_THREADING: =%"
+) else (set "WASM_THREADING=1")
+if defined WASM_ARTIFACT_VARIANT (
+  set "ARTIFACT_VARIANT=%WASM_ARTIFACT_VARIANT: =%"
+) else if "%WASM_THREADING%"=="0" (set "ARTIFACT_VARIANT=serial") else (set "ARTIFACT_VARIANT=threaded")
+if not "%WASM_THREADING%"=="0" if not "%WASM_THREADING%"=="1" (echo [occt] ERROR: WASM_THREADING must be 0 or 1.& exit /b 1)
+if /i "%ARTIFACT_VARIANT%"=="serial" (
+  if "%THREADING_EXPLICIT%"=="1" if not "%WASM_THREADING%"=="0" (echo [occt] ERROR: serial variant requires WASM_THREADING=0.& exit /b 1)
+  set "WASM_THREADING=0"
+) else if /i "%ARTIFACT_VARIANT%"=="threaded" (
+  if "%THREADING_EXPLICIT%"=="1" if not "%WASM_THREADING%"=="1" (echo [occt] ERROR: threaded variant requires WASM_THREADING=1.& exit /b 1)
+  set "WASM_THREADING=1"
+) else (echo [occt] ERROR: WASM_ARTIFACT_VARIANT must be serial or threaded.& exit /b 1)
 if defined WASM_BUILD_JOBS (set "BUILD_JOBS=%WASM_BUILD_JOBS%") else (set "BUILD_JOBS=4")
 set "DEPS=%WORK_DIR%\deps"
 set "OCCT_VER=7.6.0"
@@ -15,6 +29,8 @@ set "OCCT_STAGE=%OCCT_SOURCE%\stage-wasm64-%ARTIFACT_VARIANT%"
 set "OCCT_PATCH=%PKG_DIR%\patches\0008-occt-7.6.0-freetype-a-tags.patch"
 set "OCCT_FLAGS=-m64 -sUSE_FREETYPE=1"
 if not "%WASM_THREADING%"=="0" set "OCCT_FLAGS=-m64 -sUSE_FREETYPE=1 -pthread"
+if "%WASM_THREADING%"=="0" if not "%OCCT_FLAGS%"=="-m64 -sUSE_FREETYPE=1" (echo [occt] ERROR: serial flags unexpectedly enable pthread.& exit /b 1)
+if "%WASM_THREADING%"=="1" if not "%OCCT_FLAGS%"=="-m64 -sUSE_FREETYPE=1 -pthread" (echo [occt] ERROR: threaded flags do not enable pthread.& exit /b 1)
 
 where emcmake >nul 2>nul
 if errorlevel 1 (echo [occt] ERROR: activate emsdk first.& exit /b 1)
