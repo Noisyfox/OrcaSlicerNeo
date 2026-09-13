@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/viewport/LayerScrubber.tsx
-import { useEffect, useMemo, useRef, useState, type WheelEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type WheelEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
@@ -27,7 +27,7 @@ function previewWheelStep(event: WheelEvent): number {
 }
 
 /** Orca-style canvas overlay for the Phase-B preview controls. */
-export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
+export const LayerScrubber = memo(function LayerScrubber({ data }: { data: ToolpathGeometry }) {
   const [previewExpanded, setPreviewExpanded] = useState(true);
   const renderableLayers = useMemo(() => renderablePreviewLayers(data), [data]);
   const maxLayer = renderableLayers[renderableLayers.length - 1] ?? 0;
@@ -68,13 +68,19 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
     ...(data.extruderPalette ? { extruderPalette: data.extruderPalette } : {}),
     ...(data.analysis ? { analysis: data.analysis } : {}),
   }), [data.analysis, data.extruderIds, data.extruderPalette, data.features, data.layerIds, data.metrics, data.moveTypes, data.palette]);
-  const schemes = (Object.keys(PREVIEW_SCHEME_LABELS) as PreviewColorScheme[])
-    .filter((scheme) => previewSchemeAvailable(colorSource, scheme));
+  const schemes = useMemo(
+    () => (Object.keys(PREVIEW_SCHEME_LABELS) as PreviewColorScheme[])
+      .filter((scheme) => previewSchemeAvailable(colorSource, scheme)),
+    [colorSource],
+  );
   const activeScheme = schemes.includes(preview.colorScheme) ? preview.colorScheme : 'feature';
-  const descriptor = describePreviewScheme(colorSource, activeScheme);
+  const descriptor = useMemo(
+    () => describePreviewScheme(colorSource, activeScheme),
+    [activeScheme, colorSource],
+  );
   const visibility = preview.schemeVisibility[activeScheme] ?? {};
   const activeLayer = Math.max(0, Math.min(maxLayer, preview.visibleLayerEnd));
-  const maxMove = maxMoveOrderForLayer(data, activeLayer);
+  const maxMove = useMemo(() => maxMoveOrderForLayer(data, activeLayer), [activeLayer, data]);
   const layerStart = Math.max(0, Math.min(maxLayer, preview.visibleLayerStart));
   const layerEnd = Math.max(layerStart, Math.min(maxLayer, preview.visibleLayerEnd));
   const moveEnd = Math.max(0, Math.min(maxMove, preview.activeMoveEnd));
@@ -168,4 +174,4 @@ export function LayerScrubber({ data }: { data: ToolpathGeometry }) {
       </div>
     </>
   );
-}
+});

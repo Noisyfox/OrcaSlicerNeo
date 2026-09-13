@@ -1,10 +1,20 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('./toolpathColors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./toolpathColors')>();
+  return {
+    ...actual,
+    previewSchemeAvailable: vi.fn(actual.previewSchemeAvailable),
+    describePreviewScheme: vi.fn(actual.describePreviewScheme),
+  };
+});
+
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { LayerScrubber } from './LayerScrubber';
-import { PREVIEW_SCHEME_LABELS } from './toolpathColors';
+import { describePreviewScheme, PREVIEW_SCHEME_LABELS, previewSchemeAvailable } from './toolpathColors';
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data: ToolpathGeometry = {
@@ -32,6 +42,24 @@ describe('LayerScrubber preview controls', () => {
     expect(useSlicerStore.getState().preview.showTravel).toBe(false);
     await act(async () => { container.querySelector('[data-testid="preview-single-layer"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(useSlicerStore.getState().preview.singleLayer).toBe(true);
+  });
+
+  it('does not rebuild G-code-wide scheme data for an unrelated preview update', async () => {
+    useSlicerStore.getState().setPreviewBounds(1, 1, 1);
+    const container = document.createElement('div'); document.body.append(container); root = createRoot(container);
+    await act(async () => { root?.render(<LayerScrubber data={data} />); });
+
+    const available = vi.mocked(previewSchemeAvailable);
+    const descriptor = vi.mocked(describePreviewScheme);
+    const availableCalls = available.mock.calls.length;
+    const descriptorCalls = descriptor.mock.calls.length;
+    expect(availableCalls).toBeGreaterThan(0);
+    expect(descriptorCalls).toBeGreaterThan(0);
+
+    await act(async () => { useSlicerStore.getState().setPreviewShowTravel(false); });
+
+    expect(available).toHaveBeenCalledTimes(availableCalls);
+    expect(descriptor).toHaveBeenCalledTimes(descriptorCalls);
   });
 
   it('renders one move-end thumb and changes the end with keyboard input', async () => {
