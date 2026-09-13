@@ -10,7 +10,7 @@ vi.mock('@orca/slicer-runtime', () => ({
   errorText: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
-import { addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS } from './sceneActions';
+import { addDroppedModels, addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS } from './sceneActions';
 import { useProjectStore } from '../../../stores/useProjectStore';
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
@@ -60,6 +60,16 @@ describe('scene add-model action', () => {
     const { platform } = platformFor(fileName, { ok: false, error: 'OCCT diagnostic detail' });
     await addModel(platform, null);
     expect(useSlicerStore.getState().error).toBe('Unable to import STEP file');
+  });
+
+  it('routes externally dropped STL and STEP files through the shared runtime add path', async () => {
+    const { platform, addModel: runtimeAdd } = platformFor('unused.stl', { ok: true });
+    await addDroppedModels(platform, null, [
+      { displayName: 'cube.stl', bytes: Uint8Array.from([1]) },
+      { displayName: 'part.step', bytes: Uint8Array.from([2]) },
+    ]);
+    expect(runtimeAdd).toHaveBeenNthCalledWith(1, Uint8Array.from([1]), 'stl', 'cube.stl');
+    expect(runtimeAdd).toHaveBeenNthCalledWith(2, Uint8Array.from([2]), 'step', 'part.step');
   });
 
   it('imports the bundled 3DBenchy resource through the normal model pipeline', async () => {

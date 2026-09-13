@@ -4,6 +4,7 @@ import {
   type ProjectFileCapability,
   type ProjectInput,
   type ProjectDropFile,
+  type ModelDropFile,
   type PlatformCapabilities,
   type PlatformMenu,
   type ProfileSource,
@@ -115,7 +116,15 @@ export function createBrowserAdapter(runtime: SlicerRuntime): PlatformCapabiliti
     },
   };
   return {
-    models: { pick: pickModel },
+    models: {
+      pick: pickModel,
+      async importDropped(files: readonly ModelDropFile[]) {
+        return Promise.all(files.map(async (file) => ({
+          displayName: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        })));
+      },
+    },
     exports: { save: downloadGcode },
     projects,
     preferences: {

@@ -56,6 +56,23 @@ describe('Electron adapter', () => {
     expect(readFile).not.toHaveBeenCalled();
   });
 
+  it('reads native dropped model paths inside the Electron adapter only', async () => {
+    const getPathForFile = vi.fn(() => 'C:\\drop\\part.step');
+    const readFile = vi.fn(async () => Uint8Array.from([6, 7]).buffer);
+    const { adapter } = setup({
+      readFile,
+      projects: {
+        getPathForFile,
+        open: vi.fn(), openMany: vi.fn(), openDropped: vi.fn(), save: vi.fn(), saveAs: vi.fn(),
+      },
+    });
+    const file = { name: 'part.step', arrayBuffer: vi.fn(async () => Uint8Array.from([0]).buffer) };
+    await expect(adapter.models.importDropped?.([file])).resolves.toEqual([{ displayName: 'part.step', bytes: Uint8Array.from([6, 7]) }]);
+    expect(getPathForFile).toHaveBeenCalledWith(file);
+    expect(readFile).toHaveBeenCalledWith('C:\\drop\\part.step');
+    expect(file.arrayBuffer).not.toHaveBeenCalled();
+  });
+
   it('hands export bytes to native save dialog and write operation', async () => {
     const saveFileDialog = vi.fn(async () => ({ canceled: false, path: 'C:\\out\\slice.gcode' }));
     const writeFile = vi.fn(async () => {});

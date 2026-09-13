@@ -3,7 +3,7 @@
 // actual Electron IPC/preload/adapter/shared-action boundary without a native
 // WASM dependency.
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { copyFileSync, existsSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -75,6 +75,28 @@ test('Electron picker and drop use shared project actions, and Save As writes a 
     await expect(page.getByTestId('project-load-choice-dialog')).toBeVisible();
     await page.getByTestId('project-load-cancel').click();
     await expect(page.getByTestId('project-load-choice-dialog')).toBeHidden();
+  } finally {
+    await app.close();
+  }
+});
+
+test('Electron STL drop uses the shared Add Model action', async () => {
+  const { app } = await launchProjectApp();
+  try {
+    const page = await app.firstWindow();
+    await ready(page);
+    await expect(page.getByTestId('object-list')).toBeVisible();
+    await page.evaluate(({ path, bytes }) => {
+      const transfer = new DataTransfer();
+      const file = new File([bytes], 'cube.stl');
+      // Electron OS drops expose a private source path; the renderer adapter
+      // resolves it without putting the path in shared application state.
+      Object.defineProperty(file, 'path', { value: path });
+      transfer.items.add(file);
+      const target = document.querySelector('[data-testid="object-list"]') ?? document;
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }, { path: MODEL_PATH, bytes: Array.from(readFileSync(MODEL_PATH)) });
+    await expect(page.getByTestId('btn-slice')).toBeEnabled();
   } finally {
     await app.close();
   }

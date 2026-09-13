@@ -3,7 +3,7 @@
 // Primitive, Add Handy models, and Clear Scene → scene context menu), but
 // the store/runtime choreography is identical for every surface that invokes
 // them, so they live here once.
-import type { PlatformCapabilities } from '@orca/platform-contract';
+import type { ModelFile, PlatformCapabilities } from '@orca/platform-contract';
 import { errorText } from '@orca/slicer-runtime';
 import type { PlateSessionMutation } from '@slicer/client';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
@@ -93,6 +93,14 @@ export async function addModel(
 ): Promise<void> {
   const file = await platform.models.pick();
   if (!file) return;
+  await addModelFile(platform, sceneInteraction, file);
+}
+
+async function addModelFile(
+  platform: PlatformCapabilities,
+  sceneInteraction: SceneInteractionController | null,
+  file: ModelFile,
+): Promise<void> {
   try {
     const ext = (file.displayName.split('.').pop() ?? 'stl').toLowerCase();
     await commitAdded(platform, sceneInteraction, file.displayName,
@@ -108,6 +116,15 @@ export async function addModel(
     );
     console.error('add model failed:', err);
   }
+}
+
+/** Import externally dropped model files through the same Add Model path. */
+export async function addDroppedModels(
+  platform: PlatformCapabilities,
+  sceneInteraction: SceneInteractionController | null,
+  files: readonly ModelFile[],
+): Promise<void> {
+  for (const file of files) await addModelFile(platform, sceneInteraction, file);
 }
 
 async function fetchHandyModelFile(fileName: string): Promise<Uint8Array> {

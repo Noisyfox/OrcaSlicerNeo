@@ -17,7 +17,7 @@ import type { HistoryRestoreCoordinator } from './history/restoreCoordinator';
 import { usePlatform } from '@orca/platform-contract';
 import { persistRestoredSelections, restoreBootstrapSession } from './preferences';
 import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
-import { addModel, clearScene } from './components/workspace/actions/sceneActions';
+import { addDroppedModels, addModel, clearScene } from './components/workspace/actions/sceneActions';
 import { exportGcode, sliceModel } from './components/workspace/actions/sliceActions';
 import { createCommandDispatcher, registerNativeMenuCommands } from './menu/commands';
 import { buildMenuModel, buildMenuStateSnapshot, resolveMenuMode } from './menu/menuModel';
@@ -29,8 +29,9 @@ import {
   ProjectProgressDialog,
 } from './components/project/ProjectDialogs';
 import { cancelProjectOperation, newProject, noticesFor, openProject, projectDirtyStatus, saveProject, saveProjectAs, type ProjectLoadReceipt } from './projectActions';
+import { errorText } from '@orca/slicer-runtime';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
-import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
+import type { ModelDropFile, ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
 import { registerProjectDropHandlers } from './dropHandling';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
@@ -466,12 +467,29 @@ export default function App() {
       reportProjectFailure({ status: 'failed', error });
     }
   }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
+  const handleDroppedModelFiles = useCallback(async (files: File[]) => {
+    try {
+      const dropped = platform.models.importDropped
+        ? await platform.models.importDropped(files as readonly ModelDropFile[])
+        : await Promise.all(files.map(async (file) => ({
+            displayName: file.name,
+            bytes: new Uint8Array(await file.arrayBuffer()),
+          })));
+      await addDroppedModels(platform, sceneInteractionRef.current, dropped);
+    } catch (error) {
+      useSlicerStore.getState().setError(errorText(error));
+      console.error('dropped model import failed:', error);
+    }
+  }, [platform]);
   useEffect(() => {
     if (boot !== 'ready') return;
     // Capture file drops before nested object-list handlers can stop
     // propagation for their own text-based reorder gestures.
-    return registerProjectDropHandlers(document, handleDroppedProjectFiles);
-  }, [boot, handleDroppedProjectFiles]);
+    return registerProjectDropHandlers(document, {
+      onProjectDrop: handleDroppedProjectFiles,
+      onModelDrop: handleDroppedModelFiles,
+    });
+  }, [boot, handleDroppedModelFiles, handleDroppedProjectFiles]);
 
   // Keep the shared application inert until the worker has initialized the
   // core and every profile package has been installed. This is intentionally

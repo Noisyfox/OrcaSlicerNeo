@@ -16,12 +16,20 @@ export interface ModelFile {
   bytes: Uint8Array;
 }
 
+/** A browser/Electron file supplied by an external OS drag. */
+export interface ModelDropFile {
+  name: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
 /** Model formats exposed by the shared Add Model picker on every host. */
 export const MODEL_FILE_EXTENSIONS = ['stl', '3mf', 'drc', 'step', 'stp'] as const;
 export const MODEL_FILE_ACCEPT = MODEL_FILE_EXTENSIONS.map((extension) => `.${extension}`).join(',');
 
 export interface ModelImporter {
   pick(): Promise<ModelFile | null>;
+  /** Optional host-optimized conversion for files supplied by an OS drag. */
+  importDropped?(files: readonly ModelDropFile[]): Promise<ModelFile[]>;
 }
 /** @deprecated Use ModelImporter; retained as a naming bridge for host adapters. */
 export type ModelPicker = ModelImporter;

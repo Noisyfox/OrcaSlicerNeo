@@ -11,6 +11,7 @@ import {
   type ProjectOpenResult,
   type ProjectOpenBatchResult,
   type ProjectDropFile,
+  type ModelDropFile,
   type UserPreferences,
 } from '@orca/platform-contract';
 import {
@@ -188,6 +189,28 @@ export function createElectronAdapter(runtime: SlicerRuntime): PlatformCapabilit
           displayName: path.split(/[\\/]/).pop() ?? path,
           bytes,
         };
+      },
+      async importDropped(files: readonly ModelDropFile[]) {
+        const paths = files.map((file) => {
+          const legacyPath = (file as ModelDropFile & { path?: unknown }).path;
+          if (typeof legacyPath === 'string' && legacyPath.length > 0) return legacyPath;
+          try {
+            const path = host.projects.getPathForFile(file as unknown as File);
+            return typeof path === 'string' && path.length > 0 ? path : null;
+          } catch {
+            return null;
+          }
+        });
+        if (paths.every((path): path is string => path !== null)) {
+          return Promise.all(paths.map(async (path, index) => ({
+            displayName: files[index]!.name,
+            bytes: new Uint8Array(await host.readFile(path)),
+          })));
+        }
+        return Promise.all(files.map(async (file) => ({
+          displayName: file.name,
+          bytes: new Uint8Array(await file.arrayBuffer()),
+        })));
       },
     },
     exports: {

@@ -11,6 +11,12 @@ Electron and Web application through the existing Add Model flow.
 
 - Both Electron and Web expose `.step` and `.stp` in the existing **Add Model**
   picker.  STEP import appends to the current scene; it never replaces it.
+- External OS/browser drops of `.stl`, `.drc`, `.step`, and `.stp` use the same
+  shared Add Model action and Worker/runtime path as the picker.  `.3mf` drops
+  retain the existing Open Project path; unsupported files are consumed without
+  navigation and text-only application drags remain available to their target.
+  Browser adapters read dropped File bytes, while Electron resolves native
+  dropped-file paths only inside its adapter.
 - Parsing and meshing run entirely in the existing Worker-hosted WASM session.
   No server, cloud conversion service, system CAD installation, or host file
   path crosses the platform boundary.
@@ -172,6 +178,10 @@ starts until the root acceptance passes and the accepted step is committed.
   object, sliced it, and exported non-empty G-code.  The default real E2E
   runner includes this STEP journey; the test is gated only on
   `ORCA_E2E_REAL=1` for environments without production artifacts.
+
+- External-drop routing coverage passed in the shared drop-handler and action
+  tests, including `.stl`, `.drc`, `.step`, `.stp`, `.3mf`, unsupported/text-only
+  drops, browser byte conversion, and Electron adapter path resolution.
 
 Threaded host execution is now accepted for this delivery.  The remaining
 scope limits are CAD metadata/material/GD&T exposure, automatic arrangement,
