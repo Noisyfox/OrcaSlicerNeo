@@ -9,6 +9,7 @@
     "test": "vitest run",
     "profile-smoke": "node harness/profile-smoke.mjs",
     "profile-compatibility-smoke": "node harness/profile-compatibility-smoke.mjs",
+    "step-import-smoke": "node harness/step-import-smoke.mjs",
     "project-preset-restoration": "node harness/project-preset-restoration.mjs --module out/serial/orca_slice.js",
     "sinking-out-of-bounds-smoke": "node harness/sinking-out-of-bounds-smoke.mjs out/serial/orca_slice.js"
   },
