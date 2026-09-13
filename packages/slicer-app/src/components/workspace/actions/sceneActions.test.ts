@@ -56,6 +56,12 @@ describe('scene add-model action', () => {
     expect(useSlicerStore.getState().error).toBe('Unable to import DRC file');
   });
 
+  it.each(['broken.step', 'broken.stp'])('maps native %s failures to the generic STEP error', async (fileName) => {
+    const { platform } = platformFor(fileName, { ok: false, error: 'OCCT diagnostic detail' });
+    await addModel(platform, null);
+    expect(useSlicerStore.getState().error).toBe('Unable to import STEP file');
+  });
+
   it('imports the bundled 3DBenchy resource through the normal model pipeline', async () => {
     const { platform, addModel: runtimeAdd } = platformFor('unused.stl', { ok: true });
     const fetch = vi.fn(async () => ({

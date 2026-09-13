@@ -101,7 +101,11 @@ export async function addModel(
     // errorText unwraps "Error: <msg>" (String(err)); the status bar
     // already prefixes "Error" (StatusBar statusText).
     const ext = (file.displayName.split('.').pop() ?? '').toLowerCase();
-    useSlicerStore.getState().setError(ext === 'drc' ? 'Unable to import DRC file' : errorText(err));
+    useSlicerStore.getState().setError(
+      ext === 'step' || ext === 'stp'
+        ? 'Unable to import STEP file'
+        : ext === 'drc' ? 'Unable to import DRC file' : errorText(err),
+    );
     console.error('add model failed:', err);
   }
 }

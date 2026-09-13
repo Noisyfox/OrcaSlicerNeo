@@ -1,4 +1,5 @@
 import {
+  MODEL_FILE_ACCEPT,
   normalizeUserPreferences,
   type ProjectFileCapability,
   type ProjectInput,
@@ -169,7 +170,7 @@ export function createBrowserProfileSource(
 export function pickModel(): Promise<{ displayName: string; bytes: Uint8Array } | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
-    input.type = 'file'; input.accept = '.stl,.3mf,.drc'; input.hidden = true;
+    input.type = 'file'; input.accept = MODEL_FILE_ACCEPT; input.hidden = true;
     const cleanup = () => input.remove();
     input.onchange = async () => { const file = input.files?.[0]; if (!file) { cleanup(); return resolve(null); } resolve({ displayName: file.name, bytes: new Uint8Array(await file.arrayBuffer()) }); cleanup(); };
     input.addEventListener('cancel', () => { cleanup(); resolve(null); }, { once: true });
