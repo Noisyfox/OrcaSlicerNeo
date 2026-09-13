@@ -25,6 +25,8 @@ set "BOOST_VER=1.84.0"
 set "CEREAL_VER=1.3.0"
 set "DRACO_VER=1.5.7"
 set "DRACO_SHA256=27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77"
+set "OCCT_VER=7.6.0"
+set "OCCT_SHA256=28334f0e98f1b1629799783e9b4d21e05349d89e695809d7e6dfa45ea43e1dbc"
 
 if not exist "%DEPS%" mkdir "%DEPS%"
 if not exist "%GEN%\openssl" mkdir "%GEN%\openssl"
@@ -163,6 +165,35 @@ if not exist "%DEPS%\draco-%DRACO_VER%\CMakeLists.txt" (
   )
 )
 
+REM ---- OCCT (source; built separately per wasm variant) ----
+if not exist "%DEPS%\occt-%OCCT_VER%\CMakeLists.txt" (
+  set "OCCT_ARCHIVE=%DEPS%\occt-%OCCT_VER%.zip"
+  echo [deps] Fetching OCCT %OCCT_VER%
+  "%CURL%" -fsSL --retry 3 -o "%DEPS%\occt-%OCCT_VER%.zip" "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip"
+  if errorlevel 1 (
+    echo [deps] ERROR: OCCT download failed.
+    exit /b 1
+  )
+  call :verify_occt_hash "%DEPS%\occt-%OCCT_VER%.zip"
+  if errorlevel 1 exit /b 1
+  tar -xf "%DEPS%\occt-%OCCT_VER%.zip" -C "%DEPS%"
+  if errorlevel 1 (
+    echo [deps] ERROR: OCCT extract failed.
+    exit /b 1
+  )
+  if not exist "%DEPS%\OCCT-7_6_0\CMakeLists.txt" (
+    echo [deps] ERROR: OCCT archive did not contain OCCT-7_6_0.
+    exit /b 1
+  )
+  if exist "%DEPS%\occt-%OCCT_VER%" rmdir /s /q "%DEPS%\occt-%OCCT_VER%"
+  robocopy "%DEPS%\OCCT-7_6_0" "%DEPS%\occt-%OCCT_VER%" /e /move /njh /njs /ndl /np >nul
+  if errorlevel 8 (
+    echo [deps] ERROR: OCCT source relocation failed.
+    exit /b 1
+  )
+  if exist "%DEPS%\OCCT-7_6_0" rmdir /s /q "%DEPS%\OCCT-7_6_0"
+)
+
 REM ---- Generated / stub headers ----
 echo [deps] Writing generated + stub headers in .work\gen
 > "%GEN%\libslic3r_version.h" echo #ifndef __SLIC3R_VERSION_H
@@ -206,6 +237,15 @@ set "DRACO_ACTUAL_SHA256="
 for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%~1" SHA256') do if not defined DRACO_ACTUAL_SHA256 set "DRACO_ACTUAL_SHA256=%%H"
 if /i not "%DRACO_ACTUAL_SHA256%"=="%DRACO_SHA256%" (
   echo [deps] ERROR: Draco SHA-256 mismatch.
+  exit /b 1
+)
+exit /b 0
+
+:verify_occt_hash
+set "OCCT_ACTUAL_SHA256="
+for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%~1" SHA256') do if not defined OCCT_ACTUAL_SHA256 set "OCCT_ACTUAL_SHA256=%%H"
+if /i not "%OCCT_ACTUAL_SHA256%"=="%OCCT_SHA256%" (
+  echo [deps] ERROR: OCCT SHA-256 mismatch.
   exit /b 1
 )
 exit /b 0
