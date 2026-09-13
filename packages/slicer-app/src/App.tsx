@@ -260,9 +260,7 @@ export default function App() {
       saveProject: () => runSaveProject(false),
       saveProjectAs: () => runSaveProject(true),
       preferences: openPreferences,
-      addModel: async () => {
-        notifyModelAdded(await addModel(platform, sceneInteractionRef.current), handleModelAdded);
-      },
+      addModel: async () => { await addModel(platform, sceneInteractionRef.current, handleModelAdded); },
       clearScene: () => clearScene(platform, sceneInteractionRef.current),
       slice: requestPreviewSlice,
       exportGcode: () => exportGcode(platform),

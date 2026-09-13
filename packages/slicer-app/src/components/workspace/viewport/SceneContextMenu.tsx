@@ -196,9 +196,7 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
 
   const handleAddModel = useCallback(() => {
     closeMenu();
-    void addModel(platform, sceneInteraction).then((imported) => {
-      notifyModelAdded(imported, onModelAdded);
-    });
+    void addModel(platform, sceneInteraction, onModelAdded);
   }, [platform, sceneInteraction, closeMenu, onModelAdded]);
 
   const handleMenuOpenChange = useCallback((open: boolean) => {

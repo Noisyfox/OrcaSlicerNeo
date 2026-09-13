@@ -55,6 +55,28 @@ describe('scene add-model action', () => {
     expect(useSettingsStore.getState().values.modelPath).toBe('cube_att.drc');
   });
 
+  it('notifies the shell from the shared picker action after a successful import', async () => {
+    const { platform } = platformFor('cube.stl', { ok: true });
+    const onModelAdded = vi.fn();
+
+    await expect(addModel(platform, null, onModelAdded)).resolves.toBe(true);
+
+    expect(onModelAdded).toHaveBeenCalledOnce();
+  });
+
+  it('does not notify the shell when the picker import is cancelled or fails', async () => {
+    const cancelled = platformFor('cube.stl', { ok: true });
+    cancelled.platform.models.pick = vi.fn(async () => null);
+    const onCancelled = vi.fn();
+    await expect(addModel(cancelled.platform, null, onCancelled)).resolves.toBe(false);
+    expect(onCancelled).not.toHaveBeenCalled();
+
+    const failed = platformFor('broken.stl', { ok: false, error: 'decoder detail' });
+    const onFailed = vi.fn();
+    await expect(addModel(failed.platform, null, onFailed)).resolves.toBe(false);
+    expect(onFailed).not.toHaveBeenCalled();
+  });
+
   it('does not expose decoder diagnostics when DRC import fails', async () => {
     const { platform } = platformFor('broken.drc', { ok: false, error: 'Draco decoder detail' });
     await expect(addModel(platform, null)).resolves.toBe(false);

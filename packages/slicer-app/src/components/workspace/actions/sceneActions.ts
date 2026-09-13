@@ -95,6 +95,7 @@ async function commitAdded(
 export async function addModel(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
+  onModelAdded?: () => void,
 ): Promise<boolean> {
   useProjectStore.getState().setOperation({
     phase: 'model-import', progress: 0, message: 'Preparing model import…', cancellable: false,
@@ -111,6 +112,7 @@ export async function addModel(
       progress: imported ? 100 : 0,
       cancellable: false,
     });
+    notifyModelAdded(imported, onModelAdded);
     return imported;
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
