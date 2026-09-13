@@ -49,6 +49,7 @@ CEREAL_INCLUDE="${CEREAL_INCLUDE:-$WORK_DIR/deps/cereal-1.3.0/include}"
 DRACO_ROOT="$WORK_DIR/deps/draco-1.5.7/stage-wasm64-$ARTIFACT_VARIANT"
 DRACO_INCLUDE="${DRACO_INCLUDE:-$DRACO_ROOT/include}"
 DRACO_ARCHIVE="${DRACO_ARCHIVE:-$DRACO_ROOT/lib/libdraco.a}"
+OCCT_ROOT="${OCCT_ROOT:-$WORK_DIR/deps/occt-7.6.0/stage-wasm64-$ARTIFACT_VARIANT}"
 
 log()  { printf '\033[1;36m[wasm]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[wasm] WARNING:\033[0m %s\n' "$*" >&2; }
@@ -194,6 +195,14 @@ if [[ ! -f "$DRACO_ARCHIVE" ]]; then
   WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
     bash "$PKG_DIR/build-draco-wasm64.sh"
 fi
+if [[ ! -f "$OCCT_ROOT/include/opencascade/Standard.hxx" || ! -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]]; then
+  log "Building OCCT 7.6.0 XCAF/STEP closure ($ARTIFACT_VARIANT wasm64)"
+  WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
+    WORK_DIR="$WORK_DIR" "$PKG_DIR/build-occt-wasm64.sh" \
+    || die "OCCT build failed"
+fi
+[[ -f "$OCCT_ROOT/include/opencascade/Standard.hxx" && -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]] \
+  || die "staged OCCT prefix is incomplete: $OCCT_ROOT"
 
 # ---------------- Version header (fork-derived) ----------------
 # Replaces the spike's static stub: version + commit hash come from the
@@ -244,6 +253,7 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DCEREAL_INCLUDE="$CEREAL_INCLUDE" \
   -DDRACO_INCLUDE="$DRACO_INCLUDE" \
   -DDRACO_ARCHIVE="$DRACO_ARCHIVE" \
+  -DOCCT_ROOT="$OCCT_ROOT" \
   -DWASM_THREADING="$WASM_THREADING" \
   -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
   -DTBB_ROOT="$TBB_ROOT" \

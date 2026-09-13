@@ -1,0 +1,52 @@
+diff --git a/src/libslic3r/Format/STEP.cpp b/src/libslic3r/Format/STEP.cpp
+--- a/src/libslic3r/Format/STEP.cpp
++++ b/src/libslic3r/Format/STEP.cpp
+@@ -452,6 +452,11 @@ Step::Step_Status Step::load()
+     bool cb_cancel = false;
+     int progress = 0;
+     bool load_result = false;
++#ifdef __EMSCRIPTEN__
++    boost::thread* task = nullptr;
++    auto task_body = [&]() -> void {
++#else
+     auto task = new boost::thread(Slic3r::create_thread([&]() -> void {
++#endif
+
+         STEPCAFControl_Reader reader;
+@@ -480,5 +486,10 @@ Step::Step_Status Step::load()
+         progress = 10;
+         load_result = true;
+         task_result = true;
+-    }));
++#ifdef __EMSCRIPTEN__
++    };
++    task_body();
++#else
++    }));
++#endif
+     while (!task_result) {
+@@ -522,7 +533,12 @@ Step::Step_Status Step::mesh(Model* model,
+     ModelObject* new_object = model->add_object();
+     const char* last_slash = strrchr(m_path.c_str(), DIR_SEPARATOR);
+     new_object->name.assign((last_slash == nullptr) ? m_path.c_str() : last_slash + 1);
+     new_object->input_file = m_path.c_str();
+
++#ifdef __EMSCRIPTEN__
++    boost::thread* task = nullptr;
++    auto task_body = [&]() -> void {
++#else
+     auto task = new boost::thread(Slic3r::create_thread([&]() -> void {
++#endif
+         TDF_LabelSequence topLevelShapes;
+@@ -636,4 +653,9 @@ Step::Step_Status Step::mesh(Model* model,
+         }
+         task_result = true;
+-    }));
++#ifdef __EMSCRIPTEN__
++    };
++    task_body();
++#else
++    }));
++#endif
+
+     while (!task_result) {

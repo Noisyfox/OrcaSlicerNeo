@@ -21,6 +21,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_compile_options(-m64)
 
 option(WASM_THREADING "Use upstream oneTBB and Emscripten pthreads" ON)
+set(OCCT_ROOT "" CACHE PATH "Staged OCCT wasm64 prefix (include/ and lib/)")
 option(NEO_PROJECT_HISTORY_TEST "Build the standalone headless ProjectHistory test" OFF)
 # Debug build (build.sh/build.bat --debug or WASM_DEBUG=1): only the
 # libslic3r part (slic3r_core + bridge/CLI TUs) is rebuilt with -g -O0 so the
@@ -100,7 +101,6 @@ set(DROP_PATTERNS
   "Hollowing"             # OpenVDB
   "CutSurface"            # CGAL
   "MeshBoolean"           # CGAL boolean ops
-  "/Format/STEP"          # OpenCASCADE
   "/Format/svg"           # SVG->mesh needs OpenCASCADE; load_svg stubbed in stubs/format-stubs.cpp
   "/Shape/TextShape"      # OCCT font->mesh; no kept callers
   "/Arrange.cpp"          # libnest2d bed arrangement (nlopt + boost::geometry deps)
@@ -169,11 +169,18 @@ target_include_directories(slic3r_core PUBLIC
 target_compile_definitions(slic3r_core PUBLIC
   USE_TBB
   TBB_USE_CAPTURED_EXCEPTION=0
-  SLIC3R_WASM_NO_OCCT
   BOOST_NO_CXX98_FUNCTION_BASE
   BOOST_HAS_THREADS
   BOOST_HAS_PTHREADS
   BOOST_THREAD_PLATFORM_PTHREAD
+)
+if(NOT OCCT_ROOT OR NOT EXISTS "${OCCT_ROOT}/include/opencascade/Standard.hxx")
+  message(FATAL_ERROR "OCCT_ROOT must name the staged OCCT wasm64 prefix (include/opencascade/Standard.hxx missing).")
+endif()
+target_include_directories(slic3r_core SYSTEM PUBLIC
+  "${OCCT_ROOT}/include"
+  "${OCCT_ROOT}/include/opencascade"
+  "${OCCT_ROOT}/include/freetype2"
 )
 # Boost.Log ABI tag: Boost.Log 2.x is a compiled library (no header-only
 # mode). The Boost archives were built with -pthread (build-boost-wasm64.sh),
@@ -375,6 +382,25 @@ else()
   target_compile_options(orca_slice PRIVATE -fexceptions)
 endif()
 target_link_libraries(orca_slice PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
+set(OCCT_TOOLKITS
+  TKXDESTEP TKSTEP TKSTEP209 TKSTEPAttr TKSTEPBase TKXCAF TKXSBase
+  TKVCAF TKCAF TKLCAF TKCDF TKV3d TKService TKMesh TKBO TKPrim TKHLR
+  TKShHealing TKTopAlgo TKGeomAlgo TKBRep TKGeomBase TKG3d TKG2d TKMath TKernel
+)
+foreach(toolkit IN LISTS OCCT_TOOLKITS)
+  set(toolkit_archive "${OCCT_ROOT}/lib/lib${toolkit}.a")
+  if(NOT EXISTS "${toolkit_archive}")
+    message(FATAL_ERROR "OCCT_ROOT is missing staged archive ${toolkit_archive}")
+  endif()
+  list(APPEND OCCT_ARCHIVES "${toolkit_archive}")
+endforeach()
+if(NOT EXISTS "${OCCT_ROOT}/lib/libfreetype.a")
+  message(FATAL_ERROR "OCCT_ROOT is missing staged FreeType archive")
+endif()
+target_link_libraries(orca_slice PRIVATE
+  -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
+  "${OCCT_ROOT}/lib/libfreetype.a"
+)
 if(WASM_THREADING)
   target_link_libraries(orca_slice PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
 endif()
@@ -398,6 +424,7 @@ target_link_options(orca_slice PRIVATE
   ${ORCA_LINK_OPTIMIZE}
   -fexceptions
   -m64
+  -sUSE_FREETYPE=1
   -sMODULARIZE=1
   -sEXPORT_ES6=1
   -sENVIRONMENT=web,worker,node
