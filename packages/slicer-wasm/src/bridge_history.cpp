@@ -571,11 +571,35 @@ json canonical_history_context(const Runtime& runtime, json context)
         state(), std::move(context), plate_session_snapshot_json(), runtime.filament_history_state());
 }
 
-void record_active_plate_context(const Runtime& runtime)
+void record_active_plate_context(const Runtime& runtime, json requested)
 {
-    const auto model_state = capture_model_state(state().model);
-    Neo::Bridge::HistoryMetadata::record_active_plate_context(
-        state(), plate_session_snapshot_json(), runtime.filament_history_state(), model_state);
+    if (state().history.entries().empty()) {
+        const auto model_state = capture_model_state(state().model);
+        Neo::Bridge::HistoryMetadata::record_active_plate_context(
+            state(), plate_session_snapshot_json(), runtime.filament_history_state(), model_state);
+        return;
+    }
+    json context;
+    try {
+        const auto& current = state().history.current();
+        context = json::parse(std::string(current.context.begin(), current.context.end()));
+    } catch (...) {
+        context = current_context(runtime);
+    }
+    if (requested.is_object()) {
+        for (const char* key : {"selection", "gizmo"})
+            if (requested.contains(key)) context[key] = requested[key];
+    }
+    context["activePlateId"] = state().current_plate_id.empty()
+        ? json(nullptr) : json(state().current_plate_id);
+    if (!context.contains("plateSession") || !context["plateSession"].is_object())
+        context["plateSession"] = plate_session_snapshot_json();
+    else
+        context["plateSession"]["current_plate_id"] = state().current_plate_id;
+    context["projectConfigOverlay"] = state().project_config_overlay;
+    context["filamentState"] = runtime.filament_history_state();
+    Neo::Bridge::HistoryMetadata::record_history_context_reusing_current_model(
+        state(), "Active Plate", context);
 }
 
 } // namespace Slic3r::Neo::Bridge::HistoryRuntime
@@ -983,6 +1007,16 @@ void record_history_context(BridgeState& state,
     state.history.commit(label, History::Category::Context, model_state, context_bytes);
 }
 
+void record_history_context_reusing_current_model(BridgeState& state,
+                                                  const std::string& label,
+                                                  const json& context)
+{
+    if (state.active_history_transaction || state.history.entries().empty()) return;
+    const std::string encoded = context.dump();
+    const History::Bytes context_bytes(encoded.begin(), encoded.end());
+    state.history.commit_reusing_current_model(label, History::Category::Context, context_bytes);
+}
+
 void record_active_plate_context(BridgeState& state,
                                  const json& plate_session,
                                  const json& filament_state,
@@ -1296,7 +1330,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_record_context(const char* label_cs
         if (state().active_history_transaction) return error_json("history transaction is active");
         const std::string label = label_cstr ? label_cstr : "";
         if (label.empty()) return error_json("history label is required");
-        const json context = canonical_history_context(runtime, parse_history_context(context_cstr));
+        const json requested = parse_history_context(context_cstr);
+        if (label == "Active Plate") {
+            HistoryRuntime::record_active_plate_context(runtime, requested);
+            return duplicate_json(history_status_json().dump());
+        }
+        const json context = canonical_history_context(runtime, requested);
         const auto model_state = capture_model_state(state().model);
         Neo::Bridge::HistoryMetadata::record_history_context(
             state(), label, context, plate_session_snapshot_json(), runtime.filament_history_state(), model_state);

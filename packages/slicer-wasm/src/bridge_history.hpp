@@ -26,7 +26,8 @@ Runtime runtime();
 
 json default_history_context(const Runtime& runtime);
 json canonical_history_context(const Runtime& runtime, json context);
-void record_active_plate_context(const Runtime& runtime);
+// Record navigation context without recapturing the immutable model archive.
+void record_active_plate_context(const Runtime& runtime, json requested = {});
 
 } // namespace Slic3r::Neo::Bridge::HistoryRuntime
 
@@ -73,6 +74,9 @@ void record_history_context(BridgeState& state,
                             const json& plate_session,
                             const json& filament_state,
                             const History::ModelState& model_state);
+void record_history_context_reusing_current_model(BridgeState& state,
+                                                  const std::string& label,
+                                                  const json& context);
 void record_active_plate_context(BridgeState& state,
                                  const json& plate_session,
                                  const json& filament_state,

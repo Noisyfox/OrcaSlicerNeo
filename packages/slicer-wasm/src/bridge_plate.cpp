@@ -19,7 +19,6 @@
 
 #include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/PrintConfig.hpp"
-#include "bridge_history.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_filament.hpp"
 #include "bridge_project_overlay.hpp"
@@ -685,8 +684,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_plate(const char* plate_id_cstr)
         if (find_plate(requested) == nullptr)
             return error_json("plate not found");
         state().current_plate_id = requested;
-        Slic3r::Neo::Bridge::HistoryRuntime::record_active_plate_context(
-            Slic3r::Neo::Bridge::HistoryRuntime::runtime());
         return dup_json(plate_session_snapshot_json().dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
