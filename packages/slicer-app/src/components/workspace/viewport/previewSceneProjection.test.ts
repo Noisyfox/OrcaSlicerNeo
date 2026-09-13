@@ -1,6 +1,6 @@
 import type { PlateSessionSnapshot } from '@slicer/client';
 import { describe, expect, it } from 'vitest';
-import { currentPreviewPlate, previewToolpathOrigin, previewVolumesForCurrentPlate } from './previewSceneProjection';
+import { currentPreviewPlate, previewVolumesForCurrentPlate } from './previewSceneProjection';
 
 function snapshot(overrides: Partial<PlateSessionSnapshot> = {}): PlateSessionSnapshot {
   return {
@@ -32,21 +32,17 @@ describe('Preview multi-plate scene projection', () => {
     expect(volumes).toHaveLength(3);
   });
 
-  it('uses the current plate origin for local toolpath rendering', () => {
+  it('keeps the selected plate available for world-space scene projection', () => {
     expect(currentPreviewPlate(snapshot())?.plateId).toBe('plate-2');
-    expect(previewToolpathOrigin(snapshot())).toEqual([264, 0, 0]);
   });
 
-  it('keeps retained local toolpath arrays unchanged by the render projection', () => {
-    const starts = Float32Array.from([1, 2, 3, 4, 5, 6]);
-    const ends = Float32Array.from([4, 5, 6, 7, 8, 9]);
+  it('keeps retained world-space toolpath arrays unchanged by the render projection', () => {
+    const starts = Float32Array.from([265, 2, 3, 268, 5, 6]);
+    const ends = Float32Array.from([268, 5, 6, 271, 8, 9]);
     const startsBefore = starts.slice();
     const endsBefore = ends.slice();
-    // Scene applies previewToolpathOrigin as a parent group transform. The
-    // retained slice result remains in printer-local coordinates for export,
-    // send, layer inspection, and future plate activation.
-    const origin = previewToolpathOrigin(snapshot());
-    expect(origin).toEqual([264, 0, 0]);
+    // Scene keeps the processor's world-space moves unchanged. Export/send
+    // still use the separate printer-local source G-code text.
     expect(starts).toEqual(startsBefore);
     expect(ends).toEqual(endsBefore);
   });
@@ -54,6 +50,5 @@ describe('Preview multi-plate scene projection', () => {
   it('keeps legacy snapshots renderable when membership rows are absent', () => {
     const volumes = [volume(0, 0), volume(0, 1)];
     expect(previewVolumesForCurrentPlate(volumes, snapshot({ instances: undefined }))).toEqual(volumes);
-    expect(previewToolpathOrigin(null)).toEqual([0, 0, 0]);
   });
 });

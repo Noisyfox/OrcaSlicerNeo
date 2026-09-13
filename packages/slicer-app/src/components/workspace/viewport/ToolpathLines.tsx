@@ -20,6 +20,13 @@ interface GpuStreamingDiagnostic {
   readonly message: string;
 }
 
+interface PreviewE2eEvidence {
+  readonly extrusionTools: readonly number[];
+  readonly toolChanges: readonly number[];
+  readonly palette: readonly { tool: number; color: readonly number[] }[];
+  readonly renderedColors: readonly (readonly [number, number, number])[];
+}
+
 function reportGpuStreamingDiagnostic(diagnostic: GpuStreamingDiagnostic): void {
   console.warn(`[gpu-streaming] ${diagnostic.reason}: ${diagnostic.message}`);
 }
@@ -42,10 +49,12 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
   } | null>(null);
   const activeRef = useRef<typeof active>(null);
   // GPU pages are attached to this component's render group instead of the
-  // root scene. This preserves local result buffers while allowing Preview's
-  // parent group to apply the selected plate's world origin.
+  // root scene. The source positions are already in the world frame published
+  // by the slicing bridge; the parent group is only a stable renderer seam.
   const renderGroupRef = useRef<THREE.Group>(null);
   const diagnosticRef = useRef<GpuStreamingDiagnostic | null>(null);
+  const dataRef = useRef(data);
+  dataRef.current = data;
   activeRef.current = active;
 
   const source = data.source;
@@ -220,16 +229,41 @@ export function ToolpathLines({ data }: { data: ToolpathGeometry }) {
       __orcaE2e?: {
         gpuStreamingStatus?: () => 'ready' | 'context-lost' | 'disposed' | 'unavailable';
         gpuStreamingDiagnostic?: () => GpuStreamingDiagnostic | null;
+        gpuStreamingColorSamples?: () => readonly (readonly [number, number, number])[];
+        previewEvidence?: () => PreviewE2eEvidence | null;
       };
     };
     testWindow.__orcaE2e = {
       ...testWindow.__orcaE2e,
       gpuStreamingStatus: () => activeRef.current?.backend.status ?? 'unavailable',
       gpuStreamingDiagnostic: () => diagnosticRef.current,
+      gpuStreamingColorSamples: () => activeRef.current?.backend.debugColorSamples() ?? [],
+      previewEvidence: () => {
+        const current = activeRef.current;
+        const latest = dataRef.current;
+        const extrusionTools = [...new Set(Array.from(latest.extruderIds)
+          .filter((_, index) => latest.moveTypes[index] === 10))].sort((a, b) => a - b);
+        const gcode = latest.sourceTextBytes ? new TextDecoder().decode(latest.sourceTextBytes) : '';
+        const toolChanges = [...gcode.matchAll(/^T(\d+)\s*$/gm)].map((match) => Number(match[1]));
+        return {
+          extrusionTools,
+          toolChanges,
+          palette: (latest.extruderPalette ?? [])
+            .filter((entry): entry is typeof entry & { tool: number } => entry.tool !== undefined)
+            .map((entry) => ({ tool: entry.tool, color: [...entry.color] })),
+          renderedColors: current?.backend.debugColorSamples() ?? [],
+        };
+      },
     };
     return () => {
       if (!testWindow.__orcaE2e) return;
-      const { gpuStreamingStatus: _status, gpuStreamingDiagnostic: _diagnostic, ...rest } = testWindow.__orcaE2e;
+      const {
+        gpuStreamingStatus: _status,
+        gpuStreamingDiagnostic: _diagnostic,
+        gpuStreamingColorSamples: _colors,
+        previewEvidence: _evidence,
+        ...rest
+      } = testWindow.__orcaE2e;
       testWindow.__orcaE2e = rest;
     };
   }, []);

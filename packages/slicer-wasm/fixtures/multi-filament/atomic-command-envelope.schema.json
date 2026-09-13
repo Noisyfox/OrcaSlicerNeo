@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orca://slicer-wasm/filament-atomic-command-envelope/v1",
+  "title": "Orca Neo atomic command result/error envelope",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["ok", "version", "result"],
+      "properties": { "ok": { "const": true }, "version": { "const": 1 }, "result": {} },
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "required": ["ok", "version", "error", "error_code"],
+      "properties": {
+        "ok": { "const": false },
+        "version": { "const": 1 },
+        "error": { "type": "string" },
+        "error_code": { "type": "string" },
+        "status": {
+          "type": "object", "required": ["state", "error"],
+          "properties": { "state": { "const": "error" }, "error": { "type": "string" } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  ]
+}

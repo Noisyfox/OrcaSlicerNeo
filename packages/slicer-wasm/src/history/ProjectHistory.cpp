@@ -4,6 +4,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <utility>
 
 namespace Slic3r::Neo::History {
@@ -50,6 +51,7 @@ struct StoredMutable {
     ObjectID id { 0 };
     std::uint64_t timestamp { 0 };
     Blob data;
+    std::vector<ObjectID> volume_ids;
 };
 
 struct StoredMesh {
@@ -64,6 +66,7 @@ struct StoredState {
     std::vector<StoredMutable> mutable_objects;
     std::vector<StoredMesh> immutable_meshes;
     Bytes context;
+    std::optional<RestoreState::DirectFrame> direct_frame;
 };
 
 struct StoredEntry {
@@ -126,7 +129,8 @@ struct ProjectHistory::Impl {
         for (std::size_t i = 0; i < lhs.mutable_objects.size(); ++i) {
             const auto& a = lhs.mutable_objects[i];
             const auto& b = model.mutable_objects[i];
-            if (a.id != b.id || a.timestamp != b.timestamp || !bytes_equal(a.data, b.data))
+            if (a.id != b.id || a.timestamp != b.timestamp || !bytes_equal(a.data, b.data) ||
+                a.volume_ids != b.volume_ids)
                 return false;
         }
         for (std::size_t i = 0; i < lhs.immutable_meshes.size(); ++i) {
@@ -141,12 +145,16 @@ struct ProjectHistory::Impl {
     }
 
     static StoredState store(const ModelState& model, const Bytes& context,
-                             const StoredState* previous)
+                             const StoredState* previous,
+                             std::optional<RestoreState::DirectFrame> direct_frame)
     {
         StoredState state;
         state.serialized = previous && bytes_equal(previous->serialized, model.serialized)
             ? previous->serialized : make_blob(model.serialized);
         state.context = context;
+        if (direct_frame && (!direct_frame->payload || direct_frame->bytes == 0))
+            direct_frame.reset();
+        state.direct_frame = std::move(direct_frame);
 
         state.mutable_objects.reserve(model.mutable_objects.size());
         for (const auto& object : model.mutable_objects) {
@@ -157,7 +165,7 @@ struct ProjectHistory::Impl {
                 if (it != previous->mutable_objects.end()) data = it->data;
             }
             if (!data) data = make_blob(object.data);
-            state.mutable_objects.push_back({ object.id, object.timestamp, std::move(data) });
+            state.mutable_objects.push_back({ object.id, object.timestamp, std::move(data), object.volume_ids });
         }
 
         state.immutable_meshes.reserve(model.immutable_meshes.size());
@@ -193,7 +201,7 @@ struct ProjectHistory::Impl {
         if (state.serialized) model.serialized = *state.serialized;
         model.mutable_objects.reserve(state.mutable_objects.size());
         for (const auto& object : state.mutable_objects)
-            model.mutable_objects.push_back({ object.id, object.timestamp, object.data ? *object.data : Bytes{} });
+            model.mutable_objects.push_back({ object.id, object.timestamp, object.data ? *object.data : Bytes{}, object.volume_ids });
         model.immutable_meshes.reserve(state.immutable_meshes.size());
         for (const auto& mesh : state.immutable_meshes)
             model.immutable_meshes.push_back({ mesh.key, mesh.resident, mesh.deferred, mesh.optional });
@@ -220,10 +228,13 @@ void ProjectHistory::clear()
     m_object_intervals.clear();
 }
 
-bool ProjectHistory::commit(std::string label, Category category, const ModelState& model, const Bytes& context)
+bool ProjectHistory::commit(std::string label, Category category, const ModelState& model, const Bytes& context,
+                            std::optional<RestoreState::DirectFrame> direct_frame,
+                            std::optional<RestoreState::DirectFrame> predecessor_direct_frame)
 {
     if (m_impl->states.empty()) {
-        m_impl->states.push_back({ { 0, {}, Category::Project }, Impl::store(model, context, nullptr) });
+        m_impl->states.push_back({ { 0, {}, Category::Project },
+                                   Impl::store(model, context, nullptr, std::move(direct_frame)) });
         m_cursor = 0;
         rebuild_intervals();
         return true;
@@ -231,21 +242,161 @@ bool ProjectHistory::commit(std::string label, Category category, const ModelSta
 
     if (Impl::equal(m_impl->states[m_cursor].state, model, context)) return false;
 
-    // A new branch invalidates all redo IDs and any saved checkpoint that was
-    // only reachable through the discarded branch.
-    if (m_cursor + 1 < m_impl->states.size()) {
-        if (m_saved_checkpoint != static_cast<std::size_t>(-1) && m_saved_checkpoint > m_cursor)
-            m_saved_checkpoint_evicted = true;
-        m_impl->states.erase(m_impl->states.begin() + static_cast<std::ptrdiff_t>(m_cursor + 1), m_impl->states.end());
-    }
+    // Keep a cheap shared-payload copy until the operation has completed. The
+    // retained blobs are immutable/shared, so this protects the branch,
+    // cursor, saved checkpoint, and resource counters if interval rebuilding
+    // or budget accounting throws after the branch has been changed.
+    ProjectHistory backup(m_byte_budget);
+    backup.m_impl->states = m_impl->states;
+    backup.m_impl->next_entry_id = m_impl->next_entry_id;
+    backup.m_cursor = m_cursor;
+    backup.m_saved_checkpoint = m_saved_checkpoint;
+    backup.m_saved_checkpoint_evicted = m_saved_checkpoint_evicted;
+    backup.m_optional_bytes_released = m_optional_bytes_released;
+    backup.m_evicted_entry_count = m_evicted_entry_count;
+    backup.m_last_evicted_entry_id = m_last_evicted_entry_id;
+    backup.m_object_intervals = m_object_intervals;
 
-    const StoredState* previous = &m_impl->states.back().state;
-    EntryInfo info { m_impl->next_entry_id++, std::move(label), category };
-    m_impl->states.push_back({ std::move(info), Impl::store(model, context, previous) });
-    ++m_cursor;
-    rebuild_intervals();
-    release_least_recently_used();
-    return true;
+    try {
+        // A fast frame describes the currently retained predecessor.  Attach
+        // it only as part of the same transactional branch append so a failed
+        // commit cannot leave a newly charged side payload behind.
+        // A narrow edit can follow a different narrow edit.  Keep the
+        // predecessor frame supplied by the caller even when the current
+        // checkpoint has another direct-frame kind (for example a Prime Tower
+        // move after a filament mutation).  The serialized context remains
+        // the complete logical predecessor; retaining the unrelated frame
+        // would route Undo through the wrong restore validator.
+        if (predecessor_direct_frame && predecessor_direct_frame->payload && predecessor_direct_frame->bytes != 0)
+            m_impl->states[m_cursor].state.direct_frame = std::move(predecessor_direct_frame);
+        // Build the complete retained state before touching the current branch.
+        // Serialization/allocation failures must not discard redo entries or move
+        // the cursor; the bridge relies on this when a published mutation's
+        // history commit throws.
+        StoredState prepared = Impl::store(model, context, &m_impl->states[m_cursor].state,
+                                           std::move(direct_frame));
+        m_impl->states.reserve(m_impl->states.size() + 1);
+
+        // A new branch invalidates all redo IDs and any saved checkpoint that was
+        // only reachable through the discarded branch.
+        if (m_cursor + 1 < m_impl->states.size()) {
+            if (m_saved_checkpoint != static_cast<std::size_t>(-1) && m_saved_checkpoint > m_cursor)
+                m_saved_checkpoint_evicted = true;
+            m_impl->states.erase(m_impl->states.begin() + static_cast<std::ptrdiff_t>(m_cursor + 1), m_impl->states.end());
+        }
+
+        EntryInfo info { m_impl->next_entry_id++, std::move(label), category };
+        m_impl->states.push_back({ std::move(info), std::move(prepared) });
+        ++m_cursor;
+        rebuild_intervals();
+        release_least_recently_used();
+        return true;
+    } catch (...) {
+        m_impl->states = std::move(backup.m_impl->states);
+        m_impl->next_entry_id = backup.m_impl->next_entry_id;
+        m_cursor = backup.m_cursor;
+        m_saved_checkpoint = backup.m_saved_checkpoint;
+        m_saved_checkpoint_evicted = backup.m_saved_checkpoint_evicted;
+        m_optional_bytes_released = backup.m_optional_bytes_released;
+        m_evicted_entry_count = backup.m_evicted_entry_count;
+        m_last_evicted_entry_id = backup.m_last_evicted_entry_id;
+        m_object_intervals = std::move(backup.m_object_intervals);
+        throw;
+    }
+}
+
+bool ProjectHistory::commit_with_baseline(std::string label, Category category,
+                                          const ModelState& baseline_model, const Bytes& baseline_context,
+                                          const ModelState& model, const Bytes& context,
+                                          std::optional<RestoreState::DirectFrame> baseline_direct_frame,
+                                          std::optional<RestoreState::DirectFrame> direct_frame)
+{
+    if (!m_impl->states.empty()) return commit(std::move(label), category, model, context);
+    try {
+        // Seed the baseline directly, then mark it as the saved checkpoint
+        // before appending the first project state.  No caller-visible
+        // intermediate state exists, and the guard restores the empty
+        // history if allocation/serialization fails while constructing it.
+        m_impl->states.push_back({ { 0, {}, Category::Project },
+                                   Impl::store(baseline_model, baseline_context, nullptr,
+                                               std::move(baseline_direct_frame)) });
+        m_cursor = 0;
+        rebuild_intervals();
+        mark_current_as_saved();
+        if (!commit(std::move(label), category, model, context, std::move(direct_frame))) {
+            clear();
+            return false;
+        }
+        return true;
+    } catch (...) {
+        clear();
+        throw;
+    }
+}
+
+bool ProjectHistory::commit_reusing_current_model(std::string label, Category category, const Bytes& context,
+                                                  std::optional<RestoreState::DirectFrame> direct_frame,
+                                                  std::optional<RestoreState::DirectFrame> predecessor_direct_frame)
+{
+    if (m_impl->states.empty()) return false;
+    const auto& current = m_impl->states[m_cursor].state;
+    if (current.context == context && !direct_frame) return false;
+
+    ProjectHistory backup(m_byte_budget);
+    backup.m_impl->states = m_impl->states;
+    backup.m_impl->next_entry_id = m_impl->next_entry_id;
+    backup.m_cursor = m_cursor;
+    backup.m_saved_checkpoint = m_saved_checkpoint;
+    backup.m_saved_checkpoint_evicted = m_saved_checkpoint_evicted;
+    backup.m_optional_bytes_released = m_optional_bytes_released;
+    backup.m_evicted_entry_count = m_evicted_entry_count;
+    backup.m_last_evicted_entry_id = m_last_evicted_entry_id;
+    backup.m_object_intervals = m_object_intervals;
+    try {
+        // A narrow edit may follow a different narrow edit.  The supplied
+        // predecessor frame describes this command's exact restore boundary;
+        // retaining an unrelated frame would route Undo through the wrong
+        // validator (for example filament state instead of Prime Tower X/Y).
+        if (predecessor_direct_frame && predecessor_direct_frame->payload && predecessor_direct_frame->bytes != 0)
+            m_impl->states[m_cursor].state.direct_frame = std::move(predecessor_direct_frame);
+
+        StoredState prepared;
+        prepared.serialized = current.serialized;
+        prepared.mutable_objects = current.mutable_objects;
+        prepared.immutable_meshes = current.immutable_meshes;
+        prepared.context = context;
+        if (direct_frame && (!direct_frame->payload || direct_frame->bytes == 0)) direct_frame.reset();
+        prepared.direct_frame = std::move(direct_frame);
+        m_impl->states.reserve(m_impl->states.size() + 1);
+        if (m_cursor + 1 < m_impl->states.size()) {
+            if (m_saved_checkpoint != static_cast<std::size_t>(-1) && m_saved_checkpoint > m_cursor)
+                m_saved_checkpoint_evicted = true;
+            m_impl->states.erase(m_impl->states.begin() + static_cast<std::ptrdiff_t>(m_cursor + 1), m_impl->states.end());
+        }
+#ifdef NEO_PROJECT_HISTORY_TEST
+        if (m_fail_next_reusing_commit_for_test) {
+            m_fail_next_reusing_commit_for_test = false;
+            throw std::runtime_error("injected sidecar commit failure");
+        }
+#endif
+        EntryInfo info { m_impl->next_entry_id++, std::move(label), category };
+        m_impl->states.push_back({ std::move(info), std::move(prepared) });
+        ++m_cursor;
+        rebuild_intervals();
+        release_least_recently_used();
+        return true;
+    } catch (...) {
+        m_impl->states = std::move(backup.m_impl->states);
+        m_impl->next_entry_id = backup.m_impl->next_entry_id;
+        m_cursor = backup.m_cursor;
+        m_saved_checkpoint = backup.m_saved_checkpoint;
+        m_saved_checkpoint_evicted = backup.m_saved_checkpoint_evicted;
+        m_optional_bytes_released = backup.m_optional_bytes_released;
+        m_evicted_entry_count = backup.m_evicted_entry_count;
+        m_last_evicted_entry_id = backup.m_last_evicted_entry_id;
+        m_object_intervals = std::move(backup.m_object_intervals);
+        throw;
+    }
 }
 
 bool ProjectHistory::undo(RestoreState& result)
@@ -282,6 +433,7 @@ bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
 
 bool ProjectHistory::prepare_undo(RestorePlan& result) const
 {
+    result.direct_frame_transition = false;
     const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
     const std::size_t target = current_project == kNoProject
         ? kNoProject : previous_project(m_impl->states, current_project);
@@ -292,11 +444,23 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
     result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
+    result.state.direct_frame = state.state.direct_frame;
+    // Undoing a Prime Tower command targets the predecessor checkpoint, whose
+    // retained sidecar may belong to an earlier filament edit.  The current
+    // Prime Tower entry still owns the exact narrow before/after frame; pass
+    // that frame through so restore never falls back to filament validation.
+    const auto& source = m_impl->states[current_project];
+    if (source.info.label == "Move Prime Tower" && source.state.direct_frame &&
+        source.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower) {
+        result.state.direct_frame = source.state.direct_frame;
+        result.direct_frame_transition = true;
+    }
     return true;
 }
 
 bool ProjectHistory::prepare_redo(RestorePlan& result) const
 {
+    result.direct_frame_transition = false;
     const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
     if (current_project == kNoProject) return false;
     const std::size_t target = next_project(m_impl->states, current_project);
@@ -307,11 +471,15 @@ bool ProjectHistory::prepare_redo(RestorePlan& result) const
     result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
+    result.state.direct_frame = state.state.direct_frame;
+    result.direct_frame_transition = state.info.label == "Move Prime Tower" && state.state.direct_frame &&
+        state.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower;
     return true;
 }
 
 bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) const
 {
+    result.direct_frame_transition = false;
     auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
         [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
     if (it == m_impl->states.end()) return false;
@@ -320,11 +488,13 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
     result.state.model = Impl::restore_model(it->state);
     result.state.context = it->state.context;
     result.state.entry = it->info;
+    result.state.direct_frame = it->state.direct_frame;
     return true;
 }
 
 bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection direction, RestorePlan& result) const
 {
+    result.direct_frame_transition = false;
     auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
         [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
     if (it == m_impl->states.end()) return false;
@@ -349,6 +519,18 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
     result.state.model = Impl::restore_model(target_entry.state);
     result.state.context = target_entry.state.context;
     result.state.entry = target_entry.info;
+    result.state.direct_frame = target_entry.state.direct_frame;
+    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    if (direction == JumpDirection::Undo && selected == current_project &&
+        it->info.label == "Move Prime Tower" && it->state.direct_frame &&
+        it->state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower) {
+        result.state.direct_frame = it->state.direct_frame;
+        result.direct_frame_transition = true;
+    } else if (direction == JumpDirection::Redo && selected == current_project + 1 &&
+               target_entry.info.label == "Move Prime Tower" && target_entry.state.direct_frame &&
+               target_entry.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower) {
+        result.direct_frame_transition = true;
+    }
     return true;
 }
 
@@ -414,6 +596,7 @@ const RestoreState& ProjectHistory::current() const
     cache.model = Impl::restore_model(state.state);
     cache.context = state.state.context;
     cache.entry = state.info;
+    cache.direct_frame = state.state.direct_frame;
     return cache;
 }
 
@@ -451,6 +634,7 @@ std::size_t ProjectHistory::bytes_used() const
     static_assert(ResourceAccounting::kImplAllocationBytes >= sizeof(Impl),
                   "impl accounting slot must cover ProjectHistory::Impl");
     std::set<const Bytes*> seen;
+    std::set<const void*> seen_direct_frames;
     std::size_t total = 0;
     add_bytes(total, ResourceAccounting::kImplAllocationBytes);
     add_product(total, m_impl->states.capacity(), ResourceAccounting::kStoredEntryBytes);
@@ -467,10 +651,19 @@ std::size_t ProjectHistory::bytes_used() const
         };
         count(state.state.serialized);
         add_bytes(total, state.state.context.capacity());
+        if (state.state.direct_frame) {
+            add_bytes(total, ResourceAccounting::kDirectFrameSlotBytes);
+            const auto& frame = *state.state.direct_frame;
+            if (frame.payload && seen_direct_frames.insert(frame.payload.get()).second)
+                add_bytes(total, frame.bytes);
+        }
         add_product(total, state.state.mutable_objects.capacity(), ResourceAccounting::kMutableObjectSlotBytes);
         add_product(total, state.state.immutable_meshes.capacity(), ResourceAccounting::kImmutableMeshSlotBytes);
         add_string_storage(total, state.info.label);
-        for (const auto& object : state.state.mutable_objects) count(object.data);
+        for (const auto& object : state.state.mutable_objects) {
+            count(object.data);
+            add_product(total, object.volume_ids.capacity(), sizeof(ObjectID));
+        }
         for (const auto& mesh : state.state.immutable_meshes) {
             add_string_storage(total, mesh.key);
             count(mesh.resident);

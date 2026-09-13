@@ -15,7 +15,8 @@ import type { SceneInteractionController } from './components/workspace/viewport
 import type { WorkspaceSliceCoordinator } from './components/workspace/sliceCoordinator';
 import type { HistoryRestoreCoordinator } from './history/restoreCoordinator';
 import { usePlatform } from '@orca/platform-contract';
-import { persistRestoredSelections, restoreSelections } from './preferences';
+import { persistRestoredSelections, restoreBootstrapSession } from './preferences';
+import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
 import { addModel, clearScene } from './components/workspace/actions/sceneActions';
 import { exportGcode, sliceModel } from './components/workspace/actions/sliceActions';
 import { createCommandDispatcher, registerNativeMenuCommands } from './menu/commands';
@@ -27,12 +28,13 @@ import {
   ProjectPreferencesDialog,
   ProjectProgressDialog,
 } from './components/project/ProjectDialogs';
-import { cancelProjectOperation, newProject, openProject, projectDirtyStatus, saveProject, saveProjectAs } from './projectActions';
+import { cancelProjectOperation, newProject, noticesFor, openProject, projectDirtyStatus, saveProject, saveProjectAs, type ProjectLoadReceipt } from './projectActions';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
+import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
 import { registerProjectDropHandlers } from './dropHandling';
 import { useHistoryNavigationStore } from './stores/useHistoryNavigationStore';
-import { historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
+import { historyNavigationIntentAllowed, historyShortcutAction, isEditableHistoryTarget } from './history/historyNavigation';
 import { useHistoryRestoreStore } from './stores/useHistoryRestoreStore';
 
 export function handleMenuKeyDown(
@@ -54,7 +56,7 @@ export function handleMenuKeyDown(
 export default function App() {
   const platform = usePlatform();
   const setMetadata = useSettingsStore((s) => s.setMetadata);
-  const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
+  const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
   const setOverlay = useSettingsStore((s) => s.setOverlay);
   const setError = useSlicerStore((s) => s.setError);
   const modelLoaded = useSettingsStore((s) => s.modelLoaded);
@@ -67,14 +69,20 @@ export default function App() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('home');
   const [prewarmingWorkspace, setPrewarmingWorkspace] = useState(false);
-  const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'flatten' | 'notice' | null>(null);
+  const [dialog, setDialog] = useState<'load-choice' | 'dirty' | 'preferences' | 'flatten' | 'notice' | 'project-confirm' | null>(null);
   const [loadInput, setLoadInput] = useState<ProjectInput | null>(null);
   const [dirtyOperation, setDirtyOperation] = useState<'new' | 'open' | 'close'>('open');
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [extraNotice, setExtraNotice] = useState<string | null>(null);
+  const [projectConfirmation, setProjectConfirmation] = useState<ProjectLoadResult | null>(null);
   const loadChoiceResolver = useRef<((choice: ProjectLoadChoice) => void) | null>(null);
   const dirtyResolver = useRef<((decision: DirtyProjectDecision) => void) | null>(null);
   const flattenResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  const projectConfirmationResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  // The receipt comes from the same action that has applied the native result,
+  // reset history, and published the project session. Production UI does not
+  // consume it; E2E uses it to prove its selected project reached a commit.
+  const projectLoadReceiptRef = useRef<ProjectLoadReceipt | null>(null);
   const previewTransitionRef = useRef<PreviewRenderTransition | null>(null);
   const handleTabChange = useCallback((tab: AppTab) => {
     if (tab !== 'preview') {
@@ -137,6 +145,11 @@ export default function App() {
   const confirmFlatten = useCallback(() => new Promise<boolean>((resolve) => {
     flattenResolver.current = resolve; setDialog('flatten');
   }), []);
+  const confirmProjectLoad = useCallback((load: ProjectLoadResult) => new Promise<boolean>((resolve) => {
+    setProjectConfirmation(load);
+    projectConfirmationResolver.current = resolve;
+    setDialog('project-confirm');
+  }), []);
   const reportProjectFailure = useCallback((result: { status: string; error?: unknown }) => {
     if (result.status === 'failed') {
       const message = result.error instanceof Error ? result.error.message : String(result.error ?? '');
@@ -150,10 +163,12 @@ export default function App() {
     if (result.status === 'ok') setActiveTab('prepare');
   }, [confirmFlatten, decideDirty, platform, reportProjectFailure]);
   const runOpenProject = useCallback(async () => {
-    const result = await openProject(platform, { chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten });
+    projectLoadReceiptRef.current = null;
+    const result = await openProject(platform, { chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten, confirmProjectLoad });
+    if (result.status === 'ok' && result.loadReceipt) projectLoadReceiptRef.current = result.loadReceipt;
     reportProjectFailure(result);
     if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
-  }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const runCloseRequest = useCallback(async () => {
     let allow = true;
     if (await projectDirtyStatus(platform)) {
@@ -288,8 +303,8 @@ export default function App() {
       const coordinator = historyRestoreCoordinatorRef.current;
       if (!coordinator) return;
       const historyStatus = useHistoryNavigationStore.getState().status;
-      if (!historyStatus || historyStatus.disabled || useHistoryRestoreStore.getState().phase !== 'idle' ||
-          (action === 'undo' ? !historyStatus.canUndo : !historyStatus.canRedo)) return;
+      const restoring = useHistoryRestoreStore.getState().phase !== 'idle';
+      if (!historyNavigationIntentAllowed(historyStatus, action, restoring)) return;
       event.preventDefault();
       void coordinator.restore(action);
     };
@@ -299,6 +314,35 @@ export default function App() {
   useEffect(() => {
     if (projectState.notices.length > 0) setDialog('notice');
   }, [projectState.notices]);
+  useEffect(() => {
+    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
+    if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
+    const w = window as unknown as {
+      __orcaE2e?: {
+        projectLoadEvidence?: () => {
+          receipt: ProjectLoadReceipt | null;
+          session: { projectName: string; hasContent: boolean; scope: string; hasLocation: boolean };
+        };
+      };
+    };
+    w.__orcaE2e = {
+      ...w.__orcaE2e,
+      projectLoadEvidence: () => ({
+        receipt: projectLoadReceiptRef.current,
+        session: {
+          projectName: projectState.projectName,
+          hasContent: projectState.hasContent,
+          scope: projectState.scope,
+          hasLocation: projectState.location !== undefined,
+        },
+      }),
+    };
+    return () => {
+      if (!w.__orcaE2e) return;
+      const { projectLoadEvidence: _projectLoadEvidence, ...rest } = w.__orcaE2e;
+      w.__orcaE2e = rest;
+    };
+  }, [projectState.hasContent, projectState.location, projectState.projectName, projectState.scope]);
   const titleBar = (
     <TitleBar
       chrome={platform.chrome}
@@ -342,20 +386,27 @@ export default function App() {
         if (!init.ok) throw new Error(init.error ?? 'orc_init failed');
         const metadata = await platform.runtime.getOptionMetadata();
         const overlay = await platform.runtime.getProjectConfigOverlay();
-        if (overlay.ok) setOverlay(overlay.overlay);
         // Restore only names; compatibility and defaults remain authoritative
         // in the C++ preset bundle. The bridge response is written back so a
         // missing/corrupt selection is healed for the next boot.
-        const restored = await restoreSelections(platform.runtime, preferences);
+        const restored = await restoreBootstrapSession(platform.runtime, preferences, {
+          selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+          activePlateId: null,
+          gizmo: null,
+          projectConfigOverlay: (overlay.ok ? overlay.overlay : {
+            project: {}, objects: {}, parts: {}, plates: {},
+          }) as unknown as HistoryContext['projectConfigOverlay'],
+        });
         if (cancelled) return;
+        useFilamentSessionStore.setState({ snapshot: restored.filament, rejected: null });
         await persistRestoredSelections(platform.preferences, restored.preferences);
         if (cancelled) return;
-        hydratePresetSnapshot(restored.snapshot);
+        hydrateProfileSnapshot(restored.snapshot);
+        if (overlay.ok) setOverlay(overlay.overlay);
         useProjectStore.getState().setProject({
           systemPresets: {
             printer: restored.snapshot.printer.name,
             print: restored.snapshot.print.name,
-            filament: restored.snapshot.filament.name,
           },
         });
         setMetadata(metadata);
@@ -370,7 +421,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [hydratePresetSnapshot, setMetadata, setOverlay, setError, platform.preferences, platform.runtime]);
+  }, [hydrateProfileSnapshot, setMetadata, setOverlay, setError, platform.preferences, platform.runtime]);
 
   useEffect(() => {
     if (platform.chrome.kind !== 'web') return;
@@ -408,13 +459,13 @@ export default function App() {
           }))) };
       if (dropped.status === 'cancelled') return;
       if (dropped.status === 'failed') { reportProjectFailure(dropped); return; }
-      const result = await openProject(platform, { inputs: dropped.inputs, chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten });
+       const result = await openProject(platform, { inputs: dropped.inputs, chooseLoad, decideDirty, confirmFlattenedSave: confirmFlatten, confirmProjectLoad });
       reportProjectFailure(result);
       if (result.status === 'ok') { setActiveTab('prepare'); setDialog(null); }
     } catch (error) {
       reportProjectFailure({ status: 'failed', error });
     }
-  }, [chooseLoad, confirmFlatten, decideDirty, platform, reportProjectFailure]);
+  }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   useEffect(() => {
     if (boot !== 'ready') return;
     // Capture file drops before nested object-list handlers can stop
@@ -481,6 +532,16 @@ export default function App() {
         preferences={preferences}
         onSave={savePreferences}
         onClose={() => setDialog(null)}
+      />
+      <ProjectNoticeDialog
+        open={dialog === 'project-confirm' && projectConfirmation !== null}
+        notices={projectConfirmation ? (noticesFor(projectConfirmation).length
+          ? noticesFor(projectConfirmation)
+          : [{ kind: 'compatibility-fallback' as const, message: 'Review this project before replacing the current session.' }]) : []}
+        title="Review project compatibility"
+        testId="project-load-confirmation-dialog"
+        onClose={() => { projectConfirmationResolver.current?.(false); projectConfirmationResolver.current = null; setProjectConfirmation(null); setDialog(null); }}
+        onContinue={() => { projectConfirmationResolver.current?.(true); projectConfirmationResolver.current = null; setProjectConfirmation(null); setDialog(null); }}
       />
       <ProjectNoticeDialog
         open={dialog === 'notice' && notices.length > 0}

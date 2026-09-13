@@ -66,7 +66,8 @@ export function TransformGizmo({ target, mode }: {
 
   // Test-only axis getter (mock/e2e builds). Scene owns the shared container.
   useEffect(() => {
-    if (!(import.meta.env as { VITE_USE_MOCK?: string }).VITE_USE_MOCK) return;
+    const env = import.meta.env as { VITE_USE_MOCK?: string; VITE_E2E?: string; MODE?: string };
+    if (!env.VITE_USE_MOCK && env.VITE_E2E !== '1' && env.MODE !== 'e2e') return;
     const w = window as unknown as {
       __orcaE2e?: { gizmoAxis?: () => string | null; gizmoAxisLineWorldPosition?: () => [number, number, number] | null };
     };
@@ -106,6 +107,7 @@ export function TransformGizmo({ target, mode }: {
       object={target}
       mode={mode}
       space="world"
+      showZ={!sceneInteraction.hasWipeTowerSelection}
       enabled={sceneInteraction.owner !== 'body'}
       onMouseDown={() => { sceneInteraction.beginGizmoDrag(); }}
       onObjectChange={() => {

@@ -5,7 +5,7 @@ import { applyPlateResultMutation } from './plateResultLifecycle';
 
 function result(layers = 1): ClientSliceResult {
   return { ok: true, objects: 1, layers, metadata: { resultId: layers, layerRanges: [], featurePalette: [] }, toolpath: {
-    vertexCount: 0, positions: new Float32Array(), layers: new Uint32Array(), features: new Uint32Array(), palette: [],
+    features: new Uint32Array(), palette: [],
     segmentCount: 0, starts: new Float32Array(), ends: new Float32Array(), layerIds: new Uint32Array(),
     moveOrders: new Uint32Array(), gcodeIds: new Uint32Array(), moveTypes: new Uint8Array(),
     extrusionRoles: new Uint16Array(), extruderIds: new Uint8Array(), colorPrintIds: new Uint8Array(),
@@ -45,5 +45,22 @@ describe('per-plate result lifecycle', () => {
     applyPlateResultMutation(mutation, previous);
     expect(Object.keys(useSlicerStore.getState().plateResults)).toEqual(['b']);
     expect(useSlicerStore.getState().status).toBe('done');
+  });
+
+  it('restores a cached plate warning through Preview activation', () => {
+    const store = useSlicerStore.getState();
+    store.setPlateResult(plate('a', 1), result(), undefined, ['Prime Tower intersects an exclusion area.']);
+    expect(store.activatePlateResult('a', 1)).toBe(true);
+    expect(useSlicerStore.getState().error).toBe('[Warning] Prime Tower intersects an exclusion area.');
+  });
+
+  it('clears a prior plate warning when activating a cached plate without warnings', () => {
+    const store = useSlicerStore.getState();
+    store.setPlateResult(plate('a', 1), result(), undefined, ['Prime Tower is outside the printable area.']);
+    store.setPlateResult(plate('b', 1), result());
+    expect(store.activatePlateResult('a', 1)).toBe(true);
+    expect(useSlicerStore.getState().error).toContain('outside the printable area');
+    expect(store.activatePlateResult('b', 1)).toBe(true);
+    expect(useSlicerStore.getState().error).toBeNull();
   });
 });

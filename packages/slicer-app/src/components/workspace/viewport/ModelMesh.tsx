@@ -1,6 +1,6 @@
 // One renderer GLVolume. Prepare models forward pointer events to the scene
 // controller; Preview models are passive render-only shells.
-import { useCallback, useLayoutEffect, useMemo, useRef } from 'react';
+import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { DragControls } from '@react-three/drei';
 import { useThree } from '@react-three/fiber';
@@ -9,6 +9,13 @@ import type { GLVolume } from './GLVolume';
 import { MODEL_BODY_RAYCAST } from './buildPlatePointerOcclusion';
 import { EULER_ORDER } from './transformDeltaMath';
 import { acceleratedRaycast } from 'three-mesh-bvh';
+import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { prepareColourForVolume, resolvePrepareMaterial } from './prepareColourProjection';
+import { WipeTowerVolume } from './WipeTowerVolume';
+
+const BAND_Z_FUDGE = 0.0005;
+export const BVH_RAYCAST = acceleratedRaycast;
 
 function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransform']) {
   if (transform.matrix) {
@@ -26,10 +33,13 @@ function applyTransform(group: THREE.Group, transform: GLVolume['instanceTransfo
   group.updateMatrix();
 }
 
-export function GLVolumeMesh({ data, interactive = true, preview = false }: {
+export const GLVolumeMesh = memo(function GLVolumeMesh({ data, interactive = true, preview = false, structure = [], plateSession, onModelSelection }: {
   data: GLVolume;
   interactive?: boolean;
   preview?: boolean;
+  structure?: readonly ModelObjectStructure[];
+  plateSession?: PlateSessionSnapshot | null;
+  onModelSelection?: () => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const volumeGroupRef = useRef<THREE.Group>(null);
@@ -38,7 +48,12 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
   const invalidate = useThree((s) => s.invalidate);
   const sceneInteraction = useSceneInteraction();
   useSceneInteractionVersion();
+  const filamentSnapshot = useFilamentSessionStore((state) => state.snapshot);
   const selected = !preview && sceneInteraction.selection.has(data);
+  const prepareColour = !preview
+    ? prepareColourForVolume(data, structure, filamentSnapshot, plateSession)
+    : '#cbd5e1';
+  const material = resolvePrepareMaterial({ baseColour: prepareColour, selected, transparent: preview });
   const scratch = useMemo(() => new THREE.Vector3(), []);
 
   const applySceneTransforms = useCallback(() => {
@@ -59,12 +74,12 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
 
   const modelMesh = (
     <group ref={volumeGroupRef}>
-      <mesh
-        geometry={data.geometry}
-        raycast={acceleratedRaycast}
-        userData={{ orcaRaycastRole: MODEL_BODY_RAYCAST, orcaVolume: data }}
+      <group
+        userData={{ orcaRaycastRole: data instanceof WipeTowerVolume ? 'prime-tower' : MODEL_BODY_RAYCAST, orcaVolume: data,
+          ...(data instanceof WipeTowerVolume ? { plateId: data.plateId, primeTower: true } : {}) }}
         onPointerDown={interactive ? (event) => {
           if (event.nativeEvent.button !== 0) return;
+          onModelSelection?.();
           if (!sceneInteraction.pointerStartsOnGizmo) {
             event.nativeEvent.stopImmediatePropagation();
           }
@@ -88,16 +103,24 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
           );
         } : undefined}
       >
-        <meshStandardMaterial
-          color={selected ? '#3b82f6' : '#cbd5e1'}
+        {data instanceof WipeTowerVolume ? data.projection.bands.map((band, index) => (
+          <mesh key={`${band.slot}-${band.startDepth}`} geometry={data.getBandGeometry(index)} raycast={BVH_RAYCAST}
+            position={[data.projection.width / 2, (band.startDepth + band.endDepth) / 2, data.projection.height / 2]}>
+            <meshStandardMaterial color={band.colour} transparent opacity={band.opacity} depthWrite roughness={0.7}
+              polygonOffset polygonOffsetFactor={BAND_Z_FUDGE} />
+          </mesh>
+        )) : <mesh geometry={data.geometry} raycast={BVH_RAYCAST}>
+          <meshStandardMaterial
+          color={material.colour}
           roughness={0.6}
           metalness={0.1}
           side={THREE.DoubleSide}
-          transparent={preview}
-          opacity={preview ? 0.15 : 1}
-          depthWrite={!preview}
-        />
-      </mesh>
+          transparent={material.transparent}
+          opacity={material.opacity}
+          depthWrite={material.depthWrite}
+          />
+        </mesh>}
+      </group>
     </group>
   );
 
@@ -111,9 +134,15 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
       ref={groupRef}
       autoTransform={false}
       axisLock="z"
+      // Every selectable scene entity is armed before its pointer-down handler
+      // can synchronously select it. Gating this through React selection state
+      // loses a same-frame first move; the controller owns arbitration and
+      // admits only its recorded pointer-down candidate. In particular, Prime
+      // Tower uses this exact DragControls path rather than a conditional
+      // enablement workaround.
       dragConfig={{ enabled: sceneInteraction.bodyDragEnabled }}
       onDragStart={(origin) => {
-        if (!sceneInteraction.tryBeginBodyDrag()) return;
+        if (!sceneInteraction.tryBeginBodyDrag(data)) return;
         bodyStartRef.current.copy(origin);
       }}
       onDrag={(localMatrix) => {
@@ -131,4 +160,12 @@ export function GLVolumeMesh({ data, interactive = true, preview = false }: {
       {modelMesh}
     </DragControls>
   );
-}
+}, (previous, next) => previous.data === next.data
+  && previous.interactive === next.interactive
+  && previous.preview === next.preview
+  && previous.structure === next.structure
+  // Selection navigation replaces only the outer session object. Membership
+  // and validity arrays remain identical, so avoid remounting every model
+  // mesh for a currentPlateId-only change.
+  && previous.plateSession?.instances === next.plateSession?.instances
+  && previous.onModelSelection === next.onModelSelection);

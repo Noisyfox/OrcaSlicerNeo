@@ -76,30 +76,17 @@ The v1 user flow works end to end: load STL/3MF → configure → slice →
 > (`scripts/crosscheck-slice.mjs`). See
 > `doc/2026-08-14-m3-implementation-notes.md`.
 
-## Milestone 4: Preset Management with AppConfig Fidelity
+## Milestone 4: Preset Management with AppConfig Fidelity (historical)
 
-> [!info] Target: **2026-08-15** (delivered)
+> [!info] Historical delivery: **2026-08-15**. The AppConfig bridge and
+> single-filament selection surface were removed by the later shared-runtime
+> and multi-filament work; the current bridge has no compatibility path.
 >
 > Design: `doc/2026-08-15-m4-preset-management-design.md`; implementation
 > notes: `doc/2026-08-15-m4-preset-management-implementation-notes.md`.
-> Carry-forward from M3: the preset picker now drives installed-state via the
-> real `AppConfig`/variant mechanism instead of `is_visible` cosmetics.
-
-- [x] Bridge: `orc_init(app_config_json)` (nullable; no-arg backward
-      compatible), `orc_set_app_config`, `orc_get_app_config`,
-      `orc_select_preset(kind, name)` (real `select_preset_by_name` path with
-      the `load_selections` compat tail + all-three write-back)
-- [x] `orc_get_presets(kind)` enriched: `is_visible` (real
-      `set_visible_from_appconfig` result), `is_default`, `selected`,
-      `vendor_id`, `model`, `variant`
-- [x] Fresh-config default: installs every shipped printer via the real
-      `set_variant` mechanism; partial `models` configs → only the listed
-      variants visible
-- [x] Electron: `appConfig:load`/`appConfig:save` IPC → `userData/
-      appconfig.json`; boot loads config → `init(json)` → enriched presets
-- [x] Picker (SettingsPanel): visible presets first, hidden ones in a dimmed
-      "Not installed" group; selection change → `selectPreset` → store sync →
-      `appConfig.save` (the UI choice reaches the slice)
+> The historical implementation used the real native visibility and selection
+> paths. It is retained here only as provenance; current profile selection is
+> Printer/Process and the multi-filament rack consumes `filament_catalog`.
 - [x] Hardening: `catch (...)` fallback on every bridge op **plus** the
       bridge TUs compiled with `-fexceptions` — emcc's default
       `-fignore-exceptions` compiles `try`/`catch` out entirely, so a throw
@@ -209,10 +196,12 @@ cross-origin isolation is available, and serial WASM otherwise.
       (`packages/profile-resources`: manifest + core/vendor ZIPs)
 - [x] Step 6 — profile packages installed into MEMFS before `orc_init()`
       (failed vendor skipped, failed `core` fails startup)
-- [x] Step 7 — AppConfig replaced by shared preferences (Electron file /
-      Web localStorage, in-memory fallback)
-- [x] Step 8 — Electron fully on the shared runtime; legacy AppConfig bridge
-      API removed (`selectPreset` is the only selection path)
+- [x] Step 7 — AppConfig replaced by shared Printer/Process preferences and
+      remembered-rack state (Electron file / Web localStorage, in-memory
+      fallback)
+- [x] Step 8 — Electron fully on the shared runtime; all legacy AppConfig and
+      single-filament selection APIs removed (`selectProfile` is limited to
+      Printer/Process)
 - [x] Step 9 — static `apps/web` host: browser file/download adapters,
       capability gating, `beforeunload` guarding, relative asset URLs
 - [x] Step 10 — dual wasm64 artifacts (threaded + serial) staged; real-artifact
@@ -343,15 +332,31 @@ and drives structural operations through the typed client.
 - [x] After success, count down before closing and optionally switch to Device;
       this preference is persisted and enabled by default
 
-## Filament Library Selector Completeness
+## Milestone 17: Multi-Filament Support
 
-> [!info] Implemented 2026-08-30. Details:
-> `doc/2026-08-30-filament-library-selector.md`.
+> [!success] Implemented and accepted 2026-09-11 (Steps 11–15). Normative specification:
+> [`Multi-Filament Support.md`](Multi-Filament%20Support.md). Execution and
+> final user experience: [`2026-09-13-multi-filament-user-experience.md`](../doc/2026-09-13-multi-filament-user-experience.md).
 
-- [x] Every FFF filament successfully loaded from the bundled profile packages
-      is available to the selector.
-- [x] Compatibility and generic-profile supersession remain in OrcaSlicer's
-      `PresetBundle`; the shared UI does not reproduce them.
+- [x] Worker-owned multi-filament rack/session/slot state with native
+      compatibility, atomic mutations, assignment/routing, flushing, prime
+      tower, Preview, project persistence, and history
+- [x] Zero-legacy boundary: no single-filament UI/API/preference/project
+      state/history/sidecar/mock/wire selection flag, compatibility special
+      case, or migration code; `filament_catalog` is catalogue-only and
+      `orc_select_preset` accepts Printer/Process only
+- [x] History no-bundle invariant guarded by `fullPresetBundleCopyCount`; only
+      project-import staging copies the complete bundle; slot history Undo/Redo
+      remains approximately 1–3 ms and context-only history leaves the fence
+      unchanged
+- [x] Dual-variant real-WASM acceptance completed in 95.018 s under the hard
+      120 s limit. Developer runs may use `--threaded-only`; release runs both
+      serial and threaded variants, with Electron target regression evidence
+- [x] Threaded real Electron acceptance opened the approved 11-plate project,
+      proved plate-1-only slicing, current-plate interaction, one-entry drag
+      history, clamping, Prepare-only lifetime, and non-blocking warnings; the
+      threaded checklist completed in 50.300 s and the licensed project flow
+      completed in 2m06s
 
 ## Cross-cutting titlebar/native menu implementation
 

@@ -27,6 +27,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
   // Arming requires a selection, so `gizmo === 'move'` also implies a pivot;
   // the `current` guard stays as defense in depth.
   if (!sceneInteraction || sceneInteraction.gizmo !== 'move' || !current) return null;
+  const tower = sceneInteraction.hasWipeTowerSelection;
 
   const moveTo = (next: Vec3) => {
     sceneInteraction.moveSelectionToPivot(new THREE.Vector3(...next));
@@ -47,7 +48,9 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
     <section data-testid="move-panel" data-selection-version={version}>
       <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Move</h2>
       <div className="space-y-1">
-        {AXES.map((axis, i) => (
+        {AXES.filter((axis) => !tower || axis !== 'z').map((axis) => {
+          const i = AXES.indexOf(axis);
+          return (
           <div key={axis} className="flex items-center gap-2 py-1">
             <Label className="w-10 shrink-0 text-xs text-muted-foreground">{axis.toUpperCase()}</Label>
             <Input
@@ -65,9 +68,10 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
               }}
             />
           </div>
-        ))}
+          );
+        })}
       </div>
-      <div className="flex gap-2 pt-1">
+      {!tower && <div className="flex gap-2 pt-1">
         <Button
           size="sm"
           variant="secondary"
@@ -88,7 +92,7 @@ export function MovePanel({ sceneInteraction }: { sceneInteraction: SceneInterac
         >
           Reset
         </Button>
-      </div>
+      </div>}
     </section>
   );
 }

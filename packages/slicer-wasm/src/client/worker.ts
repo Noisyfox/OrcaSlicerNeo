@@ -11,17 +11,102 @@
 //   worker → main: {type:'progress', percent, text}   (no id)
 // ----------------------------------------------------------------
 import type { SlicerClient, OrcaModuleFactory, ProgressMailbox } from './types';
+import type {
+  HistoryDiagnosticLayer,
+  HistoryReadDiagnosticLayer,
+  HistoryTransportDiagnostics,
+  HistoryTimingDiagnostic,
+  RestoreResult,
+} from './history';
 import { createClient } from './client';
 
 export type WorkerMessage =
   | { type: 'request'; id: number; op: string; args: unknown[] }
   | { type: 'response'; id: number; ok: boolean; result: unknown; error?: string }
+  | { type: 'history-diagnostic'; diagnostic: HistoryWorkerDiagnostic }
   | { type: 'progress'; percent: number; text: string }
   | { type: 'progress-mailbox'; mailbox: ProgressMailbox };
+
+export interface HistoryWorkerDiagnostic {
+  readonly kind: 'mutation' | 'restore' | 'read';
+  readonly path?: 'direct' | 'full';
+  readonly read?: keyof HistoryReadDiagnosticLayer;
+  readonly durationMs: number;
+}
 
 export interface WorkerTransport {
   post(msg: WorkerMessage, transfer?: Transferable[]): void;
   onMessage(fn: (msg: WorkerMessage) => void): void;
+}
+
+const historyMutationOperations = new Set([
+  'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
+  'deleteFilamentSlot', 'mergeFilamentSlots', 'assignFilament',
+  'setFilamentRouting', 'movePrimeTower',
+]);
+
+function historyNow(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+function isRestoreOperation(operation: string): boolean {
+  return operation === 'undoHistory' || operation === 'redoHistory' || operation === 'jumpHistory';
+}
+
+function restorePath(result: unknown): 'direct' | 'full' {
+  const impact = (result as RestoreResult | undefined)?.ok
+    ? (result as Extract<RestoreResult, { ok: true }>).impact : undefined;
+  return impact?.model === 'none' ? 'direct' : 'full';
+}
+
+function historyReadForOperation(operation: string): keyof HistoryReadDiagnosticLayer | null {
+  switch (operation) {
+    case 'getPlateSessionSnapshot': return 'plateSessionSnapshot';
+    case 'getPrimeTowerProjection': return 'primeTowerProjection';
+    case 'getFilamentSessionSnapshot': return 'filamentSessionSnapshot';
+    default: return null;
+  }
+}
+
+function emptyTiming(): HistoryTimingDiagnostic {
+  return { count: 0, totalMs: 0, maxMs: 0, lastMs: 0 };
+}
+
+function emptyLayer(): HistoryDiagnosticLayer {
+  return {
+    mutation: emptyTiming(), restore: emptyTiming(), directRestore: emptyTiming(), fullRestore: emptyTiming(),
+    reads: { plateSessionSnapshot: emptyTiming(), primeTowerProjection: emptyTiming(), filamentSessionSnapshot: emptyTiming() },
+  };
+}
+
+function addTiming(current: HistoryTimingDiagnostic, durationMs: number): HistoryTimingDiagnostic {
+  const duration = Math.max(0, Number.isFinite(durationMs) ? durationMs : 0);
+  return { count: current.count + 1, totalMs: current.totalMs + duration,
+    maxMs: Math.max(current.maxMs, duration), lastMs: duration };
+}
+
+function recordTiming(
+  layer: HistoryDiagnosticLayer,
+  key: Exclude<keyof HistoryDiagnosticLayer, 'reads'>,
+  durationMs: number,
+): HistoryDiagnosticLayer {
+  return { ...layer, [key]: addTiming(layer[key], durationMs) };
+}
+
+function copyLayer(layer: HistoryDiagnosticLayer): HistoryDiagnosticLayer {
+  return {
+    mutation: { ...layer.mutation }, restore: { ...layer.restore },
+    directRestore: { ...layer.directRestore }, fullRestore: { ...layer.fullRestore },
+    reads: layer.reads && {
+      plateSessionSnapshot: { ...layer.reads.plateSessionSnapshot },
+      primeTowerProjection: { ...layer.reads.primeTowerProjection },
+      filamentSessionSnapshot: { ...layer.reads.filamentSessionSnapshot },
+    },
+  };
+}
+
+function copyDiagnostics(diagnostics: HistoryTransportDiagnostics): HistoryTransportDiagnostics {
+  return { version: 1, worker: copyLayer(diagnostics.worker), client: copyLayer(diagnostics.client) };
 }
 
 function collectTransferables(value: unknown): Transferable[] {
@@ -67,10 +152,12 @@ export function startWorker(
   const activeTransactionIds: string[] = [];
   let transactionStarting = false;
   let restoreInFlight = false;
+  const historyTransactionStartedAts: number[] = [];
 
   onMessage(async (msg) => {
     if (msg.type !== 'request') return;
     const { id, op, args } = msg;
+    const startedAt = historyNow();
     const isRestore = op === 'undoHistory' || op === 'redoHistory' || op === 'jumpHistory';
     if (isRestore && restoreInFlight) {
       post({ type: 'response', id, ok: false, result: undefined, error: 'history restore is already in progress' });
@@ -108,13 +195,38 @@ export function startWorker(
           throw new Error('malformed history jump request');
       }
       await beforeRequest?.(op, callArgs);
-      const result = await method(...callArgs);
+      // Preserve the client receiver for composed operations such as
+      // preflightProject(), which delegates to this.loadProject(). The
+      // dispatcher previously invoked a detached method and made `this`
+      // undefined in the worker even though the public client contract was
+      // otherwise valid.
+      const result = await method.apply(client, callArgs);
       if (op === 'beginHistory') {
         if (typeof result !== 'string' || result.length === 0) throw new Error('malformed history transaction id');
         activeTransactionIds.push(result);
         transactionStarting = false;
+        historyTransactionStartedAts.push(startedAt);
       } else if (op === 'commitHistory' || op === 'abortHistory') {
         activeTransactionIds.pop();
+      }
+      if (isRestore) {
+        post({ type: 'history-diagnostic', diagnostic: {
+          kind: 'restore', path: restorePath(result), durationMs: historyNow() - startedAt,
+        } });
+      } else if (op === 'commitHistory' || op === 'abortHistory') {
+        const mutationStartedAt = historyTransactionStartedAts.pop() ?? startedAt;
+        post({ type: 'history-diagnostic', diagnostic: {
+          kind: 'mutation', durationMs: historyNow() - mutationStartedAt,
+        } });
+      } else if (historyMutationOperations.has(op)) {
+        post({ type: 'history-diagnostic', diagnostic: {
+          kind: 'mutation', durationMs: historyNow() - startedAt,
+        } });
+      } else {
+        const read = historyReadForOperation(op);
+        if (read) post({ type: 'history-diagnostic', diagnostic: {
+          kind: 'read', read, durationMs: historyNow() - startedAt,
+        } });
       }
       post({ type: 'response', id, ok: true, result }, collectTransferables(result));
     } catch (err) {
@@ -131,12 +243,32 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   const pending = new Map<number, {
     resolve: (v: unknown) => void;
     reject: (e: Error) => void;
+    op: string;
+    startedAt: number;
   }>();
   const progressListeners = new Set<(pct: number, text: string) => void>();
   let mailbox: ProgressMailbox | undefined;
   let mailboxTimer: ReturnType<typeof setInterval> | undefined;
   let lastMailboxSequence = -1;
   const decoder = new TextDecoder();
+  let diagnostics: HistoryTransportDiagnostics = { version: 1, worker: emptyLayer(), client: emptyLayer() };
+
+  function recordLayer(layer: 'worker' | 'client', diagnostic: HistoryWorkerDiagnostic): void {
+    if (diagnostic.kind === 'read') {
+      if (!diagnostic.read) return;
+      const reads = diagnostics[layer].reads;
+      if (!reads) return;
+      diagnostics = {
+        ...diagnostics,
+        [layer]: { ...diagnostics[layer], reads: { ...reads, [diagnostic.read]: addTiming(reads[diagnostic.read], diagnostic.durationMs) } },
+      };
+      return;
+    }
+    let next = recordTiming(diagnostics[layer], diagnostic.kind === 'mutation' ? 'mutation' : 'restore', diagnostic.durationMs);
+    if (diagnostic.kind === 'restore')
+      next = recordTiming(next, diagnostic.path === 'direct' ? 'directRestore' : 'fullRestore', diagnostic.durationMs);
+    diagnostics = { ...diagnostics, [layer]: next };
+  }
 
   function emitMailboxProgress(): void {
     if (!mailbox) return;
@@ -169,6 +301,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   }
 
   transport.onMessage((msg) => {
+    if (msg.type === 'history-diagnostic') {
+      recordLayer('worker', msg.diagnostic);
+      return;
+    }
     if (msg.type === 'progress') {
       for (const l of progressListeners) l(msg.percent, msg.text);
       return;
@@ -183,14 +319,24 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
-    if (msg.ok) p.resolve(msg.result);
+    if (msg.ok) {
+      if (isRestoreOperation(p.op))
+        recordLayer('client', { kind: 'restore', path: restorePath(msg.result), durationMs: historyNow() - p.startedAt });
+      else if (historyMutationOperations.has(p.op))
+        recordLayer('client', { kind: 'mutation', durationMs: historyNow() - p.startedAt });
+      else {
+        const read = historyReadForOperation(p.op);
+        if (read) recordLayer('client', { kind: 'read', read, durationMs: historyNow() - p.startedAt });
+      }
+      p.resolve(msg.result);
+    }
     else p.reject(new Error(msg.error ?? 'worker error'));
   });
 
   function call(op: string, args: unknown[]): Promise<unknown> {
     const id = nextId++;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      pending.set(id, { resolve, reject, op, startedAt: historyNow() });
       transport.post({ type: 'request', id, op, args });
     });
   }
@@ -207,12 +353,16 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   return new Proxy({} as SlicerClient, {
     get(_target, prop) {
       if (typeof prop !== 'string' || prop === 'then') return undefined;
+      if (prop === 'getHistoryDiagnostics') {
+        return () => copyDiagnostics(diagnostics);
+      }
       if (prop === 'runProjectHistoryTransaction') {
         return async (
           label: string, category: 'project' | 'context', beforeContext: unknown,
           mutation: (transactionId: string) => Promise<unknown>,
           afterContext: unknown | (() => unknown | Promise<unknown>),
         ) => {
+          const startedAt = historyNow();
           const transactionId = await call('beginHistory', [label, category, beforeContext]);
           try {
             const result = await mutation(String(transactionId));
@@ -223,11 +373,13 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
           } catch (error) {
             try { await call('abortHistory', [transactionId]); } catch { /* preserve mutation error */ }
             throw error;
+          } finally {
+            recordLayer('client', { kind: 'mutation', durationMs: historyNow() - startedAt });
           }
         };
       }
-      if (prop === 'loadProject' || prop === 'importProjectGeometry') {
-        const progressIndex = prop === 'loadProject' ? 3 : 2;
+      if (prop === 'loadProject' || prop === 'importProjectGeometry' || prop === 'preflightProject' || prop === 'commitProjectPreflight') {
+        const progressIndex = prop === 'loadProject' ? 3 : prop === 'commitProjectPreflight' ? 1 : 2;
         return (...args: unknown[]) => {
           const onProgress = args[progressIndex];
           const callArgs = typeof onProgress === 'function' ? args.slice(0, progressIndex) : args;

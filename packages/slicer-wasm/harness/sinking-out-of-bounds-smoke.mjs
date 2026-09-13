@@ -35,7 +35,7 @@ const added = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Sinking 
 check('add fixture model', added.ok === true && added.objects === 1);
 
 const identity = JSON.stringify({ offset: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1] });
-const center = added.instance_transforms?.find((item) => item.object_index === 0)?.world_transform?.offset ?? [100, 100, 10];
+const center = added.plate_session.instance_transforms?.find((item) => item.object_index === 0)?.world_transform?.offset ?? [100, 100, 10];
 const printer = callJson('orc_get_preset_snapshot');
 const printableArea = printer.printable_area ?? [];
 const maxX = Math.max(...printableArea.map((point) => Number(point[0])));

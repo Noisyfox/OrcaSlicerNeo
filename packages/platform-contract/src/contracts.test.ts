@@ -8,8 +8,8 @@ describe('user preferences', () => {
     expect(normalizeUserPreferences('{bad}').ui).toEqual({ switchToDeviceAfterSend: true });
   });
   it('keeps only the typed profile names and UI preferences', () => {
-    expect(normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'P', print: 4, filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, x: true } })).toEqual({
-      version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', filament: 'F' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, switchToDeviceAfterSend: true },
+    expect(normalizeUserPreferences({ version: 1, selectedProfiles: { printer: 'P', print: 'Standard', ignored: true }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, x: true } })).toEqual({
+      version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', print: 'Standard' }, ui: { sidebarWidth: 280, deviceSidebarWidth: 320, switchToDeviceAfterSend: true },
     });
   });
 
@@ -27,6 +27,17 @@ describe('user preferences', () => {
   it('preserves the send navigation preference and migrates old preferences to enabled', () => {
     expect(normalizeUserPreferences({ version: 1, ui: { switchToDeviceAfterSend: false } }).ui.switchToDeviceAfterSend).toBe(false);
     expect(normalizeUserPreferences({ version: 1, ui: {} }).ui.switchToDeviceAfterSend).toBe(true);
+  });
+
+  it('keeps only valid printer-namespaced remembered racks', () => {
+    const normalized = normalizeUserPreferences({ version: 1, rememberedFilamentRacks: {
+      'Printer A': { version: 1, slots: [{ preset: 'PLA', colour: '#112233' }] },
+      'Printer B': { version: 1, slots: [{ preset: '', colour: '#112233' }] },
+      'Printer C': { version: 2, slots: [{ preset: 'PLA', colour: '#112233' }] },
+    } });
+    expect(normalized.rememberedFilamentRacks).toEqual({
+      'Printer A': { version: 1, slots: [{ preset: 'PLA', colour: '#112233' }] },
+    });
   });
 
   it('keeps a complete finite G-code window geometry and rejects malformed values', () => {

@@ -108,13 +108,115 @@ export interface PlateSessionSnapshot {
   dirtyReasons?: readonly string[];
 }
 
+/** Narrow authoritative receipt returned by pure plate navigation. */
+export interface PlateSelection {
+  readonly ok: true;
+  readonly version: 1;
+  readonly currentPlateId: string;
+}
+
 export interface PlateSessionMutation extends PlateSessionSnapshot {
   readonly instanceTransforms: readonly PlateSessionInstanceTransform[];
 }
 
+/** Native printable-area bounds used by the Prime Tower proxy. */
+export interface PrimeTowerBuildArea {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minY: number;
+  readonly maxY: number;
+  readonly maxZ: number;
+}
+
+export interface PrimeTowerFootprint {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minY: number;
+  readonly maxY: number;
+}
+
+export interface PrimeTowerBand {
+  readonly slot: number;
+  readonly startDepth: number;
+  readonly endDepth: number;
+  readonly colour: string;
+  readonly opacity: number;
+}
+
+/** Read-only Worker projection of the estimated Prepare Prime Tower. */
+export interface PrimeTowerPlateProjection {
+  readonly plateId: string;
+  readonly displayIndex: number;
+  readonly eligible: boolean;
+  readonly empty: boolean;
+  readonly forced: boolean;
+  readonly usedSlots: readonly number[];
+  readonly width: number;
+  readonly depth: number;
+  readonly height: number;
+  readonly position: Readonly<{ x: number; y: number }>;
+  readonly rotation: number;
+  readonly brimMargin: number;
+  readonly footprint: PrimeTowerFootprint;
+  readonly bands: readonly PrimeTowerBand[];
+  readonly buildArea: PrimeTowerBuildArea;
+  readonly outsideBoundaryWarning?: boolean;
+}
+
+export interface PrimeTowerProjection {
+  readonly ok: true;
+  readonly version: 1;
+  readonly currentPlateId: string;
+  readonly buildArea: PrimeTowerBuildArea;
+  readonly plates: readonly PrimeTowerPlateProjection[];
+}
+
+export interface PrimeTowerProjectionError {
+  readonly ok?: false;
+  readonly version?: 1;
+  readonly error: string;
+}
+
+export type PrimeTowerProjectionResult = PrimeTowerProjection | PrimeTowerProjectionError;
+
+export interface PrimeTowerMoveRequest {
+  readonly version: 1;
+  readonly plateId: string;
+  readonly revision: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface PrimeTowerMoveMutation {
+  readonly kind: 'move';
+  readonly plateId: string;
+  readonly historyEntryDelta: 0 | 1;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly dirty: boolean;
+  readonly affectedPlateIds: readonly string[];
+  readonly clamped?: boolean;
+  readonly outsideBoundaryWarning?: boolean;
+  readonly warning?: string;
+  /** Authoritative, clamped coordinates for the moved plate. */
+  readonly position: Readonly<{ x: number; y: number }>;
+  /** Authoritative footprint at the returned coordinates. */
+  readonly footprint: PrimeTowerFootprint;
+}
+
+export interface PrimeTowerMoveResult {
+  readonly mutation: PrimeTowerMoveMutation;
+  /** Native history status captured after the atomic move commit. */
+  readonly historyStatus: import('./history').HistoryStatus;
+}
+
+export type PrimeTowerMoveResultOrError = AtomicCommandResult<PrimeTowerMoveResult>;
+
 /** Worker-owned project configuration overrides. Keys are native option names;
  * values are their native serialized representations. IDs are stable object /
- * part IDs or runtime plate IDs, never renderer indices. */
+ * part IDs, never renderer indices. Prime Tower X/Y are intentionally absent:
+ * their native project-level arrays are edited only by the typed scene move
+ * command, never through this generic overlay. */
 export interface ProjectConfigOverlay {
   readonly project: Readonly<Record<string, string>>;
   readonly objects: Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -122,22 +224,46 @@ export interface ProjectConfigOverlay {
   readonly plates: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
-export type ProjectConfigScope = 'project' | 'object' | 'part' | 'plate';
+export type ProjectConfigScope = 'project' | 'object' | 'part';
 
 export interface ProjectConfigOverrideTarget {
   readonly scope: ProjectConfigScope;
   readonly id?: number | string;
 }
 
+export interface ConfigurationCorrection {
+  readonly key: string;
+  readonly requested: string;
+  readonly effective: string;
+}
+
+export interface ConfigurationReadyStatus {
+  readonly state: 'ready';
+  readonly corrections: readonly ConfigurationCorrection[];
+  readonly warnings: readonly string[];
+  readonly errors: readonly string[];
+}
+
+export interface ConfigurationErrorStatus {
+  readonly state: 'error';
+  readonly error: string;
+}
+
+export type ConfigurationStatus = ConfigurationReadyStatus | ConfigurationErrorStatus;
+
 export interface ProjectConfigOverlayResult {
   readonly ok: true;
   readonly overlay: ProjectConfigOverlay;
   readonly plateSession?: PlateSessionMutation;
+  /** Native option parse/normalization feedback for configuration commands. */
+  readonly configurationStatus?: ConfigurationReadyStatus;
 }
 
 export interface ProjectConfigOverlayError {
   readonly ok?: false;
   readonly error: string;
+  readonly errorCode?: string;
+  readonly status?: ConfigurationErrorStatus;
 }
 
 export type ProjectConfigOverlayResultOrError = ProjectConfigOverlayResult | ProjectConfigOverlayError;
@@ -150,8 +276,10 @@ export interface PlateSessionSnapshotError {
 
 export type PlateSessionSnapshotResult = PlateSessionSnapshot | PlateSessionSnapshotError;
 export type PlateSessionMutationResult = PlateSessionMutation | PlateSessionSnapshotError;
+export type PlateSelectionResult = PlateSelection | PlateSessionSnapshotError;
 
-export interface PresetInfo {
+/** Common identity and visibility fields for entries in the engine catalogue. */
+export interface FilamentCatalogItem {
   name: string;
   /** Real preset visibility result from the bundled profile state. */
   is_visible: boolean;
@@ -160,8 +288,12 @@ export interface PresetInfo {
   vendor_id: string;
   model: string;
   variant: string;
+}
+
+/** A printer/process entry whose collection selection is meaningful. */
+export interface PresetInfo extends FilamentCatalogItem {
   /** true when this entry is the collection's current selection (the
-   *  picker's value source at boot; updated by selectPreset responses) */
+   *  picker's value source at boot; updated by selectProfile responses) */
   selected: boolean;
 }
 
@@ -174,32 +306,36 @@ export interface PresetSelection {
 /**
  * One coherent, picker-ready FFF preset state from the C++ profile engine.
  * The candidate arrays are already filtered by the engine: printers are
- * visible, while prints and filaments are visible and compatible with the
- * final selection context. Preserve their order; do not re-filter or sort in
- * JavaScript.
+ * visible, while prints and the multi-filament catalogue are visible and
+ * compatible with the final selection context. Preserve their order; do not
+ * re-filter or sort in JavaScript.
  */
-export interface PresetSnapshot {
+export interface ProfileSnapshot {
   ok: true;
   printers: PresetInfo[];
   prints: PresetInfo[];
-  filaments: PresetInfo[];
+  /** Engine-filtered filament catalogue consumed by the multi-filament rack. */
+  /** Engine-filtered rack catalogue. Items intentionally have no selected flag. */
+  filamentCatalog: FilamentCatalogItem[];
   printer: PresetSelection;
   print: PresetSelection;
-  filament: PresetSelection;
   /** Selected printer's build-plate polygon in slicer XY coordinates (mm). */
   printable_area?: Array<[number, number]>;
+  /**
+   * Effective native project/process configuration before the Neo overlay.
+   * The settings UI uses this as its base value source; slicing remains
+   * Worker-owned and applies the same native config plus the overlay.
+   */
+  project_config?: Record<string, string>;
 }
 
 /** A bridge rejection has no partial snapshot and leaves engine state unchanged. */
-export interface PresetSnapshotError {
+export interface ProfileSnapshotError {
   ok?: false;
   error: string;
 }
 
-export type PresetSnapshotResult = PresetSnapshot | PresetSnapshotError;
-
-/** @deprecated Use PresetSnapshotResult; retained during the API migration. */
-export type SelectPresetResult = PresetSnapshotResult;
+export type ProfileSnapshotResult = ProfileSnapshot | ProfileSnapshotError;
 
 export type OptionMetaType =
   | 'float' | 'int' | 'string' | 'bool' | 'percent' | 'floats' | 'ints'
@@ -248,9 +384,17 @@ export interface EmbeddedPresetEvidence {
   modifiedGcodeKeys: string[];
 }
 
+export interface FilamentSlotChange {
+  slot: number;
+  before: string;
+  after: string;
+  reason: 'native-compatibility';
+}
+
 /** Result metadata from the native BBS 3MF reader. */
 export interface ProjectLoadResult {
   ok: boolean;
+  preflightToken?: string;
   objects: number;
   instances: number;
   mode?: ProjectLoadMode;
@@ -275,12 +419,13 @@ export interface ProjectLoadResult {
     modifiedGcodeKeys?: string[];
     missingSystemPresetTypes?: Array<'printer' | 'filament'>;
     presetEvidence?: EmbeddedPresetEvidence[];
+    filamentSlotChanges?: FilamentSlotChange[];
   };
   /** Candidate picker state captured in the same native load response. */
-  presetSnapshot?: PresetSnapshot;
+  presetSnapshot?: ProfileSnapshot;
   /** Authoritative plate membership returned by the native model transaction. */
   plateSession?: PlateSessionMutation;
-  /** Project/object/part/plate overrides retained by the Worker. */
+  /** Project/object/part overrides plus retained plate metadata. */
   projectConfigOverlay?: ProjectConfigOverlay;
   error?: string;
 }
@@ -467,7 +612,18 @@ export interface ModelStructureResult {
 export interface SliceResultStatus {
   ok: boolean;
   unrecognized_keys: string[];
+  /** Native slice-time advisory warnings; these never replace hard errors. */
+  warnings?: string[];
   error?: string;
+}
+
+/** One renderer CompositeID transform in an atomic Worker transform command. */
+export interface ModelTransformMutation {
+  readonly objectIdx: number;
+  readonly volumeIdx: number;
+  readonly instanceIdx: number;
+  readonly instanceTransform: ModelTransform;
+  readonly volumeTransform: ModelTransform;
 }
 
 /** Immutable identity captured when a current-plate operation starts. */
@@ -591,14 +747,9 @@ export interface PreviewToolpathMetrics {
 }
 
 export interface ClientToolpath {
-  vertexCount: number;
-  /** Float32Array xyz per toolpath vertex */
-  positions: Float32Array;
-  /** Uint32Array layer_id per vertex */
-  layers: Uint32Array;
-  /** Uint32Array palette index per vertex */
+  /** Uint32Array local palette index derived from extrusionRoles and metadata.featurePalette */
   features: Uint32Array;
-  /** per-feature id → palette color (palette may index beyond, client clamps) */
+  /** Canonical v2 feature palette published in preview metadata. */
   palette: ToolpathFeature[];
   /** Explicit continuous segment arrays. Every array has segmentCount entries. */
   segmentCount: number;
@@ -658,9 +809,230 @@ export interface ReadLogResult {
   error?: string;
 }
 
+/**
+ * Provenance for the colour currently shown for a material slot. This is
+ * native effective-equivalence provenance: an explicit colour equal to the
+ * selected preset is reported as preset because the read-only bridge cannot
+ * recover edit history.
+ */
+export type FilamentColourProvenance = 'preset' | 'user';
+
+/** One ordered, one-based material slot owned by the native session. */
+export interface FilamentSessionSlot {
+  readonly slot: number;
+  readonly preset: { readonly id: string; readonly name: string };
+  readonly colour: {
+    readonly effective: string;
+    readonly provenance: FilamentColourProvenance;
+  };
+}
+
+export interface FilamentNativeMapping {
+  readonly filament: readonly number[];
+  readonly volume: readonly number[];
+  readonly nozzle: readonly number[];
+  readonly filament2: readonly number[];
+  readonly physicalExtruder: readonly number[];
+}
+
+export interface FilamentFlushingState {
+  readonly matrix: readonly number[];
+  readonly vector: readonly number[];
+  readonly matrixDimension: number;
+  /** Number of native nozzle planes stored in matrix (matrix is not truncated). */
+  readonly planeCount: number;
+  readonly source: 'native' | 'default';
+}
+
+export interface FilamentSessionCapabilities {
+  readonly minSlots: number;
+  readonly maxSlots: number;
+  readonly nozzleCount: number;
+  /** Native SEMM/Bambu flexible-slot capability, not inferred from counts. */
+  readonly flexible: boolean;
+  readonly canAdd: boolean;
+  readonly canDelete: boolean;
+  readonly canMerge: boolean;
+}
+
+export type FilamentAssignmentTarget = 'object' | 'model-part' | 'parameter-modifier';
+
+export type FilamentRoutingTarget = 'project' | 'object' | 'model-part';
+
+export interface FilamentRoutingProjection {
+  readonly target: FilamentRoutingTarget;
+  readonly id: number;
+  readonly objectId: number;
+  readonly selector: 'support-base' | 'support-interface' | 'outer-wall' | 'inner-wall' |
+    'sparse-infill' | 'internal-solid-infill' | 'top-surface' | 'bottom-surface';
+  /** Zero means native Default; positive values are one-based slot IDs. */
+  readonly explicitSlot: number;
+  /** Zero for project-scoped support Default; otherwise the effective slot. */
+  readonly effectiveSlot: number;
+  /** True when the effective value is inherited from the native parent scope. */
+  readonly inherited: boolean;
+  readonly defaulted: boolean;
+}
+
+export interface FilamentAssignmentProjection {
+  readonly target: FilamentAssignmentTarget;
+  readonly id: number;
+  readonly objectId: number;
+  readonly explicitSlot: number;
+  readonly effectiveSlot: number;
+  readonly inherited: boolean;
+}
+
+export interface FilamentAssignmentProjectionSet {
+  readonly objects: readonly FilamentAssignmentProjection[];
+  readonly parts: readonly FilamentAssignmentProjection[];
+  readonly modifiers: readonly FilamentAssignmentProjection[];
+}
+
+export interface FilamentSessionRevisions {
+  readonly session: number;
+  readonly project: number;
+  readonly result: number;
+  readonly plates: Readonly<Record<string, number>>;
+}
+
+export interface FilamentSessionStatus {
+  readonly state: 'ready';
+  readonly error: null;
+}
+
+/** Versioned, read-only authoritative projection of the native filament session. */
+export interface FilamentSessionSnapshot {
+  readonly ok: true;
+  readonly version: 1;
+  readonly slots: readonly FilamentSessionSlot[];
+  readonly mappings: FilamentNativeMapping;
+  readonly flushing: FilamentFlushingState;
+  readonly capabilities: FilamentSessionCapabilities;
+  readonly routing?: readonly FilamentRoutingProjection[];
+  readonly assignments: FilamentAssignmentProjectionSet;
+  readonly revisions: FilamentSessionRevisions;
+  readonly status: FilamentSessionStatus;
+}
+
+export interface FilamentSessionSnapshotError {
+  readonly ok?: false;
+  readonly error: string;
+  readonly errorCode?: string;
+  readonly status?: { readonly state: 'error'; readonly error: string };
+}
+
+export type FilamentSessionSnapshotResult = FilamentSessionSnapshot | FilamentSessionSnapshotError;
+
+export interface FilamentMutationSummary {
+  readonly kind: 'select-preset' | 'set-colour' | 'add' | 'delete' | 'merge' | 'assign' | 'routing';
+  readonly slot?: number;
+  readonly source?: number;
+  readonly destination?: number | null;
+  readonly preset?: string;
+  readonly colour?: string;
+  readonly slotCount?: number;
+  readonly historyEntryDelta: 1;
+  readonly revisionBefore: number;
+  readonly revisionAfter: number;
+  readonly dirty: true;
+  readonly allPlateResultsInvalidated: boolean;
+  readonly affectedPlateIds?: readonly string[];
+  readonly acceptedTargets?: readonly { readonly kind: FilamentAssignmentTarget | FilamentRoutingTarget; readonly id: number; readonly objectId: number }[];
+  readonly selector?: string;
+}
+
+export interface FilamentMutationResult {
+  readonly snapshot: FilamentSessionSnapshot;
+  readonly mutation: FilamentMutationSummary;
+  /** Native history status captured after the same successful commit. */
+  readonly historyStatus: import('./history').HistoryStatus;
+}
+
+export interface FilamentCommandRequest {
+  readonly revision: number;
+  readonly version: 1;
+}
+
+export interface FilamentSlotPresetRequest extends FilamentCommandRequest {
+  readonly slot: number;
+  readonly preset: string;
+}
+
+export interface FilamentSlotColourRequest extends FilamentCommandRequest {
+  readonly slot: number;
+  readonly colour: string;
+}
+
+export interface FilamentSlotDeleteRequest extends FilamentCommandRequest {
+  readonly slot: number;
+}
+
+export interface FilamentSlotMergeRequest extends FilamentCommandRequest {
+  readonly source: number;
+  readonly destination: number;
+}
+
+export interface RememberedFilamentRackRequest extends FilamentCommandRequest {
+  readonly slots: readonly { preset: string; colour: string }[];
+}
+
+export interface FilamentAssignmentTargetRequest {
+  readonly kind: 'object' | 'instance' | 'instance-as-object' | 'model-part' | 'parameter-modifier';
+  readonly id: number;
+}
+
+export interface FilamentAssignmentRequest extends FilamentCommandRequest {
+  readonly slot: number;
+  readonly targets: readonly FilamentAssignmentTargetRequest[];
+}
+
+export interface FilamentRoutingTargetRequest {
+  readonly kind: FilamentRoutingTarget;
+  readonly id?: number;
+}
+
+export type FilamentRoutingSelector = FilamentRoutingProjection['selector'];
+
+export interface FilamentRoutingRequest extends FilamentCommandRequest {
+  readonly selector: FilamentRoutingSelector;
+  readonly slot: number;
+  readonly targets: readonly FilamentRoutingTargetRequest[];
+}
+
+export type FilamentMutationResultOrError = AtomicCommandResult<FilamentMutationResult>;
+
+/** Reusable versioned envelope reserved for Step 2 atomic commands. */
+export interface AtomicCommandSuccessEnvelope<T> {
+  readonly ok: true;
+  readonly version: 1;
+  readonly result: T;
+}
+
+/** Reusable versioned envelope reserved for Step 2 atomic command failures. */
+export interface AtomicCommandErrorEnvelope {
+  readonly ok: false;
+  readonly version: 1;
+  readonly error: string;
+  readonly errorCode: string;
+  readonly status?: { readonly state: 'error'; readonly error: string };
+}
+
+export type AtomicCommandResult<T> = AtomicCommandSuccessEnvelope<T> | AtomicCommandErrorEnvelope;
+
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
+  /** Read the complete native filament session; no renderer-side fallback is allowed. */
+  getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult>;
+  selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError>;
+  setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError>;
+  addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError>;
+  deleteFilamentSlot(request: FilamentSlotDeleteRequest): Promise<FilamentMutationResultOrError>;
+  mergeFilamentSlots(request: FilamentSlotMergeRequest): Promise<FilamentMutationResultOrError>;
+  applyRememberedFilamentRack(request: RememberedFilamentRackRequest): Promise<FilamentSessionSnapshotResult>;
+  assignFilament(request: FilamentAssignmentRequest): Promise<FilamentMutationResultOrError>;
+  setFilamentRouting(request: FilamentRoutingRequest): Promise<FilamentMutationResultOrError>;
   /** Begin/commit/abort are serialized by the Worker; transaction IDs are opaque. */
   beginHistory(label: import('./history').HistoryLabel, category: import('./history').HistoryCategory,
                beforeContext: import('./history').HistoryContext,
@@ -678,6 +1050,8 @@ export interface SlicerClient {
                        context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
   /** Clear the prior project session and establish a clean baseline. */
   resetHistory(context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
+  /** Compact Worker/client timing counters for smoke and E2E diagnostics. */
+  getHistoryDiagnostics(): import('./history').HistoryTransportDiagnostics;
   runProjectHistoryTransaction<T>(
     label: import('./history').HistoryLabel,
     category: import('./history').HistoryCategory,
@@ -687,28 +1061,38 @@ export interface SlicerClient {
   ): Promise<{ result: T; status: import('./history').HistoryStatus }>;
   /** Read the authoritative headless plate session snapshot. */
   getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult>;
+  /** Read the native estimated Prepare Prime Tower for every plate. */
+  getPrimeTowerProjection(): Promise<PrimeTowerProjectionResult>;
+  /** Move one plate-local Prime Tower position through one atomic history command. */
+  movePrimeTower(request: PrimeTowerMoveRequest): Promise<PrimeTowerMoveResultOrError>;
   /** Reset to one fresh default Plate 1 and return its new runtime identity. */
   resetPlateSession(): Promise<PlateSessionSnapshotResult>;
   /** Select an existing plate by its opaque runtime identity. */
-  selectPlate(plateId: string): Promise<PlateSessionSnapshotResult>;
+  selectPlate(plateId: string): Promise<PlateSelectionResult>;
   addPlate(): Promise<PlateSessionMutationResult>;
   deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;
   /** Advance every existing plate for a committed shared configuration edit. */
-  markSharedConfigurationMutation(optionKey?: string, value?: string): Promise<PlateSessionMutationResult>;
-  /** Read the canonical Worker-owned project/object/part/plate overrides. */
+  markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
+  /** Read canonical Worker-owned project/object/part overrides plus plate metadata. */
   getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
   /** Set one supported override and return the affected plate projection. */
   setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError>;
   /** Revalidate retained overrides after a base preset transition. */
   revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
   /** Read the engine-resolved, atomic picker state for initial loading. */
-  getPresetSnapshot(): Promise<PresetSnapshotResult>;
+  getProfileSnapshot(): Promise<ProfileSnapshotResult>;
   getOptionMetadata(): Promise<OptionMetadata>;
   /** Add a model file to the current scene without replacing existing objects. */
   addModel(bytes: Uint8Array, ext: string, displayName?: string): Promise<LoadModelResult>;
   /** Load a BBS 3MF as a project (replace) or geometry-only append. */
   loadProject(bytes: Uint8Array, mode?: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
+  /** Parse and stage a project without changing the live Worker session. */
+  preflightProject(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
+  /** Commit a previously accepted project preflight. */
+  commitProjectPreflight(token: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
+  /** Discard a staged project preflight without changing the live session. */
+  cancelProjectPreflight(token: string): Promise<{ ok: boolean; error?: string }>;
   /** Explicit geometry-only alias used by Add Model/project fallback callers. */
   importProjectGeometry(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult>;
   /** Add an OrcaSlicer primitive to the current scene, exactly like its
@@ -724,6 +1108,11 @@ export interface SlicerClient {
     objIdx: number, volumeIdx: number, instIdx: number,
     instanceTransform: ModelTransform, volumeTransform: ModelTransform,
   ): Promise<{ ok: boolean; error?: string }>;
+  /** Apply every transform from one gesture atomically inside its history transaction. */
+  setModelTransforms(
+    transactionId: import('./history').HistoryTransactionId,
+    transforms: readonly ModelTransformMutation[],
+  ): Promise<{ ok: boolean; error?: string; plateSession?: PlateSessionMutation }>;
   getModelMesh(): Promise<ModelMeshResult>;
   /** Read the complete object/part/instance tree with stable IDs. */
   getModelStructure(): Promise<ModelStructureResult>;
@@ -759,8 +1148,10 @@ export interface SlicerClient {
   setObjectPrintable(objectId: number, printable: boolean): Promise<MutationResult>;
   /** Toggle a single instance's printable state by its stable ObjectID. */
   setInstancePrintable(instanceId: number, printable: boolean): Promise<MutationResult>;
-  /** Select a preset by name and return the final atomic compatibility state. */
-  selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<PresetSnapshotResult>;
+  /** Select a printer or process profile and return the final atomic
+   * compatibility state. Filament selection is owned by the multi-filament
+   * session/rack commands. */
+  selectProfile(kind: 'printer' | 'print', name: string): Promise<ProfileSnapshotResult>;
   slice(config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;
   /** Slice only the captured current plate; stale/non-current targets reject. */
   slicePlate(target: PlateOperationTarget, config: Record<string, string>, onProgress?: (percent: number, text: string) => void): Promise<SliceResultStatus>;

@@ -80,6 +80,14 @@ describe('SceneInteractionController', () => {
     expect(port.abort).not.toHaveBeenCalled();
   });
 
+  it('shares pointer ownership with scene-only gestures so camera raycasting is disabled', () => {
+    expect(controller.claimExternalPointer()).toBe(true);
+    expect(controller.owner).toBe('external');
+    expect(controller.claimExternalPointer()).toBe(false);
+    controller.releaseExternalPointer();
+    expect(controller.owner).toBe('none');
+  });
+
   it('restores a cancelled drag locally without a commit or Worker write', async () => {
     const port = {
       begin: vi.fn(),
@@ -490,6 +498,46 @@ describe('SceneInteractionController', () => {
     expect(controller.bodyDragEnabled).toBe(true);
     expect(controller.tryBeginBodyDrag()).toBe(true);
     expect(controller.owner).toBe('body');
+  });
+
+  it('claims the pointer-down ordinary hit on the synchronous first drag move', async () => {
+    const port = {
+      begin: vi.fn(),
+      commit: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+    };
+    controller.setTransformHistoryPort(port);
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+
+    expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(true);
+    expect(controller.bodySelectionHistoryState).toBe('pending');
+    const start = controller.selectionPivot()!;
+    // Deliberately do not await or publish React selection between these
+    // calls: this is the same pointerdown -> thresholded pointermove turn.
+    expect(controller.tryBeginBodyDrag(volumes[0])).toBe(false);
+    expect(controller.tryBeginBodyDrag(volumes[2])).toBe(true);
+    expect(controller.bodySelectionHistoryState).toBe('dragging');
+    expect(controller.updateDragPivot(start.clone().add(new THREE.Vector3(3, -2, 0)))).toBe(true);
+    expect(controller.endDrag()).toBe(true);
+    expect(controller.bodySelectionHistoryState).toBe('idle');
+    await Promise.resolve();
+
+    expect(volumes.map((volume) => volume.instanceTransform.offset)).toEqual([
+      [0, 0, 0], [0, 0, 0], [23, 3, 0], [23, 3, 0],
+    ]);
+    expect(port.begin).toHaveBeenCalledOnce();
+    expect(port.commit).toHaveBeenCalledOnce();
+    expect(port.abort).not.toHaveBeenCalled();
+  });
+
+  it('does not let an ordinary pointer-down candidate survive release', () => {
+    controller.resolveGizmoPointerDown({ button: 0 } as PointerEvent);
+    expect(controller.prepareBodyDragFromPointerDown(volumes[2], false)).toBe(true);
+
+    controller.releasePointer();
+
+    expect(controller.tryBeginBodyDrag(volumes[2])).toBe(false);
+    expect(controller.owner).toBe('none');
   });
 
   it('gives a gizmo grabber priority over body dragging', () => {

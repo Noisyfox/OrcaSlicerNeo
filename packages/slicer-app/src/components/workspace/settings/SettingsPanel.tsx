@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { usePlatform } from '@orca/platform-contract';
 import { applyPresetConfigurationMutation, invalidateAfterSharedConfigurationMutation } from './configurationActions';
+import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
+import { applyRememberedFilamentRackFromRepository } from '../../../preferences';
 import {
   Combobox,
   ComboboxContent,
@@ -30,20 +32,19 @@ const PROCESS_KEYS = [
   'nozzle_temperature', 'nozzle_temperature_initial_layer',
   'hot_plate_temp_initial_layer', 'print_speed', 'outer_wall_speed',
   'sparse_infill_speed', 'travel_speed',
+  'enable_prime_tower', 'prime_tower_width',
 ];
 
-type PresetKind = 'printer' | 'print' | 'filament';
+type PresetKind = 'printer' | 'print';
 
 export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
   const platform = usePlatform();
   const metadata = useSettingsStore((s) => s.metadata);
   const printers = useSettingsStore((s) => s.printers);
   const prints = useSettingsStore((s) => s.prints);
-  const filaments = useSettingsStore((s) => s.filaments);
   const selectedPrinter = useSettingsStore((s) => s.selectedPrinter);
   const selectedPrint = useSettingsStore((s) => s.selectedPrint);
-  const selectedFilament = useSettingsStore((s) => s.selectedFilament);
-  const hydratePresetSnapshot = useSettingsStore((s) => s.hydratePresetSnapshot);
+  const hydrateProfileSnapshot = useSettingsStore((s) => s.hydrateProfileSnapshot);
   const setOverlay = useSettingsStore((s) => s.setOverlay);
   const setError = useSlicerStore((s) => s.setError);
   const [presetTransitionPending, setPresetTransitionPending] = useState(false);
@@ -61,17 +62,26 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
     if (presetTransitionPending) return;
     setPresetTransitionPending(true);
     try {
-      const r = await platform.runtime.selectPreset(kind, name);
-      if (!r.ok) throw new Error(r.error ?? 'selectPreset failed');
+      const r = await platform.runtime.selectProfile(kind, name);
+      if (!r.ok) throw new Error(r.error ?? 'selectProfile failed');
+      if (kind === 'printer') {
+        await applyRememberedFilamentRackFromRepository(
+          platform.preferences,
+          platform.runtime,
+          r.printer.name,
+        );
+      }
       // Preset selection changes the shared slice input for every plate. The
       // bridge owns the complete plate set and advances all revisions in one
       // typed transaction; its response is the sole source for revisions and
       // affected plates recorded by the shared action.
       await applyPresetConfigurationMutation(platform);
+      const filament = await refreshFilamentSession(platform.runtime);
+      if (!filament.ok) throw new Error(filament.error ?? 'filament session refresh failed');
       // The bridge's arrays are already the complete picker-ready candidate
       // sets, in engine order. Replace every picker and resolved name together
       // rather than composing a selection with independently fetched lists.
-      hydratePresetSnapshot(r);
+      hydrateProfileSnapshot(r);
       if (typeof platform.runtime.revalidateProjectConfigOverlay === 'function') {
         const revalidated = await platform.runtime.revalidateProjectConfigOverlay();
         if (revalidated.ok) setOverlay(revalidated.overlay);
@@ -82,9 +92,9 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       const project = useProjectStore.getState();
       project.setProject({
         ...(project.scope === 'project' ? { projectPresets: {
-          printer: r.printer.name, print: r.print.name, filament: r.filament.name,
+          printer: r.printer.name, print: r.print.name,
         } } : { systemPresets: {
-          printer: r.printer.name, print: r.print.name, filament: r.filament.name,
+          printer: r.printer.name, print: r.print.name,
         } }),
       });
 
@@ -97,7 +107,7 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
       try {
         const prefs = await platform.preferences.load();
         await platform.preferences.save({ ...prefs, selectedProfiles: {
-          printer: r.printer.name, print: r.print.name, filament: r.filament.name,
+          printer: r.printer.name, print: r.print.name,
         } });
       } catch (error) {
         console.error('preset preference save failed; keeping resolved session state', error);
@@ -124,7 +134,6 @@ export function SettingsPanel({ sceneInteraction }: { sceneInteraction: SceneInt
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Presets</h2>
         <PresetRow label="Printer" items={printers} value={selectedPrinter} onValue={(v) => handleSelectPreset('printer', v)} disabled={presetTransitionPending} testId="preset-select" />
         <PresetRow label="Process" items={prints} value={selectedPrint} onValue={(v) => handleSelectPreset('print', v)} disabled={presetTransitionPending} testId="process-preset-select" />
-        <PresetRow label="Filament" items={filaments} value={selectedFilament} onValue={(v) => handleSelectPreset('filament', v)} disabled={presetTransitionPending} testId="filament-preset-select" />
       </section>
       <section>
         <h2 className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Process</h2>

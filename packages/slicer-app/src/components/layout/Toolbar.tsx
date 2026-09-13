@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/layout/Toolbar.tsx
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Slice, Download, Send as SendIcon, Printer, AppWindowIcon, HouseIcon, LayersIcon, ComputerIcon, Undo2, Redo2, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -38,29 +38,11 @@ export function Toolbar({ activeTab = 'home', onTabChange, onNavigateToDevice, o
   const restoring = useHistoryRestoreStore((s) => s.phase !== 'idle');
   const historyError = useHistoryRestoreStore((s) => s.error);
   const historyStatus = useHistoryNavigationStore((s) => s.status);
-  const setHistoryStatus = useHistoryNavigationStore((s) => s.setStatus);
   const hasCompletedResult = status === 'done';
   const [exporting, setExporting] = useState(false);
   const [sendAction, setSendAction] = useState<SendGcodeAction | null>(null);
   const showActions = isWorkspaceTab(activeTab);
   const historyNavigationAvailable = isPrepareTab(activeTab);
-
-  // Keep the controls projected from Worker status even when a mutation was
-  // initiated outside this toolbar (ObjectList, settings, or a native menu).
-  // This is a status read, never a second frontend history list.
-  useEffect(() => {
-    if (typeof platform.runtime.getHistoryStatus !== 'function') return;
-    let active = true;
-    const refresh = async () => {
-      try {
-        const status = await platform.runtime.getHistoryStatus();
-        if (active) setHistoryStatus(status);
-      } catch { /* startup/teardown can race Worker availability */ }
-    };
-    void refresh();
-    const timer = window.setInterval(() => { void refresh(); }, 500);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [platform.runtime, setHistoryStatus]);
 
   const undoEntries = projectHistoryEntries(historyStatus, 'undo');
   const redoEntries = projectHistoryEntries(historyStatus, 'redo');

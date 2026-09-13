@@ -24,11 +24,12 @@ import { isPreviewInspectionKey, maxMoveOrderForLayer, previewKeyboardStep, prev
 import { GcodeTextWindow } from './GcodeTextWindow';
 import { Button } from '@/components/ui/button';
 import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
-import type { PlateSessionSnapshot } from '@slicer/client';
+import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { canAddPlate, canDeletePlate } from './plateControls';
 import { deriveCameraClippingPlanes, expandCameraBoundsWithPlate } from './cameraClipping';
 import { applyPlateSessionResponse, selectPlateSessionAndClearSelection } from '../plateSessionActions';
-import { runProjectHistoryMutation, syncHistoryStatus } from '../actions/historyMutation';
+import { runProjectHistoryMutation } from '../actions/historyMutation';
+import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 
 // Launch camera: look at the plate center with the plate at 45° to the screen
 // plane and its X axis horizontal. The initial values use the fallback plate;
@@ -71,11 +72,13 @@ class ViewportErrorBoundary extends Component<{ children: ReactNode }, { failed:
   }
 }
 
-export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, previewFrameRequest, onSceneFrameRendered }: {
+export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, wipeTowerVolumes, structure = [], previewFrameRequest, onSceneFrameRendered }: {
   activeTab: 'prepare' | 'preview';
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   sceneInteraction: SceneInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
+  structure?: readonly ModelObjectStructure[];
   previewFrameRequest?: { plateId: string; token: number } | null;
   onSceneFrameRendered?: (mode: 'prepare' | 'preview') => void;
 }) {
@@ -151,6 +154,13 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pre
       boxGestureRef.current = null;
     };
   }, []);
+  // A window interruption cancels the same shared scene drag regardless of
+  // whether its selected GL volume is a model or a wipe tower.
+  useEffect(() => {
+    const cancelSceneDrag = () => { sceneInteraction.cancelDrag(); };
+    window.addEventListener('blur', cancelSceneDrag);
+    return () => window.removeEventListener('blur', cancelSceneDrag);
+  }, [sceneInteraction]);
 
   const setCameraGestureActive = useCallback((active: boolean) => {
     cameraGestureActiveRef.current = active;
@@ -234,21 +244,25 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pre
     if (plateActionPending) return;
     setPlateActionPending(true);
     try {
-      await selectPlateSessionAndClearSelection(platform, plateId, () => sceneInteraction.clearSelection());
+      await selectPlateSessionAndClearSelection(platform, plateId, () => {
+        sceneInteraction.clearSelection();
+      });
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
       setPlateActionPending(false);
     }
-  }, [plateActionPending, platform, plateSession?.currentPlateId]);
+  }, [plateActionPending, platform, plateSession?.currentPlateId, sceneInteraction]);
 
   const addPlate = useCallback(async () => {
     if (plateActionPending || !canAddPlate(plateSession)) return;
     setPlateActionPending(true);
     try {
-      const result = (await runProjectHistoryMutation(platform.runtime, 'Add Plate', () => platform.runtime.addPlate())).result;
-      if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
-      await syncHistoryStatus(platform.runtime);
+      await runProjectHistoryMutation(platform.runtime, 'Add Plate', () => platform.runtime.addPlate(), null, {
+        publish: async (result) => {
+          if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+        },
+      });
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
@@ -260,9 +274,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pre
     if (plateActionPending || !plateSession || !canDeletePlate(plateSession)) return;
     setPlateActionPending(true);
     try {
-      const result = (await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId))).result;
-      if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
-      await syncHistoryStatus(platform.runtime);
+      await runProjectHistoryMutation(platform.runtime, 'Delete Plate', () => platform.runtime.deletePlate(plateSession.currentPlateId), null, {
+        publish: async (result) => {
+          if (applyPlateSessionResponse(platform, result) && result.ok) useProjectStore.getState().recordPlateMutation(result);
+        },
+      });
     } catch (error) {
       useSlicerStore.getState().setError(String(error));
     } finally {
@@ -437,7 +453,9 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pre
                   y: event.clientY - rect.top,
                 });
                 if (plateId) void selectPlate(plateId);
-                else sceneInteractionRef.current?.clearSelection();
+                else {
+                  sceneInteractionRef.current?.clearSelection();
+                }
               }
             }}
           >
@@ -451,9 +469,11 @@ export function Viewport({ activeTab, glVolumes, toolpath, sceneInteraction, pre
             <Scene
               activeTab={activeTab}
               controller={sceneInteraction}
+              wipeTowerVolumes={wipeTowerVolumes}
               glVolumes={glVolumes}
               toolpath={toolpath}
               plateSession={plateSession}
+              structure={structure}
               onEmptyBedClick={selectPlate}
             />
             <ViewportFrameGate mode={activeTab} onRendered={() => onSceneFrameRendered?.(activeTab)} />

@@ -70,8 +70,8 @@ describe('worker protocol', () => {
     await workerClient.addModel(new Uint8Array(4), 'stl');
     await workerClient.slice({}, () => {});
     const res = await workerClient.getSliceResult();
-    expect(res.toolpath.vertexCount).toBeGreaterThan(0);
-    expect(res.toolpath.positions.byteLength).toBe(res.toolpath.vertexCount * 3 * 4);
+    expect(res.toolpath.segmentCount).toBeGreaterThan(0);
+    expect(res.toolpath.ends.byteLength).toBe(res.toolpath.segmentCount * 3 * 4);
   });
 
   it('round-trips project operations and transfers the exported archive', async () => {
@@ -87,6 +87,15 @@ describe('worker protocol', () => {
     expect(exported.bytes.byteLength).toBeGreaterThan(0);
     const transfer = channel.transfers.find((items) => items.includes(exported.bytes.buffer));
     expect(transfer).toBeDefined();
+  });
+
+  it('preserves the client receiver for composed project preflight operations', async () => {
+    const { workerClient } = setup();
+    await workerClient.init();
+    const preflight = await workerClient.preflightProject(new Uint8Array([0x50, 0x4b]), 'clean.3mf');
+    expect(preflight.ok).toBe(true);
+    expect(preflight.preflightToken).toBe('mock-preflight');
+    expect(preflight.embeddedPresetWarnings?.requiresConfirmation).toBe(false);
   });
 
   it('forwards geometry-only project load progress through the threaded mailbox', async () => {
@@ -124,5 +133,58 @@ describe('worker protocol', () => {
     const { workerClient } = setup();
     await expect((workerClient as unknown as { jumpHistory(id: string): Promise<unknown> }).jumpHistory('entry-1'))
       .rejects.toThrow('malformed history jump request');
+  });
+
+  it('publishes bounded Worker/client history timing diagnostics', async () => {
+    const { workerClient, channel } = setup();
+    const context = {
+      selection: { mode: 'object' as const, objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: null, gizmo: null, projectConfigOverlay: {},
+    };
+    await workerClient.runProjectHistoryTransaction('Add Cube', 'project', context,
+      async () => workerClient.addShape('Cube'), context);
+    await workerClient.undoHistory();
+    await workerClient.getPlateSessionSnapshot();
+    await workerClient.getPrimeTowerProjection();
+    await workerClient.getFilamentSessionSnapshot();
+
+    const observed = workerClient.getHistoryDiagnostics();
+    expect(observed).toMatchObject({ version: 1 });
+    expect(observed.worker.mutation.count).toBe(1);
+    expect(observed.client.mutation.count).toBe(1);
+    expect(observed.worker.fullRestore.count).toBe(1);
+    expect(observed.client.fullRestore.count).toBe(1);
+    expect(observed.worker.reads).toMatchObject({
+      plateSessionSnapshot: { count: 1 }, primeTowerProjection: { count: 1 }, filamentSessionSnapshot: { count: 1 },
+    });
+    expect(observed.client.reads).toMatchObject({
+      plateSessionSnapshot: { count: 1 }, primeTowerProjection: { count: 1 }, filamentSessionSnapshot: { count: 1 },
+    });
+
+    // The direct path is a Worker event rather than a renderer-side guess.
+    channel.post({ type: 'history-diagnostic', diagnostic: { kind: 'restore', path: 'direct', durationMs: 1 } });
+    expect(workerClient.getHistoryDiagnostics().worker.directRestore).toMatchObject({ count: 1, lastMs: 1 });
+  });
+
+  it('round-trips a direct Prime Tower restore receipt without an all-plate projection read', async () => {
+    const module = createMockModule({ primeTowerFixture: true });
+    const channel = new Channel();
+    const workerClient = createWorkerClient(channel);
+    void startWorker(async () => module, (msg, transfer) => channel.post(msg, transfer), (fn) => channel.onMessage(fn));
+    await workerClient.init();
+    const projection = await workerClient.getPrimeTowerProjection();
+    if (!projection.ok) throw new Error(projection.error);
+    const plateId = projection.currentPlateId;
+    const moved = await workerClient.movePrimeTower({ version: 1, plateId, revision: 0, x: 50, y: 60 });
+    if (!moved.ok) throw new Error(moved.error);
+    const restored = await workerClient.undoHistory();
+    expect(restored.ok).toBe(true);
+    if (!restored.ok) return;
+    expect(restored.primeTowerReceipt).toMatchObject({
+      version: 1, state: 'available', plateId, revision: 0,
+      position: { x: 30, y: 40 }, footprint: { minX: 27, maxX: 57, minY: 37, maxY: 77 },
+    });
+    const diagnostics = workerClient.getHistoryDiagnostics();
+    expect(diagnostics.worker.reads?.primeTowerProjection.count).toBe(1);
   });
 });

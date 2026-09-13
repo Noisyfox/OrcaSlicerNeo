@@ -3,7 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import type { LoadedObject } from './useModelLoader';
-import { BedPlate } from './BedPlate';
+import { glVolumeCollection } from './GLVolume';
+import { useSettingsStore } from '../../../stores/useSettingsStore';
+import { BedPlate, getPrintableAreaBounds, normalizePrintableArea } from './BedPlate';
 import { GLVolumeMesh } from './ModelMesh';
 import type { ToolpathGeometry } from './useSliceResult';
 import { ToolpathLines } from './ToolpathLines';
@@ -13,30 +15,37 @@ import { SceneInteractionController } from './SceneInteractionController';
 import { SceneInteractionProvider, useSceneInteraction, useSceneInteractionVersion } from './SceneInteractionContext';
 import { SelectionBoundsBox } from './SelectionBoundsBox';
 import { hasEnteredPreview, isPreviewTab } from '../../layout/appTabs';
-import type { PlateSessionSnapshot } from '@slicer/client';
+import type { ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { BUILD_PLATE_RAYCAST } from './buildPlatePointerOcclusion';
-import { currentPreviewPlate, previewToolpathOrigin, previewVolumesForCurrentPlate } from './previewSceneProjection';
+import { currentPreviewPlate, previewVolumesForCurrentPlate } from './previewSceneProjection';
+import { WipeTowerVolumes } from './WipeTowerVolumeMesh';
+import type { WipeTowerVolumeCollection } from './WipeTowerVolume';
 
-export function Scene({ activeTab, controller, glVolumes, toolpath, plateSession, onEmptyBedClick }: {
+export function Scene({ activeTab, controller, wipeTowerVolumes, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
   controller: SceneInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateSession?: PlateSessionSnapshot | null;
+  structure?: readonly ModelObjectStructure[];
   onEmptyBedClick?: (plateId: string) => void;
 }) {
   return (
     <SceneInteractionProvider controller={controller}>
-      <SceneContents activeTab={activeTab} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} onEmptyBedClick={onEmptyBedClick} />
+      <SceneContents activeTab={activeTab} controller={controller} wipeTowerVolumes={wipeTowerVolumes} glVolumes={glVolumes} toolpath={toolpath} plateSession={plateSession} structure={structure} onEmptyBedClick={onEmptyBedClick} />
     </SceneInteractionProvider>
   );
 }
 
-function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBedClick }: {
+function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, toolpath, plateSession, structure = [], onEmptyBedClick }: {
   activeTab: 'prepare' | 'preview';
+  controller: SceneInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   plateSession?: PlateSessionSnapshot | null;
+  structure?: readonly ModelObjectStructure[];
   onEmptyBedClick?: (plateId: string) => void;
 }) {
   const sceneInteraction = useSceneInteraction();
@@ -54,11 +63,18 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
     }
     previousActiveTabRef.current = activeTab;
   }, [activeTab, sceneInteraction]);
+  // A loader replacement is a new scene even if it reuses the prior model's
+  // composite IDs. Clear interaction state before publishing any e2e helper
+  // for the new collection; otherwise a polling selection can land between
+  // the helper effect and this reset and be cleared immediately afterwards.
+  useEffect(() => {
+    sceneInteraction.resetForModel();
+  }, [glVolumes, sceneInteraction]);
   // Test-only projection hook (e2e builds): Playwright needs exact
   // canvas coordinates to start an axis-arrow drag on the gizmo's shaft.
   // No-op in production builds (the e2e-only VITE_E2E flag is unset).
   const camera = useThree((s) => s.camera);
-  const controls = useThree((s) => s.controls as unknown as { target?: THREE.Vector3 } | undefined);
+  const controls = useThree((s) => s.controls as unknown as { target?: THREE.Vector3; enabled?: boolean } | undefined);
   const scene = useThree((s) => s.scene);
   const size = useThree((s) => s.size);
   useEffect(() => {
@@ -78,7 +94,7 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
           size: [number, number, number];
         } | null;
         gizmoAxis?: () => string | null;
-        pointerOwner?: () => 'none' | 'gizmo' | 'body' | 'box';
+        pointerOwner?: () => 'none' | 'gizmo' | 'body' | 'box' | 'external';
         selectionInstanceCount?: () => number;
         selectMockInstance?: (instanceIdx: number, additive?: boolean) => boolean;
         previewMarkerPresent?: () => boolean;
@@ -87,15 +103,20 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
           target: [number, number, number];
           near: number;
           far: number;
+          controlsEnabled?: boolean;
         };
         bedPlateStates?: () => Array<{
           plateId?: string;
           current: boolean;
           outOfBounds: boolean;
           position: [number, number, number];
+          bounds: { minX: number; maxX: number; minY: number; maxY: number };
         }>;
         modelWorldCenters?: () => Array<[number, number, number]>;
-        previewToolpathWorldOrigin?: () => [number, number, number] | null;
+        previewToolpathWorldBounds?: () => {
+          min: [number, number, number];
+          max: [number, number, number];
+        } | null;
       };
     };
     const projectPoint = (p: THREE.Vector3) => {
@@ -143,10 +164,17 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
       // the first-instance and gizmo tests; this hook sets up the aggregate
       // selection for its multi-instance move assertions.
       selectMockInstance(instanceIdx, additive = true) {
+        // modelLoaded flips before the asynchronous mesh publication, so an
+        // e2e poll must not select a volume from the previous collection.
+        // The collection revision can be published a few instructions before
+        // React commits the matching `glVolumes` state. Require identity as
+        // well, so a poll cannot select through that publication window.
+        if (glVolumeCollection.revision !== useSettingsStore.getState().modelRevision
+          || glVolumeCollection.volumes !== glVolumes) return false;
         const hit = glVolumes.find((volume) => volume.buffer.instanceIdx === instanceIdx);
         // sceneInteraction is null until the viewport mounts; fail the poll
         // (false) rather than throwing so the e2e hook is retryable.
-        return hit && sceneInteraction ? sceneInteraction.selectFromHit(hit, additive) : false;
+        return Boolean(hit && sceneInteraction && sceneInteraction.selectFromHit(hit, additive));
       },
       previewMarkerPresent: () => Boolean(scene.getObjectByName('preview-nozzle-marker')),
       cameraState: () => ({
@@ -154,13 +182,16 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
         target: controls?.target ? [controls.target.x, controls.target.y, controls.target.z] : [0, 0, 0],
         near: camera.near,
         far: camera.far,
+        controlsEnabled: controls?.enabled !== false,
       }),
       bedPlateStates: () => {
+        const printableBounds = getPrintableAreaBounds(normalizePrintableArea(useSettingsStore.getState().printableArea));
         const beds: Array<{
           plateId?: string;
           current: boolean;
           outOfBounds: boolean;
           position: [number, number, number];
+          bounds: { minX: number; maxX: number; minY: number; maxY: number };
         }> = [];
         scene.traverse((object) => {
           if (object.userData.orcaRaycastRole !== BUILD_PLATE_RAYCAST) return;
@@ -171,6 +202,12 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
             current: Boolean(object.userData.plateCurrent),
             outOfBounds: Boolean(object.userData.plateOutOfBounds),
             position: [position.x, position.y, position.z],
+            bounds: {
+              minX: printableBounds.minX,
+              maxX: printableBounds.maxX,
+              minY: printableBounds.minY,
+              maxY: printableBounds.maxY,
+            },
           });
         });
         return beds;
@@ -179,16 +216,35 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
         const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
         return [center.x, center.y, center.z];
       }),
-      previewToolpathWorldOrigin: () => {
-        const group = scene.getObjectByName('preview-toolpath-world');
-        if (!group) return null;
-        let renderedPath: THREE.Object3D | null = null;
-        group.traverse((object) => {
-          if (!renderedPath && object !== group && object.type === 'InstancedMesh') renderedPath = object;
-        });
-        const position = new THREE.Vector3();
-        (renderedPath ?? group).getWorldPosition(position);
-        return [position.x, position.y, position.z];
+      previewToolpathWorldBounds: () => {
+        if (!toolpath || toolpath.segmentCount === 0) return null;
+        const min: [number, number, number] = [Infinity, Infinity, Infinity];
+        const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+        const include = (values: Float32Array, index: number) => {
+          for (let axis = 0; axis < 3; axis++) {
+            const value = values[index * 3 + axis];
+            if (!Number.isFinite(value)) continue;
+            min[axis] = Math.min(min[axis], value);
+            max[axis] = Math.max(max[axis], value);
+          }
+        };
+        for (let index = 0; index < toolpath.segmentCount; index++) {
+          // Only extrusion segments are part of the printed geometry. Travel
+          // and startup/control moves may legitimately park outside a bed and
+          // would make a plate-placement assertion about the printed path
+          // meaningless.
+          if (toolpath.moveTypes[index] !== 10) continue;
+          include(toolpath.source?.ends ?? toolpath.ends, index);
+          // GCodeProcessor intentionally begins with a dummy move at (0, 0,
+          // 0).  The first segment's start is that sentinel, not a rendered
+          // printer move; including it would falsely make every non-first
+          // plate appear to reach plate 1 in this diagnostic.
+          if (index > 0 && toolpath.source?.starts) include(toolpath.source.starts, index);
+        }
+        return {
+          min: [min[0], min[1], min[2]],
+          max: [max[0], max[1], max[2]],
+        };
       },
     };
     return () => {
@@ -205,19 +261,13 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
           cameraState: _camera,
           bedPlateStates: _beds,
           modelWorldCenters: _models,
-          previewToolpathWorldOrigin: _toolpathOrigin,
+          previewToolpathWorldBounds: _toolpathBounds,
           ...rest
         } = w.__orcaE2e;
         w.__orcaE2e = rest;
       }
     };
-  }, [activeTab, camera, controls, glVolumes, plateSession, previewVolumes, scene, size, sceneInteraction]);
-
-  // A loader replacement is a new scene even if it reuses the prior model's
-  // composite IDs, so selection and the active gizmo must not leak across it.
-  useEffect(() => {
-    sceneInteraction.resetForModel();
-  }, [glVolumes, sceneInteraction]);
+  }, [activeTab, camera, controls, glVolumes, plateSession, previewVolumes, scene, size, sceneInteraction, toolpath]);
 
   return (
     <>
@@ -238,12 +288,15 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
           : <BedPlate />}
       {isPreviewTab(activeTab) ? (
         <PreviewScene
+          controller={controller}
+          wipeTowerVolumes={wipeTowerVolumes}
           glVolumes={previewVolumes}
           toolpath={toolpath}
-          plateOrigin={previewToolpathOrigin(plateSession)}
+          structure={structure}
+          plateSession={plateSession}
         />
       ) : (
-        <PrepareScene glVolumes={glVolumes} toolpath={toolpath} />
+        <PrepareScene glVolumes={glVolumes} toolpath={toolpath} structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />
       )}
     </>
   );
@@ -255,39 +308,50 @@ function SceneContents({ activeTab, glVolumes, toolpath, plateSession, onEmptyBe
  * mode-specific rendering/interaction policy is intentionally layered here
  * by the later Preview implementation step.
  */
-function PrepareScene({ glVolumes, toolpath }: {
+function PrepareScene({ glVolumes, toolpath, structure, plateSession, controller, wipeTowerVolumes }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
+  structure: readonly ModelObjectStructure[];
+  plateSession?: PlateSessionSnapshot | null;
+  controller: SceneInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={null} interactive structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />;
 }
 
-function PreviewScene({ glVolumes, toolpath, plateOrigin }: {
+function PreviewScene({ glVolumes, toolpath, structure, plateSession, controller, wipeTowerVolumes }: {
+  controller: SceneInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
-  plateOrigin: readonly [number, number, number];
+  structure?: readonly ModelObjectStructure[];
+  plateSession?: PlateSessionSnapshot | null;
 }) {
-  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview plateOrigin={plateOrigin} />;
+  return <SceneContentTree glVolumes={glVolumes} toolpath={toolpath} interactive={false} preview structure={structure} plateSession={plateSession} controller={controller} wipeTowerVolumes={wipeTowerVolumes} />;
 }
 
-function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, plateOrigin = [0, 0, 0] }: {
+function SceneContentTree({ glVolumes, toolpath, interactive, preview = false, structure = [], plateSession, controller, wipeTowerVolumes }: {
   glVolumes: LoadedObject[];
   toolpath: ToolpathGeometry | null;
   interactive: boolean;
   preview?: boolean;
-  plateOrigin?: readonly [number, number, number];
+  structure?: readonly ModelObjectStructure[];
+  plateSession?: PlateSessionSnapshot | null;
+  controller: SceneInteractionController;
+  wipeTowerVolumes?: WipeTowerVolumeCollection;
 }) {
   return (
     <>
+      {interactive && wipeTowerVolumes && <WipeTowerVolumes collection={wipeTowerVolumes} />}
       {glVolumes.map((volume) => (
-        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} />
+        <GLVolumeMesh key={volume.id} data={volume} interactive={interactive} preview={preview} structure={structure} plateSession={plateSession} />
       ))}
       {interactive && <SelectionBoundsBox />}
       {interactive && <SelectionTransformGizmo />}
-      {/* Slice results stay in printer-local coordinates. Preview applies the
-          selected plate origin only to this render group; export/send and the
-          retained result cache therefore remain untouched. */}
-      {toolpath && preview && <group name="preview-toolpath-world" position={plateOrigin}><ToolpathLines data={toolpath} /><ToolpathMarker data={toolpath} /></group>}
+      {/* The slicing bridge publishes world-space preview moves. The separate
+          source G-code remains printer-local for export/send, so this render
+          group deliberately has no plate translation. */}
+      {toolpath && preview && <group name="preview-toolpath-world"><ToolpathLines data={toolpath} /><ToolpathMarker data={toolpath} /></group>}
       {toolpath && !preview && <ToolpathLines data={toolpath} />}
       {toolpath && !preview && <ToolpathMarker data={toolpath} />}
     </>
@@ -338,6 +402,34 @@ function SelectionTransformGizmo() {
       sceneInteraction.attachPivot(null);
     };
   }, [sceneInteraction, syncPivot]);
+
+  // The attached TransformControls target is normally an implementation
+  // detail. E2E exposes just its world pivot so a real pointer gesture can
+  // prove it follows the same Worker-confirmed tower position as the mesh and
+  // selection bounds.
+  useEffect(() => {
+    const env = import.meta.env as { MODE?: string; VITE_E2E?: string };
+    if (env.MODE !== 'e2e' && env.VITE_E2E !== '1') return;
+    const w = window as unknown as {
+      __orcaE2e?: { gizmoTargetWorld?: () => [number, number, number] | null };
+    };
+    w.__orcaE2e = {
+      ...w.__orcaE2e,
+      gizmoTargetWorld: () => {
+        const group = pivotRef.current;
+        if (!group) return null;
+        group.updateWorldMatrix(true, false);
+        const position = new THREE.Vector3();
+        group.getWorldPosition(position);
+        return [position.x, position.y, position.z];
+      },
+    };
+    return () => {
+      if (!w.__orcaE2e) return;
+      const { gizmoTargetWorld: _target, ...rest } = w.__orcaE2e;
+      w.__orcaE2e = rest;
+    };
+  }, []);
 
   const mode: TransformGizmoMode | null =
     sceneInteraction.gizmo === 'move' ? 'translate'

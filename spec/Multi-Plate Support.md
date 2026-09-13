@@ -141,7 +141,7 @@
 - Importing a multi-plate project produced by native OrcaSlicer must preserve
   its plate layout and object membership; it must not be flattened into one
   plate.
-- A plain 3MF or legacy project with no plate metadata imports into one default
+- A plain 3MF or ordinary native 3MF project with no plate metadata imports into one default
   plate, `Plate 1`. Instance membership is then recalculated from current
   coordinates.
 - A project with duplicate, missing, or out-of-order `plate_index` values is
@@ -225,7 +225,7 @@ React receives the snapshot but renders no new plate UI yet.
 **Do not implement.** Add/delete, membership, 3MF format, model transforms,
 visible multi-bed UI, or slice results.
 
-**Accept when.** Fresh, cleared, and legacy-loaded projects each expose one
+**Accept when.** Fresh, cleared, and ordinary-native-3MF-loaded projects each expose one
 current plate; reads are deterministic; reset/load creates new runtime IDs;
 malformed calls fail without mutating state; existing single-plate calls stay
 compatible.
@@ -280,7 +280,7 @@ real-WASM focused harness, and existing save-prompt coverage.
 native-format plate records. Round-trip `plate_index`, layout/membership,
 names, locks, settings slots, and unsupported per-plate metadata opaquely. On
 load normalize invalid index sequences by record order, re-create runtime IDs,
-recompute membership, clear results, fall back to one legacy plate, and reject
+recompute membership, clear results, use one ordinary native 3MF default plate, and reject
 over-36 input before session mutation.
 
 **Do not implement.** G-code/preview persistence, per-plate settings UI/effect,
@@ -384,7 +384,7 @@ or product behaviour changes.
 
 **Accept when.** The manual command passes a pinned native fixture and detects
 controlled differences in order, membership, local coordinates, names, locks,
-opaque data, legacy fallback, over-limit rejection, omitted derived artifacts,
+opaque data, ordinary native 3MF default-plate behavior, over-limit rejection, omitted derived artifacts,
 and fixture checksum tampering.
 
 **Evidence.** The agent and parent each run the opt-in suite in both variants,

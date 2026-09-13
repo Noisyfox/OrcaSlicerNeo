@@ -1,0 +1,90 @@
+// ----------------------------------------------------------------
+// Native Prime Tower projection for the Neo bridge.
+//
+// This is deliberately a read-only feature module.  It computes the
+// prepare-scene estimate from Worker-owned native model/configuration state;
+// no renderer payload participates in eligibility or geometry.
+// ----------------------------------------------------------------
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <string>
+
+#include "history/ProjectHistory.hpp"
+#include "libslic3r/Model.hpp"
+#include "libslic3r/PrintConfig.hpp"
+#include "nlohmann/json.hpp"
+
+namespace Slic3r::Neo::Bridge::PrimeTower {
+
+using json = nlohmann::json;
+
+struct NarrowHistoryFrame {
+    // Deliberately excludes all preview/G-code/Print state. A target preview
+    // is invalidated by the move and remains invalid through Undo/Redo.
+    std::string plate_id;
+    struct CoordinateValue {
+        bool option_present { false };
+        std::optional<std::string> value;
+    };
+    CoordinateValue before_x;
+    CoordinateValue before_y;
+    CoordinateValue after_x;
+    CoordinateValue after_y;
+    struct Footprint {
+        double min_x { 0. };
+        double max_x { 0. };
+        double min_y { 0. };
+        double max_y { 0. };
+    };
+    // The direct restore receipt must be a frame-owned fact. Recomputing this
+    // from the restored model would turn a scalar X/Y history transition back
+    // into a costly projection read and could observe a different live state.
+    Footprint before_footprint;
+    Footprint after_footprint;
+    std::uint64_t before_revision { 0 };
+    std::uint64_t after_revision { 0 };
+    bool after_state { false };
+};
+
+struct CoordinateSettingsSnapshot {
+    NarrowHistoryFrame::CoordinateValue x;
+    NarrowHistoryFrame::CoordinateValue y;
+};
+
+CoordinateSettingsSnapshot snapshot_coordinate_settings(const DynamicPrintConfig& settings,
+                                                         std::size_t plate_index);
+void set_coordinate_settings(DynamicPrintConfig& settings, std::size_t plate_index,
+                             double x, double y, double fallback_x, double fallback_y);
+void normalize_coordinate_settings(DynamicPrintConfig& settings, std::size_t plate_count,
+                                   double fallback_x, double fallback_y);
+// Clamp the authoritative project-level coordinates to the current native
+// footprint. This is intentionally Worker-owned: callers choose whether the
+// surrounding operation is a silent lifecycle transition or a history
+// transaction, while this helper only mutates the native arrays and their
+// projection metadata.
+bool normalize_coordinate_positions();
+
+// Slice-time validation is native and advisory. The renderer never parses
+// geometry or native validation text; it receives these stable warning strings
+// alongside the normal successful slice status.
+json slice_warnings_for_plate(const std::string& plate_id);
+double coordinate_value(const DynamicPrintConfig& settings, const char* key,
+                        std::size_t plate_index, double fallback);
+void set_coordinate_option_value(DynamicPrintConfig& settings, const char* key,
+                                  std::size_t plate_index, double value, double fallback);
+void restore_coordinate_settings(DynamicPrintConfig& settings,
+                                 const CoordinateSettingsSnapshot& snapshot,
+                                 std::size_t plate_index, double fallback_x, double fallback_y);
+
+std::size_t narrow_history_frame_bytes(const NarrowHistoryFrame& frame);
+std::optional<History::RestoreState::DirectFrame>
+make_narrow_history_frame(const NarrowHistoryFrame& frame);
+
+json projection_json();
+
+json move_position_json(const char* request_cstr);
+
+} // namespace Slic3r::Neo::Bridge::PrimeTower

@@ -3,6 +3,7 @@ import type { ModelTransform } from '@slicer/client';
 import type { HistoryContext, ModelStructureResult } from '@slicer/client';
 import type { Vec3 } from '../../../lib/vec3';
 import { GLVolume } from './GLVolume';
+import { WipeTowerVolume } from './WipeTowerVolume';
 import { instanceKeyOf, Selection, type InstanceKey, type SelectionMode } from './Selection';
 import {
   applyRotationDelta,
@@ -27,7 +28,7 @@ import {
 export type OpenGizmo = 'move' | 'rotate' | 'scale' | null;
 /** Scale gizmo handle space; multi-selection always scales in world space. */
 export type ScaleSpace = 'world' | 'local';
-export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box';
+export type PointerOwner = 'none' | 'gizmo' | 'body' | 'box' | 'external';
 type PointerOrigin = 'none' | 'gizmo' | 'non-gizmo';
 /** OrcaSlicer's homogeneous selection classes (Selection.cpp update_type). */
 export type SelectionKind = 'empty' | 'object' | 'instance' | 'part' | 'mixed';
@@ -36,7 +37,8 @@ export type SelectionKind = 'empty' | 'object' | 'instance' | 'part' | 'mixed';
  *  or to the volume transform of specific parts (part-scoped selection). */
 export type DragTargetEntry =
   | { kind: 'instance'; instanceKey: InstanceKey; transform: ModelTransform }
-  | { kind: 'volume'; volume: GLVolume; volumeTransform: ModelTransform; instanceTransform: ModelTransform };
+  | { kind: 'volume'; volume: GLVolume; volumeTransform: ModelTransform; instanceTransform: ModelTransform }
+  | { kind: 'wipe-tower'; volume: WipeTowerVolume; transform: ModelTransform };
 
 export interface DragSnapshot {
   readonly kind: 'gizmo' | 'body';
@@ -56,9 +58,17 @@ interface RendererTransformSnapshot {
 /** Narrow bridge adapter supplied by Workspace; the controller remains host
  * and Worker agnostic and only owns local three.js draft transforms. */
 export interface TransformHistoryPort {
-  begin(label: string): void;
-  commit(): Promise<void>;
-  abort(): Promise<void>;
+  begin(label: string): boolean | void;
+  /** Concrete coordinators return a consumable gesture result; scene adapters
+   * may ignore it because pointer release is deliberately fire-and-forget. */
+  commit(): Promise<unknown>;
+  abort(): Promise<unknown>;
+}
+
+/** Commit boundary for a scene entity after its local draft has changed. */
+export interface SceneEntityCommitPort<Entity extends GLVolume = GLVolume> {
+  commit(entity: Entity): Promise<void>;
+  busy?(): boolean;
 }
 
 /**
@@ -81,12 +91,18 @@ export class SceneInteractionController {
   // move from a model body onto a handle cannot change that gesture into a
   // gizmo drag during the threshold window.
   private pointerOrigin: PointerOrigin = 'none';
+  // DragControls receives pointer-down before React can commit the selection
+  // caused by its child mesh. Keep the exact scene-entity hit in controller
+  // state so the first threshold-crossing move can claim that same press
+  // without depending on a rerendered `enabled` prop or a later raycast.
+  private pendingBodyDragHit: GLVolume | null = null;
   private gizmoGrabberHovered = false;
   private gizmoGrabberHitTest: ((event: PointerEvent) => boolean) | null = null;
   private suppressPostDragClick = false;
   private drag: DragSnapshot | null = null;
   private boxSelect: { start: BoxPoint; current: BoxPoint; additive: boolean } | null = null;
   private boxSelectProjector: ((world: THREE.Vector3) => BoxPoint | null) | null = null;
+  private entityCommitPort: SceneEntityCommitPort<WipeTowerVolume> | null = null;
 
   constructor(
     private readonly getVolumes: () => readonly GLVolume[],
@@ -97,6 +113,10 @@ export class SceneInteractionController {
     this.transformHistory = port;
   }
 
+  setSceneEntityCommitPort(port: SceneEntityCommitPort<WipeTowerVolume> | null): void {
+    this.entityCommitPort = port;
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -105,6 +125,15 @@ export class SceneInteractionController {
   get gizmo(): OpenGizmo { return this.openGizmo; }
   get scaleSpace(): ScaleSpace { return this.scaleSpaceState; }
   get owner(): PointerOwner { return this.pointerOwner; }
+  /**
+   * A selected body may still turn the current pointer press into a drag.
+   * Context-only history must not take the project lease during this short
+   * arbitration window, or it rejects the same gesture's transform draft.
+   */
+  get bodySelectionHistoryState(): 'idle' | 'pending' | 'dragging' {
+    if (this.pointerOwner === 'body') return 'dragging';
+    return this.pendingBodyDragHit === null ? 'idle' : 'pending';
+  }
   get selectionMode(): SelectionMode { return this.selectionModeState; }
   /** Distinct selected instances — the panels' multi-selection display rule. */
   get selectionInstanceCount(): number {
@@ -128,6 +157,7 @@ export class SceneInteractionController {
    */
   toggleGizmo(mode: Exclude<OpenGizmo, null>): boolean {
     if (this.selection.empty) return false;
+    if (this.hasWipeTowerSelection && mode !== 'move') return false;
     this.openGizmo = this.openGizmo === mode ? null : mode;
     this.emit();
     return this.openGizmo === mode;
@@ -191,11 +221,27 @@ export class SceneInteractionController {
     return this.selection.volumes(this.getVolumes());
   }
 
+  /** Orca's WipeTower selection mode is represented by the one tagged volume
+   * in this controller's ordinary Selection, never a parallel selection. */
+  selectedWipeTower(): WipeTowerVolume | null {
+    const selected = this.selectedVolumes();
+    return selected.length === 1 && selected[0] instanceof WipeTowerVolume ? selected[0] : null;
+  }
+
+  get hasWipeTowerSelection(): boolean { return this.selectedWipeTower() !== null; }
+
+  /** The selected entity's commit adapter may reject a new draft while its
+   * previous Worker mutation is being reconciled. Pointer ownership remains
+   * controller-owned regardless of which adapter will ultimately commit. */
+  private get activeCommitBusy(): boolean {
+    return this.hasWipeTowerSelection && this.entityCommitPort?.busy?.() === true;
+  }
+
   /** Unique object indices behind the current selection, sorted ascending.
    *  Deleting removes the complete objects that own the selected instances. */
   selectedObjectIndices(): number[] {
     const indices = new Set<number>();
-    for (const volume of this.selectedVolumes()) indices.add(volume.buffer.objectIdx);
+    for (const volume of this.selectedVolumes()) if (!(volume instanceof WipeTowerVolume)) indices.add(volume.buffer.objectIdx);
     return [...indices].sort((a, b) => a - b);
   }
 
@@ -330,6 +376,17 @@ export class SceneInteractionController {
   }
 
   selectFromHit(hit: GLVolume, additive: boolean, part = false): boolean {
+    if (!hit.selectable) return false;
+    if (hit instanceof WipeTowerVolume) {
+      // The special volume cannot be mixed with model volumes or selected
+      // additively, matching Orca Selection's mutual-exclusion branch.
+      if (additive) return false;
+      const changed = this.selection.replaceIds([hit.id]);
+      this.syncGizmoToSelection();
+      if (changed) this.emit();
+      return changed;
+    }
+    if (this.hasWipeTowerSelection) this.selection.clear();
     // Alt modifies the click to select the individual part (volume), not the
     // whole instance — the workspace's per-click override of the selection mode.
     const mode = part ? 'volume' : this.selectionMode;
@@ -360,6 +417,9 @@ export class SceneInteractionController {
   /** Replace (or, when additive, union) the selection with raw volume IDs
    *  (used by the ObjectList's Shift-range multi-select). */
   selectVolumeIds(ids: readonly string[], additive = false): boolean {
+    const requested = ids.map((id) => this.getVolumes().find((volume) => volume.id === id)).filter((volume): volume is GLVolume => volume !== undefined && volume.selectable);
+    const models = requested.filter((volume) => !(volume instanceof WipeTowerVolume));
+    ids = (models.length > 0 ? models : requested).map((volume) => volume.id);
     if (additive && !this.canAddVolumeIds(ids)) return false;
     const changed = additive ? this.selection.addIds(ids) : this.selection.replaceIds(ids);
     this.syncGizmoToSelection();
@@ -374,6 +434,7 @@ export class SceneInteractionController {
    */
   prepareBodyDragFromPointerDown(hit: GLVolume, additive: boolean, part = false): boolean {
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none') return false;
+    this.pendingBodyDragHit = hit;
     // A drag that starts on a member of an existing multi-selection must move
     // the complete group. Leave selection unchanged while DragControls
     // decides whether this press turns into a drag.
@@ -390,6 +451,7 @@ export class SceneInteractionController {
     // Plain clicks on an existing member keep the complete selection. Ctrl or
     // Cmd remains the explicit gesture for toggling a selected member; Alt
     // explicitly narrows to the part.
+    if (hit instanceof WipeTowerVolume) return this.selectFromHit(hit, false);
     if (!additive && !part && this.selection.has(hit)) return false;
     return this.selectFromHit(hit, additive, part);
   }
@@ -457,10 +519,17 @@ export class SceneInteractionController {
 
   /** Call after the renderer collection changes. */
   pruneSelection(): boolean {
-    const changed = this.selection.prune(this.getVolumes());
+    // A Prime Tower receipt can retain the same stable selected ID while
+    // replacing its authoritative X/Y projection. Selection.prune() correctly
+    // reports no identity change in that case, but SelectionBoundsBox and the
+    // TransformControls pivot subscribe to this controller rather than the
+    // collection. Publish the retained special selection so all three scene
+    // representations consume the same Worker-confirmed transform.
+    const hadWipeTowerSelection = this.hasWipeTowerSelection;
+    const changed = this.selection.prune(this.getVolumes().filter((volume) => volume.selectable));
     this.syncGizmoToSelection();
     if (this.drag && this.selectedVolumes().length === 0) this.cancelDrag();
-    if (changed) this.emit();
+    if (changed || (hadWipeTowerSelection && this.hasWipeTowerSelection)) this.emit();
     return changed;
   }
 
@@ -491,19 +560,49 @@ export class SceneInteractionController {
   /** Release the pointer-down arbitration latch when no gesture owns it. */
   releasePointer(): void {
     if (this.pointerOwner !== 'none') return;
+    const hadBodyCandidate = this.pendingBodyDragHit !== null;
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
-    this.setGizmoGrabberHovered(false);
+    if (this.gizmoGrabberHovered) this.setGizmoGrabberHovered(false);
+    else if (hadBodyCandidate) this.emit();
+  }
+
+  /** Claim the shared viewport pointer for a scene-only interaction. */
+  claimExternalPointer(): boolean {
+    if (this.pointerOwner !== 'none') return false;
+    this.pointerOwner = 'external';
+    this.emit();
+    return true;
+  }
+
+  /** Release a scene-only pointer claim after its native gesture settles. */
+  releaseExternalPointer(): boolean {
+    if (this.pointerOwner !== 'external') return false;
+    this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
+    this.pointerOrigin = 'none';
+    this.gizmoGrabberHovered = false;
+    this.emit();
+    return true;
   }
 
   /** Clear all ephemeral scene interaction when a loaded collection is replaced. */
   resetForModel(): void {
     const hadState = !this.selection.empty || this.openGizmo !== null || this.drag !== null
       || this.pointerOwner !== 'none' || this.boxSelect !== null;
+    // A native wipe-tower position update can republish model meshes even
+    // though the scene-only volume itself remains valid.  Retain that shared
+    // selection when its tagged volume is still in the collection; ordinary
+    // model IDs are intentionally cleared on a mesh replacement.
+    const retainedWipeTower = this.selectedWipeTower();
     this.selection.clear();
+    if (retainedWipeTower && this.getVolumes().includes(retainedWipeTower))
+      this.selection.replaceIds([retainedWipeTower.id]);
     this.openGizmo = null;
     this.drag = null;
     this.suppressPostDragClick = false;
     this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     this.boxSelect = null;
@@ -515,14 +614,24 @@ export class SceneInteractionController {
    * the pointer. The caller must not mutate a dragged group unless this
    * returns true.
    */
-  tryBeginBodyDrag(): boolean {
+  tryBeginBodyDrag(hit?: GLVolume): boolean {
     if (this.pointerOrigin === 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty) return false;
-    return this.beginDrag('body');
+    // DragControls are always armed so the synchronous first move is not lost
+    // while React publishes selection. Only the wrapper whose mesh was hit at
+    // pointer-down may turn that pending press into a body drag. This applies
+    // equally to regular model volumes and the scene-only Prime Tower.
+    if (hit && this.pendingBodyDragHit !== hit) return false;
+    if (this.activeCommitBusy) return false;
+    const began = this.beginDrag('body');
+    if (began) this.pendingBodyDragHit = null;
+    return began;
   }
 
   /** Called synchronously by TransformControls on a confirmed grabber press. */
   beginGizmoDrag(): boolean {
     if (this.pointerOrigin !== 'gizmo' || this.pointerOwner !== 'none' || this.selection.empty || this.openGizmo === null) return false;
+    if (this.hasWipeTowerSelection && this.openGizmo !== 'move') return false;
+    if (this.activeCommitBusy) return false;
     return this.beginDrag('gizmo');
   }
 
@@ -573,14 +682,14 @@ export class SceneInteractionController {
     const changed = this.dragHasChanged(this.drag);
     this.drag = null;
     this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     // DragControls and TransformControls can both leave a model-targeted
     // click behind after mouseup. It is part of the completed gesture, not a
     // new selection request, even when the cursor ends over one group member.
     this.suppressPostDragClick = true;
-    if (changed) void this.transformHistory?.commit();
-    else void this.transformHistory?.abort();
+    this.finishDragCommit(changed);
     this.emit();
     return true;
   }
@@ -590,6 +699,7 @@ export class SceneInteractionController {
       // An active box gesture owns the pointer; clearSelection abandons it
       // explicitly instead of letting this drag-less reset clobber it.
       if (this.pointerOwner === 'none') {
+        this.pendingBodyDragHit = null;
         this.pointerOrigin = 'none';
         this.gizmoGrabberHovered = false;
       }
@@ -604,9 +714,10 @@ export class SceneInteractionController {
     }
     this.drag = null;
     this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
-    void this.transformHistory?.abort();
+    this.abortDragCommit();
     this.emit();
     return true;
   }
@@ -655,6 +766,18 @@ export class SceneInteractionController {
   moveSelectionToPivot(nextPivot: THREE.Vector3): boolean {
     const pivot = this.selectionPivot();
     if (!pivot || this.selection.empty) return false;
+    const wipeTower = this.selectedWipeTower();
+    if (wipeTower) {
+      if (this.activeCommitBusy || !this.entityCommitPort) return false;
+      const delta = nextPivot.clone().sub(pivot);
+      const before = wipeTower.position;
+      wipeTower.setTransientPosition({ x: wipeTower.position.x + delta.x, y: wipeTower.position.y + delta.y });
+      const after = wipeTower.position;
+      if (Math.abs(before.x - after.x) <= 1e-9 && Math.abs(before.y - after.y) <= 1e-9) return false;
+      void this.entityCommitPort?.commit(wipeTower);
+      this.emit();
+      return true;
+    }
     this.moveSelectionBy(nextPivot.clone().sub(pivot));
     return true;
   }
@@ -667,6 +790,7 @@ export class SceneInteractionController {
   }
 
   dropSelectionToBed(): boolean {
+    if (this.hasWipeTowerSelection) return false;
     if (this.selection.empty) return false;
     const minZ = this.exactWorldMinZ();
     if (!Number.isFinite(minZ)) return false;
@@ -682,6 +806,7 @@ export class SceneInteractionController {
 
   /** Rotate every selected instance by a componentwise Euler delta (radians). */
   rotateSelectionBy(delta: Vec3): boolean {
+    if (this.hasWipeTowerSelection) return false;
     if (this.selection.empty) return false;
     return this.applyDiscreteTransform('Rotate', () => {
       const next = this.captureDragTargets().map((entry) => {
@@ -694,6 +819,7 @@ export class SceneInteractionController {
         ];
         return { ...entry, transform: rotated };
       }
+      if (entry.kind === 'wipe-tower') return entry;
       const instance = matrixFromTransform(entry.instanceTransform);
       // Apply the rotation as a world delta about the selection pivot, then solve
       // the volume back out so only the selected part rotates.
@@ -708,6 +834,7 @@ export class SceneInteractionController {
 
   /** Multiply every selected instance's scale by `factor` (clamped > 0). */
   scaleSelectionBy(factor: Vec3): boolean {
+    if (this.hasWipeTowerSelection) return false;
     if (this.selection.empty) return false;
     const pivot = this.selectionPivot();
     if (!pivot) return false;
@@ -721,6 +848,7 @@ export class SceneInteractionController {
 
   /** Scale the selection so its bounding-box `axis` size becomes `size` mm. */
   scaleSelectionToSize(axis: 0 | 1 | 2, size: number): boolean {
+    if (this.hasWipeTowerSelection) return false;
     if (this.selection.empty || size <= 0) return false;
     const bounds = this.selectionBounds();
     if (!bounds) return false;
@@ -742,6 +870,7 @@ export class SceneInteractionController {
   }
 
   resetSelection(): boolean {
+    if (this.hasWipeTowerSelection) return false;
     const selected = this.selectedVolumes();
     if (selected.length === 0) return false;
     return this.applyDiscreteTransform('Reset', () => {
@@ -750,6 +879,7 @@ export class SceneInteractionController {
         const volume = this.getVolumes().find((v) => instanceKeyOf(v) === entry.instanceKey);
         return { ...entry, transform: volume ? cloneTransform(volume.buffer.instanceTransform) : entry.transform };
       }
+      if (entry.kind === 'wipe-tower') return entry;
       return { ...entry, volumeTransform: cloneTransform(entry.volume.buffer.volumeTransform) };
       });
       this.applyTargetTransforms(next);
@@ -759,8 +889,8 @@ export class SceneInteractionController {
   private beginDrag(kind: 'gizmo' | 'body'): boolean {
     const pivot = this.selectionPivot();
     if (!pivot) return false;
+    if (!this.beginDragCommit(kind)) return false;
     this.pointerOwner = kind;
-    this.transformHistory?.begin(kind === 'body' ? 'Move' : (this.openGizmo === 'move' ? 'Move' : this.openGizmo === 'rotate' ? 'Rotate' : 'Scale'));
     this.drag = {
       kind,
       startPivot: pivot,
@@ -774,12 +904,42 @@ export class SceneInteractionController {
   }
 
   /**
+   * The controller owns the full pointer/threshold/drag state machine for
+   * every entity. These three helpers are its only split: normal model
+   * transforms use the history adapter, while a selected Prime Tower uses the
+   * Worker X/Y commit adapter after the same local draft completes.
+   */
+  private beginDragCommit(kind: 'gizmo' | 'body'): boolean {
+    if (this.hasWipeTowerSelection) return true;
+    const label = kind === 'body' ? 'Move' : (this.openGizmo === 'move' ? 'Move' : this.openGizmo === 'rotate' ? 'Rotate' : 'Scale');
+    return this.transformHistory?.begin(label) !== false;
+  }
+
+  private finishDragCommit(changed: boolean): void {
+    const wipeTower = this.selectedWipeTower();
+    if (wipeTower) {
+      if (changed) void this.entityCommitPort?.commit(wipeTower);
+      return;
+    }
+    if (changed) void this.transformHistory?.commit();
+    else void this.transformHistory?.abort();
+  }
+
+  private abortDragCommit(): void {
+    // A Prime Tower draft has no native transaction until the same release
+    // path above hands it to its Worker commit adapter.
+    if (!this.hasWipeTowerSelection) void this.transformHistory?.abort();
+  }
+
+  /**
    * Capture the transforms to edit for the current selection. A part-scoped
    * selection edits the volume transforms (only the selected parts move); an
    * instance/object selection edits the instance transforms (whole instances
    * move). This is the single place that decides the edit scope.
    */
   private captureDragTargets(): DragTargetEntry[] {
+    const wipeTower = this.selectedWipeTower();
+    if (wipeTower) return [{ kind: 'wipe-tower', volume: wipeTower, transform: cloneTransform(wipeTower.instanceTransform) }];
     if (this.isVolumeScopedSelection()) {
       return this.selectedVolumes().map((volume) => ({
         kind: 'volume',
@@ -810,7 +970,7 @@ export class SceneInteractionController {
   private applyDiscreteTransform(label: string, apply: () => void): boolean {
     const before = this.captureDragTargets();
     if (before.length === 0) return false;
-    this.transformHistory?.begin(label);
+    if (this.transformHistory?.begin(label) === false) return false;
     apply();
     if (this.targetsEqual(before)) void this.transformHistory?.abort();
     else void this.transformHistory?.commit();
@@ -839,11 +999,13 @@ export class SceneInteractionController {
       if (entry.kind === 'instance') {
         const current = this.getVolumes().find((volume) => instanceKeyOf(volume) === entry.instanceKey)?.instanceTransform;
         if (!current || !equalTransform(entry.transform, current)) return false;
-      } else {
+      } else if (entry.kind === 'volume') {
         const current = this.getVolumes().find((volume) => volume === entry.volume ||
           (volume.buffer.objectIdx === entry.volume.buffer.objectIdx && volume.buffer.volumeIdx === entry.volume.buffer.volumeIdx &&
             volume.buffer.instanceIdx === entry.volume.buffer.instanceIdx))?.volumeTransform;
         if (!current || !equalTransform(entry.volumeTransform, current)) return false;
+      } else if (!equalTransform(entry.transform, entry.volume.instanceTransform)) {
+        return false;
       }
     }
     return true;
@@ -854,18 +1016,23 @@ export class SceneInteractionController {
     const projector = this.boxSelectProjector;
     if (!projector) return false;
     const perInstance = new Map<InstanceKey, BoxRect>();
-    for (const volume of this.getVolumes()) {
+    for (const volume of this.getVolumes().filter((volume) => volume.selectable)) {
       const projected = this.projectVolumeRect(volume, projector);
       if (!projected) continue;
       const key = instanceKeyOf(volume);
       const existing = perInstance.get(key);
       perInstance.set(key, existing ? unionRects(existing, projected) : projected);
     }
-    const ids: string[] = [];
-    for (const volume of this.getVolumes()) {
+    const hits: GLVolume[] = [];
+    for (const volume of this.getVolumes().filter((volume) => volume.selectable)) {
       const bounds = perInstance.get(instanceKeyOf(volume));
-      if (bounds && rectsOverlap(rect, bounds)) ids.push(volume.id);
+      if (bounds && rectsOverlap(rect, bounds)) hits.push(volume);
     }
+    // Selection::WipeTower is mutually exclusive. A marquee covering a model
+    // and a tower deterministically selects model volumes; a tower is selected
+    // only when it is the sole selected kind.
+    const models = hits.filter((volume) => !(volume instanceof WipeTowerVolume));
+    const ids = (models.length > 0 ? models : hits).map((volume) => volume.id);
     if (additive && !this.canAddVolumeIds(ids)) return false;
     return additive ? this.selection.addIds(ids) : this.selection.replaceIds(ids);
   }
@@ -905,6 +1072,7 @@ export class SceneInteractionController {
     if (!this.boxSelect) return false;
     this.boxSelect = null;
     this.pointerOwner = 'none';
+    this.pendingBodyDragHit = null;
     this.pointerOrigin = 'none';
     this.gizmoGrabberHovered = false;
     return true;
@@ -929,6 +1097,11 @@ export class SceneInteractionController {
         ];
         return { ...entry, transform: moved };
       }
+      if (entry.kind === 'wipe-tower') {
+        const start = entry.volume.positionForTransform(entry.transform.offset);
+        entry.volume.setTransientPosition({ x: start.x + delta.x, y: start.y + delta.y });
+        return entry;
+      }
       const volume = this.solveVolumeWorldDelta(entry, (world) => translateMatrix(world, delta));
       return { ...entry, volumeTransform: volume };
     });
@@ -942,6 +1115,7 @@ export class SceneInteractionController {
   ): void {
     const next = snapshot.map((entry) => {
       if (entry.kind === 'instance') return { ...entry, transform: applyRotationDelta(entry.transform, deltaQuat, pivot) };
+      if (entry.kind === 'wipe-tower') return entry;
       const volume = this.solveVolumeWorldDelta(entry, (world) => rotateMatrixAroundPivot(world, deltaQuat, pivot));
       return { ...entry, volumeTransform: volume };
     });
@@ -956,6 +1130,7 @@ export class SceneInteractionController {
   ): void {
     const next = snapshot.map((entry) => {
       if (entry.kind === 'instance') return { ...entry, transform: applyScaleDelta(entry.transform, factor, pivot, spaceQuat) };
+      if (entry.kind === 'wipe-tower') return entry;
       const out = this.solveVolumeWorldDelta(entry, (world) => scaleMatrixAroundPivot(world, factor, pivot, spaceQuat));
       return { ...entry, volumeTransform: { ...out, scale: out.scale.map((s) => clampScale(Math.abs(s))) as Vec3 } };
     });
@@ -976,6 +1151,7 @@ export class SceneInteractionController {
         if (transform.matrix) delete transform.matrix;
         return { ...entry, transform };
       }
+      if (entry.kind === 'wipe-tower') return entry;
       const transform = cloneTransform(entry.volumeTransform);
       transform[property] = [...entry.volume.buffer.volumeTransform[property]] as Vec3;
       if (transform.matrix) delete transform.matrix;
@@ -1015,6 +1191,7 @@ export class SceneInteractionController {
 
   private applyTargetTransforms(entries: DragTargetEntry[]): void {
     if (entries.length === 0) return;
+    if (entries[0].kind === 'wipe-tower') return;
     if (entries[0].kind === 'instance') {
       const instanceEntries = entries.filter(
         (entry): entry is Extract<DragTargetEntry, { kind: 'instance' }> => entry.kind === 'instance',

@@ -50,6 +50,22 @@ describe('project dialogs', () => {
     expect(document.body.textContent).not.toContain('C:\\');
   });
 
+  it('shows staged filament compatibility slot changes before acceptance', async () => {
+    await renderDialog(<ProjectNoticeDialog
+      title="Review project compatibility"
+      testId="project-load-confirmation-dialog"
+      notices={[{
+        kind: 'embedded-presets',
+        message: 'Embedded project presets require review.',
+        details: { filamentSlotChanges: [{ slot: 2, before: 'Project PETG', after: 'Generic PLA', reason: 'native-compatibility' }] },
+      }]}
+      onClose={vi.fn()}
+      onContinue={vi.fn()}
+    />);
+    expect(document.body.textContent).toContain('Slot 2: Project PETG → Generic PLA');
+    expect(document.querySelector('[data-testid="project-load-confirmation-dialog-continue"]')).not.toBeNull();
+  });
+
   it('renders the four persisted load behaviour choices in the shadcn select', async () => {
     await renderDialog(<ProjectPreferencesDialog open preferences={{ version: 1, projectLoadBehaviour: 'always_ask', selectedProfiles: {}, ui: {} }} onSave={vi.fn()} onClose={vi.fn()} />);
     expect(document.body.textContent).toContain('Project Load Behaviour');

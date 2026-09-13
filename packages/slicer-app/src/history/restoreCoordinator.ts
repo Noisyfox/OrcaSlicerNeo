@@ -1,11 +1,12 @@
-import type { HistoryContext, RestoreResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, PrimeTowerRestoreReceipt, RestoreImpact, RestoreResult, SlicerClient } from '@slicer/client';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from '../components/workspace/sliceCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
-import { projectHistoryStatus } from '../components/workspace/actions/historyMutation';
+import { restoreProjectHistory } from '../components/workspace/actions/historyMutation';
+import { historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from './historyDiagnostics';
 
 export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string; direction: 'undo' | 'redo' };
 
@@ -17,7 +18,7 @@ export interface HistoryRestoreCoordinator {
 }
 
 export interface HistoryRestoreCoordinatorOptions {
-  runtime: Pick<SlicerClient, 'undoHistory' | 'redoHistory' | 'jumpHistory' | 'cancel'>;
+  runtime: Pick<SlicerClient, 'undoHistory' | 'redoHistory' | 'jumpHistory' | 'cancel' | 'getFilamentSessionSnapshot' | 'getHistoryStatus'>;
   sceneInteraction: SceneInteractionController;
   sliceCoordinator?: Pick<WorkspaceSliceCoordinator, 'cancelAndWait'>;
   /**
@@ -25,7 +26,14 @@ export interface HistoryRestoreCoordinatorOptions {
    * after structure, mesh, plate, selection, and gizmo projections are safe
    * for editing; the coordinator keeps the restoring phase until then.
    */
-  refreshModel: (context: HistoryContext, revision: number) => Promise<void>;
+  refreshModel: (
+    context: HistoryContext,
+    impact: RestoreImpact,
+    revision: number,
+    primeTowerReceipt?: PrimeTowerRestoreReceipt,
+  ) => Promise<void>;
+  /** Best-effort preference mirror after a successful native restore. */
+  publishRestoredFilamentRack?: (revision: number) => Promise<void>;
 }
 
 function restoreError(result: RestoreResult): string {
@@ -42,9 +50,8 @@ export function createHistoryRestoreCoordinator({
   sceneInteraction,
   sliceCoordinator,
   refreshModel,
+  publishRestoredFilamentRack,
 }: HistoryRestoreCoordinatorOptions): HistoryRestoreCoordinator {
-  let inFlight: Promise<boolean> | null = null;
-
   const restore = (action: HistoryRestoreAction): Promise<boolean> => {
     // A drag is a draft gesture. The first Undo/Redo cancels it and is
     // intentionally consumed; a second shortcut performs navigation.
@@ -52,8 +59,38 @@ export function createHistoryRestoreCoordinator({
       sceneInteraction.cancelDrag();
       return Promise.resolve(false);
     }
-    if (inFlight) return inFlight;
-    const task = (async () => {
+
+    // Every request is deliberately retained as its own FIFO item.  Repeated
+    // Undo or Redo therefore has the same meaning as repeated native
+    // navigation, while a queued opposite direction or jump is resolved by
+    // the Worker against the cursor committed by all earlier FIFO work.  Do
+    // not precompute targets from React's (necessarily lagging) status.
+    let revision: number | null = null;
+    return restoreProjectHistory(runtime, action, async (restored) => {
+      if (revision === null) throw new Error('history restore started without a revision');
+      // Full restores must hide derived output before their asynchronous
+      // model projection begins. A narrow tower receipt already performs
+      // targeted native invalidation and must not clear other plates.
+      if (restored.impact.preview === 'all') useSlicerStore.getState().invalidateSliceResult();
+      const projectionStartedAt = historyDiagnosticNow();
+      try {
+        await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt);
+      } finally {
+        useHistoryDiagnosticsStore.getState().recordProjection(
+          historyRestorePath(restored.impact), historyDiagnosticNow() - projectionStartedAt,
+        );
+      }
+      if (useHistoryRestoreStore.getState().revision !== revision) return;
+      if (restored.impact.filamentRack) {
+        try {
+          await publishRestoredFilamentRack?.(revision);
+        } catch (error) {
+          // Rack preference persistence is best effort. Native history and
+          // the already-published model remain authoritative.
+          console.warn('remembered filament rack publication failed after history restore', error);
+        }
+      }
+    }, async () => {
       const state = useHistoryRestoreStore.getState();
       state.setError(null);
       if (useSlicerStore.getState().status === 'slicing') {
@@ -64,45 +101,33 @@ export function createHistoryRestoreCoordinator({
         await Promise.allSettled([sliceWait]);
       }
       state.setPhase('restoring');
-      const revision = state.advanceRevision();
-      let result: RestoreResult;
-      try {
-        result = action === 'undo' ? await runtime.undoHistory()
-          : action === 'redo' ? await runtime.redoHistory()
-            : await runtime.jumpHistory(action.jump, action.direction);
-      } catch (error) {
-        state.setError(error instanceof Error ? error.message : String(error));
-        useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
-        state.setPhase('idle');
-        return false;
-      }
+      revision = state.advanceRevision();
+      useHistoryRestoreStore.getState().setSnapshotSuppressed(true);
+    }).then((result) => {
+      const activeRevision = revision;
       if (!result.ok) {
         // Worker prepare/validation failure preserves its old model/cursor.
         if (result.status) useHistoryNavigationStore.getState().setStatus(result.status);
-        state.setError(restoreError(result));
-        useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
-        state.setPhase('idle');
+        if (activeRevision !== null && useHistoryRestoreStore.getState().revision === activeRevision) {
+          useHistoryRestoreStore.getState().setError(restoreError(result));
+          useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
+          useHistoryRestoreStore.getState().setPhase('idle');
+        }
         return false;
       }
-      // Do not project model or context before the Worker returns success.
-      projectHistoryStatus(result.status);
-      useHistoryRestoreStore.getState().setSnapshotSuppressed(true);
-      useSlicerStore.getState().invalidateSliceResult();
-      await refreshModel(result.context, revision);
-      // A newer restore supersedes this projection; never leave the UI in a
-      // restoring state for an obsolete request.
-      if (useHistoryRestoreStore.getState().revision !== revision) return false;
-      state.setPhase('idle');
-      return true;
-    })().catch((error) => {
-      useHistoryRestoreStore.getState().setError(error instanceof Error ? error.message : String(error));
-      useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
+      // The central history entrypoint projects status, refreshes the
+      // filament revision, and keeps its mutation fence through publication.
+      if (activeRevision === null || useHistoryRestoreStore.getState().revision !== activeRevision) return false;
       useHistoryRestoreStore.getState().setPhase('idle');
+      return true;
+    }).catch((error) => {
+      if (revision !== null && useHistoryRestoreStore.getState().revision === revision) {
+        useHistoryRestoreStore.getState().setError(error instanceof Error ? error.message : String(error));
+        useHistoryRestoreStore.getState().setSnapshotSuppressed(false);
+        useHistoryRestoreStore.getState().setPhase('idle');
+      }
       return false;
     });
-    inFlight = task.finally(() => { if (inFlight === joined) inFlight = null; });
-    const joined = inFlight;
-    return joined;
   };
 
   return {

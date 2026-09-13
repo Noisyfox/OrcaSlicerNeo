@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "orca://slicer-wasm/filament-session-snapshot/v1",
+  "title": "Orca Neo filament session snapshot",
+  "oneOf": [
+    { "$ref": "#/$defs/success" },
+    { "$ref": "#/$defs/error" }
+  ],
+  "$defs": {
+    "success": {
+      "type": "object",
+      "required": ["ok", "version", "slots", "mappings", "flushing", "capabilities", "assignments", "revisions", "status"],
+      "properties": {
+        "ok": { "const": true },
+        "version": { "const": 1 },
+        "slots": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/slot" } },
+        "mappings": { "$ref": "#/$defs/mappings" },
+        "flushing": { "$ref": "#/$defs/flushing" },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
+        "assignments": { "$ref": "#/$defs/assignments" },
+        "revisions": { "$ref": "#/$defs/revisions" },
+        "status": {
+          "type": "object", "required": ["state", "error"],
+          "properties": { "state": { "const": "ready" }, "error": { "const": null } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "required": ["ok", "version", "error", "error_code", "status"],
+      "properties": {
+        "ok": { "const": false },
+        "version": { "const": 1 },
+        "error": { "type": "string" },
+        "error_code": { "type": "string" },
+        "status": {
+          "type": "object", "required": ["state", "error"],
+          "properties": { "state": { "const": "error" }, "error": { "type": "string" } },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "slot": {
+      "type": "object",
+      "required": ["slot", "preset", "colour"],
+      "properties": {
+        "slot": { "type": "integer", "minimum": 1 },
+        "preset": {
+          "type": "object", "required": ["id", "name"],
+          "properties": { "id": { "type": "string" }, "name": { "type": "string" } },
+          "additionalProperties": false
+        },
+        "colour": {
+          "type": "object", "required": ["effective", "provenance"],
+          "properties": {
+            "effective": { "type": "string" },
+            "provenance": { "enum": ["preset", "user"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "integerArray": { "type": "array", "items": { "type": "integer", "minimum": 0 } },
+    "numberArray": { "type": "array", "items": { "type": "number" } },
+    "mappings": {
+      "type": "object", "required": ["filament", "volume", "nozzle", "filament2", "physical_extruder"],
+      "properties": {
+        "filament": { "$ref": "#/$defs/integerArray" },
+        "volume": { "$ref": "#/$defs/integerArray" },
+        "nozzle": { "$ref": "#/$defs/integerArray" },
+        "filament2": { "$ref": "#/$defs/integerArray" },
+        "physical_extruder": { "$ref": "#/$defs/integerArray" }
+      },
+      "additionalProperties": false
+    },
+    "flushing": {
+      "description": "matrix is a raw concatenation of one matrix_dimension square plane per native nozzle; plane_count must equal capabilities.nozzle_count.",
+      "type": "object", "required": ["matrix", "vector", "matrix_dimension", "plane_count", "source"],
+      "properties": {
+        "matrix": { "$ref": "#/$defs/numberArray" },
+        "vector": { "$ref": "#/$defs/numberArray" },
+        "matrix_dimension": { "type": "integer", "minimum": 1 },
+        "plane_count": { "type": "integer", "minimum": 1 },
+        "source": { "enum": ["native", "default"] }
+      },
+      "additionalProperties": false
+    },
+    "capabilities": {
+      "type": "object", "required": ["min_slots", "max_slots", "nozzle_count", "flexible", "can_add", "can_delete", "can_merge"],
+      "properties": {
+        "min_slots": { "type": "integer", "minimum": 1 },
+        "max_slots": { "const": 64 },
+        "nozzle_count": { "type": "integer", "minimum": 1 },
+        "flexible": { "type": "boolean" },
+        "can_add": { "type": "boolean" },
+        "can_delete": { "type": "boolean" },
+        "can_merge": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "assignment": {
+      "type": "object", "required": ["target", "id", "object_id", "explicit_slot", "effective_slot", "inherited"],
+      "properties": {
+        "target": { "enum": ["object", "model-part", "parameter-modifier"] },
+        "id": { "type": "integer", "minimum": 0 },
+        "object_id": { "type": "integer", "minimum": 0 },
+        "explicit_slot": { "type": "integer", "minimum": 0 },
+        "effective_slot": { "type": "integer", "minimum": 1 },
+        "inherited": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "assignments": {
+      "type": "object", "required": ["objects", "parts", "modifiers"],
+      "properties": {
+        "objects": { "type": "array", "items": { "$ref": "#/$defs/assignment" } },
+        "parts": { "type": "array", "items": { "$ref": "#/$defs/assignment" } },
+        "modifiers": { "type": "array", "items": { "$ref": "#/$defs/assignment" } }
+      },
+      "additionalProperties": false
+    },
+    "revisions": {
+      "type": "object", "required": ["session", "project", "result", "plates"],
+      "properties": {
+        "session": { "type": "integer", "minimum": 0 },
+        "project": { "type": "integer", "minimum": 0 },
+        "result": { "type": "integer", "minimum": 0 },
+        "plates": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+      },
+      "additionalProperties": false
+    }
+  }
+}

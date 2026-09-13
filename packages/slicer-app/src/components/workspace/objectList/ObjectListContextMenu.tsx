@@ -18,6 +18,8 @@ import {
   splitVolumeToPartsInList,
 } from './structuralActions';
 import { changePartTypeInList, setObjectPrintableInList, setInstancePrintableInList } from './actions';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { assignmentTargetsForSelection } from './filamentAssignment';
 
 export type ObjectListCtxTarget =
   | { kind: 'list' }
@@ -59,6 +61,8 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
 }) {
   const platform = usePlatform();
   const runtime = platform.runtime;
+  const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
+  const runFilament = useFilamentSessionStore((s) => s.run);
   const projection = useObjectListStore((s) => s.projection);
   const act = (p: Promise<{ ok: boolean; error?: string }>) => { void p; onClose(); };
 
@@ -73,6 +77,35 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
       onClick={() => act(assembleObjectsInList(runtime, selectedObjectIds))} />
   ) : null;
 
+  function changeFilamentItems(target: ObjectListCtxTarget): ReactNode[] {
+    if (!filamentSnapshot || (target.kind !== 'object' && target.kind !== 'part')) return [];
+    const targetSpec = target.kind === 'object'
+      ? { kind: 'object' as const, id: target.object.id }
+      : { kind: 'part' as const, id: target.volume.id };
+    const targets = target.kind === 'object' && projection.objectIds.size === 0 && projection.instanceIds.size > 0
+      ? [...projection.instanceIds].map((id) => ({ kind: 'instance' as const, id }))
+      : assignmentTargetsForSelection(targetSpec, projection);
+    if (targets.length === 0) return [];
+    const choices = target.kind === 'part'
+      ? [{ slot: 0, label: 'Default' }, ...filamentSnapshot.slots.map((slot) => ({ slot: slot.slot, label: `Slot ${slot.slot}` }))]
+      : filamentSnapshot.slots.map((slot) => ({ slot: slot.slot, label: `Slot ${slot.slot}` }));
+    return choices.map(({ slot, label }) => (
+      <MenuItem
+        key={`filament-${slot}`}
+        label={`Change Filament · ${label}`}
+        testid={`objectlist-change-filament-${slot === 0 ? 'default' : slot}`}
+        onClick={() => {
+          void runFilament(runtime, () => {
+            const current = useFilamentSessionStore.getState().snapshot;
+            if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
+            return runtime.assignFilament({ version: 1, revision: current.revisions.session, slot, targets });
+          });
+          onClose();
+        }}
+      />
+    ));
+  }
+
   const items: ReactNode[] = [];
   if (target.kind === 'list') {
     if (assembleItem) items.push(assembleItem);
@@ -86,6 +119,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
     // (projection.objectIds empty, e.g. selected via the Instances group).
     const targetObjectIds = selectedObjectIds.includes(o.id) ? selectedObjectIds : [o.id];
     if (assembleItem) items.push(assembleItem);
+    items.push(...changeFilamentItems(target));
     if (showRename && canRename) {
       items.push(
         <MenuItem key="rename" label="Rename" testid="objectlist-rename"
@@ -126,6 +160,7 @@ export function ObjectListContextMenu({ target, onClose, onRename, showRename = 
     );
   } else if (target.kind === 'part') {
     const { volume: v } = target;
+    if (v.type === 'model_part') items.push(...changeFilamentItems(target));
     if (showRename && canRename) {
       items.push(
         <MenuItem key="rename" label="Rename" testid="objectlist-rename"

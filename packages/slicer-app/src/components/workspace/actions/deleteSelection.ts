@@ -10,7 +10,7 @@ import { waitForSettledModelTransforms } from './persistModelTransforms';
 import { applyPlateSessionTransforms } from './syncModelTransforms';
 import { glVolumeCollection } from '../viewport/GLVolume';
 import { applyPlateResultMutation } from '../../../stores/plateResultLifecycle';
-import { runProjectHistoryMutation, syncHistoryStatus } from './historyMutation';
+import { runProjectHistoryMutation } from './historyMutation';
 
 export type DeleteSelectionResult = { ok: boolean; error?: string };
 
@@ -73,31 +73,33 @@ export async function deleteSelection(
         return { ok: false, error: 'selection no longer matches the model' };
       }
       return runtime.deleteObjects(objectIds);
-    }, sceneInteraction);
+    }, sceneInteraction, {
+      publish: async (published) => {
+        applyPlateSessionTransforms(published.plateSession, glVolumeCollection.volumes);
+        const slicer = useSlicerStore.getState();
+        const settings = useSettingsStore.getState();
+        slicer.setStatus('idle');
+        slicer.setResultExported(false);
+        slicer.setError(null);
+        if ((published.objects ?? 0) === 0) {
+          settings.setModelLoaded(false);
+          useProjectStore.getState().setProject({ hasContent: false });
+        }
+        else settings.refreshModel();
+        if (published.plateSession) {
+          const previousPlateSession = usePlateSessionStore.getState().snapshot;
+          usePlateSessionStore.getState().setSnapshot(published.plateSession);
+          applyPlateResultMutation(published.plateSession, previousPlateSession);
+          useProjectStore.getState().recordPlateMutation(published.plateSession);
+        }
+        else useProjectStore.getState().markDirty('model-delete');
+      },
+    });
     result = history.result;
     if (!result.ok) {
       useSlicerStore.getState().setError(result.error ?? 'delete failed');
       return { ok: false, error: result.error ?? 'delete failed' };
     }
-    applyPlateSessionTransforms(result.plateSession, glVolumeCollection.volumes);
-    const slicer = useSlicerStore.getState();
-    const settings = useSettingsStore.getState();
-    slicer.setStatus('idle');
-    slicer.setResultExported(false);
-    slicer.setError(null);
-    if ((result.objects ?? 0) === 0) {
-      settings.setModelLoaded(false);
-      useProjectStore.getState().setProject({ hasContent: false });
-    }
-    else settings.refreshModel();
-    if (result.plateSession) {
-      const previousPlateSession = usePlateSessionStore.getState().snapshot;
-      usePlateSessionStore.getState().setSnapshot(result.plateSession);
-      applyPlateResultMutation(result.plateSession, previousPlateSession);
-      useProjectStore.getState().recordPlateMutation(result.plateSession);
-    }
-    else useProjectStore.getState().markDirty('model-delete');
-    await syncHistoryStatus(runtime);
     return { ok: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -5,6 +5,7 @@ export type ProjectPresetScope = 'system' | 'project';
 export type ProjectOperationPhase =
   | 'idle'
   | 'waiting-for-load-choice'
+  | 'waiting-for-project-confirmation'
   | 'waiting-for-dirty-decision'
   | 'loading'
   | 'saving'
@@ -15,7 +16,6 @@ export type ProjectOperationPhase =
 export interface ProjectPresetSelections {
   printer: string;
   print: string;
-  filament: string;
 }
 
 export interface ProjectNotice {
@@ -47,6 +47,10 @@ export interface ProjectSessionState {
   /** Host-private token, opaque to shared code and UI. */
   location?: OpaqueProjectLocation;
   hasContent: boolean;
+  /** Number of project mutations whose native and renderer projections have
+   * not completed yet. Revision-fenced filament commands must not overtake
+   * them. */
+  projectMutationPendingCount: number;
   /** Synchronous UI projection of Worker HistoryStatus.dirty when history is available. */
   dirty: boolean;
   /** Legacy mutation reasons for the pre-history editing surface; lifecycle
@@ -61,6 +65,8 @@ export interface ProjectSessionState {
   notices: ProjectNotice[];
   operation: ProjectOperation;
   setProject: (value: Partial<Pick<ProjectSessionState, 'projectName' | 'location' | 'hasContent' | 'dirty' | 'dirtyReasons' | 'scope' | 'systemPresets' | 'projectPresets' | 'flattenedMultiPlate' | 'notices'>>) => void;
+  beginProjectMutation: () => void;
+  endProjectMutation: () => void;
   /** Compatibility projection for ordinary edits not yet migrated to history. */
   markDirty: (reason?: ProjectDirtyReason) => void;
   /** Advance every known plate input for one shared configuration commit. */
@@ -77,13 +83,14 @@ export interface ProjectSessionState {
 }
 
 export const DEFAULT_PROJECT_PRESETS: ProjectPresetSelections = {
-  printer: '', print: '', filament: '',
+  printer: '', print: '',
 };
 
-const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' | 'recordSharedConfigurationMutation' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
+const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'beginProjectMutation' | 'endProjectMutation' | 'markDirty' | 'recordSharedConfigurationMutation' | 'recordPlateMutation' | 'markClean' | 'setOperation' | 'resetOperation' | 'reset'> => ({
   projectName: 'Untitled',
   location: undefined,
   hasContent: false,
+  projectMutationPendingCount: 0,
   dirty: false,
   dirtyReasons: [],
   plateInputRevisions: {},
@@ -98,6 +105,8 @@ const initialSession = (): Omit<ProjectSessionState, 'setProject' | 'markDirty' 
 export const useProjectStore = create<ProjectSessionState>((set) => ({
   ...initialSession(),
   setProject: (value) => set(value),
+  beginProjectMutation: () => set((state) => ({ projectMutationPendingCount: state.projectMutationPendingCount + 1 })),
+  endProjectMutation: () => set((state) => ({ projectMutationPendingCount: Math.max(0, state.projectMutationPendingCount - 1) })),
   markDirty: (reason) => set((state) => ({
     dirty: true,
     ...(reason && !state.dirtyReasons.includes(reason) ? { dirtyReasons: [...state.dirtyReasons, reason] } : {}),
@@ -131,7 +140,7 @@ export const useProjectStore = create<ProjectSessionState>((set) => ({
   reset: () => set(initialSession()),
 }));
 
-export function projectPresetTriple(snapshot: { printer: { name: string }; print: { name: string }; filament: { name: string } }): ProjectPresetSelections {
-  return { printer: snapshot.printer.name, print: snapshot.print.name, filament: snapshot.filament.name };
+export function projectPresetSelections(snapshot: { printer: { name: string }; print: { name: string } }): ProjectPresetSelections {
+  return { printer: snapshot.printer.name, print: snapshot.print.name };
 }
 

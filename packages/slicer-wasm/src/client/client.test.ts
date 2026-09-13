@@ -13,11 +13,469 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('keeps disabled prime towers non-empty while clearing eligibility', async () => {
+    const module = createMockModule({ primeTowerFixture: true });
+    const c = createClient(async () => module);
+    const enabled = await c.getPrimeTowerProjection();
+    expect(enabled).toMatchObject({ ok: true, plates: [{ eligible: true, empty: false }] });
+    const disabled = await c.setProjectConfigOverride({ scope: 'project' }, 'enable_prime_tower', '0');
+    expect(disabled).toMatchObject({ ok: true });
+    const projection = await c.getPrimeTowerProjection();
+    expect(projection).toMatchObject({ ok: true, plates: [{ eligible: false, empty: false, usedSlots: [] }] });
+  });
+
+  it('normalizes the native Prime Tower projection and keeps geometry out of React', async () => {
+    const payload = {
+      ok: true, version: 1, current_plate_id: 'plate-session-1-plate-1',
+      build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 },
+      plates: [{ plate_id: 'plate-session-1-plate-1', display_index: 0,
+        eligible: true, empty: false, forced: false, used_slots: [1, 2],
+        width: 60, depth: 20, height: 10, position: { x: 15, y: 220 }, rotation: 90,
+        brim_margin: 3, footprint: { min_x: -8, max_x: 18, min_y: 217, max_y: 283 },
+        bands: [
+          { slot: 1, start_depth: 0, end_depth: 10, colour: '#333333', opacity: 0.66 },
+          { slot: 2, start_depth: 10, end_depth: 20, colour: '#FFD700', opacity: 0.66 },
+        ], build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 } }],
+    };
+    const result = await createClient(async () => createMockModule({ primeTowerProjection: payload }))
+      .getPrimeTowerProjection();
+    expect(result).toEqual({ ok: true, version: 1, currentPlateId: 'plate-session-1-plate-1',
+      buildArea: { minX: 0, maxX: 200, minY: 0, maxY: 200, maxZ: 300 }, plates: [{
+        plateId: 'plate-session-1-plate-1', displayIndex: 0, eligible: true, empty: false, forced: false,
+        usedSlots: [1, 2], width: 60, depth: 20, height: 10, position: { x: 15, y: 220 }, rotation: 90,
+        brimMargin: 3, footprint: { minX: -8, maxX: 18, minY: 217, maxY: 283 },
+        bands: [{ slot: 1, startDepth: 0, endDepth: 10, colour: '#333333', opacity: 0.66 },
+          { slot: 2, startDepth: 10, endDepth: 20, colour: '#FFD700', opacity: 0.66 }],
+        buildArea: { minX: 0, maxX: 200, minY: 0, maxY: 200, maxZ: 300 },
+      }] });
+  });
+
+  it('rejects malformed Prime Tower geometry and unsupported versions', async () => {
+    await expect(createClient(async () => createMockModule({ primeTowerProjection: { ok: true, version: 2 } }))
+      .getPrimeTowerProjection()).resolves.toEqual({ ok: false, error: 'invalid prime tower projection response' });
+    const base = { ok: true, version: 1, current_plate_id: 'p',
+      build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 },
+      plates: [{ plate_id: 'p', display_index: 0, eligible: false, empty: true, forced: false,
+        used_slots: [], width: 0, depth: 0, height: 0, position: { x: 0, y: 0 }, rotation: 0,
+        brim_margin: 0, footprint: { min_x: 0, max_x: 0, min_y: 0, max_y: 0 }, bands: [],
+        build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 } }] };
+    await expect(createClient(async () => createMockModule({ primeTowerProjection: {
+      ...base, plates: [{ ...base.plates[0], eligible: true }],
+    } })).getPrimeTowerProjection()).resolves.toEqual({ ok: false, error: 'invalid prime tower projection plates' });
+  });
+
+  it('moves Prime Tower position with one clamped history mutation and fences stale revisions', async () => {
+    const plateId = 'plate-session-1-plate-1';
+    const payload = {
+      ok: true, version: 1, current_plate_id: plateId,
+      build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 },
+      plates: [{ plate_id: plateId, display_index: 0,
+        eligible: true, empty: false, forced: false, used_slots: [1, 2],
+        width: 20, depth: 30, height: 10, position: { x: 15, y: 15 }, rotation: 45,
+        brim_margin: 3, footprint: { min_x: 0, max_x: 30, min_y: 0, max_y: 30 },
+        bands: [{ slot: 1, start_depth: 0, end_depth: 15, colour: '#333333', opacity: 0.66 },
+          { slot: 2, start_depth: 15, end_depth: 30, colour: '#FFD700', opacity: 0.66 }],
+        build_area: { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 } }],
+    };
+    const module = createMockModule({ primeTowerProjection: payload });
+    const c = createClient(async () => module);
+    const before = await c.getPlateSessionSnapshot();
+    expect(before).toMatchObject({ ok: true, inputRevisions: { [plateId]: 0 } });
+    if (!before.ok) throw new Error(before.error);
+    const moved = await c.movePrimeTower({ version: 1, plateId, revision: before.inputRevisions?.[plateId] ?? -1, x: 999, y: 999 });
+    expect(moved).toMatchObject({ ok: true, result: { mutation: {
+      kind: 'move', plateId, historyEntryDelta: 1, revisionBefore: 0, revisionAfter: 1,
+      dirty: true, affectedPlateIds: [plateId], clamped: true, outsideBoundaryWarning: false,
+    } } });
+    if (!moved.ok) throw new Error(moved.error);
+    expect(moved.result.historyStatus.revision).toBeGreaterThanOrEqual(1);
+    if (!moved.result.mutation.position) throw new Error('move response omitted authoritative position');
+    expect(moved.result.mutation.position.x).toBeLessThan(200);
+    expect(moved.result.mutation.position.y).toBeLessThan(200);
+    const noOp = await c.movePrimeTower({ version: 1, plateId, revision: 1,
+      x: moved.result.mutation.position.x, y: moved.result.mutation.position.y });
+    expect(noOp).toMatchObject({ ok: true, result: { mutation: {
+      historyEntryDelta: 0, revisionBefore: 1, revisionAfter: 1, dirty: false, affectedPlateIds: [],
+    } } });
+    await expect(c.movePrimeTower({ version: 1, plateId, revision: 0, x: 20, y: 20 }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    await expect(c.getPlateSessionSnapshot()).resolves.toMatchObject({ ok: true, inputRevisions: { [plateId]: 1 } });
+  });
+
   it('init loads preset collections', async () => {
     const c = makeClient();
     const r = await c.init();
     expect(r.ok).toBe(true);
     expect(r.printers).toBeGreaterThan(0);
+  });
+
+  it('projects the authoritative filament session with one-based slots and Default maps', async () => {
+    const c = makeClient();
+    const snapshot = await c.getFilamentSessionSnapshot();
+    expect(snapshot).toMatchObject({ ok: true, version: 1, status: { state: 'ready', error: null } });
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    expect(snapshot.slots).toEqual([{
+      slot: 1,
+      preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
+      colour: { effective: '#F2754E', provenance: 'preset' },
+    }]);
+    expect(snapshot.mappings).toEqual({ filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] });
+    expect(snapshot.assignments.objects).toEqual([]);
+    expect(snapshot.flushing).toMatchObject({ matrix: [0], matrixDimension: 1, planeCount: 1, source: 'default' });
+    expect(snapshot.capabilities).toMatchObject({ minSlots: 1, maxSlots: 64, flexible: true, canAdd: true, canDelete: false, canMerge: false });
+  });
+
+  it('rejects malformed and unsupported filament session payloads at the client boundary', async () => {
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: true, version: 1, slots: [] } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'invalid filament session slots' });
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: true, version: 2 } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'unsupported filament session version' });
+  });
+
+  it('frees filament JSON responses, including malformed native JSON', async () => {
+    const module = createMockModule();
+    const originalCall = module.ccall.bind(module);
+    let responsePointer = 0;
+    module.ccall = ((name, ret, argTypes, args) => {
+      if (name === 'orc_get_filament_session_snapshot') {
+        const bytes = new TextEncoder().encode('{malformed');
+        responsePointer = Number(module._malloc(bytes.length + 1));
+        module.HEAPU8.set(bytes, responsePointer);
+        return responsePointer;
+      }
+      return originalCall(name, ret, argTypes, args);
+    }) as typeof module.ccall;
+    const c = createClient(async () => module);
+    await expect(c.getFilamentSessionSnapshot()).rejects.toThrow(SyntaxError);
+    expect(module._freedPointers).toContain(responsePointer);
+  });
+
+  it('frees every filament command response without retaining a native pointer', async () => {
+    const module = createMockModule();
+    const c = createClient(async () => module);
+    const before = module._freedPointers.length;
+    const snapshot = await c.getFilamentSessionSnapshot();
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) throw new Error(snapshot.error);
+    const result = await c.addFilamentSlot({ version: 1, revision: snapshot.revisions.session });
+    expect(result.ok).toBe(true);
+    expect(module._freedPointers.length).toBeGreaterThanOrEqual(before + 2);
+  });
+
+  it('requires the versioned native failure envelope', async () => {
+    const failure = { ok: false, version: 1, error: 'native projection failed', error_code: 'native_failure',
+      status: { state: 'error', error: 'native projection failed' } };
+    await expect(createClient(async () => createMockModule({ filamentSession: failure }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'native projection failed', errorCode: 'native_failure',
+        status: { state: 'error', error: 'native projection failed' } });
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: false, error: 'unversioned' } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'unsupported filament session version' });
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: false, version: 2, error: 'future', error_code: 'future', status: { state: 'error', error: 'future' } } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'unsupported filament session version' });
+    await expect(createClient(async () => createMockModule({ filamentSession: { ok: false, version: 1, error: 'missing code' } }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'invalid filament session error envelope' });
+  });
+
+  it('preserves native preset-equivalent and user colour provenance', async () => {
+    const payload = {
+      ok: true, version: 1,
+      slots: [
+        { slot: 1, preset: { id: 'preset-a', name: 'preset-a' }, colour: { effective: '#26A69A', provenance: 'preset' } },
+        { slot: 2, preset: { id: 'preset-b', name: 'preset-b' }, colour: { effective: '#112233', provenance: 'user' } },
+      ],
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
+      flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'native' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 0, project: 0, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    };
+    const result = await createClient(async () => createMockModule({ filamentSession: payload })).getFilamentSessionSnapshot();
+    expect(result).toMatchObject({ ok: true, slots: [
+      { colour: { effective: '#26A69A', provenance: 'preset' } },
+      { colour: { effective: '#112233', provenance: 'user' } },
+    ] });
+  });
+
+  it('executes atomic filament commands and rejects stale or injected mutations without changing the snapshot', async () => {
+    const c = makeClient();
+    const before = await c.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const selected = await c.selectFilamentSlotPreset({
+      version: 1, revision: before.revisions.session, slot: 1, preset: 'Bambu PLA Matte @BBL X1C',
+    });
+    expect(selected).toMatchObject({ ok: true, result: { mutation: {
+      kind: 'select-preset', historyEntryDelta: 1, revisionBefore: before.revisions.session,
+    }, snapshot: { slots: [{ preset: { name: 'Bambu PLA Matte @BBL X1C' } }] } } });
+    if (!selected.ok) throw new Error(selected.error);
+    const added = await c.addFilamentSlot({ version: 1, revision: selected.result.snapshot.revisions.session });
+    expect(added).toMatchObject({ ok: true, result: { mutation: {
+      kind: 'add', historyEntryDelta: 1, revisionBefore: selected.result.snapshot.revisions.session,
+      dirty: true, allPlateResultsInvalidated: true,
+    } } });
+    if (!added.ok) throw new Error(added.error);
+    expect(added.result.snapshot.slots).toHaveLength(2);
+    const edited = await c.setFilamentSlotColour({ version: 1, revision: added.result.snapshot.revisions.session, slot: 2, colour: '#112233' });
+    expect(edited).toMatchObject({ ok: true, result: { snapshot: { slots: [
+      {}, { colour: { effective: '#112233', provenance: 'user' } },
+    ] } } });
+    if (!edited.ok) throw new Error(edited.error);
+    const beforeInjected = edited.result.snapshot;
+    await expect(c.deleteFilamentSlot({ version: 1, revision: beforeInjected.revisions.session, slot: 1, inject_failure: true } as any))
+      .resolves.toMatchObject({ ok: false, errorCode: 'native_validation_failure' });
+    await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(beforeInjected);
+    await expect(c.deleteFilamentSlot({ version: 1, revision: beforeInjected.revisions.session - 1, slot: 1 }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(beforeInjected);
+  });
+
+  it('applies a remembered rack as a revision-fenced session baseline', async () => {
+    const c = makeClient();
+    const before = await c.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const applied = await c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
+      slots: [
+        { preset: 'Generic PLA @System', colour: '#112233' },
+        { preset: 'Generic PETG @System', colour: '#445566' },
+      ] });
+    expect(applied).toMatchObject({ ok: true, slots: [
+      { slot: 1, preset: { name: 'Generic PLA @System' }, colour: { effective: '#112233', provenance: 'user' } },
+      { slot: 2, preset: { name: 'Generic PETG @System' }, colour: { effective: '#445566', provenance: 'user' } },
+    ] });
+    if (!applied.ok) throw new Error(applied.error);
+    await expect(c.applyRememberedFilamentRack({ version: 1, revision: before.revisions.session,
+      slots: [{ preset: 'Generic PLA @System', colour: '#112233' }] }))
+      .resolves.toMatchObject({ ok: false, errorCode: 'stale_revision' });
+    await expect(c.getFilamentSessionSnapshot()).resolves.toEqual(applied);
+  });
+
+  it('keeps the filament command fence stable across context-only history', async () => {
+    const c = makeClient();
+    const before = await c.getFilamentSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+
+    await c.recordHistoryContext('Selection', {
+      selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: null,
+      gizmo: null,
+      projectConfigOverlay: {},
+    });
+    const afterContext = await c.getFilamentSessionSnapshot();
+    if (!afterContext.ok) throw new Error(afterContext.error);
+    expect(afterContext.revisions.session).toBe(before.revisions.session);
+
+    const added = await c.addFilamentSlot({ version: 1, revision: afterContext.revisions.session });
+    expect(added.ok).toBe(true);
+  });
+
+  it('rejects kind-specific mutation response fields and post-mutation ranges', async () => {
+    const base = await makeClient().getFilamentSessionSnapshot();
+    if (!base.ok) throw new Error(base.error);
+    const toWire = (snapshot: typeof base) => ({ ...snapshot,
+      mappings: { ...snapshot.mappings, physical_extruder: snapshot.mappings.physicalExtruder },
+      flushing: { ...snapshot.flushing, matrix_dimension: snapshot.flushing.matrixDimension, plane_count: snapshot.flushing.planeCount },
+      capabilities: { min_slots: snapshot.capabilities.minSlots, max_slots: snapshot.capabilities.maxSlots,
+        nozzle_count: snapshot.capabilities.nozzleCount, flexible: snapshot.capabilities.flexible,
+        can_add: snapshot.capabilities.canAdd, can_delete: snapshot.capabilities.canDelete, can_merge: snapshot.capabilities.canMerge },
+      assignments: Object.fromEntries(Object.entries(snapshot.assignments).map(([key, entries]) => [key,
+        entries.map((entry: { objectId: number; [name: string]: unknown }) => ({ ...entry, object_id: entry.objectId }))])),
+    });
+    const validSnapshot = { ...base, revisions: { ...base.revisions, session: 1 } };
+    const receipt = (revision = 1, dirty = true) => ({
+      canUndo: true, canRedo: false, undoEntries: [], redoEntries: [], cursor: revision,
+      savedCheckpoint: 0, savedCheckpointEvicted: false, dirty, bytesUsed: 1,
+      byteBudget: 10, optionalBytesReleased: 0, evictedEntryCount: 0,
+      lastEvictedEntryId: null, oldestRetainedEntryId: 'entry-0', oversizedEntryRetained: false,
+      disabled: false, activeTransactionId: null, revision,
+    });
+    const response = (mutation: Record<string, unknown>, snapshot = validSnapshot) => ({
+      ok: true, version: 1, result: { snapshot: toWire(snapshot), history_status: receipt(), mutation: {
+        kind: 'select-preset', history_entry_delta: 1, revision_before: 0,
+        revision_after: 1, dirty: true, all_plate_results_invalidated: true,
+        slot: 1, preset: 'p', ...mutation,
+      } },
+    });
+    const assignmentResponse = (fields: Record<string, unknown>, snapshot = validSnapshot) => ({
+      ok: true, version: 1, result: { snapshot: toWire(snapshot), history_status: receipt(), mutation: {
+        kind: 'assign', history_entry_delta: 1, revision_before: 0, revision_after: 1,
+        dirty: true, all_plate_results_invalidated: false, slot: 0,
+        accepted_targets: [{ kind: 'object', id: 7, object_id: 7 }], affected_plate_ids: [], ...fields,
+      } },
+    });
+    const missingReceipt = response({});
+    delete (missingReceipt.result as Record<string, unknown>).history_status;
+    await expect(createClient(async () => createMockModule({ filamentMutation: missingReceipt }))
+      .selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'missing filament mutation history status', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: assignmentResponse({ preset: 'unexpected' }),
+    })).assignFilament({ version: 1, revision: 0, slot: 0, targets: [{ kind: 'object', id: 7 }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'extraneous filament mutation field', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: assignmentResponse({ accepted_targets: [] }),
+    })).assignFilament({ version: 1, revision: 0, slot: 0, targets: [{ kind: 'object', id: 7 }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: assignmentResponse({ all_plate_results_invalidated: true }),
+    })).assignFilament({ version: 1, revision: 0, slot: 0, targets: [{ kind: 'object', id: 7 }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' });
+    const routingResponse = (fields: Record<string, unknown>) => ({
+      ok: true, version: 1, result: { snapshot: toWire(validSnapshot), history_status: receipt(), mutation: {
+        kind: 'routing', history_entry_delta: 1, revision_before: 0, revision_after: 1,
+        dirty: true, all_plate_results_invalidated: true, selector: 'support-base', slot: 1,
+        accepted_targets: [{ kind: 'project', id: 0, object_id: 0 }], affected_plate_ids: ['plate-1'], ...fields,
+      } },
+    });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: routingResponse({ all_plate_results_invalidated: false }),
+    })).setFilamentRouting({ version: 1, revision: 0, selector: 'support-base', slot: 1, targets: [{ kind: 'project' }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: routingResponse({ accepted_targets: [{ kind: 'project', id: 2, object_id: 0 }] }),
+    })).setFilamentRouting({ version: 1, revision: 0, selector: 'support-base', slot: 1, targets: [{ kind: 'project' }] }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: response({ slot_count: 1 }),
+    })).selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'extraneous filament mutation field', errorCode: 'invalid_response' });
+
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: response({ revision_after: 2 }),
+    })).selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: response({}, { ...validSnapshot, revisions: { ...validSnapshot.revisions, session: 2 } }),
+    })).selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({
+      filamentMutation: response({ dirty: false }),
+    })).selectFilamentSlotPreset({ version: 1, revision: 0, slot: 1, preset: 'p' }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' });
+
+    const twoSlot = { ...base,
+      slots: [base.slots[0], { ...base.slots[0], slot: 2 }],
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physicalExtruder: [0] },
+      flushing: { matrix: [0, 0, 0, 0], matrixDimension: 2, planeCount: 1, vector: [], source: 'native' as const },
+      capabilities: { ...base.capabilities, canDelete: true, canMerge: true },
+      revisions: { ...base.revisions, session: 1 },
+    };
+    const oneSlot = { ...twoSlot,
+      slots: [twoSlot.slots[0]],
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physicalExtruder: [0] },
+      flushing: { ...twoSlot.flushing, matrix: [0], matrixDimension: 1 },
+      capabilities: { ...twoSlot.capabilities, canDelete: false, canMerge: false },
+    };
+    const deleteMutation = (fields: Record<string, unknown>) => ({
+      ok: true, version: 1, result: { snapshot: toWire(oneSlot), history_status: receipt(), mutation: {
+        kind: 'delete', history_entry_delta: 1, revision_before: 0, revision_after: 1,
+        dirty: true, all_plate_results_invalidated: true, source: 2, destination: null,
+        slot_count: 1, ...fields,
+      } },
+    });
+    await expect(createClient(async () => createMockModule({ filamentMutation: deleteMutation({ destination: 1 }) }))
+      .deleteFilamentSlot({ version: 1, revision: 0, slot: 2 }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament delete destination', errorCode: 'invalid_response' });
+    await expect(createClient(async () => createMockModule({ filamentMutation: deleteMutation({ slot_count: 2 }) }))
+      .deleteFilamentSlot({ version: 1, revision: 0, slot: 2 }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament mutation slot count', errorCode: 'invalid_response' });
+
+    const mergeResponse = {
+      ok: true, version: 1, result: { snapshot: toWire(oneSlot), history_status: receipt(), mutation: {
+        kind: 'merge', history_entry_delta: 1, revision_before: 0, revision_after: 1,
+        dirty: true, all_plate_results_invalidated: true, source: 2, destination: 2, slot_count: 1,
+      } },
+    };
+    await expect(createClient(async () => createMockModule({ filamentMutation: mergeResponse }))
+      .mergeFilamentSlots({ version: 1, revision: 0, source: 2, destination: 1 }))
+      .resolves.toEqual({ ok: false, version: 1, error: 'invalid filament merge destination range', errorCode: 'invalid_response' });
+  });
+
+  it('remaps middle merge and preserves destination colour in the atomic client contract', async () => {
+    const payload = {
+      ok: true, version: 1,
+      slots: [1, 2, 3].map((slot) => ({ slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: `#00000${slot}`, provenance: slot === 2 ? 'user' : 'preset' } })),
+      mappings: { filament: [1, 1, 1], volume: [0, 0, 0], nozzle: [1, 1, 1], filament2: [1, 1, 1], physical_extruder: [0] },
+      flushing: { matrix: Array(9).fill(0), vector: [], matrix_dimension: 3, plane_count: 1, source: 'native' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 4, project: 4, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    };
+    const c = createClient(async () => createMockModule({ filamentSession: payload }));
+    const merged = await c.mergeFilamentSlots({ version: 1, revision: 4, source: 2, destination: 1 });
+    expect(merged).toMatchObject({ ok: true, result: { snapshot: { slots: [
+      { slot: 1, colour: { effective: '#000001' } }, { slot: 2, colour: { effective: '#000003' } },
+    ] } } });
+  });
+
+  it('rejects a flush plane count that does not match native nozzle count', async () => {
+    const payload = {
+      ok: true, version: 1,
+      slots: [1, 2].map((slot) => ({ slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
+      flushing: { matrix: [0, 0, 0, 0, 0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 2, source: 'native' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 0, project: 0, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    };
+    await expect(createClient(async () => createMockModule({ filamentSession: payload })).getFilamentSessionSnapshot())
+      .resolves.toEqual({ ok: false, error: 'inconsistent filament session flushing planes' });
+  });
+
+  it.each([
+    ['reversed', [{ slot: 2 }, { slot: 1 }]],
+    ['duplicate', [{ slot: 1 }, { slot: 1 }]],
+    ['gap', [{ slot: 1 }, { slot: 3 }]],
+  ])('rejects %s native slot ordering without sorting', async (_label, slots) => {
+    const payload = {
+      ok: true, version: 1, slots: slots.map((entry) => ({ ...entry,
+        preset: { id: 'p', name: 'p' }, colour: { effective: '#000000', provenance: 'preset' } })),
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: [0] },
+      flushing: { matrix: [0, 0, 0, 0], vector: [], matrix_dimension: 2, plane_count: 1, source: 'default' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true },
+      assignments: { objects: [], parts: [], modifiers: [] }, revisions: { session: 0, project: 0, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    };
+    await expect(createClient(async () => createMockModule({ filamentSession: payload }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'invalid filament session slot ordering' });
+  });
+
+  it('enforces flexible and fixed-device capability semantics', async () => {
+    const base = await makeClient().getFilamentSessionSnapshot();
+    if (!base.ok) throw new Error(base.error);
+    const withSlots = (capabilities: Record<string, unknown>) => ({ ...base,
+      slots: [1, 2].map((slot) => ({ slot, preset: { id: `p${slot}`, name: `p${slot}` }, colour: { effective: '#000000', provenance: 'preset' } })),
+      mappings: { filament: [1, 1], volume: [0, 0], nozzle: [1, 1], filament2: [1, 1], physical_extruder: (capabilities.nozzle_count === 2 ? [0, 1] : [0]) },
+      flushing: { matrix: Array.from({ length: 4 * Number(capabilities.nozzle_count) }, () => 0), vector: [], matrix_dimension: 2,
+        plane_count: Number(capabilities.nozzle_count), source: 'default' },
+      capabilities,
+      assignments: { objects: [], parts: [], modifiers: [] },
+      revisions: { session: 0, project: 0, result: 0, plates: {} },
+    });
+    await expect(createClient(async () => createMockModule({ filamentSession: withSlots({
+      min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: true, can_merge: true,
+    }) })).getFilamentSessionSnapshot()).resolves.toMatchObject({ ok: true });
+    await expect(createClient(async () => createMockModule({ filamentSession: withSlots({
+      min_slots: 2, max_slots: 64, nozzle_count: 2, flexible: false, can_add: false, can_delete: false, can_merge: false,
+    }) })).getFilamentSessionSnapshot()).resolves.toMatchObject({ ok: true });
+    await expect(createClient(async () => createMockModule({ filamentSession: withSlots({
+      min_slots: 2, max_slots: 64, nozzle_count: 2, flexible: false, can_add: true, can_delete: false, can_merge: false,
+    }) })).getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'inconsistent filament session capabilities' });
+  });
+
+  it('rejects assignment slots outside the ordered slot projection and inconsistent inheritance', async () => {
+    const c = makeClient();
+    const base = await c.getFilamentSessionSnapshot();
+    if (!base.ok) throw new Error(base.error);
+    const payload = { ...base,
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
+      flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true, can_add: true, can_delete: false, can_merge: false },
+      revisions: { session: 0, project: 0, result: 0, plates: {} },
+      assignments: {
+      objects: [{ target: 'object', id: 1, object_id: 1, explicit_slot: 0, effective_slot: 1, inherited: false }],
+      parts: [], modifiers: [],
+    }};
+    await expect(createClient(async () => createMockModule({ filamentSession: payload }))
+      .getFilamentSessionSnapshot()).resolves.toEqual({ ok: false, error: 'invalid filament session assignments' });
   });
 
   it('exposes one deterministic default plate and opaque runtime identity', async () => {
@@ -32,7 +490,9 @@ describe('SlicerClient bridge contract', () => {
       name: 'Plate 1',
     }]);
     expect(await c.getPlateSessionSnapshot()).toEqual(first);
-    expect(await c.selectPlate(first.currentPlateId)).toEqual(first);
+    expect(await c.selectPlate(first.currentPlateId)).toEqual({
+      ok: true, version: 1, currentPlateId: first.currentPlateId,
+    });
     const reset = await c.resetPlateSession();
     expect(reset.ok).toBe(true);
     if (!reset.ok) throw new Error(reset.error);
@@ -131,7 +591,7 @@ describe('SlicerClient bridge contract', () => {
   it('keeps project configuration overrides in the Worker and scopes them by stable identity', async () => {
     const c = makeClient();
     const initial = await c.getProjectConfigOverlay();
-    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} } });
+    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {} } });
     const project = await c.setProjectConfigOverride({ scope: 'project' }, 'layer_height', '0.16');
     expect(project).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
     await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
@@ -147,6 +607,24 @@ describe('SlicerClient bridge contract', () => {
     expect(revalidated).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
   });
 
+  it('rejects generic prime-tower coordinates and malformed status envelopes', async () => {
+    const corrected = await makeClient().setProjectConfigOverride({ scope: 'project' }, 'wipe_tower_x', '1,2,3');
+    expect(corrected).toMatchObject({ ok: false, errorCode: 'unsupported_reference' });
+
+    const malformed = await createClient(async () => createMockModule({ projectConfigOverride: {
+      ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} },
+      configuration_status: { state: 'ready', corrections: [{ key: 'wipe_tower_x' }], warnings: [], errors: [] },
+    } })).setProjectConfigOverride({ scope: 'project' }, 'enable_prime_tower', '1');
+    expect(malformed).toEqual({ ok: false, error: 'invalid project configuration status' });
+
+    const nativeError = await createClient(async () => createMockModule({ projectConfigOverride: {
+      ok: false, error: 'native option rejected', error_code: 'native_validation_failure',
+      status: { state: 'error', error: 'native option rejected' },
+    } })).setProjectConfigOverride({ scope: 'project' }, 'enable_prime_tower', 'bad');
+    expect(nativeError).toEqual({ ok: false, error: 'native option rejected', errorCode: 'native_validation_failure',
+      status: { state: 'error', error: 'native option rejected' } });
+  });
+
   it('returns printer-bound reflow transforms for every member while preserving empty plates', async () => {
     const c = makeClient();
     const first = await c.getPlateSessionSnapshot();
@@ -160,7 +638,7 @@ describe('SlicerClient bridge contract', () => {
     const selected = await c.selectPlate(second.plates[1].plateId);
     if (!selected.ok) throw new Error(selected.error);
 
-    const changedPrinter = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');
+    const changedPrinter = await c.selectProfile('printer', 'Bambu Lab P1S 0.4 nozzle');
     expect(changedPrinter.ok).toBe(true);
     const mutation = await c.markSharedConfigurationMutation();
     expect(mutation.ok).toBe(true);
@@ -192,9 +670,9 @@ describe('SlicerClient bridge contract', () => {
     expect(afterLoad.plates[0]?.plateId).toBe(afterLoad.currentPlateId);
   });
 
-  it('getPresetSnapshot returns the coherent strict-hide picker state', async () => {
+  it('getProfileSnapshot returns the coherent strict-hide picker state', async () => {
     const c = makeClient();
-    const snapshot = await c.getPresetSnapshot();
+    const snapshot = await c.getProfileSnapshot();
     expect(snapshot.ok).toBe(true);
     if (!snapshot.ok) throw new Error(snapshot.error);
     expect(snapshot.printers.map((preset) => preset.name)).toEqual([
@@ -205,65 +683,61 @@ describe('SlicerClient bridge contract', () => {
       '0.20mm Standard @BBL X1C',
       '0.16mm Optimal @BBL X1C',
     ]);
-    expect(snapshot.filaments.map((preset) => preset.name)).toEqual([
+    expect(snapshot.filamentCatalog.map((preset) => preset.name)).toEqual([
       'Bambu PLA Basic @BBL X1C',
       'Bambu PLA Matte @BBL X1C',
       'Generic PLA @System',
     ]);
+    expect(snapshot.filamentCatalog.every((preset) => !Object.hasOwn(preset, 'selected'))).toBe(true);
     expect(snapshot.printer.name).toBe('Bambu Lab X1 Carbon 0.4 nozzle');
     expect(snapshot.print.name).toBe('0.20mm Standard @BBL X1C');
-    expect(snapshot.filament.name).toBe('Bambu PLA Basic @BBL X1C');
     expect(snapshot.printable_area).toEqual([[0, 0], [220, 0], [220, 220], [0, 220]]);
   });
 
-  it('selectPreset returns the resolved printer-to-process-to-filament snapshot', async () => {
+  it('selectProfile returns the resolved printer-to-process-to-rack snapshot', async () => {
     const c = makeClient();
-    const r = await c.selectPreset('printer', 'Bambu Lab P1S 0.4 nozzle');
+    const r = await c.selectProfile('printer', 'Bambu Lab P1S 0.4 nozzle');
     expect(r.ok).toBe(true);
     if (!r.ok) throw new Error(r.error);
     expect(r.printer.name).toBe('Bambu Lab P1S 0.4 nozzle');
     expect(r.print.name).toBe('0.20mm Standard @BBL P1S');
-    expect(r.filament.name).toBe('Bambu PLA Basic @BBL P1S');
     expect(r.prints.map((preset) => preset.name)).toEqual(['0.20mm Standard @BBL P1S']);
-    expect(r.filaments.map((preset) => preset.name)).toEqual([
+    expect(r.filamentCatalog.map((preset) => preset.name)).toEqual([
       'Bambu PLA Basic @BBL P1S',
       'Generic PLA @System',
     ]);
     expect(r.printable_area).toEqual([[0, 0], [256, 0], [256, 256], [0, 256]]);
   });
 
-  it('selecting a process refreshes its dependent filament candidates and fallbacks', async () => {
+  it('selecting a process refreshes the rack filament catalogue and native fallback', async () => {
     const c = makeClient();
-    const matte = await c.selectPreset('filament', 'Bambu PLA Matte @BBL X1C');
-    expect(matte.ok).toBe(true);
-    const r = await c.selectPreset('print', '0.16mm Optimal @BBL X1C');
+    const r = await c.selectProfile('print', '0.16mm Optimal @BBL X1C');
     expect(r.ok).toBe(true);
     if (!r.ok) throw new Error(r.error);
     expect(r.print.name).toBe('0.16mm Optimal @BBL X1C');
-    expect(r.filament.name).toBe('Bambu PLA Basic @BBL X1C');
-    expect(r.filaments.map((preset) => preset.name)).toEqual([
+    expect(r.filamentCatalog.map((preset) => preset.name)).toEqual([
       'Bambu PLA Basic @BBL X1C',
       'Bambu PLA Silk @BBL X1C',
       'Generic PLA @System',
     ]);
   });
 
-  it('selectPreset rejects unavailable requests without mutating the snapshot', async () => {
+  it('selectProfile rejects unavailable requests without mutating the snapshot', async () => {
     const c = makeClient();
-    const before = await c.getPresetSnapshot();
-    const unknown = await c.selectPreset('printer', 'No Such Printer');
+    const before = await c.getProfileSnapshot();
+    const unknown = await c.selectProfile('printer', 'No Such Printer');
     expect(unknown.ok).toBeFalsy();
     if (unknown.ok) throw new Error('expected unknown printer rejection');
     expect(unknown.error).toContain('not found');
-    const hidden = await c.selectPreset('printer', 'Afinia H+1(HS)');
+    const hidden = await c.selectProfile('printer', 'Afinia H+1(HS)');
     expect(hidden.ok).toBeFalsy();
     if (hidden.ok) throw new Error('expected hidden printer rejection');
     expect(hidden.error).toContain('not visible');
-    const incompatible = await c.selectPreset('print', '0.20mm Standard @BBL P1S');
+    const incompatible = await c.selectProfile('print', '0.20mm Standard @BBL P1S');
     expect(incompatible.ok).toBeFalsy();
     if (incompatible.ok) throw new Error('expected incompatible process rejection');
     expect(incompatible.error).toContain('incompatible');
-    expect(await c.getPresetSnapshot()).toEqual(before);
+    expect(await c.getProfileSnapshot()).toEqual(before);
   });
 
   it('getOptionMetadata exposes typed keys', async () => {
@@ -993,8 +1467,8 @@ describe('SlicerClient bridge contract', () => {
     await c.slice({}, () => {});
     const r = await c.getSliceResult();
     expect(r.layers).toBe(40);
-    expect(r.toolpath.vertexCount).toBe(2400);
-    expect(r.toolpath.positions.byteLength).toBe(2400 * 3 * 4);
+    expect(r.toolpath.segmentCount).toBe(2400);
+    expect(r.toolpath.ends.byteLength).toBe(2400 * 3 * 4);
     expect(r.toolpath.features.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -1002,7 +1476,7 @@ describe('SlicerClient bridge contract', () => {
     const c = createClient(async () => createMockModule({
       sliceFixture: {
         layers: 2, toolpathVertices: 4,
-        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }, { id: 1, name: 'Infill', color: [0, 0, 255] }],
+        features: [{ id: 0, role: 0, name: 'Perimeter', color: [255, 0, 0] }, { id: 1, role: 1, name: 'Infill', color: [0, 0, 255] }],
         extruderPalette: [
           { id: 0, name: 'Red PLA', color: [255, 0, 0], tool: 0 },
           { id: 1, name: 'Blue PETG', color: [0, 0, 255], tool: 1 },
@@ -1052,26 +1526,26 @@ describe('SlicerClient bridge contract', () => {
 
   it('preserves every Orca extrusion-role label and color in the client palette', async () => {
     const orcaPalette: MockFeature[] = [
-      { id: 0, name: 'Undefined', color: [230, 179, 179] },
-      { id: 1, name: 'Inner wall', color: [255, 230, 77] },
-      { id: 2, name: 'Outer wall', color: [255, 125, 56] },
-      { id: 3, name: 'Overhang wall', color: [31, 31, 255] },
-      { id: 4, name: 'Sparse infill', color: [176, 48, 41] },
-      { id: 5, name: 'Internal solid infill', color: [150, 84, 204] },
-      { id: 6, name: 'Top surface', color: [240, 64, 64] },
-      { id: 7, name: 'Bottom surface', color: [102, 92, 199] },
-      { id: 8, name: 'Ironing', color: [255, 140, 105] },
-      { id: 9, name: 'Bridge', color: [77, 128, 186] },
-      { id: 10, name: 'Internal Bridge', color: [77, 128, 186] },
-      { id: 11, name: 'Gap infill', color: [255, 255, 255] },
-      { id: 12, name: 'Skirt', color: [0, 135, 110] },
-      { id: 13, name: 'Brim', color: [0, 59, 110] },
-      { id: 14, name: 'Support', color: [0, 255, 0] },
-      { id: 15, name: 'Support interface', color: [0, 128, 0] },
-      { id: 16, name: 'Support transition', color: [0, 64, 0] },
-      { id: 17, name: 'Prime tower', color: [179, 227, 171] },
-      { id: 18, name: 'Custom', color: [94, 209, 148] },
-      { id: 19, name: 'Multiple', color: [128, 128, 128] },
+      { id: 0, role: 0, name: 'Undefined', color: [230, 179, 179] },
+      { id: 1, role: 1, name: 'Inner wall', color: [255, 230, 77] },
+      { id: 2, role: 2, name: 'Outer wall', color: [255, 125, 56] },
+      { id: 3, role: 3, name: 'Overhang wall', color: [31, 31, 255] },
+      { id: 4, role: 4, name: 'Sparse infill', color: [176, 48, 41] },
+      { id: 5, role: 5, name: 'Internal solid infill', color: [150, 84, 204] },
+      { id: 6, role: 6, name: 'Top surface', color: [240, 64, 64] },
+      { id: 7, role: 7, name: 'Bottom surface', color: [102, 92, 199] },
+      { id: 8, role: 8, name: 'Ironing', color: [255, 140, 105] },
+      { id: 9, role: 9, name: 'Bridge', color: [77, 128, 186] },
+      { id: 10, role: 10, name: 'Internal Bridge', color: [77, 128, 186] },
+      { id: 11, role: 11, name: 'Gap infill', color: [255, 255, 255] },
+      { id: 12, role: 12, name: 'Skirt', color: [0, 135, 110] },
+      { id: 13, role: 13, name: 'Brim', color: [0, 59, 110] },
+      { id: 14, role: 14, name: 'Support', color: [0, 255, 0] },
+      { id: 15, role: 15, name: 'Support interface', color: [0, 128, 0] },
+      { id: 16, role: 16, name: 'Support transition', color: [0, 64, 0] },
+      { id: 17, role: 17, name: 'Prime tower', color: [179, 227, 171] },
+      { id: 18, role: 18, name: 'Custom', color: [94, 209, 148] },
+      { id: 19, role: 19, name: 'Multiple', color: [128, 128, 128] },
     ];
     const c = createClient(async () => createMockModule({
       sliceFixture: { layers: 1, toolpathVertices: 2, features: orcaPalette },
@@ -1085,7 +1559,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('omits unavailable optional metrics while preserving required arrays', async () => {
     const c = createClient(async () => createMockModule({
-      sliceFixture: { layers: 1, toolpathVertices: 2, features: [{ id: 0, name: 'Travel', color: [1, 2, 3] }] },
+      sliceFixture: { layers: 1, toolpathVertices: 2, features: [{ id: 0, role: 0, name: 'Travel', color: [1, 2, 3] }] },
     }));
     await c.addModel(new Uint8Array(4), 'stl');
     await c.slice({});
@@ -1191,7 +1665,7 @@ describe('SlicerClient bridge contract', () => {
     const c = createClient(async () => createMockModule({
       sliceFixture: {
         layers: 1, toolpathVertices: 2,
-        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        features: [{ id: 0, role: 0, name: 'Perimeter', color: [255, 0, 0] }],
         resultId: 17, sourceText,
       },
     }));
@@ -1214,7 +1688,7 @@ describe('SlicerClient bridge contract', () => {
     const c = createClient(async () => createMockModule({
       sliceFixture: {
         layers: 1, toolpathVertices: 2,
-        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        features: [{ id: 0, role: 0, name: 'Perimeter', color: [255, 0, 0] }],
         resultId: 18, sourceText,
       },
     }));
@@ -1235,7 +1709,7 @@ describe('SlicerClient bridge contract', () => {
     const c = createClient(async () => createMockModule({
       sliceFixture: {
         layers: 1, toolpathVertices: 2,
-        features: [{ id: 0, name: 'Perimeter', color: [255, 0, 0] }],
+        features: [{ id: 0, role: 0, name: 'Perimeter', color: [255, 0, 0] }],
         resultId: 19, sourceText: '; header\nG1 X1\nG1 X2\n',
       },
     }));

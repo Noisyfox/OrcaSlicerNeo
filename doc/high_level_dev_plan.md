@@ -1,4 +1,4 @@
-# High Level Development Plan (updated 2026-09-08)
+# High Level Development Plan (updated 2026-09-09)
 
 ## Context
 
@@ -55,7 +55,8 @@
 - Re-add `/Format/3mf` + `bbs_3mf` (expat/minilzo are vendored in-tree).
 - Link flags per design: `-O3 -fexceptions -sMEMORY64 -sMODULARIZE=1
   -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH=1
-  -sINITIAL_MEMORY=64MB -sEXIT_RUNTIME=0 -sINVOKE_RUN=0 -sFORCE_FILESYSTEM=1
+  -sINITIAL_MEMORY=64MB -sMAXIMUM_MEMORY=16GB -sEXIT_RUNTIME=0
+  -sINVOKE_RUN=0 -sFORCE_FILESYSTEM=1
   -sEXPORTED_RUNTIME_METHODS=callMain,FS,_malloc,_free
   -sDISABLE_EXCEPTION_CATCHING=0`. No `-pthread` in v1.
 
@@ -162,21 +163,14 @@
 - Root `LICENSE` (AGPL-3.0 canonical text) + `SOURCE_OFFER.md`; installer
   license page; `license` fields in package.jsons.
 
-### Milestone 4 — Preset Management with AppConfig Fidelity
+### Milestone 4 — Preset Management with AppConfig Fidelity (historical)
 
-> **Status: delivered 2026-08-15.** The preset picker drives installed-state
-> via the real `AppConfig`/variant mechanism (not `is_visible` cosmetics).
-> Bridge: `orc_init(app_config_json)` (nullable; no-arg backward
-> compatible), `orc_set_app_config`, `orc_get_app_config`,
-> `orc_select_preset(kind, name)` (real `select_preset_by_name` path with the
-> `load_selections` compat tail + all-three write-back); `orc_get_presets`
-> enriched (`is_visible` = real `set_visible_from_appconfig` result,
-> `is_default`, `selected`, `vendor_id`, `model`, `variant`); fresh-config
-> default installs every shipped printer via `set_variant`, partial `models`
-> configs leave only the listed variants visible. Electron: `appConfig:load`/
-> `appConfig:save` IPC → `userData/appconfig.json`, boot loads config →
-> `init(json)`, picker groups visible-first with a dimmed "Not installed"
-> group; selection change → `selectPreset` → store sync → `appConfig.save`.
+> **Historical delivery: 2026-08-15.** This milestone's AppConfig bridge and
+> single-filament selection surface were removed during the later shared-runtime
+> and multi-filament work. The current bridge has no AppConfig API or backward-
+> compatibility path. The final profile contract is Printer/Process selection
+> plus the rack-owned `filament_catalog` described by the approved specs.
+> The remaining notes below record historical hardening evidence only.
 > Hardening: `catch (...)` on every bridge op + the bridge TUs compiled with
 > `-fexceptions` (emcc's default `-fignore-exceptions` compiles try/catch out
 > — the flag was link-time only, so the M4 probe's section-4 nlohmann throw
@@ -281,9 +275,10 @@
 **Epic 9.3: portable profile resources and preferences**
 - Build upstream-organized core/vendor profile archives separately from WASM;
   install all shipped packages into MEMFS before `orc_init()`.
-- Replace AppConfig persistence with the shared selected-profile/UI-preference
-  repository. Profiles, projects, models, overrides, results, and G-code stay
-  ephemeral in the first release.
+- Replace AppConfig persistence with the shared Printer/Process preference and
+  remembered-rack repository. The open project's rack/session remains
+  authoritative; profiles, projects, models, overrides, results, and G-code
+  follow the approved persistence specifications.
 - **Steps 5–6 delivered:** deterministic profile pack generation
   (`packages/profile-resources`: versioned manifest + core/vendor ZIPs from
   upstream organization) and a Worker-side installer into MEMFS with
@@ -292,8 +287,9 @@
   `doc/2026-08-20-m9-step3-profile-resources.md`.
 - **Step 7 delivered:** AppConfig replaced by shared preferences
   (Electron file in user data / Web localStorage, in-memory fallback on
-  read/write failure); restoration order printer → print → filament through
-  the bridge, resolved combination written back.
+  read/write failure); restoration is Printer → Process, with a separate
+  remembered rack seed for a new project. No single-filament preference or
+  migration path remains.
 
 **Epic 9.4: static Web host and verification**
 - Add `apps/web`, use browser file selection/Blob download, local static
@@ -494,18 +490,32 @@ context. It excludes global preset selection, global/system preferences, full
 - [x] Add unit, Worker/WASM, large-model budget/eviction, and Electron/Web
       verification; record timing and peak memory as diagnostics initially.
 
-### Maintenance — Filament Library Selector Completeness
+### Milestone 17 — Multi-Filament Support
 
-> **Status: implemented 2026-08-30.** The full bundled filament library is
-> marked available in the bridge's legacy installed-state gate before native
-> compatibility is evaluated. This preserves OrcaSlicer's generic-profile
-> supersession rules instead of duplicating them in the shared UI. See
-> `doc/2026-08-30-filament-library-selector.md`.
+> **Status: implemented and accepted 2026-09-11 (Steps 11–15).** The normative product and
+> compatibility boundary is [`spec/Multi-Filament Support.md`](../spec/Multi-Filament%20Support.md);
+> the final user experience is [`doc/2026-09-13-multi-filament-user-experience.md`](2026-09-13-multi-filament-user-experience.md).
 
-- [x] Successfully installed profile packages contribute every loaded FFF
-      filament profile to the selector.
-- [x] Generic OrcaFilamentLibrary profiles remain suppressed only when native
-      alias-based matching selects a printer-specific profile.
+- [x] Worker-owned rack/session/slot state with native compatibility, atomic
+      slot mutations, assignments, routing, flushing, prime tower, Preview,
+      project persistence, and history.
+- [x] Zero-legacy boundary: no single-filament UI/API/preference/project
+      state/history/sidecar/mock/wire selection flag, compatibility special
+      case, or migration code; `filament_catalog` is catalogue-only and
+      `orc_select_preset` accepts Printer/Process only.
+- [x] History no-bundle invariant: `fullPresetBundleCopyCount` proves that
+      only project-import staging copies the complete bundle; slot history
+      Undo/Redo is approximately 1–3 ms and context-only history leaves the
+      filament fence unchanged.
+- [x] Complete dual-variant real-WASM acceptance finished in 95.018 s under
+      the hard 120 s runner limit. Developer iteration supports
+      `--threaded-only`; release acceptance runs serial and threaded. Electron
+      target regression evidence is included in the acceptance record.
+- [x] Threaded Electron acceptance opened the exact approved 11-plate project,
+      verified plate-1-only slice/export, current-plate interaction, one-entry
+      drag history, boundary clamping, Prepare-only lifetime, and advisory
+      collision/outside warnings; the checklist completed in 50.300 s and the
+      licensed project run in 2m06s.
 
 ## G-code preview GPU streaming renderer (2026-09-02)
 

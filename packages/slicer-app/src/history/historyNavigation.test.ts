@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { HistoryStatus } from '@slicer/client';
 import {
   historyNavigationDisabled,
+  historyNavigationIntentAllowed,
   historyNextOperationLabel,
   historyShortcutAction,
   isEditableHistoryTarget,
@@ -49,7 +50,9 @@ describe('shared history navigation semantics', () => {
     expect(historyNextOperationLabel(status, 'undo')).toBe('Undo Move');
     expect(historyNextOperationLabel(status, 'redo')).toBe('Redo Delete');
     expect(historyNavigationDisabled(status, 'undo', false, true)).toBe(false);
-    expect(historyNavigationDisabled(status, 'undo', true, true)).toBe(true);
+    expect(historyNavigationDisabled(status, 'undo', true, true)).toBe(false);
+    expect(historyNavigationIntentAllowed({ ...status, canRedo: false }, 'redo', true)).toBe(true);
+    expect(historyNavigationIntentAllowed({ ...status, canRedo: false }, 'redo', false)).toBe(false);
     expect(historyNavigationDisabled({ ...status, disabled: true }, 'undo', false, true)).toBe(true);
     expect(historyNavigationDisabled({ ...status, activeTransactionId: 'tx-1' }, 'undo', false, true)).toBe(true);
     expect(historyNavigationDisabled(null, 'redo', false, true)).toBe(true);

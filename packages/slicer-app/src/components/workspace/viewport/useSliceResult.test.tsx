@@ -23,9 +23,6 @@ function arcSliceResult(): ClientSliceResult {
     objects: 1,
     layers: 1,
     toolpath: {
-      vertexCount: 8,
-      positions: new Float32Array(24),
-      layers: new Uint32Array(8),
       features: new Uint32Array([0, 0, 0, 0]),
       palette: [],
       segmentCount: 4,

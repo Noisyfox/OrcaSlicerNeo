@@ -10,14 +10,22 @@ vi.mock('@orca/slicer-runtime', () => ({
   errorText: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
-import { addHandyModel, addModel, HANDY_MODELS } from './sceneActions';
+import { addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS } from './sceneActions';
+import { useProjectStore } from '../../../stores/useProjectStore';
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
   const addModel = vi.fn(async () => result);
+  const runProjectHistoryTransaction = vi.fn(async <T>(
+    _label: string,
+    _category: 'project' | 'context',
+    _before: unknown,
+    mutation: (transactionId: string) => Promise<T>,
+    _after: unknown | (() => unknown | Promise<unknown>),
+  ) => ({ result: await mutation('tx-1'), status: {} as never }));
   return {
     platform: {
       models: { pick: vi.fn(async () => ({ displayName: fileName, bytes: new Uint8Array([1]) })) },
-      runtime: { addModel },
+      runtime: { addModel, runProjectHistoryTransaction },
     } as unknown as PlatformCapabilities,
     addModel,
   };
@@ -82,6 +90,58 @@ describe('scene add-model action', () => {
       2, Uint8Array.from(['/handy-models/OrcaPlug_v2.drc'.length]), 'drc', 'OrcaPlug_v2.drc',
     );
     expect(useSettingsStore.getState().values.modelPath).toBe('Orca Cube');
+  });
+
+  it('keeps filament mutations fenced while a primitive add is still publishing', async () => {
+    let release!: (value: { ok: boolean }) => void;
+    const addShape = vi.fn(() => new Promise<{ ok: boolean }>((resolve) => { release = resolve; }));
+    const runProjectHistoryTransaction = vi.fn(async (
+      _label: string,
+      _category: 'project',
+      _before: unknown,
+      mutation: (transactionId: string) => Promise<{ ok: boolean }>,
+      _after: unknown,
+    ) => ({ result: await mutation('tx-1'), status: null }));
+    const platform = {
+      runtime: { addShape, runProjectHistoryTransaction },
+    } as unknown as PlatformCapabilities;
+
+    const pending = addPrimitive(platform, null, 'Cube');
+    await Promise.resolve();
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(1);
+
+    release({ ok: true });
+    await pending;
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+  });
+
+  it('keeps Clear Scene fenced through its single filament refresh', async () => {
+    const pendingAtRefresh: number[] = [];
+    const platform = {
+      runtime: {
+        clearModel: vi.fn(async () => ({ ok: true })),
+        runProjectHistoryTransaction: vi.fn(async (
+          _label: string,
+          _category: 'project',
+          _before: unknown,
+          mutation: (transactionId: string) => Promise<{ ok: boolean }>,
+          _after: unknown,
+        ) => ({ result: await mutation('tx-1'), status: null })),
+        getFilamentSessionSnapshot: vi.fn(async () => {
+          pendingAtRefresh.push(useProjectStore.getState().projectMutationPendingCount);
+          return { ok: true, version: 1, slots: [], mappings: {}, flushing: {}, capabilities: {},
+            assignments: { objects: [], parts: [], modifiers: [] },
+            revisions: { session: 1, project: 1, result: 0, plates: {} }, status: { state: 'ready', error: null } } as never;
+        }),
+      },
+    } as unknown as PlatformCapabilities;
+    useSettingsStore.setState({ modelLoaded: true });
+
+    await clearScene(platform, null);
+
+    expect(platform.runtime.getFilamentSessionSnapshot).toHaveBeenCalledOnce();
+    expect(pendingAtRefresh).toEqual([1]);
+    expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
   });
 
   it('does not modify the scene when a bundled asset cannot be fetched', async () => {

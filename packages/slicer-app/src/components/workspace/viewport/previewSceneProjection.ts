@@ -4,13 +4,11 @@ import type { LoadedObject } from './useModelLoader';
 export interface PreviewVolumeIdentity {
   readonly buffer: Pick<LoadedObject['buffer'], 'objectIdx' | 'instanceIdx'>;
 }
-
 /** Return the selected plate's world origin for the Preview scene. */
 export function currentPreviewPlate(snapshot: PlateSessionSnapshot | null | undefined) {
   if (!snapshot) return null;
   return snapshot.plates.find((plate) => plate.plateId === snapshot.currentPlateId) ?? null;
 }
-
 function instanceKey(objectIndex: number, instanceIndex: number): string {
   return `${objectIndex}:${instanceIndex}`;
 }
@@ -36,9 +34,4 @@ export function previewVolumesForCurrentPlate(
       .map((instance) => instanceKey(instance.objectIndex, instance.instanceIndex)),
   );
   return volumes.filter((volume) => members.has(instanceKey(volume.buffer.objectIdx, volume.buffer.instanceIdx)));
-}
-
-/** Add the selected plate's world origin to local slice/toolpath coordinates. */
-export function previewToolpathOrigin(snapshot: PlateSessionSnapshot | null | undefined): readonly [number, number, number] {
-  return currentPreviewPlate(snapshot)?.origin ?? [0, 0, 0];
 }

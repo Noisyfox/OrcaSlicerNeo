@@ -1,5 +1,5 @@
 // packages/slicer-app/src/components/settings/OptionField.tsx
-import type { OptionMeta } from '@slicer/client';
+import type { OptionMeta, ProjectConfigOverrideTarget } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useEffect, useRef, useState } from 'react';
 import { errorText } from '@orca/slicer-runtime';
@@ -15,15 +15,24 @@ export async function commitOptionFieldChange(
   platform: Parameters<typeof commitSharedConfigurationMutation>[0],
   optionKey: string,
   next: string,
+  target: ProjectConfigOverrideTarget = { scope: 'project' },
 ): Promise<void> {
-  await commitSharedConfigurationMutation(platform, optionKey, next);
-  useSettingsStore.getState().setOverlayValue('project', undefined, optionKey, next);
-  invalidateAfterSharedConfigurationMutation();
+  const mutation = await commitSharedConfigurationMutation(platform, optionKey, next, target);
+  invalidateAfterSharedConfigurationMutation(mutation.affectedPlateIds);
 }
 
-export function OptionField({ optionKey, meta }: { optionKey: string; meta: OptionMeta }) {
+export function OptionField({ optionKey, meta, target = { scope: 'project' } }: {
+  optionKey: string;
+  meta: OptionMeta;
+  target?: ProjectConfigOverrideTarget;
+}) {
   const platform = usePlatform();
-  const value = useSettingsStore((s) => s.values[optionKey] ?? meta.default ?? '');
+  const value = useSettingsStore((s) => {
+    if (target.scope === 'project') return s.values[optionKey] ?? meta.default ?? '';
+    const id = target.id === undefined ? '' : String(target.id);
+    return s.overlay[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey]
+      ?? meta.default ?? '';
+  });
   const [draft, setDraft] = useState(value);
   const focused = useRef(false);
   const committing = useRef(false);
@@ -33,8 +42,13 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
     if (committing.current) return;
     committing.current = true;
     try {
-      await commitOptionFieldChange(platform, optionKey, next);
-      setDraft(next);
+      await commitOptionFieldChange(platform, optionKey, next, target);
+      const state = useSettingsStore.getState();
+      const id = target.id === undefined ? '' : String(target.id);
+      const effective = target.scope === 'project'
+        ? state.values[optionKey]
+        : state.overlay[target.scope === 'object' ? 'objects' : 'parts'][id]?.[optionKey];
+      setDraft(effective ?? next);
     } catch (error) {
       setError(errorText(error));
     } finally {
@@ -48,7 +62,10 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
   const cancelDraft = () => setDraft(value);
   const changeDiscrete = (next: string) => {
     setDraft(next);
-    invalidateAfterSharedConfigurationMutation();
+    // Scoped overrides cannot know their affected plate set until the native
+    // transaction returns. Shared project settings retain the existing
+    // immediate invalidation behavior.
+    if (target.scope === 'project') invalidateAfterSharedConfigurationMutation();
     void commit(next);
   };
   const label = meta.label ?? optionKey;
@@ -111,7 +128,7 @@ export function OptionField({ optionKey, meta }: { optionKey: string; meta: Opti
           setDraft(e.target.value);
           // A draft must invalidate stale preview output immediately, while
           // the Worker/history write remains deferred until commit.
-          invalidateAfterSharedConfigurationMutation();
+          if (target.scope === 'project') invalidateAfterSharedConfigurationMutation();
         }}
         className="flex-1"
       />

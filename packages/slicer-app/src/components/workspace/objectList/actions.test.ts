@@ -30,6 +30,15 @@ function makeRuntime(overrides: Partial<SlicerRuntime> = {}): SlicerRuntime {
     setVolumeType: vi.fn(async () => ({ ok: true })),
     setObjectPrintable: vi.fn(async () => ({ ok: true })),
     getModelStructure: vi.fn(async () => structure),
+    getHistoryStatus: vi.fn(async () => ({ dirty: false } as never)),
+    getFilamentSessionSnapshot: vi.fn(async () => ({ ok: false, error: 'unused' } as never)),
+    runProjectHistoryTransaction: vi.fn(async <T>(
+      _label: string,
+      _category: 'project' | 'context',
+      _before: unknown,
+      mutation: (transactionId: string) => Promise<T>,
+      _after: unknown | (() => unknown | Promise<unknown>),
+    ) => ({ result: await mutation('tx-1'), status: {} as never })),
     ...overrides,
   } as unknown as SlicerRuntime;
 }

@@ -80,6 +80,51 @@ describe('Worker-owned project history protocol', () => {
     await expect(client.undoHistory()).rejects.toThrow('no undo');
   });
 
+  it('applies a multi-object transform in one transaction receipt and undo/redo entry', async () => {
+    const client = createClient(async () => createMockModule());
+    const before = context('plate-session-1-plate-1');
+    await client.addShape('Cube');
+    await client.addShape('Cube');
+    const transaction = await client.beginHistory('Move', 'project', before);
+    const transform = (x: number) => ({ offset: [x, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] });
+    const result = await client.setModelTransforms(transaction, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform(10), volumeTransform: transform(0) },
+      { objectIdx: 1, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform(20), volumeTransform: transform(0) },
+    ]);
+    expect(result.ok).toBe(true);
+    const committed = await client.commitHistory(transaction, before);
+    expect(committed.undoEntries).toHaveLength(1);
+    expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([10, 20]);
+    expect((await client.undoHistory()).ok).toBe(true);
+    expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([0, 0]);
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([10, 20]);
+  });
+
+  it('rejects an invalid or stale batch without partially changing the Worker model or revision', async () => {
+    const client = createClient(async () => createMockModule());
+    const before = context('plate-session-1-plate-1');
+    await client.addShape('Cube');
+    await client.addShape('Cube');
+    const revision = (await client.getHistoryStatus()).revision;
+    const transaction = await client.beginHistory('Move', 'project', before);
+    const identity = { offset: [0, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
+    const moved = { ...identity, offset: [10, 0, 0] as [number, number, number] };
+    await expect(client.setModelTransforms(transaction, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
+      { objectIdx: 99, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
+    ])).resolves.toMatchObject({ ok: false });
+    expect((await client.getModelMesh()).objects.map((entry) => entry.instanceTransform.offset[0])).toEqual([0, 0]);
+    await client.abortHistory(transaction);
+    expect((await client.getHistoryStatus()).revision).toBe(revision);
+    const fresh = await client.beginHistory('Move', 'project', before);
+    await expect(client.setModelTransforms('tx-stale', [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: moved, volumeTransform: identity },
+    ])).resolves.toMatchObject({ ok: false });
+    expect((await client.getModelMesh()).objects[0]?.instanceTransform.offset).toEqual([0, 0, 0]);
+    await client.abortHistory(fresh);
+  });
+
   it('serializes the helper and enforces one active Worker writer', async () => {
     const channel = new Channel();
     const client = createWorkerClient(channel);

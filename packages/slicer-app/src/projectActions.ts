@@ -2,15 +2,22 @@ import type { PlatformCapabilities, ProjectInput } from '@orca/platform-contract
 import type { ProjectLoadResult, SlicerClient } from '@slicer/client';
 import type { HistoryContext, HistoryStatus } from '@slicer/client';
 import { compatibilityFallback, projectNameFromDisplayName, shouldAskProjectLoad, type DirtyProjectDecision, type ProjectLoadChoice } from '@orca/slicer-runtime';
-import { useProjectStore, projectPresetTriple, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
-import { useSettingsStore } from './stores/useSettingsStore';
+import { useProjectStore, projectPresetSelections, type ProjectNotice, type ProjectPresetSelections } from './stores/useProjectStore';
+import { emptyProjectConfigOverlay, useSettingsStore } from './stores/useSettingsStore';
 import { useSlicerStore } from './stores/useSlicerStore';
 import { applyPlateSessionTransforms } from './components/workspace/actions/syncModelTransforms';
 import { glVolumeCollection } from './components/workspace/viewport/GLVolume';
 import { usePlateSessionStore } from './stores/usePlateSessionStore';
 import type { SceneResetTarget } from './components/workspace/actions/resetSceneState';
 import { resetSceneState } from './components/workspace/actions/resetSceneState';
-import { runProjectHistoryMutation, syncHistoryStatus as syncWorkerHistoryStatus } from './components/workspace/actions/historyMutation';
+import {
+  runProjectHistoryMutation,
+  readProjectHistoryStatus,
+  markProjectHistorySaved,
+  resetProjectHistory,
+  recordProjectHistoryContext,
+} from './components/workspace/actions/historyMutation';
+import { applyRememberedFilamentRackFromRepository } from './preferences';
 
 export interface ProjectActionOptions {
   /** Inputs supplied by a drag/drop surface; picker input is used otherwise. */
@@ -19,6 +26,8 @@ export interface ProjectActionOptions {
   preserveSessionIdentity?: boolean;
   loadBehaviour?: 'load_all' | 'ask_when_relevant' | 'always_ask' | 'load_geometry_only';
   chooseLoad?: (input: ProjectInput) => Promise<ProjectLoadChoice> | ProjectLoadChoice;
+  /** Explicit acceptance after native project preflight warnings are shown. */
+  confirmProjectLoad?: (load: ProjectLoadResult) => Promise<boolean> | boolean;
   decideDirty?: (operation: 'new' | 'open' | 'close', input?: ProjectInput) => Promise<DirtyProjectDecision> | DirtyProjectDecision;
   /** Legacy compatibility hook; multi-plate projects are now persisted natively. */
   confirmFlattenedSave?: () => Promise<boolean> | boolean;
@@ -26,17 +35,38 @@ export interface ProjectActionOptions {
   /** Renderer cleanup hook used after a successful New Project runtime reset. */
   sceneResetTarget?: SceneResetTarget | null;
 }
-export interface ProjectActionResult { status: 'ok' | 'cancelled' | 'failed'; error?: unknown; load?: ProjectLoadResult; }
-type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getPresetSnapshot' | 'selectPreset' | 'cancel'> &
-  Partial<Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'>>;
+export type ProjectLoadCommitRoute = 'load-project' | 'preflight-commit';
+
+/**
+ * A completed project replacement receipt. It is deliberately limited to the
+ * caller's input identity and the native result: host locations remain opaque
+ * and are never included here.
+ */
+export interface ProjectLoadReceipt {
+  readonly sourceDisplayName: string;
+  readonly sourceByteLength: number;
+  readonly commitRoute: ProjectLoadCommitRoute;
+  readonly nativeResult: ProjectLoadResult;
+}
+
+export interface ProjectActionResult {
+  status: 'ok' | 'cancelled' | 'failed';
+  error?: unknown;
+  load?: ProjectLoadResult;
+  loadReceipt?: ProjectLoadReceipt;
+}
+type Runtime = Pick<SlicerClient, 'loadProject' | 'importProjectGeometry' | 'clearModel' | 'exportProject' | 'getProfileSnapshot' | 'selectProfile' | 'cancel' | 'getFilamentSessionSnapshot' | 'getModelStructure' | 'getPlateSessionSnapshot' | 'applyRememberedFilamentRack' | 'runProjectHistoryTransaction'> &
+  Pick<SlicerClient, 'getHistoryStatus' | 'markHistorySaved' | 'recordHistoryContext' | 'resetHistory'> &
+  Partial<Pick<SlicerClient, 'preflightProject' | 'commitProjectPreflight' | 'cancelProjectPreflight'>>;
 
 function errorResult(error: unknown): ProjectActionResult { return { status: 'failed', error }; }
 function errorText(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function runtimeOf(platform: PlatformCapabilities): Runtime { return platform.runtime; }
 function currentPresets(): ProjectPresetSelections {
-  const s = useSettingsStore.getState(); return { printer: s.selectedPrinter, print: s.selectedPrint, filament: s.selectedFilament };
+  const s = useSettingsStore.getState();
+  return { printer: s.selectedPrinter, print: s.selectedPrint };
 }
-function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
+export function noticesFor(load: ProjectLoadResult): ProjectNotice[] {
   const notices: ProjectNotice[] = [];
   const fallback = compatibilityFallback(load); if (fallback) notices.push({ kind: 'compatibility-fallback', message: fallback });
   if (load.embeddedPresetWarnings?.present) notices.push({ kind: 'embedded-presets', message: 'This project contains embedded preset settings that may differ from system presets.', details: load.embeddedPresetWarnings });
@@ -54,58 +84,41 @@ function projectedHistoryContext(): HistoryContext {
     projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
   };
 }
-function syncHistoryStatus(status: HistoryStatus | null, clearLegacyReasons = true): HistoryStatus | null {
-  if (status) useProjectStore.getState().setProject({
-    dirty: status.dirty,
-    ...(clearLegacyReasons ? { dirtyReasons: [] } : {}),
-  });
+async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus> {
+  const status = await readProjectHistoryStatus(runtime, false);
+  if (!status) throw new Error('project history status read failed');
   return status;
 }
-async function currentHistoryStatus(runtime: Runtime): Promise<HistoryStatus | null> {
-  if (!runtime.getHistoryStatus) return null;
-  try { return syncHistoryStatus(await runtime.getHistoryStatus(), false); }
-  catch (error) { console.warn('history status unavailable; using legacy dirty projection', error); return null; }
-}
-/** Read the Worker checkpoint state for lifecycle guards. The Zustand field is
- * only a synchronous UI projection and remains the compatibility fallback for
- * runtimes predating the history protocol. */
+/** Read the Worker checkpoint state for lifecycle guards. */
 export async function projectDirtyStatus(platform: PlatformCapabilities): Promise<boolean> {
   const projectedBeforeQuery = useProjectStore.getState();
   const status = await currentHistoryStatus(runtimeOf(platform));
-  if (!status) return useProjectStore.getState().dirty;
-  // Ordinary editing commands are not all history-wrapped yet. Preserve their
-  // existing lifecycle protection until those commands begin committing Worker
-  // project entries; history-backed saves/resets clear this compatibility
-  // projection, and context-only records never populate dirtyReasons.
   return status.dirty || projectedBeforeQuery.dirtyReasons.length > 0;
 }
-async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus | null> {
-  if (!runtime.markHistorySaved) return null;
-  return syncHistoryStatus(await runtime.markHistorySaved(projectedHistoryContext()));
+async function markHistorySaved(runtime: Runtime): Promise<HistoryStatus> {
+  return markProjectHistorySaved(runtime, projectedHistoryContext());
 }
-async function resetHistory(runtime: Runtime): Promise<HistoryStatus | null> {
-  if (!runtime.resetHistory) return null;
-  return syncHistoryStatus(await runtime.resetHistory(projectedHistoryContext()));
+async function resetHistory(runtime: Runtime): Promise<HistoryStatus> {
+  return resetProjectHistory(runtime, projectedHistoryContext());
 }
 export async function recordHistoryContext(
   platform: PlatformCapabilities,
   label: string,
   context: HistoryContext,
-): Promise<HistoryStatus | null> {
+): Promise<HistoryStatus> {
   const runtime = runtimeOf(platform);
-  if (!runtime.recordHistoryContext) return null;
-  return syncHistoryStatus(await runtime.recordHistoryContext(label, context), false);
+  return recordProjectHistoryContext(runtime, label, context);
 }
 async function restoreSystemPresets(runtime: Runtime, selections: ProjectPresetSelections | null): Promise<void> {
   if (!selections) return;
-  let resolved: Awaited<ReturnType<Runtime['getPresetSnapshot']>> | null = null;
-  for (const [kind, name] of [['printer', selections.printer], ['print', selections.print], ['filament', selections.filament]] as const) {
+  let resolved: Awaited<ReturnType<Runtime['getProfileSnapshot']>> | null = null;
+  for (const [kind, name] of [['printer', selections.printer], ['print', selections.print]] as const) {
     if (!name) continue;
-    const result = await runtime.selectPreset(kind, name);
+    const result = await runtime.selectProfile(kind, name);
     if (!result.ok) throw new Error(result.error ?? `could not restore ${kind} preset`);
     resolved = result;
   }
-  if (resolved?.ok) useSettingsStore.getState().hydratePresetSnapshot(resolved);
+  if (resolved?.ok) useSettingsStore.getState().hydrateProfileSnapshot(resolved);
 }
 async function gateDirty(platform: PlatformCapabilities, operationName: 'new' | 'open', input: ProjectInput | undefined, options: ProjectActionOptions): Promise<ProjectActionResult | null> {
   if (!await projectDirtyStatus(platform)) return null;
@@ -129,7 +142,7 @@ export async function saveProject(platform: PlatformCapabilities): Promise<Proje
     const saved = await platform.projects.save({ displayName: `${session.projectName || 'Untitled'}.3mf`, bytes: exported.bytes, location: session.location });
     if (saved.status !== 'ok') { setOperation(saved.status === 'cancelled' ? 'cancelled' : 'failed'); return saved.status === 'cancelled' ? { status: 'cancelled' } : errorResult(saved.error); }
     const history = await markHistorySaved(runtimeOf(platform));
-    useProjectStore.getState().setProject({ dirty: history?.dirty ?? false, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
+    useProjectStore.getState().setProject({ dirty: history.dirty, dirtyReasons: [], location: saved.location ?? session.location }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 export async function saveProjectAs(platform: PlatformCapabilities): Promise<ProjectActionResult> {
@@ -148,11 +161,23 @@ export async function newProject(platform: PlatformCapabilities, options: Projec
   const previous = useProjectStore.getState(); setOperation('loading', 0, 'Creating project');
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
+    const sourcePrinter = currentPresets().printer;
     const runtime = runtimeOf(platform); const cleared = await runtime.clearModel(); if (!cleared.ok) throw new Error(cleared.error ?? 'new project failed');
     resetSceneState(options.sceneResetTarget, { clearSettings: true });
     usePlateSessionStore.getState().setSnapshot(cleared.plateSession ?? null);
-    await resetHistory(runtime);
     const global = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null); await restoreSystemPresets(runtime, global);
+    const targetPrinter = currentPresets().printer;
+    if (targetPrinter !== sourcePrinter) {
+      await applyRememberedFilamentRackFromRepository(
+        platform.preferences,
+        runtime,
+        targetPrinter,
+      );
+    }
+    // The active system printer already owns its correctly restored rack.
+    // New Project preserves that live rack and only establishes a clean model,
+    // plate, and history baseline; it never replays a preference as an edit.
+    await resetHistory(runtime);
     const resolved = currentPresets(); useProjectStore.getState().reset(); useProjectStore.getState().setProject({ systemPresets: resolved, hasContent: false }); setOperation('completed', 100); return { status: 'ok' };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
@@ -161,25 +186,32 @@ export async function importProjectGeometry(platform: PlatformCapabilities, inpu
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const runtime = runtimeOf(platform);
-    const load = (await runProjectHistoryMutation(
+    const history = await runProjectHistoryMutation(
       runtime,
       'Import Geometry',
       () => runtime.importProjectGeometry(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message)),
-    )).result;
+      null,
+      {
+        publish: async (published) => {
+          if (!published.ok) throw new Error(published.error ?? 'geometry import failed');
+          applyPlateSessionTransforms(published.plateSession, glVolumeCollection.volumes);
+          invalidateInput();
+          const existing = useProjectStore.getState();
+          const incomingNotices = noticesFor(published);
+          const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
+          if (published.plateSession) {
+            usePlateSessionStore.getState().setSnapshot(published.plateSession);
+            useProjectStore.getState().recordPlateMutation(published.plateSession);
+          }
+          else useProjectStore.getState().markDirty('model-import');
+          useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
+          useSettingsStore.getState().setModelLoaded(true);
+        },
+      },
+    );
+    const load = history.result;
     if (!load.ok) throw new Error(load.error ?? 'geometry import failed');
-    applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
-    invalidateInput();
-    const existing = useProjectStore.getState();
-    const incomingNotices = noticesFor(load);
-    const notices = [...existing.notices, ...incomingNotices.filter((notice) => !existing.notices.some((current) => current.kind === notice.kind))];
-    if (load.plateSession) {
-      usePlateSessionStore.getState().setSnapshot(load.plateSession);
-      useProjectStore.getState().recordPlateMutation(load.plateSession);
-    }
-    else useProjectStore.getState().markDirty('model-import');
-    await syncWorkerHistoryStatus(runtime);
-    useProjectStore.getState().setProject({ ...(options.preserveSessionIdentity ? {} : { projectName: 'Untitled', location: undefined }), hasContent: true, notices, flattenedMultiPlate: false, scope: existing.scope });
-    useSettingsStore.getState().setModelLoaded(true); setOperation('completed', 100); return { status: 'ok', load };
+    setOperation('completed', 100); return { status: 'ok', load };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 async function openProjectInput(platform: PlatformCapabilities, input: ProjectInput, options: ProjectActionOptions): Promise<ProjectActionResult> {
@@ -196,18 +228,64 @@ async function openProjectInput(platform: PlatformCapabilities, input: ProjectIn
   try {
     if (options.signal?.aborted) { setOperation('cancelled'); return { status: 'cancelled' }; }
     const previous = useProjectStore.getState(); const system = previous.systemPresets ?? (previous.scope === 'system' ? currentPresets() : null);
-    const load = await runtimeOf(platform).loadProject(input.bytes, 'project', input.displayName, (percent, message) => setOperation('loading', percent, message)); if (!load.ok) throw new Error(load.error ?? 'project load failed');
+    const runtime = runtimeOf(platform);
+    let load: ProjectLoadResult;
+    let commitRoute: ProjectLoadCommitRoute;
+    if (runtime.preflightProject && runtime.commitProjectPreflight && runtime.cancelProjectPreflight) {
+      const preflight = await runtime.preflightProject(input.bytes, input.displayName, (percent, message) => setOperation('loading', percent, message));
+      if (!preflight.ok || !preflight.preflightToken) throw new Error(preflight.error ?? 'project preflight failed');
+      const warning = preflight.embeddedPresetWarnings;
+      const needsConfirmation = warning?.requiresConfirmation === true ||
+        (warning?.filamentSlotChanges?.length ?? 0) > 0;
+      try {
+        if (options.signal?.aborted) throw new DOMException('project load aborted', 'AbortError');
+        let accepted = true;
+        if (needsConfirmation) {
+          setOperation('waiting-for-project-confirmation', 100, 'Review project compatibility');
+          accepted = await options.confirmProjectLoad?.(preflight) ?? false;
+        }
+        if (!accepted || options.signal?.aborted) {
+          await runtime.cancelProjectPreflight(preflight.preflightToken);
+          setOperation('cancelled');
+          return { status: 'cancelled', load: preflight };
+        }
+        load = await runtime.commitProjectPreflight(preflight.preflightToken, (percent, message) => setOperation('loading', percent, message));
+        commitRoute = 'preflight-commit';
+        if (!load.ok) throw new Error(load.error ?? 'project load failed');
+      } catch (error) {
+        // Confirmation cancellation, UI teardown, aborts, and commit errors
+        // all consume the native token.  Cleanup is best effort because the
+        // native commit path also clears a token after any terminal failure.
+        try { await runtime.cancelProjectPreflight(preflight.preflightToken); } catch { /* already consumed */ }
+        throw error;
+      }
+    } else {
+      load = await runtime.loadProject(input.bytes, 'project', input.displayName, (percent, message) => setOperation('loading', percent, message));
+      commitRoute = 'load-project';
+    }
+    if (!load.ok) throw new Error(load.error ?? 'project load failed');
     applyPlateSessionTransforms(load.plateSession, glVolumeCollection.volumes);
     if (load.plateSession) usePlateSessionStore.getState().setSnapshot(load.plateSession);
     // The native load response contains the candidate preset snapshot from
-    // the same replacement transaction. A second getPresetSnapshot call here
+    // the same replacement transaction. A second getProfileSnapshot call here
     // could fail after native state changed and leave the UI inconsistent.
     const snapshot = load.presetSnapshot; if (!snapshot) throw new Error('project load did not return its preset snapshot');
-    useSettingsStore.getState().hydratePresetSnapshot(snapshot);
-    if (load.projectConfigOverlay) useSettingsStore.getState().setOverlay(load.projectConfigOverlay);
+    useSettingsStore.getState().hydrateProfileSnapshot(snapshot);
+    useSettingsStore.getState().setOverlay(load.projectConfigOverlay ?? emptyProjectConfigOverlay());
     useSettingsStore.getState().setModelLoaded(true); invalidateInput();
-    const history = await resetHistory(runtimeOf(platform));
-    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history?.dirty ?? false, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetTriple(snapshot), notices: noticesFor(load), flattenedMultiPlate: false }); setOperation('completed', 100); return { status: 'ok', load };
+    const history = await resetHistory(runtime);
+    useProjectStore.getState().setProject({ projectName: projectNameFromDisplayName(input.displayName), location: input.location, hasContent: true, dirty: history.dirty, dirtyReasons: [], scope: 'project', systemPresets: system, projectPresets: projectPresetSelections(snapshot), notices: noticesFor(load), flattenedMultiPlate: false });
+    setOperation('completed', 100);
+    return {
+      status: 'ok',
+      load,
+      loadReceipt: {
+        sourceDisplayName: input.displayName,
+        sourceByteLength: input.bytes.byteLength,
+        commitRoute,
+        nativeResult: load,
+      },
+    };
   } catch (error) { setOperation('failed', 0, errorText(error)); return errorResult(error); }
 }
 

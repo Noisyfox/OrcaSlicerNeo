@@ -24,20 +24,25 @@ const GIZMO_BUTTONS: ReadonlyArray<{
   { mode: 'scale', label: 'Scale', icon: Scaling, testId: 'gizmo-btn-scale' },
 ];
 
-export function GizmoToolbar({ sceneInteraction }: { sceneInteraction: SceneInteractionController | null }) {
+export function GizmoToolbar({
+  sceneInteraction,
+}: {
+  sceneInteraction: SceneInteractionController | null;
+}) {
   useSceneInteractionVersion(sceneInteraction ?? undefined);
   const platform = usePlatform();
-  // Boot loads all three preset lists atomically (setPresets); until they
+  // Boot loads the printer/process lists and the rack's filament catalogue
+  // atomically; until they
   // arrive (or if boot fails) Add Model stays disabled — a model without
   // presets can't be configured or sliced. Unlike the gizmo toggles it is
   // NOT gated on a selection: importing onto an empty plate is the point.
   const presetsLoaded = useSettingsStore(
-    (s) => s.printers.length > 0 && s.prints.length > 0 && s.filaments.length > 0,
+    (s) => s.printers.length > 0 && s.prints.length > 0 && s.filamentCatalog.length > 0,
   );
   if (!sceneInteraction) return null;
-  // The gizmos can only arm with a non-empty selection — the controller's
-  // toggleGizmo also refuses, and the buttons' disabled state surfaces it.
-  const disabled = sceneInteraction.selection.empty;
+  const towerSelected = sceneInteraction.hasWipeTowerSelection;
+  // The tower is a tagged shared scene volume.  Its identity restricts the
+  // ordinary toolbar to Move; Rotate and Scale remain unavailable.
   return (
     <div
       className="absolute top-2 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-card/90 p-1 backdrop-blur"
@@ -56,7 +61,9 @@ export function GizmoToolbar({ sceneInteraction }: { sceneInteraction: SceneInte
       </Button>
       <div className="mx-0.5 h-4 w-px bg-border/60" aria-hidden="true" />
       {GIZMO_BUTTONS.map(({ mode, label, icon: Icon, testId }) => {
+        const towerMode = towerSelected && mode === 'move';
         const armed = sceneInteraction.gizmo === mode;
+        const disabled = towerSelected ? !towerMode : sceneInteraction.selection.empty;
         return (
           <Button
             key={mode}

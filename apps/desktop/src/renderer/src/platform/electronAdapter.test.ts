@@ -35,8 +35,8 @@ describe('Electron adapter', () => {
   it('normalizes load and writes the shared preference shape', async () => {
     const { adapter, save } = setup();
     expect(await adapter.preferences.load()).toEqual({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P' }, ui: { sidebarWidth: 320, switchToDeviceAfterSend: true } });
-    await adapter.preferences.save({ version: 1, selectedProfiles: { filament: 'F' }, ui: {} });
-    expect(save).toHaveBeenCalledWith({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { filament: 'F' }, ui: { switchToDeviceAfterSend: true } });
+    await adapter.preferences.save({ version: 1, selectedProfiles: { printer: 'P', print: 'Q' }, ui: {} });
+    expect(save).toHaveBeenCalledWith({ version: 1, projectLoadBehaviour: 'ask_when_relevant', selectedProfiles: { printer: 'P', print: 'Q' }, ui: { switchToDeviceAfterSend: true } });
   });
 
   it('maps native import success to display name and bytes', async () => {

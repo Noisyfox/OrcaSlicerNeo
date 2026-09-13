@@ -7,10 +7,13 @@
 // ----------------------------------------------------------------
 import type {
   OrcaModule, OrcaModuleFactory, SlicerClient,
-  InitResult, PresetSnapshotResult,
-  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult,
-  ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError,
-  ProjectConfigOverlay,
+  InitResult, ProfileSnapshot, ProfileSnapshotResult,
+  PlateSessionPlate, PlateSessionSnapshot, PlateSessionSnapshotResult, PlateSessionMutationResult, PlateSelectionResult,
+  PrimeTowerBuildArea, PrimeTowerFootprint, PrimeTowerBand, PrimeTowerPlateProjection,
+  PrimeTowerProjection, PrimeTowerProjectionResult, PrimeTowerMoveRequest,
+  PrimeTowerMoveResultOrError,
+  ProjectConfigOverrideTarget, ProjectConfigOverlayResultOrError, ProjectConfigOverlay,
+  ConfigurationStatus,
   ClearModelResult,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
   ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget,
@@ -23,13 +26,455 @@ import type {
   PreviewAnalysis, PreviewMetricKey,
   PreviewTextChunk, PreviewTextChunkRequest,
   PreviewTextLines, PreviewTextLinesRequest,
+  FilamentSessionSnapshotResult, FilamentSessionSnapshot, FilamentSessionSlot,
+  FilamentAssignmentProjection, FilamentRoutingProjection,
+  FilamentMutationResultOrError, FilamentMutationResult,
+  FilamentSlotPresetRequest, FilamentSlotColourRequest,
+  FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
+  RememberedFilamentRackRequest,
+  FilamentAssignmentRequest, FilamentRoutingRequest,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
-  HistoryCategory, HistoryTransactionOptions, RestoreResult,
+  HistoryCategory, HistoryDiagnosticLayer, HistoryTimingDiagnostic, HistoryTransactionOptions, RestoreResult,
 } from './history';
 import { PREVIEW_TEXT_CHUNK_MAX_BYTES, PREVIEW_TEXT_CHUNK_MAX_RESPONSE_BYTES, PREVIEW_TEXT_LINES_MAX } from './types';
 import { writeBytes, callJson, readBytes } from './heap';
+
+function emptyHistoryTiming(): HistoryTimingDiagnostic {
+  return { count: 0, totalMs: 0, maxMs: 0, lastMs: 0 };
+}
+
+function emptyHistoryDiagnosticLayer(): HistoryDiagnosticLayer {
+  return { mutation: emptyHistoryTiming(), restore: emptyHistoryTiming(),
+    directRestore: emptyHistoryTiming(), fullRestore: emptyHistoryTiming() };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeConfigurationStatus(raw: unknown, allowReady: boolean): ConfigurationStatus | null {
+  if (!isRecord(raw) || (raw.state !== 'ready' && raw.state !== 'error')) return null;
+  if (raw.state === 'error') {
+    return typeof raw.error === 'string' ? { state: 'error', error: raw.error } : null;
+  }
+  if (!allowReady || !Array.isArray(raw.corrections) || !Array.isArray(raw.warnings) || !Array.isArray(raw.errors) ||
+      !raw.warnings.every((value) => typeof value === 'string') || !raw.errors.every((value) => typeof value === 'string'))
+    return null;
+  const corrections = raw.corrections.map((value) => {
+    if (!isRecord(value) || typeof value.key !== 'string' || typeof value.requested !== 'string' || typeof value.effective !== 'string') return null;
+    return { key: value.key, requested: value.requested, effective: value.effective };
+  });
+  if (corrections.some((value) => value === null)) return null;
+  return { state: 'ready', corrections: corrections as { key: string; requested: string; effective: string }[],
+    warnings: raw.warnings as string[], errors: raw.errors as string[] };
+}
+
+function normalizeProjectConfigOverlay(raw: unknown): ProjectConfigOverlayResultOrError {
+  if (!isRecord(raw)) return { ok: false, error: 'invalid project configuration response' };
+  if (raw.ok !== true) {
+    if (raw.ok !== false || typeof raw.error !== 'string') return { ok: false, error: 'invalid project configuration error envelope' };
+    const result: { ok: false; error: string; errorCode?: string; status?: { state: 'error'; error: string } } = { ok: false, error: raw.error };
+    if (raw.error_code !== undefined) {
+      if (typeof raw.error_code !== 'string') return { ok: false, error: 'invalid project configuration error code' };
+      result.errorCode = raw.error_code;
+    }
+    if (raw.status !== undefined) {
+      const status = normalizeConfigurationStatus(raw.status, false);
+      if (!status || status.state !== 'error') return { ok: false, error: 'invalid project configuration error status' };
+      result.status = status;
+    }
+    return result;
+  }
+  const overlay = raw.overlay;
+  if (!isRecord(overlay)) return { ok: false, error: 'invalid project configuration overlay' };
+  if (Object.keys(overlay).length !== 4 || !Object.hasOwn(overlay, 'project') ||
+      !Object.hasOwn(overlay, 'objects') || !Object.hasOwn(overlay, 'parts') ||
+      !Object.hasOwn(overlay, 'plates'))
+    return { ok: false, error: 'invalid project configuration overlay' };
+  const normalizeBucket = (value: unknown): Record<string, string> | null => {
+    if (!isRecord(value)) return null;
+    const entries: Record<string, string> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (typeof item !== 'string') return null;
+      entries[key] = item;
+    }
+    return entries;
+  };
+  const project = normalizeBucket(overlay.project);
+  const normalizeScopedBucket = (value: unknown): Record<string, Record<string, string>> | null => {
+    if (!isRecord(value)) return null;
+    const result: Record<string, Record<string, string>> = {};
+    for (const [id, item] of Object.entries(value)) {
+      const bucket = normalizeBucket(item);
+      if (!bucket) return null;
+      result[id] = bucket;
+    }
+    return result;
+  };
+  const objects = normalizeScopedBucket(overlay.objects);
+  const parts = normalizeScopedBucket(overlay.parts);
+  const plates = normalizeScopedBucket(overlay.plates);
+  if (!project || !objects || !parts || !plates) return { ok: false, error: 'invalid project configuration overlay' };
+  const result: { ok: true; overlay: ProjectConfigOverlay; plateSession?: unknown; configurationStatus?: unknown } = {
+    ok: true, overlay: { project, objects, parts, plates },
+  };
+  if (raw.plate_session !== undefined) {
+    const plateSession = normalizePlateMutationResult(raw.plate_session);
+    if (!plateSession.ok) return { ok: false, error: plateSession.error };
+    result.plateSession = plateSession;
+  }
+  const rawStatus = raw.configuration_status ?? raw.configurationStatus;
+  if (rawStatus !== undefined) {
+    const status = normalizeConfigurationStatus(rawStatus, true);
+    if (!status || status.state !== 'ready') return { ok: false, error: 'invalid project configuration status' };
+    result.configurationStatus = status;
+  }
+  return result as ProjectConfigOverlayResultOrError;
+}
+
+function normalizeFilamentSessionResult(raw: unknown): FilamentSessionSnapshotResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid filament session response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) {
+    if (value.version !== 1) return { ok: false, error: 'unsupported filament session version' };
+    if (value.ok !== false || typeof value.error !== 'string' || typeof value.error_code !== 'string')
+      return { ok: false, error: 'invalid filament session error envelope' };
+    const error = typeof value.error === 'string' ? value.error : 'filament session request failed';
+    const status = value.status;
+    const errorStatus = status && typeof status === 'object' &&
+      (status as Record<string, unknown>).state === 'error' &&
+      typeof (status as Record<string, unknown>).error === 'string'
+      ? { state: 'error' as const, error: (status as Record<string, unknown>).error as string }
+      : undefined;
+    if (!errorStatus) return { ok: false, error: 'invalid filament session error envelope' };
+    return { ok: false, error,
+      ...(typeof value.error_code === 'string' ? { errorCode: value.error_code } : {}),
+      ...(errorStatus ? { status: errorStatus } : {}),
+    };
+  }
+  if (value.version !== 1) return { ok: false, error: 'unsupported filament session version' };
+  const integer = (entry: unknown, min = 0): entry is number =>
+    typeof entry === 'number' && Number.isSafeInteger(entry) && entry >= min;
+  const numberArray = (entry: unknown): number[] | null =>
+    Array.isArray(entry) && entry.every((item) => typeof item === 'number' && Number.isFinite(item))
+      ? entry as number[] : null;
+  const integerArray = (entry: unknown): number[] | null =>
+    Array.isArray(entry) && entry.every((item) => integer(item)) ? entry as number[] : null;
+  if (!Array.isArray(value.slots)) return { ok: false, error: 'invalid filament session slots' };
+  const slots = value.slots.map((entry): FilamentSessionSlot | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const item = entry as Record<string, unknown>;
+    const preset = item.preset;
+    const colour = item.colour;
+    if (!integer(item.slot, 1) || !preset || typeof preset !== 'object' ||
+        !colour || typeof colour !== 'object') return null;
+    const p = preset as Record<string, unknown>;
+    const c = colour as Record<string, unknown>;
+    if (typeof p.id !== 'string' || typeof p.name !== 'string' || typeof c.effective !== 'string' ||
+        (c.provenance !== 'preset' && c.provenance !== 'user')) return null;
+    return { slot: item.slot as number, preset: { id: p.id, name: p.name },
+      colour: { effective: c.effective, provenance: c.provenance } };
+  });
+  if (slots.some((slot) => slot === null)) return { ok: false, error: 'invalid filament session slots' };
+  const orderedSlots = slots as FilamentSessionSlot[];
+  if (orderedSlots.length === 0) return { ok: false, error: 'invalid filament session slots' };
+  if (orderedSlots.some((slot, index) => slot.slot !== index + 1))
+    return { ok: false, error: 'invalid filament session slot ordering' };
+
+  const mappings = value.mappings;
+  if (!mappings || typeof mappings !== 'object') return { ok: false, error: 'invalid filament session mappings' };
+  const m = mappings as Record<string, unknown>;
+  const filament = integerArray(m.filament);
+  const volume = integerArray(m.volume);
+  const nozzle = integerArray(m.nozzle);
+  const filament2 = integerArray(m.filament2);
+  const physicalExtruder = integerArray(m.physical_extruder);
+  if (!filament || !volume || !nozzle || !filament2 || !physicalExtruder ||
+      filament.length !== orderedSlots.length || volume.length !== orderedSlots.length ||
+      nozzle.length !== orderedSlots.length || filament2.length !== orderedSlots.length)
+    return { ok: false, error: 'invalid filament session mappings' };
+
+  const flushing = value.flushing;
+  if (!flushing || typeof flushing !== 'object') return { ok: false, error: 'invalid filament session flushing state' };
+  const f = flushing as Record<string, unknown>;
+  const matrix = numberArray(f.matrix);
+  const vector = numberArray(f.vector);
+  if (!matrix || !vector || !integer(f.matrix_dimension, 1) || !integer(f.plane_count, 1) ||
+      (f.source !== 'native' && f.source !== 'default') ||
+      f.matrix_dimension !== orderedSlots.length ||
+      matrix.length !== f.matrix_dimension * f.matrix_dimension * f.plane_count)
+    return { ok: false, error: 'invalid filament session flushing state' };
+
+  const capabilities = value.capabilities;
+  if (!capabilities || typeof capabilities !== 'object') return { ok: false, error: 'invalid filament session capabilities' };
+  const cap = capabilities as Record<string, unknown>;
+  if (!integer(cap.min_slots, 1) || !integer(cap.max_slots, cap.min_slots) ||
+      !integer(cap.nozzle_count, 1) || typeof cap.can_add !== 'boolean' ||
+      typeof cap.can_delete !== 'boolean' || typeof cap.can_merge !== 'boolean' ||
+      typeof cap.flexible !== 'boolean')
+    return { ok: false, error: 'invalid filament session capabilities' };
+  const slotCount = orderedSlots.length;
+  const minSlots = cap.min_slots as number;
+  const maxSlots = cap.max_slots as number;
+  const nozzleCount = cap.nozzle_count as number;
+  const flexible = cap.flexible as boolean;
+  if (maxSlots !== 64 || slotCount < minSlots || slotCount > maxSlots ||
+      (flexible
+        ? (minSlots !== 1 || cap.can_add !== (slotCount < maxSlots) ||
+           cap.can_delete !== (slotCount > 1) || cap.can_merge !== (slotCount > 1))
+        : (minSlots !== nozzleCount || slotCount < nozzleCount ||
+           cap.can_add !== false || cap.can_delete !== false || cap.can_merge !== false)))
+    return { ok: false, error: 'inconsistent filament session capabilities' };
+  if (physicalExtruder.length !== nozzleCount)
+    return { ok: false, error: 'invalid filament session mappings' };
+  if (f.plane_count !== nozzleCount)
+    return { ok: false, error: 'inconsistent filament session flushing planes' };
+
+  const routing: FilamentRoutingProjection[] = [];
+  const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
+    'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
+  if (value.routing !== undefined) {
+    if (!Array.isArray(value.routing)) return { ok: false, error: 'invalid filament session routing' };
+    for (const candidate of value.routing) {
+      if (!candidate || typeof candidate !== 'object') return { ok: false, error: 'invalid filament session routing' };
+      const item = candidate as Record<string, unknown>;
+      if ((item.target !== 'project' && item.target !== 'object' && item.target !== 'model-part') ||
+          !integer(item.id) || !integer(item.object_id) || typeof item.selector !== 'string' ||
+          !routingSelectors.has(item.selector) || !integer(item.explicit_slot) ||
+          !integer(item.effective_slot) || typeof item.inherited !== 'boolean' || typeof item.defaulted !== 'boolean' ||
+          (item.target === 'project' && (item.id !== 0 || item.object_id !== 0 ||
+            (item.selector !== 'support-base' && item.selector !== 'support-interface'))) ||
+          (item.target === 'object' && (item.id === 0 || item.object_id !== item.id)) ||
+          (item.target === 'model-part' && (item.id === 0 || item.object_id === 0 ||
+            item.selector === 'support-base' || item.selector === 'support-interface')) ||
+          (item.effective_slot === 0 && item.defaulted !== true) ||
+          (item.effective_slot !== 0 && item.defaulted !== false))
+        return { ok: false, error: 'invalid filament session routing' };
+      if ((item.effective_slot as number) > slotCount || (item.explicit_slot as number) > slotCount)
+        return { ok: false, error: 'invalid filament session routing' };
+      routing.push({ target: item.target as FilamentRoutingProjection['target'], id: item.id as number,
+        objectId: item.object_id as number, selector: item.selector as FilamentRoutingProjection['selector'],
+        explicitSlot: item.explicit_slot as number, effectiveSlot: item.effective_slot as number,
+        inherited: item.inherited as boolean, defaulted: item.defaulted as boolean });
+    }
+  }
+
+  const assignments = value.assignments;
+  if (!assignments || typeof assignments !== 'object') return { ok: false, error: 'invalid filament session assignments' };
+  const assignmentSet = assignments as Record<string, unknown>;
+  const assignmentArray = (entry: unknown, target: FilamentAssignmentProjection['target']): FilamentAssignmentProjection[] | null => {
+    if (!Array.isArray(entry)) return null;
+    const result = entry.map((candidate): FilamentAssignmentProjection | null => {
+      if (!candidate || typeof candidate !== 'object') return null;
+      const item = candidate as Record<string, unknown>;
+      if (item.target !== target || !integer(item.id) || !integer(item.object_id) ||
+          !integer(item.explicit_slot) || !integer(item.effective_slot, 1) || typeof item.inherited !== 'boolean') return null;
+      const explicitSlot = item.explicit_slot as number;
+      const effectiveSlot = item.effective_slot as number;
+      if (effectiveSlot > slotCount || (target === 'object' && (item.inherited !== false || explicitSlot < 1)) ||
+          (target !== 'object' && explicitSlot > slotCount) ||
+          (target !== 'object' && item.inherited !== (explicitSlot === 0)) ||
+          (target === 'object' && effectiveSlot !== explicitSlot) ||
+          (target !== 'object' && explicitSlot > 0 && effectiveSlot !== explicitSlot)) return null;
+      return { target, id: item.id as number, objectId: item.object_id as number,
+        explicitSlot, effectiveSlot,
+        inherited: item.inherited as boolean };
+    });
+    return result.some((item) => item === null) ? null : (result as FilamentAssignmentProjection[]);
+  };
+  const objects = assignmentArray(assignmentSet.objects, 'object');
+  const parts = assignmentArray(assignmentSet.parts, 'model-part');
+  const modifiers = assignmentArray(assignmentSet.modifiers, 'parameter-modifier');
+  if (!objects || !parts || !modifiers) return { ok: false, error: 'invalid filament session assignments' };
+  for (const entries of [objects, parts, modifiers]) {
+    const ids = new Set(entries.map((entry) => `${entry.objectId}:${entry.id}`));
+    if (ids.size !== entries.length) return { ok: false, error: 'invalid filament session assignments' };
+  }
+
+  const revisions = value.revisions;
+  if (!revisions || typeof revisions !== 'object') return { ok: false, error: 'invalid filament session revisions' };
+  const rev = revisions as Record<string, unknown>;
+  if (!integer(rev.session) || !integer(rev.project) || !integer(rev.result) ||
+      !rev.plates || typeof rev.plates !== 'object' || Array.isArray(rev.plates))
+    return { ok: false, error: 'invalid filament session revisions' };
+  const plates: Record<string, number> = {};
+  for (const [id, revision] of Object.entries(rev.plates as Record<string, unknown>)) {
+    if (!integer(revision)) return { ok: false, error: 'invalid filament session revisions' };
+    plates[id] = revision;
+  }
+  const status = value.status;
+  if (!status || typeof status !== 'object') return { ok: false, error: 'invalid filament session status' };
+  const s = status as Record<string, unknown>;
+  if (s.state !== 'ready' || s.error !== null) return { ok: false, error: 'invalid filament session status' };
+  const result: FilamentSessionSnapshot = {
+    ok: true, version: 1, slots: orderedSlots,
+    mappings: { filament, volume, nozzle, filament2, physicalExtruder },
+    flushing: { matrix, vector, matrixDimension: f.matrix_dimension as number,
+      planeCount: f.plane_count as number, source: f.source as 'native' | 'default' },
+    capabilities: { minSlots, maxSlots, nozzleCount, flexible,
+      canAdd: cap.can_add as boolean,
+      canDelete: cap.can_delete as boolean, canMerge: cap.can_merge as boolean },
+    ...(value.routing !== undefined ? { routing } : {}),
+    assignments: { objects, parts, modifiers },
+    revisions: { session: rev.session as number, project: rev.project as number,
+      result: rev.result as number, plates },
+    status: { state: 'ready', error: null },
+  };
+  return result;
+}
+
+function normalizeFilamentMutationResult(raw: unknown): FilamentMutationResultOrError {
+  if (!raw || typeof raw !== 'object') return { ok: false, version: 1, error: 'invalid filament mutation response', errorCode: 'invalid_response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) {
+    if (value.version !== 1 || value.ok !== false || typeof value.error !== 'string' || typeof value.error_code !== 'string')
+      return { ok: false, version: 1, error: 'invalid filament mutation error envelope', errorCode: 'invalid_response' };
+    if (!value.status || typeof value.status !== 'object' ||
+        (value.status as Record<string, unknown>).state !== 'error' ||
+        typeof (value.status as Record<string, unknown>).error !== 'string')
+      return { ok: false, version: 1, error: 'invalid filament mutation error status', errorCode: 'invalid_response' };
+    return { ok: false, version: 1, error: value.error, errorCode: value.error_code,
+      ...(value.status && typeof value.status === 'object' ? {
+        status: { state: 'error' as const, error: String((value.status as Record<string, unknown>).error ?? value.error) },
+      } : {}) };
+  }
+  if (value.version !== 1 || !value.result || typeof value.result !== 'object')
+    return { ok: false, version: 1, error: 'invalid filament mutation result envelope', errorCode: 'invalid_response' };
+  const result = value.result as Record<string, unknown>;
+  const snapshot = normalizeFilamentSessionResult(result.snapshot);
+  if (!snapshot.ok || !result.mutation || typeof result.mutation !== 'object')
+    return { ok: false, version: 1, error: snapshot.ok ? 'invalid filament mutation summary' : snapshot.error,
+      errorCode: 'invalid_response' };
+  if (!isRecord(result.history_status))
+    return { ok: false, version: 1, error: 'missing filament mutation history status', errorCode: 'invalid_response' };
+  let historyStatus: import('./history').HistoryStatus;
+  try { historyStatus = normalizeHistoryStatus(result.history_status); }
+  catch { return { ok: false, version: 1, error: 'invalid filament history status', errorCode: 'invalid_response' }; }
+  const mutation = result.mutation as Record<string, unknown>;
+  if (typeof mutation.kind !== 'string' || mutation.history_entry_delta !== 1 ||
+      !Number.isSafeInteger(mutation.revision_before) || !Number.isSafeInteger(mutation.revision_after) ||
+      Number(mutation.revision_after) !== Number(mutation.revision_before) + 1 ||
+      Number(mutation.revision_after) !== snapshot.revisions.session ||
+      mutation.dirty !== true || typeof mutation.all_plate_results_invalidated !== 'boolean')
+    return { ok: false, version: 1, error: 'invalid filament mutation summary', errorCode: 'invalid_response' };
+  if (historyStatus.revision !== mutation.revision_after || historyStatus.dirty !== mutation.dirty)
+    return { ok: false, version: 1, error: 'filament mutation history status does not match receipt', errorCode: 'invalid_response' };
+  const validMutationKinds = new Set(['select-preset', 'set-colour', 'add', 'delete', 'merge', 'assign', 'routing']);
+  if (!validMutationKinds.has(String(mutation.kind)))
+    return { ok: false, version: 1, error: 'invalid filament mutation kind', errorCode: 'invalid_response' };
+  const has = (key: string): boolean => Object.prototype.hasOwnProperty.call(mutation, key);
+  const baseKeys = ['kind', 'history_entry_delta', 'revision_before', 'revision_after', 'dirty', 'all_plate_results_invalidated'];
+  const kindKeys: Record<string, string[]> = {
+    'select-preset': [...baseKeys, 'slot', 'preset'],
+    'set-colour': [...baseKeys, 'slot', 'colour'],
+    add: [...baseKeys, 'slot'],
+    delete: [...baseKeys, 'source', 'destination', 'slot_count'],
+    merge: [...baseKeys, 'source', 'destination', 'slot_count'],
+    assign: [...baseKeys, 'slot', 'accepted_targets', 'affected_plate_ids'],
+    routing: [...baseKeys, 'selector', 'slot', 'accepted_targets', 'affected_plate_ids'],
+  };
+  const allowedKeys = new Set(kindKeys[String(mutation.kind)] ?? []);
+  if (Object.keys(mutation).some((key) => !allowedKeys.has(key)))
+    return { ok: false, version: 1, error: 'extraneous filament mutation field', errorCode: 'invalid_response' };
+  if (Object.keys(mutation).length !== allowedKeys.size || [...allowedKeys].some((key) => !has(key)))
+    return { ok: false, version: 1, error: 'missing filament mutation field', errorCode: 'invalid_response' };
+  if (mutation.kind !== 'assign' && mutation.kind !== 'routing' && mutation.all_plate_results_invalidated !== true)
+    return { ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' };
+  const requireSlot = mutation.kind === 'select-preset' || mutation.kind === 'set-colour' || mutation.kind === 'add' ||
+    mutation.kind === 'assign' || mutation.kind === 'routing';
+  const minimumSlot = mutation.kind === 'assign' || mutation.kind === 'routing' ? 0 : 1;
+  if (requireSlot && (!Number.isSafeInteger(mutation.slot) || Number(mutation.slot) < minimumSlot))
+    return { ok: false, version: 1, error: 'invalid filament mutation slot', errorCode: 'invalid_response' };
+  if (requireSlot && Number(mutation.slot) > snapshot.slots.length)
+    return { ok: false, version: 1, error: 'invalid filament mutation slot range', errorCode: 'invalid_response' };
+  if (mutation.kind === 'add' && Number(mutation.slot) !== snapshot.slots.length)
+    return { ok: false, version: 1, error: 'invalid filament add slot', errorCode: 'invalid_response' };
+  if (mutation.kind === 'select-preset' && (!has('preset') || typeof mutation.preset !== 'string' || mutation.preset.length === 0))
+    return { ok: false, version: 1, error: 'invalid filament mutation preset', errorCode: 'invalid_response' };
+  if (mutation.kind === 'set-colour' && (!has('colour') || typeof mutation.colour !== 'string' ||
+      !/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(mutation.colour)))
+    return { ok: false, version: 1, error: 'invalid filament mutation colour', errorCode: 'invalid_response' };
+  if (mutation.kind === 'delete' || mutation.kind === 'merge') {
+    if (!has('slot_count') || !Number.isSafeInteger(mutation.slot_count) ||
+        Number(mutation.slot_count) !== snapshot.slots.length)
+      return { ok: false, version: 1, error: 'invalid filament mutation slot count', errorCode: 'invalid_response' };
+    if (!has('source') || !Number.isSafeInteger(mutation.source) || Number(mutation.source) < 1 ||
+        Number(mutation.source) > snapshot.slots.length + 1)
+      return { ok: false, version: 1, error: 'invalid filament mutation source range', errorCode: 'invalid_response' };
+    if (mutation.kind === 'delete') {
+      if (!has('destination') || mutation.destination !== null)
+        return { ok: false, version: 1, error: 'invalid filament delete destination', errorCode: 'invalid_response' };
+    } else if (!has('destination') || !Number.isSafeInteger(mutation.destination) ||
+        Number(mutation.destination) < 1 || Number(mutation.destination) > snapshot.slots.length)
+      return { ok: false, version: 1, error: 'invalid filament merge destination range', errorCode: 'invalid_response' };
+  }
+  if (mutation.kind === 'assign' || mutation.kind === 'routing') {
+    if (!Array.isArray(mutation.affected_plate_ids) ||
+        !mutation.affected_plate_ids.every((id) => typeof id === 'string'))
+      return { ok: false, version: 1, error: 'invalid filament affected plate ids', errorCode: 'invalid_response' };
+    if (!Array.isArray(mutation.accepted_targets) || mutation.accepted_targets.length === 0)
+      return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+    const selector = mutation.kind === 'routing' ? mutation.selector : undefined;
+    const routingSelectors = new Set(['support-base', 'support-interface', 'outer-wall', 'inner-wall',
+      'sparse-infill', 'internal-solid-infill', 'top-surface', 'bottom-surface']);
+    if (mutation.kind === 'routing' && (typeof selector !== 'string' || !routingSelectors.has(selector)))
+      return { ok: false, version: 1, error: 'invalid filament routing selector', errorCode: 'invalid_response' };
+    let projectAccepted = false;
+    for (const candidate of mutation.accepted_targets) {
+      if (!candidate || typeof candidate !== 'object')
+        return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+      const target = candidate as Record<string, unknown>;
+      if (Object.keys(target).sort().join(',') !== ['kind', 'id', 'object_id'].sort().join(',') ||
+          typeof target.kind !== 'string' || !Number.isSafeInteger(target.id) ||
+          !Number.isSafeInteger(target.object_id))
+        return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+      const kind = target.kind;
+      const id = target.id as number;
+      const objectId = target.object_id as number;
+      if (mutation.kind === 'assign') {
+        if (!new Set(['object', 'model-part', 'parameter-modifier']).has(kind) || id < 1 || objectId < 1 ||
+            (kind === 'object' && id !== objectId))
+          return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+      } else {
+        const feature = selector !== 'support-base' && selector !== 'support-interface';
+        if ((kind === 'project' && (id !== 0 || objectId !== 0 || feature)) ||
+            (kind === 'object' && (id < 1 || objectId !== id)) ||
+            (kind === 'model-part' && (id < 1 || objectId < 1 || !feature)) ||
+            !new Set(['project', 'object', 'model-part']).has(kind))
+          return { ok: false, version: 1, error: 'invalid filament accepted targets', errorCode: 'invalid_response' };
+        projectAccepted = projectAccepted || kind === 'project';
+      }
+    }
+    if ((mutation.kind === 'assign' && mutation.all_plate_results_invalidated !== false) ||
+        (mutation.kind === 'routing' && mutation.all_plate_results_invalidated !== projectAccepted))
+      return { ok: false, version: 1, error: 'invalid filament invalidation scope', errorCode: 'invalid_response' };
+  }
+  const summary = {
+    kind: mutation.kind as FilamentMutationResult['mutation']['kind'],
+    ...(Number.isSafeInteger(mutation.slot) ? { slot: mutation.slot as number } : {}),
+    ...(Number.isSafeInteger(mutation.source) ? { source: mutation.source as number } : {}),
+    ...(mutation.destination === null || Number.isSafeInteger(mutation.destination)
+      ? { destination: mutation.destination as number | null } : {}),
+    ...(typeof mutation.preset === 'string' ? { preset: mutation.preset } : {}),
+    ...(typeof mutation.colour === 'string' ? { colour: mutation.colour } : {}),
+    ...(Number.isSafeInteger(mutation.slot_count) ? { slotCount: mutation.slot_count as number } : {}),
+    historyEntryDelta: 1 as const,
+    revisionBefore: mutation.revision_before as number,
+    revisionAfter: mutation.revision_after as number,
+    dirty: true as const,
+    allPlateResultsInvalidated: mutation.all_plate_results_invalidated as boolean,
+    ...(Array.isArray(mutation.affected_plate_ids) && mutation.affected_plate_ids.every((id) => typeof id === 'string')
+      ? { affectedPlateIds: mutation.affected_plate_ids as string[] } : {}),
+    ...(Array.isArray(mutation.accepted_targets) ? { acceptedTargets: mutation.accepted_targets.map((target) => {
+      const item = target as Record<string, unknown>;
+      return { kind: item.kind as string, id: item.id as number, objectId: item.object_id as number };
+    }) as FilamentMutationResult['mutation']['acceptedTargets'] } : {}),
+    ...(typeof mutation.selector === 'string' ? { selector: mutation.selector } : {}),
+  };
+  return { ok: true, version: 1, result: { snapshot, mutation: summary, historyStatus } };
+}
 
 function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid plate session response' };
@@ -139,6 +584,15 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   return result;
 }
 
+function normalizePlateSelectionResult(raw: unknown): PlateSelectionResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid plate selection response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) return { ok: false, error: typeof value.error === 'string' ? value.error : 'plate selection request failed' };
+  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || value.current_plate_id.length === 0)
+    return { ok: false, error: 'invalid plate selection response' };
+  return { ok: true, version: 1, currentPlateId: value.current_plate_id };
+}
+
 function normalizePlateMutationResult(raw: unknown): PlateSessionMutationResult {
   const result = normalizePlateSessionResult(raw);
   if (!result.ok) return result;
@@ -148,6 +602,157 @@ function normalizePlateMutationResult(raw: unknown): PlateSessionMutationResult 
 
 function normalizeCount(raw: unknown): number | null {
   return typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0 ? raw : null;
+}
+
+function normalizePrimeTowerProjection(raw: unknown): PrimeTowerProjectionResult {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'invalid prime tower projection response' };
+  const value = raw as Record<string, unknown>;
+  if (value.ok !== true) {
+    if (value.version !== 1 || typeof value.error !== 'string')
+      return { ok: false, error: 'invalid prime tower projection error envelope' };
+    return { ok: false, version: 1, error: value.error };
+  }
+  if (value.version !== 1 || typeof value.current_plate_id !== 'string' || !Array.isArray(value.plates))
+    return { ok: false, error: 'invalid prime tower projection response' };
+  const finite = (entry: unknown): entry is number => typeof entry === 'number' && Number.isFinite(entry);
+  const nonNegative = (entry: unknown): entry is number => finite(entry) && entry >= 0;
+  const same = (left: number, right: number): boolean =>
+    Math.abs(left - right) <= 1e-9 * Math.max(1, Math.abs(left), Math.abs(right));
+  const area = (entry: unknown): PrimeTowerBuildArea | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const item = entry as Record<string, unknown>;
+    if (![item.min_x, item.max_x, item.min_y, item.max_y, item.max_z].every(finite) ||
+        (item.max_x as number) < (item.min_x as number) || (item.max_y as number) < (item.min_y as number) ||
+        (item.max_z as number) < 0) return null;
+    return { minX: item.min_x as number, maxX: item.max_x as number,
+      minY: item.min_y as number, maxY: item.max_y as number, maxZ: item.max_z as number };
+  };
+  const buildArea = area(value.build_area);
+  if (!buildArea) return { ok: false, error: 'invalid prime tower projection build area' };
+  const ids = new Set<string>();
+  const plates = value.plates.map((entry): PrimeTowerPlateProjection | null => {
+    if (!entry || typeof entry !== 'object') return null;
+    const item = entry as Record<string, unknown>;
+    const plateArea = area(item.build_area);
+    const position = item.position;
+    const footprint = item.footprint;
+    if (typeof item.plate_id !== 'string' || item.plate_id.length === 0 || ids.has(item.plate_id) ||
+        !Number.isSafeInteger(item.display_index) || (item.display_index as number) < 0 ||
+        typeof item.eligible !== 'boolean' ||
+        typeof item.empty !== 'boolean' || typeof item.forced !== 'boolean' || !Array.isArray(item.used_slots) ||
+        !item.used_slots.every((slot) => Number.isSafeInteger(slot) && (slot as number) >= 1) ||
+        new Set(item.used_slots as number[]).size !== item.used_slots.length ||
+        ![item.width, item.depth, item.height, item.rotation, item.brim_margin].every(finite) ||
+        !position || typeof position !== 'object' || !finite((position as Record<string, unknown>).x) ||
+        !finite((position as Record<string, unknown>).y) || !footprint || typeof footprint !== 'object' ||
+        ![ 'min_x', 'max_x', 'min_y', 'max_y' ].every((key) => finite((footprint as Record<string, unknown>)[key])) ||
+        !plateArea || !Array.isArray(item.bands)) return null;
+    if ([item.width, item.depth, item.height, item.brim_margin].some((entry) => !nonNegative(entry)) ||
+        (item.eligible !== ((item.width as number) > 0)) ||
+        (item.eligible && (item.depth as number) <= 0) ||
+        (item.eligible && (item.height as number) < 0.1) ||
+        (item.eligible && (item.empty || (item.used_slots as unknown[]).length === 0))) return null;
+    const bands = item.bands.map((entry): PrimeTowerBand | null => {
+      if (!entry || typeof entry !== 'object') return null;
+      const band = entry as Record<string, unknown>;
+      if (!Number.isSafeInteger(band.slot) || (band.slot as number) < 1 || !finite(band.start_depth) ||
+          !finite(band.end_depth) || !nonNegative(band.start_depth) || !nonNegative(band.end_depth) ||
+          (band.end_depth as number) < (band.start_depth as number) ||
+          typeof band.colour !== 'string' || !/^#[0-9a-f]{6}$/i.test(band.colour) ||
+          !finite(band.opacity) || (band.opacity as number) < 0 || (band.opacity as number) > 1) return null;
+      return { slot: band.slot as number, startDepth: band.start_depth as number,
+        endDepth: band.end_depth as number, colour: band.colour, opacity: band.opacity as number };
+    });
+    const typedBands = bands as PrimeTowerBand[];
+    if (bands.some((band) => band === null) || bands.length !== (item.eligible ? (item.used_slots as unknown[]).length : 0) ||
+        bands.some((band, index) => band!.slot !== (item.used_slots as number[])[index]) ||
+        (typedBands.length > 0 && !same(typedBands[0].startDepth, 0)) ||
+        typedBands.some((band, index) => index > 0 && !same(band.startDepth, typedBands[index - 1].endDepth)) ||
+        (typedBands.length > 0 && !same(typedBands[typedBands.length - 1].endDepth, item.depth as number))) return null;
+    ids.add(item.plate_id);
+    const fp = footprint as Record<string, unknown>;
+    if ((fp.max_x as number) < (fp.min_x as number) || (fp.max_y as number) < (fp.min_y as number)) return null;
+    return { plateId: item.plate_id, displayIndex: item.display_index as number,
+      eligible: item.eligible, empty: item.empty, forced: item.forced,
+      usedSlots: item.used_slots as number[], width: item.width as number, depth: item.depth as number,
+      height: item.height as number,
+      position: { x: (position as Record<string, unknown>).x as number, y: (position as Record<string, unknown>).y as number },
+        rotation: item.rotation as number, brimMargin: item.brim_margin as number,
+      footprint: { minX: fp.min_x as number, maxX: fp.max_x as number,
+        minY: fp.min_y as number, maxY: fp.max_y as number }, bands: typedBands,
+      buildArea: plateArea,
+      ...(typeof item.outside_boundary_warning === 'boolean'
+        ? { outsideBoundaryWarning: item.outside_boundary_warning } : {}) };
+  });
+  if (plates.some((plate) => plate === null) || plates.length === 0 || !ids.has(value.current_plate_id))
+    return { ok: false, error: 'invalid prime tower projection plates' };
+  return { ok: true, version: 1, currentPlateId: value.current_plate_id,
+    buildArea, plates: plates as PrimeTowerPlateProjection[] };
+}
+
+function normalizePrimeTowerMoveResult(raw: unknown): PrimeTowerMoveResultOrError {
+  if (!isRecord(raw)) return { ok: false, version: 1, error: 'invalid prime tower move response', errorCode: 'invalid_response' };
+  if (raw.ok !== true) {
+    if (raw.version !== 1 || typeof raw.error !== 'string' || typeof raw.error_code !== 'string')
+      return { ok: false, version: 1, error: 'invalid prime tower move error envelope', errorCode: 'invalid_response' };
+    return { ok: false, version: 1, error: raw.error, errorCode: raw.error_code,
+      ...(isRecord(raw.status) && raw.status.state === 'error' && typeof raw.status.error === 'string'
+        ? { status: { state: 'error', error: raw.status.error } } : {}) };
+  }
+  if (raw.version !== 1 || !isRecord(raw.result))
+    return { ok: false, version: 1, error: 'invalid prime tower move result envelope', errorCode: 'invalid_response' };
+  const result = raw.result;
+  const mutation = result.mutation;
+  if (!isRecord(mutation))
+    return { ok: false, version: 1, error: 'invalid prime tower move result', errorCode: 'invalid_response' };
+  if (mutation.kind !== 'move' || typeof mutation.plate_id !== 'string' ||
+      ![mutation.history_entry_delta, mutation.revision_before, mutation.revision_after].every((value) => typeof value === 'number' && Number.isSafeInteger(value)) ||
+      (mutation.history_entry_delta !== 0 && mutation.history_entry_delta !== 1) ||
+      typeof mutation.dirty !== 'boolean' || !Array.isArray(mutation.affected_plate_ids) ||
+      !mutation.affected_plate_ids.every((value) => typeof value === 'string'))
+    return { ok: false, version: 1, error: 'invalid prime tower move mutation', errorCode: 'invalid_response' };
+  const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
+  const position = mutation.position;
+  if (!isRecord(position) || !finite(position.x) || !finite(position.y))
+    return { ok: false, version: 1, error: 'invalid prime tower move position', errorCode: 'invalid_response' };
+  const footprint = mutation.footprint;
+  if (!isRecord(footprint) || ![footprint.min_x, footprint.max_x, footprint.min_y, footprint.max_y].every(finite))
+    return { ok: false, version: 1, error: 'invalid prime tower move footprint', errorCode: 'invalid_response' };
+  const typedMutation = {
+    kind: 'move' as const, plateId: mutation.plate_id,
+    historyEntryDelta: mutation.history_entry_delta as 0 | 1,
+    revisionBefore: mutation.revision_before as number, revisionAfter: mutation.revision_after as number,
+    dirty: mutation.dirty, affectedPlateIds: mutation.affected_plate_ids as string[],
+    ...(typeof mutation.clamped === 'boolean' ? { clamped: mutation.clamped } : {}),
+    ...(typeof mutation.outside_boundary_warning === 'boolean' ? { outsideBoundaryWarning: mutation.outside_boundary_warning } : {}),
+    ...(typeof mutation.warning === 'string' && mutation.warning.length > 0 ? { warning: mutation.warning } : {}),
+    position: { x: position.x as number, y: position.y as number },
+    footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
+      minY: footprint.min_y as number, maxY: footprint.max_y as number },
+  };
+  if (!isRecord(result.history_status))
+    return { ok: false, version: 1, error: 'invalid prime tower history status', errorCode: 'invalid_response' };
+  let historyStatus: import('./history').HistoryStatus;
+  try { historyStatus = normalizeHistoryStatus(result.history_status); }
+  catch { return { ok: false, version: 1, error: 'invalid prime tower history status', errorCode: 'invalid_response' }; }
+  return { ok: true, version: 1, result: { mutation: typedMutation, historyStatus } };
+}
+
+/** Convert the native profile/catalogue payload into the public profile
+ * contract, including the engine-filtered filament catalogue. */
+function normalizeProfileSnapshot(raw: Record<string, unknown>): ProfileSnapshotResult {
+  if (raw.ok !== true) return raw as unknown as ProfileSnapshotResult;
+  return {
+    ok: true,
+    printers: (Array.isArray(raw.printers) ? raw.printers : []) as ProfileSnapshot['printers'],
+    prints: (Array.isArray(raw.prints) ? raw.prints : []) as ProfileSnapshot['prints'],
+    filamentCatalog: (Array.isArray(raw.filament_catalog) ? raw.filament_catalog : []) as ProfileSnapshot['filamentCatalog'],
+    printer: raw.printer as ProfileSnapshot['printer'],
+    print: raw.print as ProfileSnapshot['print'],
+    ...(Array.isArray(raw.printable_area) ? { printable_area: raw.printable_area as Array<[number, number]> } : {}),
+    ...(raw.project_config && typeof raw.project_config === 'object'
+      ? { project_config: raw.project_config as Record<string, string> } : {}),
+  };
 }
 
 function normalizeLoadModelResult(raw: unknown): LoadModelResult {
@@ -254,12 +859,61 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
   if (value.ok !== true) return historyFailure(raw, 'history restore failed');
   if (!value.context || typeof value.context !== 'object' || !value.status)
     return historyFailure(raw, 'invalid history restore response');
+  const impact = normalizeRestoreImpact(value.impact);
+  const primeTowerReceipt = normalizePrimeTowerRestoreReceipt(value.prime_tower_receipt, impact, value.narrow);
   return {
     ok: true,
     context: value.context as HistoryContext,
     status: normalizeHistoryStatus(value.status),
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
+    impact,
+    ...(primeTowerReceipt ? { primeTowerReceipt } : {}),
   };
+}
+
+/**
+ * Receipts are an optional acceleration contract. Invalid or legacy data is
+ * ignored so callers retain the existing authoritative projection fallback.
+ */
+export function normalizePrimeTowerRestoreReceipt(
+  raw: unknown,
+  impact: import('./history').RestoreImpact,
+  narrow: unknown,
+): import('./history').PrimeTowerRestoreReceipt | undefined {
+  if (narrow !== true || impact.model !== 'none' || !impact.primeTower || !raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  if (value.version !== 1 || typeof value.plate_id !== 'string' || value.plate_id.length === 0 ||
+      !Number.isSafeInteger(value.revision) || (value.revision as number) < 0) return undefined;
+  if (value.state === 'cleared') {
+    return { version: 1, state: 'cleared', plateId: value.plate_id, revision: value.revision as number };
+  }
+  if (value.state !== 'available' || !value.position || typeof value.position !== 'object' ||
+      !value.footprint || typeof value.footprint !== 'object') return undefined;
+  const position = value.position as Record<string, unknown>;
+  const footprint = value.footprint as Record<string, unknown>;
+  const finite = (entry: unknown): entry is number => typeof entry === 'number' && Number.isFinite(entry);
+  if (![position.x, position.y, footprint.min_x, footprint.max_x, footprint.min_y, footprint.max_y].every(finite) ||
+      (footprint.max_x as number) < (footprint.min_x as number) ||
+      (footprint.max_y as number) < (footprint.min_y as number)) return undefined;
+  return { version: 1, state: 'available', plateId: value.plate_id, revision: value.revision as number,
+    position: { x: position.x as number, y: position.y as number },
+    footprint: { minX: footprint.min_x as number, maxX: footprint.max_x as number,
+      minY: footprint.min_y as number, maxY: footprint.max_y as number } };
+}
+
+export function normalizeRestoreImpact(raw: unknown): import('./history').RestoreImpact {
+  const fallback: import('./history').RestoreImpact = {
+    version: 1, model: 'full', plateSession: true, filamentRack: true,
+    projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all',
+  };
+  if (!raw || typeof raw !== 'object') return fallback;
+  const value = raw as Record<string, unknown>;
+  if (value.version !== 1 || (value.model !== 'full' && value.model !== 'none') ||
+      typeof value.plateSession !== 'boolean' || typeof value.filamentRack !== 'boolean' ||
+      typeof value.projectOverlay !== 'boolean' || typeof value.selectionContext !== 'boolean' ||
+      typeof value.primeTower !== 'boolean' ||
+      (value.preview !== 'all' && value.preview !== 'current-plate')) return fallback;
+  return value as unknown as import('./history').RestoreImpact;
 }
 
 export function createClient(
@@ -422,6 +1076,51 @@ export function createClient(
       return callJson(m, 'orc_init', ['string'], [JSON.stringify(opts)]) as InitResult;
     },
 
+    async getFilamentSessionSnapshot(): Promise<FilamentSessionSnapshotResult> {
+      const m = await module();
+      return normalizeFilamentSessionResult(callJson(m, 'orc_get_filament_session_snapshot', [], []));
+    },
+
+    async selectFilamentSlotPreset(request: FilamentSlotPresetRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_select_filament_slot_preset', ['string'], [JSON.stringify(request)]));
+    },
+
+    async setFilamentSlotColour(request: FilamentSlotColourRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_set_filament_slot_colour', ['string'], [JSON.stringify(request)]));
+    },
+
+    async addFilamentSlot(request: FilamentCommandRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_add_filament_slot', ['string'], [JSON.stringify(request)]));
+    },
+
+    async deleteFilamentSlot(request: FilamentSlotDeleteRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_delete_filament_slot', ['string'], [JSON.stringify(request)]));
+    },
+
+    async mergeFilamentSlots(request: FilamentSlotMergeRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_merge_filament_slots', ['string'], [JSON.stringify(request)]));
+    },
+
+    async applyRememberedFilamentRack(request: RememberedFilamentRackRequest): Promise<FilamentSessionSnapshotResult> {
+      const m = await module();
+      return normalizeFilamentSessionResult(callJson(m, 'orc_apply_remembered_filament_rack', ['string'], [JSON.stringify(request)]));
+    },
+
+    async assignFilament(request: FilamentAssignmentRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_assign_filament', ['string'], [JSON.stringify(request)]));
+    },
+
+    async setFilamentRouting(request: FilamentRoutingRequest): Promise<FilamentMutationResultOrError> {
+      const m = await module();
+      return normalizeFilamentMutationResult(callJson(m, 'orc_set_filament_routing', ['string'], [JSON.stringify(request)]));
+    },
+
     beginHistory,
     commitHistory,
     abortHistory,
@@ -432,6 +1131,7 @@ export function createClient(
     markHistorySaved,
     recordHistoryContext,
     resetHistory,
+    getHistoryDiagnostics: () => ({ version: 1 as const, worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
     runProjectHistoryTransaction,
 
     async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {
@@ -439,14 +1139,27 @@ export function createClient(
       return normalizePlateSessionResult(callJson(m, 'orc_get_plate_session_snapshot', [], []));
     },
 
+    async getPrimeTowerProjection(): Promise<PrimeTowerProjectionResult> {
+      const m = await module();
+      return normalizePrimeTowerProjection(callJson(m, 'orc_get_prime_tower_projection', [], []));
+    },
+
+    async movePrimeTower(request: PrimeTowerMoveRequest): Promise<PrimeTowerMoveResultOrError> {
+      const m = await module();
+      return normalizePrimeTowerMoveResult(callJson(m, 'orc_move_prime_tower', ['string'], [JSON.stringify({
+        version: request.version, plate_id: request.plateId, revision: request.revision,
+        x: request.x, y: request.y,
+      })]));
+    },
+
     async resetPlateSession(): Promise<PlateSessionSnapshotResult> {
       const m = await module();
       return normalizePlateSessionResult(callJson(m, 'orc_reset_plate_session', [], []));
     },
 
-    async selectPlate(plateId: string): Promise<PlateSessionSnapshotResult> {
+    async selectPlate(plateId: string): Promise<PlateSelectionResult> {
       const m = await module();
-      return normalizePlateSessionResult(callJson(m, 'orc_select_plate', ['string'], [plateId]));
+      return normalizePlateSelectionResult(callJson(m, 'orc_select_plate', ['string'], [plateId]));
     },
 
     async addPlate(): Promise<PlateSessionMutationResult> {
@@ -464,46 +1177,37 @@ export function createClient(
       return normalizePlateMutationResult(callJson(m, 'orc_recompute_plate_membership', [], []));
     },
 
-    async markSharedConfigurationMutation(optionKey?: string, value?: string): Promise<PlateSessionMutationResult> {
+    async markSharedConfigurationMutation(): Promise<PlateSessionMutationResult> {
       const m = await module();
-      // Legacy callers use this operation only to advance plate revisions;
-      // option overrides use setProjectConfigOverride below.
       return normalizePlateMutationResult(callJson(m, 'orc_mark_shared_configuration_mutation', [], []));
     },
 
     async getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
       const m = await module();
-      return callJson(m, 'orc_get_project_config_overlay', [], []) as ProjectConfigOverlayResultOrError;
+      return normalizeProjectConfigOverlay(callJson(m, 'orc_get_project_config_overlay', [], []));
     },
 
     async setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError> {
       const m = await module();
       const scopeId = target.id === undefined ? '' : String(target.id);
       const raw = callJson(m, 'orc_set_project_config_override', ['string', 'string', 'string', 'string'],
-        [target.scope, scopeId, optionKey, value]) as Record<string, unknown>;
-      if (!raw || raw.ok !== true) return raw as unknown as ProjectConfigOverlayResultOrError;
-      const result: Record<string, unknown> = { ...raw };
-      if (raw.plate_session) {
-        const plateSession = normalizePlateMutationResult(raw.plate_session);
-        if (plateSession.ok) result.plateSession = plateSession;
-        delete result.plate_session;
-      }
-      return result as unknown as ProjectConfigOverlayResultOrError;
+        [target.scope, scopeId, optionKey, value]);
+      return normalizeProjectConfigOverlay(raw);
     },
 
     async revalidateProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError> {
       const m = await module();
-      return callJson(m, 'orc_revalidate_project_config_overlay', [], []) as ProjectConfigOverlayResultOrError;
+      return normalizeProjectConfigOverlay(callJson(m, 'orc_revalidate_project_config_overlay', [], []));
     },
 
-    async getPresetSnapshot(): Promise<PresetSnapshotResult> {
+    async getProfileSnapshot(): Promise<ProfileSnapshotResult> {
       const m = await module();
-      return callJson(m, 'orc_get_preset_snapshot', [], []) as PresetSnapshotResult;
+      return normalizeProfileSnapshot(callJson(m, 'orc_get_preset_snapshot', [], []) as Record<string, unknown>);
     },
 
-    async selectPreset(kind: 'printer' | 'print' | 'filament', name: string): Promise<PresetSnapshotResult> {
+    async selectProfile(kind: 'printer' | 'print', name: string): Promise<ProfileSnapshotResult> {
       const m = await module();
-      return callJson(m, 'orc_select_preset', ['string', 'string'], [kind, name]) as PresetSnapshotResult;
+      return normalizeProfileSnapshot(callJson(m, 'orc_select_preset', ['string', 'string'], [kind, name]) as Record<string, unknown>);
     },
 
     async getOptionMetadata(): Promise<OptionMetadata> {
@@ -522,13 +1226,14 @@ export function createClient(
       }
     },
 
-    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
+    async loadProject(bytes: Uint8Array, mode: ProjectLoadMode = 'project', displayName?: string, onProgress?: ProjectProgressCallback, nativeName = 'orc_load_project'): Promise<ProjectLoadResult> {
       const m = await module();
       const ptr = writeBytes(m, bytes);
       if (onProgress) progressListeners.add(onProgress);
       try {
-        const r = callJson(m, 'orc_load_project', ['pointer', 'number', 'number', 'string'],
-          [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? '']) as Record<string, unknown>;
+        const preflight = nativeName === 'orc_preflight_project';
+        const r = callJson(m, nativeName, preflight ? ['pointer', 'number', 'string'] : ['pointer', 'number', 'number', 'string'],
+          preflight ? [ptr, bytes.length, displayName ?? ''] : [ptr, bytes.length, mode === 'geometry-only' ? 1 : 0, displayName ?? '']) as Record<string, unknown>;
         if (!r.ok) return r as unknown as ProjectLoadResult;
         const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
         return {
@@ -536,6 +1241,7 @@ export function createClient(
           objects: Number(r.objects ?? 0),
           instances: Number(r.instances ?? 0),
           mode: r.mode as ProjectLoadMode | undefined,
+          preflightToken: typeof r.preflight_token === 'string' ? r.preflight_token : undefined,
           displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
           compatibility: r.compatibility as ProjectLoadResult['compatibility'],
           projectSettingsAvailable: r.project_settings_available === true,
@@ -571,10 +1277,17 @@ export function createClient(
                   ? item.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : [],
               }];
             }) : undefined,
+            filamentSlotChanges: Array.isArray(warnings.filament_slot_changes) ? warnings.filament_slot_changes.flatMap((change) => {
+              if (!change || typeof change !== 'object') return [];
+              const item = change as Record<string, unknown>;
+              if (!Number.isInteger(item.slot) || (item.slot as number) < 1 || typeof item.before !== 'string' ||
+                  typeof item.after !== 'string' || item.reason !== 'native-compatibility') return [];
+              return [{ slot: item.slot as number, before: item.before, after: item.after, reason: 'native-compatibility' as const }];
+            }) : undefined,
           } : undefined,
           presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object'
             && (r.preset_snapshot as Record<string, unknown>).ok === true
-            ? r.preset_snapshot as unknown as import('./types').PresetSnapshot : undefined,
+            ? normalizeProfileSnapshot(r.preset_snapshot as Record<string, unknown>) as ProfileSnapshot : undefined,
           ...(r.plate_session ? (() => {
             const plateSession = normalizePlateMutationResult(r.plate_session);
             return plateSession.ok ? { plateSession } : {};
@@ -586,6 +1299,66 @@ export function createClient(
         m._free(ptr);
         if (onProgress) progressListeners.delete(onProgress);
       }
+    },
+
+    async preflightProject(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
+      return (this.loadProject as unknown as (bytes: Uint8Array, mode: ProjectLoadMode, displayName?: string, onProgress?: ProjectProgressCallback, nativeName?: string) => Promise<ProjectLoadResult>)(bytes, 'project', displayName, onProgress, 'orc_preflight_project');
+    },
+
+    async commitProjectPreflight(token: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
+      const m = await module();
+      if (onProgress) progressListeners.add(onProgress);
+      try {
+        const r = callJson(m, 'orc_commit_project_preflight', ['string'], [token]) as Record<string, unknown>;
+        if (!r.ok) return r as unknown as ProjectLoadResult;
+        // The committed result uses the exact same native response shape as
+        // loadProject; route it through the normal parser without re-reading
+        // project bytes.
+        const warnings = r.embedded_preset_warnings as Record<string, unknown> | undefined;
+        return {
+          ok: true,
+          objects: Number(r.objects ?? 0), instances: Number(r.instances ?? 0), mode: r.mode as ProjectLoadMode | undefined,
+          displayName: typeof r.display_name === 'string' ? r.display_name : undefined,
+          compatibility: r.compatibility as ProjectLoadResult['compatibility'], projectSettingsAvailable: r.project_settings_available === true,
+          isBbl3mf: r.is_bbl_3mf === true, isOrca3mf: r.is_orca_3mf === true,
+          fileVersion: typeof r.file_version === 'string' ? r.file_version : undefined, multiPlate: r.multi_plate === true,
+          plateCount: Number(r.plate_count ?? 0),
+          embeddedPresetWarnings: warnings ? {
+            present: warnings.present === true, count: Number(warnings.count ?? 0), printerCount: Number(warnings.printer_count ?? 0),
+            processCount: Number(warnings.process_count ?? 0), filamentCount: Number(warnings.filament_count ?? 0),
+            modifiedPrinterGcode: warnings.modified_printer_gcode === true, modifiedFilamentGcode: warnings.modified_filament_gcode === true,
+            missingSystemPreset: warnings.missing_system_preset === true, requiresConfirmation: warnings.requires_confirmation === true,
+            modifiedGcodeKeys: Array.isArray(warnings.modified_gcode_keys) ? warnings.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : undefined,
+            missingSystemPresetTypes: Array.isArray(warnings.missing_system_preset_types)
+              ? warnings.missing_system_preset_types.filter((type): type is 'printer' | 'filament' => type === 'printer' || type === 'filament') : undefined,
+            presetEvidence: Array.isArray(warnings.preset_evidence) ? warnings.preset_evidence.flatMap((evidence) => {
+              if (!evidence || typeof evidence !== 'object') return [];
+              const item = evidence as Record<string, unknown>;
+              const type = item.type === 'printer' || item.type === 'filament' ? item.type : undefined;
+              if (!type || typeof item.name !== 'string' || typeof item.inherits !== 'string') return [];
+              return [{ type, name: item.name, inherits: item.inherits, hasMatchingSystemPreset: item.has_matching_system_preset === true,
+                modifiedGcodeKeys: Array.isArray(item.modified_gcode_keys) ? item.modified_gcode_keys.filter((key): key is string => typeof key === 'string') : [] }];
+            }) : undefined,
+            filamentSlotChanges: Array.isArray(warnings.filament_slot_changes) ? warnings.filament_slot_changes.flatMap((change) => {
+              if (!change || typeof change !== 'object') return [];
+              const item = change as Record<string, unknown>;
+              return Number.isInteger(item.slot) && (item.slot as number) >= 1 && typeof item.before === 'string' && typeof item.after === 'string' && item.reason === 'native-compatibility'
+                ? [{ slot: item.slot as number, before: item.before, after: item.after, reason: 'native-compatibility' as const }] : [];
+            }) : undefined,
+          } : undefined,
+          presetSnapshot: r.preset_snapshot && typeof r.preset_snapshot === 'object' && (r.preset_snapshot as Record<string, unknown>).ok === true
+            ? normalizeProfileSnapshot(r.preset_snapshot as Record<string, unknown>) as ProfileSnapshot : undefined,
+          ...(r.plate_session ? (() => { const plateSession = normalizePlateMutationResult(r.plate_session); return plateSession.ok ? { plateSession } : {}; })() : {}),
+          ...(r.project_config_overlay && typeof r.project_config_overlay === 'object' ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
+        };
+      } finally {
+        if (onProgress) progressListeners.delete(onProgress);
+      }
+    },
+
+    async cancelProjectPreflight(token: string): Promise<{ ok: boolean; error?: string }> {
+      const m = await module();
+      return callJson(m, 'orc_cancel_project_preflight', ['string'], [token]) as { ok: boolean; error?: string };
     },
 
     async importProjectGeometry(bytes: Uint8Array, displayName?: string, onProgress?: ProjectProgressCallback): Promise<ProjectLoadResult> {
@@ -657,6 +1430,17 @@ export function createClient(
         ['number', 'number', 'number', 'string', 'string'],
         [objIdx, volumeIdx, instIdx, JSON.stringify(instanceTransform), JSON.stringify(volumeTransform)],
       ) as { ok: boolean; error?: string };
+    },
+
+    async setModelTransforms(transactionId, transforms) {
+      const m = await module();
+      const raw = callJson(m, 'orc_set_model_transforms', ['string', 'string'],
+        [transactionId, JSON.stringify(transforms)]);
+      if (!raw || typeof raw !== 'object' || (raw as Record<string, unknown>).ok !== true)
+        return { ok: false, error: typeof (raw as Record<string, unknown> | null)?.error === 'string'
+          ? (raw as Record<string, unknown>).error as string : 'atomic model transform failed' };
+      const plateSession = normalizePlateMutationResult(raw);
+      return plateSession.ok ? { ok: true, plateSession } : { ok: false, error: plateSession.error };
     },
 
     async getModelMesh(): Promise<ModelMeshResult> {
@@ -819,7 +1603,7 @@ export function createClient(
         metadata?: {
           result_id?: number; source_filename?: string;
           layer_ranges?: Array<{ id: number; z: number; first_segment: number; segment_count: number }>;
-          feature_palette?: ToolpathFeature[];
+          feature_palette?: Array<ToolpathFeature & { role: number }>;
           extruder_palette?: Array<ToolpathFeature & { tool?: number }>;
           source_line_mapping?: { available: boolean; line_count: number };
           source_text?: { available: boolean; byte_length?: number };
@@ -846,40 +1630,88 @@ export function createClient(
           extruder_id_ptr?: number; color_print_id_ptr?: number;
           width_ptr?: number; height_ptr?: number;
           metrics?: Record<string, { ptr: number; count: number }>;
-          vertex_ptr: number; vertex_count: number;
-          layer_ptr: number; layer_count: number;
-          feature_ptr: number; feature_count: number;
-          features: ToolpathFeature[];
         };
       };
-      if (!r.ok || !r.toolpath) return r as unknown as ClientSliceResult;
+      if (!r.ok) return r as unknown as ClientSliceResult;
+      if (r.preview_version !== 2 || !r.metadata || !r.toolpath)
+        throw new Error('slice result bridge returned an invalid v2 envelope');
 
+      const requireInteger = (value: unknown, field: string, minimum = 0): number => {
+        if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum)
+          throw new Error(`slice result bridge returned an invalid ${field}`);
+        return value;
+      };
+      const requirePointer = (value: unknown, field: string, byteLength: number): number => {
+        const pointer = requireInteger(value, `${field} pointer`);
+        if ((byteLength > 0 && pointer === 0) || (byteLength === 0 && pointer !== 0))
+          throw new Error(`slice result bridge returned an invalid ${field} buffer`);
+        return pointer;
+      };
       const t = r.toolpath;
-      const segmentCount = Number(t.segment_count ?? t.vertex_count ?? 0);
-      const readF32 = (ptr: number | undefined, count: number): Float32Array =>
-        ptr && count > 0 ? new Float32Array(readBytes(m, Number(ptr), count * 4).buffer) : new Float32Array(count);
-      const readU32 = (ptr: number | undefined, count: number): Uint32Array =>
-        ptr && count > 0 ? new Uint32Array(readBytes(m, Number(ptr), count * 4).buffer) : new Uint32Array(count);
-      const readU16 = (ptr: number | undefined, count: number): Uint16Array =>
-        ptr && count > 0 ? new Uint16Array(readBytes(m, Number(ptr), count * 2).buffer) : new Uint16Array(count);
-      const readU8 = (ptr: number | undefined, count: number): Uint8Array =>
-        ptr && count > 0 ? readBytes(m, Number(ptr), count) : new Uint8Array(count);
-      const starts = readF32(t.starts_ptr, segmentCount * 3);
-      const ends = readF32(t.ends_ptr, segmentCount * 3);
-      // v1 result fallback: old bridges only had endpoint positions. Keep the
-      // aliases usable while making the v2 arrays total and typed.
-      // The bridge keeps vertex_ptr as a v1 compatibility allocation. Read it
-      // even for v2 responses so its heap ownership is released exactly once;
-      // v2 rendering uses ends instead.
-      const legacyPositions = t.ends_ptr && t.vertex_ptr === t.ends_ptr
-        ? new Float32Array(0)
-        : t.ends_ptr
-        ? (readF32(t.vertex_ptr, (t.vertex_count ?? segmentCount) * 3), new Float32Array(0))
-        : readF32(t.vertex_ptr, (t.vertex_count ?? segmentCount) * 3);
-      const resolvedEnds = t.ends_ptr ? ends : legacyPositions;
-      const resolvedStarts = t.starts_ptr ? starts : resolvedEnds.slice();
-      const layerIds = readU32(t.layer_id_ptr ?? t.layer_ptr, segmentCount);
-      const features = readU32(t.feature_ptr, segmentCount);
+      const segmentCount = requireInteger(t.segment_count, 'segment count');
+      const metadataRaw = r.metadata;
+      const resultId = requireInteger(metadataRaw.result_id, 'result id');
+      if (!Array.isArray(metadataRaw.layer_ranges) || !Array.isArray(metadataRaw.feature_palette))
+        throw new Error('slice result bridge returned incomplete v2 metadata');
+      const featurePalette = metadataRaw.feature_palette;
+      const roleToFeatureId = new Map<number, number>();
+      featurePalette.forEach((entry, index) => {
+        if (!entry || !Number.isSafeInteger(entry.id) || entry.id !== index ||
+            !Number.isSafeInteger(entry.role) || typeof entry.name !== 'string' ||
+            !Array.isArray(entry.color) || entry.color.length !== 3 ||
+            !entry.color.every((value) => typeof value === 'number' && Number.isFinite(value)) ||
+            roleToFeatureId.has(entry.role))
+          throw new Error('slice result bridge returned an invalid feature palette');
+        roleToFeatureId.set(entry.role, entry.id);
+      });
+      const readF32 = (ptr: number | undefined, count: number, field: string): Float32Array => {
+        const address = requirePointer(ptr, field, count * Float32Array.BYTES_PER_ELEMENT);
+        return count > 0 ? new Float32Array(readBytes(m, address, count * 4).buffer) : new Float32Array(0);
+      };
+      const readU32 = (ptr: number | undefined, count: number, field: string): Uint32Array => {
+        const address = requirePointer(ptr, field, count * Uint32Array.BYTES_PER_ELEMENT);
+        return count > 0 ? new Uint32Array(readBytes(m, address, count * 4).buffer) : new Uint32Array(0);
+      };
+      const readU16 = (ptr: number | undefined, count: number, field: string): Uint16Array => {
+        const address = requirePointer(ptr, field, count * Uint16Array.BYTES_PER_ELEMENT);
+        return count > 0 ? new Uint16Array(readBytes(m, address, count * 2).buffer) : new Uint16Array(0);
+      };
+      const readU8 = (ptr: number | undefined, count: number, field: string): Uint8Array => {
+        const address = requirePointer(ptr, field, count * Uint8Array.BYTES_PER_ELEMENT);
+        return count > 0 ? readBytes(m, address, count) : new Uint8Array(0);
+      };
+      const requiredPointers: Array<[unknown, string, number]> = [
+        [t.starts_ptr, 'starts', segmentCount * 3 * Float32Array.BYTES_PER_ELEMENT],
+        [t.ends_ptr, 'ends', segmentCount * 3 * Float32Array.BYTES_PER_ELEMENT],
+        [t.layer_id_ptr, 'layer ids', segmentCount * Uint32Array.BYTES_PER_ELEMENT],
+        [t.move_order_ptr, 'move orders', segmentCount * Uint32Array.BYTES_PER_ELEMENT],
+        [t.gcode_id_ptr, 'G-code ids', segmentCount * Uint32Array.BYTES_PER_ELEMENT],
+        [t.move_type_ptr, 'move types', segmentCount * Uint8Array.BYTES_PER_ELEMENT],
+        [t.extrusion_role_ptr, 'extrusion roles', segmentCount * Uint16Array.BYTES_PER_ELEMENT],
+        [t.extruder_id_ptr, 'extruder ids', segmentCount * Uint8Array.BYTES_PER_ELEMENT],
+        [t.color_print_id_ptr, 'colour-print ids', segmentCount * Uint8Array.BYTES_PER_ELEMENT],
+        [t.width_ptr, 'widths', segmentCount * Float32Array.BYTES_PER_ELEMENT],
+        [t.height_ptr, 'heights', segmentCount * Float32Array.BYTES_PER_ELEMENT],
+      ];
+      for (const [pointer, field, byteLength] of requiredPointers)
+        requirePointer(pointer, field, byteLength);
+      for (const [wireName, field] of Object.entries({
+        feedrate: 'feedrate', actual_feedrate: 'actualFeedrate',
+        volumetric_flow: 'volumetricFlow', actual_volumetric_flow: 'actualVolumetricFlow',
+        fan_speed: 'fanSpeed', temperature: 'temperature', pressure_advance: 'pressureAdvance',
+        acceleration: 'acceleration', jerk: 'jerk', time: 'time', layer_duration: 'layerDuration',
+      })) {
+        const descriptor = t.metrics?.[wireName];
+        if (descriptor !== undefined) {
+          if (!descriptor || descriptor.count !== segmentCount)
+            throw new Error(`slice result bridge returned an invalid ${wireName} metric`);
+          requirePointer(descriptor.ptr, `${wireName} metric`, descriptor.count * Float32Array.BYTES_PER_ELEMENT);
+        }
+      }
+      const starts = readF32(t.starts_ptr, segmentCount * 3, 'starts');
+      const ends = readF32(t.ends_ptr, segmentCount * 3, 'ends');
+      const layerIds = readU32(t.layer_id_ptr, segmentCount, 'layer ids');
+      const roles = readU16(t.extrusion_role_ptr, segmentCount, 'extrusion roles');
       const metricKeyMap: Record<string, keyof PreviewToolpathMetrics> = {
         feedrate: 'feedrate', actual_feedrate: 'actualFeedrate',
         volumetric_flow: 'volumetricFlow', actual_volumetric_flow: 'actualVolumetricFlow',
@@ -889,8 +1721,9 @@ export function createClient(
       const metrics: PreviewToolpathMetrics = {};
       for (const [wireName, field] of Object.entries(metricKeyMap)) {
         const descriptor = t.metrics?.[wireName];
-        if (descriptor && descriptor.ptr && descriptor.count === segmentCount)
-          metrics[field] = readF32(descriptor.ptr, descriptor.count);
+        if (descriptor !== undefined) {
+          metrics[field] = readF32(descriptor.ptr, descriptor.count, `${wireName} metric`);
+        }
       }
       const metricRanges: PreviewAnalysis['metricRanges'] = {};
       for (const [field, values] of Object.entries(metrics) as Array<[PreviewMetricKey, Float32Array]>) {
@@ -903,7 +1736,7 @@ export function createClient(
         }
         if (min !== Infinity) metricRanges[field] = { min, max };
       }
-      const rawAnalysis = r.metadata?.analysis;
+      const rawAnalysis = metadataRaw.analysis;
       const analysis: PreviewAnalysis | undefined = rawAnalysis ? {
         summary: {
           ...(Number.isFinite(rawAnalysis.summary?.estimated_time_seconds) ? {
@@ -929,20 +1762,20 @@ export function createClient(
       } : (Object.keys(metricRanges).length > 0 ? {
         summary: {}, featureStatistics: [], metricRanges,
       } : undefined);
-      const sourceText = r.metadata?.source_text;
+      const sourceText = metadataRaw.source_text;
       const sourceByteLength = sourceText?.byte_length;
       const metadata: PreviewMetadata = {
-        resultId: Number(r.metadata?.result_id ?? 0),
-        ...(r.metadata?.source_filename ? { sourceFilename: r.metadata.source_filename } : {}),
-        layerRanges: (r.metadata?.layer_ranges ?? []).map((layer) => ({
+        resultId,
+        ...(metadataRaw.source_filename ? { sourceFilename: metadataRaw.source_filename } : {}),
+        layerRanges: metadataRaw.layer_ranges.map((layer) => ({
           id: layer.id, z: layer.z, firstSegment: layer.first_segment, segmentCount: layer.segment_count,
         })),
-        featurePalette: r.metadata?.feature_palette ?? t.features,
-        ...(r.metadata?.extruder_palette ? { extruderPalette: r.metadata.extruder_palette } : {}),
-        ...(r.metadata?.source_line_mapping ? {
+        featurePalette,
+        ...(metadataRaw.extruder_palette ? { extruderPalette: metadataRaw.extruder_palette } : {}),
+        ...(metadataRaw.source_line_mapping ? {
           sourceLineMapping: {
-            available: r.metadata.source_line_mapping.available,
-            lineCount: r.metadata.source_line_mapping.line_count,
+            available: metadataRaw.source_line_mapping.available,
+            lineCount: metadataRaw.source_line_mapping.line_count,
           },
         } : {}),
         ...(sourceText ? {
@@ -954,32 +1787,41 @@ export function createClient(
         } : {}),
         ...(analysis ? { analysis } : {}),
       };
-      const moveOrders = readU32(t.move_order_ptr, segmentCount);
-      const gcodeIds = readU32(t.gcode_id_ptr, segmentCount);
+      const moveOrders = readU32(t.move_order_ptr, segmentCount, 'move orders');
+      const gcodeIds = readU32(t.gcode_id_ptr, segmentCount, 'G-code ids');
+      const features = new Uint32Array(segmentCount);
+      for (let index = 0; index < roles.length; index++) {
+        const featureId = roleToFeatureId.get(roles[index]!);
+        if (featureId === undefined)
+          throw new Error(`slice result bridge feature palette is missing role ${roles[index]}`);
+        features[index] = featureId;
+      }
       const sourceLineOrderValid = gcodeIds.every((line, index) => index === 0 || line >= gcodeIds[index - 1]);
       const toolpath: ClientToolpath = {
-        vertexCount: segmentCount,
-        positions: resolvedEnds,
-        layers: layerIds,
         features,
-        palette: t.features,
+        palette: featurePalette,
         segmentCount,
-        starts: resolvedStarts,
-        ends: resolvedEnds,
+        starts,
+        ends,
         layerIds,
         moveOrders,
         gcodeIds,
         sourceLineOrderValid,
-        moveTypes: readU8(t.move_type_ptr, segmentCount),
-        extrusionRoles: readU16(t.extrusion_role_ptr, segmentCount),
-        extruderIds: readU8(t.extruder_id_ptr, segmentCount),
-        colorPrintIds: readU8(t.color_print_id_ptr, segmentCount),
-        widths: readF32(t.width_ptr, segmentCount),
-        heights: readF32(t.height_ptr, segmentCount),
+        moveTypes: readU8(t.move_type_ptr, segmentCount, 'move types'),
+        extrusionRoles: roles,
+        extruderIds: readU8(t.extruder_id_ptr, segmentCount, 'extruder ids'),
+        colorPrintIds: readU8(t.color_print_id_ptr, segmentCount, 'colour-print ids'),
+        widths: readF32(t.width_ptr, segmentCount, 'widths'),
+        heights: readF32(t.height_ptr, segmentCount, 'heights'),
         metrics,
       };
 
-      return { ok: true, objects: r.objects ?? 0, layers: r.layers ?? 0, toolpath, metadata };
+      return {
+        ok: true,
+        objects: requireInteger(r.objects, 'object count'),
+        layers: requireInteger(r.layers, 'layer count'),
+        toolpath, metadata,
+      };
     },
 
     async exportGcode(): Promise<ExportGcodeResult> {

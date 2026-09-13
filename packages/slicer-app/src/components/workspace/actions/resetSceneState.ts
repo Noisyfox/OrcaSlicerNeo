@@ -18,7 +18,10 @@ export interface SceneResetTarget {
  */
 export function resetSceneState(target?: SceneResetTarget | null, options?: { clearSettings?: boolean }): void {
   glVolumeCollection.clear();
-  if (options?.clearSettings) useSettingsStore.getState().setOverlay(emptyProjectConfigOverlay());
+  if (options?.clearSettings) {
+    useSettingsStore.getState().setOverlay(emptyProjectConfigOverlay());
+    useSettingsStore.getState().setValues({});
+  }
   useSettingsStore.getState().setModelLoaded(false);
   useSlicerStore.getState().invalidateSliceResult();
   target?.resetForModel();

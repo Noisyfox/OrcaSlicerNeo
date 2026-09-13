@@ -11,6 +11,7 @@ import type { ProjectLoadResult, VolumeType } from '../types';
 
 export interface MockFeature {
   id: number;
+  role: number;
   name: string;
   color: [number, number, number];
 }
@@ -20,7 +21,7 @@ export interface MockSliceFixture {
   toolpathVertices: number; // per vertex: xyz (Float32)
   features: MockFeature[];
   optionalMetrics?: Record<string, number[]>;
-  extruderPalette?: Array<MockFeature & { tool?: number }>;
+  extruderPalette?: Array<Omit<MockFeature, 'role'> & { tool?: number }>;
   resultId?: number;
   sourceFilename?: string;
   sourceText?: string;
@@ -74,6 +75,18 @@ export interface MockModuleOptions {
   threaded?: boolean;
   /** Warning metadata returned by the native BBS project-load bridge. */
   embeddedPresetWarnings?: Partial<NonNullable<ProjectLoadResult['embeddedPresetWarnings']>>;
+  /** Optional wire snapshot override for malformed/unsupported-version tests. */
+  filamentSession?: unknown;
+  /** Optional raw mutation response override for client normalization tests. */
+  filamentMutation?: unknown;
+  /** Optional raw project-configuration response override for normalization tests. */
+  projectConfigOverride?: unknown;
+  /** Optional raw Prime Tower projection override for normalization tests. */
+  primeTowerProjection?: unknown;
+  /** Deterministic eligible tower projections for mock Electron interaction tests. */
+  primeTowerFixture?: boolean;
+  /** Native-shaped advisory warnings returned by the deterministic slice fixture. */
+  sliceWarnings?: readonly string[];
 }
 
 export function createMockModule(opts: MockModuleOptions = {}): MockModule {
@@ -116,9 +129,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     layers: 40,
     toolpathVertices: 2400,
     features: [
-      { id: 0, name: 'ExternalPerimeter', color: [255, 140, 0] as [number, number, number] },
-      { id: 1, name: 'InternalPerimeter', color: [255, 180, 0] as [number, number, number] },
-      { id: 2, name: 'SparseInfill', color: [0, 160, 255] as [number, number, number] },
+      { id: 0, role: 0, name: 'ExternalPerimeter', color: [255, 140, 0] as [number, number, number] },
+      { id: 1, role: 1, name: 'InternalPerimeter', color: [255, 180, 0] as [number, number, number] },
+      { id: 2, role: 2, name: 'SparseInfill', color: [0, 160, 255] as [number, number, number] },
     ],
   };
   const metadata: Record<string, { type: string; enum_values?: string[] }> =
@@ -129,6 +142,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       sparse_infill_pattern: { type: 'enum', enum_values: ['grid', 'gyroid', 'lines'] },
       enable_support: { type: 'bool' },
       nozzle_temperature: { type: 'float' },
+      enable_prime_tower: { type: 'bool' },
+      prime_tower_width: { type: 'float' },
       printable_area: { type: 'points' },
       gcode_flavor: { type: 'enum', enum_values: ['marlin', 'klipper', 'repetier'] },
     };
@@ -141,6 +156,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     presetEvidence: [],
     ...opts.embeddedPresetWarnings,
   };
+  // A project preflight describes whether replacing the current session needs
+  // user confirmation.  The default mock project is a plain synthetic archive
+  // and has no embedded safety warning; warning-focused tests opt in through
+  // embeddedPresetWarnings.  Keeping this derived value separate from the
+  // direct-load fixture prevents the app E2E project picker from being
+  // blocked by a warning that the fixture does not contain.
+  const hasProjectPreflightWarning = Boolean(
+    projectWarningFixture.modifiedPrinterGcode ||
+    projectWarningFixture.modifiedFilamentGcode ||
+    projectWarningFixture.missingSystemPreset ||
+    projectWarningFixture.modifiedGcodeKeys.length > 0 ||
+    projectWarningFixture.missingSystemPresetTypes.length > 0 ||
+    projectWarningFixture.presetEvidence.length > 0,
+  );
 
   // The OrcaSlicer "Add Primitive" menu set (GUI_Factories.cpp
   // append_submenu_add_generic): the shapes the native bridge's orc_add_shape
@@ -150,7 +179,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   // ---- Compatibility-aware FFF preset fixture. The mock intentionally owns
   // only simple explicit relations; real compatible_printers / conditions /
   // inheritance remain C++ engine behaviour. Afinia and the hidden print /
-  // filament entries exercise the legacy visibility surface. ----
+  // filament entries exercise visibility filtering. ----
   type PresetKind = 'printer' | 'print' | 'filament';
   type PresetFixture = {
     name: string; is_visible: boolean; is_default: boolean;
@@ -180,10 +209,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       { name: 'Hidden filament', is_visible: false, is_default: false, vendor_id: '', model: '', variant: '', compatible_printers: ['Bambu Lab X1 Carbon 0.4 nozzle'], compatible_prints: ['0.20mm Standard @BBL X1C'] },
     ],
   };
-  const selected: Record<PresetKind, string> = {
+  const selected: Record<'printer' | 'print', string> = {
     printer: presetFixtures.printer[0].name,
     print: presetFixtures.print[0].name,
-    filament: presetFixtures.filament[0].name,
   };
 
   function isCompatible(kind: 'print' | 'filament', fixture: PresetFixture): boolean {
@@ -197,7 +225,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     return list.filter((preset) => preset.is_visible && isCompatible(kind, preset));
   }
 
-  function selectedEntry(kind: PresetKind) {
+  function selectedEntry(kind: 'printer' | 'print') {
     return {
       name: selected[kind],
       idx: presetFixtures[kind].findIndex((preset) => preset.name === selected[kind]),
@@ -205,24 +233,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   }
 
   function snapshot() {
-    const entry = (kind: PresetKind, preset: PresetFixture) => ({
+    const selectableEntry = (kind: 'printer' | 'print', preset: PresetFixture) => ({
       ...preset,
       selected: preset.name === selected[kind],
     });
+    const filamentEntry = (preset: PresetFixture) => ({ ...preset });
     return {
       ok: true,
-      printers: candidates('printer').map((preset) => entry('printer', preset)),
-      prints: candidates('print').map((preset) => entry('print', preset)),
-      filaments: candidates('filament').map((preset) => entry('filament', preset)),
+      printers: candidates('printer').map((preset) => selectableEntry('printer', preset)),
+      prints: candidates('print').map((preset) => selectableEntry('print', preset)),
+      filament_catalog: candidates('filament').map(filamentEntry),
       printer: selectedEntry('printer'),
       print: selectedEntry('print'),
-      filament: selectedEntry('filament'),
       printable_area: presetFixtures.printer.find((preset) => preset.name === selected.printer)?.printable_area
         ?? [[0, 0], [220, 0], [220, 220], [0, 220]],
     };
   }
 
-  function selectFallback(kind: 'print' | 'filament'): boolean {
+  function selectFallback(kind: 'print'): boolean {
     const fallback = candidates(kind)[0];
     if (!fallback) return false;
     selected[kind] = fallback.name;
@@ -234,14 +262,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     if (!activePrint || !isCompatible('print', activePrint)) {
       if (!selectFallback('print')) return false;
     }
-    const activeFilament = presetFixtures.filament.find((preset) => preset.name === selected.filament);
-    if (!activeFilament || !isCompatible('filament', activeFilament)) return selectFallback('filament');
     return true;
   }
 
   function resolveAfterPrintChange(): boolean {
-    const activeFilament = presetFixtures.filament.find((preset) => preset.name === selected.filament);
-    if (!activeFilament || !isCompatible('filament', activeFilament)) return selectFallback('filament');
     return true;
   }
 
@@ -293,11 +317,20 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     project: Record<string, string>;
     objects: Record<string, Record<string, string>>;
     parts: Record<string, Record<string, string>>;
-    plates: Record<string, Record<string, string>>;
   };
-  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {}, plates: {} });
-  let projectConfigOverlay = emptyOverlay();
+  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {} });
+  function overlayProjection(): MockOverlay & { plates: Record<string, Record<string, string>> } {
+    // Prime Tower coordinates are one native project-level array pair. The
+    // generic overlay carries an empty plate bucket, never a derived X/Y
+    // compatibility projection.
+    return { ...clone(projectConfigOverlay), plates: {} };
+  }
+  const sliceWarnings = opts.sliceWarnings ? [...opts.sliceWarnings] : [];
+  let projectConfigOverlay = opts.primeTowerFixture
+    ? { ...emptyOverlay(), project: { enable_prime_tower: '1' } }
+    : emptyOverlay();
   let exportedProjectConfigOverlay = emptyOverlay();
+  let primeTowerProjectionState: any;
 
   type MockHistoryState = {
     modelLoaded: boolean;
@@ -312,6 +345,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins: Array<[number, number, number]>;
     plateInputRevisions: Record<string, number>;
     projectConfigOverlay: MockOverlay;
+    primeTowerProjection?: unknown;
   };
   type MockHistoryEntry = MockHistoryState & { id: string; label: string; category: 'project' | 'context'; context: any };
   let historyEntries: MockHistoryEntry[] = [];
@@ -329,10 +363,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let historyLastEvictedEntryId: string | null = null;
 
   const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+  primeTowerProjectionState = opts.primeTowerProjection !== undefined ? clone(opts.primeTowerProjection) : undefined;
   function captureHistoryState(): MockHistoryState {
     return clone({ modelLoaded, objectTransforms, objectVolumeTransforms, objectMeta, volumeMeta,
       instanceMeta, objectPlateIds, currentPlateId, plateIds, plateOrigins, plateInputRevisions,
-      projectConfigOverlay });
+      projectConfigOverlay, primeTowerProjection: primeTowerProjectionState });
   }
   function restoreHistoryState(snapshot: MockHistoryState): void {
     modelLoaded = snapshot.modelLoaded;
@@ -347,6 +382,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     plateOrigins = clone(snapshot.plateOrigins);
     plateInputRevisions = clone(snapshot.plateInputRevisions);
     projectConfigOverlay = clone(snapshot.projectConfigOverlay ?? emptyOverlay());
+    primeTowerProjectionState = snapshot.primeTowerProjection === undefined ? undefined : clone(snapshot.primeTowerProjection);
     sliced = false;
   }
   function historyStatus() {
@@ -397,24 +433,28 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyLastEvictedEntryId = null;
     historyRevision++; historyDisabled = false;
   }
-  function historyRestore(entry: MockHistoryEntry) {
+  function primeTowerRestoreReceipt(plateId: string): unknown {
+    const projection = primeTowerProjection() as any;
+    const plate = projection.plates?.find((candidate: any) => candidate.plate_id === plateId);
+    const revision = plateInputRevisions[plateId];
+    if (!plate || !Number.isSafeInteger(revision))
+      return { version: 1, state: 'cleared', plate_id: plateId, revision: 0 };
+    if (plate.eligible !== true)
+      return { version: 1, state: 'cleared', plate_id: plateId, revision };
+    return { version: 1, state: 'available', plate_id: plateId, revision,
+      position: clone(plate.position), footprint: clone(plate.footprint) };
+  }
+  function historyRestore(entry: MockHistoryEntry, narrowPrimeTower = false, primeTowerPlateId?: string) {
     restoreHistoryState(entry);
     historyRevision++;
-    return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id };
-  }
-  function recordActivePlateContext(): void {
-    if (historyTransaction || historyEntries.length === 0) return;
-    const previous = historyEntries[historyCursor];
-    const context = clone(previous.context);
-    if (context.activePlateId === currentPlateId) return;
-    context.activePlateId = currentPlateId;
-    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
-      savedHistoryCheckpointEvicted = true;
-    historyEntries.splice(historyCursor + 1);
-    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
-      label: 'Active Plate', category: 'context', context });
-    historyCursor = historyEntries.length - 1;
-    historyRevision++;
+    return { ok: true, context: clone(entry.context), status: historyStatus(), entryId: entry.id,
+      ...(narrowPrimeTower && primeTowerPlateId
+        ? { narrow: true, prime_tower_receipt: primeTowerRestoreReceipt(primeTowerPlateId) } : {}),
+      impact: narrowPrimeTower
+        ? { version: 1, model: 'none', plateSession: true, filamentRack: false, projectOverlay: true,
+          selectionContext: true, primeTower: true, preview: 'current-plate' }
+        : { version: 1, model: 'full', plateSession: true, filamentRack: true, projectOverlay: true,
+          selectionContext: true, primeTower: true, preview: 'all' } };
   }
   function recordHistoryContext(label: string, context: any): void {
     if (historyTransaction) throw new Error('history transaction is active');
@@ -431,7 +471,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`,
       label, category: 'context', context: clone(context) });
     historyCursor = historyEntries.length - 1;
-    historyRevision++;
+    // Context-only history does not change the native project or filament
+    // session. Keep the command fence stable after selection/plate updates.
   }
 
   function plateStride(): number {
@@ -494,6 +535,312 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     }
     return result;
   }
+
+  function primeTowerProjection(): unknown {
+    if (primeTowerProjectionState !== undefined) return clone(primeTowerProjectionState);
+    const area = { min_x: 0, max_x: 200, min_y: 0, max_y: 200, max_z: 300 };
+    if (opts.primeTowerFixture) {
+      const enabled = projectConfigOverlay.project.enable_prime_tower !== '0';
+      return {
+        ok: true, version: 1, current_plate_id: currentPlateId, build_area: area,
+        plates: plateIds.map((plateId, index) => ({
+          plate_id: plateId, display_index: index, eligible: enabled, empty: false, forced: false,
+          used_slots: enabled ? [1, 2] : [], width: enabled ? 24 : 0, depth: enabled ? 36 : 0, height: enabled ? 18 : 0,
+          position: { x: 30, y: 40 }, rotation: 0, brim_margin: 3,
+          footprint: { min_x: 27, max_x: 57, min_y: 37, max_y: 77 },
+          bands: enabled ? [
+            { slot: 1, start_depth: 0, end_depth: 18, colour: '#333333', opacity: 0.66 },
+            { slot: 2, start_depth: 18, end_depth: 36, colour: '#ffd700', opacity: 0.66 },
+          ] : [], build_area: area,
+        })),
+      };
+    }
+    return {
+      ok: true, version: 1, current_plate_id: currentPlateId, build_area: area,
+      plates: plateIds.map((plateId, index) => ({
+        plate_id: plateId, display_index: index, eligible: false, empty: true, forced: false,
+        used_slots: [], width: 0, depth: 0, height: 0,
+        position: { x: 15, y: 220 }, rotation: 0, brim_margin: 3,
+        footprint: { min_x: 15, max_x: 15, min_y: 220, max_y: 220 }, bands: [], build_area: area,
+      })),
+    };
+  }
+
+  function movePrimeTower(requestJson: string): unknown {
+    let request: any;
+    try { request = JSON.parse(requestJson); } catch {
+      return { ok: false, version: 1, error: 'invalid prime tower move request', error_code: 'invalid_command', status: { state: 'error', error: 'invalid prime tower move request' } };
+    }
+    if (!request || request.version !== 1 || typeof request.plate_id !== 'string' ||
+        !Number.isSafeInteger(request.revision) || !Number.isFinite(request.x) || !Number.isFinite(request.y))
+      return { ok: false, version: 1, error: 'invalid prime tower move request', error_code: 'invalid_command', status: { state: 'error', error: 'invalid prime tower move request' } };
+    const current: any = primeTowerProjection();
+    const plate = current.plates?.find((entry: any) => entry.plate_id === request.plate_id);
+    if (!plate) return { ok: false, version: 1, error: 'plate not found', error_code: 'unsupported_reference', status: { state: 'error', error: 'plate not found' } };
+    if (request.revision !== (plateInputRevisions[request.plate_id] ?? 0))
+      return { ok: false, version: 1, error: 'prime tower plate revision is stale', error_code: 'stale_revision', status: { state: 'error', error: 'prime tower plate revision is stale' } };
+    if (request.inject_failure === true)
+      return { ok: false, version: 1, error: 'prime tower move validation failed', error_code: 'native_validation_failure', status: { state: 'error', error: 'prime tower move validation failed' } };
+    if (!plate.eligible) return { ok: false, version: 1, error: 'prime tower is not available on this plate', error_code: 'ineligible_target', status: { state: 'error', error: 'prime tower is not available on this plate' } };
+    const old = { x: plate.position.x, y: plate.position.y };
+    const widthX = plate.footprint.max_x - plate.footprint.min_x;
+    const widthY = plate.footprint.max_y - plate.footprint.min_y;
+    const offsetMinX = plate.footprint.min_x - old.x;
+    const offsetMaxX = plate.footprint.max_x - old.x;
+    const offsetMinY = plate.footprint.min_y - old.y;
+    const offsetMaxY = plate.footprint.max_y - old.y;
+    const clamp = (value: number, minOffset: number, maxOffset: number, min: number, max: number) => {
+      const low = min - minOffset;
+      const high = max - maxOffset;
+      return low <= high ? Math.min(high, Math.max(low, value)) : (min + max - minOffset - maxOffset) / 2;
+    };
+    const area = plate.build_area;
+    const x = clamp(request.x, offsetMinX, offsetMaxX, area.min_x, area.max_x);
+    const y = clamp(request.y, offsetMinY, offsetMaxY, area.min_y, area.max_y);
+    if (x === old.x && y === old.y) return { ok: true, version: 1, result: { history_status: historyStatus(), mutation: {
+      kind: 'move', plate_id: request.plate_id, history_entry_delta: 0, revision_before: plateInputRevisions[request.plate_id] ?? 0,
+      revision_after: plateInputRevisions[request.plate_id] ?? 0, dirty: false, affected_plate_ids: [], position: old, footprint: plate.footprint,
+    } } };
+    const beforeState = captureHistoryState();
+    const next = clone(current) as any;
+    const target = next.plates.find((entry: any) => entry.plate_id === request.plate_id);
+    target.position = { x, y };
+    target.footprint = { min_x: target.footprint.min_x + x - old.x, max_x: target.footprint.max_x + x - old.x,
+      min_y: target.footprint.min_y + y - old.y, max_y: target.footprint.max_y + y - old.y };
+    primeTowerProjectionState = next;
+    const xValues = (projectConfigOverlay.project.wipe_tower_x ?? '').split(',').filter(Boolean);
+    const yValues = (projectConfigOverlay.project.wipe_tower_y ?? '').split(',').filter(Boolean);
+    xValues[plate.display_index] = String(x);
+    yValues[plate.display_index] = String(y);
+    projectConfigOverlay.project.wipe_tower_x = xValues.join(',');
+    projectConfigOverlay.project.wipe_tower_y = yValues.join(',');
+    historyRevision += 1;
+    if (slicedPlateId === request.plate_id) sliced = false;
+    plateMutation('prime-tower-position');
+    const context = { selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: currentPlateId, gizmo: null, projectConfigOverlay: clone(projectConfigOverlay),
+      primeTowerMove: { plateId: request.plate_id, before: old, after: { x, y } } };
+    if (historyEntries.length === 0) {
+      historyEntries.push({ ...beforeState, id: 'entry-0', label: '', category: 'project', context: clone(context) });
+      historyCursor = 0; savedHistoryCursor = 0;
+    }
+    if (historyCursor + 1 < historyEntries.length && savedHistoryCursor !== null && savedHistoryCursor > historyCursor)
+      savedHistoryCheckpointEvicted = true;
+    historyEntries.splice(historyCursor + 1);
+    historyEntries.push({ ...captureHistoryState(), id: `entry-${nextHistoryEntryId++}`, label: 'Move Prime Tower', category: 'project', context: clone(context) });
+    historyCursor = historyEntries.length - 1;
+    return { ok: true, version: 1, result: { history_status: historyStatus(), mutation: {
+      kind: 'move', plate_id: request.plate_id, history_entry_delta: 1, revision_before: request.revision,
+      revision_after: historyRevision, dirty: true, affected_plate_ids: [request.plate_id],
+      clamped: x !== request.x || y !== request.y, outside_boundary_warning: widthX > area.max_x - area.min_x || widthY > area.max_y - area.min_y,
+      position: { x, y }, footprint: target.footprint,
+    } } };
+  }
+
+  function filamentSessionSnapshot(): unknown {
+    if (filamentSessionState !== undefined) {
+      const snapshot = clone(filamentSessionState) as any;
+      // Slot mutations replace the mock's projected session object. Keep its
+      // model-backed assignment projection live when a later Add Primitive
+      // changes the model; the native bridge derives this from the current
+      // Model on every snapshot read.
+      if (objectMeta.length > 0) {
+        const previousObjects = new Map((snapshot.assignments?.objects ?? []).map((entry: any) => [entry.id, entry]));
+        const previousParts = new Map((snapshot.assignments?.parts ?? []).map((entry: any) => [entry.id, entry]));
+        const objects = objectMeta.map((object) => previousObjects.get(object.id) ?? ({
+          target: 'object', id: object.id, object_id: object.id,
+          explicit_slot: 1, effective_slot: 1, inherited: false,
+        }));
+        const parts = objectMeta.flatMap((object, index) => (volumeMeta[index] ?? [])
+          .filter((volume) => volume.type === 'model_part')
+          .map((volume) => previousParts.get(volume.id) ?? ({
+            target: 'model-part', id: volume.id, object_id: object.id,
+            explicit_slot: 0, effective_slot: 1, inherited: true,
+          })));
+        snapshot.assignments = { ...snapshot.assignments, objects, parts, modifiers: snapshot.assignments?.modifiers ?? [] };
+      }
+      return snapshot;
+    }
+    const objects = objectMeta.map((object) => ({
+      target: 'object', id: object.id, object_id: object.id,
+      explicit_slot: 1, effective_slot: 1, inherited: false,
+    }));
+    const parts = objectMeta.flatMap((object, index) => (volumeMeta[index] ?? [])
+      .filter((volume) => volume.type === 'model_part')
+      .map((volume) => ({ target: 'model-part', id: volume.id, object_id: object.id,
+        explicit_slot: 0, effective_slot: 1, inherited: true })));
+    return {
+      ok: true, version: 1,
+      slots: [{ slot: 1, preset: { id: 'Generic PLA @System', name: 'Generic PLA @System' },
+        colour: { effective: '#F2754E', provenance: 'preset' } }],
+      mappings: { filament: [1], volume: [0], nozzle: [1], filament2: [1], physical_extruder: [0] },
+      flushing: { matrix: [0], vector: [], matrix_dimension: 1, plane_count: 1, source: 'default' },
+      capabilities: { min_slots: 1, max_slots: 64, nozzle_count: 1, flexible: true,
+        can_add: true, can_delete: false, can_merge: false },
+      routing: [],
+      assignments: { objects, parts, modifiers: [] },
+      revisions: { session: historyRevision, project: historyRevision, result: 0, plates: { ...plateInputRevisions } },
+      status: { state: 'ready', error: null },
+    };
+  }
+  let filamentSessionState: any = opts.filamentSession !== undefined ? clone(opts.filamentSession) : undefined;
+  function filamentMutation(requestJson: string, kind: string): unknown {
+    if (opts.filamentMutation !== undefined) return clone(opts.filamentMutation);
+    let request: any;
+    try { request = JSON.parse(requestJson); } catch { return { ok: false, version: 1, error: 'invalid command', error_code: 'invalid_command',
+      status: { state: 'error', error: 'invalid command' } }; }
+    const snapshot: any = filamentSessionSnapshot();
+    const errorEnvelope = (error: string, code: string) => ({ ok: false, version: 1, error, error_code: code,
+      status: { state: 'error', error } });
+    if (!request || request.version !== 1)
+      return errorEnvelope('unsupported filament command version', 'invalid_command');
+    if (!Number.isSafeInteger(request.revision) || request.revision !== snapshot.revisions.session)
+      return errorEnvelope('filament session revision is stale', 'stale_revision');
+    if (request.inject_failure)
+      return errorEnvelope('injected native validation failure', 'native_validation_failure');
+    const next: any = clone(snapshot);
+    const fail = (error: string, code: string) => errorEnvelope(error, code);
+    const slot = (value: unknown): number | null => Number.isSafeInteger(value) && (value as number) >= 1 && (value as number) <= next.slots.length ? (value as number) - 1 : null;
+    if (kind === 'select-preset' || kind === 'set-colour') {
+      const index = slot(request.slot);
+      if (index === null) return fail('unsupported filament slot reference', 'unsupported_reference');
+      if (kind === 'select-preset') {
+        if (typeof request.preset !== 'string') return fail('preset is required', 'invalid_command');
+        next.slots[index].preset = { id: request.preset, name: request.preset };
+      } else {
+        if (typeof request.colour !== 'string' || !/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(request.colour))
+          return fail('native filament colour validation failed', 'native_validation_failure');
+        next.slots[index].colour = { effective: request.colour, provenance: 'user' };
+      }
+    } else if (kind === 'add') {
+      if (next.slots.length >= next.capabilities.max_slots || !next.capabilities.flexible)
+        return fail('filament slot capacity or capability rejected', 'capability_rejected');
+      const colour = next.slots.at(-1)?.colour?.effective ?? '#26A69A';
+      next.slots.push({ slot: next.slots.length + 1, preset: clone(next.slots.at(-1).preset), colour: { effective: colour, provenance: 'preset' } });
+      for (const key of ['filament', 'volume', 'nozzle', 'filament2']) next.mappings[key].push(key === 'volume' ? 0 : 1);
+      const n = next.slots.length;
+      const planes = next.flushing.plane_count;
+      const oldN = n - 1;
+      const matrix: number[] = Array(n * n * planes).fill(0);
+      for (let p = 0; p < planes; p++) for (let r = 0; r < oldN; r++) for (let c = 0; c < oldN; c++)
+        matrix[p * n * n + r * n + c] = next.flushing.matrix[p * oldN * oldN + r * oldN + c];
+      next.flushing.matrix = matrix; next.flushing.matrix_dimension = n;
+    } else {
+      const source = slot(kind === 'merge' ? request.source : request.slot);
+      if (source === null || next.slots.length <= next.capabilities.min_slots)
+        return fail('filament slot capability rejected', 'capability_rejected');
+      let replacement: number | null = null;
+      if (kind === 'merge') {
+        const destination = slot(request.destination);
+        if (destination === null || destination === source) return fail('unsupported filament reference', 'unsupported_reference');
+        replacement = destination > source ? destination - 1 : destination;
+      }
+      next.slots.splice(source, 1);
+      next.slots.forEach((entry: any, index: number) => { entry.slot = index + 1; });
+      for (const key of ['filament', 'volume', 'nozzle', 'filament2']) next.mappings[key].splice(source, 1);
+      const n = next.slots.length;
+      const planes = next.flushing.plane_count;
+      const oldN = n + 1;
+      const oldMatrix = next.flushing.matrix;
+      const matrix: number[] = Array(n * n * planes).fill(0);
+      const mapIndex = (old: number) => old === source ? (replacement ?? 0) : (old > source ? old - 1 : old);
+      for (let p = 0; p < planes; p++) for (let r = 0; r < oldN; r++) for (let c = 0; c < oldN; c++) {
+        if (r === source || c === source) continue;
+        matrix[p * n * n + mapIndex(r) * n + mapIndex(c)] = oldMatrix[p * oldN * oldN + r * oldN + c];
+      }
+      next.flushing.matrix = matrix; next.flushing.matrix_dimension = n;
+      for (const group of ['objects', 'parts', 'modifiers']) for (const item of next.assignments[group]) {
+        const value = item.effective_slot - 1;
+        item.effective_slot = (value === source ? (replacement ?? 0) : value > source ? value - 1 : value) + 1;
+        if (item.explicit_slot > 0) {
+          const explicit = item.explicit_slot - 1;
+          item.explicit_slot = (explicit === source ? (replacement ?? 0) : explicit > source ? explicit - 1 : explicit) + 1;
+        }
+      }
+    }
+    next.capabilities.can_add = next.capabilities.flexible && next.slots.length < next.capabilities.max_slots;
+    next.capabilities.can_delete = next.capabilities.flexible && next.slots.length > next.capabilities.min_slots;
+    next.capabilities.can_merge = next.capabilities.can_delete;
+    next.revisions.session += 1; next.revisions.project = next.revisions.session;
+    filamentSessionState = next;
+    const mutation: Record<string, unknown> = {
+      kind, history_entry_delta: 1, revision_before: request.revision,
+      revision_after: next.revisions.session, dirty: true, all_plate_results_invalidated: true,
+    };
+    if (kind === 'add') mutation.slot = next.slots.length;
+    else if (kind === 'select-preset' || kind === 'set-colour') {
+      mutation.slot = request.slot;
+      if (kind === 'select-preset') mutation.preset = request.preset;
+      else mutation.colour = request.colour;
+    } else {
+      mutation.source = request.source ?? request.slot;
+      mutation.destination = kind === 'merge'
+        ? (request.destination > request.source ? request.destination - 1 : request.destination)
+        : null;
+      mutation.slot_count = next.slots.length;
+    }
+    return { ok: true, version: 1, result: { snapshot: clone(next), mutation,
+      history_status: { ...historyStatus(), revision: next.revisions.session, dirty: true } } };
+  }
+  function filamentAssignmentMutation(requestJson: string, kind: 'assign' | 'routing'): unknown {
+    if (opts.filamentMutation !== undefined) return clone(opts.filamentMutation);
+    let request: any;
+    try { request = JSON.parse(requestJson); } catch { return { ok: false, version: 1, error: 'invalid command', error_code: 'invalid_command', status: { state: 'error', error: 'invalid command' } }; }
+    const snapshot: any = filamentSessionSnapshot();
+    const errorEnvelope = (error: string, code: string) => ({ ok: false, version: 1, error, error_code: code, status: { state: 'error', error } });
+    if (!request || request.version !== 1) return errorEnvelope('unsupported filament command version', 'invalid_command');
+    if (!Number.isSafeInteger(request.revision) || request.revision !== snapshot.revisions.session) return errorEnvelope('filament session revision is stale', 'stale_revision');
+    if (request.inject_failure) return errorEnvelope('injected native validation failure', 'native_validation_failure');
+    const next: any = clone(snapshot);
+    const targets = Array.isArray(request.targets) ? request.targets : (request.target ? [request.target] : []);
+    if (targets.length === 0) return errorEnvelope('assignment targets are required', 'invalid_command');
+    const accepted: any[] = [];
+    if (kind === 'assign') {
+      if (!Number.isSafeInteger(request.slot) || request.slot < 0 || request.slot > next.slots.length) return errorEnvelope('assignment slot is outside the ordered filament slots', 'unsupported_reference');
+      const normalized: Array<{ group: 'objects' | 'parts' | 'modifiers'; id: number; objectId: number; source: any }> = [];
+      const seen = new Set<string>();
+      for (const target of targets) {
+        if (!target || !['object', 'instance', 'instance-as-object', 'model-part', 'parameter-modifier'].includes(target.kind) || !Number.isSafeInteger(target.id)) return errorEnvelope('target is not eligible', 'ineligible_target');
+        const group = target.kind === 'object' || target.kind === 'instance' || target.kind === 'instance-as-object' ? 'objects' : target.kind === 'model-part' ? 'parts' : 'modifiers';
+        if (group === 'objects' && request.slot === 0) return errorEnvelope('object assignment cannot inherit', 'invalid_command');
+        const source = next.assignments[group].find((entry: any) => entry.id === target.id || (group === 'objects' && entry.object_id === target.id));
+        if (!source) return errorEnvelope('target is not eligible', 'ineligible_target');
+        const objectId = source.object_id;
+        const id = group === 'objects' ? objectId : source.id;
+        if (seen.has(`${group}:${id}`)) continue;
+        seen.add(`${group}:${id}`); normalized.push({ group, id, objectId, source });
+      }
+      const objectIds = new Set(normalized.filter((target) => target.group === 'objects').map((target) => target.objectId));
+      const effective = normalized
+        .filter((target) => target.group !== 'parts' || !objectIds.has(target.objectId))
+        .sort((left, right) => ({ objects: 0, parts: 1, modifiers: 2 }[left.group] - { objects: 0, parts: 1, modifiers: 2 }[right.group]));
+      for (const target of effective) {
+        accepted.push({ kind: target.group === 'objects' ? 'object' : target.group === 'parts' ? 'model-part' : 'parameter-modifier', id: target.id, object_id: target.objectId });
+        target.source.explicit_slot = request.slot;
+        target.source.effective_slot = request.slot || (next.assignments.objects.find((entry: any) => entry.object_id === target.objectId)?.effective_slot ?? target.source.effective_slot);
+        target.source.inherited = request.slot === 0;
+        if (target.group === 'objects') for (const part of next.assignments.parts) if (part.object_id === target.objectId) { part.explicit_slot = 0; part.effective_slot = request.slot; part.inherited = true; }
+      }
+    } else {
+      if (!Number.isSafeInteger(request.slot) || request.slot < 0 || request.slot > next.slots.length || typeof request.selector !== 'string') return errorEnvelope('invalid routing command', 'invalid_command');
+      const feature = request.selector !== 'support-base' && request.selector !== 'support-interface';
+      for (const target of targets) {
+        if (!target || !['project', 'object', 'model-part'].includes(target.kind)) return errorEnvelope('target is not eligible', 'ineligible_target');
+        if ((feature && target.kind === 'project') || (!feature && target.kind === 'model-part')) return errorEnvelope('target is not eligible', 'ineligible_target');
+        const id = target.kind === 'project' ? 0 : target.id;
+        if (target.kind !== 'project' && (!Number.isSafeInteger(id) || id < 1)) return errorEnvelope('target is not eligible', 'ineligible_target');
+        accepted.push({ kind: target.kind, id, object_id: target.kind === 'project' ? 0 : id });
+      }
+    }
+    next.revisions.session += 1; next.revisions.project = next.revisions.session;
+    filamentSessionState = next;
+    return { ok: true, version: 1, result: { snapshot: clone(next), history_status: {
+      ...historyStatus(), revision: next.revisions.session, dirty: true }, mutation: {
+      kind, history_entry_delta: 1, revision_before: request.revision, revision_after: next.revisions.session,
+      dirty: true, all_plate_results_invalidated: kind === 'routing' && accepted.some((target: any) => target.kind === 'project'), accepted_targets: accepted,
+      ...(kind === 'routing' ? { selector: request.selector, slot: request.slot } : { slot: request.slot }), affected_plate_ids: [],
+    } } };
+  }
   function plateMutation(
     reason: string,
     before = [currentPlateId],
@@ -530,7 +877,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           object_index: objectIndex,
           instance_index: instanceIndex,
           world_transform: transform,
-          transform,
         });
       }
     }
@@ -575,7 +921,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     sliced = true;
     slicedPlateId = plateId;
     slicedPlateRevision = revision;
-    return { ok: true, unrecognized_keys: [] };
+    return { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings] };
   }
 
   // Serialize the current structure in the bridge's object/part/instance shape.
@@ -680,10 +1026,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         for (let j = 0; j < n; j++) {
           const jnext = (j + 1) % n;
           const v0 = i * n + j;
-          const v1 = inext * n + j;
+          const vNext = inext * n + j;
           const v2 = inext * n + jnext;
           const v3 = i * n + jnext;
-          tris.push([v0, v1, v2], [v0, v2, v3]);
+          tris.push([v0, vNext, v2], [v0, v2, v3]);
         }
       }
       return { verts, tris };
@@ -751,7 +1097,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
 
   // ---- the bridge functions ----
   const bridge: Record<string, (...args: any[]) => unknown> = {
-    orc_init(_legacyPreferencesJson?: string) {
+    orc_init(_optionsJson?: string) {
       resetPlateSession();
       resetHistory();
       return {
@@ -831,10 +1177,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return { ok: true, context: clone(nested.beforeContext), status: historyStatus() };
       }
       if (transactionId !== historyTransaction.id) return { error: 'history transaction is stale or belongs to another writer' };
+      const modelChanged = JSON.stringify(captureHistoryState()) !== JSON.stringify(historyTransaction.before);
       restoreHistoryState(historyTransaction.before);
       const context = historyTransaction.beforeContext;
       historyTransaction = null;
-      historyRevision++;
+      if (modelChanged) historyRevision++;
       return { ok: true, context: clone(context), status: historyStatus() };
     },
     orc_history_undo() {
@@ -849,8 +1196,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // The baseline is the valid restore target for the first project edit.
       if (!historyEntries[target] || (target > 0 && !project(historyEntries[target])))
         target = 0;
+      const source = historyEntries[currentProject];
       historyCursor = target;
-      return historyRestore(historyEntries[target]);
+      const primeTowerPlateId = source?.label === 'Move Prime Tower' ? source.context?.primeTowerMove?.plateId : undefined;
+      return historyRestore(historyEntries[target], typeof primeTowerPlateId === 'string', primeTowerPlateId);
     },
     orc_history_redo() {
       if (historyTransaction) return { error: 'history transaction is active' };
@@ -858,8 +1207,12 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       let target = historyCursor + 1;
       while (target < historyEntries.length && !project(historyEntries[target])) target++;
       if (target >= historyEntries.length) return { error: 'no redo history' };
+      const source = historyEntries[historyCursor];
       historyCursor = target;
-      return historyRestore(historyEntries[target]);
+      const primeTowerPlateId = historyEntries[target]?.label === 'Move Prime Tower'
+        ? historyEntries[target].context?.primeTowerMove?.plateId
+        : source?.label === 'Move Prime Tower' ? source.context?.primeTowerMove?.plateId : undefined;
+      return historyRestore(historyEntries[target], typeof primeTowerPlateId === 'string', primeTowerPlateId);
     },
     orc_history_jump(entryId: string, direction: 'undo' | 'redo') {
       if (historyTransaction) return { error: 'history transaction is active' };
@@ -883,7 +1236,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           return { error: 'history entry is outside the requested direction' };
         historyCursor = index;
       }
-      return historyRestore(historyEntries[historyCursor]);
+      const current = historyEntries[historyCursor];
+      const primeTowerPlateId = current?.label === 'Move Prime Tower' ? current.context?.primeTowerMove?.plateId : undefined;
+      return historyRestore(current, typeof primeTowerPlateId === 'string', primeTowerPlateId);
     },
     orc_history_status() {
       return historyStatus();
@@ -923,6 +1278,63 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_plate_session_snapshot() {
       return plateSessionSnapshot();
     },
+    orc_get_prime_tower_projection() {
+      return primeTowerProjection();
+    },
+    orc_move_prime_tower(requestJson: string) {
+      return movePrimeTower(requestJson);
+    },
+    orc_get_filament_session_snapshot() {
+      return filamentSessionSnapshot();
+    },
+    orc_select_filament_slot_preset(requestJson: string) {
+      return filamentMutation(requestJson, 'select-preset');
+    },
+    orc_set_filament_slot_colour(requestJson: string) {
+      return filamentMutation(requestJson, 'set-colour');
+    },
+    orc_add_filament_slot(requestJson: string) {
+      return filamentMutation(requestJson, 'add');
+    },
+    orc_delete_filament_slot(requestJson: string) {
+      return filamentMutation(requestJson, 'delete');
+    },
+    orc_merge_filament_slots(requestJson: string) {
+      return filamentMutation(requestJson, 'merge');
+    },
+    orc_apply_remembered_filament_rack(requestJson: string) {
+      let request: any;
+      try { request = JSON.parse(requestJson); } catch { return { ok: false, version: 1, error: 'invalid command', error_code: 'invalid_command', status: { state: 'error', error: 'invalid command' } }; }
+      const current: any = filamentSessionSnapshot();
+      if (!request || request.version !== 1 || !Array.isArray(request.slots) || request.slots.length === 0)
+        return { ok: false, version: 1, error: 'invalid remembered filament rack', error_code: 'invalid_command', status: { state: 'error', error: 'invalid remembered filament rack' } };
+      if (!Number.isSafeInteger(request.revision) || request.revision !== current.revisions.session)
+        return { ok: false, version: 1, error: 'filament session revision is stale', error_code: 'stale_revision', status: { state: 'error', error: 'filament session revision is stale' } };
+      const next: any = clone(current);
+      next.slots = request.slots.map((slot: any, index: number) => ({ slot: index + 1,
+        preset: { id: slot.preset, name: slot.preset }, colour: { effective: slot.colour, provenance: 'user' } }));
+      const slotCount = next.slots.length;
+      next.mappings.filament = Array(slotCount).fill(1);
+      next.mappings.volume = Array(slotCount).fill(0);
+      next.mappings.nozzle = Array(slotCount).fill(1);
+      next.mappings.filament2 = Array(slotCount).fill(1);
+      next.flushing.matrix = Array(slotCount * slotCount * next.flushing.plane_count).fill(0);
+      next.flushing.matrix_dimension = slotCount;
+      next.capabilities.can_add = next.capabilities.flexible && slotCount < next.capabilities.max_slots;
+      next.capabilities.can_delete = next.capabilities.flexible && slotCount > next.capabilities.min_slots;
+      next.capabilities.can_merge = next.capabilities.can_delete;
+      next.revisions.session += 1;
+      next.revisions.project = next.revisions.session;
+      filamentSessionState = next;
+      historyRevision = next.revisions.session;
+      return clone(next);
+    },
+    orc_assign_filament(requestJson: string) {
+      return filamentAssignmentMutation(requestJson, 'assign');
+    },
+    orc_set_filament_routing(requestJson: string) {
+      return filamentAssignmentMutation(requestJson, 'routing');
+    },
     orc_reset_plate_session() {
       resetPlateSession();
       return plateSessionSnapshot();
@@ -931,8 +1343,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       if (typeof plateId !== 'string' || plateId.length === 0) return { error: 'plateId is required' };
       if (!plateIds.includes(plateId)) return { error: 'plate not found' };
       currentPlateId = plateId;
-      recordActivePlateContext();
-      return plateSessionSnapshot();
+      return { ok: true, version: 1, current_plate_id: currentPlateId };
     },
     orc_add_plate() {
       if (plateIds.length >= 36) return { error: 'maximum of 36 plates' };
@@ -974,40 +1385,44 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       return result;
     },
     orc_get_project_config_overlay() {
-      return { ok: true, overlay: clone(projectConfigOverlay) };
+      return { ok: true, overlay: overlayProjection() };
     },
     orc_set_project_config_override(scope: string, id: string, optionKey: string, value: string) {
-      if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
+      if (opts.projectConfigOverride !== undefined) return opts.projectConfigOverride;
+      if (!['project', 'object', 'part'].includes(scope)) return { error: 'invalid project configuration scope' };
       if (!optionKey) return { error: 'option key is required' };
+      if (optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y')
+        return { ok: false, error: 'prime tower coordinates are scene-only', error_code: 'unsupported_reference' };
       if (scope !== 'project' && !id) return { error: 'scope id is required' };
       const bucket = scope === 'project' ? projectConfigOverlay.project
         : scope === 'object' ? (projectConfigOverlay.objects[id] ??= {})
-          : scope === 'part' ? (projectConfigOverlay.parts[id] ??= {})
-            : (projectConfigOverlay.plates[id] ??= {});
-      bucket[optionKey] = value;
+          : (projectConfigOverlay.parts[id] ??= {});
+      const effective = value;
+      bucket[optionKey] = effective;
       const mutation = bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>;
-      return { ok: true, overlay: clone(projectConfigOverlay), plate_session: mutation };
+      return { ok: true, overlay: overlayProjection(), plate_session: mutation,
+        configuration_status: { state: 'ready', corrections: effective === value ? [] : [{ key: optionKey, requested: value, effective }], warnings: [], errors: [] } };
     },
     orc_revalidate_project_config_overlay() {
       // The native bridge validates against the current option metadata. The
       // fixture exposes the same contract while retaining valid keys.
       for (const key of Object.keys(projectConfigOverlay.project))
         if (!(key in metadata)) delete projectConfigOverlay.project[key];
-      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts, projectConfigOverlay.plates]) {
+      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts]) {
         for (const [id, values] of Object.entries(scope)) {
           for (const key of Object.keys(values)) if (!(key in metadata)) delete values[key];
           if (Object.keys(values).length === 0) delete scope[id];
         }
       }
-      return { ok: true, overlay: clone(projectConfigOverlay) };
+      return { ok: true, overlay: overlayProjection() };
     },
     orc_get_preset_snapshot() {
       return snapshot();
     },
     orc_select_preset(kind: string, name: string) {
-      const presetKind = kind as PresetKind;
+      if (kind !== 'printer' && kind !== 'print') return 'kind must be print|printer';
+      const presetKind = kind as 'printer' | 'print';
       const list = presetFixtures[presetKind];
-      if (!list) return `kind must be print|filament|printer`;
       const requested = list.find((preset) => preset.name === name);
       if (!requested) return `preset not found: ${name}`;
       if (!requested.is_visible) return `preset is not visible: ${name}`;
@@ -1015,8 +1430,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         return `preset is incompatible: ${name}`;
       }
 
-      // Validate before mutation, then mirror the bridge's printer → print →
-      // filament and print → filament fallback chains. Every success returns
+      // Validate before mutation, then mirror the bridge's printer → print
+      // fallback chain. Filament compatibility is represented by the rack
+      // session and never changes a single selected catalogue item. Every success returns
       // one complete state, while every rejection leaves selected untouched.
       const previous = { ...selected };
       selected[presetKind] = name;
@@ -1085,10 +1501,56 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           requires_confirmation: !geometryOnly,
         },
         preset_snapshot: geometryOnly ? undefined : snapshot(),
-        project_config_overlay: geometryOnly ? undefined : clone(projectConfigOverlay),
+        project_config_overlay: geometryOnly ? undefined : overlayProjection(),
         plate_session: geometryOnly ? plateMutation('model-import') : plateSessionSnapshot(true),
       };
     },
+    orc_preflight_project(_ptr: number, len: number, displayName: string) {
+      if (len <= 0) return { error: 'no project bytes' };
+      return {
+        ok: true, preflight: true, preflight_token: 'mock-preflight', objects: objectTransforms.length,
+        instances: objectTransforms.reduce((total, instances) => total + instances.length, 0), mode: 'project',
+        display_name: displayName || '', compatibility: 'bambu', project_settings_available: true,
+        is_bbl_3mf: true, is_orca_3mf: false, file_version: '1.0.0', multi_plate: false, plate_count: 1,
+        embedded_preset_warnings: { present: hasProjectPreflightWarning, count: hasProjectPreflightWarning ? 1 : 0,
+          printer_count: hasProjectPreflightWarning ? 1 : 0, process_count: hasProjectPreflightWarning ? 1 : 0,
+          filament_count: hasProjectPreflightWarning ? 1 : 0,
+          modified_printer_gcode: projectWarningFixture.modifiedPrinterGcode,
+          modified_filament_gcode: projectWarningFixture.modifiedFilamentGcode,
+          missing_system_preset: projectWarningFixture.missingSystemPreset,
+          modified_gcode_keys: projectWarningFixture.modifiedGcodeKeys,
+          missing_system_preset_types: projectWarningFixture.missingSystemPresetTypes,
+          preset_evidence: projectWarningFixture.presetEvidence,
+          requires_confirmation: hasProjectPreflightWarning,
+          filament_slot_changes: [] },
+      };
+    },
+    orc_commit_project_preflight(_token: string) {
+      const committed = bridge.orc_load_project(0, 2, 0, 'preflight.3mf') as Record<string, unknown>;
+      // Keep the commit response consistent with the preflight response. The
+      // synthetic default project has no embedded warning; otherwise the
+      // shared app would finish a clean preflight by creating a second,
+      // spurious post-load notice.
+      if (!hasProjectPreflightWarning) {
+        committed.embedded_preset_warnings = {
+          present: false,
+          count: 0,
+          printer_count: 0,
+          process_count: 0,
+          filament_count: 0,
+          modified_printer_gcode: false,
+          modified_filament_gcode: false,
+          missing_system_preset: false,
+          modified_gcode_keys: [],
+          missing_system_preset_types: [],
+          preset_evidence: [],
+          requires_confirmation: false,
+          filament_slot_changes: [],
+        };
+      }
+      return committed;
+    },
+    orc_cancel_project_preflight(_token: string) { return { ok: true }; },
     orc_import_project_geometry(_ptr: number, len: number, displayName: string) {
       return bridge.orc_load_project(_ptr, len, 1, displayName);
     },
@@ -1123,6 +1585,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       instanceMeta = [];
       projectConfigOverlay = emptyOverlay();
       modelLoaded = false;
+      if (filamentSessionState !== undefined)
+        filamentSessionState.assignments = { objects: [], parts: [], modifiers: [] };
       sliced = false;
       resetPlateSession();
       return { ok: true, plate_session: plateMutation('model-clear', [], []) };
@@ -1360,6 +1824,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       objectVolumeTransforms[obj][volume] = JSON.parse(volumeJson);
       return { ok: true };
     },
+    orc_set_model_transforms(transactionId: string, transformsJson: string) {
+      if (transactionId !== historyTransaction?.id) return { error: 'history transaction is stale or belongs to another writer' };
+      const transforms = JSON.parse(transformsJson) as Array<{ objectIdx: number; volumeIdx: number; instanceIdx: number; instanceTransform: unknown; volumeTransform: unknown }>;
+      if (!Array.isArray(transforms)) return { error: 'transforms must be an array' };
+      for (const transform of transforms) {
+        if (!Number.isInteger(transform.objectIdx) || !Number.isInteger(transform.volumeIdx) || !Number.isInteger(transform.instanceIdx) ||
+            transform.objectIdx < 0 || transform.objectIdx >= objectTransforms.length ||
+            transform.volumeIdx < 0 || transform.volumeIdx >= objectVolumeTransforms[transform.objectIdx].length ||
+            transform.instanceIdx < 0 || transform.instanceIdx >= objectTransforms[transform.objectIdx].length)
+          return { error: 'no such composite id' };
+      }
+      for (const transform of transforms) {
+        objectTransforms[transform.objectIdx][transform.instanceIdx] = clone(transform.instanceTransform as ReturnType<typeof identityTransform>);
+        objectVolumeTransforms[transform.objectIdx][transform.volumeIdx] = clone(transform.volumeTransform as ReturnType<typeof identityTransform>);
+      }
+      return plateSessionSnapshot(true);
+    },
     orc_get_model_mesh() {
       if (!modelLoaded) return { error: 'no model loaded' };
       // Local coordinates — the bridge contract (bridge.cpp
@@ -1574,10 +2055,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
           move_type_ptr: mtptr, extrusion_role_ptr: rptr,
           extruder_id_ptr: xptr, color_print_id_ptr: cptr,
           width_ptr: wptr, height_ptr: hptr, metrics,
-          vertex_ptr: eptr, vertex_count: n,
-          layer_ptr: lptr, layer_count: n,
-          feature_ptr: allocU32(roles), feature_count: n,
-          features: fixture.features,
         },
       };
     },
@@ -1706,10 +2183,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_option_metadata: { ret: 'number', args: [] },
     orc_add_model: { ret: 'number', args: ['pointer', 'number', 'string', 'string'] },
     orc_load_project: { ret: 'number', args: ['pointer', 'number', 'number', 'string'] },
+    orc_preflight_project: { ret: 'number', args: ['pointer', 'number', 'string'] },
+    orc_commit_project_preflight: { ret: 'number', args: ['string'] },
+    orc_cancel_project_preflight: { ret: 'number', args: ['string'] },
     orc_import_project_geometry: { ret: 'number', args: ['pointer', 'number', 'string'] },
     orc_add_shape: { ret: 'number', args: ['string', 'string'] },
     orc_clear_model: { ret: 'number', args: [] },
     orc_get_plate_session_snapshot: { ret: 'number', args: [] },
+    orc_get_prime_tower_projection: { ret: 'number', args: [] },
+    orc_move_prime_tower: { ret: 'number', args: ['string'] },
+    orc_get_filament_session_snapshot: { ret: 'number', args: [] },
+    orc_select_filament_slot_preset: { ret: 'number', args: ['string'] },
+    orc_set_filament_slot_colour: { ret: 'number', args: ['string'] },
+    orc_add_filament_slot: { ret: 'number', args: ['string'] },
+    orc_delete_filament_slot: { ret: 'number', args: ['string'] },
+    orc_merge_filament_slots: { ret: 'number', args: ['string'] },
+    orc_apply_remembered_filament_rack: { ret: 'number', args: ['string'] },
+    orc_assign_filament: { ret: 'number', args: ['string'] },
+    orc_set_filament_routing: { ret: 'number', args: ['string'] },
     orc_reset_plate_session: { ret: 'number', args: [] },
     orc_select_plate: { ret: 'number', args: ['string'] },
     orc_add_plate: { ret: 'number', args: [] },
@@ -1737,6 +2228,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_instance_printable: { ret: 'number', args: ['number', 'number'] },
     orc_set_instance_offset: { ret: 'number', args: ['number', 'number', 'number', 'number', 'number'] },
     orc_set_model_transform: { ret: 'number', args: ['number', 'number', 'number', 'string', 'string'] },
+    orc_set_model_transforms: { ret: 'number', args: ['string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
     orc_get_model_structure: { ret: 'number', args: [] },
     orc_set_progress_callback: { ret: 'void', args: ['pointer'] },

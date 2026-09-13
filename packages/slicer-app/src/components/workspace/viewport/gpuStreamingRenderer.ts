@@ -415,6 +415,29 @@ export class GpuStreamingRenderer {
     }
     this.staticTextures.color.needsUpdate = true;
   }
+  /**
+   * Return the colors currently uploaded to the SegmentTemplate color texture.
+   * This is used only by the real-renderer E2E diagnostic seam; the renderer
+   * itself still consumes the preview source and active scheme normally.
+   */
+  debugColorSamples(): readonly (readonly [number, number, number])[] {
+    const data = this.staticTextures.color.image.data as Float32Array;
+    const samples: [number, number, number][] = [];
+    const seen = new Set<string>();
+    for (let offset = 0; offset + 2 < data.length; offset += 4) {
+      const sample: [number, number, number] = [
+        data[offset] ?? 0,
+        data[offset + 1] ?? 0,
+        data[offset + 2] ?? 0,
+      ];
+      const key = sample.join(',');
+      if (!seen.has(key)) {
+        seen.add(key);
+        samples.push(sample);
+      }
+    }
+    return samples;
+  }
   private disposeGpuResources() {
     if (this.gpuDisposed) return;
     this.gpuDisposed = true;

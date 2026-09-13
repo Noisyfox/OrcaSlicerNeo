@@ -89,7 +89,7 @@ export interface MenuProjectState {
   hasContent: boolean;
   dirty: boolean;
   operation: {
-    phase: 'idle' | 'waiting-for-load-choice' | 'waiting-for-dirty-decision' | 'loading' | 'saving' | 'completed' | 'cancelled' | 'failed';
+    phase: 'idle' | 'waiting-for-load-choice' | 'waiting-for-project-confirmation' | 'waiting-for-dirty-decision' | 'loading' | 'saving' | 'completed' | 'cancelled' | 'failed';
     progress: number;
     message?: string;
     cancellable: boolean;

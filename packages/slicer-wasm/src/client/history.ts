@@ -45,7 +45,7 @@ export interface HistoryContext {
   readonly selection: HistorySelection;
   readonly activePlateId: StablePlateId | null;
   readonly gizmo: HistoryGizmoContext | null;
-  /** Project/object/part/plate overrides, never global preset preferences. */
+  /** Project/object/part overrides and retained plate metadata, never global preset preferences. */
   readonly projectConfigOverlay: HistoryJsonObject;
 }
 
@@ -113,11 +113,95 @@ export interface HistoryError {
   readonly transactionId?: HistoryTransactionId;
 }
 
+/**
+ * Worker-authored projection domains changed by one atomic restore commit.
+ * Missing, malformed, or newer-than-known descriptors deliberately normalize
+ * to the conservative full-model path in the typed client.
+ */
+export interface RestoreImpact {
+  readonly version: 1;
+  readonly model: 'full' | 'none';
+  readonly plateSession: boolean;
+  readonly filamentRack: boolean;
+  readonly projectOverlay: boolean;
+  readonly selectionContext: boolean;
+  readonly primeTower: boolean;
+  readonly preview: 'all' | 'current-plate';
+}
+
+/**
+ * Minimal native fact published only for a committed direct Prime Tower
+ * restore.  It is deliberately separate from the all-plate projection: a
+ * future collection patch can update one plate without deriving state from a
+ * stale renderer snapshot.
+ */
+export type PrimeTowerRestoreReceipt = PrimeTowerRestoreAvailableReceipt | PrimeTowerRestoreClearedReceipt;
+
+export interface PrimeTowerRestoreAvailableReceipt {
+  readonly version: 1;
+  readonly state: 'available';
+  readonly plateId: string;
+  /** Native plate input revision after the committed restore. */
+  readonly revision: number;
+  readonly position: Readonly<{ x: number; y: number }>;
+  readonly footprint: Readonly<{ minX: number; maxX: number; minY: number; maxY: number }>;
+}
+
+/** A future direct frame may intentionally remove or disable a tower. */
+export interface PrimeTowerRestoreClearedReceipt {
+  readonly version: 1;
+  readonly state: 'cleared';
+  readonly plateId: string;
+  readonly revision: number;
+}
+
+/** A compact timing aggregate; it intentionally retains no operation history. */
+export interface HistoryTimingDiagnostic {
+  readonly count: number;
+  readonly totalMs: number;
+  readonly maxMs: number;
+  readonly lastMs: number;
+}
+
+/** Per-boundary timings collected for history work in the Worker and client. */
+export interface HistoryDiagnosticLayer {
+  readonly mutation: HistoryTimingDiagnostic;
+  readonly restore: HistoryTimingDiagnostic;
+  readonly directRestore: HistoryTimingDiagnostic;
+  readonly fullRestore: HistoryTimingDiagnostic;
+  /**
+   * Read operations performed as part of a history projection. These remain
+   * aggregate-only so E2E can locate a slow projection boundary without
+   * retaining any project/session payload.
+   */
+  readonly reads?: HistoryReadDiagnosticLayer;
+}
+
+export interface HistoryReadDiagnosticLayer {
+  readonly plateSessionSnapshot: HistoryTimingDiagnostic;
+  readonly primeTowerProjection: HistoryTimingDiagnostic;
+  readonly filamentSessionSnapshot: HistoryTimingDiagnostic;
+}
+
+/**
+ * Versioned, bounded Worker/client observability for history operations.
+ * These are counters and latest durations only, never retained frames, model
+ * data, contexts, or a renderer-owned history representation.
+ */
+export interface HistoryTransportDiagnostics {
+  readonly version: 1;
+  readonly worker: HistoryDiagnosticLayer;
+  readonly client: HistoryDiagnosticLayer;
+}
+
 export interface RestoreSuccess {
   readonly ok: true;
   readonly context: HistoryContext;
   readonly status: HistoryStatus;
   readonly entryId?: HistoryEntryId;
+  readonly impact: RestoreImpact;
+  /** Omitted for full restores, legacy artifacts, and malformed receipts. */
+  readonly primeTowerReceipt?: PrimeTowerRestoreReceipt;
 }
 
 export interface RestoreFailure {

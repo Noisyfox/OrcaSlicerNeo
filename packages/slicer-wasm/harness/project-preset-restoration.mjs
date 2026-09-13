@@ -87,15 +87,14 @@ const loaded = callJson('orc_load_project', ['pointer', 'number', 'number', 'str
   [ptr, fixture.length, 0, 'parentless-fixture.3mf']);
 Module._free(ptr);
 const after = loaded.preset_snapshot;
-const selectedNames = [after?.printer?.name, after?.print?.name, after?.filament?.name];
+const selectedNames = [after?.printer?.name, after?.print?.name];
 check('parentless project load succeeds', loaded.ok === true && loaded.mode === 'project',
   JSON.stringify({ ok: loaded.ok, mode: loaded.mode, error: loaded.error }));
 check('printer selection uses the project machine ID', after?.printer?.name ===
   'Bambu Lab P1P 0.4 nozzle(parentless-fixture.3mf)(parentless-fixture.3mf)', selectedNames.join(' | '));
-check('print and filament selections follow the same project load',
+check('process selection follows the same project load',
   after?.print?.name !== before?.print?.name &&
-  after?.filament?.name !== before?.filament?.name &&
-  after?.print?.name && after?.filament?.name,
+  after?.print?.name && Array.isArray(after?.filament_catalog),
   selectedNames.join(' | '));
 check('selection changed from the pre-load tuple', JSON.stringify(before.printer) !== JSON.stringify(after?.printer));
 

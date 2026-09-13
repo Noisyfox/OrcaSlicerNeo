@@ -32,7 +32,7 @@ async function optionNames(page: Page, triggerTestId: string): Promise<string[]>
   return names;
 }
 
-test('printer transitions atomically replace compatible Process and Filament pickers', async () => {
+test('printer transitions atomically replace the Process picker while the Filament rack remains authoritative', async () => {
   test.setTimeout(120_000);
   const app = await launchApp();
   try {
@@ -40,6 +40,9 @@ test('printer transitions atomically replace compatible Process and Filament pic
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready', { timeout: 30_000 });
     await page.locator('#app-tab-prepare').click();
     await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('filament-rack')).toBeVisible();
+    await expect(page.getByTestId('filament-slot-1')).toBeVisible();
+    await expect(page.getByTestId('filament-preset-select')).toHaveCount(0);
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
 
     // Establish a completed result first, so the transition can prove it
@@ -58,33 +61,32 @@ test('printer transitions atomically replace compatible Process and Filament pic
     await popup.getByPlaceholder('Search presets…').fill('Bambu Lab P1S 0.4 nozzle');
     await popup.getByRole('option', { name: 'Bambu Lab P1S 0.4 nozzle', exact: true }).click();
 
-    // The e2e mock delays only selectPreset replies. This verifies that a
+    // The e2e mock delays only selectProfile replies. This verifies that a
     // stale Process or Filament popup cannot be selected while the C++-shaped
     // atomic snapshot is still in flight.
     await expect(page.getByTestId('preset-transition-region')).toHaveAttribute('aria-busy', 'true');
     expect((await page.getByTestId('process-preset-select').boundingBox())?.y).toBe(processTopBeforeTransition);
     await expect(page.getByTestId('preset-select')).toBeDisabled();
     await expect(page.getByTestId('process-preset-select')).toBeDisabled();
-    await expect(page.getByTestId('filament-preset-select')).toBeDisabled();
+    await expect(page.getByTestId('filament-preset-select')).toHaveCount(0);
 
     await expect(page.getByTestId('preset-transition-region')).toHaveAttribute('aria-busy', 'false');
     await expect(page.getByTestId('preset-select')).toContainText('Bambu Lab P1S 0.4 nozzle');
     await expect(page.getByTestId('process-preset-select')).toContainText('0.20mm Standard @BBL P1S');
-    await expect(page.getByTestId('filament-preset-select')).toContainText('Bambu PLA Basic @BBL P1S');
+    await expect(page.getByTestId('filament-preset-select')).toHaveCount(0);
     await expect(page.getByTestId('preset-select')).toBeEnabled();
     await expect(page.getByTestId('process-preset-select')).toBeEnabled();
-    await expect(page.getByTestId('filament-preset-select')).toBeEnabled();
 
-    // Exact mock graph candidates: old X1C Process and Filament entries must
-    // not survive the printer switch. The bundled generic library filament
-    // remains available after every compatible printer transition.
+    // Exact mock graph candidates: old X1C Process entries must not survive
+    // the printer switch. The filament rack remains the only filament
+    // selection surface in Prepare.
     await expect(optionNames(page, 'process-preset-select')).resolves.toEqual([
       '0.20mm Standard @BBL P1S',
     ]);
-    await expect(optionNames(page, 'filament-preset-select')).resolves.toEqual([
-      'Bambu PLA Basic @BBL P1S',
-      'Generic PLA @System',
-    ]);
+    await page.locator('#app-tab-prepare').click();
+    await expect(page.getByTestId('filament-rack')).toBeVisible();
+    await expect(page.getByTestId('filament-slot-1')).toBeVisible();
+    await expect(page.getByTestId('filament-preset-1')).toContainText('Generic PLA @System');
 
     await expect(page.getByTestId('slicer-status')).toHaveText('Ready');
     await expect(page.getByTestId('btn-export')).toBeDisabled();

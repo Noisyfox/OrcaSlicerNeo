@@ -1139,6 +1139,45 @@ test('scene context menu: Add Primitive submenu appends engine-built shapes', as
   }
 });
 
+// Regression: replacing the renderer collection twice must not expose the
+// e2e selection hook before SceneInteractionController's model reset. Before
+// the effect ordering fix, the second selection could be cleared immediately
+// and selectionBoundsWorld stayed null indefinitely.
+test('scene context menu: selection remains live after consecutive primitive replacements', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const addPrimitive = async (testId: string) => {
+      const box = await canvas.boundingBox();
+      if (!box) throw new Error('viewport canvas has no bounding box');
+      await page.mouse.click(box.x + box.width - 40, box.y + 40, { button: 'right' });
+      await expect(page.getByTestId('ctx-menu')).toBeVisible();
+      await page.getByTestId('btn-add-primitive').click();
+      await expect(page.getByTestId('ctx-primitive-menu')).toBeVisible();
+      await page.getByTestId(testId).click();
+      await expect(page.getByTestId('ctx-menu')).toBeHidden();
+    };
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await addPrimitive('btn-add-cube');
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    await addPrimitive('btn-add-sphere');
+    await expect(page.getByTestId('btn-slice')).toBeEnabled({ timeout: 30_000 });
+    if (!REAL) {
+      await expect.poll(() => page.evaluate(() =>
+        (window as unknown as { __orcaE2e?: { selectMockInstance?: (idx: number, additive?: boolean) => boolean } }).__orcaE2e?.selectMockInstance?.(1, false) ?? false,
+      )).toBe(true);
+      await expect.poll(() => page.evaluate(() => {
+        const bounds = (window as unknown as { __orcaE2e?: { selectionBoundsWorld?: () => { size: [number, number, number] } | null } }).__orcaE2e?.selectionBoundsWorld?.();
+        return bounds ? bounds.size : null;
+      })).toEqual([20, 20, 20]);
+    }
+  } finally {
+    await app.close();
+  }
+});
+
 // OrcaSlicer's bundled samples are available from their own scene-menu
 // flyout.  3DBenchy remains one choice, not the whole catalogue; selecting it
 // still uses the standard append-model path in both mock and real runs.
@@ -1315,6 +1354,74 @@ test('scene context menu: right-click on a model body opens the object menu', as
   }
 });
 
+
+test('scene selection: an unselected body keeps its first drag gesture', async () => {
+  test.skip(REAL, 'the real fixture does not expose deterministic canvas projection hooks');
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect(page.getByTestId('preset-select')).toBeVisible({ timeout: PRESET_READY_TIMEOUT });
+    await page.getByTestId('btn-add-model').click();
+    await expect(page.getByTestId('history-undo')).toBeEnabled({ timeout: 30_000 });
+
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('viewport canvas has no bounding box');
+    await expect.poll(() => page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { selectionPivotWorld?: () => [number, number, number] | null };
+      }).__orcaE2e?.selectionPivotWorld?.(),
+    )).toBeNull();
+    const center = await page.evaluate(() =>
+      (window as unknown as {
+        __orcaE2e?: { projectWorldToScreen(q: [number, number, number]): { x: number; y: number } | null };
+      }).__orcaE2e?.projectWorldToScreen([10, 10, 10]),
+    );
+    if (!center) throw new Error('cube-center projection unavailable');
+    const historyBefore = await page.getByTestId('history-undo').getAttribute('aria-label');
+
+    // Send both native events inside one main-process task. Unlike parallel
+    // Playwright calls, this leaves no renderer turn in which React can first
+    // publish selection before the threshold-crossing movement arrives.
+    await page.mouse.move(box.x + center.x, box.y + center.y);
+    await page.waitForTimeout(0);
+    await app.evaluate(({ BrowserWindow }, { x, y }) => {
+      const contents = BrowserWindow.getAllWindows()[0]?.webContents;
+      if (!contents) throw new Error('window missing');
+      contents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+      contents.sendInputEvent({ type: 'mouseMove', x: x + 8, y: y + 4, button: 'left' });
+    }, { x: box.x + center.x, y: box.y + center.y });
+    await expect
+      .poll(() => page.evaluate(() =>
+        (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.(),
+      ))
+      .toBe('body');
+    await expect
+      .poll(() => page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectionPivotWorld?: () => [number, number, number] | null };
+        }).__orcaE2e?.selectionPivotWorld?.(),
+      ))
+      .not.toEqual([10, 10, 10]);
+    await app.evaluate(({ BrowserWindow }, { x, y }) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+    }, { x: box.x + center.x + 8, y: box.y + center.y + 4 });
+
+    await expect
+      .poll(() => page.evaluate(() =>
+        (window as unknown as {
+          __orcaE2e?: { selectionPivotWorld?: () => [number, number, number] | null };
+        }).__orcaE2e?.selectionPivotWorld?.(),
+      ))
+      .not.toEqual([10, 10, 10]);
+    await expect.poll(() => page.getByTestId('history-undo').getAttribute('aria-label'))
+      .not.toBe(historyBefore);
+    await expect(page.getByTestId('history-undo')).toContainText('Move');
+  } finally {
+    await app.close();
+  }
+});
 
 // Scene-owned selection: a TransformControls handle wins over an overlapping
 // DragControls body, and the move panel edits the aggregate pivot for every

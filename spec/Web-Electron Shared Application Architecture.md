@@ -1,8 +1,9 @@
 # Web–Electron Shared Application Architecture
 
-**Date:** 2026-08-19
+**Date:** 2026-09-09
 
-**Status:** Approved — implementation basis
+**Status:** Approved — implementation basis; multi-filament boundary closed at
+`07f276d`
 
 **Scope:** Refactor OrcaSlicerNeo so the same application functionality can ship
 as an Electron desktop application and a conventional static web application.
@@ -19,7 +20,8 @@ The first web release prioritizes the existing core flow and a largely
 feature-equivalent interface:
 
 1. Load STL/3MF.
-2. Select bundled system printer/process/filament profiles.
+2. Select bundled system Printer and Process profiles; edit the native
+   multi-filament rack in Prepare.
 3. Change the existing core settings surface.
 4. Slice locally.
 5. Inspect the model, toolpath, layers, selection, and movement in the 3D
@@ -302,10 +304,12 @@ or bridge/runtime interpretation of its fields changes.
   compatibility validation, online update checks, rollback, or on-demand
   downloading. They remain explicit follow-up work.
 
-The first-release picker lists only profiles that were successfully installed
-from profile packages. The AppConfig-derived `is_visible` and “Not installed”
-states are removed; a future on-demand delivery feature may add an explicit
-downloadable-but-not-installed state.
+The first-release Printer and Process pickers list only profiles that were
+successfully installed from profile packages. The native snapshot also exposes
+the installed, compatible `filament_catalog` consumed by the Prepare rack.
+The AppConfig-derived “Not installed” state and any single-filament picker are
+removed; a future on-demand delivery feature may add an explicit
+downloadable-but-not-installed state without changing the rack contract.
 
 ## 7. Preferences and Selection Restoration
 
@@ -322,8 +326,11 @@ interface UserPreferences {
   selectedProfiles: {
     printer?: string;
     print?: string;
-    filament?: string;
   };
+  rememberedFilamentRacks?: Record<string, {
+    version: 1;
+    slots: Array<{ preset: string; colour: string }>;
+  }>;
   ui: {
     sidebarWidth?: number;
     deviceSidebarWidth?: number;
@@ -332,9 +339,9 @@ interface UserPreferences {
 }
 ```
 
-The identifier is the existing OrcaSlicer profile `name` field. A selection's
-category (`printer`, `print`, or `filament`) supplies the necessary namespace;
-no new vendor/model/variant identifier is introduced.
+The identifier is the existing OrcaSlicer profile `name` field for Printer and
+Process. Filament preset names belong to the remembered rack and project slot
+state; they are not global selections.
 
 - Electron and Web implement the same `UserPreferencesRepository` contract.
   Electron writes a small preferences file in user data; Web uses localStorage.
@@ -356,16 +363,18 @@ no new vendor/model/variant identifier is introduced.
   the first release. Settings edits remain active only for the current session.
 
 On boot, after all available profiles are initialized, the runtime restores
-selections through the C++ bridge in this order: printer, print, filament. It
-accepts the bridge's resulting compatible combination rather than duplicating
-compatibility logic in TypeScript. A missing profile name falls back to that
-category's system default and logs to the console; if no default is usable, it
-falls back to the first profile returned by the bridge. The resolved combination
-is immediately written back to preferences.
+Printer and Process through the C++ bridge in that order. It accepts the
+bridge's resulting compatible combination rather than duplicating compatibility
+logic in TypeScript. A missing profile name falls back to the native default
+and logs to the console; if no default is usable, it falls back to the first
+profile returned by the bridge. For a new project, the selected Printer's
+remembered rack is then applied through the typed multi-filament session
+command. An opened project owns its rack and takes priority over that seed.
+Only the resolved Printer/Process names are written to `selectedProfiles`.
 
-Selecting any system printer, print, or filament profile clears all temporary
-slicer-setting overrides for the current session. Overrides are never carried
-from one system profile combination to another.
+Selecting a system Printer or Process clears all temporary slicer-setting
+overrides for the current session. Rack edits use their own atomic session
+commands and never update `selectedProfiles`.
 
 ## 8. Interaction and Lifecycle
 
@@ -467,8 +476,9 @@ usable throughout:
    coverage before declaring the refactor complete.
 
 Each step must have a focused verification target and a separate commit. The
-temporary legacy AppConfig bridge may remain inside the Electron migration path
-only until the shared preference/profile contracts replace its callers.
+migration is complete: the shared preference/profile contracts are the only
+application boundary, and no legacy AppConfig bridge, single-filament
+selection path, compatibility shim, or data migration is retained.
 
 ## 13. Relationship to Existing Specifications
 
@@ -478,5 +488,9 @@ assumption that the Electron renderer is the application boundary, while
 preserving the existing C++ bridge rule: `packages/slicer-wasm/src/client` is
 the only JavaScript layer that touches the WASM module.
 
-Implementation work must update this specification, `spec/Grand Plan.md`, and
-the high-level development plan in step with delivered milestones.
+The multi-filament contract is defined by
+[`Multi-Filament Support.md`](Multi-Filament%20Support.md). Implementation work
+must update this specification, `spec/Grand Plan.md`, and the high-level
+development plan in step with delivered milestones. The complete dual-variant
+acceptance runner is bounded by 120 seconds; developer runs may select
+`--threaded-only`, while release acceptance runs both variants.

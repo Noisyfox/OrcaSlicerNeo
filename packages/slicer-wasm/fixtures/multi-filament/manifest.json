@@ -1,0 +1,136 @@
+{
+  "schema": "orca-multi-filament-fixture-manifest",
+  "schemaVersion": 1,
+  "nativeCore": {
+    "repository": "Noisyfox/OrcaSlicer",
+    "commit": "b97ca3c0ace8cb04eb520d86417fbe13b7ddbdde"
+  },
+  "sourcePolicy": {
+    "kind": "deterministic-synthetic-only",
+    "externalDownloadsAllowed": false,
+    "readerFixtureProvenance": "independent-low-level-3mf-builder"
+  },
+  "builder": {
+    "path": "packages/slicer-wasm/harness/multi-filament-fixture-builder.mjs",
+    "export": "buildIndependentReader3mf",
+    "callsExporter": false
+  },
+  "fixtures": [
+    {
+      "id": "mf.reader-basic-3mf",
+      "kind": "reader-3mf",
+      "status": "executable",
+      "provenance": "independent-low-level-3mf-builder",
+      "path": "independent-reader-basic.3mf",
+      "expected": {
+        "zipEntries": ["[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model", "3D/_rels/3dmodel.model.rels", "Metadata/model_settings.config", "Metadata/project_settings.config", "Metadata/filament_settings_1.config", "Metadata/filament_settings_2.config"],
+        "slotCount": 2,
+        "slotIds": [1, 2],
+        "objectCount": 1,
+        "plateCount": 1,
+        "objectExtruder": 2,
+        "filamentColours": ["#FF0000", "#00FF00"],
+        "filamentMaps": [1, 1],
+        "embeddedPresetIds": ["Generic PLA @Project", "Generic PETG @Project"],
+        "byteLength": 5213,
+        "sha256": "d15f956c50e70d1368033528e49e835330e74cd007196f66a094277a09a91785"
+      }
+    },
+    {
+      "id": "mf.one-slot-baseline",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-state-matrix",
+      "path": null,
+      "expected": { "slotCount": 1, "assignments": [], "resultInvalidation": "none-on-load" }
+    },
+    {
+      "id": "mf.single-nozzle-two-material",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-state-matrix",
+      "path": null,
+      "expected": { "slotCount": 2, "nozzleCount": 1, "assignmentTargets": ["object", "model-part"], "includes": ["tool-change", "flushing", "prime-tower"] }
+    },
+    {
+      "id": "mf.fixed-multi-nozzle",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-state-matrix",
+      "path": null,
+      "expected": { "slotCount": 2, "nozzleCount": 2, "requiresMinimumSlotCount": true, "nativeMapping": [1, 2] }
+    },
+    {
+      "id": "mf.assignment-routing",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-state-matrix",
+      "path": null,
+      "expected": { "selectors": ["outer-wall", "inner-wall", "sparse-infill", "internal-solid-infill", "top-surface", "bottom-surface"], "supportSelectors": ["support-base", "support-interface"], "inheritance": ["object", "model-part", "parameter-modifier", "instance-as-object"] }
+    },
+    {
+      "id": "mf.slot-capacity-64",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-state-matrix",
+      "path": null,
+      "expected": { "addRange": [1, 64], "rejects": [65], "completeMatrix": true, "persistence": "3mf" }
+    },
+    {
+      "id": "mf.remap-first-middle-last",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-state-matrix",
+      "path": null,
+      "expected": { "operations": ["delete", "merge"], "positions": ["first", "middle", "last"], "references": ["assignments", "painting", "tool-changes", "routing", "flushing"] }
+    },
+    {
+      "id": "mf.imported-painting-tools",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-imported-state",
+      "path": null,
+      "expected": { "preserveOnLoad": ["facet-painting", "layer-colour", "tool-change"], "remapOnDeleteMerge": true }
+    },
+    {
+      "id": "mf.imported-flushing-matrix",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-imported-state",
+      "path": null,
+      "expected": { "preserveUntilInputEdit": true, "recalculateInputs": ["preset", "colour", "slot-add", "slot-delete", "slot-merge", "support-filament"] }
+    },
+    {
+      "id": "mf.embedded-presets-fallbacks",
+      "kind": "writer-roundtrip-matrix",
+      "status": "matrix-only",
+      "provenance": "future-bridge-writer-roundtrip",
+      "path": null,
+      "expected": { "saveOpen": true, "embeddedPresetRetention": true, "compatibleFallbackReporting": true, "rememberedRackPriority": true }
+    },
+    {
+      "id": "mf.mixed-temperature-validation",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-state-matrix",
+      "path": null,
+      "expected": { "usedSlots": "reject-mixed-temperature", "unreferencedSlots": "allow-incompatible" }
+    },
+    {
+      "id": "mf.atomic-failure-rollback",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-failure-state",
+      "path": null,
+      "expected": { "rejections": ["unsupported-reference", "injected-failure", "stale-revision", "cancelled"], "preserves": ["project", "history", "preferences", "result"] }
+    },
+    {
+      "id": "mf.multi-plate-invalidation",
+      "kind": "state-matrix",
+      "status": "matrix-only",
+      "provenance": "synthetic-state-matrix",
+      "path": null,
+      "expected": { "affectedResults": "all-shared-config-plates", "unaffectedResults": "retained-when-local-only" }
+    }
+  ]
+}

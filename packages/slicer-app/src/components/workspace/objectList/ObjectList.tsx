@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import type { HistoryContext, ModelObjectStructure } from '@slicer/client';
+import type { HistoryContext, ModelObjectStructure, PlateSessionSnapshot } from '@slicer/client';
 import { usePlatform } from '@orca/platform-contract';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,9 @@ import { reorderObjectsInList, reorderVolumesInList } from './structuralActions'
 import { ObjectListContextMenu, type ObjectListCtxTarget } from './ObjectListContextMenu';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
 import { recordHistoryContext } from '../../../projectActions';
+import { FilamentAssignmentCell } from './FilamentAssignmentCell';
+import { useFilamentSessionStore } from '../../../stores/useFilamentSessionStore';
+import { assignmentTargetsForSelection } from './filamentAssignment';
 
 type RenamingTarget = { kind: 'object'; id: number } | { kind: 'part'; id: number } | null;
 
@@ -55,7 +58,18 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const highlightLevel = useObjectListStore((s) => s.highlightLevel);
   const collapsedInstances = useObjectListStore((s) => s.collapsedInstances);
   const projection = useObjectListStore((s) => s.projection);
-  const plateSession = usePlateSessionStore((s) => s.snapshot);
+  // Object List grouping and validity depend on plate membership, not on the
+  // navigational currentPlateId. Select the stable arrays independently so a
+  // pure plate click does not re-run the O(objects * instances) projection.
+  const plateSessionPlates = usePlateSessionStore((s) => s.snapshot?.plates);
+  const plateSessionInstances = usePlateSessionStore((s) => s.snapshot?.instances);
+  const plateSession = useMemo(() => {
+    if (!plateSessionPlates || !plateSessionInstances) return null;
+    return { plates: plateSessionPlates, instances: plateSessionInstances } as PlateSessionSnapshot;
+  }, [plateSessionPlates, plateSessionInstances]);
+  const filamentSnapshot = useFilamentSessionStore((s) => s.snapshot);
+  const filamentPending = useFilamentSessionStore((s) => s.pendingKind !== null);
+  const runFilament = useFilamentSessionStore((s) => s.run);
   const setStructure = useObjectListStore((s) => s.setStructure);
   const setLoaded = useObjectListStore((s) => s.setLoaded);
   const setProjection = useObjectListStore((s) => s.setProjection);
@@ -69,6 +83,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [lastSelectedKey, setLastSelectedKey] = useState<string | null>(null);
   const lastHistoryContextRef = useRef<string | null>(null);
+  const deferredBodySelectionContextRef = useRef<{ encoded: string; context: HistoryContext } | null>(null);
   const historyContextQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const restorePhase = useHistoryRestoreStore((s) => s.phase);
   const consumeSnapshotSuppression = useHistoryRestoreStore((s) => s.consumeSnapshotSuppression);
@@ -77,6 +92,15 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
     () => projectObjectGroups(structure, plateSession),
     [structure, plateSession],
   );
+
+  function assignRow(kind: 'object' | 'part', id: number, slot: number) {
+    const targets = assignmentTargetsForSelection({ kind, id }, projection);
+    void runFilament(platform.runtime, () => {
+      const current = useFilamentSessionStore.getState().snapshot;
+      if (!current) return Promise.resolve({ ok: false as const, version: 1 as const, error: 'filament session unavailable', errorCode: 'runtime_unavailable' as const });
+      return platform.runtime.assignFilament({ version: 1, revision: current.revisions.session, slot, targets });
+    });
+  }
 
   useEffect(() => {
     let disposed = false;
@@ -119,10 +143,37 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
         projectConfigOverlay: useSettingsStore.getState().overlay as unknown as HistoryContext['projectConfigOverlay'],
       };
       const encoded = JSON.stringify(context);
-      if (encoded === lastHistoryContextRef.current) return;
-      lastHistoryContextRef.current = encoded;
+      const bodySelectionHistoryState = sceneInteraction.bodySelectionHistoryState;
+      if (bodySelectionHistoryState === 'pending') {
+        // DragControls has not crossed its threshold yet. Writing a
+        // context-only Selection record here takes the project lease before
+        // the same pointer's Move transaction can begin.
+        deferredBodySelectionContextRef.current = { encoded, context };
+        return;
+      }
+      if (bodySelectionHistoryState === 'dragging') {
+        // Move captures this selection in its own before/after context. Do
+        // not insert a competing Selection record after the drag starts.
+        deferredBodySelectionContextRef.current = null;
+        lastHistoryContextRef.current = encoded;
+        return;
+      }
+      const deferred = deferredBodySelectionContextRef.current;
+      deferredBodySelectionContextRef.current = null;
+      const contextToRecord = deferred?.context ?? context;
+      const encodedToRecord = deferred?.encoded ?? encoded;
+      if (encodedToRecord === lastHistoryContextRef.current) return;
+      lastHistoryContextRef.current = encodedToRecord;
       historyContextQueueRef.current = historyContextQueueRef.current
-        .then(() => recordHistoryContext(platform, 'Selection', context))
+        .then(() => {
+          // A selection projection can queue just before a native history
+          // restore enters its fenced phase. Re-check at execution time so a
+          // late context-only commit cannot branch away the redo project
+          // entries restored by the Worker.
+          const restore = useHistoryRestoreStore.getState();
+          if (restore.phase !== 'idle' || restore.snapshotSuppressed) return;
+          return recordHistoryContext(platform, 'Selection', contextToRecord);
+        })
         .catch((error) => { console.warn('selection history context unavailable', error); });
     };
     update();
@@ -354,6 +405,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
           <div
             key={obj.id}
             data-testid={`object-${obj.id}`}
+            className="relative"
             draggable={!(renamingObject || renamingPartInObject)}
             onDragStart={(e) => {
               e.dataTransfer.setData('text/plain', JSON.stringify({ kind: 'object', id: obj.id }));
@@ -379,7 +431,7 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
             <Button
               variant="ghost"
               size="xs"
-              className={`w-full justify-start ${objectSelected ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
+              className={`w-full justify-start pr-20 ${objectSelected ? 'bg-accent text-accent-foreground data-[state=selected]:hover:bg-accent/85' : ''}`}
               data-state={objectSelected ? 'selected' : 'idle'}
               onClick={(e) => {
                 const row = flatRows.find((r) => r.key === `obj:${obj.index}`);
@@ -408,6 +460,15 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
               ) : obj.name}
               {validity !== 'valid' && <ObjectValidityBadge validity={validity} objectId={obj.id} />}
             </Button>
+            <div className="absolute right-0 top-0">
+              <FilamentAssignmentCell
+                snapshot={filamentSnapshot}
+                kind="object"
+                id={obj.id}
+                pending={filamentPending}
+                onAssign={(slot) => assignRow('object', obj.id, slot)}
+              />
+            </div>
             {isExpanded && (
               <div className="ml-4">
                 {obj.volumes.length > 1 && obj.volumes.map((vol) => (
@@ -462,6 +523,15 @@ export function ObjectList({ sceneInteraction }: { sceneInteraction: SceneIntera
                         />
                       ) : vol.name}
                     </Button>
+                    <FilamentAssignmentCell
+                      snapshot={filamentSnapshot}
+                      kind="part"
+                      id={vol.id}
+                      assignable={vol.type === 'model_part'}
+                      allowDefault={vol.type === 'model_part'}
+                      pending={filamentPending}
+                      onAssign={(slot) => assignRow('part', vol.id, slot)}
+                    />
                   </div>
                 ))}
                 {obj.instanceCount > 1 && (

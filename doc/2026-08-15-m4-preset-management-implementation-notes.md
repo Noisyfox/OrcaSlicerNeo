@@ -1,8 +1,14 @@
 # M4 — Preset Management with AppConfig Fidelity (implementation notes)
 
-Date: 2026-08-15. Design: `doc/2026-08-15-m4-preset-management-design.md`
-(approved). Milestone: `spec/Grand Plan.md` → "Full settings surface + search
+Date: 2026-08-15. Status: **historical and superseded**. Design:
+`doc/2026-08-15-m4-preset-management-design.md` (historical). Milestone:
+`spec/Grand Plan.md` → "Full settings surface + search
 (from metadata); preset management".
+
+> The APIs and schemas recorded below were removed before release. They are
+> retained only as historical provenance; current code has no AppConfig bridge,
+> single-filament selector, compatibility tail, or migration path. Follow the
+> approved architecture and multi-filament specs instead.
 
 ## Delivered
 
