@@ -344,8 +344,7 @@ target_compile_options(deps_core PRIVATE
 # Explicitly list every Neo bridge and CLI translation unit. Keep this source
 # set outside the pinned Orca submodule; the C bridge and Worker transaction
 # adapters remain Neo code.
-set(ORCA_SLICE_SRC
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
+set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
@@ -362,6 +361,10 @@ set(ORCA_SLICE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_buffers.cpp"
 )
+set(ORCA_SLICE_SRC
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/slice_main.cpp"
+  ${ORCA_BRIDGE_SRC}
+)
 add_executable(orca_slice ${ORCA_SLICE_SRC})
 if(NEO_PROJECT_HISTORY_TEST)
   add_executable(project_history_core_test
@@ -371,6 +374,15 @@ if(NEO_PROJECT_HISTORY_TEST)
   target_compile_options(project_history_core_test PRIVATE -fexceptions)
   target_link_options(project_history_core_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
     -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+
+  add_executable(history_mesh_capture_test
+    ${ORCA_BRIDGE_SRC}
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/history/MeshCaptureCache.test.cpp")
+  target_compile_definitions(history_mesh_capture_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  target_compile_options(history_mesh_capture_test PRIVATE -fexceptions)
+  target_link_options(history_mesh_capture_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
+    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  target_link_libraries(history_mesh_capture_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
 endif()
 # The bridge's error contract leans on C++ exceptions (nlohmann type_error,
 # std::runtime_error from the slice path) being caught inside the bridge —
@@ -407,8 +419,17 @@ target_link_libraries(orca_slice PRIVATE
   -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
   "${OCCT_ROOT}/lib/libfreetype.a"
 )
+if(NEO_PROJECT_HISTORY_TEST)
+  target_link_libraries(history_mesh_capture_test PRIVATE
+    -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
+    "${OCCT_ROOT}/lib/libfreetype.a"
+  )
+endif()
 if(WASM_THREADING)
   target_link_libraries(orca_slice PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+  if(NEO_PROJECT_HISTORY_TEST)
+    target_link_libraries(history_mesh_capture_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+  endif()
 endif()
 # Boost static archives (Emscripten-built wasm64, build-boost-wasm64.sh):
 # libslic3r objects reference boost::filesystem / boost::regex / boost::log
@@ -417,6 +438,9 @@ endif()
 file(GLOB BOOST_ARCHIVES "${BOOST_INCLUDE}/stage-wasm64/lib/libboost_*.a")
 if(BOOST_ARCHIVES)
   target_link_libraries(orca_slice PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
+  if(NEO_PROJECT_HISTORY_TEST)
+    target_link_libraries(history_mesh_capture_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
+  endif()
 endif()
 set_target_properties(orca_slice PROPERTIES OUTPUT_NAME "orca_slice" SUFFIX ".js")
 # Link optimization: debug replaces -O3 with -O0 -g. -g at LINK time is what

@@ -21,6 +21,7 @@
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
 #include "history/ProjectHistory.hpp"
+#include "history/MeshCaptureCache.hpp"
 #include "nlohmann/json.hpp"
 
 #ifdef ORCA_WASM_THREADING
@@ -53,6 +54,9 @@ struct BridgeState {
     // Step 2 history is deliberately Worker/WASM owned. ProjectHistory owns
     // keyed mutable object versions and shared immutable mesh data.
     History::ProjectHistory history;
+    // Mesh bytes are retained across repeated live-model captures, while the
+    // shared-owner keys keep cache identity safe across mesh replacement.
+    History::Codec::MeshCaptureCache mesh_capture_cache;
     struct HistoryTransaction {
         std::string id;
         std::string label;

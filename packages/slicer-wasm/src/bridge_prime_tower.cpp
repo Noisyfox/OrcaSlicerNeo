@@ -761,7 +761,7 @@ json move_position_json(const char* request_cstr)
             throw std::runtime_error("injected prime tower post-validation failure");
         bool committed = false;
         if (first_history_entry) {
-            const auto model_state = Neo::History::Codec::capture_model_state(state().model);
+            const auto model_state = Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache);
             committed = HistoryMetadata::commit_history_entry(state(), [&]() {
                 return state().history.commit_with_baseline("Move Prime Tower", Neo::History::Category::Project,
                     model_state, before_bytes, model_state, after_bytes, before_direct, after_direct);

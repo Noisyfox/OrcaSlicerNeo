@@ -400,6 +400,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
         const auto affected_before = member_plate_ids();
         state().print.clear();
         invalidate_preview_source();
+        state().mesh_capture_cache.clear();
         state().model = Model{};
         reset_plate_session_state();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-clear"});

@@ -885,7 +885,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         // entire native model again for every small filament edit; the post-
         // command frame below is still serialized before it is committed.
         const auto before_history_model = state().history.entries().empty()
-            ? Neo::History::Codec::capture_model_state(state().model) : state().history.current().model;
+            ? Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache) : state().history.current().model;
         const bool needs_predecessor_direct = state().history.entries().empty() ||
             !state().history.current().direct_frame.has_value();
         std::shared_ptr<const Model> direct_before_model = current_direct_frame_model(state());
@@ -979,7 +979,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             }
             if (failure_stage == "during-history")
                 throw std::runtime_error("injected history commit failure");
-            const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
+            const auto after_history_model = Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache);
             const auto direct_frame = make_direct_frame(
                 state(), std::make_shared<Model>(state().model), after_history_model);
             const bool committed = HistoryMetadata::commit_history_entry(state(), [&]() {
@@ -1043,7 +1043,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
         if (!before_snapshot.value("ok", false)) return before_snapshot;
         const auto before_context = default_command_history_context();
         const auto before_history_model = state().history.entries().empty()
-            ? Neo::History::Codec::capture_model_state(state().model) : state().history.current().model;
+            ? Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache) : state().history.current().model;
         if (!request.contains("revision") || !request["revision"].is_number_unsigned())
             return command_error("stale_revision", "filament session revision is required");
         const auto expected = request["revision"].get<std::uint64_t>();
@@ -1124,7 +1124,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             }
             if (failure_stage == "during-history")
                 throw std::runtime_error("injected history commit failure");
-            const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
+            const auto after_history_model = Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache);
             const auto direct_after_model = model_changes
                 ? std::make_shared<Model>(state().model) : direct_before_model;
             const auto direct_frame = make_direct_frame(state(), direct_after_model,
@@ -1317,7 +1317,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             return command_error("stale_revision", "filament session revision is stale");
         const auto before_context = default_command_history_context();
         const auto before_history_model = state().history.entries().empty()
-            ? Neo::History::Codec::capture_model_state(state().model) : state().history.current().model;
+            ? Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache) : state().history.current().model;
         // Assignment and routing must use the live immutable profile
         // catalogue.  Support routing changes only project_config; preserve
         // that narrow mutable surface rather than cloning PresetBundle.
@@ -1395,7 +1395,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             const Neo::History::Bytes bytes(encoded.begin(), encoded.end());
             if (request.value("inject_failure_stage", "") == "during-history")
                 throw std::runtime_error("injected history commit failure");
-            const auto after_history_model = Neo::History::Codec::capture_model_state(state().model);
+            const auto after_history_model = Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache);
             const auto direct_frame = make_direct_frame(
                 state(), std::make_shared<Model>(state().model), after_history_model);
             const bool committed = HistoryMetadata::commit_history_entry(state(), [&]() {

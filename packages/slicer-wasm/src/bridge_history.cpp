@@ -254,7 +254,8 @@ void restore_history_transaction_state(const json& context, const Neo::History::
     if (!context.contains("filamentState"))
         throw std::runtime_error("history transaction is missing filament state");
     auto staged_filament_state = stage_mutable(state().presets, context["filamentState"]);
-    auto staged_model = Neo::History::Codec::model_state_equal(capture_model_state(state().model), model)
+    auto staged_model = Neo::History::Codec::model_state_equal(
+        capture_model_state(state().model, state().mesh_capture_cache), model)
         ? Model(state().model) : Neo::History::Codec::stage_model(state().model, {model, {}, {}});
     auto staged_plates = state().plate_session_plates;
     if (context.contains("plateSession")) staged_plates = build_history_plate_session(context["plateSession"], staged_model);
@@ -491,7 +492,7 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
     if (plan.state.direct_frame &&
         plan.state.direct_frame->kind == History::RestoreState::DirectFrame::Kind::Filament)
         return restore_direct_frame(runtime, plan, context);
-    const auto live_model_state = capture_model_state(state().model);
+    const auto live_model_state = capture_model_state(state().model, state().mesh_capture_cache);
     Model staged_model = Neo::History::Codec::model_state_equal(live_model_state, plan.state.model)
         ? Model(state().model) : Neo::History::Codec::stage_model(state().model, plan.state);
     if (!context.contains("filamentState")) throw std::runtime_error("history context is missing filament state");
@@ -575,7 +576,7 @@ json canonical_history_context(const Runtime& runtime, json context)
 void record_active_plate_context(const Runtime& runtime, json requested)
 {
     if (state().history.entries().empty()) {
-        const auto model_state = capture_model_state(state().model);
+        const auto model_state = capture_model_state(state().model, state().mesh_capture_cache);
         Neo::Bridge::HistoryMetadata::record_active_plate_context(
             state(), plate_session_snapshot_json(), runtime.filament_history_state(), model_state);
         return;
@@ -727,19 +728,34 @@ std::string mesh_key(const Bytes& bytes)
 
 ModelState capture_model_state(const Model& model)
 {
+    MeshCaptureCache cache;
+    return capture_model_state(model, cache);
+}
+
+ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache)
+{
     NeoHistoryArchiveContext archive_context;
-    std::map<std::string, Bytes> mesh_bytes_by_key;
+    std::map<std::string, std::shared_ptr<const Bytes>> mesh_bytes_by_key;
+    std::set<MeshCaptureCache::MeshPtr, std::owner_less<MeshCaptureCache::MeshPtr>> live_meshes;
     for (const auto* object : model.objects) {
         for (const auto* volume : object->volumes) {
             const auto mesh = volume->get_mesh_shared_ptr();
             if (!mesh) continue;
+            live_meshes.emplace(mesh);
+            if (const auto* cached = mesh_cache.find(mesh)) {
+                archive_context.output_mesh_keys.emplace(mesh.get(), cached->key);
+                mesh_bytes_by_key.emplace(cached->key, cached->bytes);
+                continue;
+            }
             if (archive_context.output_mesh_keys.count(mesh.get())) continue;
-            auto bytes = mesh_bytes(*mesh);
-            const auto key = mesh_key(bytes);
+            auto bytes = std::make_shared<const Bytes>(mesh_bytes(*mesh));
+            const auto key = mesh_key(*bytes);
             archive_context.output_mesh_keys.emplace(mesh.get(), key);
-            mesh_bytes_by_key.emplace(key, std::move(bytes));
+            mesh_cache.insert(mesh, {key, bytes});
+            mesh_bytes_by_key.emplace(key, bytes);
         }
     }
+    mesh_cache.retain_only(live_meshes);
 
     ModelState result;
     // Restoration is driven entirely by ObjectID-keyed mutable records and
@@ -761,7 +777,7 @@ ModelState capture_model_state(const Model& model)
     }
     result.immutable_meshes.reserve(mesh_bytes_by_key.size());
     for (auto& [key, bytes] : mesh_bytes_by_key)
-        result.immutable_meshes.push_back({std::move(key), std::make_shared<const Bytes>(std::move(bytes)), {}, false});
+        result.immutable_meshes.push_back({std::move(key), std::move(bytes), {}, false});
     return result;
 }
 
@@ -1153,18 +1169,19 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
             const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
             state().nested_history_transactions.push_back({id, label,
                 category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
-                before_context, capture_model_state(state().model), true, parent_target,
+                before_context, capture_model_state(state().model, state().mesh_capture_cache), true, parent_target,
                 state().history_revision});
             return duplicate_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
         }
         if (state().history.entries().empty()) {
             const std::string text = before_context.dump();
-            state().history.commit("", Neo::History::Category::Project, capture_model_state(state().model),
+            state().history.commit("", Neo::History::Category::Project,
+                                   capture_model_state(state().model, state().mesh_capture_cache),
                                    Neo::History::Bytes(text.begin(), text.end()));
         }
         const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
         const double capture_started_at = Neo::Bridge::Performance::now_ms();
-        const auto before_model = capture_model_state(state().model);
+        const auto before_model = capture_model_state(state().model, state().mesh_capture_cache);
         const double capture_finished_at = Neo::Bridge::Performance::now_ms();
         state().active_history_transaction = BridgeState::HistoryTransaction{
             id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
@@ -1199,7 +1216,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const std::string text = after_context.dump();
         const Neo::History::Bytes bytes(text.begin(), text.end());
         const double capture_started_at = Neo::Bridge::Performance::now_ms();
-        const auto after_model = capture_model_state(state().model);
+        const auto after_model = capture_model_state(state().model, state().mesh_capture_cache);
         const double capture_finished_at = Neo::Bridge::Performance::now_ms();
         const double commit_started_at = Neo::Bridge::Performance::now_ms();
         HistoryMetadata::commit_history_entry(state(), [&]() {
@@ -1243,7 +1260,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             return error_json("history transaction is stale or belongs to another writer");
         const auto tx = *state().active_history_transaction;
         const bool model_changed = !Neo::History::Codec::model_state_equal(
-            capture_model_state(state().model), tx.before_model);
+            capture_model_state(state().model, state().mesh_capture_cache), tx.before_model);
         restore_history_transaction_state(tx.before_context, tx.before_model);
         state().print.clear();
         if (runtime.invalidate_preview) runtime.invalidate_preview();
@@ -1316,12 +1333,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_reset(const char* context_cstr)
         const Runtime runtime = HistoryRuntime::runtime();
         const json context = canonical_history_context(runtime, parse_history_context(context_cstr));
         state().history.clear();
+        state().mesh_capture_cache.clear();
         state().active_history_transaction.reset();
         state().history_disabled = false;
         const std::string text = context.dump();
         const Neo::History::Bytes bytes(text.begin(), text.end());
         if (!HistoryMetadata::commit_history_entry(state(), [&]() {
-            return state().history.commit("", Neo::History::Category::Project, capture_model_state(state().model), bytes);
+            return state().history.commit("", Neo::History::Category::Project,
+                                          capture_model_state(state().model, state().mesh_capture_cache), bytes);
         }))
             return error_json("could not establish history baseline");
         state().history.mark_current_as_saved();
@@ -1338,7 +1357,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_mark_saved(const char* context_cstr
             const json context = canonical_history_context(runtime, parse_history_context(context_cstr));
             const std::string text = context.dump();
             const Neo::History::Bytes bytes(text.begin(), text.end());
-            if (!state().history.commit("", Neo::History::Category::Project, capture_model_state(state().model), bytes))
+            if (!state().history.commit("", Neo::History::Category::Project,
+                                        capture_model_state(state().model, state().mesh_capture_cache), bytes))
                 return error_json("could not establish history baseline");
         }
         state().history.mark_current_as_saved();
@@ -1361,7 +1381,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_record_context(const char* label_cs
             return duplicate_json(history_status_json().dump());
         }
         const json context = canonical_history_context(runtime, requested);
-        const auto model_state = capture_model_state(state().model);
+        const auto model_state = capture_model_state(state().model, state().mesh_capture_cache);
         Neo::Bridge::HistoryMetadata::record_history_context(
             state(), label, context, plate_session_snapshot_json(), runtime.filament_history_state(), model_state);
         return duplicate_json(history_status_json().dump());

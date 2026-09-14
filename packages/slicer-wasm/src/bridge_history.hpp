@@ -6,6 +6,7 @@
 #include <functional>
 
 #include "bridge_state.hpp"
+#include "history/MeshCaptureCache.hpp"
 #include "history/ProjectHistory.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -34,9 +35,10 @@ void record_active_plate_context(const Runtime& runtime, json requested = {});
 namespace Slic3r::Neo::History::Codec {
 
 // Capture the mutable object records and shared immutable mesh payloads used
-// by Neo's object-history store. The codec is deliberately independent of
-// bridge-owned state and receives the model it serializes explicitly.
+// by Neo's object-history store. The no-cache overload is useful for isolated
+// callers; bridge paths pass their Worker-owned cache explicitly.
 ModelState capture_model_state(const Model& model);
+ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache);
 
 // Reconstruct a transient model from a retained history state. model_template
 // supplies the non-history model defaults needed while materializing a fresh
