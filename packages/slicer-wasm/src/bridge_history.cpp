@@ -842,9 +842,18 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache)
 ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
                                MutableObjectCaptureCache& object_cache)
 {
+    return capture_model_state(model, mesh_cache, object_cache, nullptr);
+}
+
+ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
+                               MutableObjectCaptureCache& object_cache,
+                               CaptureTimings* timings)
+{
+    const double total_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     NeoHistoryArchiveContext archive_context;
     std::map<std::string, MeshCaptureCache::MeshPtr> native_meshes_by_key;
     std::set<MeshCaptureCache::MeshPtr, std::owner_less<MeshCaptureCache::MeshPtr>> live_meshes;
+    const double collection_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     for (const auto* object : model.objects) {
         for (const auto* volume : object->volumes) {
             const auto mesh = volume->get_mesh_shared_ptr();
@@ -864,7 +873,10 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
             native_meshes_by_key.emplace(key, mesh);
         }
     }
+    if (timings) timings->collection_cache_ms += Neo::Bridge::Performance::now_ms() - collection_started_at;
+    const double immutable_retention_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     mesh_cache.retain_only(live_meshes);
+    if (timings) timings->immutable_mesh_retention_ms += Neo::Bridge::Performance::now_ms() - immutable_retention_started_at;
 
     ModelState result;
     // Restoration is driven entirely by ObjectID-keyed mutable records and
@@ -872,9 +884,12 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
     // a per-entry equality or restore payload.
     result.mutable_objects.reserve(model.objects.size());
     std::set<Neo::History::ObjectID> live_object_ids;
+    const double object_collection_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     for (const auto* object : model.objects) live_object_ids.insert(object->id().id);
     object_cache.retain_only(live_object_ids);
+    if (timings) timings->collection_cache_ms += Neo::Bridge::Performance::now_ms() - object_collection_started_at;
     for (const auto* object : model.objects) {
+        const double object_iteration_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
         std::vector<Neo::History::ObjectID> volume_ids;
         volume_ids.reserve(object->volumes.size());
         std::vector<MutableObjectCaptureCache::MeshPtr> object_meshes;
@@ -887,6 +902,8 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
         // the mutable object configuration timestamp as the Orca gate.
         const auto timestamp = static_cast<const ModelConfig&>(object->config).timestamp();
         const auto* cached = object_cache.find(object->id().id, timestamp, object_meshes, volume_ids);
+        if (timings) timings->collection_cache_ms += Neo::Bridge::Performance::now_ms() - object_iteration_started_at;
+        const double mutable_archive_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
         Bytes object_bytes;
         if (cached) {
             object_bytes = *cached->bytes;
@@ -902,11 +919,17 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
         }
         result.mutable_objects.push_back({
             object->id().id, timestamp, std::move(object_bytes), std::move(volume_ids)});
+        if (timings) timings->mutable_object_archive_ms += Neo::Bridge::Performance::now_ms() - mutable_archive_started_at;
     }
+    const double immutable_result_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     result.immutable_meshes.reserve(native_meshes_by_key.size());
     for (auto& [key, mesh] : native_meshes_by_key) {
         const std::size_t native_bytes = mesh ? mesh->memsize() : 0;
         result.immutable_meshes.push_back({std::move(key), {}, {}, false, std::move(mesh), native_bytes});
+    }
+    if (timings) {
+        timings->immutable_mesh_retention_ms += Neo::Bridge::Performance::now_ms() - immutable_result_started_at;
+        timings->total_ms = Neo::Bridge::Performance::now_ms() - total_started_at;
     }
     return result;
 }
@@ -1329,10 +1352,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
         }
         const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
         const double capture_started_at = Neo::Bridge::Performance::now_ms();
+        Neo::History::Codec::CaptureTimings capture_timings;
         Neo::History::ModelState before_model;
         if (!add_plate_delta)
             before_model = capture_model_state(
-                state().model, state().mesh_capture_cache, state().mutable_object_capture_cache);
+                state().model, state().mesh_capture_cache, state().mutable_object_capture_cache,
+                &capture_timings);
         const double capture_finished_at = Neo::Bridge::Performance::now_ms();
         state().active_history_transaction = BridgeState::HistoryTransaction{
             id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
@@ -1340,8 +1365,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
             add_plate_delta};
         Neo::Bridge::Performance::Timings begin_stages{
             {"total", Neo::Bridge::Performance::now_ms() - profile_started_at}};
-        begin_stages.push_back({add_plate_delta ? "delta_record" : "capture_model_state",
-                                capture_finished_at - capture_started_at});
+        if (add_plate_delta) {
+            begin_stages.push_back({"delta_record", capture_finished_at - capture_started_at});
+        } else {
+            begin_stages.push_back({"capture_collection_cache", capture_timings.collection_cache_ms});
+            begin_stages.push_back({"capture_mutable_object_archive", capture_timings.mutable_object_archive_ms});
+            begin_stages.push_back({"capture_immutable_mesh_retention", capture_timings.immutable_mesh_retention_ms});
+            begin_stages.push_back({"capture_model_state", capture_timings.total_ms});
+        }
         Neo::Bridge::Performance::record("history_begin", std::move(begin_stages));
         return duplicate_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
     } catch (const std::exception& e) {
@@ -1375,6 +1406,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const std::string text = after_context.dump();
         const Neo::History::Bytes bytes(text.begin(), text.end());
         const double capture_started_at = Neo::Bridge::Performance::now_ms();
+        Neo::History::Codec::CaptureTimings capture_timings;
         std::optional<Neo::History::RestoreState::DirectFrame> add_plate_frame;
         Neo::History::ModelState after_model;
         if (tx.add_plate_delta) {
@@ -1390,7 +1422,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
                 std::static_pointer_cast<const void>(payload), frame_bytes};
         } else {
             after_model = capture_model_state(
-                state().model, state().mesh_capture_cache, state().mutable_object_capture_cache);
+                state().model, state().mesh_capture_cache, state().mutable_object_capture_cache,
+                &capture_timings);
         }
         const double capture_finished_at = Neo::Bridge::Performance::now_ms();
         const double commit_started_at = Neo::Bridge::Performance::now_ms();
@@ -1412,9 +1445,15 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         Neo::Bridge::Performance::Timings commit_stages{
             {"history_store", commit_finished_at - commit_started_at},
             {"total", Neo::Bridge::Performance::now_ms() - profile_started_at},
-            {tx.add_plate_delta ? "delta_record" : "capture_model_state",
-             capture_finished_at - capture_started_at},
         };
+        if (tx.add_plate_delta) {
+            commit_stages.push_back({"delta_record", capture_finished_at - capture_started_at});
+        } else {
+            commit_stages.push_back({"capture_collection_cache", capture_timings.collection_cache_ms});
+            commit_stages.push_back({"capture_mutable_object_archive", capture_timings.mutable_object_archive_ms});
+            commit_stages.push_back({"capture_immutable_mesh_retention", capture_timings.immutable_mesh_retention_ms});
+            commit_stages.push_back({"capture_model_state", capture_timings.total_ms});
+        }
         Neo::Bridge::Performance::record("history_commit", std::move(commit_stages));
         return duplicate_json(history_status_json().dump());
     } catch (const std::exception& e) {

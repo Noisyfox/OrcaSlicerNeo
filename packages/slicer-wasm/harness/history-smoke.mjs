@@ -316,6 +316,12 @@ for (const [label, edit] of transformCases) {
   if (label === 'Move') {
     const transformProfile = callJson('orc_take_performance_profile', [], []);
     const transformSample = transformProfile.samples.find((sample) => sample.operation === 'set_model_transforms');
+    const historySamples = transformProfile.samples.filter((sample) =>
+      sample.operation === 'history_begin' || sample.operation === 'history_commit').slice(-2);
+    const captureStages = [
+      'capture_collection_cache', 'capture_mutable_object_archive',
+      'capture_immutable_mesh_retention', 'capture_model_state',
+    ];
     const requiredStages = [
       'input_json_decode', 'request_validation_target_resolution', 'transform_mutation',
       'plate_membership_reflow', 'response_json_serialization', 'total',
@@ -324,6 +330,19 @@ for (const [label, edit] of transformCases) {
       requiredStages.every((stage) => Number.isFinite(transformSample.stages_ms[stage]) && transformSample.stages_ms[stage] >= 0) &&
       Object.keys(transformSample.stages_ms).every((stage) => requiredStages.includes(stage)) &&
       Object.keys(transformSample).every((key) => ['operation', 'stages_ms'].includes(key)));
+    historyCheck('normal history capture timing exposes bounded scalar stages', historySamples.length === 2 &&
+      historySamples.every((sample) => captureStages.every((stage) =>
+        Number.isFinite(sample.stages_ms[stage]) && sample.stages_ms[stage] >= 0)) &&
+      historySamples.every((sample) => sample.stages_ms.capture_model_state >=
+        Math.max(sample.stages_ms.capture_collection_cache,
+          sample.stages_ms.capture_mutable_object_archive,
+          sample.stages_ms.capture_immutable_mesh_retention)) &&
+      Object.keys(historySamples[0].stages_ms).every((stage) =>
+        ['total', ...captureStages].includes(stage)) &&
+      Object.keys(historySamples[1].stages_ms).every((stage) =>
+        ['history_store', 'total', ...captureStages].includes(stage)),
+      JSON.stringify(historySamples));
+    console.log('history capture stages (ms)', JSON.stringify(historySamples));
   }
   const committedTransform = modelMesh().instance_transform;
   assertTransformEqual(committedTransform, next, `${label} final transform`);

@@ -162,6 +162,31 @@ test('profiles a real object move through the visible Undo Move boundary', async
     expect(Object.keys(transform.stagesMs).sort()).toEqual([...stageNames].sort());
     expect(stageNames.every((stage) => Number.isFinite(transform.stagesMs[stage]) && transform.stagesMs[stage] >= 0)).toBe(true);
     expect(transform.stagesMs.total).toBeGreaterThanOrEqual(Math.max(...stageNames.filter((stage) => stage !== 'total').map((stage) => transform.stagesMs[stage])));
+    const begin = samples.find((sample) => sample.operation === 'history_begin')!;
+    const commit = samples.find((sample) => sample.operation === 'history_commit')!;
+    const captureStageNames = [
+      'capture_collection_cache', 'capture_mutable_object_archive',
+      'capture_immutable_mesh_retention', 'capture_model_state',
+    ];
+    expect(captureStageNames.every((stage) =>
+      Number.isFinite(begin.stagesMs[stage]) && begin.stagesMs[stage] >= 0 &&
+      Number.isFinite(commit.stagesMs[stage]) && commit.stagesMs[stage] >= 0)).toBe(true);
+    expect(begin.stagesMs.capture_model_state).toBeGreaterThanOrEqual(Math.max(
+      begin.stagesMs.capture_collection_cache,
+      begin.stagesMs.capture_mutable_object_archive,
+      begin.stagesMs.capture_immutable_mesh_retention));
+    expect(commit.stagesMs.capture_model_state).toBeGreaterThanOrEqual(Math.max(
+      commit.stagesMs.capture_collection_cache,
+      commit.stagesMs.capture_mutable_object_archive,
+      commit.stagesMs.capture_immutable_mesh_retention));
+    expect(Object.keys(begin.stagesMs).sort()).toEqual([
+      'capture_collection_cache', 'capture_immutable_mesh_retention',
+      'capture_model_state', 'capture_mutable_object_archive', 'total',
+    ].sort());
+    expect(Object.keys(commit.stagesMs).sort()).toEqual([
+      'capture_collection_cache', 'capture_immutable_mesh_retention',
+      'capture_model_state', 'capture_mutable_object_archive', 'history_store', 'total',
+    ].sort());
 
     const workerMs = delta(before.worker.mutation, after.worker.mutation, 'Worker transaction');
     const clientMs = delta(before.client.mutation, after.client.mutation, 'client transaction');
@@ -175,6 +200,8 @@ test('profiles a real object move through the visible Undo Move boundary', async
       nativeInstrumentedTotalMs: nativeMs,
       rendererToWorkerTransportAndClientJsResidualMs: clientMs - workerMs,
       workerJsAndUninstrumentedNativeResidualMs: workerMs - nativeMs,
+      historyBeginCaptureStagesMs: Object.fromEntries(captureStageNames.map((stage) => [stage, begin.stagesMs[stage]])),
+      historyCommitCaptureStagesMs: Object.fromEntries(captureStageNames.map((stage) => [stage, commit.stagesMs[stage]])),
       nativeSamples: samples,
     }));
   } finally {

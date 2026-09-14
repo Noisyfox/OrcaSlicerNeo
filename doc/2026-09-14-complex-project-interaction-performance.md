@@ -52,6 +52,13 @@ used by the desktop plate-switch performance coverage.
   request validation/target resolution, transform mutation, plate-membership
   reflow, response JSON serialization, and total time. It carries timing
   scalars only; it never retains model, context, or project data.
+- Normal `history_begin` and `history_commit` samples additionally expose the
+  stable scalar-only capture stages `capture_collection_cache`,
+  `capture_mutable_object_archive`, `capture_immutable_mesh_retention`, and
+  `capture_model_state` (the total capture duration). All four fields are
+  present for normal captures, including zero-valued stages. The immutable
+  stage covers retained shared mesh references and ownership accounting only;
+  retained immutable meshes remain mesh-byte-free.
 
 ## Add Plate Profile: User Click to Undo
 
@@ -96,26 +103,35 @@ injection). The latest real threaded-WASM sample (milliseconds) is:
 
 | Boundary or native stage | Time |
 | --- | ---: |
-| Pointer-up to visible enabled Undo Move | 124.56 |
-| Application mutation/publication | 102.58 |
-| Client transaction | 71.80 |
-| Worker transaction | 71.61 |
-| WASM instrumented total | 58.40 |
-| History begin total / capture | 2.66 / 1.05 |
+| Pointer-up to visible enabled Undo Move | 107.54 |
+| Application mutation/publication | 99.09 |
+| Client transaction | 71.36 |
+| Worker transaction | 71.11 |
+| WASM instrumented total | 57.83 |
+| History begin total / capture | 2.42 / 0.75 |
+| Begin collection/cache / mutable archive / immutable retention | 0.05 / 0.67 / 0.00 |
 | Transform input/JSON decode | 0.53 |
-| Transform request validation/target resolution | 0.55 |
-| Transform mutation | 0.01 |
-| Plate-membership/reflow | 1.07 |
-| Transform response JSON serialization | 0.07 |
-| Transform total | 2.27 |
-| History commit total / capture / history store | 53.48 / 44.97 / 5.45 |
-| Main-thread/Worker transport plus client JS residual | 0.20 |
-| Worker JS plus uninstrumented native reads residual | 13.21 |
+| Transform request validation/target resolution | 0.53 |
+| Transform mutation | 0.00 |
+| Plate-membership/reflow | 1.00 |
+| Transform response JSON serialization | 0.06 |
+| Transform total | 2.13 |
+| History commit total / capture / history store | 53.27 / 45.24 / 5.20 |
+| Commit collection/cache / mutable archive / immutable retention | 0.06 / 45.14 / 0.00 |
+| Main-thread/Worker transport plus client JS residual | 0.25 |
+| Worker JS plus uninstrumented native reads residual | 13.28 |
 
-The native transform sample is scalar-only and bounded. Its six stage names
-are asserted by the native history smoke and by the focused E2E; the E2E also
-asserts that the only drained mutation samples are `history_begin`,
-`set_model_transforms`, and `history_commit`.
+The native transform and history-capture samples are scalar-only and bounded.
+Their stage names are asserted by the native history smoke and by the focused
+E2E; the E2E also asserts that the only drained mutation samples are
+`history_begin`, `set_model_transforms`, and `history_commit`. The measured
+45.14 ms mutable-object archive stage accounts for nearly all of the 53.27 ms
+native history commit. Cache comparison and immutable mesh retention are both
+sub-millisecond, establishing that retained immutable shared meshes contribute
+no mesh-byte serialization cost. The Move-to-Undo latency is therefore caused
+primarily by mutable object archive work during history commit, with the
+remaining delay in Worker/application scheduling and reads rather than object
+movement, mesh serialization, or plate reflow.
 
 ## Verification
 
@@ -136,8 +152,9 @@ asserts that the only drained mutation samples are `history_begin`,
 - `ORCA_E2E_REAL=1`, `VITE_USE_MOCK=0`, and the exact h2d fixture with
   `pnpm exec playwright test e2e/object-move-history-profile.e2e.ts -g "profiles a real object move"`
   from `apps/desktop` — passed; it asserts the real project receipt, 11-plate
-  native result, visible enabled `Undo Move`, cross-layer residuals, and all
-  six `set_model_transforms` timing stages.
+  native result, visible enabled `Undo Move`, cross-layer residuals, all six
+  `set_model_transforms` timing stages, and all four normal history capture
+  timing stages; it prints the measured stage values above.
 - `git diff --check` — passed.
 
 Do not treat a build under `packages/slicer-wasm/.work` or

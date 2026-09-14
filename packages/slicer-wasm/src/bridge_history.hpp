@@ -36,6 +36,16 @@ void record_active_plate_context(const Runtime& runtime, json requested = {});
 
 namespace Slic3r::Neo::History::Codec {
 
+// Scalar-only diagnostics for one model capture. The bridge publishes these
+// values only for normal history transactions; the capture result and its
+// cache/reuse semantics are independent of this optional sink.
+struct CaptureTimings {
+    double collection_cache_ms = 0.0;
+    double mutable_object_archive_ms = 0.0;
+    double immutable_mesh_retention_ms = 0.0;
+    double total_ms = 0.0;
+};
+
 // Capture the mutable object records and shared immutable mesh payloads used
 // by Neo's object-history store. The no-cache overload is useful for isolated
 // callers; bridge paths pass their Worker-owned cache explicitly.
@@ -43,6 +53,9 @@ ModelState capture_model_state(const Model& model);
 ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache);
 ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
                                MutableObjectCaptureCache& object_cache);
+ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
+                               MutableObjectCaptureCache& object_cache,
+                               CaptureTimings* timings);
 
 // Reconstruct a transient model from a retained history state. model_template
 // supplies the non-history model defaults needed while materializing a fresh
