@@ -54,6 +54,7 @@ if [[ ! -f "$FREETYPE_ARCHIVE" && -f "$EMSCRIPTEN/cache/sysroot/lib/wasm64-emscr
 fi
 if [[ ! -f "$FREETYPE_ARCHIVE" ]]; then
   echo "[occt] Materializing the wasm64 FreeType port"
+  mkdir -p "$OCCT_BUILD"
   emcc "$PKG_DIR/stubs/freetype-port-probe.c" $OCCT_FLAGS -sERROR_ON_UNDEFINED_SYMBOLS=1 -sSTANDALONE_WASM=1 -o "$OCCT_BUILD/freetype-port-probe.wasm"
 fi
 [[ -f "$FREETYPE_ARCHIVE" ]] || die "wasm64 FreeType port archive was not materialized"

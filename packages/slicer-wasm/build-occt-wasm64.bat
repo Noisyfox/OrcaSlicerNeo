@@ -63,6 +63,7 @@ set "FREETYPE_ARCHIVE=%EMSCRIPTEN%\cache\sysroot\lib\wasm64-emscripten\libfreety
 if not exist "%FREETYPE_ARCHIVE%" if exist "%EMSCRIPTEN%\cache\sysroot\lib\wasm64-emscripten\pic\libfreetype.a" set "FREETYPE_ARCHIVE=%EMSCRIPTEN%\cache\sysroot\lib\wasm64-emscripten\pic\libfreetype.a"
 if not exist "%FREETYPE_ARCHIVE%" (
   echo [occt] Materializing the wasm64 FreeType port
+  mkdir "%OCCT_BUILD%" 2>nul
   emcc "%PKG_DIR%\stubs\freetype-port-probe.c" %OCCT_FLAGS% -sERROR_ON_UNDEFINED_SYMBOLS=1 -sSTANDALONE_WASM=1 -o "%OCCT_BUILD%\freetype-port-probe.wasm"
   if errorlevel 1 exit /b 1
 )
