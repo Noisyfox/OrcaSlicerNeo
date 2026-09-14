@@ -221,7 +221,7 @@ if not exist "%DRACO_ARCHIVE%" (
 )
 if not exist "%OCCT_ROOT%\include\opencascade\Standard.hxx" (
   echo [wasm] Building OCCT 7.6.0 XCAF/STEP closure ^(%ARTIFACT_VARIANT% wasm64^)
-  call "%PKG_DIR%build-occt-wasm64.bat"
+  call "%PKG_DIR%\build-occt-wasm64.bat"
   if errorlevel 1 exit /b 1
 )
 if not exist "%OCCT_ROOT%\lib\libTKXDESTEP.a" (
