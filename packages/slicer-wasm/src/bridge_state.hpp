@@ -32,6 +32,22 @@
 
 namespace Slic3r::Neo::Bridge {
 
+// Native-only receipt for a transform history frame.  The core history store
+// keeps this behind RestoreState::DirectFrame; the bridge validates stable IDs
+// against the live model before applying it.
+struct TransformHistoryRecord {
+    std::size_t object_index { 0 };
+    std::size_t volume_index { 0 };
+    std::size_t instance_index { 0 };
+    std::size_t object_id { 0 };
+    std::size_t volume_id { 0 };
+    std::size_t instance_id { 0 };
+    Slic3r::Geometry::Transformation before_instance;
+    Slic3r::Geometry::Transformation after_instance;
+    Slic3r::Geometry::Transformation before_volume;
+    Slic3r::Geometry::Transformation after_volume;
+};
+
 struct BridgeState {
 #ifdef ORCA_WASM_THREADING
     // Match the pre-created Emscripten pthread pool at runtime. This avoids a
@@ -78,6 +94,14 @@ struct BridgeState {
         bool add_plate_mutated = false;
         std::optional<nlohmann::json> add_plate_before_transforms;
         std::optional<nlohmann::json> add_plate_after_transforms;
+        // Move history is recorded only when the transaction's sole model
+        // mutation is orc_set_model_transforms.  Other model commands mark
+        // this candidate invalid before commit, so a label alone can never
+        // select the sparse restore path.
+        bool transform_delta_candidate = false;
+        bool transform_delta_mutated = false;
+        bool transform_delta_invalidated = false;
+        std::vector<TransformHistoryRecord> transform_records;
     };
     std::optional<HistoryTransaction> active_history_transaction;
     // Nested/coalesced transactions are intentionally dormant: they publish
@@ -161,5 +185,12 @@ struct BridgeState {
 };
 
 BridgeState& state();
+
+inline void invalidate_transform_delta_candidate(BridgeState& bridge_state)
+{
+    if (bridge_state.active_history_transaction &&
+        bridge_state.active_history_transaction->transform_delta_candidate)
+        bridge_state.active_history_transaction->transform_delta_invalidated = true;
+}
 
 } // namespace Slic3r::Neo::Bridge

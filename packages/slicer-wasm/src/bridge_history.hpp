@@ -90,6 +90,15 @@ struct AddPlateHistoryFrame {
     std::optional<nlohmann::json> after_transforms;
 };
 
+// Sparse receipt for an ordinary Move transaction. It retains only the
+// affected object/volume/instance identities and their before/after
+// transforms; mesh and mutable-object archives stay shared in ProjectHistory.
+struct TransformHistoryFrame {
+    std::vector<TransformHistoryRecord> records;
+    std::uint64_t before_revision { 0 };
+    std::uint64_t after_revision { 0 };
+};
+
 } // namespace Slic3r::Neo::Bridge::HistoryRuntime
 
 namespace Slic3r::Neo::Bridge::HistoryMetadata {

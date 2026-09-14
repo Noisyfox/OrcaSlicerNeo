@@ -107,20 +107,18 @@ const freshMoveUndo = callJson('orc_history_undo', [], []);
 if (!freshMoveUndo.ok) throw new Error(`fresh Cube move undo failed: ${JSON.stringify(freshMoveUndo)}`);
 const freshMoveUndoProfile = callJson('orc_take_performance_profile', [], []);
 const restoreSamples = (freshMoveUndoProfile.samples ?? []).filter((sample) => sample.operation === 'history_restore');
-const restoreStages = [
-  'capture_model_equality_check', 'model_staging_deserialization', 'immutable_mesh_reconnect',
-  'plate_session_project_overlay_restore', 'history_cursor_commit', 'response_json_serialization', 'total',
-];
+const restoreStages = ['delta_apply', 'total'];
 historyCheck('fresh-project move Undo exposes bounded native restore stages', restoreSamples.length === 1 &&
   Object.keys(restoreSamples[0].stages_ms).sort().join(',') === [...restoreStages].sort().join(',') &&
   restoreStages.every((stage) => Number.isFinite(restoreSamples[0].stages_ms[stage]) &&
     restoreSamples[0].stages_ms[stage] >= 0) &&
   restoreSamples[0].stages_ms.total >= Math.max(...restoreStages.filter((stage) => stage !== 'total')
     .map((stage) => restoreSamples[0].stages_ms[stage])), JSON.stringify({ restoreSamples, restoreStages }));
-historyCheck('fresh-project move Undo returns the profiled full-restore ABI response', freshMoveUndo.ok === true &&
+historyCheck('fresh-project move Undo returns the profiled direct-restore ABI response', freshMoveUndo.ok === true &&
   freshMoveUndo.context && typeof freshMoveUndo.context === 'object' &&
-  Number.isFinite(restoreSamples[0].stages_ms.response_json_serialization), JSON.stringify({
-    response_json_serialization: restoreSamples[0].stages_ms.response_json_serialization,
+  freshMoveUndo.direct === true && freshMoveUndo.narrow === true &&
+  freshMoveUndo.transform_receipt?.state === 'before', JSON.stringify({
+    direct: freshMoveUndo.direct, narrow: freshMoveUndo.narrow,
   }));
 console.log(`history restore native stages ms ${JSON.stringify(restoreSamples[0].stages_ms)}`);
 const freshFilament = callJson('orc_get_filament_session_snapshot', [], []);
@@ -339,10 +337,7 @@ for (const [label, edit] of transformCases) {
     const transformSample = transformProfile.samples.find((sample) => sample.operation === 'set_model_transforms');
     const historySamples = transformProfile.samples.filter((sample) =>
       sample.operation === 'history_begin' || sample.operation === 'history_commit').slice(-2);
-    const captureStages = [
-      'capture_collection_cache', 'capture_mutable_object_archive',
-      'capture_immutable_mesh_retention', 'capture_model_state',
-    ];
+    const captureStages = ['delta_record'];
     const requiredStages = [
       'input_json_decode', 'request_validation_target_resolution', 'transform_mutation',
       'plate_membership_reflow', 'response_json_serialization', 'total',
@@ -351,13 +346,10 @@ for (const [label, edit] of transformCases) {
       requiredStages.every((stage) => Number.isFinite(transformSample.stages_ms[stage]) && transformSample.stages_ms[stage] >= 0) &&
       Object.keys(transformSample.stages_ms).every((stage) => requiredStages.includes(stage)) &&
       Object.keys(transformSample).every((key) => ['operation', 'stages_ms'].includes(key)));
-    historyCheck('normal history capture timing exposes bounded scalar stages', historySamples.length === 2 &&
+    historyCheck('Move history records bounded sparse scalar stages', historySamples.length === 2 &&
       historySamples.every((sample) => captureStages.every((stage) =>
         Number.isFinite(sample.stages_ms[stage]) && sample.stages_ms[stage] >= 0)) &&
-      historySamples.every((sample) => sample.stages_ms.capture_model_state >=
-        Math.max(sample.stages_ms.capture_collection_cache,
-          sample.stages_ms.capture_mutable_object_archive,
-          sample.stages_ms.capture_immutable_mesh_retention)) &&
+      historySamples.every((sample) => !Object.hasOwn(sample.stages_ms, 'capture_model_state')) &&
       Object.keys(historySamples[0].stages_ms).every((stage) =>
         ['total', ...captureStages].includes(stage)) &&
       Object.keys(historySamples[1].stages_ms).every((stage) =>

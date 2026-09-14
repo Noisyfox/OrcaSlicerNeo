@@ -2,7 +2,7 @@
 
 Date: 2026-09-14
 Status: Implemented with object/mesh reuse, Add Plate delta history, and
-real-project profiling
+sparse Move delta history
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
 ## Problem
@@ -16,8 +16,8 @@ used by the desktop plate-switch performance coverage.
 - A completed object gesture submits the complete renderer CompositeID
   snapshot and recomputes membership globally. This keeps rapid consecutive
   gestures and Worker history snapshots identical.
-- Transform-payload reduction and partial membership rebuilds require a
-  Worker-side history-aware design and are intentionally deferred.
+- Renderer transform-payload reduction and partial membership rebuilds require
+  a Worker-side history-aware design and remain deferred.
 - Plate reflow and renderer transform application use one identity lookup per
   operation rather than repeatedly searching every instance or rendered
   volume.
@@ -46,6 +46,16 @@ used by the desktop plate-switch performance coverage.
   relevant receipt, so unrelated changes such as a volume transform cannot
   leak through Undo. Non-adjacent menu jumps that would skip uncomposed Add
   Plate deltas are rejected rather than restoring an incomplete state.
+- A completed `Move` transaction is a sparse transform-delta frame only when
+  its actual model mutation is `orc_set_model_transforms` and no other model
+  mutator ran in the transaction. The frame retains affected object, volume,
+  and instance identities, before/after transforms, and history revisions;
+  retained meshes and mutable-object archives remain shared and untouched.
+- Adjacent Move Undo/Redo applies the sparse receipt directly and returns a
+  narrow transform receipt plus a full renderer impact descriptor. Crossing
+  between a Move frame and a normal model edit stages the retained predecessor
+  only when needed; stale identities and non-adjacent jumps across Move frames
+  are rejected safely.
 - The real-WASM bridge exposes a bounded, drain-on-read diagnostic timing ring
   for `history_begin`, `set_model_transforms`, `add_plate`, and
   `history_commit`. The atomic transform sample separates input/JSON decode,
@@ -80,17 +90,17 @@ real threaded-WASM sample (milliseconds):
 
 | Boundary or native stage | Time |
 | --- | ---: |
-| Renderer click to visible enabled Undo Add Plate | 546.89 |
-| Application mutation/publication | 520.87 |
-| Client transaction | 493.98 |
-| Worker transaction | 493.81 |
-| WASM instrumented total | 479.89 |
-| History begin `delta_record` | 0.00 |
-| Add Plate reflow | 471.52 |
-| History commit `delta_record` | 0.07 |
-| History-store insertion | 3.40 |
-| Main-thread/Worker transport plus client JS residual | 0.16 |
-| Worker JS plus uninstrumented read residual | 13.92 |
+| Renderer click to visible enabled Undo Add Plate | 544.27 |
+| Application mutation/publication | 517.03 |
+| Client transaction | 490.20 |
+| Worker transaction | 489.97 |
+| WASM instrumented total | 476.12 |
+| History begin `delta_record` | 0.01 |
+| Add Plate reflow | 466.89 |
+| History commit `delta_record` | 0.09 |
+| History-store insertion | 3.55 |
+| Main-thread/Worker transport plus client JS residual | 0.23 |
+| Worker JS plus uninstrumented read residual | 13.85 |
 
 The history redesign reduces the visible delay from 1436.24 ms to 546.89 ms.
 For Add Plate, the history begin/commit path now records a sparse delta and
@@ -112,31 +122,28 @@ real threaded-WASM sample (milliseconds) is:
 
 | Boundary or native stage | Time |
 | --- | ---: |
-| Pointer-up to visible enabled Undo Move | 187.84 |
-| Application mutation/publication | 179.24 |
-| Client transaction | 154.03 |
-| Worker transaction | 153.80 |
-| WASM instrumented total | 141.30 |
-| History begin total / capture | 108.22 / 106.63 |
-| Transform total | 2.11 |
-| History commit total / capture / history store | 30.96 / 21.66 / 4.26 |
-| Undo click to restored projection fence | 3,782.98 |
-| Application restore / publication | 1,800.57 / 1,922.27 |
-| Client restore | 1,800.54 |
-| Worker restore | 1,800.11 |
-| WASM instrumented restore total | 1,795.44 |
-| Restore equality / staging / mesh reconnect | 0.82 / 1,789.82 / 0.05 |
-| Restore plate/session/overlay / cursor / response JSON | 0.55 / 0.01 / 0.09 |
-| Renderer-to-Worker transport plus client JS residual | 0.43 |
-| Worker JS plus uninstrumented native residual | 4.67 |
+| Pointer-up to visible enabled Undo Move | 62.13 |
+| Application mutation/publication | 53.79 |
+| Client transaction | 24.30 |
+| Worker transaction | 23.73 |
+| WASM instrumented total | 11.25 |
+| History begin total / sparse delta record | 1.48 / 0.00 |
+| Transform total | 2.16 |
+| History commit total / sparse delta record / history store | 7.61 / 0.05 / 5.49 |
+| Undo click to restored projection fence | 1,892.92 |
+| Application restore / publication | 10.30 / 1,814.78 |
+| Client restore | 10.26 |
+| Worker restore | 9.56 |
+| WASM instrumented restore total | 2.85 |
+| Restore delta apply / total | 2.84 / 2.85 |
+| Renderer-to-Worker transport plus client JS residual | 0.70 |
+| Worker JS plus uninstrumented native residual | 6.70 |
 
-The native transform, capture, and restore samples are scalar-only and bounded;
-their exact stage names are asserted by native history smoke and focused E2E.
-The restore fence shows that mutable-object staging/deserialization dominates
-the user-visible Undo latency (about 1,790 ms of 1,795 ms instrumented native
-time). The remaining time is primarily renderer publication and model-mesh
-reloading, while transport/client JS and uninstrumented Worker/native work are
-reported separately as the two residuals above.
+The native transform and restore samples are scalar-only and bounded. Direct
+Move begin/commit expose `delta_record` (and `history_store` on commit), while
+direct Undo/Redo expose `delta_apply` and `total`; no full native model staging
+or `capture_model_state` stage occurs on this adjacent path. Renderer
+publication remains the conservative full projection until Step 2.
 
 ## Verification
 
@@ -144,9 +151,10 @@ reported separately as the two residuals above.
 - `pnpm --filter @orca/slicer-wasm typecheck` — passed.
 - `pnpm --filter @orca/slicer-app test` — 558 tests passed.
 - `pnpm --filter @orca/slicer-app typecheck` — passed.
-- `cmd /c scripts\build-windows.bat quick -j 8` — current threaded and
+- `cmd /c scripts\build-windows.bat quick --variant both` — threaded and
   serial WASM artifacts built and validated.
-- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/.work/serial/build/orca_slice.js` — passed, including no-reflow/reflow delta, normal-edit crossing, Undo/Redo, and redo-branch checks.
+- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js` — passed, including sparse Move begin/commit/Undo/Redo, normal-edit crossing, Add Plate delta, and redo-branch checks.
+- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js` — passed with the same sparse Move coverage.
 - `pnpm stage:assets` from the repository root, then `pnpm exec electron-vite
   build` from `apps/desktop` with `VITE_USE_MOCK=0` and `VITE_E2E=1` — stages
   the just-built WASM into renderer source before the Electron bundle is made.
@@ -155,12 +163,11 @@ reported separately as the two residuals above.
   `apps/desktop` — passed; it asserts the real project receipt and the absence
   of `capture_model_state` on Add Plate history begin/commit.
 - `ORCA_E2E_REAL=1`, `VITE_USE_MOCK=0`, and the exact u1 fixture with
-  `pnpm exec playwright test e2e/object-move-history-profile.e2e.ts -g "profiles a real object move"`
-  from `apps/desktop` — passed; it asserts the real receipt (filename, byte
-  count, and dynamically reported 11 native plates), actual canvas drag, the
-  consumed Undo/visible enabled Redo restore fence, restored renderer
-  projection, cross-layer residuals, and all seven full-restore stages; it
-  prints every measurement above.
+  `pnpm exec playwright test e2e/object-move-history-profile.e2e.ts -g
+  "profiles a real object move"` from `apps/desktop` — passed; it verifies
+  the real receipt, canvas drag, consumed Undo/visible enabled Redo fence,
+  restored renderer projection, and sparse native `delta_record`/
+  `delta_apply` stages without full native staging.
 - `git diff --check` — passed.
 
 Do not treat a build under `packages/slicer-wasm/.work` or

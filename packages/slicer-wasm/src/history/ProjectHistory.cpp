@@ -226,6 +226,13 @@ struct ProjectHistory::Impl {
     }
 };
 
+namespace {
+bool is_direct_kind(const StoredEntry& entry, RestoreState::DirectFrame::Kind kind)
+{
+    return entry.state.direct_frame && entry.state.direct_frame->kind == kind;
+}
+}
+
 ProjectHistory::ProjectHistory(std::size_t byte_budget)
     : m_impl(std::make_unique<Impl>()), m_byte_budget(byte_budget) {}
 
@@ -476,6 +483,8 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
     const bool target_add_plate_transition = state.info.label == "Add Plate" && state.state.direct_frame &&
         state.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate;
     const bool add_plate_transition = source_add_plate_transition || target_add_plate_transition;
+    const bool source_transform_transition = is_direct_kind(source, RestoreState::DirectFrame::Kind::Transform);
+    const bool target_transform_transition = is_direct_kind(state, RestoreState::DirectFrame::Kind::Transform);
     // Entering an Add Plate state from an ordinary edit must materialize the
     // stored predecessor model before applying its transform receipt.  Only
     // leaving an Add Plate state can reuse the live model safely.
@@ -497,6 +506,12 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
         result.direct_frame_transition = true;
         result.direct_frame_after = !source_add_plate_transition;
     }
+    if (source_transform_transition || target_transform_transition) {
+        result.state.model = source_transform_transition ? ModelState{} : Impl::restore_model(state.state);
+        result.state.direct_frame = source_transform_transition ? source.state.direct_frame : state.state.direct_frame;
+        result.direct_frame_transition = true;
+        result.direct_frame_after = !source_transform_transition;
+    }
     return true;
 }
 
@@ -513,6 +528,7 @@ bool ProjectHistory::prepare_redo(RestorePlan& result) const
     const auto& state = m_impl->states[target];
     const bool add_plate_transition = state.info.label == "Add Plate" && state.state.direct_frame &&
         state.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate;
+    const bool transform_transition = is_direct_kind(state, RestoreState::DirectFrame::Kind::Transform);
     result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
@@ -520,6 +536,12 @@ bool ProjectHistory::prepare_redo(RestorePlan& result) const
     result.direct_frame_transition = state.info.label == "Move Prime Tower" && state.state.direct_frame &&
         state.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower;
     if (add_plate_transition) {
+        result.direct_frame_transition = true;
+        result.direct_frame_after = true;
+    }
+    if (transform_transition) {
+        result.state.model = ModelState{};
+        result.state.direct_frame = state.state.direct_frame;
         result.direct_frame_transition = true;
         result.direct_frame_after = true;
     }
@@ -540,7 +562,8 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
     for (std::size_t index = first_between; index < last_between; ++index) {
         const auto& intermediate = m_impl->states[index];
         if (intermediate.state.direct_frame &&
-            intermediate.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate)
+            (intermediate.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate ||
+             intermediate.state.direct_frame->kind == RestoreState::DirectFrame::Kind::Transform))
             return false;
     }
     const bool target_add_plate_transition = it->info.label == "Add Plate" && it->state.direct_frame &&
@@ -560,6 +583,16 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
             ? it->state.direct_frame : source.state.direct_frame;
         result.direct_frame_transition = true;
         result.direct_frame_after = entering_add_plate;
+    }
+    const bool target_transform_transition = is_direct_kind(*it, RestoreState::DirectFrame::Kind::Transform) &&
+        result.target_cursor > result.from_cursor;
+    const bool source_transform_transition = is_direct_kind(source, RestoreState::DirectFrame::Kind::Transform) &&
+        result.target_cursor < result.from_cursor;
+    if (target_transform_transition || source_transform_transition) {
+        result.state.model = source_transform_transition ? ModelState{} : Impl::restore_model(it->state);
+        result.state.direct_frame = source_transform_transition ? source.state.direct_frame : it->state.direct_frame;
+        result.direct_frame_transition = true;
+        result.direct_frame_after = target_transform_transition;
     }
     return true;
 }
@@ -593,7 +626,8 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
     for (std::size_t index = first_between; index < last_between; ++index) {
         const auto& intermediate = m_impl->states[index];
         if (intermediate.state.direct_frame &&
-            intermediate.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate)
+            (intermediate.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate ||
+             intermediate.state.direct_frame->kind == RestoreState::DirectFrame::Kind::Transform))
             return false;
     }
     const auto& target_entry = m_impl->states[target];
@@ -624,6 +658,16 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
         result.state.direct_frame = source_add_plate_transition ? source_entry.state.direct_frame : target_entry.state.direct_frame;
         result.direct_frame_transition = true;
         result.direct_frame_after = target_add_plate_transition;
+    }
+    const bool source_transform_transition = direction == JumpDirection::Undo &&
+        is_direct_kind(source_entry, RestoreState::DirectFrame::Kind::Transform);
+    const bool target_transform_transition = direction == JumpDirection::Redo &&
+        is_direct_kind(target_entry, RestoreState::DirectFrame::Kind::Transform);
+    if (source_transform_transition || target_transform_transition) {
+        result.state.model = source_transform_transition ? ModelState{} : Impl::restore_model(target_entry.state);
+        result.state.direct_frame = source_transform_transition ? source_entry.state.direct_frame : target_entry.state.direct_frame;
+        result.direct_frame_transition = true;
+        result.direct_frame_after = target_transform_transition;
     }
     return true;
 }

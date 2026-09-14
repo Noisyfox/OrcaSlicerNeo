@@ -25,6 +25,7 @@
 using namespace Slic3r;
 using nlohmann::json;
 using Neo::Bridge::state;
+using Neo::Bridge::TransformHistoryRecord;
 using namespace Neo::Bridge::ModelOperations;
 using namespace Neo::Bridge::PlateSession;
 namespace {
@@ -47,6 +48,11 @@ void invalidate_preview_source() {
     s.preview_text_available = false;
     s.preview_plate_id.clear();
     s.preview_plate_revision = 0;
+}
+void invalidate_transform_delta_candidate() {
+    if (state().active_history_transaction &&
+        state().active_history_transaction->transform_delta_candidate)
+        state().active_history_transaction->transform_delta_invalidated = true;
 }
 std::string sanitized_model_basename(const char* filename, const char* ext) {
     std::string name = filename ? filename : "";
@@ -164,6 +170,7 @@ extern "C" {
 // Stage them to a MEMFS file so the format loaders can open a real path.
 EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const char* ext, const char* filename) {
     try {
+        invalidate_transform_delta_candidate();
         if (!data || len <= 0) return error_json("no model bytes");
         const std::string path = "/tmp/" + sanitized_model_basename(filename, ext);
         std::FILE* f = std::fopen(path.c_str(), "wb");
@@ -319,6 +326,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
 // to produce.
 EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* name) {
     try {
+        invalidate_transform_delta_candidate();
         const auto* current_plate = find_plate(state().current_plate_id);
         const PlateBounds placement_bounds = selected_plate_bounds();
         const Vec3d placement_center = current_plate
@@ -398,6 +406,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
 // export operate on an empty plate.
 EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     try {
+        invalidate_transform_delta_candidate();
         const auto affected_before = member_plate_ids();
         state().print.clear();
         invalidate_preview_source();
@@ -420,6 +429,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
 // before any mutation so a bad request leaves the scene intact.
 EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json) {
     try {
+        invalidate_transform_delta_candidate();
         const json j = json::parse(object_ids_json ? object_ids_json : "");
         const auto ids = parse_positive_id_array(j);
         if (!ids) return error_json("no object ids");
@@ -458,6 +468,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json)
 // mutation, so a bad request leaves the scene intact.
 EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json) {
     try {
+        invalidate_transform_delta_candidate();
         const json j = json::parse(volume_ids_json ? volume_ids_json : "");
         const auto ids = parse_positive_id_array(j);
         if (!ids) return error_json("no volume ids");
@@ -507,6 +518,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
 // selection to the cloned objects (spec §9.2).
 EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) {
     try {
+        invalidate_transform_delta_candidate();
         const json j = json::parse(object_ids_json ? object_ids_json : "");
         const auto ids = parse_positive_id_array(j);
         if (!ids) return error_json("no object ids");
@@ -535,6 +547,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) 
 // the end. Returns the current structure for a single refresh round-trip.
 EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double to_index) {
     try {
+        invalidate_transform_delta_candidate();
         const auto from_id = to_object_id(from_obj_id);
         if (!from_id) return error_json("object id must be a positive integer");
         if (to_index < 0) return error_json("target index must be >= 0");
@@ -567,6 +580,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double 
 // it is moved so it sits at `to_index` in the final list.
 EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double from_volume_id, double to_index) {
     try {
+        invalidate_transform_delta_candidate();
         const auto obj_id = to_object_id(object_id);
         const auto from_id = to_object_id(from_volume_id);
         if (!obj_id || !from_id) return error_json("id must be a positive integer");
@@ -605,6 +619,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
 // renderer can clear stale selection and re-read (spec §8 mutation flow).
 EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, double max_extruders, double remap_paint) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(volume_id);
         if (!id) return error_json("volume id must be a positive integer");
         ModelVolume* vol = find_volume_by_id(*id);
@@ -650,6 +665,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
 // first-version UI and is left to the host callers.
 EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, double auto_drop) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(object_id);
         if (!id) return error_json("object id must be a positive integer");
         ModelObject* obj = find_object_by_id(*id);
@@ -688,6 +704,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
 // new object carries one instance. Returns the new object's stable ID.
 EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* object_ids_json, const char* name_cstr) {
     try {
+        invalidate_transform_delta_candidate();
         const json j = json::parse(object_ids_json ? object_ids_json : "");
         const auto ids = parse_positive_id_array(j);
         if (!ids) return error_json("no object ids");
@@ -750,6 +767,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
 // instances are then removed from the source object.
 EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object_id, const char* instance_ids_json) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(object_id);
         if (!id) return error_json("object id must be a positive integer");
         ModelObject* obj = find_object_by_id(*id);
@@ -805,6 +823,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
 // moved. Returns the new stable instance ID.
 EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(object_id);
         if (!id) return error_json("object id must be a positive integer");
         ModelObject* obj = find_object_by_id(*id);
@@ -834,6 +853,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
 // instance cannot be removed (an object must keep at least one instance).
 EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double instance_id) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(object_id);
         const auto iid = to_object_id(instance_id);
         if (!id || !iid) return error_json("id must be a positive integer");
@@ -910,6 +930,7 @@ static void set_transform(Slic3r::Geometry::Transformation& target, const json& 
 
 EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int instance_idx, double x, double y, double z) {
     try {
+        invalidate_transform_delta_candidate();
         auto& model = state().model;
         if (object_idx < 0 || object_idx >= static_cast<int>(model.objects.size()))
             return error_json("object index out of range");
@@ -991,7 +1012,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
     try {
         const double profile_started_at = Neo::Bridge::Performance::now_ms();
         const std::string transaction_id = transaction_id_cstr ? transaction_id_cstr : "";
-        const auto& active = state().active_history_transaction;
+        auto& active = state().active_history_transaction;
         if (!active || active->id != transaction_id)
             return error_json("history transaction is stale or belongs to another writer");
         if (active->base_history_revision != state().history_revision)
@@ -1043,6 +1064,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
             ? std::set<std::string>{} : member_plate_ids_for_instances(affected_instances);
         const double membership_lookup_finished_at = Neo::Bridge::Performance::now_ms();
         const double mutation_started_at = Neo::Bridge::Performance::now_ms();
+        const std::size_t transform_record_count_before = active->transform_records.size();
+        const bool transform_delta_mutated_before = active->transform_delta_mutated;
         try {
             for (const auto& item : staged) {
                 item.instance->set_transformation(item.next_instance);
@@ -1054,6 +1077,42 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
             const double mutation_finished_at = Neo::Bridge::Performance::now_ms();
             const double membership_reflow_started_at = Neo::Bridge::Performance::now_ms();
             rebuild_plate_membership(true);
+            if (active->transform_delta_candidate) {
+                for (const auto& item : staged) {
+                    if (item.next_instance == item.previous_instance && item.next_volume == item.previous_volume)
+                        continue;
+                    const auto object_id = item.object->id().id;
+                    const auto volume_id = item.volume->id().id;
+                    const auto instance_id = item.instance->id().id;
+                    auto it = std::find_if(active->transform_records.begin(), active->transform_records.end(),
+                        [&](const TransformHistoryRecord& record) {
+                            return record.object_id == object_id && record.volume_id == volume_id &&
+                                record.instance_id == instance_id;
+                    });
+                    if (it == active->transform_records.end()) {
+                        const auto object_index = static_cast<std::size_t>(std::distance(
+                            state().model.objects.begin(),
+                            std::find(state().model.objects.begin(), state().model.objects.end(), item.object)));
+                        const auto volume_index = static_cast<std::size_t>(std::distance(
+                            item.object->volumes.begin(),
+                            std::find(item.object->volumes.begin(), item.object->volumes.end(), item.volume)));
+                        const auto instance_index = static_cast<std::size_t>(std::distance(
+                            item.object->instances.begin(),
+                            std::find(item.object->instances.begin(), item.object->instances.end(), item.instance)));
+                        active->transform_records.push_back({
+                            object_index, volume_index, instance_index,
+                            object_id, volume_id, instance_id,
+                            item.previous_instance, item.next_instance,
+                            item.previous_volume, item.next_volume});
+                    } else {
+                        it->after_instance = item.next_instance;
+                        it->after_volume = item.next_volume;
+                        if (it->after_instance == it->before_instance && it->after_volume == it->before_volume)
+                            active->transform_records.erase(it);
+                    }
+                }
+                active->transform_delta_mutated = !active->transform_records.empty();
+            }
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
                                                            json::array(), &affected_instances);
             const double membership_reflow_finished_at = Neo::Bridge::Performance::now_ms();
@@ -1078,6 +1137,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 item.object->invalidate_bounding_box();
                 if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
                     item.object->config.touch();
+            }
+            if (active->transform_delta_candidate) {
+                active->transform_records.resize(transform_record_count_before);
+                active->transform_delta_mutated = transform_delta_mutated_before;
             }
             throw;
         }
@@ -1112,6 +1175,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_model_structure() {
 
 EMSCRIPTEN_KEEPALIVE const char* orc_rename_object(double object_id, const char* name_cstr) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(object_id);
         if (!id) return error_json("object id must be a positive integer");
         if (name_cstr == nullptr) return error_json("name is required");
@@ -1133,6 +1197,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_object(double object_id, const char*
 
 EMSCRIPTEN_KEEPALIVE const char* orc_rename_volume(double volume_id, const char* name_cstr) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(volume_id);
         if (!id) return error_json("volume id must be a positive integer");
         if (name_cstr == nullptr) return error_json("name is required");
@@ -1152,6 +1217,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_volume(double volume_id, const char*
 
 EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const char* type_cstr) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(volume_id);
         if (!id) return error_json("volume id must be a positive integer");
         if (type_cstr == nullptr) return error_json("type is required");
@@ -1180,6 +1246,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
 
 EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, double printable) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(object_id);
         if (!id) return error_json("object id must be a positive integer");
         ModelObject* obj = find_object_by_id(*id);
@@ -1205,6 +1272,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, doub
 
 EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, double printable) {
     try {
+        invalidate_transform_delta_candidate();
         const auto id = to_object_id(instance_id);
         if (!id) return error_json("instance id must be a positive integer");
         ModelInstance* inst = find_instance_by_id(*id);

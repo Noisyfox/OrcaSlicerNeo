@@ -82,7 +82,7 @@ struct RestoreState {
     // eviction policy as the authoritative archive state, and a missing frame
     // always falls back to the archive restore path.
     struct DirectFrame {
-        enum class Kind : std::uint8_t { Filament, PrimeTower, AddPlate };
+        enum class Kind : std::uint8_t { Filament, PrimeTower, AddPlate, Transform };
         Kind kind { Kind::Filament };
         std::shared_ptr<const void> payload;
         std::size_t bytes { 0 };

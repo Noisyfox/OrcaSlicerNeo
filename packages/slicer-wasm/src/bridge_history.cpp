@@ -329,6 +329,155 @@ json restore_add_plate_frame(const Runtime& runtime, const Neo::History::Restore
     return result;
 }
 
+json transform_json(const Slic3r::Geometry::Transformation& transform)
+{
+    const auto offset = transform.get_offset();
+    const auto rotation = transform.get_rotation();
+    const auto scale = transform.get_scaling_factor();
+    const auto mirror = transform.get_mirror();
+    const auto matrix = transform.get_matrix().matrix();
+    return json{{"offset", {offset.x(), offset.y(), offset.z()}},
+                {"rotation", {rotation.x(), rotation.y(), rotation.z()}},
+                {"scale", {scale.x(), scale.y(), scale.z()}},
+                {"mirror", {mirror.x(), mirror.y(), mirror.z()}},
+                {"matrix", {matrix(0, 0), matrix(1, 0), matrix(2, 0), matrix(3, 0),
+                             matrix(0, 1), matrix(1, 1), matrix(2, 1), matrix(3, 1),
+                             matrix(0, 2), matrix(1, 2), matrix(2, 2), matrix(3, 2),
+                             matrix(0, 3), matrix(1, 3), matrix(2, 3), matrix(3, 3)}}};
+}
+
+json restore_transform_frame(const Runtime& runtime, const Neo::History::RestorePlan& plan,
+                             const TransformHistoryFrame& frame, const json& context)
+{
+    if (!plan.state.direct_frame || !state().history.can_commit_restore(plan) || frame.records.empty())
+        throw std::runtime_error("transform delta history frame is unavailable");
+    const bool after_state = plan.direct_frame_after;
+    const double apply_started_at = Neo::Bridge::Performance::now_ms();
+    const bool has_model = !plan.state.model.serialized.empty() ||
+        !plan.state.model.mutable_objects.empty() || !plan.state.model.immutable_meshes.empty();
+    std::optional<Model> original_model;
+    std::optional<Model> staged_model;
+    if (has_model) {
+        original_model.emplace(state().model);
+        staged_model.emplace(Neo::History::Codec::stage_model(state().model,
+            plan.state));
+        state().model = std::move(*staged_model);
+        state().mutable_object_capture_cache.clear();
+    }
+    std::vector<std::tuple<ModelObject*, ModelVolume*, ModelInstance*>> targets;
+    targets.reserve(frame.records.size());
+    std::set<std::tuple<std::size_t, std::size_t, std::size_t>> seen;
+    try {
+        for (const auto& record : frame.records) {
+            if (!seen.emplace(record.object_id, record.volume_id, record.instance_id).second)
+                throw std::runtime_error("duplicate transform delta history record");
+            ModelObject* object = nullptr;
+            if (has_model) {
+                if (record.object_index >= state().model.objects.size())
+                    throw std::runtime_error("transform delta object index is stale");
+                object = state().model.objects[record.object_index];
+            } else {
+                for (auto* candidate : state().model.objects)
+                    if (candidate->id().id == record.object_id) { object = candidate; break; }
+                if (!object) throw std::runtime_error("transform delta object identity is stale");
+            }
+            ModelVolume* volume = nullptr;
+            ModelInstance* instance = nullptr;
+            if (has_model) {
+                if (record.volume_index >= object->volumes.size() || record.instance_index >= object->instances.size())
+                    throw std::runtime_error("transform delta member index is stale");
+                volume = object->volumes[record.volume_index];
+                instance = object->instances[record.instance_index];
+            } else {
+                for (auto* candidate : object->volumes)
+                    if (candidate->id().id == record.volume_id) { volume = candidate; break; }
+                for (auto* candidate : object->instances)
+                    if (candidate->id().id == record.instance_id) { instance = candidate; break; }
+            }
+            if (!volume || !instance)
+                throw std::runtime_error("transform delta member identity is stale: object=" +
+                    std::to_string(record.object_id) + ", volume=" + std::to_string(record.volume_id) +
+                    ", instance=" + std::to_string(record.instance_id));
+            targets.emplace_back(object, volume, instance);
+        }
+    } catch (...) {
+        if (original_model) state().model = std::move(*original_model);
+        throw;
+    }
+    const auto before_plates = state().plate_session_plates;
+    const auto before_current_plate = state().current_plate_id;
+    const auto before_membership = state().instance_plate_ids;
+    const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
+    const auto before_parked = state().parked_instance_ids;
+    const auto before_pending = state().pending_membership_instance_ids;
+    const auto before_revisions = state().plate_input_revisions;
+    const auto before_overlay = state().project_config_overlay;
+    std::vector<std::pair<Slic3r::Geometry::Transformation, Slic3r::Geometry::Transformation>> before_transforms;
+    before_transforms.reserve(targets.size());
+    for (const auto& [object, volume, instance] : targets)
+        before_transforms.emplace_back(instance->get_transformation(), volume->get_transformation());
+    try {
+        for (std::size_t index = 0; index < frame.records.size(); ++index) {
+            const auto& record = frame.records[index];
+            auto [object, volume, instance] = targets[index];
+            instance->set_transformation(after_state ? record.after_instance : record.before_instance);
+            volume->set_transformation(after_state ? record.after_volume : record.before_volume);
+            object->invalidate_bounding_box();
+            object->config.touch();
+        }
+        Neo::Bridge::PlateSession::rebuild_plate_membership(true);
+        if (!context.contains("plateSession") || !context["plateSession"].is_object())
+            throw std::runtime_error("transform history is missing plate session");
+        restore_history_plate_session(context["plateSession"], state().model);
+        if (!valid_project_config_overlay(context.value("projectConfigOverlay", empty_project_config_overlay())))
+            throw std::runtime_error("invalid transform project configuration overlay");
+        state().project_config_overlay = context["projectConfigOverlay"];
+        apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
+        Neo::Bridge::PlateSession::normalize_coordinate_arrays(
+            state().presets.project_config, state().plate_session_plates.size());
+        if (!state().history.commit_restore(plan)) throw std::runtime_error("history restore became stale");
+    } catch (...) {
+        if (original_model) state().model = std::move(*original_model);
+        else for (std::size_t index = 0; index < targets.size(); ++index) {
+                auto [object, volume, instance] = targets[index];
+                instance->set_transformation(before_transforms[index].first);
+                volume->set_transformation(before_transforms[index].second);
+                object->invalidate_bounding_box();
+            }
+        state().plate_session_plates = before_plates;
+        state().current_plate_id = before_current_plate;
+        state().instance_plate_ids = before_membership;
+        state().plate_out_of_bounds_ids = before_out_of_bounds;
+        state().parked_instance_ids = before_parked;
+        state().pending_membership_instance_ids = before_pending;
+        state().plate_input_revisions = before_revisions;
+        state().project_config_overlay = before_overlay;
+        throw;
+    }
+    state().print.clear();
+    if (runtime.invalidate_preview) runtime.invalidate_preview();
+    HistoryMetadata::advance_history_epoch(state());
+    json records = json::array();
+    for (const auto& record : frame.records)
+        records.push_back({{"object_id", record.object_id}, {"volume_id", record.volume_id},
+                           {"instance_id", record.instance_id}, {"object_index", record.object_index},
+                           {"volume_index", record.volume_index}, {"instance_index", record.instance_index},
+                           {"instance_transform", transform_json(after_state ? record.after_instance : record.before_instance)},
+                           {"volume_transform", transform_json(after_state ? record.after_volume : record.before_volume)}});
+    Neo::Bridge::Performance::record("history_restore", {
+        {"delta_apply", Neo::Bridge::Performance::now_ms() - apply_started_at},
+        {"total", Neo::Bridge::Performance::now_ms() - apply_started_at},
+    });
+    return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
+                {"entryId", history_entry_id(plan.state.entry.id)}, {"direct", true}, {"narrow", true},
+                {"transform_receipt", {{"version", 1}, {"state", after_state ? "after" : "before"},
+                                        {"before_revision", frame.before_revision},
+                                        {"after_revision", frame.after_revision}, {"records", records}}},
+                {"impact", {{"version", 1}, {"model", "full"}, {"plateSession", true},
+                            {"filamentRack", false}, {"projectOverlay", true}, {"selectionContext", true},
+                            {"primeTower", true}, {"preview", "all"}}}};
+}
+
 void validate_filament_history_mutable_state(PresetBundle& catalog, const Neo::Bridge::Filament::State::StagedMutableState& staged,
                                              Model& model, const std::vector<BridgeState::PlateSessionPlate>& plates,
                                              const json& overlay)
@@ -594,6 +743,15 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
         if (!frame) throw std::runtime_error("add plate delta history frame is unavailable");
         const auto context = parse_history_context(parsed.dump().c_str());
         return restore_add_plate_frame(runtime, plan, *frame, context);
+    }
+    if (plan.direct_frame_transition && plan.state.direct_frame &&
+        plan.state.direct_frame->kind == History::RestoreState::DirectFrame::Kind::Transform) {
+        if (!plan.state.direct_frame->payload || plan.state.direct_frame->bytes == 0)
+            throw std::runtime_error("transform delta history frame is unavailable");
+        const auto frame = std::static_pointer_cast<const TransformHistoryFrame>(plan.state.direct_frame->payload);
+        if (!frame) throw std::runtime_error("transform delta history frame is unavailable");
+        const auto context = parse_history_context(parsed.dump().c_str());
+        return restore_transform_frame(runtime, plan, *frame, context);
     }
     const json context = parse_history_context(parsed.dump().c_str());
     if (plan.state.direct_frame &&
@@ -1330,7 +1488,8 @@ json restore_diagnostics_json(const BridgeState& state)
         out["currentDirectFrameBytes"] = current.direct_frame ? current.direct_frame->bytes : 0;
         out["currentDirectFrameKind"] = current.direct_frame
             ? (current.direct_frame->kind == History::RestoreState::DirectFrame::Kind::PrimeTower ? "primeTower" :
-               current.direct_frame->kind == History::RestoreState::DirectFrame::Kind::AddPlate ? "addPlate" : "filament")
+               current.direct_frame->kind == History::RestoreState::DirectFrame::Kind::AddPlate ? "addPlate" :
+               current.direct_frame->kind == History::RestoreState::DirectFrame::Kind::Transform ? "transform" : "filament")
             : "none";
     }
     out["previewPlateId"] = state.preview_plate_id;
@@ -1375,6 +1534,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
             return duplicate_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
         }
         const bool add_plate_delta = label == "Add Plate" && category == "project";
+        const bool transform_delta = label == "Move" && category == "project";
         if (add_plate_delta && state().history.entries().empty())
             return error_json("add plate history requires an established baseline");
         if (state().history.entries().empty()) {
@@ -1388,7 +1548,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
         const double capture_started_at = Neo::Bridge::Performance::now_ms();
         Neo::History::Codec::CaptureTimings capture_timings;
         Neo::History::ModelState before_model;
-        if (!add_plate_delta) {
+        if (!add_plate_delta && !transform_delta) {
             // Transform edits touch ModelObject::config, but imported
             // projects can carry a timestamp equal to the last baseline.
             // Never let the timestamp-gated archive cache turn the live
@@ -1403,9 +1563,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
             id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
             before_context, std::move(before_model), false, {}, state().history_revision,
             add_plate_delta};
+        state().active_history_transaction->transform_delta_candidate = transform_delta;
         Neo::Bridge::Performance::Timings begin_stages{
             {"total", Neo::Bridge::Performance::now_ms() - profile_started_at}};
-        if (add_plate_delta) {
+        if (add_plate_delta || transform_delta) {
             begin_stages.push_back({"delta_record", capture_finished_at - capture_started_at});
         } else {
             begin_stages.push_back({"capture_collection_cache", capture_timings.collection_cache_ms});
@@ -1448,6 +1609,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const double capture_started_at = Neo::Bridge::Performance::now_ms();
         Neo::History::Codec::CaptureTimings capture_timings;
         std::optional<Neo::History::RestoreState::DirectFrame> add_plate_frame;
+        std::optional<Neo::History::RestoreState::DirectFrame> transform_frame;
         Neo::History::ModelState after_model;
         if (tx.add_plate_delta) {
             if (!tx.add_plate_mutated)
@@ -1460,6 +1622,15 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             add_plate_frame = Neo::History::RestoreState::DirectFrame{
                 Neo::History::RestoreState::DirectFrame::Kind::AddPlate,
                 std::static_pointer_cast<const void>(payload), frame_bytes};
+        } else if (tx.transform_delta_candidate && tx.transform_delta_mutated &&
+                   !tx.transform_delta_invalidated && !tx.transform_records.empty()) {
+            auto payload = std::make_shared<const TransformHistoryFrame>(TransformHistoryFrame{
+                tx.transform_records, tx.base_history_revision, tx.base_history_revision + 1});
+            const std::size_t frame_bytes = sizeof(TransformHistoryFrame) +
+                payload->records.size() * sizeof(TransformHistoryRecord);
+            transform_frame = Neo::History::RestoreState::DirectFrame{
+                Neo::History::RestoreState::DirectFrame::Kind::Transform,
+                std::static_pointer_cast<const void>(payload), frame_bytes};
         } else {
             after_model = capture_model_state(
                 state().model, state().mesh_capture_cache, state().mutable_object_capture_cache,
@@ -1468,16 +1639,22 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             // model. Refresh the retained predecessor before appending the
             // post-mutation entry so the first Undo after a project load
             // restores exactly the live pre-drag state.
-            if (!state().history.refresh_current_model(tx.before_model))
+            if (!tx.transform_delta_candidate && !state().history.refresh_current_model(tx.before_model))
                 return error_json("history predecessor model is unavailable");
         }
         const double capture_finished_at = Neo::Bridge::Performance::now_ms();
+        const bool direct_transform = bool(transform_frame);
         const double commit_started_at = Neo::Bridge::Performance::now_ms();
         bool committed = false;
         if (tx.add_plate_delta) {
             committed = HistoryMetadata::commit_history_entry(state(), [&]() {
                 return state().history.commit_reusing_current_model(tx.label, tx.category, bytes,
                                                                     std::move(add_plate_frame));
+            });
+        } else if (transform_frame) {
+            committed = HistoryMetadata::commit_history_entry(state(), [&]() {
+                return state().history.commit_reusing_current_model(tx.label, tx.category, bytes,
+                                                                    std::move(transform_frame));
             });
         } else {
             committed = HistoryMetadata::commit_history_entry(state(), [&]() {
@@ -1492,7 +1669,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
             {"history_store", commit_finished_at - commit_started_at},
             {"total", Neo::Bridge::Performance::now_ms() - profile_started_at},
         };
-        if (tx.add_plate_delta) {
+        if (tx.add_plate_delta || direct_transform) {
             commit_stages.push_back({"delta_record", capture_finished_at - capture_started_at});
         } else {
             commit_stages.push_back({"capture_collection_cache", capture_timings.collection_cache_ms});

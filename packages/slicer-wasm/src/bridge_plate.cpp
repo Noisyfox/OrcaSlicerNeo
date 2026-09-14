@@ -743,6 +743,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_plate_session_snapshot()
 EMSCRIPTEN_KEEPALIVE const char* orc_reset_plate_session()
 {
     try {
+        invalidate_transform_delta_candidate(state());
         reset_plate_session_state();
         return dup_json(plate_session_snapshot_json().dump());
     } catch (const std::exception& e) {
@@ -773,6 +774,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_plate(const char* plate_id_cstr)
 EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
 {
     try {
+        invalidate_transform_delta_candidate(state());
         const double profile_started_at = Neo::Bridge::Performance::now_ms();
         ensure_plate_session_state();
         const bool add_plate_delta = state().active_history_transaction &&
@@ -850,6 +852,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
 EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
 {
     try {
+        invalidate_transform_delta_candidate(state());
         ensure_plate_session_state();
         const std::string requested = plate_id_cstr ? plate_id_cstr : "";
         if (requested.empty()) return error_json("plateId is required");
@@ -939,6 +942,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_recompute_plate_membership()
 EMSCRIPTEN_KEEPALIVE const char* orc_mark_shared_configuration_mutation()
 {
     try {
+        invalidate_transform_delta_candidate(state());
         ensure_plate_session_state();
         return dup_json(shared_configuration_mutation_snapshot().dump());
     } catch (const std::exception& e) {
