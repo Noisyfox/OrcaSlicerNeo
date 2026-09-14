@@ -10,7 +10,7 @@ vi.mock('@orca/slicer-runtime', () => ({
   errorText: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 
-import { addDroppedModels, addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS, notifyModelAdded } from './sceneActions';
+import { addDroppedModels, addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS } from './sceneActions';
 import { useProjectStore } from '../../../stores/useProjectStore';
 
 function platformFor(fileName: string, result: { ok: boolean; error?: string }) {
@@ -83,13 +83,6 @@ describe('scene add-model action', () => {
     expect(useSlicerStore.getState().error).toBe('Unable to import DRC file');
   });
 
-  it('notifies the shell only when an add operation changed the scene', () => {
-    const onModelAdded = vi.fn();
-    notifyModelAdded(true, onModelAdded);
-    notifyModelAdded(false, onModelAdded);
-    expect(onModelAdded).toHaveBeenCalledOnce();
-  });
-
   it.each(['broken.step', 'broken.stp'])('maps native %s failures to the generic STEP error', async (fileName) => {
     const { platform } = platformFor(fileName, { ok: false, error: 'OCCT diagnostic detail' });
     await expect(addModel(platform, null)).resolves.toBe(false);
@@ -98,13 +91,15 @@ describe('scene add-model action', () => {
 
   it('routes externally dropped STL and STEP files through the shared runtime add path', async () => {
     const { platform, addModel: runtimeAdd } = platformFor('unused.stl', { ok: true });
+    const onModelAdded = vi.fn();
     await addDroppedModels(platform, null, [
       { displayName: 'cube.stl', bytes: Uint8Array.from([1]) },
       { displayName: 'part.step', bytes: Uint8Array.from([2]) },
-    ]);
+    ], undefined, onModelAdded);
     expect(runtimeAdd).toHaveBeenNthCalledWith(1, Uint8Array.from([1]), 'stl', 'cube.stl');
     expect(runtimeAdd).toHaveBeenNthCalledWith(2, Uint8Array.from([2]), 'step', 'part.step');
     expect(useProjectStore.getState().operation).toMatchObject({ phase: 'completed', progress: 100 });
+    expect(onModelAdded).toHaveBeenCalledOnce();
   });
 
   it('settles a cancelled picker import without showing a stale modal', async () => {
@@ -143,34 +138,39 @@ describe('scene add-model action', () => {
 
   it('settles a partially failed dropped batch and retains the generic file error', async () => {
     const { platform, addModel } = platformFor('unused.stl', { ok: true });
+    const onModelAdded = vi.fn();
     addModel.mockImplementation(async (_bytes: Uint8Array, _ext: string, name: string) => name === 'a.stl'
       ? { ok: true }
       : { ok: false, error: 'decoder detail' });
     await expect(addDroppedModels(platform, null, [
       { displayName: 'a.stl', bytes: Uint8Array.from([1]) },
       { displayName: 'b.stl', bytes: Uint8Array.from([2]) },
-    ])).resolves.toBe(true);
+    ], undefined, onModelAdded)).resolves.toBe(true);
     expect(useProjectStore.getState().operation).toMatchObject({ phase: 'failed', progress: 50, cancellable: false });
     expect(useSlicerStore.getState().error).toBe('decoder detail');
+    expect(onModelAdded).toHaveBeenCalledOnce();
   });
 
   it('returns false for a wholly failed dropped batch so navigation stays unchanged', async () => {
     const { platform } = platformFor('unused.stl', { ok: false, error: 'decoder detail' });
+    const onModelAdded = vi.fn();
     await expect(addDroppedModels(platform, null, [
       { displayName: 'broken.stl', bytes: Uint8Array.from([1]) },
-    ])).resolves.toBe(false);
+    ], undefined, onModelAdded)).resolves.toBe(false);
     expect(useProjectStore.getState().operation).toMatchObject({ phase: 'failed', progress: 0 });
+    expect(onModelAdded).not.toHaveBeenCalled();
   });
 
   it('imports the bundled 3DBenchy resource through the normal model pipeline', async () => {
     const { platform, addModel: runtimeAdd } = platformFor('unused.stl', { ok: true });
+    const onModelAdded = vi.fn();
     const fetch = vi.fn(async () => ({
       ok: true,
       arrayBuffer: async () => Uint8Array.from([3, 13]).buffer,
     }));
     vi.stubGlobal('fetch', fetch);
 
-    await addHandyModel(platform, null, HANDY_MODELS[4]);
+    await addHandyModel(platform, null, HANDY_MODELS[4], onModelAdded);
 
     expect(fetch).toHaveBeenCalledWith(expect.objectContaining({ pathname: '/handy-models/3DBenchy.drc' }));
     expect(runtimeAdd).toHaveBeenCalledWith(Uint8Array.from([3, 13]), 'drc', '3DBenchy.drc');
@@ -178,6 +178,7 @@ describe('scene add-model action', () => {
       modelLoaded: true,
       values: { modelPath: '3DBenchy' },
     });
+    expect(onModelAdded).toHaveBeenCalledOnce();
   });
 
   it('keeps all source files when importing a multi-file handy model', async () => {
@@ -211,14 +212,16 @@ describe('scene add-model action', () => {
     const platform = {
       runtime: { addShape, runProjectHistoryTransaction },
     } as unknown as PlatformCapabilities;
+    const onModelAdded = vi.fn();
 
-    const pending = addPrimitive(platform, null, 'Cube');
+    const pending = addPrimitive(platform, null, 'Cube', onModelAdded);
     await Promise.resolve();
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(1);
 
     release({ ok: true });
     await pending;
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
+    expect(onModelAdded).toHaveBeenCalledOnce();
   });
 
   it('keeps Clear Scene fenced through its single filament refresh', async () => {

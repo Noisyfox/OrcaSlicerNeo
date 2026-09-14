@@ -21,11 +21,6 @@ import { runProjectHistoryMutation } from './historyMutation';
 
 export { HANDY_MODELS, type HandyModel } from '../../../resources/handyModels';
 
-/** Notify the shared shell only after an Add Model operation changed the scene. */
-export function notifyModelAdded(imported: boolean, onModelAdded?: () => void): void {
-  if (imported) onModelAdded?.();
-}
-
 /**
  * Shared post-add choreography for file imports and engine-built primitives:
  * wait for a just-finished transform commit, append the model through the
@@ -112,7 +107,7 @@ export async function addModel(
       progress: imported ? 100 : 0,
       cancellable: false,
     });
-    notifyModelAdded(imported, onModelAdded);
+    if (imported) onModelAdded?.();
     return imported;
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
@@ -152,6 +147,7 @@ export async function addDroppedModels(
   sceneInteraction: SceneInteractionController | null,
   files: readonly ModelFile[] | (() => Promise<readonly ModelFile[]>),
   expectedCount?: number,
+  onModelAdded?: () => void,
 ): Promise<boolean> {
   const initialCount = expectedCount ?? (Array.isArray(files) ? files.length : 0);
   useProjectStore.getState().setOperation({
@@ -187,6 +183,7 @@ export async function addDroppedModels(
         // A batch is one user operation, but the scene is already changed when
         // an earlier file succeeded. Preserve that semantic for callers that
         // navigate after a successful scene mutation.
+        if (mutated) onModelAdded?.();
         return mutated;
       }
       mutated = true;
@@ -199,6 +196,7 @@ export async function addDroppedModels(
       });
     }
     useProjectStore.getState().setOperation({ phase: 'completed', progress: 100, cancellable: false });
+    if (mutated) onModelAdded?.();
     return mutated;
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
@@ -233,6 +231,7 @@ export async function addHandyModel(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
   model: HandyModel,
+  onModelAdded?: () => void,
 ): Promise<boolean> {
   try {
     const files = await Promise.all(model.files.map(async (displayName) => ({
@@ -249,6 +248,7 @@ export async function addHandyModel(
       }
       return { ok: true, plateSession };
     });
+    onModelAdded?.();
     return true;
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));
@@ -275,9 +275,11 @@ export async function addPrimitive(
   platform: PlatformCapabilities,
   sceneInteraction: SceneInteractionController | null,
   type: PrimitiveType,
+  onModelAdded?: () => void,
 ): Promise<boolean> {
   try {
     await commitAdded(platform, sceneInteraction, type, () => platform.runtime.addShape(type));
+    onModelAdded?.();
     return true;
   } catch (err) {
     useSlicerStore.getState().setError(errorText(err));

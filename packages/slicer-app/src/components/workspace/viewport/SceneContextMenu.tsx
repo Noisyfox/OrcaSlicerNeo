@@ -39,7 +39,7 @@ import type { ModelObjectStructure } from '@slicer/client';
 import { useSlicerStore } from '../../../stores/useSlicerStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import {
-  addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS, notifyModelAdded,
+  addHandyModel, addModel, addPrimitive, clearScene, HANDY_MODELS,
   PRIMITIVE_TYPES, type HandyModel, type PrimitiveType,
 } from '../actions/sceneActions';
 import { ObjectListContextMenu } from '../objectList/ObjectListContextMenu';
@@ -182,16 +182,12 @@ export function SceneContextMenu({ sceneInteraction, sceneStateRef, onModelAdded
 
   const handleAddPrimitive = useCallback((type: PrimitiveType) => {
     closeMenu();
-    void addPrimitive(platform, sceneInteraction, type).then((imported) => {
-      notifyModelAdded(imported, onModelAdded);
-    });
+    void addPrimitive(platform, sceneInteraction, type, onModelAdded);
   }, [platform, sceneInteraction, closeMenu, onModelAdded]);
 
   const handleAddHandyModel = useCallback((model: HandyModel) => {
     closeMenu();
-    void addHandyModel(platform, sceneInteraction, model).then((imported) => {
-      notifyModelAdded(imported, onModelAdded);
-    });
+    void addHandyModel(platform, sceneInteraction, model, onModelAdded);
   }, [platform, sceneInteraction, closeMenu, onModelAdded]);
 
   const handleAddModel = useCallback(() => {

@@ -17,7 +17,7 @@ import type { HistoryRestoreCoordinator } from './history/restoreCoordinator';
 import { usePlatform } from '@orca/platform-contract';
 import { persistRestoredSelections, restoreBootstrapSession } from './preferences';
 import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
-import { addDroppedModels, addModel, clearScene, notifyModelAdded } from './components/workspace/actions/sceneActions';
+import { addDroppedModels, addModel, clearScene } from './components/workspace/actions/sceneActions';
 import { exportGcode, sliceModel } from './components/workspace/actions/sliceActions';
 import { createCommandDispatcher, registerNativeMenuCommands } from './menu/commands';
 import { buildMenuModel, buildMenuStateSnapshot, resolveMenuMode } from './menu/menuModel';
@@ -477,8 +477,7 @@ export default function App() {
       const mutated = await addDroppedModels(platform, sceneInteractionRef.current, () => Promise.all(files.map(async (file) => ({
         displayName: file.name,
         bytes: new Uint8Array(await file.arrayBuffer()),
-      }))), files.length);
-      notifyModelAdded(mutated, handleModelAdded);
+      }))), files.length, handleModelAdded);
     } catch (error) {
       useSlicerStore.getState().setError(errorText(error));
       console.error('dropped model import failed:', error);
