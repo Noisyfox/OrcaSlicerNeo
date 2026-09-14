@@ -4,6 +4,7 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 
 #include "bridge_state.hpp"
 #include "history/MeshCaptureCache.hpp"
@@ -51,6 +52,20 @@ Model stage_model(const Model& model_template, const RestoreState& restored);
 bool model_state_equal(const ModelState& lhs, const ModelState& rhs);
 
 } // namespace Slic3r::Neo::History::Codec
+
+namespace Slic3r::Neo::Bridge::HistoryRuntime {
+
+// Add Plate changes only the runtime plate session and the world transforms
+// of instances moved by the display-grid reflow.  Keep this receipt opaque to
+// ProjectHistory; the bridge validates and applies it against the live model.
+struct AddPlateHistoryFrame {
+    // Absent means the grid reflow did not move any instance.  Keeping this
+    // optional avoids allocating or serializing an empty position receipt.
+    std::optional<nlohmann::json> before_transforms;
+    std::optional<nlohmann::json> after_transforms;
+};
+
+} // namespace Slic3r::Neo::Bridge::HistoryRuntime
 
 namespace Slic3r::Neo::Bridge::HistoryMetadata {
 

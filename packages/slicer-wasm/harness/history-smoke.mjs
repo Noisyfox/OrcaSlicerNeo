@@ -603,6 +603,110 @@ historyCheck('reorder Redo restores compact coordinate identity order',
 historyCheck('locked plate state survives reorder Undo/Redo',
   reorderAfter.plates.find((plate) => plate.plate_id === lockedPlateId)?.locked === true);
 
+// Add Plate history stores no transform receipt when the display grid keeps
+// existing origins unchanged (3 -> 4), but captures only the instances moved
+// by the next grid change (4 -> 5).  This also exercises two adjacent direct
+// entries and their undo chain without materializing the model archive.
+historyCheck('return to three-plate baseline before add reflow profile',
+  callJson('orc_history_undo', [], []).ok === true);
+const addNoReflowTransaction = beginHistory('Add Plate');
+const addNoReflow = callJson('orc_add_plate', [], []);
+historyCheck('Add Plate no-reflow omits transform receipt',
+  addNoReflow.ok === true && addNoReflow.plates.length === 4 &&
+  (!Object.hasOwn(addNoReflow, 'instance_transforms') || addNoReflow.instance_transforms.length === 0),
+  JSON.stringify(addNoReflow));
+const addNoReflowCommit = commitHistory('Add Plate no-reflow', addNoReflowTransaction);
+const addNoReflowProfile = callJson('orc_take_performance_profile', [], []);
+const addNoReflowHistorySamples = addNoReflowProfile.samples.filter((sample) =>
+  ['history_begin', 'add_plate', 'history_commit'].includes(sample.operation)).slice(-3);
+historyCheck('Add Plate no-reflow profile omits model capture',
+  addNoReflowHistorySamples.length === 3 &&
+  addNoReflowHistorySamples.filter((sample) => sample.operation !== 'add_plate')
+    .every((sample) => sample.stages_ms.capture_model_state === undefined &&
+      typeof sample.stages_ms.delta_record === 'number'));
+const addReflowTransaction = beginHistory('Add Plate');
+const addReflow = callJson('orc_add_plate', [], []);
+historyCheck('Add Plate reflow records only moved instances',
+  addReflow.ok === true && addReflow.plates.length === 5 &&
+  Array.isArray(addReflow.instance_transforms) && addReflow.instance_transforms.length > 0,
+  JSON.stringify(addReflow));
+const addReflowCommit = commitHistory('Add Plate reflow', addReflowTransaction);
+const addReflowProfile = callJson('orc_take_performance_profile', [], []);
+const addReflowHistorySamples = addReflowProfile.samples.filter((sample) =>
+  ['history_begin', 'add_plate', 'history_commit'].includes(sample.operation)).slice(-3);
+historyCheck('Add Plate reflow profile exposes delta stages without capture',
+  addReflowHistorySamples.length === 3 &&
+  addReflowHistorySamples.filter((sample) => sample.operation !== 'add_plate')
+    .every((sample) => sample.stages_ms.capture_model_state === undefined &&
+      typeof sample.stages_ms.delta_record === 'number'));
+const afterAddTransform = cloneTransform((callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.instance_transform);
+delete afterAddTransform.matrix;
+const afterAddVolumeTransform = cloneTransform((callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.volume_transform);
+delete afterAddVolumeTransform.matrix;
+const afterAddEdit = { ...afterAddTransform,
+  offset: [afterAddTransform.offset[0] + 7, afterAddTransform.offset[1], afterAddTransform.offset[2]] };
+const afterAddVolumeEdit = { ...afterAddVolumeTransform,
+  offset: [afterAddVolumeTransform.offset[0] + 3, afterAddVolumeTransform.offset[1], afterAddVolumeTransform.offset[2]] };
+const normalAfterAddTransaction = beginHistory('Move After Add Plate');
+const normalAfterAddMutation = callJson('orc_set_model_transform',
+  ['number', 'number', 'number', 'string', 'string'],
+  [3, 0, 0, JSON.stringify(afterAddEdit), JSON.stringify(afterAddVolumeEdit)]);
+if (!normalAfterAddMutation.ok)
+  throw new Error(`normal edit after Add Plate failed: ${JSON.stringify(normalAfterAddMutation)}`);
+const normalAfterAddCommit = commitHistory('Move After Add Plate', normalAfterAddTransaction);
+const normalAfterAddUndo = callJson('orc_history_undo', [], []);
+const afterAddUndoMesh = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.instance_transform;
+historyCheck('normal undo returns to Add Plate after-transform state',
+  normalAfterAddUndo.ok === true && normalAfterAddUndo.impact?.model === 'full' &&
+  !Object.hasOwn(normalAfterAddUndo, 'instance_transforms') &&
+  callJson('orc_get_plate_session_snapshot', [], []).plates.length === 5,
+  JSON.stringify({ normalAfterAddUndo, afterAddUndoMesh }));
+assertTransformEqual(afterAddUndoMesh, afterAddTransform, 'Add Plate after-transform state');
+const afterAddUndoVolume = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.volume_transform;
+assertTransformEqual(afterAddUndoVolume, afterAddVolumeTransform, 'Add Plate volume baseline state');
+const normalAfterAddRedo = callJson('orc_history_redo', [], []);
+const afterAddRedoMesh = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.instance_transform;
+historyCheck('normal redo restores edit after Add Plate', normalAfterAddRedo.ok === true,
+  JSON.stringify(normalAfterAddRedo));
+assertTransformEqual(afterAddRedoMesh, afterAddEdit, 'normal edit after Add Plate');
+const afterAddRedoVolume = (callJson('orc_get_model_mesh', [], []).objects ?? [])
+  .find((object) => object.object_idx === 3)?.volume_transform;
+assertTransformEqual(afterAddRedoVolume, afterAddVolumeEdit, 'normal volume edit after Add Plate');
+const normalAfterAddUndoAgain = callJson('orc_history_undo', [], []);
+historyCheck('normal undo again returns to Add Plate state',
+  normalAfterAddUndoAgain.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 5,
+  JSON.stringify(normalAfterAddUndoAgain));
+const addReflowUndo = callJson('orc_history_undo', [], []);
+historyCheck('Add Plate reflow undo restores four plates',
+  addReflowUndo.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 4,
+  JSON.stringify(addReflowUndo));
+const addNoReflowUndo = callJson('orc_history_undo', [], []);
+historyCheck('Add Plate no-reflow undo restores three plates',
+  addNoReflowUndo.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 3,
+  JSON.stringify(addNoReflowUndo));
+const addNoReflowRedo = callJson('orc_history_redo', [], []);
+historyCheck('Add Plate no-reflow redo restores four plates',
+  addNoReflowRedo.ok === true && callJson('orc_get_plate_session_snapshot', [], []).plates.length === 4,
+  JSON.stringify(addNoReflowRedo));
+const addAfterUndo = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
+  ['Add Plate', 'project', JSON.stringify(context), '']);
+if (!addAfterUndo.ok) throw new Error(`Add Plate branch begin failed: ${JSON.stringify(addAfterUndo)}`);
+const addAfterUndoMutation = callJson('orc_add_plate', [], []);
+const addAfterUndoCommit = commitHistory('Add Plate after undo', addAfterUndo.transactionId);
+historyCheck('Add Plate after undo discards redo branch',
+  addAfterUndoMutation.ok === true && addAfterUndoCommit.canRedo === false &&
+  callJson('orc_get_plate_session_snapshot', [], []).plates.length === 5,
+  JSON.stringify(addAfterUndoCommit));
+historyCheck('restore add-plate profile fixture baseline',
+  callJson('orc_history_undo', [], []).ok === true &&
+  callJson('orc_history_undo', [], []).ok === true &&
+  callJson('orc_get_plate_session_snapshot', [], []).plates.length === 3);
+
 // Repair 5 directional menu-jump matrix.  Isolate the real bridge exercise
 // from the structural fixture above: the reset gives the scenario a known
 // empty baseline, and the final reset prevents this diagnostic from leaking

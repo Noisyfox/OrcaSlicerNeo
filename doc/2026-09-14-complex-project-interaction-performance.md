@@ -1,8 +1,8 @@
 # Complex Project Interaction Performance
 
 Date: 2026-09-14
-Status: Implemented with native shared-mesh history, transform-payload rollback,
-and real-project profiling
+Status: Implemented with object/mesh reuse, Add Plate delta history, and
+real-project profiling
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
 ## Problem
@@ -35,6 +35,17 @@ used by the desktop plate-switch performance coverage.
   sole owner (conservatively omitting meshes shared with the live model), and
   releasing or evicting an entry releases its native ownership. No unbounded
   global mesh cache is introduced.
+- `Add Plate` uses a direct incremental history frame rather than a model
+  capture at transaction begin or commit. It retains the plate/session context
+  plus only the instance transforms actually changed by reflow. If an added
+  plate leaves existing origins unchanged, neither transform receipt is
+  allocated or serialized.
+- Adjacent Add Plate Undo/Redo applies only its sparse transform receipt and
+  plate/session context. Crossing between an Add Plate frame and an ordinary
+  model edit restores the complete predecessor model before applying the
+  relevant receipt, so unrelated changes such as a volume transform cannot
+  leak through Undo. Non-adjacent menu jumps that would skip uncomposed Add
+  Plate deltas are rejected rather than restoring an incomplete state.
 - The real-WASM bridge exposes a bounded, drain-on-read diagnostic timing ring
   for `history_begin`, `add_plate`, and `history_commit`. It carries timing
   scalars only; it never retains model, context, or project data.
@@ -53,89 +64,45 @@ real threaded-WASM sample (milliseconds):
 
 | Boundary or native stage | Time |
 | --- | ---: |
-| Renderer click to visible enabled Undo Add Plate | 551.39 |
-| Application mutation/publication | 525.95 |
-| Client transaction | 495.77 |
-| Worker transaction | 495.52 |
-| WASM instrumented total | 483.91 |
-| History begin `capture_model_state` | 0.72 |
-| Add Plate reflow | 471.13 |
-| History commit `capture_model_state` | 0.79 |
-| History-store insertion | 4.89 |
-| Main-thread/Worker transport plus client JS residual | 0.24 |
-| Worker JS plus uninstrumented read residual | 11.62 |
+| Renderer click to visible enabled Undo Add Plate | 546.89 |
+| Application mutation/publication | 520.87 |
+| Client transaction | 493.98 |
+| Worker transaction | 493.81 |
+| WASM instrumented total | 479.89 |
+| History begin `delta_record` | 0.00 |
+| Add Plate reflow | 471.52 |
+| History commit `delta_record` | 0.07 |
+| History-store insertion | 3.40 |
+| Main-thread/Worker transport plus client JS residual | 0.16 |
+| Worker JS plus uninstrumented read residual | 13.92 |
 
-The history redesign reduces the visible delay from 1436.24 ms to 551.39 ms
-and removes history capture as the dominant cost: the two captures together
-now take about 1.51 ms rather than roughly 862 ms. Plate reflow is now the
-dominant native cost at about 471 ms. Preserve the complete history snapshot
-while optimizing reflow; reducing the transform payload already caused stale
-rapid-gesture undo and remains rejected.
+The history redesign reduces the visible delay from 1436.24 ms to 546.89 ms.
+For Add Plate, the history begin/commit path now records a sparse delta and
+emits no `capture_model_state` stage. Plate reflow remains the dominant native
+cost at about 472 ms; subsequent work should optimize reflow rather than
+reintroduce whole-model history capture.
 
 ## Verification
 
-- Focused transform/history and plate-session unit coverage.
-- Affected package typecheck and applicable native WASM quick build.
-- The real desktop multi-plate interaction performance scenario when its
-  runtime artifacts are available.
-- `apps/desktop/e2e/plate-add-history-profile.e2e.ts` against the real h2d
-  project, including the visible Undo boundary and native/JS/Worker breakdown.
-- Real-project Electron acceptance always rebuilds the renderer with
-  `VITE_USE_MOCK=0`, stages both current WASM variants, copies them to
-  `apps/desktop/out/renderer`, and proves the exact project receipt before
-  measuring interaction.
+- `pnpm --filter @orca/slicer-wasm test` — 143 tests passed.
+- `pnpm --filter @orca/slicer-wasm typecheck` — passed.
+- `pnpm --filter @orca/slicer-app test` — 558 tests passed.
+- `pnpm --filter @orca/slicer-app typecheck` — passed.
+- `cmd /c scripts\build-windows.bat quick -j 8` — current threaded and
+  serial WASM artifacts built and validated.
+- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/.work/serial/build/orca_slice.js` — passed, including no-reflow/reflow delta, normal-edit crossing, Undo/Redo, and redo-branch checks.
+- `pnpm stage:assets` from the repository root, then `pnpm exec electron-vite
+  build` from `apps/desktop` with `VITE_USE_MOCK=0` and `VITE_E2E=1` — stages
+  the just-built WASM into renderer source before the Electron bundle is made.
+- `ORCA_E2E_REAL=1`, `VITE_USE_MOCK=0`, and the exact h2d fixture with
+  `pnpm exec playwright test e2e/plate-add-history-profile.e2e.ts` from
+  `apps/desktop` — passed; it asserts the real project receipt and the absence
+  of `capture_model_state` on Add Plate history begin/commit.
+- `git diff --check` — passed.
 
-Step 1 verification commands:
-
-- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target project_history_core_test -j 4"`
-- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target history_mesh_capture_test -j 4"`
-- `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/history_mesh_capture_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
-- `pnpm --filter @orca/slicer-wasm test`
-- `pnpm --filter @orca/slicer-wasm typecheck`
-- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
-- `scripts\build-windows.bat quick --variant serial`
-- `scripts\build-windows.bat smoke --variant serial`
-- `git diff --check`
-
-Step 2 accepted behaviour and decision:
-
-- Mutable ModelObject records use the non-zero `ModelConfig` timestamp as an
-  Orca-style capture gate. A live object with the same timestamp, ordered
-  volume IDs, and shared mesh identities reuses its complete prior object byte
-  blob and skips the Cereal archive; changed, added, removed, zero-timestamp,
-  or mesh-replaced objects archive normally.
-- The bridge owns this cache beside the Step 1 mesh cache. It retains weak mesh
-  identity tokens, drops records for objects no longer live, and clears on
-  session initialization, scene clear, project load, history reset, model
-  restore/replacement, and aborted or failed transaction paths. Every
-  `ModelState` still contains complete mutable-object records; no predecessor
-  delta is exposed to ProjectHistory.
-- Bridge model mutations that change nested instance/volume data advance the
-  object's `ModelConfig` timestamp so reuse cannot preserve stale transforms or
-  metadata. Lazy snapshots, direct-frame policy changes, and plate reflow
-  changes remain deferred.
-
-Step 2 verification commands:
-
-- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target history_mesh_capture_test -j 4"`
-- `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/history_mesh_capture_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
-- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target project_history_core_test -j 4"`
-- `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/project_history_core_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
-- `pnpm --filter @orca/slicer-wasm test`
-- `pnpm --filter @orca/slicer-wasm typecheck`
-- `scripts\build-windows.bat quick --variant serial`
-- `scripts\build-windows.bat smoke --variant serial`
-- `git diff --check`
-
-Step 3 verification commands:
-
-- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target history_mesh_capture_test -j 4"`
-- `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/history_mesh_capture_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
-- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target project_history_core_test -j 4"`
-- `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/project_history_core_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
-- `pnpm --filter @orca/slicer-wasm test`
-- `pnpm --filter @orca/slicer-wasm typecheck`
-- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
-- `scripts\build-windows.bat quick --variant serial`
-- `scripts\build-windows.bat smoke --variant serial`
-- `git diff --check`
+Do not treat a build under `packages/slicer-wasm/.work` or
+`packages/slicer-wasm/out` alone as Electron acceptance. Real-project tests
+must run `pnpm stage:assets` after the WASM build and before the Electron
+renderer build; copying an already-built renderer cannot update embedded
+public assets. The test must set `VITE_USE_MOCK=0` explicitly and prove the
+fixture name, byte count, and 11-plate native receipt before profiling.

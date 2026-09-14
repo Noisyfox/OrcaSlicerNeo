@@ -75,6 +75,7 @@ bool box_fully_inside_plate(const PlateInstanceRef& ref, const BoundingBoxf3& bo
                             const BridgeState::PlateSessionPlate& plate,
                             const PlateBounds& bounds);
 json instance_transform_record(const PlateInstanceRef& ref);
+void set_instance_transform(const PlateInstanceRef& ref, const json& transform);
 void translate_instance(const PlateInstanceRef& ref, const Vec3d& delta);
 void rebuild_plate_membership(bool clear_parked,
                               const std::set<std::size_t>* affected_instances = nullptr);

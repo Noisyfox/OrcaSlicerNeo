@@ -879,6 +879,21 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     return historyFailure(raw, 'invalid history restore response');
   const impact = normalizeRestoreImpact(value.impact);
   const primeTowerReceipt = normalizePrimeTowerRestoreReceipt(value.prime_tower_receipt, impact, value.narrow);
+  let instanceTransforms: import('./types').PlateSessionInstanceTransform[] | undefined;
+  if (Array.isArray(value.instance_transforms)) {
+    const transforms = value.instance_transforms.map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const item = entry as Record<string, unknown>;
+      if (![item.instance_id, item.object_id].every((id) => Number.isSafeInteger(id) && (id as number) > 0) ||
+        ![item.object_index, item.instance_index].every((id) => Number.isSafeInteger(id) && (id as number) >= 0) ||
+        !item.world_transform || typeof item.world_transform !== 'object') return null;
+      return { instanceId: item.instance_id as number, objectId: item.object_id as number,
+        objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
+        worldTransform: item.world_transform as import('./types').ModelTransform };
+    });
+    if (transforms.some((transform) => transform === null)) return historyFailure(raw, 'invalid history instance transforms');
+    instanceTransforms = transforms as import('./types').PlateSessionInstanceTransform[];
+  }
   return {
     ok: true,
     context: value.context as HistoryContext,
@@ -886,6 +901,7 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
     ...(primeTowerReceipt ? { primeTowerReceipt } : {}),
+    ...(instanceTransforms ? { instanceTransforms } : {}),
   };
 }
 

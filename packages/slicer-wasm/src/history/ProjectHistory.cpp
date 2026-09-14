@@ -236,6 +236,7 @@ ProjectHistory& ProjectHistory::operator=(ProjectHistory&&) noexcept = default;
 void ProjectHistory::clear()
 {
     m_impl->states.clear();
+    m_impl->next_entry_id = 1;
     m_cursor = 0;
     m_saved_checkpoint = static_cast<std::size_t>(-1);
     m_saved_checkpoint_evicted = false;
@@ -451,6 +452,7 @@ bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
 bool ProjectHistory::prepare_undo(RestorePlan& result) const
 {
     result.direct_frame_transition = false;
+    result.direct_frame_after = false;
     const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
     const std::size_t target = current_project == kNoProject
         ? kNoProject : previous_project(m_impl->states, current_project);
@@ -458,7 +460,16 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
-    result.state.model = Impl::restore_model(state.state);
+    const auto& source = m_impl->states[current_project];
+    const bool source_add_plate_transition = source.info.label == "Add Plate" && source.state.direct_frame &&
+        source.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate;
+    const bool target_add_plate_transition = state.info.label == "Add Plate" && state.state.direct_frame &&
+        state.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate;
+    const bool add_plate_transition = source_add_plate_transition || target_add_plate_transition;
+    // Entering an Add Plate state from an ordinary edit must materialize the
+    // stored predecessor model before applying its transform receipt.  Only
+    // leaving an Add Plate state can reuse the live model safely.
+    result.state.model = source_add_plate_transition ? ModelState{} : Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
     result.state.direct_frame = state.state.direct_frame;
@@ -466,11 +477,15 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
     // retained sidecar may belong to an earlier filament edit.  The current
     // Prime Tower entry still owns the exact narrow before/after frame; pass
     // that frame through so restore never falls back to filament validation.
-    const auto& source = m_impl->states[current_project];
     if (source.info.label == "Move Prime Tower" && source.state.direct_frame &&
         source.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower) {
         result.state.direct_frame = source.state.direct_frame;
         result.direct_frame_transition = true;
+    }
+    if (add_plate_transition) {
+        result.state.direct_frame = source_add_plate_transition ? source.state.direct_frame : state.state.direct_frame;
+        result.direct_frame_transition = true;
+        result.direct_frame_after = !source_add_plate_transition;
     }
     return true;
 }
@@ -478,6 +493,7 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
 bool ProjectHistory::prepare_redo(RestorePlan& result) const
 {
     result.direct_frame_transition = false;
+    result.direct_frame_after = false;
     const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
     if (current_project == kNoProject) return false;
     const std::size_t target = next_project(m_impl->states, current_project);
@@ -485,33 +501,63 @@ bool ProjectHistory::prepare_redo(RestorePlan& result) const
     result.from_cursor = m_cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
+    const bool add_plate_transition = state.info.label == "Add Plate" && state.state.direct_frame &&
+        state.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate;
     result.state.model = Impl::restore_model(state.state);
     result.state.context = state.state.context;
     result.state.entry = state.info;
     result.state.direct_frame = state.state.direct_frame;
     result.direct_frame_transition = state.info.label == "Move Prime Tower" && state.state.direct_frame &&
         state.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower;
+    if (add_plate_transition) {
+        result.direct_frame_transition = true;
+        result.direct_frame_after = true;
+    }
     return true;
 }
 
 bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) const
 {
     result.direct_frame_transition = false;
+    result.direct_frame_after = false;
     auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
         [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
     if (it == m_impl->states.end()) return false;
     result.from_cursor = m_cursor;
     result.target_cursor = static_cast<std::size_t>(std::distance(m_impl->states.begin(), it));
-    result.state.model = Impl::restore_model(it->state);
+    const std::size_t first_between = std::min(result.from_cursor, result.target_cursor) + 1;
+    const std::size_t last_between = std::max(result.from_cursor, result.target_cursor);
+    for (std::size_t index = first_between; index < last_between; ++index) {
+        const auto& intermediate = m_impl->states[index];
+        if (intermediate.state.direct_frame &&
+            intermediate.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate)
+            return false;
+    }
+    const bool target_add_plate_transition = it->info.label == "Add Plate" && it->state.direct_frame &&
+        it->state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate;
+    const auto& source = m_impl->states[m_cursor];
+    const bool source_add_plate_transition = source.info.label == "Add Plate" && source.state.direct_frame &&
+        source.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate;
+    const bool entering_add_plate = target_add_plate_transition && result.target_cursor > result.from_cursor;
+    const bool leaving_add_plate = source_add_plate_transition && result.target_cursor < result.from_cursor;
+    const bool add_plate_transition = entering_add_plate || leaving_add_plate;
+    result.state.model = leaving_add_plate ? ModelState{} : Impl::restore_model(it->state);
     result.state.context = it->state.context;
     result.state.entry = it->info;
     result.state.direct_frame = it->state.direct_frame;
+    if (add_plate_transition) {
+        result.state.direct_frame = entering_add_plate
+            ? it->state.direct_frame : source.state.direct_frame;
+        result.direct_frame_transition = true;
+        result.direct_frame_after = entering_add_plate;
+    }
     return true;
 }
 
 bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection direction, RestorePlan& result) const
 {
     result.direct_frame_transition = false;
+    result.direct_frame_after = false;
     auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
         [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
     if (it == m_impl->states.end()) return false;
@@ -532,8 +578,24 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
     }
     result.from_cursor = m_cursor;
     result.target_cursor = target;
+    const std::size_t first_between = std::min(result.from_cursor, result.target_cursor) + 1;
+    const std::size_t last_between = std::max(result.from_cursor, result.target_cursor);
+    for (std::size_t index = first_between; index < last_between; ++index) {
+        const auto& intermediate = m_impl->states[index];
+        if (intermediate.state.direct_frame &&
+            intermediate.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate)
+            return false;
+    }
     const auto& target_entry = m_impl->states[target];
-    result.state.model = Impl::restore_model(target_entry.state);
+    const auto& source_entry = m_impl->states[m_cursor];
+    const bool source_add_plate_transition = direction == JumpDirection::Undo &&
+        source_entry.info.label == "Add Plate" && source_entry.state.direct_frame &&
+        source_entry.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate;
+    const bool target_add_plate_transition = direction == JumpDirection::Redo &&
+        target_entry.info.label == "Add Plate" && target_entry.state.direct_frame &&
+        target_entry.state.direct_frame->kind == RestoreState::DirectFrame::Kind::AddPlate;
+    result.state.model = source_add_plate_transition
+        ? ModelState{} : Impl::restore_model(target_entry.state);
     result.state.context = target_entry.state.context;
     result.state.entry = target_entry.info;
     result.state.direct_frame = target_entry.state.direct_frame;
@@ -547,6 +609,11 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
                target_entry.info.label == "Move Prime Tower" && target_entry.state.direct_frame &&
                target_entry.state.direct_frame->kind == RestoreState::DirectFrame::Kind::PrimeTower) {
         result.direct_frame_transition = true;
+    }
+    if (source_add_plate_transition || target_add_plate_transition) {
+        result.state.direct_frame = source_add_plate_transition ? source_entry.state.direct_frame : target_entry.state.direct_frame;
+        result.direct_frame_transition = true;
+        result.direct_frame_after = target_add_plate_transition;
     }
     return true;
 }

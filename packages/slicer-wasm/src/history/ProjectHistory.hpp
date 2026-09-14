@@ -82,7 +82,7 @@ struct RestoreState {
     // eviction policy as the authoritative archive state, and a missing frame
     // always falls back to the archive restore path.
     struct DirectFrame {
-        enum class Kind : std::uint8_t { Filament, PrimeTower };
+        enum class Kind : std::uint8_t { Filament, PrimeTower, AddPlate };
         Kind kind { Kind::Filament };
         std::shared_ptr<const void> payload;
         std::size_t bytes { 0 };
@@ -101,6 +101,9 @@ struct RestorePlan {
     // A direct frame can optimize the one adjacent transition it describes.
     // It never makes the target model/context optional for other navigation.
     bool direct_frame_transition { false };
+    // Add Plate receipts are directional: use the source entry's before state
+    // when undoing it, or the target entry's after state when entering it.
+    bool direct_frame_after { false };
 };
 
 // Half-open version interval used by the object history implementation.  It

@@ -2,6 +2,7 @@
 // Runtime multi-plate/session implementation for the Neo bridge.
 // ----------------------------------------------------------------
 #include "bridge_plate.hpp"
+#include "bridge_history.hpp"
 #include "bridge_performance.hpp"
 
 #include <algorithm>
@@ -440,6 +441,50 @@ json instance_transform_record(const PlateInstanceRef& ref)
                 {"world_transform", session_transform_json(ref.instance->get_transformation())}};
 }
 
+namespace {
+
+Vec3d transform_vec3(const json& transform, const char* key)
+{
+    const auto& value = transform.at(key);
+    if (!value.is_array() || value.size() != 3)
+        throw std::runtime_error(std::string("transform.") + key + " must be a 3-vector");
+    return Vec3d(value[0].get<double>(), value[1].get<double>(), value[2].get<double>());
+}
+
+void assign_transform(Geometry::Transformation& target, const json& transform)
+{
+    if (!transform.is_object()) throw std::runtime_error("instance transform must be an object");
+    if (transform.contains("matrix") && transform["matrix"].is_array()) {
+        const auto& values = transform["matrix"];
+        if (values.size() != 16) throw std::runtime_error("transform.matrix must be 16 numbers");
+        Matrix4d matrix;
+        for (int column = 0; column < 4; ++column)
+            for (int row = 0; row < 4; ++row)
+                matrix(row, column) = values[column * 4 + row].get<double>();
+        target.set_matrix(Transform3d(matrix));
+        return;
+    }
+    target.set_offset(transform_vec3(transform, "offset"));
+    target.set_rotation(transform_vec3(transform, "rotation"));
+    target.set_scaling_factor(transform_vec3(transform, "scale"));
+    target.set_mirror(transform_vec3(transform, "mirror"));
+}
+
+} // namespace
+
+void set_instance_transform(const PlateInstanceRef& ref, const json& transform)
+{
+    if (ref.instance == nullptr || ref.object == nullptr)
+        throw std::runtime_error("instance transform target is unavailable");
+    auto next = ref.instance->get_transformation();
+    assign_transform(next, transform);
+    if (next != ref.instance->get_transformation()) {
+        ref.instance->set_transformation(next);
+        ref.object->config.touch();
+        ref.object->invalidate_bounding_box();
+    }
+}
+
 void translate_instance(const PlateInstanceRef& ref, const Vec3d& delta)
 {
     if (delta == Vec3d::Zero()) return;
@@ -730,6 +775,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
     try {
         const double profile_started_at = Neo::Bridge::Performance::now_ms();
         ensure_plate_session_state();
+        const bool add_plate_delta = state().active_history_transaction &&
+            state().active_history_transaction->add_plate_delta;
+        if (add_plate_delta && state().active_history_transaction->base_history_revision != state().history_revision)
+            return error_json("history transaction revision is stale");
         if (state().plate_session_plates.size() >= static_cast<std::size_t>(kMaxPlateCommandCount))
             return error_json("maximum of 36 plates");
         const double membership_started_at = Neo::Bridge::Performance::now_ms();
@@ -743,6 +792,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
         const int new_count = static_cast<int>(old_plates.size()) + 1;
         const double reflow_started_at = Neo::Bridge::Performance::now_ms();
         std::map<std::size_t, Vec3d> changed;
+        std::optional<json> before_transforms;
         for (size_t index = 0; index < old_plates.size(); ++index) {
             const Vec3d delta = plate_origin_for_index(static_cast<int>(index), new_count, bounds) - old_plates[index].origin;
             if (delta == Vec3d::Zero()) continue;
@@ -750,6 +800,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
                 if (plate_id != old_plates[index].id) continue;
                 const auto ref = refs_by_id.find(instance_id);
                 if (ref == refs_by_id.end()) continue;
+                if (add_plate_delta) {
+                    if (!before_transforms) before_transforms = json::array();
+                    before_transforms->push_back(instance_transform_record(*ref->second));
+                }
                 translate_instance(*ref->second, delta);
                 changed[instance_id] = delta;
             }
@@ -769,8 +823,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
         state().current_plate_id = id;
         const double reflow_finished_at = Neo::Bridge::Performance::now_ms();
         const double snapshot_started_at = Neo::Bridge::Performance::now_ms();
+        const auto after_transforms = reflow_instance_transforms(changed);
+        if (add_plate_delta) {
+            state().active_history_transaction->add_plate_mutated = true;
+            state().active_history_transaction->add_plate_before_transforms = std::move(before_transforms);
+            if (!changed.empty()) state().active_history_transaction->add_plate_after_transforms = after_transforms;
+        }
         const auto mutation = plate_mutation_snapshot(affected_before, {"plate-structure"},
-                                                       reflow_instance_transforms(changed));
+                                                       after_transforms);
         const std::string response = mutation.dump();
         const double snapshot_finished_at = Neo::Bridge::Performance::now_ms();
         Neo::Bridge::Performance::record("add_plate", {

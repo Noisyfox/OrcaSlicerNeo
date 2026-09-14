@@ -1,4 +1,4 @@
-import type { HistoryContext, PrimeTowerRestoreReceipt, RestoreImpact, RestoreResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, PlateSessionInstanceTransform, PrimeTowerRestoreReceipt, RestoreImpact, RestoreResult, SlicerClient } from '@slicer/client';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from '../components/workspace/sliceCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
@@ -31,6 +31,7 @@ export interface HistoryRestoreCoordinatorOptions {
     impact: RestoreImpact,
     revision: number,
     primeTowerReceipt?: PrimeTowerRestoreReceipt,
+    instanceTransforms?: readonly PlateSessionInstanceTransform[],
   ) => Promise<void>;
   /** Best-effort preference mirror after a successful native restore. */
   publishRestoredFilamentRack?: (revision: number) => Promise<void>;
@@ -74,7 +75,10 @@ export function createHistoryRestoreCoordinator({
       if (restored.impact.preview === 'all') useSlicerStore.getState().invalidateSliceResult();
       const projectionStartedAt = historyDiagnosticNow();
       try {
-        await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt);
+        if (restored.instanceTransforms)
+          await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt, restored.instanceTransforms);
+        else
+          await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt);
       } finally {
         useHistoryDiagnosticsStore.getState().recordProjection(
           historyRestorePath(restored.impact), historyDiagnosticNow() - projectionStartedAt,

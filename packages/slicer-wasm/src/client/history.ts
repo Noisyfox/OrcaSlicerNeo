@@ -7,6 +7,8 @@
  * retain a context alongside a model version without making React a second
  * model owner.
  */
+import type { PlateSessionInstanceTransform } from './types';
+
 
 /** Stable native identities.  These are IDs, never positional indexes. */
 export type StableObjectId = number;
@@ -202,6 +204,8 @@ export interface RestoreSuccess {
   readonly impact: RestoreImpact;
   /** Omitted for full restores, legacy artifacts, and malformed receipts. */
   readonly primeTowerReceipt?: PrimeTowerRestoreReceipt;
+  /** Compact transform receipt for a direct Add Plate restore. */
+  readonly instanceTransforms?: readonly PlateSessionInstanceTransform[];
 }
 
 export interface RestoreFailure {

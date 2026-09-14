@@ -291,7 +291,7 @@ export function Workspace({
       runtime: platform.runtime,
       sceneInteraction,
       sliceCoordinator,
-      refreshModel: async (context, impact, revision, primeTowerReceipt) => {
+      refreshModel: async (context, impact, revision, primeTowerReceipt, instanceTransforms) => {
         // Impact is atomically published by the Worker with the committed
         // cursor. Only a validated full-model receipt may issue a structure
         // read or wait on GL mesh replacement; old/missing descriptors are
@@ -340,6 +340,8 @@ export function Workspace({
           freshPlateSession = session;
           if (session.instanceTransforms)
             applyPlateSessionTransforms({ instanceTransforms: session.instanceTransforms }, glVolumeCollection.volumes);
+          if (instanceTransforms)
+            applyPlateSessionTransforms({ instanceTransforms }, glVolumeCollection.volumes);
         } else if (impact.plateSession) {
           const session = usePlateSessionStore.getState().snapshot;
           if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))

@@ -71,6 +71,13 @@ struct BridgeState {
         // target the model revision that transaction captured.  This prevents
         // a delayed renderer gesture from mutating a newly restored branch.
         std::uint64_t base_history_revision { 0 };
+        // Add Plate is the one structural command whose history can be
+        // represented without recapturing the model.  The command fills the
+        // before-transform receipt as it discovers which instances reflow.
+        bool add_plate_delta = false;
+        bool add_plate_mutated = false;
+        std::optional<nlohmann::json> add_plate_before_transforms;
+        std::optional<nlohmann::json> add_plate_after_transforms;
     };
     std::optional<HistoryTransaction> active_history_transaction;
     // Nested/coalesced transactions are intentionally dormant: they publish
