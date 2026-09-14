@@ -221,8 +221,8 @@ describe('TransformHistoryCoordinator', () => {
     expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledTimes(2);
   });
 
-  it('writes one final stable transform per rendered CompositeID, only on commit', async () => {
-    const volumes = [makeVolume(0, 0, 0), makeVolume(0, 1, 0)];
+  it('writes only changed final composites on commit', async () => {
+    const volumes = [makeVolume(0, 0, 0), makeVolume(0, 1, 0), makeVolume(1, 0, 0)];
     glVolumeCollection.replace(volumes);
     const runtime = historyRuntime();
     const controller = new SceneInteractionController(() => volumes);
@@ -239,7 +239,7 @@ describe('TransformHistoryCoordinator', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(runtime.setModelTransforms).toHaveBeenCalledTimes(1);
     expect(runtime.setModelTransforms.mock.calls[0]?.[0]).toBe('tx-1');
-    expect(runtime.setModelTransforms.mock.calls[0]?.[1]).toEqual(volumes.map((volume) => ({
+    expect(runtime.setModelTransforms.mock.calls[0]?.[1]).toEqual(volumes.slice(0, 2).map((volume) => ({
       objectIdx: volume.buffer.objectIdx, volumeIdx: volume.buffer.volumeIdx, instanceIdx: volume.buffer.instanceIdx,
       instanceTransform: volume.instanceTransform, volumeTransform: volume.volumeTransform,
     })));

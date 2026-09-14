@@ -62,12 +62,11 @@ export function applyPlateSessionTransforms(
   mutation: Pick<PlateSessionMutation, 'instanceTransforms'> | undefined,
   volumes: readonly TransformableVolume[],
 ): void {
-  for (const changed of mutation?.instanceTransforms ?? []) {
-    for (const volume of volumes) {
-      if (volume.buffer.objectIdx === changed.objectIndex &&
-          volume.buffer.instanceIdx === changed.instanceIndex) {
-        volume.instanceTransform = structuredClone(changed.worldTransform);
-      }
-    }
+  const transformsByInstance = new Map<string, PlateSessionMutation['instanceTransforms'][number]['worldTransform']>();
+  for (const changed of mutation?.instanceTransforms ?? [])
+    transformsByInstance.set(`${changed.objectIndex}:${changed.instanceIndex}`, changed.worldTransform);
+  for (const volume of volumes) {
+    const transform = transformsByInstance.get(`${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`);
+    if (transform) volume.instanceTransform = structuredClone(transform);
   }
 }

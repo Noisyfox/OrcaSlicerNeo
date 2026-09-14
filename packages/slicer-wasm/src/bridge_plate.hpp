@@ -76,7 +76,8 @@ bool box_fully_inside_plate(const PlateInstanceRef& ref, const BoundingBoxf3& bo
                             const PlateBounds& bounds);
 json instance_transform_record(const PlateInstanceRef& ref);
 void translate_instance(const PlateInstanceRef& ref, const Vec3d& delta);
-void rebuild_plate_membership(bool clear_parked);
+void rebuild_plate_membership(bool clear_parked,
+                              const std::set<std::size_t>* affected_instances = nullptr);
 json reflow_instance_transforms(const std::map<std::size_t, Vec3d>& changed);
 std::set<std::string> member_plate_ids();
 std::set<std::string> all_plate_ids();

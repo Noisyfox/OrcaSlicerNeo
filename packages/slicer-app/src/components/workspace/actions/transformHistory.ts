@@ -55,11 +55,13 @@ export type TransformGestureResult =
 type CompositeTarget = { objectIdx: number; volumeIdx: number; instanceIdx: number };
 type StableTarget = CompositeTarget & { objectId: number; volumeId: number; instanceId: number };
 type TransformReservation = { revision: number; targets: readonly StableTarget[] };
+type RendererTransform = Parameters<typeof syncModelTransforms>[1][number];
 
 type PendingTransformTransaction = {
   label: string;
   beforeContext: HistoryContext;
   startTargets: readonly CompositeTarget[];
+  startTransforms: readonly RendererTransform[];
   decision: GateCommand | null;
   finalTransforms: Parameters<typeof syncModelTransforms>[1] | null;
   reservation: TransformReservation | null;
@@ -97,12 +99,13 @@ export class TransformHistoryCoordinator {
     // short read-only reservation completes, other mutations continue freely.
     if (useProjectStore.getState().projectMutationPendingCount !== 0) return false;
     const beforeContext = historyContextForScene(this.sceneInteraction);
-    const startTargets = this.captureCompositeTargets();
+    const startTransforms = this.captureTransforms();
+    const startTargets = compositeTargetsFor(startTransforms);
     if (startTargets.length === 0) return false;
     let resolve!: (result: TransformGestureResult) => void;
     const completion = new Promise<TransformGestureResult>((done) => { resolve = done; });
     const pending: PendingTransformTransaction = {
-      label, beforeContext, startTargets, decision: null, finalTransforms: null,
+      label, beforeContext, startTargets, startTransforms, decision: null, finalTransforms: null,
       reservation: null, reservationError: null, reservationReady: false, reservationStarted: false, task: null, resolve, completion,
     };
     this.pending.push(pending);
@@ -113,7 +116,12 @@ export class TransformHistoryCoordinator {
   async commit(): Promise<TransformGestureResult> {
     const current = this.latestOpenTransaction();
     if (!current) return { outcome: 'cancelled' };
-    current.finalTransforms = this.captureTransforms();
+    const currentTransforms = this.captureTransforms();
+    const changed = changedTransforms(current.startTransforms, currentTransforms);
+    // Public callers can commit directly without a scene delta. Preserve that
+    // defensive behavior, while real gestures avoid serializing every static
+    // renderer composite to the Worker.
+    current.finalTransforms = changed.length > 0 ? changed : currentTransforms;
     current.decision = 'commit';
     this.pump();
     return current.completion;
@@ -218,13 +226,13 @@ export class TransformHistoryCoordinator {
   private async validateReservation(pending: PendingTransformTransaction): Promise<void> {
     const reservation = pending.reservation;
     if (!reservation) throw new TransformReservationStaleError('transform reservation is unavailable');
-    const currentTargets = pending.finalTransforms ?? this.captureTransforms();
-    if (!sameCompositeTargets(pending.startTargets, compositeTargetsFor(currentTargets)))
+    const currentTransforms = this.captureTransforms();
+    if (!sameCompositeTargets(pending.startTargets, compositeTargetsFor(currentTransforms)))
       throw new TransformReservationStaleError('transform reservation renderer targets are stale');
     const { status, structure } = await readTransformReservationState(this.runtime);
     if (status.revision !== reservation.revision)
       throw new TransformReservationStaleError('transform reservation native revision is stale');
-    if (!sameStableTargets(reservation.targets, stableTargetsFor(structure, compositeTargetsFor(currentTargets))))
+    if (!sameStableTargets(reservation.targets, stableTargetsFor(structure, compositeTargetsFor(currentTransforms))))
       throw new TransformReservationStaleError('transform reservation target identity is stale');
   }
 
@@ -245,9 +253,6 @@ export class TransformHistoryCoordinator {
     }));
   }
 
-  private captureCompositeTargets(): readonly CompositeTarget[] {
-    return compositeTargetsFor(this.captureTransforms());
-  }
 }
 
 export class TransformReservationStaleError extends Error {
@@ -259,6 +264,28 @@ function compositeTargetsFor(transforms: Parameters<typeof syncModelTransforms>[
   if (new Set(targets.map(compositeTargetKey)).size !== targets.length)
     throw new Error('transform reservation contains duplicate renderer targets');
   return targets.sort(compareCompositeTargets);
+}
+
+function changedTransforms(
+  before: readonly RendererTransform[],
+  after: readonly RendererTransform[],
+): readonly RendererTransform[] {
+  const beforeByTarget = new Map(before.map((transform) => [compositeTargetKey(transform.buffer), transform]));
+  return after.filter((transform) => {
+    const previous = beforeByTarget.get(compositeTargetKey(transform.buffer));
+    return previous === undefined || !sameTransform(previous.instanceTransform, transform.instanceTransform) ||
+      !sameTransform(previous.volumeTransform, transform.volumeTransform);
+  });
+}
+
+function sameTransform(left: RendererTransform['instanceTransform'], right: RendererTransform['instanceTransform']): boolean {
+  const fields: (keyof RendererTransform['instanceTransform'])[] = ['offset', 'rotation', 'scale', 'mirror', 'matrix'];
+  return fields.every((field) => {
+    const leftValue = left[field];
+    const rightValue = right[field];
+    if (leftValue === undefined || rightValue === undefined) return leftValue === rightValue;
+    return leftValue.length === rightValue.length && leftValue.every((value, index) => value === rightValue[index]);
+  });
 }
 
 function stableTargetsFor(structure: ModelStructureResult, targets: readonly CompositeTarget[]): readonly StableTarget[] {

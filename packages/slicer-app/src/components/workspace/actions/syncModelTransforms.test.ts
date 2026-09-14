@@ -23,6 +23,21 @@ describe('syncModelTransforms', () => {
     expect(volumes[1].instanceTransform.offset).toEqual([307.2, 0, 0]);
   });
 
+  it('applies changed plate transforms by instance identity without touching unrelated volumes', () => {
+    const volumes = [
+      { buffer: { objectIdx: 0, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectIdx: 0, volumeIdx: 1, instanceIdx: 0 }, instanceTransform: transform([0, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+      { buffer: { objectIdx: 1, volumeIdx: 0, instanceIdx: 0 }, instanceTransform: transform([264, 0, 0]), volumeTransform: transform([0, 0, 0]) },
+    ];
+
+    applyPlateSessionTransforms({ instanceTransforms: [{
+      instanceId: 3001, objectId: 1001, objectIndex: 0, instanceIndex: 0,
+      worldTransform: transform([12, 0, 0]),
+    }] }, volumes);
+
+    expect(volumes.map((volume) => volume.instanceTransform.offset)).toEqual([[12, 0, 0], [12, 0, 0], [264, 0, 0]]);
+  });
+
   it('synchronizes every composite, including sibling volumes of each instance', async () => {
     const setModelTransform = vi.fn().mockResolvedValue({ ok: true });
     const volumes = [

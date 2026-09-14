@@ -279,6 +279,20 @@ std::vector<PlateInstanceRef> plate_instance_refs()
     return refs;
 }
 
+namespace {
+
+using PlateInstanceRefIndex = std::map<std::size_t, const PlateInstanceRef*>;
+
+PlateInstanceRefIndex index_plate_instance_refs(const std::vector<PlateInstanceRef>& refs)
+{
+    PlateInstanceRefIndex index;
+    for (const auto& ref : refs)
+        index.emplace(ref.instance_id, &ref);
+    return index;
+}
+
+} // namespace
+
 // Build the print input for one plate without touching the authoritative
 // editing model.  Orca's PartPlate passes a complete world-space Model to
 // Print after updating its print-volume state with the selected plate's
@@ -434,14 +448,31 @@ void translate_instance(const PlateInstanceRef& ref, const Vec3d& delta)
     ref.object->invalidate_bounding_box();
 }
 
-void rebuild_plate_membership(bool clear_parked)
+void rebuild_plate_membership(bool clear_parked, const std::set<std::size_t>* affected_instances)
 {
     ensure_plate_session_state();
     const PlateBounds bounds = selected_plate_bounds();
-    if (clear_parked) state().parked_instance_ids.clear();
-    state().instance_plate_ids.clear();
-    state().plate_out_of_bounds_ids.clear();
+    if (affected_instances == nullptr) {
+        if (clear_parked) state().parked_instance_ids.clear();
+        state().instance_plate_ids.clear();
+        state().plate_out_of_bounds_ids.clear();
+    } else {
+        if (clear_parked) {
+            for (const auto instance_id : *affected_instances)
+                state().parked_instance_ids.erase(instance_id);
+        }
+        for (const auto instance_id : *affected_instances)
+            state().instance_plate_ids.erase(instance_id);
+        for (auto it = state().plate_out_of_bounds_ids.begin(); it != state().plate_out_of_bounds_ids.end();) {
+            for (const auto instance_id : *affected_instances)
+                it->second.erase(instance_id);
+            if (it->second.empty()) it = state().plate_out_of_bounds_ids.erase(it);
+            else ++it;
+        }
+    }
     for (const auto& ref : plate_instance_refs()) {
+        if (affected_instances != nullptr && affected_instances->find(ref.instance_id) == affected_instances->end())
+            continue;
         if (!clear_parked && state().parked_instance_ids.find(ref.instance_id) != state().parked_instance_ids.end())
             continue;
         const BoundingBoxf3 box = instance_hull_box(ref);
@@ -547,6 +578,8 @@ std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& 
     ensure_plate_session_state();
     const auto old_plates = state().plate_session_plates;
     std::map<std::size_t, Vec3d> changed;
+    const auto refs = plate_instance_refs();
+    const auto refs_by_id = index_plate_instance_refs(refs);
     const int count = static_cast<int>(old_plates.size());
     for (size_t index = 0; index < old_plates.size(); ++index) {
         const Vec3d new_origin = plate_origin_for_index(static_cast<int>(index), count, bounds);
@@ -554,13 +587,10 @@ std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& 
         if (delta != Vec3d::Zero()) {
             for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
                 if (plate_id != old_plates[index].id) continue;
-                for (const auto& ref : plate_instance_refs()) {
-                    if (ref.instance_id == instance_id) {
-                        translate_instance(ref, delta);
-                        changed[instance_id] = delta;
-                        break;
-                    }
-                }
+                const auto ref = refs_by_id.find(instance_id);
+                if (ref == refs_by_id.end()) continue;
+                translate_instance(*ref->second, delta);
+                changed[instance_id] = delta;
             }
         }
         state().plate_session_plates[index].origin = new_origin;
@@ -575,6 +605,8 @@ std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& 
 void refresh_existing_plate_validity(const PlateBounds& bounds)
 {
     state().plate_out_of_bounds_ids.clear();
+    const auto refs = plate_instance_refs();
+    const auto refs_by_id = index_plate_instance_refs(refs);
     for (const auto& membership : state().instance_plate_ids) {
         const auto instance_id = membership.first;
         const auto& plate_id = membership.second;
@@ -582,11 +614,9 @@ void refresh_existing_plate_validity(const PlateBounds& bounds)
             continue;
         const auto* plate = find_plate(plate_id);
         if (plate == nullptr) continue;
-        const auto refs = plate_instance_refs();
-        const auto ref = std::find_if(refs.begin(), refs.end(),
-                                      [&](const auto& candidate) { return candidate.instance_id == instance_id; });
-        if (ref == refs.end()) continue;
-        if (!box_fully_inside_plate(*ref, instance_hull_box(*ref), *plate, bounds))
+        const auto ref = refs_by_id.find(instance_id);
+        if (ref == refs_by_id.end()) continue;
+        if (!box_fully_inside_plate(*ref->second, instance_hull_box(*ref->second), *plate, bounds))
             state().plate_out_of_bounds_ids[plate_id].insert(instance_id);
     }
 }
@@ -703,6 +733,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
         const auto affected_before = member_plate_ids();
         const PlateBounds bounds = selected_plate_bounds();
         const auto old_plates = state().plate_session_plates;
+        const auto refs = plate_instance_refs();
+        const auto refs_by_id = index_plate_instance_refs(refs);
         const int new_count = static_cast<int>(old_plates.size()) + 1;
         std::map<std::size_t, Vec3d> changed;
         for (size_t index = 0; index < old_plates.size(); ++index) {
@@ -710,13 +742,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
             if (delta == Vec3d::Zero()) continue;
             for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
                 if (plate_id != old_plates[index].id) continue;
-                for (const auto& ref : plate_instance_refs()) {
-                    if (ref.instance_id == instance_id) {
-                        translate_instance(ref, delta);
-                        changed[instance_id] = delta;
-                        break;
-                    }
-                }
+                const auto ref = refs_by_id.find(instance_id);
+                if (ref == refs_by_id.end()) continue;
+                translate_instance(*ref->second, delta);
+                changed[instance_id] = delta;
             }
         }
         const auto sequence = next_plate_id_sequence();
@@ -757,6 +786,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
         const PlateBounds bounds = selected_plate_bounds();
         const size_t deleted_index = static_cast<size_t>(std::distance(state().plate_session_plates.begin(), it));
         const auto old_plates = state().plate_session_plates;
+        const auto refs = plate_instance_refs();
+        const auto refs_by_id = index_plate_instance_refs(refs);
         const bool deleting_current = state().current_plate_id == requested;
         const int new_count = static_cast<int>(old_plates.size()) - 1;
         std::map<std::size_t, Vec3d> changed;
@@ -766,15 +797,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
         for (const auto& [instance_id, plate_id] : state().instance_plate_ids)
             if (plate_id == requested) deleted_instances.push_back(instance_id);
         for (const std::size_t instance_id : deleted_instances) {
-            for (const auto& ref : plate_instance_refs()) {
-                if (ref.instance_id == instance_id) {
-                    translate_instance(ref, deleted_delta);
-                    changed[instance_id] = deleted_delta;
-                    state().instance_plate_ids.erase(instance_id);
-                    state().parked_instance_ids.insert(instance_id);
-                    break;
-                }
-            }
+            const auto ref = refs_by_id.find(instance_id);
+            if (ref == refs_by_id.end()) continue;
+            translate_instance(*ref->second, deleted_delta);
+            changed[instance_id] = deleted_delta;
+            state().instance_plate_ids.erase(instance_id);
+            state().parked_instance_ids.insert(instance_id);
         }
         state().plate_session_plates.erase(state().plate_session_plates.begin() + static_cast<std::ptrdiff_t>(deleted_index));
         state().plate_input_revisions.erase(requested);
@@ -789,13 +817,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
             if (delta != Vec3d::Zero()) {
                 for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
                     if (plate_id != plate.id) continue;
-                    for (const auto& ref : plate_instance_refs()) {
-                        if (ref.instance_id == instance_id) {
-                            translate_instance(ref, delta);
-                            changed[instance_id] = delta;
-                            break;
-                        }
-                    }
+                    const auto ref = refs_by_id.find(instance_id);
+                    if (ref == refs_by_id.end()) continue;
+                    translate_instance(*ref->second, delta);
+                    changed[instance_id] = delta;
                 }
             }
             plate.display_index = static_cast<int>(index);
