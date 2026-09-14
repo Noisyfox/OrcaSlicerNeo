@@ -879,6 +879,7 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     return historyFailure(raw, 'invalid history restore response');
   const impact = normalizeRestoreImpact(value.impact);
   const primeTowerReceipt = normalizePrimeTowerRestoreReceipt(value.prime_tower_receipt, impact, value.narrow);
+  const transformReceipt = normalizeTransformRestoreReceipt(value.transform_receipt, impact, value.direct, value.narrow);
   let instanceTransforms: import('./types').PlateSessionInstanceTransform[] | undefined;
   if (Array.isArray(value.instance_transforms)) {
     const transforms = value.instance_transforms.map((entry) => {
@@ -901,7 +902,72 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
     ...(primeTowerReceipt ? { primeTowerReceipt } : {}),
+    ...(transformReceipt ? { transformReceipt } : {}),
     ...(instanceTransforms ? { instanceTransforms } : {}),
+  };
+}
+
+/**
+ * Normalize the adjacent Move receipt without weakening the full-restore
+ * fallback. Native deliberately keeps the impact descriptor broad; only an
+ * explicitly direct/narrow response with the complete receipt is eligible
+ * for renderer-local projection.
+ */
+export function normalizeTransformRestoreReceipt(
+  raw: unknown,
+  impact: import('./history').RestoreImpact,
+  direct: unknown,
+  narrow: unknown,
+): import('./history').TransformRestoreReceipt | undefined {
+  if (direct !== true || narrow !== true || impact.model !== 'full' || !impact.plateSession ||
+      !impact.projectOverlay || !impact.selectionContext || impact.filamentRack || impact.preview !== 'all' ||
+      !raw || typeof raw !== 'object') return undefined;
+  const value = raw as Record<string, unknown>;
+  if (value.version !== 1 || (value.state !== 'before' && value.state !== 'after') ||
+      !Number.isSafeInteger(value.before_revision) || (value.before_revision as number) < 0 ||
+      !Number.isSafeInteger(value.after_revision) || (value.after_revision as number) < 0 ||
+      (value.after_revision as number) !== (value.before_revision as number) + 1 ||
+      !Array.isArray(value.records) || value.records.length === 0) return undefined;
+  const finiteTuple = (entry: unknown, length: number): entry is number[] =>
+    Array.isArray(entry) && entry.length === length && entry.every((item) => typeof item === 'number' && Number.isFinite(item));
+  const normalizeTransform = (entry: unknown): import('./types').ModelTransform | undefined => {
+    if (!entry || typeof entry !== 'object') return undefined;
+    const transform = entry as Record<string, unknown>;
+    if (!finiteTuple(transform.offset, 3) || !finiteTuple(transform.rotation, 3) ||
+        !finiteTuple(transform.scale, 3) || !finiteTuple(transform.mirror, 3)) return undefined;
+    if (transform.matrix !== undefined && !finiteTuple(transform.matrix, 16)) return undefined;
+    return {
+      offset: [...transform.offset] as [number, number, number],
+      rotation: [...transform.rotation] as [number, number, number],
+      scale: [...transform.scale] as [number, number, number],
+      mirror: [...transform.mirror] as [number, number, number],
+      ...(transform.matrix !== undefined ? { matrix: [...transform.matrix] as import('./types').ModelTransform['matrix'] } : {}),
+    };
+  };
+  const seen = new Set<string>();
+  const records = value.records.map((entry) => {
+    if (!entry || typeof entry !== 'object') return null;
+    const item = entry as Record<string, unknown>;
+    const ids = [item.object_id, item.volume_id, item.instance_id];
+    const indexes = [item.object_index, item.volume_index, item.instance_index];
+    if (!ids.every((id) => Number.isSafeInteger(id) && (id as number) > 0) ||
+        !indexes.every((index) => Number.isSafeInteger(index) && (index as number) >= 0)) return null;
+    const key = `${item.object_index}:${item.volume_index}:${item.instance_index}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+    const instanceTransform = normalizeTransform(item.instance_transform);
+    const volumeTransform = normalizeTransform(item.volume_transform);
+    if (!instanceTransform || !volumeTransform) return null;
+    return {
+      objectId: item.object_id as number, volumeId: item.volume_id as number, instanceId: item.instance_id as number,
+      objectIndex: item.object_index as number, volumeIndex: item.volume_index as number, instanceIndex: item.instance_index as number,
+      instanceTransform, volumeTransform,
+    };
+  });
+  if (records.some((record) => record === null)) return undefined;
+  return {
+    version: 1, state: value.state, beforeRevision: value.before_revision as number,
+    afterRevision: value.after_revision as number, records: records as import('./history').TransformRestoreRecord[],
   };
 }
 

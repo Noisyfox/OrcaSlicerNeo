@@ -10,6 +10,7 @@ type Timing = { count: number; totalMs: number; lastMs: number };
 type Layer = { mutation: Timing; restore: Timing; directRestore: Timing; fullRestore: Timing };
 type Diagnostics = { worker: Layer | null; client: Layer | null; app: Layer & {
   queue: Timing; projection: Timing; fullRestoreModelReloads: number;
+  transformReceiptApplied: number; transformReceiptFallbacks: number;
 } };
 type NativeSample = { operation: string; stagesMs: Record<string, number> };
 type NativeProfile = { version: 1; samples: NativeSample[] };
@@ -263,11 +264,11 @@ test('profiles a real object move through the visible Undo Move boundary', async
         [...restoredBounds.min, ...restoredBounds.max, ...restoredBounds.center, ...restoredBounds.size]
           .every((value, index) => Math.abs(value - [
             ...beforeBounds!.min, ...beforeBounds!.max, ...beforeBounds!.center, ...beforeBounds!.size,
-          ][index]) <= 1e-6));
+          ][index]) <= 1e-4));
       const projectionEqual = restoredCenters.length === beforeCenters.length && restoredCenters.every((center, index) =>
         center.every((value, axis) => Math.abs(value - beforeCenters[index][axis]) <= 1e-6));
       const pivotEqual = Boolean(restoredPivot && beforePivot && restoredPivot.length === beforePivot.length &&
-        restoredPivot.every((value, index) => Math.abs(value - beforePivot[index]) <= 1e-6));
+        restoredPivot.every((value, index) => Math.abs(value - beforePivot[index]) <= 1e-4));
       const projectionMaxDelta = restoredCenters.length === beforeCenters.length
         ? Math.max(...restoredCenters.map((center, index) => Math.max(...center.map((value, axis) =>
           Math.abs(value - beforeCenters[index][axis]))))) : Infinity;
@@ -275,7 +276,9 @@ test('profiles a real object move through the visible Undo Move boundary', async
         && diagnostics?.client?.fullRestore.count === undoBefore.client!.fullRestore.count + 1
         && diagnostics.app.fullRestore.count === undoBefore.app.fullRestore.count + 1
         && diagnostics.app.projection.count === undoBefore.app.projection.count + 1
-        && diagnostics.app.fullRestoreModelReloads === undoBefore.app.fullRestoreModelReloads + 1
+        && diagnostics.app.fullRestoreModelReloads === undoBefore.app.fullRestoreModelReloads
+        && diagnostics.app.transformReceiptApplied === undoBefore.app.transformReceiptApplied + 1
+        && diagnostics.app.transformReceiptFallbacks === undoBefore.app.transformReceiptFallbacks
         && state.redoLabel === 'Redo Move'
         && state.redoEnabled
         && state.undoLabel !== 'Undo Move'

@@ -157,6 +157,26 @@ export interface PrimeTowerRestoreClearedReceipt {
   readonly revision: number;
 }
 
+/** Compact native receipt for an adjacent direct Move restore. */
+export interface TransformRestoreReceipt {
+  readonly version: 1;
+  readonly state: 'before' | 'after';
+  readonly beforeRevision: number;
+  readonly afterRevision: number;
+  readonly records: readonly TransformRestoreRecord[];
+}
+
+export interface TransformRestoreRecord {
+  readonly objectId: number;
+  readonly volumeId: number;
+  readonly instanceId: number;
+  readonly objectIndex: number;
+  readonly volumeIndex: number;
+  readonly instanceIndex: number;
+  readonly instanceTransform: import('./types').ModelTransform;
+  readonly volumeTransform: import('./types').ModelTransform;
+}
+
 /** A compact timing aggregate; it intentionally retains no operation history. */
 export interface HistoryTimingDiagnostic {
   readonly count: number;
@@ -204,6 +224,8 @@ export interface RestoreSuccess {
   readonly impact: RestoreImpact;
   /** Omitted for full restores, legacy artifacts, and malformed receipts. */
   readonly primeTowerReceipt?: PrimeTowerRestoreReceipt;
+  /** Omitted for full restores, legacy artifacts, and malformed receipts. */
+  readonly transformReceipt?: TransformRestoreReceipt;
   /** Compact transform receipt for a direct Add Plate restore. */
   readonly instanceTransforms?: readonly PlateSessionInstanceTransform[];
 }

@@ -1,8 +1,8 @@
 # Complex Project Interaction Performance
 
 Date: 2026-09-14
-Status: Implemented with object/mesh reuse, Add Plate delta history, and
-sparse Move delta history
+Status: Implemented with object/mesh reuse, Add Plate delta history, sparse
+Move delta history, and renderer-local adjacent Move restore projection
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
 ## Problem
@@ -16,8 +16,11 @@ used by the desktop plate-switch performance coverage.
 - A completed object gesture submits the complete renderer CompositeID
   snapshot and recomputes membership globally. This keeps rapid consecutive
   gestures and Worker history snapshots identical.
-- Renderer transform-payload reduction and partial membership rebuilds require
-  a Worker-side history-aware design and remain deferred.
+- Adjacent direct Move Undo/Redo consumes the validated native transform
+  receipt in the renderer, reusing the retained GL volumes and stable-ID
+  structure. Malformed or stale receipts, missing scene targets, and any
+  non-adjacent/full-history crossing conservatively use the existing full
+  model projection.
 - Plate reflow and renderer transform application use one identity lookup per
   operation rather than repeatedly searching every instance or rendered
   volume.
@@ -122,28 +125,37 @@ real threaded-WASM sample (milliseconds) is:
 
 | Boundary or native stage | Time |
 | --- | ---: |
-| Pointer-up to visible enabled Undo Move | 62.13 |
-| Application mutation/publication | 53.79 |
-| Client transaction | 24.30 |
-| Worker transaction | 23.73 |
-| WASM instrumented total | 11.25 |
-| History begin total / sparse delta record | 1.48 / 0.00 |
-| Transform total | 2.16 |
-| History commit total / sparse delta record / history store | 7.61 / 0.05 / 5.49 |
-| Undo click to restored projection fence | 1,892.92 |
-| Application restore / publication | 10.30 / 1,814.78 |
-| Client restore | 10.26 |
-| Worker restore | 9.56 |
-| WASM instrumented restore total | 2.85 |
-| Restore delta apply / total | 2.84 / 2.85 |
-| Renderer-to-Worker transport plus client JS residual | 0.70 |
-| Worker JS plus uninstrumented native residual | 6.70 |
+| Pointer-up to visible enabled Undo Move | 64.50 |
+| Application mutation/publication | 55.78 |
+| Client transaction | 25.09 |
+| Worker transaction | 24.86 |
+| WASM instrumented total | 11.02 |
+| History begin total / sparse delta record | 1.69 / 0.01 |
+| Transform total | 2.19 |
+| History commit total / sparse delta record / history store | 7.14 / 0.06 / 5.18 |
+| Undo click to restored projection fence | 591.33 |
+| Application restore / publication | 10.69 / 511.27 |
+| Client restore | 10.65 |
+| Worker restore | 9.97 |
+| WASM instrumented restore total | 2.87 |
+| Restore delta apply / total | 2.86 / 2.87 |
+| Renderer-to-Worker transport plus client JS residual | 0.68 |
+| Worker JS plus uninstrumented native residual | 7.10 |
+
+This independent acceptance run consumed the renderer-local transform receipt
+(`transformReceiptApplied` delta 1), left `fullRestoreModelReloads` unchanged,
+and restored all 14 model world centers plus native selection/bounds/pivot. The exact u1 fixture receipt
+was 45,586,816 bytes across 11 native plates; native restore stages remained
+`delta_apply` and `total` only. No receipt fallback occurred in this run.
 
 The native transform and restore samples are scalar-only and bounded. Direct
 Move begin/commit expose `delta_record` (and `history_store` on commit), while
 direct Undo/Redo expose `delta_apply` and `total`; no full native model staging
-or `capture_model_state` stage occurs on this adjacent path. Renderer
-publication remains the conservative full projection until Step 2.
+or `capture_model_state` stage occurs on this adjacent path. Renderer-local
+publication now applies the receipt's exact target instance/volume transforms,
+refreshes the authoritative plate-session context, and restores selection,
+pivot, and bounds without replacing model meshes. Receipt application and
+full-projection fallback are exposed as bounded application diagnostics.
 
 ## Verification
 

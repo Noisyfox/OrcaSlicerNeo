@@ -1,4 +1,4 @@
-import type { HistoryContext, PlateSessionInstanceTransform, PrimeTowerRestoreReceipt, RestoreImpact, RestoreResult, SlicerClient } from '@slicer/client';
+import type { HistoryContext, PlateSessionInstanceTransform, PrimeTowerRestoreReceipt, RestoreImpact, RestoreResult, SlicerClient, TransformRestoreReceipt } from '@slicer/client';
 import type { SceneInteractionController } from '../components/workspace/viewport/SceneInteractionController';
 import type { WorkspaceSliceCoordinator } from '../components/workspace/sliceCoordinator';
 import { useHistoryRestoreStore } from '../stores/useHistoryRestoreStore';
@@ -6,7 +6,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useSlicerStore } from '../stores/useSlicerStore';
 import { useHistoryNavigationStore } from '../stores/useHistoryNavigationStore';
 import { restoreProjectHistory } from '../components/workspace/actions/historyMutation';
-import { historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from './historyDiagnostics';
+import { historyDiagnosticNow, historyRestorePath, type HistoryRestorePath, useHistoryDiagnosticsStore } from './historyDiagnostics';
 
 export type HistoryRestoreAction = 'undo' | 'redo' | { jump: string; direction: 'undo' | 'redo' };
 
@@ -32,7 +32,8 @@ export interface HistoryRestoreCoordinatorOptions {
     revision: number,
     primeTowerReceipt?: PrimeTowerRestoreReceipt,
     instanceTransforms?: readonly PlateSessionInstanceTransform[],
-  ) => Promise<void>;
+    transformReceipt?: TransformRestoreReceipt,
+  ) => Promise<HistoryRestorePath | void>;
   /** Best-effort preference mirror after a successful native restore. */
   publishRestoredFilamentRack?: (revision: number) => Promise<void>;
 }
@@ -74,14 +75,21 @@ export function createHistoryRestoreCoordinator({
       // targeted native invalidation and must not clear other plates.
       if (restored.impact.preview === 'all') useSlicerStore.getState().invalidateSliceResult();
       const projectionStartedAt = historyDiagnosticNow();
+      let projectionPath: HistoryRestorePath = historyRestorePath(restored.impact);
       try {
-        if (restored.instanceTransforms)
-          await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt, restored.instanceTransforms);
-        else
-          await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt);
+        if (restored.instanceTransforms) {
+          if (restored.transformReceipt)
+            projectionPath = await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt, restored.instanceTransforms, restored.transformReceipt) ?? projectionPath;
+          else
+            projectionPath = await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt, restored.instanceTransforms) ?? projectionPath;
+        } else if (restored.transformReceipt) {
+          projectionPath = await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt, undefined, restored.transformReceipt) ?? projectionPath;
+        } else {
+          projectionPath = await refreshModel(restored.context, restored.impact, revision, restored.primeTowerReceipt) ?? projectionPath;
+        }
       } finally {
         useHistoryDiagnosticsStore.getState().recordProjection(
-          historyRestorePath(restored.impact), historyDiagnosticNow() - projectionStartedAt,
+          projectionPath, historyDiagnosticNow() - projectionStartedAt,
         );
       }
       if (useHistoryRestoreStore.getState().revision !== revision) return;

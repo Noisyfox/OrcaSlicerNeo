@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePrimeTowerRestoreReceipt } from './client';
+import { normalizePrimeTowerRestoreReceipt, normalizeTransformRestoreReceipt } from './client';
 import type {
   HistoryContext, HistoryStatus, MockHistoryRuntime, RestoreResult,
   StableInstanceId, StableObjectId, StablePartId, StablePlateId,
@@ -98,5 +98,26 @@ describe('history contracts', () => {
     expect(normalizePrimeTowerRestoreReceipt({
       version: 1, state: 'cleared', plate_id: 'plate-1', revision: 7,
     }, narrowImpact, false)).toBeUndefined();
+  });
+
+  it('normalizes a complete direct Move receipt and rejects malformed transforms', () => {
+    const impact = {
+      version: 1 as const, model: 'full' as const, plateSession: true, filamentRack: false,
+      projectOverlay: true, selectionContext: true, primeTower: true, preview: 'all' as const,
+    };
+    const transform = { offset: [1, 2, 3], rotation: [0, 0, 0], scale: [1, 1, 1], mirror: [1, 1, 1], matrix: [
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 2, 3, 1,
+    ] };
+    expect(normalizeTransformRestoreReceipt({ version: 1, state: 'before', before_revision: 3,
+      after_revision: 4, records: [{ object_id: 101, volume_id: 202, instance_id: 303,
+        object_index: 0, volume_index: 0, instance_index: 0,
+        instance_transform: transform, volume_transform: transform }] }, impact, true, true)).toMatchObject({
+      version: 1, state: 'before', beforeRevision: 3, afterRevision: 4,
+      records: [{ objectId: 101, volumeId: 202, instanceId: 303, objectIndex: 0 }],
+    });
+    expect(normalizeTransformRestoreReceipt({ version: 1, state: 'before', before_revision: 3,
+      after_revision: 4, records: [{ object_id: 101, volume_id: 202, instance_id: 303,
+        object_index: 0, volume_index: 0, instance_index: 0,
+        instance_transform: { ...transform, offset: [Number.NaN, 0, 0] }, volume_transform: transform }] }, impact, true, true)).toBeUndefined();
   });
 });

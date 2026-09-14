@@ -31,6 +31,7 @@ import { createHistoryRestoreCoordinator, type HistoryRestoreCoordinator } from 
 import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { projectHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
+import { applyTransformRestoreReceipt, isTransformRestoreProjectionCompatible } from './actions/transformRestoreProjection';
 import type { PlateSessionSnapshot, ProjectConfigOverlay } from '@slicer/client';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
@@ -291,30 +292,43 @@ export function Workspace({
       runtime: platform.runtime,
       sceneInteraction,
       sliceCoordinator,
-      refreshModel: async (context, impact, revision, primeTowerReceipt, instanceTransforms) => {
+      refreshModel: async (context, impact, revision, primeTowerReceipt, instanceTransforms, transformReceipt) => {
         // Impact is atomically published by the Worker with the committed
-        // cursor. Only a validated full-model receipt may issue a structure
-        // read or wait on GL mesh replacement; old/missing descriptors are
-        // normalized to that safe path by the typed client.
-        let structure;
-        if (impact.model === 'full') {
-          structure = await platform.runtime.getModelStructure();
-          if (!structure.ok || !structure.objects)
-            throw new Error(structure.error ?? 'getModelStructure failed during history restore');
-          if (historyRestoreRef.current?.currentRevision() !== revision) return;
+        // cursor. A validated adjacent Move receipt can patch the retained
+        // GL collection; old/missing descriptors use the authoritative full
+        // structure read and mesh replacement below.
+        const retainedStructure = { ok: true as const, objects: useObjectListStore.getState().structure };
+        // Adjacent native Move restores retain the existing mesh collection.
+        // Validate the complete receipt against stable IDs and indexes before
+        // deciding to skip the full Worker structure/GL reload. A malformed,
+        // stale, or incompatible receipt simply takes the old authoritative
+        // path below.
+        const canApplyTransformReceipt = Boolean(transformReceipt &&
+          isTransformRestoreProjectionCompatible(transformReceipt, retainedStructure, glVolumeCollection.volumes));
+        const projectFullModel = async () => {
+          const fullStructure = await platform.runtime.getModelStructure();
+          if (!fullStructure.ok || !fullStructure.objects)
+            throw new Error(fullStructure.error ?? 'getModelStructure failed during history restore');
+          if (historyRestoreRef.current?.currentRevision() !== revision) return null;
           // A valid restore may legitimately land on the empty baseline. Keep
           // the loader's modelLoaded gate aligned with the Worker model before
           // its revision-fenced mesh request runs.
-          useSettingsStore.getState().setModelLoaded(structure.objects.length > 0);
+          useSettingsStore.getState().setModelLoaded(fullStructure.objects.length > 0);
           const modelRevision = useSettingsStore.getState().modelRevision;
           await waitForGLVolumeRevision(modelRevision);
-          if (historyRestoreRef.current?.currentRevision() !== revision) return;
-          useObjectListStore.getState().setStructure(structure.objects);
-          useObjectListStore.getState().setLoaded(structure.objects.length > 0);
+          if (historyRestoreRef.current?.currentRevision() !== revision) return null;
+          useObjectListStore.getState().setStructure(fullStructure.objects);
+          useObjectListStore.getState().setLoaded(fullStructure.objects.length > 0);
+          return fullStructure;
+        };
+        let structure;
+        if (impact.model === 'full' && !canApplyTransformReceipt) {
+          structure = await projectFullModel();
+          if (!structure) return;
         } else {
           // Direct Prime Tower restoration has no model mutation. Reuse the
           // stable Worker-projected structure only for context ID resolution.
-          structure = { ok: true, objects: useObjectListStore.getState().structure };
+          structure = retainedStructure;
         }
         if (impact.projectOverlay) {
           const overlay = context.projectConfigOverlay;
@@ -347,6 +361,17 @@ export function Workspace({
           if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
             usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
         }
+        let transformReceiptApplied = false;
+        if (canApplyTransformReceipt && transformReceipt)
+          transformReceiptApplied = applyTransformRestoreReceipt(transformReceipt, structure, glVolumeCollection.volumes);
+        if (canApplyTransformReceipt && !transformReceiptApplied) {
+          // The collection changed between validation and publication. The
+          // same authoritative full projection is the safe recovery path.
+          structure = await projectFullModel();
+          if (!structure) return;
+        }
+        if (transformReceipt)
+          useHistoryDiagnosticsStore.getState().recordTransformReceipt(transformReceiptApplied);
         if (impact.selectionContext) sceneInteraction.restoreHistoryContext(context, structure);
         // A normalized direct receipt is a narrow acceleration only. It may
         // patch the retained all-plate projection solely after this restore's
@@ -373,6 +398,7 @@ export function Workspace({
           // changing model structure or the settings overlay reference.
           await refreshPrimeTowerProjection(true);
         }
+        return transformReceiptApplied ? 'direct' : impact.model === 'none' ? 'direct' : 'full';
       },
       publishRestoredFilamentRack: async (revision) => {
         if (useHistoryRestoreStore.getState().revision !== revision) return;
@@ -419,6 +445,7 @@ export function Workspace({
           recordProjection: _projection, recordPrimeTowerProjectionRead: _projectionRead,
           recordPrimeTowerSetProjection: _setProjection, recordPrimeTowerReconcile: _reconcile,
           recordPrimeTowerEmit: _emit, recordPlateSessionSnapshot: _plateSession,
+          recordTransformReceipt: _transformReceipt,
           setTransport: _transport, reset: _reset, ...snapshot } = useHistoryDiagnosticsStore.getState();
         return snapshot;
       },

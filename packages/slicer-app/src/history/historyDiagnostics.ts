@@ -23,6 +23,10 @@ export interface HistoryAppDiagnostics extends HistoryDiagnosticLayer {
   readonly directPrimeTowerModelReloads: number;
   /** Full receipts are allowed to rebuild the model and are counted explicitly. */
   readonly fullRestoreModelReloads: number;
+  /** Count of validated direct Move receipts consumed by the renderer. */
+  readonly transformReceiptApplied: number;
+  /** Count of Move receipts that conservatively fell back to full projection. */
+  readonly transformReceiptFallbacks: number;
 }
 
 export interface HistoryObservabilitySnapshot {
@@ -45,6 +49,7 @@ interface HistoryDiagnosticsState extends HistoryObservabilitySnapshot {
   recordPrimeTowerReconcile(durationMs: number): void;
   recordPrimeTowerEmit(durationMs: number): void;
   recordPlateSessionSnapshot(durationMs: number): void;
+  recordTransformReceipt(applied: boolean): void;
   setTransport(diagnostics: HistoryTransportDiagnostics | null): void;
   reset(): void;
 }
@@ -82,6 +87,7 @@ function emptyApp(): HistoryAppDiagnostics {
     primeTowerSetProjection: emptyTiming(), primeTowerReconcile: emptyTiming(), primeTowerEmit: emptyTiming(),
     plateSessionSnapshot: emptyTiming(),
     directPrimeTowerModelReloads: 0, fullRestoreModelReloads: 0,
+    transformReceiptApplied: 0, transformReceiptFallbacks: 0,
   };
 }
 
@@ -138,6 +144,11 @@ export const useHistoryDiagnosticsStore = create<HistoryDiagnosticsState>((set) 
   } })),
   recordPlateSessionSnapshot: (durationMs) => set((state) => ({ app: {
     ...state.app, plateSessionSnapshot: addTiming(state.app.plateSessionSnapshot, durationMs),
+  } })),
+  recordTransformReceipt: (applied) => set((state) => ({ app: {
+    ...state.app,
+    transformReceiptApplied: state.app.transformReceiptApplied + (applied ? 1 : 0),
+    transformReceiptFallbacks: state.app.transformReceiptFallbacks + (applied ? 0 : 1),
   } })),
   setTransport: (diagnostics) => set({ worker: diagnostics?.worker ?? null, client: diagnostics?.client ?? null }),
   reset: () => set({ worker: null, client: null, app: emptyApp() }),
