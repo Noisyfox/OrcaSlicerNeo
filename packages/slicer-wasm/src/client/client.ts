@@ -55,6 +55,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+function normalizeModelTransform(raw: unknown): ModelTransform | undefined {
+  if (!isRecord(raw)) return undefined;
+  const tuple = (value: unknown, length: number): value is number[] =>
+    Array.isArray(value) && value.length === length && value.every((item) => typeof item === 'number' && Number.isFinite(item));
+  if (!tuple(raw.offset, 3) || !tuple(raw.rotation, 3) || !tuple(raw.scale, 3) || !tuple(raw.mirror, 3) ||
+      (raw.matrix !== undefined && !tuple(raw.matrix, 16))) return undefined;
+  return {
+    offset: [...raw.offset] as [number, number, number], rotation: [...raw.rotation] as [number, number, number],
+    scale: [...raw.scale] as [number, number, number], mirror: [...raw.mirror] as [number, number, number],
+    ...(raw.matrix !== undefined ? { matrix: [...raw.matrix] as ModelTransform['matrix'] } : {}),
+  };
+}
+
 function normalizeNativePerformanceProfile(raw: unknown): NativePerformanceProfile {
   if (!isRecord(raw) || raw.version !== 1 || !Array.isArray(raw.samples))
     throw new Error('invalid native performance profile');
@@ -528,11 +541,16 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
           ? { key: item.key, value: item.value } : null;
       }) : undefined;
     if (hasOpaqueMetadata && (!opaqueMetadata || opaqueMetadata.some((entry) => entry === null))) return null;
+    const hasFutureMetadata = plate.future_metadata !== undefined;
+    const futureMetadata = hasFutureMetadata && plate.future_metadata && typeof plate.future_metadata === 'object' && !Array.isArray(plate.future_metadata)
+      ? plate.future_metadata as Readonly<Record<string, unknown>> : undefined;
+    if (hasFutureMetadata && !futureMetadata) return null;
     return {
       ...normalized,
       ...(typeof plate.locked === 'boolean' ? { locked: plate.locked } : {}),
       ...(settings ? { settings } : {}),
       ...(opaqueMetadata ? { opaqueMetadata: opaqueMetadata as { key: string; value: string }[] } : {}),
+      ...(futureMetadata ? { futureMetadata } : {}),
       ...(Array.isArray(plate.instance_ids) && plate.instance_ids.every((id) => Number.isSafeInteger(id))
         ? { instanceIds: plate.instance_ids as number[] } : {}),
       ...(Array.isArray(plate.out_of_bounds_instance_ids) && plate.out_of_bounds_instance_ids.every((id) => Number.isSafeInteger(id))
@@ -563,7 +581,9 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
       return { instanceId: item.instance_id as number, objectId: item.object_id as number,
         objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
         plateId: item.plate_id, member: item.member, unprintable: item.unprintable,
-        outOfBounds: item.out_of_bounds };
+        outOfBounds: item.out_of_bounds,
+        ...(typeof item.parked === 'boolean' ? { parked: item.parked } : {}),
+      };
     });
     if (instances.some((instance) => instance === null)) return { ok: false, error: 'invalid plate session instances' };
     result.instances = instances as NonNullable<typeof instances[number]>[];
@@ -574,9 +594,11 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
       const item = entry as Record<string, unknown>;
       if (![item.instance_id, item.object_id, item.object_index, item.instance_index]
         .every((id) => Number.isSafeInteger(id)) || !item.world_transform || typeof item.world_transform !== 'object') return null;
+      const worldTransform = normalizeModelTransform(item.world_transform);
+      if (!worldTransform) return null;
       return { instanceId: item.instance_id as number, objectId: item.object_id as number,
         objectIndex: item.object_index as number, instanceIndex: item.instance_index as number,
-        worldTransform: item.world_transform as any };
+        worldTransform };
     });
     if (transforms.some((transform) => transform === null)) return { ok: false, error: 'invalid plate session transforms' };
     result.instanceTransforms = transforms as NonNullable<typeof transforms[number]>[];
@@ -600,6 +622,20 @@ function normalizePlateSessionResult(raw: unknown): PlateSessionSnapshotResult {
   if (affected) result.affectedPlateIds = affected;
   if (reasons) result.dirtyReasons = reasons;
   return result;
+}
+
+/** Normalize the native-canonical session embedded in every history context.
+ * A malformed optional session is omitted so an adjacent receipt cannot use
+ * it as proof; the restore itself remains eligible for the full projection. */
+export function normalizeHistoryContext(raw: unknown): HistoryContext | undefined {
+  if (!isRecord(raw)) return undefined;
+  if (raw.plateSession === undefined) return raw as unknown as HistoryContext;
+  const session = normalizePlateSessionResult(raw.plateSession);
+  if (!session.ok) {
+    const { plateSession: _invalid, ...withoutSession } = raw;
+    return withoutSession as unknown as HistoryContext;
+  }
+  return { ...raw, plateSession: session } as unknown as HistoryContext;
 }
 
 function normalizePlateSelectionResult(raw: unknown): PlateSelectionResult {
@@ -895,9 +931,11 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
     if (transforms.some((transform) => transform === null)) return historyFailure(raw, 'invalid history instance transforms');
     instanceTransforms = transforms as import('./types').PlateSessionInstanceTransform[];
   }
+  const context = normalizeHistoryContext(value.context);
+  if (!context) return historyFailure(raw, 'invalid history context');
   return {
     ok: true,
-    context: value.context as HistoryContext,
+    context,
     status: normalizeHistoryStatus(value.status),
     ...(typeof value.entryId === 'string' ? { entryId: value.entryId } : {}),
     impact,
@@ -911,7 +949,8 @@ function normalizeHistoryRestore(raw: unknown): RestoreResult {
  * Normalize the adjacent Move receipt without weakening the full-restore
  * fallback. Native deliberately keeps the impact descriptor broad; only an
  * explicitly direct/narrow response with the complete receipt is eligible
- * for renderer-local projection.
+ * for renderer-local projection. A same-session missing/incompatible receipt
+ * is a safety fallback, not a cross-version compatibility path.
  */
 export function normalizeTransformRestoreReceipt(
   raw: unknown,
@@ -972,8 +1011,8 @@ export function normalizeTransformRestoreReceipt(
 }
 
 /**
- * Receipts are an optional acceleration contract. Invalid or legacy data is
- * ignored so callers retain the existing authoritative projection fallback.
+ * Receipts are an optional acceleration contract. Invalid same-session data is
+ * ignored so callers retain the authoritative projection fallback.
  */
 export function normalizePrimeTowerRestoreReceipt(
   raw: unknown,

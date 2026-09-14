@@ -1,5 +1,5 @@
 // packages/slicer-wasm/src/client/index.ts
-export { createClient } from './client';
+export { createClient, normalizeHistoryContext } from './client';
 export { startWorker, createWorkerClient } from './worker';
 export type { WorkerMessage, WorkerTransport } from './worker';
 export type {

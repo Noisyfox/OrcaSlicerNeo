@@ -723,7 +723,11 @@ export class SceneInteractionController {
   }
 
   /** Project a Worker-owned stable-ID history context onto fresh GL volumes. */
-  restoreHistoryContext(context: HistoryContext, structure: ModelStructureResult): void {
+  restoreHistoryContext(
+    context: HistoryContext,
+    structure: ModelStructureResult,
+    fallbackSelectionIds: readonly string[] = [],
+  ): void {
     this.cancelDrag();
     const objectIds = new Set(context.selection.objectIds);
     const partIds = new Set(context.selection.partIds);
@@ -742,6 +746,20 @@ export class SceneInteractionController {
         for (const volume of object.volumes)
           selected.add(`${object.index}:${volume.index}:${instance.index}`);
       }
+    }
+    // Sparse Move history frames carry transforms and the normalized native
+    // session, but may not carry the renderer's selection context for the
+    // baseline frame. Keep the active Move selection in that one case so the
+    // restored bounds/pivot remain tied to the moved volumes. IDs are checked
+    // against the retained structure before being accepted.
+    if (selected.size === 0 && fallbackSelectionIds.length > 0) {
+      const renderedIds = new Set<string>();
+      for (const object of structure.objects)
+        for (const volume of object.volumes)
+          for (const instance of object.instances)
+            renderedIds.add(`${object.index}:${volume.index}:${instance.index}`);
+      for (const id of fallbackSelectionIds)
+        if (renderedIds.has(id)) selected.add(id);
     }
     this.selectionModeState = context.selection.mode === 'part' ? 'volume' : context.selection.mode;
     this.selection.replaceIds([...selected]);

@@ -11,6 +11,11 @@ type Layer = { mutation: Timing; restore: Timing; directRestore: Timing; fullRes
 type Diagnostics = { worker: Layer | null; client: Layer | null; app: Layer & {
   queue: Timing; projection: Timing; fullRestoreModelReloads: number;
   transformReceiptApplied: number; transformReceiptFallbacks: number;
+  transformReceiptProofFailures: number; transformReceiptProofLastFailure: string | null;
+  plateSessionSnapshot: Timing; plateSessionTransforms: Timing;
+  transformReceiptApplication: Timing; selectionRestore: Timing;
+  primeTowerProjectionRead: Timing; primeTowerSetProjection: Timing;
+  primeTowerReconcile: Timing; primeTowerEmit: Timing;
 } };
 type NativeSample = { operation: string; stagesMs: Record<string, number> };
 type NativeProfile = { version: 1; samples: NativeSample[] };
@@ -179,6 +184,20 @@ test('profiles a real object move through the visible Undo Move boundary', async
       return complete;
     }, { timeout: 120_000, intervals: [20] }).toBe(true);
 
+    // The idle projection effect can finish just after the Undo button becomes
+    // visible. Establish a quiet baseline before attributing the next tower
+    // projection read to the Move restore itself.
+    await page.waitForTimeout(800);
+    await expect.poll(async () => {
+      const first = await readDiagnostics();
+      await page.waitForTimeout(100);
+      const second = await readDiagnostics();
+      return Boolean(first?.app && second?.app &&
+        first.app.primeTowerProjectionRead.count === second.app.primeTowerProjectionRead.count &&
+        first.app.primeTowerSetProjection.count === second.app.primeTowerSetProjection.count &&
+        first.app.primeTowerReconcile.count === second.app.primeTowerReconcile.count &&
+        first.app.primeTowerEmit.count === second.app.primeTowerEmit.count);
+    }, { timeout: 10_000, intervals: [100] }).toBe(true);
     const after = await readDiagnostics();
     if (!after?.worker || !after.client) throw new Error('history diagnostics disappeared during object move');
     const native = await takeNativeProfile();
@@ -234,7 +253,7 @@ test('profiles a real object move through the visible Undo Move boundary', async
     await expect(undo).toHaveAttribute('aria-label', 'Undo Move');
     await undo.click();
     let restoreCompleteAt = 0;
-    const restoreTimeoutMs = 180_000;
+    const restoreTimeoutMs = 30_000;
     const readRestoreState = () => page.evaluate(() => {
       const e = (window as unknown as { __orcaE2e?: {
         historyDiagnostics?: () => Diagnostics;
@@ -256,10 +275,18 @@ test('profiles a real object move through the visible Undo Move boundary', async
         restoreError: document.querySelector('[data-testid="history-restore-error"]')?.textContent ?? null,
       };
     });
+    let proofFailureLogged = false;
     await expect.poll(async () => {
       const state = await readRestoreState();
       const { diagnostics, restoredBounds, restoredPivot, restoredCenters, restoreError } = state;
       if (restoreError) throw new Error(`Undo Move restore failed: ${restoreError}`);
+      if (!proofFailureLogged && diagnostics?.app && diagnostics.app.transformReceiptProofFailures > undoBefore.app.transformReceiptProofFailures) {
+        proofFailureLogged = true;
+        console.log('[object-move-history-profile] Move receipt proof rejected', JSON.stringify({
+          failures: diagnostics.app.transformReceiptProofFailures,
+          reason: diagnostics.app.transformReceiptProofLastFailure,
+        }));
+      }
       const boundsEqual = Boolean(restoredBounds && beforeBounds &&
         [...restoredBounds.min, ...restoredBounds.max, ...restoredBounds.center, ...restoredBounds.size]
           .every((value, index) => Math.abs(value - [
@@ -269,21 +296,31 @@ test('profiles a real object move through the visible Undo Move boundary', async
         center.every((value, axis) => Math.abs(value - beforeCenters[index][axis]) <= 1e-6));
       const pivotEqual = Boolean(restoredPivot && beforePivot && restoredPivot.length === beforePivot.length &&
         restoredPivot.every((value, index) => Math.abs(value - beforePivot[index]) <= 1e-4));
-      const projectionMaxDelta = restoredCenters.length === beforeCenters.length
-        ? Math.max(...restoredCenters.map((center, index) => Math.max(...center.map((value, axis) =>
-          Math.abs(value - beforeCenters[index][axis]))))) : Infinity;
-      const complete = diagnostics?.worker?.fullRestore.count === undoBefore.worker!.fullRestore.count + 1
-        && diagnostics?.client?.fullRestore.count === undoBefore.client!.fullRestore.count + 1
-        && diagnostics.app.fullRestore.count === undoBefore.app.fullRestore.count + 1
-        && diagnostics.app.projection.count === undoBefore.app.projection.count + 1
-        && diagnostics.app.fullRestoreModelReloads === undoBefore.app.fullRestoreModelReloads
-        && diagnostics.app.transformReceiptApplied === undoBefore.app.transformReceiptApplied + 1
-        && diagnostics.app.transformReceiptFallbacks === undoBefore.app.transformReceiptFallbacks
-        && state.redoLabel === 'Redo Move'
-        && state.redoEnabled
-        && state.undoLabel !== 'Undo Move'
-        && (boundsEqual || pivotEqual || projectionEqual)
-        && projectionEqual;
+      const restoreChecks = {
+        workerRestore: diagnostics?.worker?.fullRestore.count === undoBefore.worker!.fullRestore.count + 1,
+        clientRestore: diagnostics?.client?.fullRestore.count === undoBefore.client!.fullRestore.count + 1,
+        appRestore: diagnostics?.app.fullRestore.count === undoBefore.app.fullRestore.count + 1,
+        projection: diagnostics?.app.projection.count === undoBefore.app.projection.count + 1,
+        noModelReload: diagnostics?.app.fullRestoreModelReloads === undoBefore.app.fullRestoreModelReloads,
+        receiptApplied: diagnostics?.app.transformReceiptApplied === undoBefore.app.transformReceiptApplied + 1,
+        noReceiptFallback: diagnostics?.app.transformReceiptFallbacks === undoBefore.app.transformReceiptFallbacks,
+        noProofFailure: diagnostics?.app.transformReceiptProofFailures === undoBefore.app.transformReceiptProofFailures,
+        proofFailureUnchanged: diagnostics?.app.transformReceiptProofLastFailure === undoBefore.app.transformReceiptProofLastFailure,
+        noSessionSnapshot: diagnostics?.app.plateSessionSnapshot.count === undoBefore.app.plateSessionSnapshot.count,
+        noSessionTransforms: diagnostics?.app.plateSessionTransforms.count === undoBefore.app.plateSessionTransforms.count,
+        receiptApplication: diagnostics?.app.transformReceiptApplication.count === undoBefore.app.transformReceiptApplication.count + 1,
+        selectionRestore: diagnostics?.app.selectionRestore.count === undoBefore.app.selectionRestore.count + 1,
+        towerRead: diagnostics?.app.primeTowerProjectionRead.count === undoBefore.app.primeTowerProjectionRead.count + 1,
+        towerSet: diagnostics?.app.primeTowerSetProjection.count === undoBefore.app.primeTowerSetProjection.count + 1,
+        towerReconcile: diagnostics?.app.primeTowerReconcile.count === undoBefore.app.primeTowerReconcile.count + 1,
+        towerEmit: diagnostics?.app.primeTowerEmit.count === undoBefore.app.primeTowerEmit.count + 1,
+        redoLabel: state.redoLabel === 'Redo Move',
+        redoEnabled: state.redoEnabled,
+        undoConsumed: state.undoLabel !== 'Undo Move',
+        boundsOrPivot: boundsEqual || pivotEqual || projectionEqual,
+        projectionEqual,
+      };
+      const complete = Object.values(restoreChecks).every(Boolean);
       if (complete && restoreCompleteAt === 0) restoreCompleteAt = performance.now();
       return complete;
     }, { timeout: restoreTimeoutMs, intervals: [20] }).toBe(true);
@@ -305,6 +342,20 @@ test('profiles a real object move through the visible Undo Move boundary', async
     const restoreAppMs = delta(undoBefore.app.fullRestore, undoAfter.app.fullRestore, 'application Undo restore');
     const restoreProjectionMs = delta(undoBefore.app.projection, undoAfter.app.projection, 'application Undo publication');
     const restoreNativeMs = restoreSamples[0].stagesMs.total;
+    const applicationStages = {
+      plateSessionSnapshot: undoAfter.app.plateSessionSnapshot,
+      plateSessionTransforms: undoAfter.app.plateSessionTransforms,
+      transformReceiptApplication: undoAfter.app.transformReceiptApplication,
+      selectionRestore: undoAfter.app.selectionRestore,
+      primeTowerProjectionRead: undoAfter.app.primeTowerProjectionRead,
+      primeTowerSetProjection: undoAfter.app.primeTowerSetProjection,
+      primeTowerReconcile: undoAfter.app.primeTowerReconcile,
+      primeTowerEmit: undoAfter.app.primeTowerEmit,
+    };
+    for (const [name, timing] of Object.entries(applicationStages)) {
+      expect(timing.count, `${name} timing count must be non-negative`).toBeGreaterThanOrEqual(0);
+      expect(Number.isFinite(timing.lastMs) && timing.lastMs >= 0, `${name} timing must be finite`).toBe(true);
+    }
     console.log('[object-move-history-undo-profile] ms', JSON.stringify({
       clickToRestoredProjectionMs: restoreCompleteAt - restoreClickAt,
       applicationRestoreMs: restoreAppMs,
@@ -315,6 +366,12 @@ test('profiles a real object move through the visible Undo Move boundary', async
       rendererToWorkerTransportAndClientJsResidualMs: restoreClientMs - restoreWorkerMs,
       workerJsAndUninstrumentedNativeResidualMs: restoreWorkerMs - restoreNativeMs,
       nativeStages: restoreSamples[0].stagesMs,
+      transformReceiptProof: {
+        failures: undoAfter.app.transformReceiptProofFailures,
+        lastFailure: undoAfter.app.transformReceiptProofLastFailure,
+      },
+      applicationStages: Object.fromEntries(Object.entries(applicationStages)
+        .map(([name, timing]) => [name, { count: timing.count, lastMs: timing.lastMs }])),
     }));
   } finally {
     await app.close();

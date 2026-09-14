@@ -7,7 +7,7 @@
  * retain a context alongside a model version without making React a second
  * model owner.
  */
-import type { PlateSessionInstanceTransform } from './types';
+import type { PlateSessionInstanceTransform, PlateSessionSnapshot } from './types';
 
 
 /** Stable native identities.  These are IDs, never positional indexes. */
@@ -49,6 +49,8 @@ export interface HistoryContext {
   readonly gizmo: HistoryGizmoContext | null;
   /** Project/object/part overrides and retained plate metadata, never global preset preferences. */
   readonly projectConfigOverlay: HistoryJsonObject;
+  /** Native-canonical session projection, present on Worker restore results. */
+  readonly plateSession?: PlateSessionSnapshot;
 }
 
 /** Project entries are navigable; context entries accompany a project frame. */
@@ -117,8 +119,8 @@ export interface HistoryError {
 
 /**
  * Worker-authored projection domains changed by one atomic restore commit.
- * Missing, malformed, or newer-than-known descriptors deliberately normalize
- * to the conservative full-model path in the typed client.
+ * Missing or malformed descriptors deliberately normalize to the conservative
+ * full-model path in the typed client for the current session.
  */
 export interface RestoreImpact {
   readonly version: 1;
@@ -222,9 +224,9 @@ export interface RestoreSuccess {
   readonly status: HistoryStatus;
   readonly entryId?: HistoryEntryId;
   readonly impact: RestoreImpact;
-  /** Omitted for full restores, legacy artifacts, and malformed receipts. */
+  /** Omitted for non-direct restores and malformed receipts. */
   readonly primeTowerReceipt?: PrimeTowerRestoreReceipt;
-  /** Omitted for full restores, legacy artifacts, and malformed receipts. */
+  /** Omitted for non-direct restores and malformed receipts. */
   readonly transformReceipt?: TransformRestoreReceipt;
   /** Compact transform receipt for a direct Add Plate restore. */
   readonly instanceTransforms?: readonly PlateSessionInstanceTransform[];

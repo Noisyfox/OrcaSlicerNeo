@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizePrimeTowerRestoreReceipt, normalizeTransformRestoreReceipt } from './client';
+import { normalizeHistoryContext, normalizePrimeTowerRestoreReceipt, normalizeTransformRestoreReceipt } from './client';
 import type {
   HistoryContext, HistoryStatus, MockHistoryRuntime, RestoreResult,
   StableInstanceId, StableObjectId, StablePartId, StablePlateId,
@@ -119,5 +119,21 @@ describe('history contracts', () => {
       after_revision: 4, records: [{ object_id: 101, volume_id: 202, instance_id: 303,
         object_index: 0, volume_index: 0, instance_index: 0,
         instance_transform: { ...transform, offset: [Number.NaN, 0, 0] }, volume_transform: transform }] }, impact, true, true)).toBeUndefined();
+  });
+
+  it('normalizes native session proof and drops malformed session data', () => {
+    const nativeSession = {
+      ok: true, version: 1, current_plate_id: 'plate-1',
+      plates: [{ plate_id: 'plate-1', display_index: 0, origin: [0, 0, 0], name: 'Plate',
+        locked: false, settings: {}, opaque_metadata: [], future_metadata: {}, instance_ids: [303],
+        out_of_bounds_instance_ids: [], valid: true }],
+      instances: [{ instance_id: 303, object_id: 101, object_index: 0, instance_index: 0,
+        plate_id: 'plate-1', member: true, parked: false, unprintable: false, out_of_bounds: false }],
+      instance_transforms: [], input_revisions: { 'plate-1': 3 },
+    };
+    const normalized = normalizeHistoryContext({ ...context, plateSession: nativeSession });
+    expect(normalized?.plateSession?.currentPlateId).toBe('plate-1');
+    const malformed = normalizeHistoryContext({ ...context, plateSession: { ...nativeSession, instances: [{ malformed: true }] } });
+    expect(malformed?.plateSession).toBeUndefined();
   });
 });

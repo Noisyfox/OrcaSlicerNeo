@@ -2,7 +2,9 @@
 
 Date: 2026-09-14
 Status: Implemented with object/mesh reuse, Add Plate delta history, sparse
-Move delta history, and renderer-local adjacent Move restore projection
+Move delta history, renderer-local adjacent Move restore projection, and
+validated retained plate/session delta publication and narrow wipe-tower
+projection refresh
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
 ## Problem
@@ -16,11 +18,19 @@ used by the desktop plate-switch performance coverage.
 - A completed object gesture submits the complete renderer CompositeID
   snapshot and recomputes membership globally. This keeps rapid consecutive
   gestures and Worker history snapshots identical.
-- Adjacent direct Move Undo/Redo consumes the validated native transform
-  receipt in the renderer, reusing the retained GL volumes and stable-ID
-  structure. Malformed or stale receipts, missing scene targets, and any
-  non-adjacent/full-history crossing conservatively use the existing full
-  model projection.
+- Adjacent direct Move Undo/Redo consumes a validated native transform receipt
+  in the renderer, reusing the retained GL volumes and stable-ID structure.
+  The normalized native target context is validated against the retained
+  session and receipt, then atomically published even when receipt-affected
+  instances change plate membership, parking, out-of-bounds state, or their
+  affected input revisions. Only the explicit transform receipt is applied;
+  no plate-session snapshot or full session transform replay is performed.
+  Because those changes can alter tower eligibility, the direct path performs
+  one authoritative narrow all-plate tower projection read and patches only
+  the tower collection. Malformed or stale receipts, failed identity/revision
+  proofs, missing scene targets, and any non-adjacent/full-history crossing
+  conservatively use the existing full model/session/tower projection.
+  Unsaved project state has no cross-version receipt compatibility requirement.
 - Plate reflow and renderer transform application use one identity lookup per
   operation rather than repeatedly searching every instance or rendered
   volume.
@@ -125,37 +135,46 @@ real threaded-WASM sample (milliseconds) is:
 
 | Boundary or native stage | Time |
 | --- | ---: |
-| Pointer-up to visible enabled Undo Move | 64.50 |
-| Application mutation/publication | 55.78 |
-| Client transaction | 25.09 |
-| Worker transaction | 24.86 |
-| WASM instrumented total | 11.02 |
-| History begin total / sparse delta record | 1.69 / 0.01 |
-| Transform total | 2.19 |
-| History commit total / sparse delta record / history store | 7.14 / 0.06 / 5.18 |
-| Undo click to restored projection fence | 591.33 |
-| Application restore / publication | 10.69 / 511.27 |
-| Client restore | 10.65 |
-| Worker restore | 9.97 |
-| WASM instrumented restore total | 2.87 |
-| Restore delta apply / total | 2.86 / 2.87 |
-| Renderer-to-Worker transport plus client JS residual | 0.68 |
-| Worker JS plus uninstrumented native residual | 7.10 |
+| Pointer-up to visible enabled Undo Move | 63.10 |
+| Application mutation/publication | 54.14 |
+| Client transaction | 23.44 |
+| Worker transaction | 23.28 |
+| WASM instrumented total | 10.78 |
+| History begin total / sparse delta record | 1.40 / 0.01 |
+| Transform total | 2.35 |
+| History commit total / sparse delta record / history store | 7.02 / 0.06 / 5.04 |
+| Undo click to restored projection fence | 558.78 |
+| Application restore / publication | 9.73 / 481.25 |
+| Client restore | 9.70 |
+| Worker restore | 9.26 |
+| WASM instrumented restore total | 2.72 |
+| Restore delta apply / total | 2.72 / 2.72 |
+| Narrow tower projection read / set / reconcile / emit | 477.00 / 0.24 / 0.17 / 0.05 |
+| Renderer-to-Worker transport plus client JS residual | 0.45 |
+| Worker JS plus uninstrumented native residual | 6.53 |
 
 This independent acceptance run consumed the renderer-local transform receipt
 (`transformReceiptApplied` delta 1), left `fullRestoreModelReloads` unchanged,
-and restored all 14 model world centers plus native selection/bounds/pivot. The exact u1 fixture receipt
-was 45,586,816 bytes across 11 native plates; native restore stages remained
-`delta_apply` and `total` only. No receipt fallback occurred in this run.
+and restored all 14 model world centers plus renderer selection/bounds/pivot.
+The exact u1 fixture receipt was 45,586,816 bytes across 11 native plates;
+native restore stages remained `delta_apply` and `total` only. The direct path
+performed exactly one tower read/set/reconcile/emit delta after the settled
+pre-Undo baseline, and no receipt fallback occurred.
 
 The native transform and restore samples are scalar-only and bounded. Direct
 Move begin/commit expose `delta_record` (and `history_store` on commit), while
 direct Undo/Redo expose `delta_apply` and `total`; no full native model staging
 or `capture_model_state` stage occurs on this adjacent path. Renderer-local
 publication now applies the receipt's exact target instance/volume transforms,
-refreshes the authoritative plate-session context, and restores selection,
-pivot, and bounds without replacing model meshes. Receipt application and
-full-projection fallback are exposed as bounded application diagnostics.
+updates the normalized target session context without a Worker session read,
+and restores selection, pivot, and bounds without replacing model meshes.
+Application diagnostics expose each restore substage: plate-session snapshot,
+plate-session transform application, receipt application, selection restore,
+and prime-tower read/set/reconcile/emit. The positive adjacent Move profile
+shows zero count deltas for the session snapshot/transform stages and one
+isolated narrow tower projection delta; fallback coverage verifies that
+malformed/stale or ambiguous session/receipt values take the authoritative
+projection path.
 
 ## Verification
 

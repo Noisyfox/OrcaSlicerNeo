@@ -315,6 +315,23 @@ describe('SceneInteractionController', () => {
     expect(controller.selectedVolumes().every((volume) => volume.buffer.objectIdx === 0)).toBe(true);
   });
 
+  it('uses only surviving fallback selection IDs when a sparse history context is empty', () => {
+    const structure: ModelStructureResult = {
+      ok: true,
+      objects: [{
+        id: 100, index: 0, name: 'Survivor', printable: true, instanceCount: 1,
+        volumes: [{ id: 110, index: 0, name: 'Part', type: 'model_part', isSplittable: false }],
+        instances: [{ id: 120, index: 0, printable: true }],
+      }],
+    };
+    const context: HistoryContext = {
+      selection: { mode: 'object', objectIds: [], partIds: [], instanceIds: [] },
+      activePlateId: 'plate-1', gizmo: null, projectConfigOverlay: {},
+    };
+    controller.restoreHistoryContext(context, structure, ['0:0:0', '9:9:9']);
+    expect(controller.selectedVolumes()).toEqual([volumes[0]]);
+  });
+
   it('refuses a gizmo drag while the gizmo is not toggled on', () => {
     controller.selectFromHit(volumes[0], false);
     controller.registerGizmoGrabberHitTest(() => true);

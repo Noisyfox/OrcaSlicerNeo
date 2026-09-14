@@ -19,6 +19,9 @@ export interface HistoryAppDiagnostics extends HistoryDiagnosticLayer {
   readonly primeTowerEmit: HistoryTimingDiagnostic;
   /** A direct restore may require it; a direct tower move normally does not. */
   readonly plateSessionSnapshot: HistoryTimingDiagnostic;
+  readonly plateSessionTransforms: HistoryTimingDiagnostic;
+  readonly transformReceiptApplication: HistoryTimingDiagnostic;
+  readonly selectionRestore: HistoryTimingDiagnostic;
   /** A direct Prime Tower receipt must never enter model projection. */
   readonly directPrimeTowerModelReloads: number;
   /** Full receipts are allowed to rebuild the model and are counted explicitly. */
@@ -27,6 +30,9 @@ export interface HistoryAppDiagnostics extends HistoryDiagnosticLayer {
   readonly transformReceiptApplied: number;
   /** Count of Move receipts that conservatively fell back to full projection. */
   readonly transformReceiptFallbacks: number;
+  /** Last bounded reason a same-session Move proof was rejected. */
+  readonly transformReceiptProofFailures: number;
+  readonly transformReceiptProofLastFailure: string | null;
 }
 
 export interface HistoryObservabilitySnapshot {
@@ -49,7 +55,11 @@ interface HistoryDiagnosticsState extends HistoryObservabilitySnapshot {
   recordPrimeTowerReconcile(durationMs: number): void;
   recordPrimeTowerEmit(durationMs: number): void;
   recordPlateSessionSnapshot(durationMs: number): void;
+  recordPlateSessionTransforms(durationMs: number): void;
+  recordTransformReceiptApplication(durationMs: number): void;
+  recordSelectionRestore(durationMs: number): void;
   recordTransformReceipt(applied: boolean): void;
+  recordTransformReceiptProofFailure(reason: string): void;
   setTransport(diagnostics: HistoryTransportDiagnostics | null): void;
   reset(): void;
 }
@@ -86,8 +96,10 @@ function emptyApp(): HistoryAppDiagnostics {
     filamentPreferencePersistence: emptyTiming(), projection: emptyTiming(), primeTowerProjectionRead: emptyTiming(),
     primeTowerSetProjection: emptyTiming(), primeTowerReconcile: emptyTiming(), primeTowerEmit: emptyTiming(),
     plateSessionSnapshot: emptyTiming(),
+    plateSessionTransforms: emptyTiming(), transformReceiptApplication: emptyTiming(), selectionRestore: emptyTiming(),
     directPrimeTowerModelReloads: 0, fullRestoreModelReloads: 0,
     transformReceiptApplied: 0, transformReceiptFallbacks: 0,
+    transformReceiptProofFailures: 0, transformReceiptProofLastFailure: null,
   };
 }
 
@@ -145,10 +157,23 @@ export const useHistoryDiagnosticsStore = create<HistoryDiagnosticsState>((set) 
   recordPlateSessionSnapshot: (durationMs) => set((state) => ({ app: {
     ...state.app, plateSessionSnapshot: addTiming(state.app.plateSessionSnapshot, durationMs),
   } })),
+  recordPlateSessionTransforms: (durationMs) => set((state) => ({ app: {
+    ...state.app, plateSessionTransforms: addTiming(state.app.plateSessionTransforms, durationMs),
+  } })),
+  recordTransformReceiptApplication: (durationMs) => set((state) => ({ app: {
+    ...state.app, transformReceiptApplication: addTiming(state.app.transformReceiptApplication, durationMs),
+  } })),
+  recordSelectionRestore: (durationMs) => set((state) => ({ app: {
+    ...state.app, selectionRestore: addTiming(state.app.selectionRestore, durationMs),
+  } })),
   recordTransformReceipt: (applied) => set((state) => ({ app: {
     ...state.app,
     transformReceiptApplied: state.app.transformReceiptApplied + (applied ? 1 : 0),
     transformReceiptFallbacks: state.app.transformReceiptFallbacks + (applied ? 0 : 1),
+  } })),
+  recordTransformReceiptProofFailure: (reason) => set((state) => ({ app: {
+    ...state.app, transformReceiptProofFailures: state.app.transformReceiptProofFailures + 1,
+    transformReceiptProofLastFailure: reason,
   } })),
   setTransport: (diagnostics) => set({ worker: diagnostics?.worker ?? null, client: diagnostics?.client ?? null }),
   reset: () => set({ worker: null, client: null, app: emptyApp() }),

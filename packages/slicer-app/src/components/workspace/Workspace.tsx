@@ -32,6 +32,7 @@ import { TransformHistoryCoordinator } from './actions/transformHistory';
 import { projectHistoryStatus } from './actions/historyMutation';
 import { applyPlateSessionTransforms } from './actions/syncModelTransforms';
 import { applyTransformRestoreReceipt, isTransformRestoreProjectionCompatible } from './actions/transformRestoreProjection';
+import { moveRestoreSessionProofResult } from './actions/moveRestoreProjection';
 import type { PlateSessionSnapshot, ProjectConfigOverlay } from '@slicer/client';
 import { FilamentRack } from './FilamentRack';
 import { useFilamentSessionStore } from '../../stores/useFilamentSessionStore';
@@ -295,16 +296,31 @@ export function Workspace({
       refreshModel: async (context, impact, revision, primeTowerReceipt, instanceTransforms, transformReceipt) => {
         // Impact is atomically published by the Worker with the committed
         // cursor. A validated adjacent Move receipt can patch the retained
-        // GL collection; old/missing descriptors use the authoritative full
-        // structure read and mesh replacement below.
+        // GL collection; missing/incompatible same-session descriptors use
+        // the authoritative full structure read and mesh replacement below.
         const retainedStructure = { ok: true as const, objects: useObjectListStore.getState().structure };
         // Adjacent native Move restores retain the existing mesh collection.
         // Validate the complete receipt against stable IDs and indexes before
         // deciding to skip the full Worker structure/GL reload. A malformed,
-        // stale, or incompatible receipt simply takes the old authoritative
-        // path below.
+        // stale, or incompatible receipt simply takes the authoritative path
+        // below.
         const canApplyTransformReceipt = Boolean(transformReceipt &&
           isTransformRestoreProjectionCompatible(transformReceipt, retainedStructure, glVolumeCollection.volumes));
+        const retainedPlateSession = usePlateSessionStore.getState().snapshot;
+        // A direct Move is the only model restore allowed to reuse the
+        // renderer's retained plate/session projection. The native context is
+        // normalized by the client and compared field-for-field (membership,
+        // current plate, parking/bounds, plate metadata, and revisions).
+        // Instance transforms are the receipt's explicit delta and are the
+        // sole omitted field.
+        const moveProof = moveRestoreSessionProofResult(context, retainedPlateSession,
+          useSettingsStore.getState().overlay, transformReceipt);
+        if (transformReceipt && moveProof.failure)
+          useHistoryDiagnosticsStore.getState().recordTransformReceiptProofFailure(moveProof.failure);
+        else if (transformReceipt && !canApplyTransformReceipt)
+          useHistoryDiagnosticsStore.getState().recordTransformReceiptProofFailure('renderer-receipt-incompatible');
+        const canUseDirectMoveReceipt = Boolean(transformReceipt && canApplyTransformReceipt && moveProof.session);
+        if (canUseDirectMoveReceipt && historyRestoreRef.current?.currentRevision() !== revision) return;
         const projectFullModel = async () => {
           const fullStructure = await platform.runtime.getModelStructure();
           if (!fullStructure.ok || !fullStructure.objects)
@@ -322,7 +338,7 @@ export function Workspace({
           return fullStructure;
         };
         let structure;
-        if (impact.model === 'full' && !canApplyTransformReceipt) {
+        if (impact.model === 'full' && !canUseDirectMoveReceipt) {
           structure = await projectFullModel();
           if (!structure) return;
         } else {
@@ -338,7 +354,14 @@ export function Workspace({
 
         let freshPlateSession: PlateSessionSnapshot | null = null;
         const getPlateSessionSnapshot = platform.runtime.getPlateSessionSnapshot;
-        if (impact.plateSession && typeof getPlateSessionSnapshot === 'function') {
+        if (canUseDirectMoveReceipt && context.plateSession) {
+          freshPlateSession = context.plateSession;
+          usePlateSessionStore.getState().setSnapshot(freshPlateSession);
+          // Keep the scene-only tower collection on the same native session
+          // before applying the transform receipt. setCurrentPlate also
+          // republishes the session when the active plate itself is unchanged.
+          wipeTowerVolumes.setCurrentPlate(freshPlateSession.currentPlateId, freshPlateSession);
+        } else if (impact.plateSession && typeof getPlateSessionSnapshot === 'function') {
           const plateSessionStartedAt = historyDiagnosticNow();
           let session;
           try {
@@ -352,19 +375,28 @@ export function Workspace({
           if (historyRestoreRef.current?.currentRevision() !== revision) return;
           usePlateSessionStore.getState().setSnapshot(session);
           freshPlateSession = session;
+          const transformsStartedAt = historyDiagnosticNow();
           if (session.instanceTransforms)
             applyPlateSessionTransforms({ instanceTransforms: session.instanceTransforms }, glVolumeCollection.volumes);
           if (instanceTransforms)
             applyPlateSessionTransforms({ instanceTransforms }, glVolumeCollection.volumes);
+          useHistoryDiagnosticsStore.getState().recordPlateSessionTransforms(
+            historyDiagnosticNow() - transformsStartedAt,
+          );
         } else if (impact.plateSession) {
           const session = usePlateSessionStore.getState().snapshot;
           if (session && context.activePlateId && session.plates.some((plate) => plate.plateId === context.activePlateId))
             usePlateSessionStore.getState().setSnapshot({ ...session, currentPlateId: context.activePlateId });
         }
         let transformReceiptApplied = false;
-        if (canApplyTransformReceipt && transformReceipt)
+        if (canUseDirectMoveReceipt && transformReceipt) {
+          const receiptStartedAt = historyDiagnosticNow();
           transformReceiptApplied = applyTransformRestoreReceipt(transformReceipt, structure, glVolumeCollection.volumes);
-        if (canApplyTransformReceipt && !transformReceiptApplied) {
+          useHistoryDiagnosticsStore.getState().recordTransformReceiptApplication(
+            historyDiagnosticNow() - receiptStartedAt,
+          );
+        }
+        if (canUseDirectMoveReceipt && !transformReceiptApplied) {
           // The collection changed between validation and publication. The
           // same authoritative full projection is the safe recovery path.
           structure = await projectFullModel();
@@ -372,13 +404,24 @@ export function Workspace({
         }
         if (transformReceipt)
           useHistoryDiagnosticsStore.getState().recordTransformReceipt(transformReceiptApplied);
-        if (impact.selectionContext) sceneInteraction.restoreHistoryContext(context, structure);
-        // A normalized direct receipt is a narrow acceleration only. It may
-        // patch the retained all-plate projection solely after this restore's
-        // freshly-read plate session confirms the exact native plate revision.
-        // Any absent/mismatched receipt, full-model restore, stale generation,
-        // or collection state we cannot prove safe falls through to the
-        // authoritative all-plate Worker projection.
+        if (impact.selectionContext) {
+          const selectionStartedAt = historyDiagnosticNow();
+          const contextSelectionEmpty = context.selection.objectIds.length === 0 &&
+            context.selection.partIds.length === 0 && context.selection.instanceIds.length === 0;
+          const fallbackSelectionIds = canUseDirectMoveReceipt && contextSelectionEmpty
+            ? [...sceneInteraction.selection.ids] : [];
+          sceneInteraction.restoreHistoryContext(context, structure, fallbackSelectionIds);
+          useHistoryDiagnosticsStore.getState().recordSelectionRestore(
+            historyDiagnosticNow() - selectionStartedAt,
+          );
+        }
+        // A Prime Tower receipt is a separate narrow acceleration. It may
+        // patch the retained all-plate projection only after the authoritative
+        // plate session confirms the exact native plate revision. A direct
+        // Move receipt uses a narrow authoritative read when its target
+        // session can change tower semantics. Any absent/mismatched receipt,
+        // full-model restore, stale generation, or collection state we cannot
+        // prove safe falls through to the authoritative all-plate projection.
         let receiptApplied = false;
         if (impact.model === 'none' && impact.plateSession && primeTowerReceipt && freshPlateSession &&
             historyRestoreRef.current?.currentRevision() === revision) {
@@ -393,6 +436,15 @@ export function Workspace({
           // observe this native receipt as satisfying its exact inputs.
           primeTowerRefreshGenerationRef.current += 1;
           primeTowerProjectionInputsRef.current = capturePrimeTowerProjectionInputs(primeTowerGlVolumesRef.current);
+        } else if (canUseDirectMoveReceipt && transformReceiptApplied) {
+          // Move can change the model's printable/empty status when an
+          // instance crosses a plate boundary (the real u1 fixture does this
+          // through its out-of-bounds transition). Tower eligibility and its
+          // derived footprint are therefore not receipt-independent. Read
+          // only the narrow all-plate tower projection; never reload model
+          // structure or replay the full plate-session transform list.
+          await refreshPrimeTowerProjection(true);
+          if (historyRestoreRef.current?.currentRevision() !== revision) return;
         } else if (impact.primeTower) {
           // History restores change native wipe_tower_x/y without necessarily
           // changing model structure or the settings overlay reference.
@@ -445,6 +497,9 @@ export function Workspace({
           recordProjection: _projection, recordPrimeTowerProjectionRead: _projectionRead,
           recordPrimeTowerSetProjection: _setProjection, recordPrimeTowerReconcile: _reconcile,
           recordPrimeTowerEmit: _emit, recordPlateSessionSnapshot: _plateSession,
+          recordPlateSessionTransforms: _plateTransforms, recordTransformReceiptApplication: _receiptApplication,
+          recordSelectionRestore: _selectionRestore,
+          recordTransformReceiptProofFailure: _proofFailure,
           recordTransformReceipt: _transformReceipt,
           setTransport: _transport, reset: _reset, ...snapshot } = useHistoryDiagnosticsStore.getState();
         return snapshot;
