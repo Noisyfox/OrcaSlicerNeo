@@ -48,28 +48,29 @@ Plate`. The focused Electron profile uses the exact h2d fixture:
 `E:\OneDrive\Dokumente\3d打印\模型\奥德赛\OddseyHelmetFinalParts+(2)wholemorecolor-h2d.3mf`
 
 It proves the 45,201,991-byte project receipt and its 11 native plates before
-measuring, drains load-time native samples, and records the following real
-threaded-WASM sample (milliseconds):
+measuring, drains load-time native samples, and records the following latest
+real threaded-WASM sample (milliseconds):
 
 | Boundary or native stage | Time |
 | --- | ---: |
-| Renderer click to visible enabled Undo Add Plate | 1436.24 |
-| Application mutation/publication | 1379.48 |
-| Client transaction | 1351.15 |
-| Worker transaction | 1350.89 |
-| WASM instrumented total | 1346.14 |
-| History begin `capture_model_state` | 433.62 |
-| Add Plate reflow | 466.57 |
-| History commit `capture_model_state` | 428.22 |
-| History-store insertion | 11.45 |
-| Main-thread/Worker transport plus client JS residual | 0.26 |
-| Worker JS plus uninstrumented read residual | 4.75 |
+| Renderer click to visible enabled Undo Add Plate | 551.39 |
+| Application mutation/publication | 525.95 |
+| Client transaction | 495.77 |
+| Worker transaction | 495.52 |
+| WASM instrumented total | 483.91 |
+| History begin `capture_model_state` | 0.72 |
+| Add Plate reflow | 471.13 |
+| History commit `capture_model_state` | 0.79 |
+| History-store insertion | 4.89 |
+| Main-thread/Worker transport plus client JS residual | 0.24 |
+| Worker JS plus uninstrumented read residual | 11.62 |
 
-The delay is therefore native work, not JavaScript or the Worker transport:
-two full-model history captures account for roughly 862 ms, and reflowing the
-existing plate instances accounts for about 467 ms. Preserve the complete
-history snapshot while optimizing these native stages; reducing the transform
-payload already caused stale rapid-gesture undo and remains rejected.
+The history redesign reduces the visible delay from 1436.24 ms to 551.39 ms
+and removes history capture as the dominant cost: the two captures together
+now take about 1.51 ms rather than roughly 862 ms. Plate reflow is now the
+dominant native cost at about 471 ms. Preserve the complete history snapshot
+while optimizing reflow; reducing the transform payload already caused stale
+rapid-gesture undo and remains rejected.
 
 ## Verification
 
