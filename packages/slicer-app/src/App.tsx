@@ -474,7 +474,7 @@ export default function App() {
   }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
   const handleDroppedModelFiles = useCallback(async (files: File[]) => {
     try {
-      const mutated = await addDroppedModels(platform, sceneInteractionRef.current, () => Promise.all(files.map(async (file) => ({
+      await addDroppedModels(platform, sceneInteractionRef.current, () => Promise.all(files.map(async (file) => ({
         displayName: file.name,
         bytes: new Uint8Array(await file.arrayBuffer()),
       }))), files.length, handleModelAdded);
