@@ -266,7 +266,7 @@ had lazily created a backup path; its destructor then entered upstream
 `boost::thread`.  That native manager is outside the synchronous WASM bridge
 contract and leaves the threaded Node harness stuck during candidate cleanup.
 The accepted WASM boundary for this step is that backup/restore functionality
-is not provided by either WASM variant.  Patch `0008` conditionally excludes
+is not provided by either WASM variant.  Patch `0006` conditionally excludes
 the complete upstream manager and its backup entry points from the build, and
 `stubs/backup-manager-stub.cpp` supplies ABI-compatible no-op functions while
 retaining direct temporary-path cleanup in `remove_backup`.  No upstream

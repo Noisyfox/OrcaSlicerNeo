@@ -25,8 +25,8 @@
 
 ### Milestone 1 — WASM Core (design Phase B)
 
-> **Status: delivered 2026-08-13.** Submodule pinned b97ca3c0ac (patches 0001,
-> 0003–0007 applied — 0002 skipped: `distance_to_squared` fixed upstream);
+> **Status: delivered 2026-08-13.** Submodule pinned b97ca3c0ac.  The original
+> clang-strictness patch set is superseded by the current continuous sequence;
 > serial TBB shim incl. `parallel_pipeline` stand-in; Boost 1.84 wasm64 (12
 > static archives); scaffold CMake with 3MF re-added; 8-function extern "C"
 > bridge API; Node smoke green — see
@@ -36,9 +36,10 @@
 - Add `packages/slicer-wasm/cpp/` as a submodule → `Noisyfox/OrcaSlicer`, pinned
   to a commit SHA (initially the fork's current master HEAD; spike-proven
   reference is v2.4.2 — bridge signatures are the expected drift surface).
-- Maintain `.patch` files: `Model.hpp` STEP include guard (`SLIC3R_WASM_NO_OCCT`),
-  clang-strictness tweaks, `AABBTreeLines.hpp` `distance_to_squared` overload.
-  Applied by `build.sh`, idempotent.
+- Maintain `.patch` files for the remaining clang-strictness and WASM
+  compatibility tweaks.  STEP is enabled through the OCCT/XCAF dependency
+  closure and the upstream `Model.hpp` include is used unchanged.  Patches are
+  applied by `build.sh`, idempotently.
 
 **Epic 1.2: Serial TBB shim**
 - Copy the spike's `shim/_serial.hpp` + generated forwarding headers; add the
@@ -51,7 +52,9 @@
 
 **Epic 1.4: Scaffold CMake + drop set**
 - `GLOB_RECURSE` over `cpp/src/libslic3r/*.cpp`, `DROP_PATTERNS` (SLA/OpenVDB,
-  CGAL, STEP/OCCT, OpenCV, windows-only, draco), `stubs/*.cpp` glob.
+  CGAL, non-STEP OCCT consumers, OpenCV, windows-only, draco), `stubs/*.cpp`
+  glob.  The upstream STEP sources are retained and linked against the staged
+  OCCT/XCAF closure.
 - Re-add `/Format/3mf` + `bbs_3mf` (expat/minilzo are vendored in-tree).
 - Link flags per design: `-O3 -fexceptions -sMEMORY64 -sMODULARIZE=1
   -sEXPORT_ES6=1 -sENVIRONMENT=web,worker,node -sALLOW_MEMORY_GROWTH=1

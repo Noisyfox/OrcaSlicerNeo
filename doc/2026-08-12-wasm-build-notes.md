@@ -12,12 +12,19 @@ contract, and the known M2 work. Companion to the approved design
 ## Overview
 
 `packages/slicer-wasm` compiles the pinned C++ submodule
-(`cpp/` → `Noisyfox/OrcaSlicer`, SHA `b97ca3c0ac`) into a single Emscripten
-module: serial TBB shim, scaffold CMake with a denylist of dropped v1
-features, the extern "C" bridge API, and the CLI driver — all wasm64. The
-build machinery is inherited from the phase-0 spike and adapted (no clone
-step, wasm64-first, curated preset subset embedded). Artifacts land in
+(`cpp/` → `Noisyfox/OrcaSlicer`, SHA `b97ca3c0ac`) into Emscripten wasm64
+modules: threaded and serial TBB variants, scaffold CMake with a denylist of
+dropped features, the OCCT/XCAF STEP closure, the extern "C" bridge API, and
+the CLI driver. The build machinery is inherited from the phase-0 spike and
+adapted (no clone step, wasm64-first, curated preset subset embedded).
+Artifacts land in
 `packages/slicer-wasm/out/` (`orca_slice.js` + `orca_slice.wasm`).
+
+> **Current-state note (2026-09-14):** This dated build record originally
+> described the pre-STEP WASM scaffold. STEP/OCCT support was delivered on
+> 2026-09-13; the old `Model.hpp`/`SLIC3R_WASM_NO_OCCT` guard patch and its
+> compile define are no longer used. The patch list below is the current
+> `patches/orca` sequence.
 
 The build is **not push-button** — it is an iteration surface. When it fails,
 work the loops in AGENTS.md ("WASM Build Workflow") and this note's
@@ -103,26 +110,30 @@ each patch in order:
 
 ```bash
 cd packages/slicer-wasm/cpp
-git apply ../patches/0001-model-hpp-guard-step-include.patch
-git apply ../patches/0003-expolygoncollection-contains-b.patch
-git apply ../patches/0004-edgegrid-remove-png-include.patch
-git apply ../patches/0005-localesutils-include-sstream.patch
-git apply ../patches/0006-platform-emscripten-detection.patch
-git apply ../patches/0007-utils-guard-async-frontend-include.patch
+git apply ../patches/orca/0001-expolygoncollection-contains-b.patch
+git apply ../patches/orca/0002-edgegrid-remove-png-include.patch
+git apply ../patches/orca/0003-localesutils-include-sstream.patch
+git apply ../patches/orca/0004-platform-emscripten-detection.patch
+git apply ../patches/orca/0005-utils-guard-async-frontend-include.patch
+git apply ../patches/orca/0006-disable-bbs-backup-manager-wasm.patch
+git apply ../patches/orca/0007-step-wasm-synchronous.patch
+git apply ../patches/orca/0008-step-wasm-serial-mesh-dispatch.patch
 ```
 
 | Patch | Purpose |
 |---|---|
-| `0001-model-hpp-guard-step-include.patch` | `Model.hpp` — guard `#include "Format/STEP.hpp"` behind `SLIC3R_WASM_NO_OCCT` (STEP/OCCT is dropped from the build). |
-| `0003-expolygoncollection-contains-b.patch` | `ExPolygonCollection.cpp` — `contains_b()` calls `it->contains(point)`; the `contains_b` member on `ExPolygon` is gone at the pinned SHA (clang strictness). |
-| `0004-edgegrid-remove-png-include.patch` | `EdgeGrid.cpp` — drop `#include <png.h>` (libpng is not built). |
-| `0005-localesutils-include-sstream.patch` | `LocalesUtils.cpp` — add `#include <sstream>` (only transitive on other toolchains). |
-| `0006-platform-emscripten-detection.patch` | `Platform.cpp` — `detect_platform()` reports `Platform::Linux` / `GenericLinux` under `__EMSCRIPTEN__` (no `/etc/os-release` on wasm). |
-| `0007-utils-guard-async-frontend-include.patch` | `utils.cpp` — compile out the `boost::log` async-frontend include, the file/console sink globals, and `set_log_path_and_level` / `flush_logs` / `get_log_file_name` bodies under `__EMSCRIPTEN__` (avoids the boost::thread pull and keeps `get_log_file_name` well-defined). |
+| `0001-expolygoncollection-contains-b.patch` | `ExPolygonCollection.cpp` — `contains_b()` calls `it->contains(point)`; the `contains_b` member on `ExPolygon` is gone at the pinned SHA (clang strictness). |
+| `0002-edgegrid-remove-png-include.patch` | `EdgeGrid.cpp` — drop `#include <png.h>` (libpng is not built). |
+| `0003-localesutils-include-sstream.patch` | `LocalesUtils.cpp` — add `#include <sstream>` (only transitive on other toolchains). |
+| `0004-platform-emscripten-detection.patch` | `Platform.cpp` — `detect_platform()` reports `Platform::Linux` / `GenericLinux` under `__EMSCRIPTEN__` (no `/etc/os-release` on wasm). |
+| `0005-utils-guard-async-frontend-include.patch` | `utils.cpp` — compile out the `boost::log` async-frontend include, the file/console sink globals, and `set_log_path_and_level` / `flush_logs` / `get_log_file_name` bodies under `__EMSCRIPTEN__` (avoids the boost::thread pull and keeps `get_log_file_name` well-defined). |
+| `0006-disable-bbs-backup-manager-wasm.patch` | `bbs_3mf.cpp` — exclude the native backup manager from WASM; no-op ABI-compatible stubs provide the bridge boundary. |
+| `0007-step-wasm-synchronous.patch` | `STEP.cpp` — run the upstream STEP reader synchronously under Emscripten. |
+| `0008-step-wasm-serial-mesh-dispatch.patch` | `STEP.cpp` — avoid nested OCCT/TBB scheduling under Emscripten while retaining native parallel meshing. |
 
-The numbering gap (`0002` missing) is deliberate: the `distance_to_squared`
-failure class (`AABBTreeLines.hpp`) was fixed upstream between the spike's
-SHA and the `b97ca3c0ac` pin, so no patch for it exists.
+The old `Model.hpp` STEP include guard patch was removed after OCCT/XCAF STEP
+support was restored. The numbering is now continuous; no patch is needed for
+the upstream-fixed `distance_to_squared` failure class.
 
 ## Final shim / TBB_HEADERS set (`build.sh`)
 
@@ -157,12 +168,12 @@ errors reveal more includes.
   `deps_core` archive folding the in-tree vendored deps (expat=3MF XML,
   miniz=3MF zip, admesh=STL load/repair, clipper+clipper2=offset/rectclip,
   qhull=convex hull, glu-libtess=tesselation, semver, qoi).
-- `DROP_PATTERNS` (denylist — dropped features pull in OpenVDB/CGAL/OCCT/
-  OpenCV/networking):
+- `DROP_PATTERNS` (denylist — dropped features pull in OpenVDB/CGAL, selected
+  non-STEP OCCT consumers, OpenCV/networking):
   ```
   /SLA/Clustering /SLA/ConcaveHull /SLA/Pad /SLA/RasterBase /SLA/RasterToPolygons
   /SLA/Rotfinder /SLA/SpatIndex /SLA/SupportPointGenerator /SLA/SupportTree
-  OpenVDBUtils Hollowing CutSurface MeshBoolean /Format/STEP /Format/DRC
+  OpenVDBUtils Hollowing CutSurface MeshBoolean /Format/DRC
   /Format/svg /Shape/TextShape /Arrange.cpp GCodeSender VoronoiUtilsCgal
   ObjColorUtils TryCatchSignalSEH Triangulation PNGReadWrite PrintConfig_test
   TriangleMeshSlicer_test pchheader
@@ -173,7 +184,7 @@ errors reveal more includes.
   contouring calls `sla::IndexedMesh`).
 - Compile defines on `slic3r_core`:
   ```
-  USE_TBB TBB_USE_CAPTURED_EXCEPTION=0 SLIC3R_WASM_NO_OCCT BOOST_NO_CXX98_FUNCTION_BASE
+  USE_TBB TBB_USE_CAPTURED_EXCEPTION=0 BOOST_NO_CXX98_FUNCTION_BASE
   BOOST_HAS_THREADS BOOST_HAS_PTHREADS BOOST_THREAD_PLATFORM_PTHREAD
   ```
 - Link flags on `orca_slice`:

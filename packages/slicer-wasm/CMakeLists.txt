@@ -63,7 +63,7 @@ else()
 endif()
 # The upstream BBS backup manager starts a native boost::thread and is not
 # part of the synchronous WASM bridge contract. Its complete implementation
-# is excluded by patch 0008 for both WASM variants; the ABI-compatible no-op
+# is excluded by patch 0006 for both WASM variants; the ABI-compatible no-op
 # entry points live in stubs/backup-manager-stub.cpp.
 add_compile_definitions(ORCA_WASM_DISABLE_BBS_BACKUP_MANAGER=1)
 if(WASM_DEBUG)
@@ -199,7 +199,7 @@ target_include_directories(slic3r_core SYSTEM PUBLIC
 # use the std::thread-backed shim; the slice's primary parallel work remains
 # oneTBB-owned. The only real boost::thread user (GCodeSender) is dropped, and
 # utils.cpp's async_frontend.hpp include (which would pull in boost::thread) is
-# guarded out under __EMSCRIPTEN__ (patch 0007).
+# guarded out under __EMSCRIPTEN__ (patch 0005).
 # -Wno-missing-template-arg-list-after-template-kw: Boost 1.84 quat_traits.hpp
 # uses `quat_traits<Q>::template write_element_idx(...)` where the member is
 # not a template in the scalar specialization; clang 21 promotes the
