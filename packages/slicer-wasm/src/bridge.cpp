@@ -109,6 +109,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         state().project_config_overlay = empty_project_config_overlay();
         state().history.clear();
         state().mesh_capture_cache.clear();
+        state().mutable_object_capture_cache.clear();
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
         state().history_disabled = false;

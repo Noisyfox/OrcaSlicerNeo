@@ -401,6 +401,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
         state().print.clear();
         invalidate_preview_source();
         state().mesh_capture_cache.clear();
+        state().mutable_object_capture_cache.clear();
         state().model = Model{};
         reset_plate_session_state();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-clear"});
@@ -482,6 +483,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
             std::sort(indexes.rbegin(), indexes.rend());
             for (const std::size_t idx : indexes)
                 obj->delete_volume(idx);
+            obj->config.touch();
         }
         rebuild_plate_membership(true);
         state().print.clear();
@@ -582,6 +584,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
             ModelVolume* from_vol = vols[from_idx];
             vols.erase(vols.begin() + static_cast<std::ptrdiff_t>(from_idx));
             vols.insert(vols.begin() + static_cast<std::ptrdiff_t>(target), from_vol);
+            obj->config.touch();
         }
         obj->invalidate_bounding_box();
         state().print.clear();
@@ -617,6 +620,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
         const unsigned int max_ext = max_extruders > 0.0
             ? static_cast<unsigned int>(max_extruders) : 1u;
         const std::size_t parts = vol->split(max_ext, remap_paint != 0.0);
+        obj->config.touch();
 
         std::vector<std::size_t> new_volume_ids;
         for (const ModelVolume* v : obj->volumes)
@@ -779,6 +783,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
         std::sort(to_remove.rbegin(), to_remove.rend());
         for (const std::size_t i : to_remove)
             obj->delete_instance(i);
+        obj->config.touch();
 
         state().print.clear();
         invalidate_preview_source();
@@ -811,6 +816,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
             : obj->instances.back()->get_offset();
         ModelInstance* inst = obj->add_instance();
         inst->set_offset(Slic3r::Vec3d(base.x() + step, base.y(), base.z()));
+        obj->config.touch();
         state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
@@ -836,6 +842,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double in
         for (std::size_t i = 0; i < obj->instances.size(); ++i) {
             if (obj->instances[i]->id().id == *iid) {
                 obj->delete_instance(i);
+                obj->config.touch();
                 state().print.clear();
                 invalidate_preview_source();
                 return dup_json(json{{"ok", true}}.dump());
@@ -910,7 +917,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int ins
             return error_json("instance index out of range");
         // Drift surface: ModelInstance::set_offset(Vec3d) — confirm at SHA.
         auto* instance = obj->instances[static_cast<size_t>(instance_idx)];
+        const auto previous = instance->get_offset();
         instance->set_offset(Slic3r::Vec3d(x, y, z));
+        if (previous != instance->get_offset()) obj->config.touch();
         state().pending_membership_instance_ids.insert(instance->id().id);
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -944,6 +953,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
         set_transform(volume, volume_transform);
         object->instances[static_cast<size_t>(instance_idx)]->set_transformation(instance);
         object->volumes[static_cast<size_t>(volume_idx)]->set_transformation(volume);
+        if (instance != previous_instance || volume != previous_volume) object->config.touch();
         object->invalidate_bounding_box();
         // Slicing synchronizes every rendered composite before starting the
         // job. Re-emitting an identical transform is not an editing
@@ -1028,6 +1038,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 item.instance->set_transformation(item.next_instance);
                 item.volume->set_transformation(item.next_volume);
                 item.object->invalidate_bounding_box();
+                if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
+                    item.object->config.touch();
             }
             rebuild_plate_membership(true);
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
@@ -1038,6 +1050,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 item.instance->set_transformation(item.previous_instance);
                 item.volume->set_transformation(item.previous_volume);
                 item.object->invalidate_bounding_box();
+                if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
+                    item.object->config.touch();
             }
             throw;
         }
@@ -1078,6 +1092,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_object(double object_id, const char*
         ModelObject* obj = find_object_by_id(*id);
         if (obj == nullptr) return error_json("object not found");
         obj->name = name_cstr;
+        obj->config.touch();
         // A rename does not change geometry, but it does change the object's
         // reported name; the existing Print/G-code is still considered stale.
         state().print.clear();
@@ -1098,6 +1113,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_volume(double volume_id, const char*
         ModelVolume* vol = find_volume_by_id(*id);
         if (vol == nullptr) return error_json("volume not found");
         vol->name = name_cstr;
+        vol->get_object()->config.touch();
         state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
@@ -1122,6 +1138,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         if (*new_type != ModelVolumeType::MODEL_PART && vol->is_the_only_one_part())
             return error_json("changing the last solid part is not allowed");
         vol->set_type(*new_type);
+        vol->get_object()->config.touch();
         // The type changes which volumes compose the print mesh; drop the cached
         // object bounds so a later getModelMesh / slice recomputes them.
         vol->get_object()->invalidate_bounding_box();
@@ -1149,6 +1166,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, doub
         obj->printable = value;
         for (auto& inst : obj->instances)
             inst->printable = value;
+        obj->config.touch();
         state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
@@ -1166,6 +1184,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
         ModelInstance* inst = find_instance_by_id(*id);
         if (inst == nullptr) return error_json("instance not found");
         inst->printable = printable != 0.0;
+        inst->get_object()->config.touch();
         state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());

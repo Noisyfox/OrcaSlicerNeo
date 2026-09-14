@@ -7,6 +7,7 @@
 
 #include "bridge_state.hpp"
 #include "history/MeshCaptureCache.hpp"
+#include "history/MutableObjectCaptureCache.hpp"
 #include "history/ProjectHistory.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -39,6 +40,8 @@ namespace Slic3r::Neo::History::Codec {
 // callers; bridge paths pass their Worker-owned cache explicitly.
 ModelState capture_model_state(const Model& model);
 ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache);
+ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
+                               MutableObjectCaptureCache& object_cache);
 
 // Reconstruct a transient model from a retained history state. model_template
 // supplies the non-history model defaults needed while materializing a fresh

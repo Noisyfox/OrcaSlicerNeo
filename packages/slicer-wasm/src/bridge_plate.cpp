@@ -446,6 +446,7 @@ void translate_instance(const PlateInstanceRef& ref, const Vec3d& delta)
     auto transform = ref.instance->get_transformation();
     transform.set_offset(transform.get_offset() + delta);
     ref.instance->set_transformation(transform);
+    ref.object->config.touch();
     ref.object->invalidate_bounding_box();
 }
 

@@ -974,6 +974,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 Neo::Bridge::PrimeTower::normalize_coordinate_positions();
                 state().history.clear();
                 state().mesh_capture_cache.clear();
+                state().mutable_object_capture_cache.clear();
                 state().active_history_transaction.reset();
                 state().nested_history_transactions.clear();
                 state().history_disabled = false;
@@ -982,7 +983,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
                 if (!HistoryMetadata::commit_history_entry(state(), [&]() {
                     return state().history.commit("", Neo::History::Category::Project,
-                        Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache), context_bytes);
+                        Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache, state().mutable_object_capture_cache), context_bytes);
                 }))
                     throw Slic3r::RuntimeError("could not establish project history baseline");
                 state().history.mark_current_as_saved();
@@ -994,6 +995,7 @@ static const char* orc_load_project_impl(const char* data, int len,
             } catch (...) {
                 state().inject_project_commit_failure = false;
                 state().model = std::move(rollback.model);
+                state().mutable_object_capture_cache.clear();
                 state().presets = std::move(rollback.presets);
                 state().history = std::move(rollback.history);
                 state().project_config_overlay = std::move(rollback.overlay);

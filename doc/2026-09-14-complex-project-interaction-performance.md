@@ -87,3 +87,33 @@ Step 1 verification commands:
 - `scripts\build-windows.bat quick --variant serial`
 - `scripts\build-windows.bat smoke --variant serial`
 - `git diff --check`
+
+Step 2 accepted behaviour and decision:
+
+- Mutable ModelObject records use the non-zero `ModelConfig` timestamp as an
+  Orca-style capture gate. A live object with the same timestamp, ordered
+  volume IDs, and shared mesh identities reuses its complete prior object byte
+  blob and skips the Cereal archive; changed, added, removed, zero-timestamp,
+  or mesh-replaced objects archive normally.
+- The bridge owns this cache beside the Step 1 mesh cache. It retains weak mesh
+  identity tokens, drops records for objects no longer live, and clears on
+  session initialization, scene clear, project load, history reset, model
+  restore/replacement, and aborted or failed transaction paths. Every
+  `ModelState` still contains complete mutable-object records; no predecessor
+  delta is exposed to ProjectHistory.
+- Bridge model mutations that change nested instance/volume data advance the
+  object's `ModelConfig` timestamp so reuse cannot preserve stale transforms or
+  metadata. Lazy snapshots, direct-frame policy changes, and plate reflow
+  changes remain deferred.
+
+Step 2 verification commands:
+
+- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target history_mesh_capture_test -j 4"`
+- `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/history_mesh_capture_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
+- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target project_history_core_test -j 4"`
+- `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/project_history_core_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
+- `pnpm --filter @orca/slicer-wasm test`
+- `pnpm --filter @orca/slicer-wasm typecheck`
+- `scripts\build-windows.bat quick --variant serial`
+- `scripts\build-windows.bat smoke --variant serial`
+- `git diff --check`
