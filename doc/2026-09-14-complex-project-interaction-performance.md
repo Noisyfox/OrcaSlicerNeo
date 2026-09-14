@@ -1,7 +1,8 @@
 # Complex Project Interaction Performance
 
 Date: 2026-09-14
-Status: Implemented with transform-payload rollback and real-project profiling
+Status: Implemented with native shared-mesh history, transform-payload rollback,
+and real-project profiling
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
 ## Problem
@@ -23,10 +24,17 @@ used by the desktop plate-switch performance coverage.
 - Plate membership, placement, history, and invalidation results remain
   unchanged from the user's perspective.
 - Repeated live-model history captures reuse immutable mesh keys and retained
-  byte blobs for the same shared `TriangleMesh` identity. Cache keys retain
-  shared ownership, and the bridge clears the cache at session, scene,
-  project-load, and history-reset boundaries; replacement meshes therefore
-  serialize independently without relying on a stale raw pointer.
+  native `shared_ptr<const TriangleMesh>` ownership for the same mesh identity;
+  ordinary captures do not serialize mesh bytes. History staging and Undo/Redo
+  reconnect the retained native owner directly. Existing resident/deferred byte
+  payloads remain a compatibility fallback only for explicitly byte-backed
+  states. Cache keys retain shared ownership, and the bridge clears the cache
+  at session, scene, project-load, and history-reset boundaries; replacement
+  meshes therefore remain independent without relying on a stale raw pointer.
+- ProjectHistory charges native mesh memory only when retained history is the
+  sole owner (conservatively omitting meshes shared with the live model), and
+  releasing or evicting an entry releases its native ownership. No unbounded
+  global mesh cache is introduced.
 - The real-WASM bridge exposes a bounded, drain-on-read diagnostic timing ring
   for `history_begin`, `add_plate`, and `history_commit`. It carries timing
   scalars only; it never retains model, context, or project data.
@@ -114,6 +122,19 @@ Step 2 verification commands:
 - `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/project_history_core_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
 - `pnpm --filter @orca/slicer-wasm test`
 - `pnpm --filter @orca/slicer-wasm typecheck`
+- `scripts\build-windows.bat quick --variant serial`
+- `scripts\build-windows.bat smoke --variant serial`
+- `git diff --check`
+
+Step 3 verification commands:
+
+- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target history_mesh_capture_test -j 4"`
+- `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/history_mesh_capture_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
+- `cmd /c "call D:\emsdk\emsdk_env.bat >nul && cmake --build packages\slicer-wasm\.work\serial\build --target project_history_core_test -j 4"`
+- `node --input-type=commonjs -e "const fs=require('fs');const Module=require('module');const p=require('path').resolve('packages/slicer-wasm/.work/serial/build/project_history_core_test.js');const m=new Module(p,module);m.filename=p;m.paths=Module._nodeModulePaths(require('path').dirname(p));m._compile(fs.readFileSync(p,'utf8'),p);"`
+- `pnpm --filter @orca/slicer-wasm test`
+- `pnpm --filter @orca/slicer-wasm typecheck`
+- `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js`
 - `scripts\build-windows.bat quick --variant serial`
 - `scripts\build-windows.bat smoke --variant serial`
 - `git diff --check`

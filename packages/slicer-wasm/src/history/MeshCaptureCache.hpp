@@ -14,16 +14,17 @@
 namespace Slic3r::Neo::History::Codec {
 
 // A cache entry is keyed by shared ownership identity rather than a raw
-// TriangleMesh address.  Retaining the shared pointer in the key keeps the
-// mesh alive for exactly as long as the cache entry is retained and prevents a
+// TriangleMesh address. Retaining the shared pointer in the key keeps the mesh
+// alive for exactly as long as the cache entry is retained and prevents a
 // later mesh from being mistaken for a destroyed mesh at a recycled address.
+// The entry stores only a session-local reference key; native mesh ownership
+// is carried by each captured ModelState and history entry, not by bytes.
 class MeshCaptureCache {
 public:
     using MeshPtr = std::shared_ptr<const Slic3r::TriangleMesh>;
 
     struct Entry {
         std::string key;
-        std::shared_ptr<const Bytes> bytes;
     };
 
     using EntryMap = std::map<MeshPtr, Entry, std::owner_less<MeshPtr>>;

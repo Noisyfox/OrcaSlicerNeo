@@ -11,6 +11,7 @@ namespace Slic3r::Neo::History {
 
 namespace {
 using Blob = std::shared_ptr<const Bytes>;
+using NativeMesh = std::shared_ptr<const ::Slic3r::TriangleMesh>;
 
 void add_bytes(std::size_t& total, std::size_t amount)
 {
@@ -47,6 +48,13 @@ bool bytes_equal(const Blob& lhs, const Bytes& rhs)
     return lhs && *lhs == rhs;
 }
 
+bool native_mesh_equal(const NativeMesh& lhs, const NativeMesh& rhs)
+{
+    if (!lhs || !rhs) return bool(lhs) == bool(rhs);
+    std::owner_less<NativeMesh> less;
+    return !less(lhs, rhs) && !less(rhs, lhs);
+}
+
 struct StoredMutable {
     ObjectID id { 0 };
     std::uint64_t timestamp { 0 };
@@ -59,6 +67,8 @@ struct StoredMesh {
     Blob resident;
     Blob deferred;
     bool optional { false };
+    NativeMesh native;
+    std::size_t native_bytes { 0 };
 };
 
 struct StoredState {
@@ -138,7 +148,8 @@ struct ProjectHistory::Impl {
             const auto& b = model.immutable_meshes[i];
             if (a.key != b.key || a.optional != b.optional ||
                 (a.resident && b.resident ? *a.resident != *b.resident : bool(a.resident) != bool(b.resident)) ||
-                (a.deferred && b.deferred ? *a.deferred != *b.deferred : bool(a.deferred) != bool(b.deferred)))
+                (a.deferred && b.deferred ? *a.deferred != *b.deferred : bool(a.deferred) != bool(b.deferred)) ||
+                !native_mesh_equal(a.native, b.native) || a.native_bytes != b.native_bytes)
                 return false;
         }
         return true;
@@ -175,6 +186,8 @@ struct ProjectHistory::Impl {
             stored.resident = mesh.resident;
             stored.deferred = mesh.deferred;
             stored.optional = mesh.optional;
+            stored.native = mesh.native;
+            stored.native_bytes = mesh.native_bytes;
             // A key identifies immutable content across snapshots.  Reuse a
             // prior resident/deferred blob when the adapter supplied equal
             // content but not the same shared_ptr.
@@ -183,11 +196,14 @@ struct ProjectHistory::Impl {
                     [&mesh](const StoredMesh& old) {
                         return old.key == mesh.key &&
                             ((!mesh.resident && !old.resident) || (mesh.resident && old.resident && *mesh.resident == *old.resident)) &&
-                            ((!mesh.deferred && !old.deferred) || (mesh.deferred && old.deferred && *mesh.deferred == *old.deferred));
+                            ((!mesh.deferred && !old.deferred) || (mesh.deferred && old.deferred && *mesh.deferred == *old.deferred)) &&
+                            native_mesh_equal(old.native, mesh.native);
                     });
                 if (it != previous->immutable_meshes.end()) {
                     stored.resident = it->resident;
                     stored.deferred = it->deferred;
+                    stored.native = it->native;
+                    stored.native_bytes = it->native_bytes;
                 }
             }
             state.immutable_meshes.push_back(std::move(stored));
@@ -204,7 +220,8 @@ struct ProjectHistory::Impl {
             model.mutable_objects.push_back({ object.id, object.timestamp, object.data ? *object.data : Bytes{}, object.volume_ids });
         model.immutable_meshes.reserve(state.immutable_meshes.size());
         for (const auto& mesh : state.immutable_meshes)
-            model.immutable_meshes.push_back({ mesh.key, mesh.resident, mesh.deferred, mesh.optional });
+            model.immutable_meshes.push_back({ mesh.key, mesh.resident, mesh.deferred, mesh.optional,
+                                               mesh.native, mesh.native_bytes });
         return model;
     }
 };
@@ -634,6 +651,7 @@ std::size_t ProjectHistory::bytes_used() const
     static_assert(ResourceAccounting::kImplAllocationBytes >= sizeof(Impl),
                   "impl accounting slot must cover ProjectHistory::Impl");
     std::set<const Bytes*> seen;
+    std::set<const void*> seen_native_meshes;
     std::set<const void*> seen_direct_frames;
     std::size_t total = 0;
     add_bytes(total, ResourceAccounting::kImplAllocationBytes);
@@ -668,6 +686,23 @@ std::size_t ProjectHistory::bytes_used() const
             add_string_storage(total, mesh.key);
             count(mesh.resident);
             count(mesh.deferred);
+            if (mesh.native && seen_native_meshes.insert(mesh.native.get()).second) {
+                // The adapter records the completed TriangleMesh::memsize()
+                // because this headless core intentionally does not link the
+                // native mesh implementation.
+                std::size_t history_refs = 0;
+                for (const auto& retained : m_impl->states)
+                    for (const auto& retained_mesh : retained.state.immutable_meshes)
+                        if (retained_mesh.native.get() == mesh.native.get()) ++history_refs;
+                // A live Model (or another bridge-owned frame/cache) sharing
+                // this owner already accounts for the allocation elsewhere.
+                // Charge it only when retained history is its sole owner.
+                if (mesh.native.use_count() <= history_refs) {
+                    add_bytes(total, mesh.native_bytes == 0
+                        ? ResourceAccounting::kNativeMeshMinimumBytes : mesh.native_bytes);
+                    add_bytes(total, ResourceAccounting::kSharedBlobAllocationBytes);
+                }
+            }
         }
     }
     return total;

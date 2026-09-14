@@ -1,6 +1,9 @@
 #include "../bridge_history.hpp"
 
 #include <iostream>
+#include <sstream>
+
+#include <cereal/archives/binary.hpp>
 
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -47,15 +50,83 @@ int main()
     CHECK(first.immutable_meshes.size() == 1);
     CHECK(second.immutable_meshes.size() == 1);
     CHECK(first.immutable_meshes.front().key == second.immutable_meshes.front().key);
-    CHECK(first.immutable_meshes.front().resident == second.immutable_meshes.front().resident);
+    CHECK(first.immutable_meshes.front().resident == nullptr);
+    CHECK(first.immutable_meshes.front().deferred == nullptr);
+    CHECK(first.immutable_meshes.front().native != nullptr);
+    CHECK(first.immutable_meshes.front().native == second.immutable_meshes.front().native);
 
-    Model restored_original = stage_model(original, restore_state(first));
-    MeshCaptureCache restore_cache;
-    CHECK(model_state_equal(first, capture_model_state(restored_original, restore_cache)));
-
+    const auto recaptured = capture_model_state(original, cache);
+    CHECK(model_state_equal(first, recaptured));
     cache.clear();
     CHECK(cache.serialized_mesh_count() == 0);
     CHECK(model_state_equal(first, capture_model_state(original, cache)));
+    CHECK(cache.serialized_mesh_count() == 1);
+    Model restored_original = stage_model(original, restore_state(first));
+    CHECK(restored_original.objects.front()->volumes.front()->get_mesh_shared_ptr().get() ==
+          first.immutable_meshes.front().native.get());
+    MeshCaptureCache restore_cache;
+    CHECK(model_state_equal(first, capture_model_state(restored_original, restore_cache)));
+
+    // Explicitly byte-backed states remain restorable for compatibility with
+    // test fixtures and any state deliberately downgraded by a later gate.
+    std::ostringstream mesh_stream(std::ios::binary | std::ios::out);
+    cereal::BinaryOutputArchive mesh_archive(mesh_stream);
+    mesh_archive(*first.immutable_meshes.front().native);
+    const std::string encoded_mesh = mesh_stream.str();
+    Slic3r::Neo::History::ModelState byte_fallback = first;
+    byte_fallback.immutable_meshes.front().native.reset();
+    byte_fallback.immutable_meshes.front().native_bytes = 0;
+    byte_fallback.immutable_meshes.front().resident = std::make_shared<const Slic3r::Neo::History::Bytes>(
+        Slic3r::Neo::History::Bytes(encoded_mesh.begin(), encoded_mesh.end()));
+    Model restored_fallback = stage_model(original, restore_state(byte_fallback));
+    CHECK(restored_fallback.objects.front()->volumes.front()->mesh().facets_count() ==
+          original.objects.front()->volumes.front()->mesh().facets_count());
+    CHECK(restored_fallback.objects.front()->volumes.front()->get_mesh_shared_ptr().get() !=
+          first.immutable_meshes.front().native.get());
+
+    // ProjectHistory retains and restores the same native shared owner across
+    // both navigation directions; it does not decode a byte fallback.
+    Slic3r::Neo::History::ProjectHistory native_history;
+    CHECK(native_history.commit("base", Slic3r::Neo::History::Category::Project, first, {}));
+    original.objects.front()->config.touch();
+    const auto changed = capture_model_state(original, cache);
+    CHECK(native_history.commit("edit", Slic3r::Neo::History::Category::Project, changed, {}));
+    RestoreState native_restored;
+    CHECK(native_history.undo(native_restored));
+    Model native_undo = stage_model(original, native_restored);
+    CHECK(native_undo.objects.front()->volumes.front()->get_mesh_shared_ptr().get() ==
+          first.immutable_meshes.front().native.get());
+    CHECK(native_history.redo(native_restored));
+    Model native_redo = stage_model(original, native_restored);
+    CHECK(native_redo.objects.front()->volumes.front()->get_mesh_shared_ptr().get() ==
+          first.immutable_meshes.front().native.get());
+
+    // Native mesh accounting is omitted while the live caller shares the
+    // owner, then charged once history becomes the sole owner. Eviction drops
+    // that ownership instead of leaving an unbounded native cache behind.
+    auto sole_mesh = std::make_shared<const TriangleMesh>(its_make_cube(18.0, 18.0, 18.0));
+    Slic3r::Neo::History::ModelState native_state;
+    native_state.immutable_meshes.push_back({"native-only", {}, {}, false, sole_mesh, sole_mesh->memsize()});
+    Slic3r::Neo::History::ModelState no_native_state = native_state;
+    no_native_state.immutable_meshes.front().native.reset();
+    Slic3r::Neo::History::ProjectHistory native_budget(1u << 20);
+    CHECK(native_budget.commit("native", Slic3r::Neo::History::Category::Project, native_state, {}));
+    Slic3r::Neo::History::ProjectHistory no_native_budget(1u << 20);
+    CHECK(no_native_budget.commit("native", Slic3r::Neo::History::Category::Project, no_native_state, {}));
+    CHECK(native_budget.bytes_used() == no_native_budget.bytes_used());
+    native_state.immutable_meshes.front().native.reset();
+    std::weak_ptr<const TriangleMesh> sole_mesh_weak = sole_mesh;
+    sole_mesh.reset();
+    CHECK(native_budget.bytes_used() > no_native_budget.bytes_used());
+    native_budget.set_byte_budget(1);
+    Slic3r::Neo::History::ModelState no_mesh_after;
+    no_mesh_after.serialized = {1};
+    CHECK(native_budget.commit("second", Slic3r::Neo::History::Category::Project, no_mesh_after, {}));
+    no_mesh_after.serialized = {2};
+    CHECK(native_budget.commit("third", Slic3r::Neo::History::Category::Project, no_mesh_after, {}));
+    CHECK(native_budget.resource_diagnostics().evicted_entry_count > 0);
+    CHECK(sole_mesh_weak.expired());
+
     CHECK(cache.serialized_mesh_count() == 1);
 
     Model replaced = model_with_cube(30.0);
@@ -63,7 +134,7 @@ int main()
     CHECK(cache.serialized_mesh_count() == 2);
     CHECK(replacement.immutable_meshes.size() == 1);
     CHECK(replacement.immutable_meshes.front().key != first.immutable_meshes.front().key);
-    CHECK(replacement.immutable_meshes.front().resident != first.immutable_meshes.front().resident);
+    CHECK(replacement.immutable_meshes.front().native != first.immutable_meshes.front().native);
     CHECK(capture_model_state(replaced, cache).immutable_meshes.front().key ==
           replacement.immutable_meshes.front().key);
     CHECK(cache.serialized_mesh_count() == 2);

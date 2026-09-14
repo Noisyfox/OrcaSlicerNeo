@@ -1,8 +1,8 @@
 #pragma once
 
 // A deliberately headless, Worker-owned history store.  This file must stay
-// independent of the native GUI and of the bridge ABI.  The bridge will add a
-// serialization adapter in a later step; this core only sees bytes.
+// independent of the native GUI and of the bridge ABI.  Native immutable mesh
+// owners are opaque to this core; byte-backed fields remain for compatibility.
 
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +11,10 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+namespace Slic3r {
+class TriangleMesh;
+}
 
 namespace Slic3r::Neo::History {
 
@@ -36,6 +40,14 @@ struct ImmutableMesh {
     std::shared_ptr<const Bytes> resident;
     std::shared_ptr<const Bytes> deferred;
     bool optional { false };
+    // Normal in-session history retains the native immutable mesh directly.
+    // resident/deferred remain compatibility fields for explicitly
+    // byte-backed states (including test-only construction).
+    std::shared_ptr<const ::Slic3r::TriangleMesh> native;
+    // Captured by the native adapter while the TriangleMesh type is complete;
+    // the headless history core uses it for deterministic accounting without
+    // taking a link-time dependency on TriangleMesh.cpp.
+    std::size_t native_bytes { 0 };
 };
 
 // A model adapter may use serialized for the complete model, or use the
@@ -124,6 +136,7 @@ struct ResourceAccounting {
     static constexpr std::size_t kImmutableMeshSlotBytes = 128;
     static constexpr std::size_t kObjectIntervalSlotBytes = 32;
     static constexpr std::size_t kSharedBlobAllocationBytes = 64;
+    static constexpr std::size_t kNativeMeshMinimumBytes = 64;
     static constexpr std::size_t kDirectFrameSlotBytes = 32;
     static constexpr std::size_t kStringTerminatorBytes = 1;
     // Canonical short-string threshold, independent of the implementation's

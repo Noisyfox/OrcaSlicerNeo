@@ -715,23 +715,14 @@ template <class Archive> struct specialize<Archive, std::shared_ptr<const Slic3r
 namespace Slic3r::Neo::History::Codec {
 namespace {
 
-Bytes mesh_bytes(const TriangleMesh& mesh)
+std::string mesh_key(const TriangleMesh& mesh)
 {
-    std::ostringstream stream(std::ios::binary | std::ios::out);
-    cereal::BinaryOutputArchive archive(stream);
-    archive(mesh);
-    const std::string encoded = stream.str();
-    return Bytes(encoded.begin(), encoded.end());
-}
-
-std::string mesh_key(const Bytes& bytes)
-{
-    std::uint64_t hash = 1469598103934665603ULL;
-    for (const auto byte : bytes) {
-        hash ^= byte;
-        hash *= 1099511628211ULL;
-    }
-    return std::string("mesh-") + std::to_string(hash) + "-" + std::to_string(bytes.size());
+    // Keys are session-local references into the native owner retained by the
+    // ModelState. Include the address so two independent shared owners with
+    // equal geometry cannot be accidentally coalesced; the same owner keeps
+    // its key across cache clears and repeated captures.
+    return std::string("mesh-") + std::to_string(
+        reinterpret_cast<std::uintptr_t>(&mesh));
 }
 
 } // namespace
@@ -752,7 +743,7 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
                                MutableObjectCaptureCache& object_cache)
 {
     NeoHistoryArchiveContext archive_context;
-    std::map<std::string, std::shared_ptr<const Bytes>> mesh_bytes_by_key;
+    std::map<std::string, MeshCaptureCache::MeshPtr> native_meshes_by_key;
     std::set<MeshCaptureCache::MeshPtr, std::owner_less<MeshCaptureCache::MeshPtr>> live_meshes;
     for (const auto* object : model.objects) {
         for (const auto* volume : object->volumes) {
@@ -761,15 +752,16 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
             live_meshes.emplace(mesh);
             if (const auto* cached = mesh_cache.find(mesh)) {
                 archive_context.output_mesh_keys.emplace(mesh.get(), cached->key);
-                mesh_bytes_by_key.emplace(cached->key, cached->bytes);
+                native_meshes_by_key.emplace(cached->key, mesh);
                 continue;
             }
             if (archive_context.output_mesh_keys.count(mesh.get())) continue;
-            auto bytes = std::make_shared<const Bytes>(mesh_bytes(*mesh));
-            const auto key = mesh_key(*bytes);
+            // The native owner is the retained history payload.  Do not
+            // serialize a fallback blob during ordinary in-session capture.
+            const auto key = mesh_key(*mesh);
             archive_context.output_mesh_keys.emplace(mesh.get(), key);
-            mesh_cache.insert(mesh, {key, bytes});
-            mesh_bytes_by_key.emplace(key, bytes);
+            mesh_cache.insert(mesh, {key});
+            native_meshes_by_key.emplace(key, mesh);
         }
     }
     mesh_cache.retain_only(live_meshes);
@@ -811,9 +803,11 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
         result.mutable_objects.push_back({
             object->id().id, timestamp, std::move(object_bytes), std::move(volume_ids)});
     }
-    result.immutable_meshes.reserve(mesh_bytes_by_key.size());
-    for (auto& [key, bytes] : mesh_bytes_by_key)
-        result.immutable_meshes.push_back({std::move(key), std::move(bytes), {}, false});
+    result.immutable_meshes.reserve(native_meshes_by_key.size());
+    for (auto& [key, mesh] : native_meshes_by_key) {
+        const std::size_t native_bytes = mesh ? mesh->memsize() : 0;
+        result.immutable_meshes.push_back({std::move(key), {}, {}, false, std::move(mesh), native_bytes});
+    }
     return result;
 }
 
@@ -821,6 +815,10 @@ Model stage_model(const Model& model_template, const RestoreState& restored)
 {
     NeoHistoryArchiveContext archive_context;
     for (const auto& mesh : restored.model.immutable_meshes) {
+        if (mesh.native) {
+            archive_context.input_meshes.emplace(mesh.key, mesh.native);
+            continue;
+        }
         const auto& encoded = mesh.resident ? *mesh.resident : (mesh.deferred ? *mesh.deferred : Bytes{});
         if (encoded.empty()) throw std::runtime_error("history mesh data is unavailable");
         std::string bytes(encoded.begin(), encoded.end());
@@ -932,9 +930,16 @@ bool model_state_equal(const ModelState& lhs, const ModelState& rhs)
         const auto bytes_equal = [](const auto& a, const auto& b) {
             return (!a && !b) || (a && b && *a == *b);
         };
+        const auto native_equal = [](const auto& a, const auto& b) {
+            if (!a || !b) return bool(a) == bool(b);
+            std::owner_less<std::shared_ptr<const TriangleMesh>> less;
+            return !less(a, b) && !less(b, a);
+        };
         if (left.key != right.key || left.optional != right.optional ||
             !bytes_equal(left.resident, right.resident) || !bytes_equal(left.deferred, right.deferred))
             return false;
+        if (!native_equal(left.native, right.native)) return false;
+        if (left.native_bytes != right.native_bytes) return false;
     }
     return true;
 }
@@ -1161,6 +1166,7 @@ json restore_diagnostics_json(const BridgeState& state)
         for (const auto& mesh : current.model.immutable_meshes) {
             if (mesh.resident) retained_model_bytes += mesh.resident->size();
             else if (mesh.deferred) retained_model_bytes += mesh.deferred->size();
+            else if (mesh.native) retained_model_bytes += mesh.native_bytes;
         }
         out["currentContextBytes"] = current.context.size();
         out["currentModelBytes"] = retained_model_bytes;

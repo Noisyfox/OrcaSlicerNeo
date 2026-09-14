@@ -55,8 +55,8 @@ struct BridgeState {
     // Step 2 history is deliberately Worker/WASM owned. ProjectHistory owns
     // keyed mutable object versions and shared immutable mesh data.
     History::ProjectHistory history;
-    // Mesh bytes are retained across repeated live-model captures, while the
-    // shared-owner keys keep cache identity safe across mesh replacement.
+    // Native mesh owners are retained across repeated live-model captures,
+    // while shared-owner keys keep cache identity safe across replacement.
     History::Codec::MeshCaptureCache mesh_capture_cache;
     History::Codec::MutableObjectCaptureCache mutable_object_capture_cache;
     struct HistoryTransaction {
