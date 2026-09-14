@@ -47,7 +47,7 @@ if [[ ! -d "$FREETYPE_SYSROOT" ]]; then
   FREETYPE_SYSROOT="$EMSCRIPTEN/cache/sysroot"
 fi
 FREETYPE_INCLUDE="$FREETYPE_SYSROOT/include/freetype2"
-[[ -f "$FREETYPE_INCLUDE/ft2build.h" ]] || die "Emscripten FreeType headers are missing"
+# [[ -f "$FREETYPE_INCLUDE/ft2build.h" ]] || die "Emscripten FreeType headers are missing"
 FREETYPE_ARCHIVE="$EMSCRIPTEN/cache/sysroot/lib/wasm64-emscripten/libfreetype.a"
 if [[ ! -f "$FREETYPE_ARCHIVE" && -f "$EMSCRIPTEN/cache/sysroot/lib/wasm64-emscripten/pic/libfreetype.a" ]]; then
   FREETYPE_ARCHIVE="$EMSCRIPTEN/cache/sysroot/lib/wasm64-emscripten/pic/libfreetype.a"

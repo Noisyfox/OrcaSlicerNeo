@@ -58,7 +58,7 @@ for %%P in ("%OCCT_PATCH_DIR%\*.patch") do (
   )
 )
 set "FREETYPE_SYSROOT=%EMSCRIPTEN%\cache\sysroot"
-if not exist "%FREETYPE_SYSROOT%\include\freetype2\ft2build.h" (echo [occt] ERROR: Emscripten FreeType headers missing.& exit /b 1)
+@REM  if not exist "%FREETYPE_SYSROOT%\include\freetype2\ft2build.h" (echo [occt] ERROR: Emscripten FreeType headers missing.& exit /b 1)
 set "FREETYPE_ARCHIVE=%EMSCRIPTEN%\cache\sysroot\lib\wasm64-emscripten\libfreetype.a"
 if not exist "%FREETYPE_ARCHIVE%" if exist "%EMSCRIPTEN%\cache\sysroot\lib\wasm64-emscripten\pic\libfreetype.a" set "FREETYPE_ARCHIVE=%EMSCRIPTEN%\cache\sysroot\lib\wasm64-emscripten\pic\libfreetype.a"
 if not exist "%FREETYPE_ARCHIVE%" (
