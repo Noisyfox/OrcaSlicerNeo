@@ -5,4 +5,4 @@
 
 # WASM source patches are consumed by `git apply`; their context must retain
 # LF line endings regardless of a developer's core.autocrlf setting.
-/packages/slicer-wasm/patches/*.patch text eol=lf
+/packages/slicer-wasm/patches/**/*.patch text eol=lf
