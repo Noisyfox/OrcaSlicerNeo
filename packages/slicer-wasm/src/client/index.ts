@@ -11,6 +11,7 @@ export type {
   FilamentSessionRevisions, FilamentSessionStatus, FilamentSessionSnapshot,
   FilamentSessionSnapshotError, FilamentSessionSnapshotResult,
   AtomicCommandSuccessEnvelope, AtomicCommandErrorEnvelope, AtomicCommandResult,
+  NativePerformanceSample, NativePerformanceProfile,
   FilamentMutationSummary, FilamentMutationResult, FilamentMutationResultOrError,
   FilamentCommandRequest, FilamentSlotPresetRequest, FilamentSlotColourRequest,
   FilamentSlotDeleteRequest, FilamentSlotMergeRequest,

@@ -329,6 +329,7 @@ export default function App() {
           receipt: ProjectLoadReceipt | null;
           session: { projectName: string; hasContent: boolean; scope: string; hasLocation: boolean };
         };
+        takeNativePerformanceProfile?: () => Promise<unknown>;
       };
     };
     w.__orcaE2e = {
@@ -342,10 +343,12 @@ export default function App() {
           hasLocation: projectState.location !== undefined,
         },
       }),
+      takeNativePerformanceProfile: () => platform.runtime.takeNativePerformanceProfile?.() ??
+        Promise.resolve({ version: 1, samples: [] }),
     };
     return () => {
       if (!w.__orcaE2e) return;
-      const { projectLoadEvidence: _projectLoadEvidence, ...rest } = w.__orcaE2e;
+      const { projectLoadEvidence: _projectLoadEvidence, takeNativePerformanceProfile: _takeNativePerformanceProfile, ...rest } = w.__orcaE2e;
       w.__orcaE2e = rest;
     };
   }, [projectState.hasContent, projectState.location, projectState.projectName, projectState.scope]);

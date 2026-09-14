@@ -33,6 +33,7 @@ import type {
   FilamentCommandRequest, FilamentSlotDeleteRequest, FilamentSlotMergeRequest,
   RememberedFilamentRackRequest,
   FilamentAssignmentRequest, FilamentRoutingRequest,
+  NativePerformanceProfile,
 } from './types';
 import type {
   HistoryContext, HistoryStatus, HistoryTransactionId, HistoryEntryId, HistoryLabel, HistoryJumpDirection,
@@ -52,6 +53,23 @@ function emptyHistoryDiagnosticLayer(): HistoryDiagnosticLayer {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeNativePerformanceProfile(raw: unknown): NativePerformanceProfile {
+  if (!isRecord(raw) || raw.version !== 1 || !Array.isArray(raw.samples))
+    throw new Error('invalid native performance profile');
+  const samples = raw.samples.map((sample): NativePerformanceProfile['samples'][number] => {
+    if (!isRecord(sample) || typeof sample.operation !== 'string' || !isRecord(sample.stages_ms))
+      throw new Error('invalid native performance sample');
+    const stagesMs: Record<string, number> = {};
+    for (const [stage, value] of Object.entries(sample.stages_ms)) {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+        throw new Error('invalid native performance stage');
+      stagesMs[stage] = value;
+    }
+    return { operation: sample.operation, stagesMs };
+  });
+  return { version: 1, samples };
 }
 
 function normalizeConfigurationStatus(raw: unknown, allowReady: boolean): ConfigurationStatus | null {
@@ -1132,6 +1150,10 @@ export function createClient(
     recordHistoryContext,
     resetHistory,
     getHistoryDiagnostics: () => ({ version: 1 as const, worker: emptyHistoryDiagnosticLayer(), client: emptyHistoryDiagnosticLayer() }),
+    async takeNativePerformanceProfile(): Promise<NativePerformanceProfile> {
+      const m = await module();
+      return normalizeNativePerformanceProfile(callJson(m, 'orc_take_performance_profile', [], []));
+    },
     runProjectHistoryTransaction,
 
     async getPlateSessionSnapshot(): Promise<PlateSessionSnapshotResult> {

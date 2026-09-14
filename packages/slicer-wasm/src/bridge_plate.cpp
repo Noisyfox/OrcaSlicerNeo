@@ -2,6 +2,7 @@
 // Runtime multi-plate/session implementation for the Neo bridge.
 // ----------------------------------------------------------------
 #include "bridge_plate.hpp"
+#include "bridge_performance.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -726,16 +727,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_plate(const char* plate_id_cstr)
 EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
 {
     try {
+        const double profile_started_at = Neo::Bridge::Performance::now_ms();
         ensure_plate_session_state();
         if (state().plate_session_plates.size() >= static_cast<std::size_t>(kMaxPlateCommandCount))
             return error_json("maximum of 36 plates");
+        const double membership_started_at = Neo::Bridge::Performance::now_ms();
         rebuild_plate_membership(false);
+        const double membership_finished_at = Neo::Bridge::Performance::now_ms();
         const auto affected_before = member_plate_ids();
         const PlateBounds bounds = selected_plate_bounds();
         const auto old_plates = state().plate_session_plates;
         const auto refs = plate_instance_refs();
         const auto refs_by_id = index_plate_instance_refs(refs);
         const int new_count = static_cast<int>(old_plates.size()) + 1;
+        const double reflow_started_at = Neo::Bridge::Performance::now_ms();
         std::map<std::size_t, Vec3d> changed;
         for (size_t index = 0; index < old_plates.size(); ++index) {
             const Vec3d delta = plate_origin_for_index(static_cast<int>(index), new_count, bounds) - old_plates[index].origin;
@@ -761,9 +766,19 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
         }
         Neo::Bridge::PrimeTower::normalize_coordinate_positions();
         state().current_plate_id = id;
+        const double reflow_finished_at = Neo::Bridge::Performance::now_ms();
+        const double snapshot_started_at = Neo::Bridge::Performance::now_ms();
         const auto mutation = plate_mutation_snapshot(affected_before, {"plate-structure"},
                                                        reflow_instance_transforms(changed));
-        return dup_json(mutation.dump());
+        const std::string response = mutation.dump();
+        const double snapshot_finished_at = Neo::Bridge::Performance::now_ms();
+        Neo::Bridge::Performance::record("add_plate", {
+            {"rebuild_plate_membership", membership_finished_at - membership_started_at},
+            {"plate_reflow", reflow_finished_at - reflow_started_at},
+            {"mutation_snapshot_and_json", snapshot_finished_at - snapshot_started_at},
+            {"total", Neo::Bridge::Performance::now_ms() - profile_started_at},
+        });
+        return dup_json(response);
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {

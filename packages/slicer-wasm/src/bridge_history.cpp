@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "bridge_history.hpp"
+#include "bridge_performance.hpp"
 #include "bridge_filament.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_project_overlay.hpp"
@@ -1132,6 +1133,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
                                                    const char* before_context_cstr, const char* options_cstr)
 {
     try {
+        const double profile_started_at = Neo::Bridge::Performance::now_ms();
         const Runtime runtime = HistoryRuntime::runtime();
         if (state().history_disabled) return error_json("history is disabled");
         const std::string label = label_cstr ? label_cstr : "";
@@ -1161,9 +1163,16 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
                                    Neo::History::Bytes(text.begin(), text.end()));
         }
         const std::string id = std::string("tx-") + std::to_string(state().next_history_transaction_id++);
+        const double capture_started_at = Neo::Bridge::Performance::now_ms();
+        const auto before_model = capture_model_state(state().model);
+        const double capture_finished_at = Neo::Bridge::Performance::now_ms();
         state().active_history_transaction = BridgeState::HistoryTransaction{
             id, label, category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
-            before_context, capture_model_state(state().model), false, {}, state().history_revision};
+            before_context, std::move(before_model), false, {}, state().history_revision};
+        Neo::Bridge::Performance::record("history_begin", {
+            {"capture_model_state", capture_finished_at - capture_started_at},
+            {"total", Neo::Bridge::Performance::now_ms() - profile_started_at},
+        });
         return duplicate_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }
@@ -1172,6 +1181,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
 EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_cstr, const char* after_context_cstr)
 {
     try {
+        const double profile_started_at = Neo::Bridge::Performance::now_ms();
         const Runtime runtime = HistoryRuntime::runtime();
         if (state().history_disabled) return error_json("history is disabled");
         const std::string requested = transaction_id_cstr ? transaction_id_cstr : "";
@@ -1188,14 +1198,29 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_commit(const char* transaction_id_c
         const auto tx = *state().active_history_transaction;
         const std::string text = after_context.dump();
         const Neo::History::Bytes bytes(text.begin(), text.end());
+        const double capture_started_at = Neo::Bridge::Performance::now_ms();
+        const auto after_model = capture_model_state(state().model);
+        const double capture_finished_at = Neo::Bridge::Performance::now_ms();
+        const double commit_started_at = Neo::Bridge::Performance::now_ms();
         HistoryMetadata::commit_history_entry(state(), [&]() {
-            return state().history.commit(tx.label, tx.category, capture_model_state(state().model), bytes);
+            return state().history.commit(tx.label, tx.category, after_model, bytes);
         });
+        const double commit_finished_at = Neo::Bridge::Performance::now_ms();
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
+        Neo::Bridge::Performance::record("history_commit", {
+            {"capture_model_state", capture_finished_at - capture_started_at},
+            {"history_store", commit_finished_at - commit_started_at},
+            {"total", Neo::Bridge::Performance::now_ms() - profile_started_at},
+        });
         return duplicate_json(history_status_json().dump());
     } catch (const std::exception& e) { return error_json(e.what()); }
     catch (...) { return error_json("unknown C++ exception"); }
+}
+
+EMSCRIPTEN_KEEPALIVE const char* orc_take_performance_profile()
+{
+    return duplicate_json(Neo::Bridge::Performance::take().dump());
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cstr)

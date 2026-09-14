@@ -221,8 +221,11 @@ describe('TransformHistoryCoordinator', () => {
     await expect(first).resolves.toEqual({ outcome: 'committed' });
     await expect(second).resolves.toEqual({ outcome: 'committed' });
     expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledTimes(2);
-    expect(runtime.setModelTransforms.mock.calls.map(([, transforms]) =>
-      (transforms as { instanceTransform: { offset: number[] } }[])[0]?.instanceTransform.offset,
+    expect(runtime.setModelTransforms.mock.calls.map((call) =>
+      // The mock is intentionally narrowed by the fixture; read its runtime
+      // call tuple here because the production method takes transactionId plus
+      // the complete snapshot payload.
+      (Array.from(call)[1] as unknown as { instanceTransform: { offset: number[] } }[])[0]?.instanceTransform.offset,
     )).toEqual([[4, 0, 0], [8, 0, 0]]);
   });
 

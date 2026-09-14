@@ -1020,6 +1020,18 @@ export interface AtomicCommandErrorEnvelope {
 
 export type AtomicCommandResult<T> = AtomicCommandSuccessEnvelope<T> | AtomicCommandErrorEnvelope;
 
+/** Bounded native timing sample used only by local performance diagnostics. */
+export interface NativePerformanceSample {
+  readonly operation: string;
+  readonly stagesMs: Readonly<Record<string, number>>;
+}
+
+/** Drains the bounded native diagnostic ring without retaining model data. */
+export interface NativePerformanceProfile {
+  readonly version: 1;
+  readonly samples: readonly NativePerformanceSample[];
+}
+
 export interface SlicerClient {
   /** Initialize after the host has installed profile packages into MEMFS. */
   init(): Promise<InitResult>;
@@ -1052,6 +1064,8 @@ export interface SlicerClient {
   resetHistory(context: import('./history').HistoryContext): Promise<import('./history').HistoryStatus>;
   /** Compact Worker/client timing counters for smoke and E2E diagnostics. */
   getHistoryDiagnostics(): import('./history').HistoryTransportDiagnostics;
+  /** Diagnostic-only native timing samples. Present in real WASM builds. */
+  takeNativePerformanceProfile?(): Promise<NativePerformanceProfile>;
   runProjectHistoryTransaction<T>(
     label: import('./history').HistoryLabel,
     category: import('./history').HistoryCategory,
