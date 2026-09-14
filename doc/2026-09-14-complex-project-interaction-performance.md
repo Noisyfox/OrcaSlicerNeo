@@ -47,7 +47,10 @@ used by the desktop plate-switch performance coverage.
   leak through Undo. Non-adjacent menu jumps that would skip uncomposed Add
   Plate deltas are rejected rather than restoring an incomplete state.
 - The real-WASM bridge exposes a bounded, drain-on-read diagnostic timing ring
-  for `history_begin`, `add_plate`, and `history_commit`. It carries timing
+  for `history_begin`, `set_model_transforms`, `add_plate`, and
+  `history_commit`. The atomic transform sample separates input/JSON decode,
+  request validation/target resolution, transform mutation, plate-membership
+  reflow, response JSON serialization, and total time. It carries timing
   scalars only; it never retains model, context, or project data.
 
 ## Add Plate Profile: User Click to Undo
@@ -82,6 +85,38 @@ emits no `capture_model_state` stage. Plate reflow remains the dominant native
 cost at about 472 ms; subsequent work should optimize reflow rather than
 reintroduce whole-model history capture.
 
+## Object Move Profile: Gesture Completion to Undo
+
+The object-move acceptance boundary is the renderer completing one real canvas
+body drag and the toolbar showing enabled `Undo Move`. The focused Electron
+profile uses the same exact h2d fixture, proves the 45,201,991-byte filename
+receipt and 11 native plates, drains load-time samples, and uses the normal
+selection, pointer, history, and Worker transaction path (no direct native
+injection). The latest real threaded-WASM sample (milliseconds) is:
+
+| Boundary or native stage | Time |
+| --- | ---: |
+| Pointer-up to visible enabled Undo Move | 124.56 |
+| Application mutation/publication | 102.58 |
+| Client transaction | 71.80 |
+| Worker transaction | 71.61 |
+| WASM instrumented total | 58.40 |
+| History begin total / capture | 2.66 / 1.05 |
+| Transform input/JSON decode | 0.53 |
+| Transform request validation/target resolution | 0.55 |
+| Transform mutation | 0.01 |
+| Plate-membership/reflow | 1.07 |
+| Transform response JSON serialization | 0.07 |
+| Transform total | 2.27 |
+| History commit total / capture / history store | 53.48 / 44.97 / 5.45 |
+| Main-thread/Worker transport plus client JS residual | 0.20 |
+| Worker JS plus uninstrumented native reads residual | 13.21 |
+
+The native transform sample is scalar-only and bounded. Its six stage names
+are asserted by the native history smoke and by the focused E2E; the E2E also
+asserts that the only drained mutation samples are `history_begin`,
+`set_model_transforms`, and `history_commit`.
+
 ## Verification
 
 - `pnpm --filter @orca/slicer-wasm test` — 143 tests passed.
@@ -98,6 +133,11 @@ reintroduce whole-model history capture.
   `pnpm exec playwright test e2e/plate-add-history-profile.e2e.ts` from
   `apps/desktop` — passed; it asserts the real project receipt and the absence
   of `capture_model_state` on Add Plate history begin/commit.
+- `ORCA_E2E_REAL=1`, `VITE_USE_MOCK=0`, and the exact h2d fixture with
+  `pnpm exec playwright test e2e/object-move-history-profile.e2e.ts -g "profiles a real object move"`
+  from `apps/desktop` — passed; it asserts the real project receipt, 11-plate
+  native result, visible enabled `Undo Move`, cross-layer residuals, and all
+  six `set_model_transforms` timing stages.
 - `git diff --check` — passed.
 
 Do not treat a build under `packages/slicer-wasm/.work` or

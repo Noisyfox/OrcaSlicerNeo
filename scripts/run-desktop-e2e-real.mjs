@@ -29,6 +29,7 @@ const testRuns = [
   ['e2e/prime-tower-project.e2e.ts', '-g', 'opened project keeps prime-tower UI'],
   ['e2e/prime-tower-history-performance.e2e.ts', '-g', 'measures Odyssey Prime Tower commit'],
   ['e2e/plate-add-history-profile.e2e.ts', '-g', 'profiles Add Plate click'],
+  ['e2e/object-move-history-profile.e2e.ts', '-g', 'profiles a real object move'],
 ];
 
 for (const [name, childArgs] of [['electron-vite', ['build']]]) {

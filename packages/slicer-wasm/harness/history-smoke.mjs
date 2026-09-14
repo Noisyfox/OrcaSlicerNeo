@@ -313,6 +313,18 @@ for (const [label, edit] of transformCases) {
   delete base.matrix;
   const next = edit(base);
   commitTransform(label, next);
+  if (label === 'Move') {
+    const transformProfile = callJson('orc_take_performance_profile', [], []);
+    const transformSample = transformProfile.samples.find((sample) => sample.operation === 'set_model_transforms');
+    const requiredStages = [
+      'input_json_decode', 'request_validation_target_resolution', 'transform_mutation',
+      'plate_membership_reflow', 'response_json_serialization', 'total',
+    ];
+    historyCheck('model transform timing exposes bounded native stages only', transformProfile.version === 1 && Boolean(transformSample) &&
+      requiredStages.every((stage) => Number.isFinite(transformSample.stages_ms[stage]) && transformSample.stages_ms[stage] >= 0) &&
+      Object.keys(transformSample.stages_ms).every((stage) => requiredStages.includes(stage)) &&
+      Object.keys(transformSample).every((key) => ['operation', 'stages_ms'].includes(key)));
+  }
   const committedTransform = modelMesh().instance_transform;
   assertTransformEqual(committedTransform, next, `${label} final transform`);
   const undoneTransform = callJson('orc_history_undo', [], []);

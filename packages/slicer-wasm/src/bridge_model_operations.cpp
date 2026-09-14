@@ -18,6 +18,7 @@
 #include <emscripten/emscripten.h>
 #include "bridge_buffers.hpp"
 #include "bridge_plate.hpp"
+#include "bridge_performance.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -988,6 +989,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         Slic3r::Geometry::Transformation previous_volume;
     };
     try {
+        const double profile_started_at = Neo::Bridge::Performance::now_ms();
         const std::string transaction_id = transaction_id_cstr ? transaction_id_cstr : "";
         const auto& active = state().active_history_transaction;
         if (!active || active->id != transaction_id)
@@ -995,9 +997,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         if (active->base_history_revision != state().history_revision)
             return error_json("history transaction revision is stale");
 
+        const double input_decode_started_at = Neo::Bridge::Performance::now_ms();
         const json requests = json::parse(transforms_json ? transforms_json : "");
+        const double input_decode_finished_at = Neo::Bridge::Performance::now_ms();
         if (!requests.is_array() || requests.empty())
             return error_json("transforms must be a non-empty array");
+
+        const double validation_started_at = Neo::Bridge::Performance::now_ms();
         std::vector<StagedTransform> staged;
         staged.reserve(requests.size());
         std::set<std::tuple<int, int, int>> identities;
@@ -1025,14 +1031,18 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 object->instances[static_cast<size_t>(instance_idx)]->get_transformation(),
                 object->volumes[static_cast<size_t>(volume_idx)]->get_transformation()});
         }
-
         std::set<std::size_t> affected_instances;
         for (const auto& item : staged) {
             if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
                 affected_instances.insert(item.instance->id().id);
         }
+        const double validation_finished_at = Neo::Bridge::Performance::now_ms();
+
+        const double membership_lookup_started_at = Neo::Bridge::Performance::now_ms();
         const auto affected_before = affected_instances.empty()
             ? std::set<std::string>{} : member_plate_ids_for_instances(affected_instances);
+        const double membership_lookup_finished_at = Neo::Bridge::Performance::now_ms();
+        const double mutation_started_at = Neo::Bridge::Performance::now_ms();
         try {
             for (const auto& item : staged) {
                 item.instance->set_transformation(item.next_instance);
@@ -1041,10 +1051,26 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
                     item.object->config.touch();
             }
+            const double mutation_finished_at = Neo::Bridge::Performance::now_ms();
+            const double membership_reflow_started_at = Neo::Bridge::Performance::now_ms();
             rebuild_plate_membership(true);
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
                                                            json::array(), &affected_instances);
-            return dup_json(mutation.dump());
+            const double membership_reflow_finished_at = Neo::Bridge::Performance::now_ms();
+            const double response_started_at = Neo::Bridge::Performance::now_ms();
+            const std::string response = mutation.dump();
+            char* result = dup_json(response);
+            const double response_finished_at = Neo::Bridge::Performance::now_ms();
+            Neo::Bridge::Performance::record("set_model_transforms", {
+                {"input_json_decode", input_decode_finished_at - input_decode_started_at},
+                {"request_validation_target_resolution", validation_finished_at - validation_started_at},
+                {"transform_mutation", mutation_finished_at - mutation_started_at},
+                {"plate_membership_reflow", (membership_lookup_finished_at - membership_lookup_started_at) +
+                    (membership_reflow_finished_at - membership_reflow_started_at)},
+                {"response_json_serialization", response_finished_at - response_started_at},
+                {"total", Neo::Bridge::Performance::now_ms() - profile_started_at},
+            });
+            return result;
         } catch (...) {
             for (const auto& item : staged) {
                 item.instance->set_transformation(item.previous_instance);
