@@ -44,7 +44,7 @@ describe('Electron adapter', () => {
     const { adapter } = setup({ openFileDialog, readFile: vi.fn(async () => Uint8Array.from([1, 2]).buffer) });
     await expect(adapter.models.pick()).resolves.toEqual({ displayName: 'cube.drc', bytes: Uint8Array.from([1, 2]) });
     expect(openFileDialog).toHaveBeenCalledWith([
-      { name: 'Models', extensions: ['stl', '3mf', 'drc'] },
+      { name: 'Models', extensions: ['stl', '3mf', 'drc', 'step', 'stp'] },
       { name: 'All files', extensions: ['*'] },
     ]);
   });

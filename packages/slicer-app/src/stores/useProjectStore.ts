@@ -9,6 +9,7 @@ export type ProjectOperationPhase =
   | 'waiting-for-dirty-decision'
   | 'loading'
   | 'saving'
+  | 'model-import'
   | 'completed'
   | 'cancelled'
   | 'failed';

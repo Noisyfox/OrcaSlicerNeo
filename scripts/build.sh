@@ -34,7 +34,8 @@
 #   shim      Regenerate the TBB/boost::thread/libnoise/libjpeg shim headers
 #             (build.sh --shim-only) after editing TBB_HEADERS in build.sh.
 #   smoke     Run both harnesses against out/threaded and out/serial:
-#             run-slice.mjs + bridge-smoke.mjs + drc-smoke.mjs (--variant to limit).
+#             run-slice.mjs + bridge-smoke.mjs + drc-smoke.mjs +
+#             step-import-smoke.mjs (--variant to limit).
 #   test      vitest + typecheck for @orca/slicer-wasm and @orca/desktop.
 #   dev       Launch the Electron app in dev mode (pnpm --filter @orca/desktop dev).
 #   e2e       Playwright Electron e2e (pnpm --filter @orca/desktop test:e2e).
@@ -153,7 +154,7 @@ discard_invalid_link_outputs() {
 # and invalidate the incremental artifact.
 apply_wasm_patches() {
   local p
-  for p in "$PKG"/patches/*.patch; do
+  for p in "$PKG"/patches/orca/*.patch; do
     [[ -e "$p" ]] || continue
     if git -C "$PKG/cpp" apply --ignore-space-change --check "$p" 2>/dev/null; then
       git -C "$PKG/cpp" apply --ignore-space-change "$p"
@@ -202,6 +203,7 @@ smoke_variant() {
   ( cd "$PKG" && node harness/run-slice.mjs --module "out/$v/orca_slice.js" --stl fixtures/cube.stl --config fixtures/config.json )
   ( cd "$PKG" && node harness/bridge-smoke.mjs "out/$v/orca_slice.js" fixtures/cube.stl )
   ( cd "$PKG" && node harness/drc-smoke.mjs "out/$v/orca_slice.js" fixtures/drc )
+  ( cd "$PKG" && node harness/step-import-smoke.mjs "out/$v/orca_slice.js" fixtures/step )
 }
 
 case "$CMD" in

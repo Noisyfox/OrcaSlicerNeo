@@ -116,8 +116,9 @@ echo             reapplies build-time patches, seconds-to-minutes. Use
 echo             --variant to limit to one build tree.
 echo   shim      Regenerate the TBB/boost::thread/libnoise/libjpeg shim headers
 echo             ^(build.bat --shim-only^) after editing TBB_HEADERS in build.bat.
-echo   smoke     Run both harnesses against out\threaded and out\serial:
-echo             run-slice.mjs + bridge-smoke.mjs + drc-smoke.mjs ^(--variant to limit^).
+echo   smoke     Run native harnesses against out\threaded and out\serial:
+echo             run-slice.mjs + bridge-smoke.mjs + drc-smoke.mjs +
+echo             step-import-smoke.mjs ^(--variant to limit^).
 echo   test      vitest + typecheck for @orca/slicer-wasm and @orca/desktop.
 echo   dev       Launch the Electron app in dev mode ^(pnpm --filter @orca/desktop dev^).
 echo   e2e       Playwright Electron e2e ^(pnpm --filter @orca/desktop test:e2e^).
@@ -332,7 +333,7 @@ REM configure. Keep the pinned submodule source in the same patched state
 REM before Ninja so an incremental build cannot silently compile upstream
 REM Backup Manager code.
 :apply_wasm_patches
-for %%p in ("%PKG%\patches\*.patch") do (
+for %%p in ("%PKG%\patches\orca\*.patch") do (
   if exist "%%p" (
     git -C "%PKG%\cpp" apply --ignore-space-change --check "%%p" >nul 2>nul
     if not errorlevel 1 (
@@ -386,6 +387,8 @@ if errorlevel 1 (popd & exit /b 1)
 node harness\bridge-smoke.mjs out\%SV%\orca_slice.js fixtures\cube.stl
 if errorlevel 1 (popd & exit /b 1)
 node harness\drc-smoke.mjs out\%SV%\orca_slice.js fixtures\drc
+if errorlevel 1 (popd & exit /b 1)
+node harness\step-import-smoke.mjs out\%SV%\orca_slice.js fixtures\step
 set "RC=%errorlevel%"
 popd
 exit /b %RC%

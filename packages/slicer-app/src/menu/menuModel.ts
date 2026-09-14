@@ -94,7 +94,7 @@ export function deriveMenuItemStates(
   const hasCompletedResult = snapshot.result.hasResult && snapshot.slicer.status === 'done';
   const workspaceTab = isWorkspaceTab(snapshot.activeTab);
   const prepareTab = isPrepareTab(snapshot.activeTab);
-  const projectOperationActive = ['waiting-for-load-choice', 'waiting-for-project-confirmation', 'waiting-for-dirty-decision', 'loading', 'saving']
+  const projectOperationActive = ['waiting-for-load-choice', 'waiting-for-project-confirmation', 'waiting-for-dirty-decision', 'loading', 'saving', 'model-import']
     .includes(project.operation.phase);
   const fileActionsEnabled = ready && !slicing && !projectOperationActive;
   const projectActionsEnabled = fileActionsEnabled;

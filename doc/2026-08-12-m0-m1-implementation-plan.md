@@ -5,6 +5,12 @@ Status: Approved (writing-plans session, 2026-08-12)
 Scope: Milestone 0 (Foundation) + Milestone 1 (WASM Core) of
 [`spec/Grand Plan.md`](../spec/Grand%20Plan.md)
 
+> **Historical note (2026-09-14):** This plan records the pre-STEP M0/M1
+> scaffold and its then-current dependency decisions. STEP/OCCT was later
+> restored and delivered in `doc/2026-09-13-step-import-support.md`; references
+> below to the old `Model.hpp` guard, `SLIC3R_WASM_NO_OCCT`, or STEP being
+> dropped describe that historical plan and are not active build instructions.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Scaffold the monorepo (pnpm workspaces, `packages/slicer-wasm/` +

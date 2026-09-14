@@ -28,10 +28,10 @@ the default edit-loop gate.
 The C++ slicing core compiles to WASM and slices a fixture end to end. This
 retires the last remaining risk before any UI work.
 
-- [x] Submodule pinned; patches applied (`Model.hpp` STEP guard, clang tweaks,
-      `distance_to_squared`) maintained as `.patch` files — 0001, 0003–0007
-      shipped (0002 skipped: `distance_to_squared` was fixed upstream between
-      the spike's SHA and the b97ca3c0ac pin)
+- [x] Submodule pinned; the remaining clang/WASM compatibility tweaks are
+      maintained as `.patch` files (the old `Model.hpp` STEP guard was removed
+      after the OCCT/XCAF STEP path was restored; `distance_to_squared` was
+      fixed upstream between the spike's SHA and the b97ca3c0ac pin)
 - [x] Serial TBB shim incl. `parallel_pipeline` stand-in
 - [x] Boost 1.84 wasm64 build (`build-boost-wasm64.sh`)
 - [x] Scaffold CMake: `GLOB_RECURSE` + `DROP_PATTERNS` + `stubs/`, 3MF re-added
@@ -500,7 +500,8 @@ loading remain future increments.
       `doc/2026-08-18-wasm-parallelism-design.md`) — delivered with M9
       step 10 as the default `threaded` artifact
 - [ ] Perf tuning for large plates
-- [ ] STEP import (OCCT Emscripten port decision)
+- [x] STEP import through the OCCT/XCAF Emscripten port — delivered 2026-09-13;
+      see [`doc/2026-09-13-step-import-support.md`](../doc/2026-09-13-step-import-support.md)
 - [ ] CGAL features: mesh boolean, hollowing, advanced cut
 - [x] Device panel & printer connectivity foundation (Moonraker; additional
       drivers remain future work)

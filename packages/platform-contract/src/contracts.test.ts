@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeGcodeTextWindowGeometry, normalizeUserPreferences, type GcodeExporter, type ModelImporter, type ProfileSource, type SlicerRuntime, type UserPreferencesRepository, type PrinterConfigurationRepository, type WebViewHost } from './contracts';
+import { MODEL_FILE_ACCEPT, MODEL_FILE_EXTENSIONS, normalizeGcodeTextWindowGeometry, normalizeUserPreferences, type GcodeExporter, type ModelImporter, type ProfileSource, type SlicerRuntime, type UserPreferencesRepository, type PrinterConfigurationRepository, type WebViewHost } from './contracts';
 import { normalizePrinterConfigurationDocument } from '@orca/printer-control';
 
 describe('user preferences', () => {
@@ -51,6 +51,11 @@ describe('user preferences', () => {
 });
 
 describe('host contracts', () => {
+  it('defines the shared Add Model formats and browser accept value', () => {
+    expect(MODEL_FILE_EXTENSIONS).toEqual(['stl', '3mf', 'drc', 'step', 'stp']);
+    expect(MODEL_FILE_ACCEPT).toBe('.stl,.3mf,.drc,.step,.stp');
+  });
+
   it('allows dependency-free fake host services', async () => {
     const importer: ModelImporter = {
       async pick() { return { displayName: 'cube.stl', bytes: new Uint8Array([1, 2]) }; },

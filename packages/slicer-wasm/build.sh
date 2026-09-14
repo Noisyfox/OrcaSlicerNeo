@@ -6,7 +6,7 @@
 # Emscripten module: real oneTBB pthread runtime, scaffold CMake, bridge + CLI driver.
 # Inherited from the phase-0 spike's build.sh and adapted: no clone step (the
 # submodule IS the source pin), wasm64-first, full preset bundle embedded.
-# patches/*.patch are applied to the submodule working tree here, at build
+# patches/orca/*.patch are applied to the submodule working tree here, at build
 # time — the submodule itself stays pristine (read-only, pinned SHA).
 #
 # NOT push-button — the WASM build is an iteration surface. Re-run after each
@@ -49,6 +49,7 @@ CEREAL_INCLUDE="${CEREAL_INCLUDE:-$WORK_DIR/deps/cereal-1.3.0/include}"
 DRACO_ROOT="$WORK_DIR/deps/draco-1.5.7/stage-wasm64-$ARTIFACT_VARIANT"
 DRACO_INCLUDE="${DRACO_INCLUDE:-$DRACO_ROOT/include}"
 DRACO_ARCHIVE="${DRACO_ARCHIVE:-$DRACO_ROOT/lib/libdraco.a}"
+OCCT_ROOT="${OCCT_ROOT:-$WORK_DIR/deps/occt-7.6.0/stage-wasm64-$ARTIFACT_VARIANT}"
 
 log()  { printf '\033[1;36m[wasm]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[wasm] WARNING:\033[0m %s\n' "$*" >&2; }
@@ -137,12 +138,13 @@ fi
 log "emcc: $(emcc --version | head -1)"
 
 # ---------------- Patch the submodule (build-time, idempotent) ----------------
-# The pinned submodule is pristine; every packages/slicer-wasm/patches/*.patch
-# is git-applied to its working tree here. Already-applied runs are skipped;
+# The pinned submodule is pristine; every packages/slicer-wasm/patches/orca/*.patch
+# is git-applied to its working tree here. OCCT source patches live under
+# patches/occt and are applied by build-occt-wasm64.sh. Already-applied runs are skipped;
 # a patch that neither applies nor is applied is a hard error.
 apply_patches() {
   local p
-  for p in "$PKG_DIR"/patches/*.patch; do
+  for p in "$PKG_DIR"/patches/orca/*.patch; do
     [[ -e "$p" ]] || continue
     if git -C "$ORCA_SRC" apply --check "$p" 2>/dev/null; then
       git -C "$ORCA_SRC" apply "$p"
@@ -194,6 +196,14 @@ if [[ ! -f "$DRACO_ARCHIVE" ]]; then
   WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
     bash "$PKG_DIR/build-draco-wasm64.sh"
 fi
+if [[ ! -f "$OCCT_ROOT/include/opencascade/Standard.hxx" || ! -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]]; then
+  log "Building OCCT 7.6.0 XCAF/STEP closure ($ARTIFACT_VARIANT wasm64)"
+  WASM_THREADING="$WASM_THREADING" WASM_ARTIFACT_VARIANT="$ARTIFACT_VARIANT" \
+    WORK_DIR="$WORK_DIR" "$PKG_DIR/build-occt-wasm64.sh" \
+    || die "OCCT build failed"
+fi
+[[ -f "$OCCT_ROOT/include/opencascade/Standard.hxx" && -f "$OCCT_ROOT/lib/libTKXDESTEP.a" ]] \
+  || die "staged OCCT prefix is incomplete: $OCCT_ROOT"
 
 # ---------------- Version header (fork-derived) ----------------
 # Replaces the spike's static stub: version + commit hash come from the
@@ -244,6 +254,7 @@ emcmake cmake -S "$PKG_DIR" -B "$BUILD_DIR" -G Ninja \
   -DCEREAL_INCLUDE="$CEREAL_INCLUDE" \
   -DDRACO_INCLUDE="$DRACO_INCLUDE" \
   -DDRACO_ARCHIVE="$DRACO_ARCHIVE" \
+  -DOCCT_ROOT="$OCCT_ROOT" \
   -DWASM_THREADING="$WASM_THREADING" \
   -DWASM_PTHREAD_POOL_SIZE="$WASM_PTHREAD_POOL_SIZE" \
   -DTBB_ROOT="$TBB_ROOT" \

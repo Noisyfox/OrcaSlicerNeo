@@ -26,8 +26,10 @@ const GIZMO_BUTTONS: ReadonlyArray<{
 
 export function GizmoToolbar({
   sceneInteraction,
+  onModelAdded,
 }: {
   sceneInteraction: SceneInteractionController | null;
+  onModelAdded?: () => void;
 }) {
   useSceneInteractionVersion(sceneInteraction ?? undefined);
   const platform = usePlatform();
@@ -51,7 +53,7 @@ export function GizmoToolbar({
       <Button
         size="icon"
         variant="ghost"
-        onClick={() => void addModel(platform, sceneInteraction)}
+        onClick={() => { void addModel(platform, sceneInteraction, onModelAdded); }}
         disabled={!presetsLoaded}
         title="Add Model"
         aria-label="Add Model"

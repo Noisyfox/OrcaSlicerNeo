@@ -3,7 +3,7 @@
 // actual Electron IPC/preload/adapter/shared-action boundary without a native
 // WASM dependency.
 import { _electron, expect, test, type ElectronApplication, type Page } from '@playwright/test';
-import { copyFileSync, existsSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -76,6 +76,30 @@ test('Electron picker and drop use shared project actions, and Save As writes a 
     await page.getByTestId('project-load-cancel').click();
     await expect(page.getByTestId('project-load-choice-dialog')).toBeHidden();
   } finally {
+    await app.close();
+  }
+});
+
+test('Electron STL drop uses the shared Add Model action', async () => {
+  const { app } = await launchProjectApp();
+  try {
+    const page = await app.firstWindow();
+    await ready(page);
+    await expect(page.getByTestId('object-list')).toBeVisible();
+    await page.evaluate(({ bytes }) => {
+      const transfer = new DataTransfer();
+      const file = new File([new Uint8Array(bytes)], 'cube.stl');
+      // Electron receives the browser File and forwards only its bytes to the
+      // shared Add Model/runtime path; native project paths stay 3MF-only.
+      transfer.items.add(file);
+      const target = document.querySelector('[data-testid="object-list"]') ?? document;
+      target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }, { bytes: Array.from(readFileSync(MODEL_PATH)) });
+    await expect(page.getByTestId('btn-slice')).toBeEnabled();
+  } finally {
+    // The drop intentionally makes the session dirty; destroy the test
+    // window so the lifecycle confirmation does not block teardown.
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.destroy());
     await app.close();
   }
 });

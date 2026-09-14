@@ -181,8 +181,26 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         // resources explicitly.
         if (lower_ext == "3mf")
             model_strategy = model_strategy | LoadStrategy::LoadModel;
+        const bool is_step_file = lower_ext == "step" || lower_ext == "stp";
         Model imported;
-        if (lower_ext == "3mf") {
+        if (is_step_file) {
+            // STEP is intentionally routed through the upstream OCCT reader.
+            // Keep these defaults in the bridge contract: source units are
+            // resolved by OCCT, meshing uses millimetre linear deflection and
+            // the upstream angular value, and compounds remain atomic.
+            imported = Model::read_from_step(path, model_strategy, nullptr,
+                                              nullptr, {}, 0.003, 0.5, false);
+            // read_from_step can return an empty model after cancellation and
+            // the mesher can otherwise leave an object with no valid volume.
+            // Treat either result as a failed transaction before touching the
+            // live scene, preserving append and failure atomicity.
+            if (imported.objects.empty() || std::any_of(imported.objects.begin(), imported.objects.end(),
+                    [](const ModelObject* object) {
+                        return object->volumes.empty() || std::any_of(object->volumes.begin(), object->volumes.end(),
+                            [](const ModelVolume* volume) { return volume->mesh().empty(); });
+                    }))
+                throw Slic3r::RuntimeError("Loading of a model file failed.");
+        } else if (lower_ext == "3mf") {
             // Keep Add Model on the native BBS reader, but avoid
             // Model::read_from_file's silent fallback context.  The latter
             // takes a different importer path in threaded wasm and can spin

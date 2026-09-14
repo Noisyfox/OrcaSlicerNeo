@@ -4,7 +4,7 @@ REM build.bat - Windows cmd port of build.sh
 REM
 REM Builds the pinned C++ submodule (packages\slicer-wasm\cpp) into a
 REM single Emscripten module: real oneTBB pthread runtime, scaffold CMake, bridge
-REM + CLI driver. patches\*.patch are git-applied to the submodule
+REM + CLI driver. patches\orca\*.patch are git-applied to the submodule
 REM working tree here, at build time - the submodule itself stays
 REM pristine (read-only, pinned SHA). No Git Bash required - pure cmd:
 REM emsdk_env.bat activation, emcmake/emmake .exe launchers, Windows
@@ -64,6 +64,7 @@ if defined CEREAL_INCLUDE (set "CEREAL_INCLUDE=%CEREAL_INCLUDE%") else (set "CER
 set "DRACO_ROOT=%WORK_DIR%\deps\draco-1.5.7\stage-wasm64-%ARTIFACT_VARIANT%"
 if defined DRACO_INCLUDE (set "DRACO_INCLUDE=%DRACO_INCLUDE%") else (set "DRACO_INCLUDE=%DRACO_ROOT%\include")
 if defined DRACO_ARCHIVE (set "DRACO_ARCHIVE=%DRACO_ARCHIVE%") else (set "DRACO_ARCHIVE=%DRACO_ROOT%\lib\libdraco.a")
+if defined OCCT_ROOT (set "OCCT_ROOT=%OCCT_ROOT%") else (set "OCCT_ROOT=%WORK_DIR%\deps\occt-7.6.0\stage-wasm64-%ARTIFACT_VARIANT%")
 
 REM ---------------- TBB shim header generation ----------------
 REM Every <tbb/NAME.h> libslic3r may include forwards to shim\_serial.hpp. Add
@@ -115,10 +116,11 @@ for /f "delims=" %%i in ('emcc --version 2^>nul') do if not defined EMCC_VER set
 echo [wasm] %EMCC_VER%
 
 REM ---------------- Patch the submodule (build-time, idempotent) ----------------
-REM The pinned submodule is pristine; every packages\slicer-wasm\patches\*.patch
-REM is git-applied to its working tree here. Already-applied runs are skipped;
+REM The pinned submodule is pristine; every packages\slicer-wasm\patches\orca\*.patch
+REM is git-applied to its working tree here. OCCT source patches live under
+REM patches\occt and are applied by build-occt-wasm64.bat. Already-applied runs are skipped;
 REM a patch that neither applies nor is applied is a hard error.
-for %%p in ("%PKG_DIR%\patches\*.patch") do (
+for %%p in ("%PKG_DIR%\patches\orca\*.patch") do (
   if exist "%%p" (
     git -C "%ORCA_SRC%" apply --check "%%p" >nul 2>nul
     if not errorlevel 1 (
@@ -217,6 +219,15 @@ if not exist "%DRACO_ARCHIVE%" (
   call "%PKG_DIR%\build-draco-wasm64.bat"
   if errorlevel 1 exit /b 1
 )
+if not exist "%OCCT_ROOT%\include\opencascade\Standard.hxx" (
+  echo [wasm] Building OCCT 7.6.0 XCAF/STEP closure ^(%ARTIFACT_VARIANT% wasm64^)
+  call "%PKG_DIR%build-occt-wasm64.bat"
+  if errorlevel 1 exit /b 1
+)
+if not exist "%OCCT_ROOT%\lib\libTKXDESTEP.a" (
+  echo [wasm] ERROR: staged OCCT archive missing: %OCCT_ROOT%\lib\libTKXDESTEP.a
+  exit /b 1
+)
 
 REM ---------------- Version header (fork-derived) ----------------
 REM Replaces the static stub: version + commit hash come from the pinned
@@ -254,6 +265,7 @@ set "BOOST_CM=%BOOST_INCLUDE:\=/%"
 set "CEREAL_CM=%CEREAL_INCLUDE:\=/%"
 set "DRACO_INCLUDE_CM=%DRACO_INCLUDE:\=/%"
 set "DRACO_ARCHIVE_CM=%DRACO_ARCHIVE:\=/%"
+set "OCCT_ROOT_CM=%OCCT_ROOT:\=/%"
 set "TBB_CM=%TBB_ROOT:\=/%"
 
 REM ---------------- Configure + build ----------------
@@ -269,6 +281,7 @@ emcmake cmake -S "%PKG_DIR%" -B "%BUILD_DIR%" -G Ninja ^
   -DCEREAL_INCLUDE="%CEREAL_CM%" ^
   -DDRACO_INCLUDE="%DRACO_INCLUDE_CM%" ^
   -DDRACO_ARCHIVE="%DRACO_ARCHIVE_CM%" ^
+  -DOCCT_ROOT="%OCCT_ROOT_CM%" ^
   -DWASM_THREADING=%WASM_THREADING% ^
   -DWASM_PTHREAD_POOL_SIZE=%WASM_PTHREAD_POOL_SIZE% ^
   -DTBB_ROOT="%TBB_CM%" ^

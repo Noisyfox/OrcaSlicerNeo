@@ -18,6 +18,8 @@ BOOST_VER="1.84.0"
 CEREAL_VER="1.3.0"
 DRACO_VER="1.5.7"
 DRACO_SHA256="27b72ba2d5ff3d0a9814ad40d4cb88f8dc89a35491c0866d952473f8f9416b77"
+OCCT_VER="7.6.0"
+OCCT_SHA256="28334f0e98f1b1629799783e9b4d21e05349d89e695809d7e6dfa45ea43e1dbc"
 
 log() { printf '\033[1;36m[deps]\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31m[deps]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
@@ -68,6 +70,19 @@ if [[ ! -f "$DEPS/draco-$DRACO_VER/CMakeLists.txt" ]]; then
     "https://github.com/google/draco/archive/refs/tags/$DRACO_VER.zip"
   verify_sha256 "$DRACO_ARCHIVE" "$DRACO_SHA256"
   unzip -q -o "$DRACO_ARCHIVE" -d "$DEPS"
+fi
+
+# ---- OCCT (source; built separately per wasm variant) ----
+if [[ ! -f "$DEPS/occt-$OCCT_VER/CMakeLists.txt" ]]; then
+  OCCT_ARCHIVE="$DEPS/occt-$OCCT_VER.zip"
+  log "Fetching OCCT $OCCT_VER"
+  curl -fsSL --retry 3 -o "$OCCT_ARCHIVE" \
+    "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_6_0.zip"
+  verify_sha256 "$OCCT_ARCHIVE" "$OCCT_SHA256"
+  unzip -q -o "$OCCT_ARCHIVE" -d "$DEPS"
+  [[ -d "$DEPS/OCCT-7_6_0" ]] || die "OCCT archive did not contain OCCT-7_6_0"
+  rm -rf "$DEPS/occt-$OCCT_VER"
+  mv "$DEPS/OCCT-7_6_0" "$DEPS/occt-$OCCT_VER"
 fi
 
 # ---- Generated / stub headers ----

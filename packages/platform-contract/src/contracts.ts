@@ -16,6 +16,10 @@ export interface ModelFile {
   bytes: Uint8Array;
 }
 
+/** Model formats exposed by the shared Add Model picker on every host. */
+export const MODEL_FILE_EXTENSIONS = ['stl', '3mf', 'drc', 'step', 'stp'] as const;
+export const MODEL_FILE_ACCEPT = MODEL_FILE_EXTENSIONS.map((extension) => `.${extension}`).join(',');
+
 export interface ModelImporter {
   pick(): Promise<ModelFile | null>;
 }

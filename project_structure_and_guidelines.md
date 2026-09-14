@@ -117,8 +117,8 @@ See the design doc §C++/WASM Build and the spike's README iterate loop. Key rul
   separate CMake/output trees — `threaded` (upstream oneTBB + pthreads;
   selected at runtime when the host is cross-origin isolated) and `serial`
   (the TBB shim, no pthreads). Both share one bridge/client contract.
-- **Formats**: STL + 3MF in v1 (STEP/OCCT dropped). Thumbnails dropped
-  (`ThumbnailsGeneratorCallback` = nullptr).
+- **Formats**: STL + 3MF + DRC + STEP/STP in the current WASM delivery.
+  Thumbnails remain dropped (`ThumbnailsGeneratorCallback` = nullptr).
 - **Profile resources**: system profiles ship as versioned ZIP packages
   (manifest + core/vendor) built deterministically by
   `packages/profile-resources`; a Worker-side installer materializes them

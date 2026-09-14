@@ -1,0 +1,11 @@
+diff --git a/adm/cmake/occt_macros.cmake b/adm/cmake/occt_macros.cmake
+--- a/adm/cmake/occt_macros.cmake
++++ b/adm/cmake/occt_macros.cmake
+@@ -36,2 +36,6 @@
+ macro (OCCT_MAKE_COMPILER_BITNESS)
+-  math (EXPR COMPILER_BITNESS "32 + 32*(${CMAKE_SIZEOF_VOID_P}/8)")
++  if (EMSCRIPTEN AND CMAKE_CXX_FLAGS MATCHES "-m64")
++    set (COMPILER_BITNESS 64)
++  else()
++    math (EXPR COMPILER_BITNESS "32 + 32*(${CMAKE_SIZEOF_VOID_P}/8)")
++  endif()

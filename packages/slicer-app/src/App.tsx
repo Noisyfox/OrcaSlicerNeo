@@ -17,7 +17,7 @@ import type { HistoryRestoreCoordinator } from './history/restoreCoordinator';
 import { usePlatform } from '@orca/platform-contract';
 import { persistRestoredSelections, restoreBootstrapSession } from './preferences';
 import { useFilamentSessionStore } from './stores/useFilamentSessionStore';
-import { addModel, clearScene } from './components/workspace/actions/sceneActions';
+import { addDroppedModels, addModel, clearScene } from './components/workspace/actions/sceneActions';
 import { exportGcode, sliceModel } from './components/workspace/actions/sliceActions';
 import { createCommandDispatcher, registerNativeMenuCommands } from './menu/commands';
 import { buildMenuModel, buildMenuStateSnapshot, resolveMenuMode } from './menu/menuModel';
@@ -29,6 +29,7 @@ import {
   ProjectProgressDialog,
 } from './components/project/ProjectDialogs';
 import { cancelProjectOperation, newProject, noticesFor, openProject, projectDirtyStatus, saveProject, saveProjectAs, type ProjectLoadReceipt } from './projectActions';
+import { errorText } from '@orca/slicer-runtime';
 import type { DirtyProjectDecision, ProjectLoadChoice } from '@orca/slicer-runtime';
 import type { ProjectInput, ProjectLoadBehaviour, UserPreferences } from '@orca/platform-contract';
 import type { HistoryContext, ProjectLoadResult } from '@slicer/client';
@@ -104,6 +105,11 @@ export default function App() {
   const navigateToPreview = useCallback(() => {
     handleTabChange('preview');
   }, [handleTabChange]);
+  const handleModelAdded = useCallback(() => {
+    // Model additions always land in Prepare, even when the user changed tabs
+    // while the picker/drop operation was still in flight.
+    setActiveTab('prepare');
+  }, []);
   const handlePreviewTransitionChange = useCallback((transition: PreviewRenderTransition | null) => {
     previewTransitionRef.current = transition;
   }, []);
@@ -254,14 +260,14 @@ export default function App() {
       saveProject: () => runSaveProject(false),
       saveProjectAs: () => runSaveProject(true),
       preferences: openPreferences,
-      addModel: () => addModel(platform, sceneInteractionRef.current),
+      addModel: async () => { await addModel(platform, sceneInteractionRef.current, handleModelAdded); },
       clearScene: () => clearScene(platform, sceneInteractionRef.current),
       slice: requestPreviewSlice,
       exportGcode: () => exportGcode(platform),
       openSource: async () => { await platform.externalLinks.openSource(); },
       quit: async () => { await platform.menu.execute('quit'); },
     },
-  }), [openPreferences, platform, requestPreviewSlice, runNewProject, runOpenProject, runSaveProject]);
+  }), [handleModelAdded, openPreferences, platform, requestPreviewSlice, runNewProject, runOpenProject, runSaveProject]);
 
   // Strict Mode replays layout effects during development. Keep activation
   // and disposal next to the native subscription so replay cannot leave the
@@ -466,12 +472,26 @@ export default function App() {
       reportProjectFailure({ status: 'failed', error });
     }
   }, [chooseLoad, confirmFlatten, confirmProjectLoad, decideDirty, platform, reportProjectFailure]);
+  const handleDroppedModelFiles = useCallback(async (files: File[]) => {
+    try {
+      await addDroppedModels(platform, sceneInteractionRef.current, () => Promise.all(files.map(async (file) => ({
+        displayName: file.name,
+        bytes: new Uint8Array(await file.arrayBuffer()),
+      }))), files.length, handleModelAdded);
+    } catch (error) {
+      useSlicerStore.getState().setError(errorText(error));
+      console.error('dropped model import failed:', error);
+    }
+  }, [handleModelAdded, platform]);
   useEffect(() => {
     if (boot !== 'ready') return;
     // Capture file drops before nested object-list handlers can stop
     // propagation for their own text-based reorder gestures.
-    return registerProjectDropHandlers(document, handleDroppedProjectFiles);
-  }, [boot, handleDroppedProjectFiles]);
+    return registerProjectDropHandlers(document, {
+      onProjectDrop: handleDroppedProjectFiles,
+      onModelDrop: handleDroppedModelFiles,
+    });
+  }, [boot, handleDroppedModelFiles, handleDroppedProjectFiles]);
 
   // Keep the shared application inert until the worker has initialized the
   // core and every profile package has been installed. This is intentionally
@@ -512,7 +532,7 @@ export default function App() {
         activeTab={activeTab}
         prewarmWorkspace={prewarmingWorkspace}
         home={<div data-testid="home-page" />}
-        workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
+        workspace={<Workspace activeTab={activeTab} onSceneInteractionChange={handleSceneInteractionChange} onSliceCoordinatorChange={handleSliceCoordinatorChange} onHistoryRestoreCoordinatorChange={handleHistoryRestoreCoordinatorChange} onRequestPreview={navigateToPreview} onModelAdded={handleModelAdded} onPreviewTransitionChange={handlePreviewTransitionChange} onPreviewRenderReady={completePreviewTransition} />}
         device={<DevicePanel />}
         status={<StatusBar />}
       />

@@ -11,6 +11,11 @@ Scope: v1 vertical slice of a rebuilt OrcaSlicer desktop GUI on Electron + React
 > delivered the shared architecture, including the dual wasm64 artifacts
 > (`threaded` + `serial`) that replace the single `.wasm` assumed below. See
 > `doc/high_level_dev_plan.md` / `spec/Grand Plan.md` for current status.
+>
+> **Current-state note (2026-09-14):** The original v1 design below predates
+> the delivered OCCT/XCAF STEP import. Current WASM builds retain the upstream
+> STEP sources and link the staged OCCT closure; the former
+> `SLIC3R_WASM_NO_OCCT`/`Model.hpp` guard is not part of the active patch set.
 
 ## Executive Summary
 

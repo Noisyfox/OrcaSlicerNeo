@@ -199,4 +199,18 @@ describe('buildMenuModel', () => {
       expect(state.items[command].enabled).toBe(false);
     }
   });
+
+  it('locks model actions while the shared import overlay is active', () => {
+    const state = buildMenuStateSnapshot(input({
+      project: {
+        hasContent: true,
+        dirty: true,
+        flattenedMultiPlate: false,
+        operation: { phase: 'model-import', progress: 0.5, cancellable: false },
+      },
+      scene: { hasModel: true },
+    }), web);
+    expect(state.items['add-model'].enabled).toBe(false);
+    expect(state.items['clear-scene'].enabled).toBe(false);
+  });
 });
