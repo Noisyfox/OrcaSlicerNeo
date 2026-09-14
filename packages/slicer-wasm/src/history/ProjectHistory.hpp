@@ -183,6 +183,11 @@ public:
     bool commit_reusing_current_model(std::string label, Category category, const Bytes& context,
                                       std::optional<RestoreState::DirectFrame> direct_frame = std::nullopt,
                                       std::optional<RestoreState::DirectFrame> predecessor_direct_frame = std::nullopt);
+    // Refresh the current retained model from a transaction's exact
+    // pre-mutation capture while preserving its context and direct frame.
+    // This closes the boundary between a live model load and its first
+    // ordinary full-model history edit.
+    bool refresh_current_model(const ModelState& model);
     bool record(std::string label, Category category, const ModelState& model, const Bytes& context)
     { return commit(std::move(label), category, model, context); }
 

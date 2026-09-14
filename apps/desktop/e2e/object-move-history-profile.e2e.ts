@@ -8,7 +8,9 @@ import { performance } from 'node:perf_hooks';
 
 type Timing = { count: number; totalMs: number; lastMs: number };
 type Layer = { mutation: Timing; restore: Timing; directRestore: Timing; fullRestore: Timing };
-type Diagnostics = { worker: Layer | null; client: Layer | null; app: Layer & { queue: Timing } };
+type Diagnostics = { worker: Layer | null; client: Layer | null; app: Layer & {
+  queue: Timing; projection: Timing; fullRestoreModelReloads: number;
+} };
 type NativeSample = { operation: string; stagesMs: Record<string, number> };
 type NativeProfile = { version: 1; samples: NativeSample[] };
 type ProjectLoadEvidence = {
@@ -19,9 +21,9 @@ type ProjectLoadEvidence = {
   } | null;
 };
 type Point = { x: number; y: number };
-type Bounds = { center: number[] } | null;
+type Bounds = { min: number[]; max: number[]; center: number[]; size: number[] } | null;
 
-const EXPECTED_PROJECT_PATH = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-h2d.3mf';
+const EXPECTED_PROJECT_PATH = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf';
 const configuredProjectPath = process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim();
 const PROJECT_PATH = resolve(configuredProjectPath || EXPECTED_PROJECT_PATH);
 const EXACT_FIXTURE = PROJECT_PATH.toLowerCase() === resolve(EXPECTED_PROJECT_PATH).toLowerCase();
@@ -30,7 +32,7 @@ const REAL_ARTIFACT = process.env.VITE_USE_MOCK === '0';
 const DESKTOP_ROOT = resolve(__dirname, '..');
 
 test.skip(!REAL || !REAL_ARTIFACT || !EXACT_FIXTURE || !existsSync(PROJECT_PATH),
-  'requires ORCA_E2E_REAL=1, VITE_USE_MOCK=0, and the exact Odyssey h2d fixture');
+  'requires ORCA_E2E_REAL=1, VITE_USE_MOCK=0, and the exact Odyssey u1 fixture');
 
 function delta(before: Timing, after: Timing, label: string): number {
   expect(after.count, `${label} must record exactly one operation`).toBe(before.count + 1);
@@ -70,9 +72,18 @@ test('profiles a real object move through the visible Undo Move boundary', async
       receipt: {
         sourceDisplayName: basename(PROJECT_PATH),
         sourceByteLength: statSync(PROJECT_PATH).size,
-        nativeResult: { ok: true, mode: 'project', multiPlate: true, plateCount: 11 },
+        nativeResult: { ok: true, mode: 'project', multiPlate: true },
       },
     });
+    const projectEvidence = await readEvidence();
+    const plateCount = projectEvidence?.receipt?.nativeResult.plateCount;
+    if (typeof plateCount !== 'number' || !Number.isSafeInteger(plateCount) || plateCount <= 1)
+      throw new Error('the real u1 project must report its native multi-plate count');
+    console.log('[object-move-history-profile] project receipt', JSON.stringify({
+      filename: projectEvidence?.receipt?.sourceDisplayName,
+      bytes: projectEvidence?.receipt?.sourceByteLength,
+      nativePlates: plateCount,
+    }));
 
     await page.locator('#app-tab-prepare').click();
     const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
@@ -94,6 +105,10 @@ test('profiles a real object move through the visible Undo Move boundary', async
       (window as unknown as { __orcaE2e?: { selectionBoundsWorld?: () => Bounds } })
         .__orcaE2e?.selectionBoundsWorld?.() ?? null,
     );
+    const readSelectionPivot = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { selectionPivotWorld?: () => number[] | null } })
+        .__orcaE2e?.selectionPivotWorld?.() ?? null,
+    );
     const readOwner = () => page.evaluate(() =>
       (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.() ?? 'none',
     );
@@ -108,19 +123,34 @@ test('profiles a real object move through the visible Undo Move boundary', async
 
     await expect.poll(readCenters, { timeout: 300_000 }).not.toHaveLength(0);
     const centers = await readCenters();
+    const beforeCenters = centers.map((center) => [...center]);
+    console.log('[object-move-history-profile] centers', JSON.stringify({
+      canvas: { width: box!.width, height: box!.height }, centers,
+    }));
     let start: Point | null = null;
     for (const center of centers) {
       const candidate = await project(center);
       if (!candidate || candidate.x < 0 || candidate.y < 0 || candidate.x > box!.width || candidate.y > box!.height) continue;
-      await page.mouse.click(box!.x + candidate.x, box!.y + candidate.y);
-      if (await readSelectionCount() > 0) {
-        start = candidate;
-        break;
+      // A real mesh can have a hollow/hidden centroid. Try a small canvas-only
+      // neighborhood around each projected world center while retaining the
+      // same genuine pointer-selection path.
+      for (const [dx, dy] of [[0, 0], [20, 0], [-20, 0], [0, 20], [0, -20]]) {
+        const x = candidate.x + dx;
+        const y = candidate.y + dy;
+        if (x < 0 || y < 0 || x > box!.width || y > box!.height) continue;
+        await page.mouse.click(box!.x + x, box!.y + y);
+        if (await readSelectionCount() > 0) {
+          start = { x, y };
+          break;
+        }
       }
+      if (start) break;
     }
     expect(start, 'a real rendered object must be selectable through the canvas').not.toBeNull();
     const beforeBounds = await readBounds();
     expect(beforeBounds).not.toBeNull();
+    const beforePivot = await readSelectionPivot();
+    expect(beforePivot).not.toBeNull();
 
     const before = await readDiagnostics();
     if (!before?.worker || !before.client) throw new Error('real E2E must expose Worker/client history diagnostics');
@@ -203,6 +233,99 @@ test('profiles a real object move through the visible Undo Move boundary', async
       historyBeginCaptureStagesMs: Object.fromEntries(captureStageNames.map((stage) => [stage, begin.stagesMs[stage]])),
       historyCommitCaptureStagesMs: Object.fromEntries(captureStageNames.map((stage) => [stage, commit.stagesMs[stage]])),
       nativeSamples: samples,
+    }));
+
+    // Profile the actual user-visible Undo action. Completion is deliberately
+    // fenced on the consumed Undo entry, matching enabled Redo Move, the
+    // restored native/renderer bounds, and a refreshed renderer projection.
+    const undoBefore = after;
+    const restoreClickAt = performance.now();
+    const undo = page.getByTestId('history-undo');
+    await expect(undo).toHaveAttribute('aria-label', 'Undo Move');
+    await undo.click();
+    let restoreCompleteAt = 0;
+    const restoreTimeoutMs = 180_000;
+    const readRestoreState = () => page.evaluate(() => {
+      const e = (window as unknown as { __orcaE2e?: {
+        historyDiagnostics?: () => Diagnostics;
+        selectionBoundsWorld?: () => Bounds;
+        selectionPivotWorld?: () => number[] | null;
+        modelWorldCenters?: () => Array<[number, number, number]>;
+      } }).__orcaE2e;
+      const undo = document.querySelector('[data-testid="history-undo"]') as HTMLButtonElement | null;
+      const redo = document.querySelector('[data-testid="history-redo"]') as HTMLButtonElement | null;
+      return {
+        diagnostics: e?.historyDiagnostics?.() ?? null,
+        restoredBounds: e?.selectionBoundsWorld?.() ?? null,
+        restoredPivot: e?.selectionPivotWorld?.() ?? null,
+        restoredCenters: e?.modelWorldCenters?.() ?? [],
+        undoLabel: undo?.getAttribute('aria-label') ?? null,
+        redoLabel: redo?.getAttribute('aria-label') ?? null,
+        undoEnabled: !undo?.disabled,
+        redoEnabled: !redo?.disabled,
+        restoreError: document.querySelector('[data-testid="history-restore-error"]')?.textContent ?? null,
+      };
+    });
+    await expect.poll(async () => {
+      const state = await readRestoreState();
+      const { diagnostics, restoredBounds, restoredPivot, restoredCenters, restoreError } = state;
+      if (restoreError) throw new Error(`Undo Move restore failed: ${restoreError}`);
+      const boundsEqual = Boolean(restoredBounds && beforeBounds &&
+        [...restoredBounds.min, ...restoredBounds.max, ...restoredBounds.center, ...restoredBounds.size]
+          .every((value, index) => Math.abs(value - [
+            ...beforeBounds!.min, ...beforeBounds!.max, ...beforeBounds!.center, ...beforeBounds!.size,
+          ][index]) <= 1e-6));
+      const projectionEqual = restoredCenters.length === beforeCenters.length && restoredCenters.every((center, index) =>
+        center.every((value, axis) => Math.abs(value - beforeCenters[index][axis]) <= 1e-6));
+      const pivotEqual = Boolean(restoredPivot && beforePivot && restoredPivot.length === beforePivot.length &&
+        restoredPivot.every((value, index) => Math.abs(value - beforePivot[index]) <= 1e-6));
+      const projectionMaxDelta = restoredCenters.length === beforeCenters.length
+        ? Math.max(...restoredCenters.map((center, index) => Math.max(...center.map((value, axis) =>
+          Math.abs(value - beforeCenters[index][axis]))))) : Infinity;
+      const complete = diagnostics?.worker?.fullRestore.count === undoBefore.worker!.fullRestore.count + 1
+        && diagnostics?.client?.fullRestore.count === undoBefore.client!.fullRestore.count + 1
+        && diagnostics.app.fullRestore.count === undoBefore.app.fullRestore.count + 1
+        && diagnostics.app.projection.count === undoBefore.app.projection.count + 1
+        && diagnostics.app.fullRestoreModelReloads === undoBefore.app.fullRestoreModelReloads + 1
+        && state.redoLabel === 'Redo Move'
+        && state.redoEnabled
+        && state.undoLabel !== 'Undo Move'
+        && (boundsEqual || pivotEqual || projectionEqual)
+        && projectionEqual;
+      if (complete && restoreCompleteAt === 0) restoreCompleteAt = performance.now();
+      return complete;
+    }, { timeout: restoreTimeoutMs, intervals: [20] }).toBe(true);
+
+    const undoAfter = await readDiagnostics();
+    if (!undoAfter?.worker || !undoAfter.client) throw new Error('history diagnostics disappeared during Undo Move');
+    const restoreNative = await takeNativeProfile();
+    const restoreSamples = restoreNative.samples.filter((sample) => sample.operation === 'history_restore');
+    expect(restoreNative.samples.map((sample) => sample.operation)).toEqual(['history_restore']);
+    expect(restoreSamples).toHaveLength(1);
+    const restoreStageNames = [
+      'capture_model_equality_check', 'model_staging_deserialization', 'immutable_mesh_reconnect',
+      'plate_session_project_overlay_restore', 'history_cursor_commit', 'response_json_serialization', 'total',
+    ];
+    expect(Object.keys(restoreSamples[0].stagesMs).sort()).toEqual([...restoreStageNames].sort());
+    expect(restoreStageNames.every((stage) => Number.isFinite(restoreSamples[0].stagesMs[stage]) &&
+      restoreSamples[0].stagesMs[stage] >= 0)).toBe(true);
+    expect(restoreSamples[0].stagesMs.total).toBeGreaterThanOrEqual(Math.max(...restoreStageNames
+      .filter((stage) => stage !== 'total').map((stage) => restoreSamples[0].stagesMs[stage])));
+    const restoreWorkerMs = delta(undoBefore.worker!.fullRestore, undoAfter.worker.fullRestore, 'Worker Undo restore');
+    const restoreClientMs = delta(undoBefore.client!.fullRestore, undoAfter.client.fullRestore, 'client Undo restore');
+    const restoreAppMs = delta(undoBefore.app.fullRestore, undoAfter.app.fullRestore, 'application Undo restore');
+    const restoreProjectionMs = delta(undoBefore.app.projection, undoAfter.app.projection, 'application Undo publication');
+    const restoreNativeMs = restoreSamples[0].stagesMs.total;
+    console.log('[object-move-history-undo-profile] ms', JSON.stringify({
+      clickToRestoredProjectionMs: restoreCompleteAt - restoreClickAt,
+      applicationRestoreMs: restoreAppMs,
+      applicationPublicationMs: restoreProjectionMs,
+      clientRestoreMs: restoreClientMs,
+      workerRestoreMs: restoreWorkerMs,
+      nativeInstrumentedTotalMs: restoreNativeMs,
+      rendererToWorkerTransportAndClientJsResidualMs: restoreClientMs - restoreWorkerMs,
+      workerJsAndUninstrumentedNativeResidualMs: restoreWorkerMs - restoreNativeMs,
+      nativeStages: restoreSamples[0].stagesMs,
     }));
   } finally {
     await app.close();

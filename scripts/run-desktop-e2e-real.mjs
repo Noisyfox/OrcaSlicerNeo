@@ -19,6 +19,7 @@ const env = {
   VITE_E2E: '1',
   ORCA_E2E_PRIME_TOWER_PROJECT: projectPath,
 };
+const objectMoveProjectPath = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf';
 // The focused real run proves native DRC import through Electron without
 // substituting its small fixture into unrelated 20 mm STL regressions.
 const testRuns = [
@@ -46,8 +47,11 @@ await cp(resolve(process.cwd(), 'src/renderer/public'), resolve(process.cwd(), '
   recursive: true, force: true,
 });
 for (const args of testRuns) {
+  const runEnv = args[0] === 'e2e/object-move-history-profile.e2e.ts'
+    ? { ...env, ORCA_E2E_PRIME_TOWER_PROJECT: objectMoveProjectPath }
+    : env;
   const result = spawnSync(command('playwright'), ['test', ...args], {
-    cwd: process.cwd(), env, stdio: 'inherit', shell: process.platform === 'win32',
+    cwd: process.cwd(), env: runEnv, stdio: 'inherit', shell: process.platform === 'win32',
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);

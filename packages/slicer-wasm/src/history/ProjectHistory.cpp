@@ -417,6 +417,16 @@ bool ProjectHistory::commit_reusing_current_model(std::string label, Category ca
     }
 }
 
+bool ProjectHistory::refresh_current_model(const ModelState& model)
+{
+    if (m_impl->states.empty() || m_cursor >= m_impl->states.size()) return false;
+    auto& current = m_impl->states[m_cursor].state;
+    current = Impl::store(model, current.context, &current, current.direct_frame);
+    rebuild_intervals();
+    release_least_recently_used();
+    return true;
+}
+
 bool ProjectHistory::undo(RestoreState& result)
 {
     RestorePlan plan;

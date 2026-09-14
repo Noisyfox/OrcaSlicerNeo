@@ -59,6 +59,12 @@ used by the desktop plate-switch performance coverage.
   present for normal captures, including zero-valued stages. The immutable
   stage covers retained shared mesh references and ownership accounting only;
   retained immutable meshes remain mesh-byte-free.
+- Normal full-model history restore additionally exposes the bounded scalar
+  stages `capture_model_equality_check`, `model_staging_deserialization`,
+  `immutable_mesh_reconnect`, `plate_session_project_overlay_restore`,
+  `history_cursor_commit`, `response_json_serialization`, and `total`. These
+  fields never contain model, identity, byte, or text data; direct Add Plate,
+  filament, and Prime Tower restore paths retain their existing semantics.
 
 ## Add Plate Profile: User Click to Undo
 
@@ -92,46 +98,45 @@ emits no `capture_model_state` stage. Plate reflow remains the dominant native
 cost at about 472 ms; subsequent work should optimize reflow rather than
 reintroduce whole-model history capture.
 
-## Object Move Profile: Gesture Completion to Undo
+## Object Move Profile: Gesture Completion to Undo Restore
 
-The object-move acceptance boundary is the renderer completing one real canvas
-body drag and the toolbar showing enabled `Undo Move`. The focused Electron
-profile uses the same exact h2d fixture, proves the 45,201,991-byte filename
-receipt and 11 native plates, drains load-time samples, and uses the normal
-selection, pointer, history, and Worker transaction path (no direct native
-injection). The latest real threaded-WASM sample (milliseconds) is:
+The object-move acceptance boundary is the real toolbar Undo action completing:
+the matching `Undo Move` entry is consumed, enabled `Redo Move` is visible,
+the restored selection pivot or bounds and renderer world projection equal the
+pre-drag state, and the refreshed model projection is published. The focused
+Electron profile uses the exact u1 fixture, proves the
+`OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf` receipt of 45,586,816 bytes
+and 11 native plates, and uses the normal canvas selection, pointer, history,
+Worker, and renderer publication path (no direct native injection). The latest
+real threaded-WASM sample (milliseconds) is:
 
 | Boundary or native stage | Time |
 | --- | ---: |
-| Pointer-up to visible enabled Undo Move | 107.54 |
-| Application mutation/publication | 99.09 |
-| Client transaction | 71.36 |
-| Worker transaction | 71.11 |
-| WASM instrumented total | 57.83 |
-| History begin total / capture | 2.42 / 0.75 |
-| Begin collection/cache / mutable archive / immutable retention | 0.05 / 0.67 / 0.00 |
-| Transform input/JSON decode | 0.53 |
-| Transform request validation/target resolution | 0.53 |
-| Transform mutation | 0.00 |
-| Plate-membership/reflow | 1.00 |
-| Transform response JSON serialization | 0.06 |
-| Transform total | 2.13 |
-| History commit total / capture / history store | 53.27 / 45.24 / 5.20 |
-| Commit collection/cache / mutable archive / immutable retention | 0.06 / 45.14 / 0.00 |
-| Main-thread/Worker transport plus client JS residual | 0.25 |
-| Worker JS plus uninstrumented native reads residual | 13.28 |
+| Pointer-up to visible enabled Undo Move | 187.84 |
+| Application mutation/publication | 179.24 |
+| Client transaction | 154.03 |
+| Worker transaction | 153.80 |
+| WASM instrumented total | 141.30 |
+| History begin total / capture | 108.22 / 106.63 |
+| Transform total | 2.11 |
+| History commit total / capture / history store | 30.96 / 21.66 / 4.26 |
+| Undo click to restored projection fence | 3,782.98 |
+| Application restore / publication | 1,800.57 / 1,922.27 |
+| Client restore | 1,800.54 |
+| Worker restore | 1,800.11 |
+| WASM instrumented restore total | 1,795.44 |
+| Restore equality / staging / mesh reconnect | 0.82 / 1,789.82 / 0.05 |
+| Restore plate/session/overlay / cursor / response JSON | 0.55 / 0.01 / 0.09 |
+| Renderer-to-Worker transport plus client JS residual | 0.43 |
+| Worker JS plus uninstrumented native residual | 4.67 |
 
-The native transform and history-capture samples are scalar-only and bounded.
-Their stage names are asserted by the native history smoke and by the focused
-E2E; the E2E also asserts that the only drained mutation samples are
-`history_begin`, `set_model_transforms`, and `history_commit`. The measured
-45.14 ms mutable-object archive stage accounts for nearly all of the 53.27 ms
-native history commit. Cache comparison and immutable mesh retention are both
-sub-millisecond, establishing that retained immutable shared meshes contribute
-no mesh-byte serialization cost. The Move-to-Undo latency is therefore caused
-primarily by mutable object archive work during history commit, with the
-remaining delay in Worker/application scheduling and reads rather than object
-movement, mesh serialization, or plate reflow.
+The native transform, capture, and restore samples are scalar-only and bounded;
+their exact stage names are asserted by native history smoke and focused E2E.
+The restore fence shows that mutable-object staging/deserialization dominates
+the user-visible Undo latency (about 1,790 ms of 1,795 ms instrumented native
+time). The remaining time is primarily renderer publication and model-mesh
+reloading, while transport/client JS and uninstrumented Worker/native work are
+reported separately as the two residuals above.
 
 ## Verification
 
@@ -149,12 +154,13 @@ movement, mesh serialization, or plate reflow.
   `pnpm exec playwright test e2e/plate-add-history-profile.e2e.ts` from
   `apps/desktop` — passed; it asserts the real project receipt and the absence
   of `capture_model_state` on Add Plate history begin/commit.
-- `ORCA_E2E_REAL=1`, `VITE_USE_MOCK=0`, and the exact h2d fixture with
+- `ORCA_E2E_REAL=1`, `VITE_USE_MOCK=0`, and the exact u1 fixture with
   `pnpm exec playwright test e2e/object-move-history-profile.e2e.ts -g "profiles a real object move"`
-  from `apps/desktop` — passed; it asserts the real project receipt, 11-plate
-  native result, visible enabled `Undo Move`, cross-layer residuals, all six
-  `set_model_transforms` timing stages, and all four normal history capture
-  timing stages; it prints the measured stage values above.
+  from `apps/desktop` — passed; it asserts the real receipt (filename, byte
+  count, and dynamically reported 11 native plates), actual canvas drag, the
+  consumed Undo/visible enabled Redo restore fence, restored renderer
+  projection, cross-layer residuals, and all seven full-restore stages; it
+  prints every measurement above.
 - `git diff --check` — passed.
 
 Do not treat a build under `packages/slicer-wasm/.work` or

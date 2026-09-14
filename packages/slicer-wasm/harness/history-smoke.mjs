@@ -100,8 +100,29 @@ historyCheck('fresh-project Cube move succeeds', callJson('orc_set_model_transfo
 const freshMoveCommit = callJson('orc_history_commit', ['string', 'string'],
   [freshMoveTx.transactionId, JSON.stringify(context)]);
 if (!freshMoveCommit.canUndo) throw new Error(`fresh Cube move commit failed: ${JSON.stringify(freshMoveCommit)}`);
+// Drain the mutation profile so this assertion isolates the ordinary full
+// model restore performed by the real Undo operation below.
+callJson('orc_take_performance_profile', [], []);
 const freshMoveUndo = callJson('orc_history_undo', [], []);
 if (!freshMoveUndo.ok) throw new Error(`fresh Cube move undo failed: ${JSON.stringify(freshMoveUndo)}`);
+const freshMoveUndoProfile = callJson('orc_take_performance_profile', [], []);
+const restoreSamples = (freshMoveUndoProfile.samples ?? []).filter((sample) => sample.operation === 'history_restore');
+const restoreStages = [
+  'capture_model_equality_check', 'model_staging_deserialization', 'immutable_mesh_reconnect',
+  'plate_session_project_overlay_restore', 'history_cursor_commit', 'response_json_serialization', 'total',
+];
+historyCheck('fresh-project move Undo exposes bounded native restore stages', restoreSamples.length === 1 &&
+  Object.keys(restoreSamples[0].stages_ms).sort().join(',') === [...restoreStages].sort().join(',') &&
+  restoreStages.every((stage) => Number.isFinite(restoreSamples[0].stages_ms[stage]) &&
+    restoreSamples[0].stages_ms[stage] >= 0) &&
+  restoreSamples[0].stages_ms.total >= Math.max(...restoreStages.filter((stage) => stage !== 'total')
+    .map((stage) => restoreSamples[0].stages_ms[stage])), JSON.stringify({ restoreSamples, restoreStages }));
+historyCheck('fresh-project move Undo returns the profiled full-restore ABI response', freshMoveUndo.ok === true &&
+  freshMoveUndo.context && typeof freshMoveUndo.context === 'object' &&
+  Number.isFinite(restoreSamples[0].stages_ms.response_json_serialization), JSON.stringify({
+    response_json_serialization: restoreSamples[0].stages_ms.response_json_serialization,
+  }));
+console.log(`history restore native stages ms ${JSON.stringify(restoreSamples[0].stages_ms)}`);
 const freshFilament = callJson('orc_get_filament_session_snapshot', [], []);
 const freshStructure = callJson('orc_get_model_structure', [], []);
 historyCheck('fresh-project move Undo keeps filament routing contract valid',

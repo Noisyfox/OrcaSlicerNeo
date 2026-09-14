@@ -46,6 +46,17 @@ struct CaptureTimings {
     double total_ms = 0.0;
 };
 
+// Scalar-only diagnostics for one ordinary full-model history restore. The
+// bridge owns this sink; no model, context, identifiers, or payloads cross
+// the diagnostic boundary.
+struct RestoreTimings {
+    double capture_model_equality_check_ms = 0.0;
+    double model_staging_deserialization_ms = 0.0;
+    double immutable_mesh_reconnect_ms = 0.0;
+    double plate_session_project_overlay_restore_ms = 0.0;
+    double history_cursor_commit_ms = 0.0;
+};
+
 // Capture the mutable object records and shared immutable mesh payloads used
 // by Neo's object-history store. The no-cache overload is useful for isolated
 // callers; bridge paths pass their Worker-owned cache explicitly.
@@ -60,7 +71,8 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
 // Reconstruct a transient model from a retained history state. model_template
 // supplies the non-history model defaults needed while materializing a fresh
 // object graph; it is never accessed through bridge-global state.
-Model stage_model(const Model& model_template, const RestoreState& restored);
+Model stage_model(const Model& model_template, const RestoreState& restored,
+                  RestoreTimings* timings = nullptr);
 
 bool model_state_equal(const ModelState& lhs, const ModelState& rhs);
 
