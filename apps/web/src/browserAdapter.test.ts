@@ -26,7 +26,6 @@ describe('browser adapter', () => {
     expect([...result!.bytes]).toEqual([1, 2]);
   });
 
-
   it('downloads gcode through a Blob URL', async () => {
     const anchor = document.createElement('a');
     const click = vi.spyOn(anchor, 'click').mockImplementation(() => undefined);

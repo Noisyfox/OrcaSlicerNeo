@@ -56,7 +56,6 @@ describe('Electron adapter', () => {
     expect(readFile).not.toHaveBeenCalled();
   });
 
-
   it('hands export bytes to native save dialog and write operation', async () => {
     const saveFileDialog = vi.fn(async () => ({ canceled: false, path: 'C:\\out\\slice.gcode' }));
     const writeFile = vi.fn(async () => {});
