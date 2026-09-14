@@ -1,7 +1,7 @@
 # Complex Project Interaction Performance
 
 Date: 2026-09-14
-Status: Implemented
+Status: Implemented with transform-payload rollback
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
 ## Problem
@@ -12,12 +12,11 @@ used by the desktop plate-switch performance coverage.
 
 ## Accepted Behaviour
 
-- A completed object gesture submits only renderer composites whose final
-  transforms changed. The pre-slice synchronization path remains the explicit
-  full-model safety synchronization.
-- A committed transform recomputes plate membership only for instances changed
-  by that gesture; it preserves membership and parked state for other
-  instances.
+- A completed object gesture submits the complete renderer CompositeID
+  snapshot and recomputes membership globally. This keeps rapid consecutive
+  gestures and Worker history snapshots identical.
+- Transform-payload reduction and partial membership rebuilds require a
+  Worker-side history-aware design and are intentionally deferred.
 - Plate reflow and renderer transform application use one identity lookup per
   operation rather than repeatedly searching every instance or rendered
   volume.
@@ -30,3 +29,7 @@ used by the desktop plate-switch performance coverage.
 - Affected package typecheck and applicable native WASM quick build.
 - The real desktop multi-plate interaction performance scenario when its
   runtime artifacts are available.
+- Real-project Electron acceptance always rebuilds the renderer with
+  `VITE_USE_MOCK=0`, stages both current WASM variants, copies them to
+  `apps/desktop/out/renderer`, and proves the exact project receipt before
+  measuring interaction.

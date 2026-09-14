@@ -1028,10 +1028,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 item.volume->set_transformation(item.next_volume);
                 item.object->invalidate_bounding_box();
             }
-            // A gesture only changes the submitted instances. Re-evaluating
-            // every model (and clearing unrelated parked instances) turns a
-            // one-object drag into a project-wide geometry pass.
-            rebuild_plate_membership(true, &affected_instances);
+            rebuild_plate_membership(true);
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
                                                            json::array(), &affected_instances);
             return dup_json(mutation.dump());

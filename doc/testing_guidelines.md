@@ -138,6 +138,23 @@ matrix earlier for a high-risk task, but the task document must state why.
   concern. Run the complete shared UI flow against one variant; use a focused
   import/slice/export path and fallback/threading assertion for the other.
 
+### Real-project Electron E2E artifact rule
+
+An Electron E2E that imports a user-supplied or licensed real project is valid
+only when it runs against WASM artifacts built for the current source tree.
+`VITE_USE_MOCK=0` at Playwright launch time alone is insufficient: Vite embeds
+that selection at renderer build time, and Electron can otherwise boot a stale
+`out/renderer` copy of the prior WASM.
+
+Use `pnpm --filter @orca/desktop test:e2e:real` (with
+`ORCA_E2E_PRIME_TOWER_PROJECT` set to the exact fixture). The runner stages the
+current artifacts, builds the renderer with `VITE_USE_MOCK=0`, then copies the
+fresh staged public WASM set into `apps/desktop/out/renderer` before launching
+Playwright. A focused real-project E2E must perform the equivalent sequence and
+verify both the project-load receipt (file name and byte length) and the active
+artifact identity. Do not report a real-project result when either rebuild,
+staging/copy, or receipt verification was skipped.
+
 ## Test Quality and Maintenance
 
 - Keep test output quiet. Expected errors must be captured explicitly, and

@@ -212,16 +212,21 @@ describe('TransformHistoryCoordinator', () => {
     const history = new TransformHistoryCoordinator(runtime as never, new SceneInteractionController(() => [volume]));
 
     history.begin('Move');
+    volume.instanceTransform = { ...volume.instanceTransform, offset: [4, 0, 0] };
     const first = history.commit();
     history.begin('Rotate');
+    volume.instanceTransform = { ...volume.instanceTransform, offset: [8, 0, 0] };
     const second = history.commit();
 
     await expect(first).resolves.toEqual({ outcome: 'committed' });
     await expect(second).resolves.toEqual({ outcome: 'committed' });
     expect(runtime.runProjectHistoryTransaction).toHaveBeenCalledTimes(2);
+    expect(runtime.setModelTransforms.mock.calls.map(([, transforms]) =>
+      (transforms as { instanceTransform: { offset: number[] } }[])[0]?.instanceTransform.offset,
+    )).toEqual([[4, 0, 0], [8, 0, 0]]);
   });
 
-  it('writes only changed final composites on commit', async () => {
+  it('writes one final stable transform per rendered CompositeID on commit', async () => {
     const volumes = [makeVolume(0, 0, 0), makeVolume(0, 1, 0), makeVolume(1, 0, 0)];
     glVolumeCollection.replace(volumes);
     const runtime = historyRuntime();
@@ -239,7 +244,7 @@ describe('TransformHistoryCoordinator', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(runtime.setModelTransforms).toHaveBeenCalledTimes(1);
     expect(runtime.setModelTransforms.mock.calls[0]?.[0]).toBe('tx-1');
-    expect(runtime.setModelTransforms.mock.calls[0]?.[1]).toEqual(volumes.slice(0, 2).map((volume) => ({
+    expect(runtime.setModelTransforms.mock.calls[0]?.[1]).toEqual(volumes.map((volume) => ({
       objectIdx: volume.buffer.objectIdx, volumeIdx: volume.buffer.volumeIdx, instanceIdx: volume.buffer.instanceIdx,
       instanceTransform: volume.instanceTransform, volumeTransform: volume.volumeTransform,
     })));
