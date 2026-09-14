@@ -101,12 +101,14 @@ Both must exit 0. Note the fixture is `fixtures/config.json` — the pinned
 libslic3r only loads JSON (the INI parser was dropped upstream; `config.ini`
 is deleted, per ruling 2026-08-13).
 
-## Patch set and re-apply instructions
+## Current patch set and re-apply instructions
 
-Patches live in `packages/slicer-wasm/patches/`. The submodule's working tree
-is kept dirty with the applied set (expected; never commit inside the
-submodule). After any `git submodule update` (which resets the tree), re-apply
-each patch in order:
+The active patches live in `packages/slicer-wasm/patches/orca/`. The
+submodule's working tree is kept dirty with the applied set (expected; never
+commit inside the submodule). After any `git submodule update` (which resets
+the tree), re-apply the current sequence in order. The pre-STEP
+`Model.hpp`/`SLIC3R_WASM_NO_OCCT` patch is historical and has been deleted; it
+must not be added to this sequence.
 
 ```bash
 cd packages/slicer-wasm/cpp
