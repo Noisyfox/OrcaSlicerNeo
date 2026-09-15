@@ -171,6 +171,27 @@ This is Orca's `create_plate()` policy: `update_all_plates_pos_and_size()` is
 called only after a column-count change. Neo must not retain its current
 unconditional all-plate Prime Tower normalization in this path.
 
+### 2.6.1 Reorder preserves only origin-stable slice results
+
+A plate reorder updates display order independently from stable plate identity.
+If a plate's physical origin does not change, Neo retains its registry Print
+and matching valid result without mutating that Print. If its origin changes,
+Neo advances only that plate's input stamp and invalidates its result; an
+active job for it is cancelled or discarded by stamp mismatch. Reorder and
+column-count reflow never call `Print::apply()`; the new display index and
+origin are written into the registry Print only immediately before its next
+explicit Slice.
+
+This intentionally follows Orca's conservative result-validity behavior for
+plates whose origin changes, while avoiding its eager Print mutation during
+layout work. Neo does not attempt to retain a result by proving that a
+world-space translation plus a new origin yields byte-identical G-code. That
+semantic optimization requires a separate specification.
+
+The reorder integration test must distinguish unchanged from changed origins,
+retain only the former results, invalidate only the latter, and show zero
+`Print::apply` calls during the reordering operation.
+
 ### 2.7 Delete Plate parks models, then reflows only affected survivors
 
 Deleting a nonempty plate moves its instances to the unprintable/parked area;
