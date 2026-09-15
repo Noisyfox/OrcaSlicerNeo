@@ -211,6 +211,22 @@ platform/runtime seams until the release gate.
 7. Report commands actually run and their results, including intentional skips
    and required checks that could not be run.
 
+### Test and profiling instrumentation boundary
+
+New test-, E2E-, or profile-only execution paths must be completely compiled
+out of normal production artifacts. For C++ this requires a preprocessor build
+gate; for renderer, Worker, and Electron code it requires a bundler-replaced
+compile-time constant whose production `false` branch is eliminated. A
+production artifact must not execute instrumentation, test hooks, or even a
+runtime condition that decides whether to execute them.
+
+Test/profile modules may remain packaged when doing so is convenient, but they
+must have no top-level test/profile side effects in a production import path.
+Verify every new gate with a production-artifact sentinel/call-site check and
+the corresponding enabled test/profile build. This requirement applies to new
+or modified code; existing test and E2E hooks are not retroactive cleanup work
+unless a task explicitly includes them.
+
 ### Test ownership and duplication policy
 
 - Vitest must execute production behaviour or a runtime invariant. Pure

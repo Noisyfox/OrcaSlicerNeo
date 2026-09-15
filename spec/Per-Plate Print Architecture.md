@@ -194,7 +194,7 @@ remains invalid until a successful Slice. Explicit deletion, project close, or
 a separately specified user-directed cache-management feature are the only
 ways to release a retained plate core cache.
 
-### 2.5.2 Memory attribution is a required profile output
+### 2.5.1 Memory attribution is a required profile output
 
 The non-mock real-project profile records the WASM heap before and after each
 relevant operation, per-plate native core-cache object counts and attributable
@@ -203,7 +203,15 @@ initial refactor establishes observability rather than an invented memory
 ceiling; an OOM report must identify the layer and plate attribution available
 at the failing allocation.
 
-### 2.5.1 A committed input change invalidates only presentation
+The instrumentation for this profile is compiled only into its dedicated,
+non-mock profile build. In a normal production build, C++ preprocessor gates
+and React/Worker compile-time constants must remove the instrumentation and
+its runtime guard entirely. Profile modules may remain bundled only if their
+production import path has no profile side effect. Existing unrelated test or
+E2E hooks are not in scope for this refactor; this requirement governs all new
+instrumentation introduced by it.
+
+### 2.5.2 A committed input change invalidates only presentation
 
 When a native mutation has committed successfully and advances a plate's
 input stamp, Neo marks that plate's presentation state `invalid` and releases
