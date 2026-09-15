@@ -127,6 +127,13 @@ requires an explicit Slice before Preview or Export is available. Loading
 embedded G-code is deferred as a later persistent-format compatibility feature,
 not treated as an unsaved-runtime-state exception.
 
+Likewise, ordinary Neo Save persists only project inputs and never promotes a
+runtime result generation into the 3MF. Orca writes `Metadata/plate_N.gcode`
+only on a `SaveStrategy::WithGcode` path; its ordinary project-save meaning is
+separate from that opt-in artifact export. Neo retains its current no-derived-
+G-code Save behavior for this delivery. A future `WithGcode`-equivalent must
+be an explicit export mode with its own persistent-format and load contract.
+
 Replacing a whole project (open, new, or clear) is stricter than an ordinary
 threaded edit. If a job is active, Neo first requests its cancellation and
 waits for its terminal state and registry lease release. It then closes the
