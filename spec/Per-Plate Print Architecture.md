@@ -215,6 +215,20 @@ therefore must never produce ambiguous history or a competing job. The old
 slice task's terminal mailbox event is drained before the close/load event for
 the new session, including when parsing subsequently fails.
 
+### 2.3.3 Project-file compatibility follows Orca only
+
+Neo accepts the same persisted plate boundary as Orca. When a project archive
+contains Orca `plate_data`, load reconstructs its plate definitions, instance
+membership, and plate-local configuration, then creates fresh session-only
+registry IDs and empty runtime Print/result entries. When the archive has no
+`plate_data`, load follows Orca's default single-plate initialization and its
+ordinary model-membership construction.
+
+There is no recognition, migration, or compatibility path for a legacy Neo
+private multi-plate representation. Runtime IDs, Prints, results, G-code, and
+task state remain absent from every project format; this rule concerns only
+saved model/plate input compatibility.
+
 ### 2.4 Per-plate slice-input stamps and presentation validity
 
 Every registry entry has an opaque, monotonic slice-input stamp. A plate result
