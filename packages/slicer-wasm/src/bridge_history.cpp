@@ -347,11 +347,14 @@ void add_history_object_plates(std::set<std::string>& affected,
 }
 
 void add_changed_overlay_object_plates(std::set<std::string>& affected, const json& before_overlay,
-                                       const json& target_overlay, const json& before_session,
-                                       const json& target_session)
+                                        const json& target_overlay, const json& before_session,
+                                        const json& target_session,
+                                        const std::optional<Neo::History::ModelState>& before_model,
+                                        const std::optional<Neo::History::ModelState>& target_model)
 {
     if (!before_overlay.is_object() && !target_overlay.is_object()) return;
     std::set<std::size_t> object_ids;
+    bool unresolved = false;
     for (const char* scope : {"objects", "parts"}) {
         const auto before = before_overlay.value(scope, json::object());
         const auto target = target_overlay.value(scope, json::object());
@@ -360,9 +363,35 @@ void add_changed_overlay_object_plates(std::set<std::string>& affected, const js
         if (target.is_object()) for (const auto& [key, value] : target.items()) keys.insert(key);
         for (const auto& key : keys) {
             if (before.value(key, json()) == target.value(key, json())) continue;
-            try { object_ids.insert(static_cast<std::size_t>(std::stoull(key))); }
-            catch (...) { return; }
+            std::size_t id = 0;
+            try { id = static_cast<std::size_t>(std::stoull(key)); }
+            catch (...) { unresolved = true; continue; }
+            if (scope == std::string("objects")) {
+                object_ids.insert(id);
+                continue;
+            }
+
+            // Part overlay keys are stable volume IDs, not object IDs. Resolve
+            // their owner from both sides of the history frame so Undo and
+            // Redo invalidate every plate containing that object's instances.
+            bool found = false;
+            const auto add_owner = [&](const std::optional<Neo::History::ModelState>& model) {
+                if (!model) return;
+                for (const auto& object : model->mutable_objects) {
+                    if (std::find(object.volume_ids.begin(), object.volume_ids.end(), id) == object.volume_ids.end())
+                        continue;
+                    object_ids.insert(object.id);
+                    found = true;
+                }
+            };
+            add_owner(before_model);
+            add_owner(target_model);
+            if (!found) unresolved = true;
         }
+    }
+    if (unresolved) {
+        for (const auto& entry : history_plate_input_projection(before_session)) affected.insert(entry.first);
+        for (const auto& entry : history_plate_input_projection(target_session)) affected.insert(entry.first);
     }
     add_history_object_plates(affected, object_ids, before_session, target_session);
 }
@@ -403,7 +432,8 @@ std::set<std::string> history_affected_plate_ids(
         for (const auto& id : overlay_ids)
             if (before_plate_overlay.value(id, json()) != target_plate_overlay.value(id, json())) affected.insert(id);
     }
-    add_changed_overlay_object_plates(affected, before_overlay, target_overlay, before_session, target_session);
+    add_changed_overlay_object_plates(affected, before_overlay, target_overlay, before_session,
+                                      target_session, before_model, target_model);
     // A membership/origin/settings delta already localizes model additions or
     // removals to those plates.  Avoid reinterpreting archive bytes for every
     // restored object (stage/restore can normalize unrelated object bytes).

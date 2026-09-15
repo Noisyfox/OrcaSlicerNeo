@@ -227,7 +227,7 @@ export interface ProjectConfigOverlay {
   readonly plates: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
-export type ProjectConfigScope = 'project' | 'object' | 'part';
+export type ProjectConfigScope = 'project' | 'object' | 'part' | 'plate';
 
 export interface ProjectConfigOverrideTarget {
   readonly scope: ProjectConfigScope;
@@ -1110,7 +1110,7 @@ export interface SlicerClient {
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;
   /** Advance every existing plate for a committed shared configuration edit. */
   markSharedConfigurationMutation(): Promise<PlateSessionMutationResult>;
-  /** Read canonical Worker-owned project/object/part overrides plus plate metadata. */
+  /** Read canonical Worker-owned project/object/part/plate overrides. */
   getProjectConfigOverlay(): Promise<ProjectConfigOverlayResultOrError>;
   /** Set one supported override and return the affected plate projection. */
   setProjectConfigOverride(target: ProjectConfigOverrideTarget, optionKey: string, value: string): Promise<ProjectConfigOverlayResultOrError>;

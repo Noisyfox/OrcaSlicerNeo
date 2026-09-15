@@ -915,6 +915,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
         const auto before_parked = state().parked_instance_ids;
         const auto before_pending = state().pending_membership_instance_ids;
         const auto before_current_plate = state().current_plate_id;
+        const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const auto old_count = state().presets.filament_presets.size();
         bool mutated = false;
         bool history_committed = false;
@@ -936,6 +937,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             state().pending_membership_instance_ids = before_pending;
             state().current_plate_id = before_current_plate;
             state().next_filament_colour_index = before_next_filament_colour_index;
+            state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
         };
         json mutation;
         try {
@@ -960,8 +962,10 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             // the post-command snapshot; the renderer must not infer this from
             // whichever plate happens to be selected.
             ensure_plate_session_state();
-            for (const auto& plate_id : all_plate_ids())
+            const auto affected_plates = all_plate_ids();
+            for (const auto& plate_id : affected_plates)
                 state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
+            state().plate_runtime_registry.invalidate_presentations(affected_plates);
             const auto final_snapshot = filament_snapshot_json();
             if (!final_snapshot.value("ok", false)) {
                 rollback_published();
@@ -1067,6 +1071,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
         const auto before_parked = state().parked_instance_ids;
         const auto before_pending = state().pending_membership_instance_ids;
         const auto before_current_plate = state().current_plate_id;
+        const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const auto& current_history = state().history.current();
         const bool needs_predecessor_direct = state().history.entries().empty() ||
             !current_history.direct_frame.has_value();
@@ -1097,6 +1102,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             state().pending_membership_instance_ids = before_pending;
             state().current_plate_id = before_current_plate;
             state().next_filament_colour_index = before_next_filament_colour_index;
+            state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
         };
 
         try {
@@ -1112,8 +1118,10 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
                                         state().project_config_overlay);
             Neo::Bridge::PrimeTower::normalize_coordinate_positions();
             ensure_plate_session_state();
-            for (const auto& plate_id : all_plate_ids())
+            const auto affected_plates = all_plate_ids();
+            for (const auto& plate_id : affected_plates)
                 state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
+            state().plate_runtime_registry.invalidate_presentations(affected_plates);
             const auto final_snapshot = filament_snapshot_json();
             if (!final_snapshot.value("ok", false)) {
                 rollback();
@@ -1367,6 +1375,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
         const auto before_parked = state().parked_instance_ids;
         const auto before_pending = state().pending_membership_instance_ids;
         const auto before_current_plate = state().current_plate_id;
+        const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         bool history_committed = false;
         const auto rollback = [&]() {
             if (history_committed) return;
@@ -1382,6 +1391,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             state().parked_instance_ids = before_parked;
             state().pending_membership_instance_ids = before_pending;
             state().current_plate_id = before_current_plate;
+            state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
         };
         const bool needs_predecessor_direct = state().history.entries().empty() ||
             !state().history.current().direct_frame.has_value();
@@ -1398,6 +1408,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             Neo::Bridge::PrimeTower::normalize_coordinate_positions();
             for (const auto& plate_id : affected_plates)
                 state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
+            state().plate_runtime_registry.invalidate_presentations(affected_plates);
             auto context = default_command_history_context();
             context["filamentSessionRevision"] = state().history_revision + 1;
             const auto encoded = context.dump();

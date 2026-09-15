@@ -104,6 +104,13 @@ json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_pla
 // helper because empty and origin-stable plates retain their presentations.
 json delete_plate_mutation_snapshot(const std::set<std::string>& changed_origin_plates,
                                     const json& instance_transforms = json::array());
+// Advance and withdraw presentation for exactly the live plates whose
+// effective configuration changed. Native Print/G-code ownership is retained;
+// Print::apply remains deferred until the next explicit Slice.
+json configuration_mutation_snapshot(
+    const std::set<std::string>& affected_plate_ids,
+    const std::vector<std::string>& dirty_reasons,
+    const json& instance_transforms = json::array());
 std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& bounds);
 void refresh_existing_plate_validity(const PlateBounds& bounds);
 json shared_configuration_mutation_snapshot();

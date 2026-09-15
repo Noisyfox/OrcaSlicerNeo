@@ -697,6 +697,39 @@ json delete_plate_mutation_snapshot(const std::set<std::string>& changed_origin_
     return result;
 }
 
+json configuration_mutation_snapshot(
+    const std::set<std::string>& affected_plate_ids,
+    const std::vector<std::string>& dirty_reasons,
+    const json& instance_transforms)
+{
+    // Allocate every stamp before publishing any of them. Configuration
+    // rejection must not leave only a prefix of the affected plate set dirty.
+    std::map<std::string, std::uint64_t> next_revisions;
+    std::set<std::string> live_affected;
+    for (const auto& plate_id : affected_plate_ids) {
+        if (find_plate(plate_id) == nullptr) continue;
+        next_revisions.emplace(plate_id, allocate_plate_input_stamp(state()));
+        live_affected.insert(plate_id);
+    }
+    for (const auto& [plate_id, revision] : next_revisions)
+        state().plate_input_revisions[plate_id] = revision;
+
+    // A configuration edit withdraws only the transferable presentation.
+    // Registry-owned Print and GCodeProcessorResult allocations deliberately
+    // remain resident for native incremental invalidation on the next Slice.
+    PrimeTower::invalidate_projection_cache(live_affected);
+    state().plate_runtime_registry.invalidate_presentations(live_affected);
+
+    json result = plate_session_snapshot_json(instance_transforms);
+    result["input_revisions"] = plate_revisions_json();
+    result["affected_plate_ids_before"] = plate_id_array(live_affected);
+    result["affected_plate_ids_after"] = plate_id_array(live_affected);
+    result["affected_plate_ids"] = plate_id_array(live_affected);
+    result["dirty_reasons"] = dirty_reasons;
+    state().pending_membership_instance_ids.clear();
+    return result;
+}
+
 // Reflow the display grid after a shared configuration change (most notably a
 // printer preset changing printable_area).  Plate membership is deliberately
 // not recomputed here: every member keeps the same plate-local coordinates,
@@ -764,18 +797,9 @@ json shared_configuration_mutation_snapshot()
     // mutation is history-backed; this lifecycle step merely publishes the
     // normalized arrays in the current Worker state.
     PrimeTower::normalize_coordinate_positions();
-    PrimeTower::invalidate_projection_cache();
     const auto affected = all_plate_ids();
-    for (const auto& id : affected)
-        state().plate_input_revisions[id] = allocate_plate_input_stamp(state());
-    json result = plate_session_snapshot_json(reflow_instance_transforms(changed));
-    result["input_revisions"] = plate_revisions_json();
-    result["affected_plate_ids_before"] = plate_id_array(affected);
-    result["affected_plate_ids_after"] = plate_id_array(affected);
-    result["affected_plate_ids"] = plate_id_array(affected);
-    result["dirty_reasons"] = {"shared-configuration"};
-    state().pending_membership_instance_ids.clear();
-    return result;
+    return configuration_mutation_snapshot(
+        affected, {"shared-configuration"}, reflow_instance_transforms(changed));
 }
 
 json attach_plate_mutation(json result, const json& mutation)
@@ -1048,13 +1072,61 @@ EMSCRIPTEN_KEEPALIVE const char* orc_recompute_plate_membership()
 
 EMSCRIPTEN_KEEPALIVE const char* orc_mark_shared_configuration_mutation()
 {
+    std::optional<std::vector<std::pair<ModelObject*, ModelConfig>>> before_object_configs;
+    std::optional<std::vector<std::pair<ModelInstance*, Geometry::Transformation>>> before_instance_transforms;
+    std::optional<DynamicPrintConfig> before_project_config;
+    std::optional<std::vector<BridgeState::PlateSessionPlate>> before_plates;
+    std::optional<std::map<std::string, std::uint64_t>> before_revisions;
+    std::optional<std::map<std::string, std::set<std::size_t>>> before_out_of_bounds;
+    std::optional<std::set<std::size_t>> before_pending;
+    std::optional<Slic3r::Neo::Bridge::PlateRuntimeRegistry::LifecycleSnapshots> before_lifecycle;
+    const auto rollback = [&]() noexcept {
+        if (!before_object_configs || !before_instance_transforms || !before_project_config || !before_plates || !before_revisions ||
+            !before_out_of_bounds || !before_pending || !before_lifecycle) return;
+        try {
+            for (auto& [object, config] : *before_object_configs) {
+                object->config.assign_config(std::move(config));
+                object->invalidate_bounding_box();
+            }
+            for (auto& [instance, transform] : *before_instance_transforms)
+                instance->set_transformation(transform);
+            state().mutable_object_capture_cache.clear();
+            state().presets.project_config = std::move(*before_project_config);
+            state().plate_session_plates = std::move(*before_plates);
+            state().plate_input_revisions = std::move(*before_revisions);
+            state().plate_out_of_bounds_ids = std::move(*before_out_of_bounds);
+            state().pending_membership_instance_ids = std::move(*before_pending);
+            state().plate_runtime_registry.restore_lifecycle(*before_lifecycle);
+            Slic3r::Neo::Bridge::PrimeTower::invalidate_projection_cache();
+        } catch (...) {}
+    };
     try {
-        invalidate_transform_delta_candidate(state());
         ensure_plate_session_state();
-        return dup_json(shared_configuration_mutation_snapshot().dump());
+        before_object_configs.emplace();
+        before_instance_transforms.emplace();
+        before_object_configs->reserve(state().model.objects.size());
+        for (auto* object : state().model.objects) {
+            before_object_configs->emplace_back(
+                object, static_cast<const ModelConfig&>(object->config));
+            before_instance_transforms->reserve(
+                before_instance_transforms->size() + object->instances.size());
+            for (auto* instance : object->instances)
+                before_instance_transforms->emplace_back(instance, instance->get_transformation());
+        }
+        before_project_config.emplace(state().presets.project_config);
+        before_plates.emplace(state().plate_session_plates);
+        before_revisions.emplace(state().plate_input_revisions);
+        before_out_of_bounds.emplace(state().plate_out_of_bounds_ids);
+        before_pending.emplace(state().pending_membership_instance_ids);
+        before_lifecycle.emplace(state().plate_runtime_registry.capture_lifecycle());
+        const auto* response = dup_json(shared_configuration_mutation_snapshot().dump());
+        invalidate_transform_delta_candidate(state());
+        return response;
     } catch (const std::exception& e) {
+        rollback();
         return error_json(e.what());
     } catch (...) {
+        rollback();
         return error_json("unknown C++ exception");
     }
 }

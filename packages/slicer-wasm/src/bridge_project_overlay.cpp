@@ -8,9 +8,13 @@
 #include <algorithm>
 #include <cmath>
 #include <iterator>
+#include <map>
 #include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <emscripten/emscripten.h>
 
@@ -70,6 +74,42 @@ json native_configuration_status(const Config& config,
     }
     return json{{"state", "ready"}, {"corrections", std::move(corrections)},
                 {"warnings", json::array()}, {"errors", json::array()}};
+}
+
+struct ModelMutationSnapshot {
+    std::vector<std::pair<ModelObject*, ModelConfig>> object_configs;
+    std::vector<std::pair<ModelVolume*, ModelConfig>> volume_configs;
+    std::vector<std::pair<ModelInstance*, Geometry::Transformation>> instance_transforms;
+};
+
+ModelMutationSnapshot capture_model_mutation_snapshot(Model& model)
+{
+    ModelMutationSnapshot snapshot;
+    snapshot.object_configs.reserve(model.objects.size());
+    for (auto* object : model.objects) {
+        snapshot.object_configs.emplace_back(object, static_cast<const ModelConfig&>(object->config));
+        snapshot.volume_configs.reserve(snapshot.volume_configs.size() + object->volumes.size());
+        snapshot.instance_transforms.reserve(snapshot.instance_transforms.size() + object->instances.size());
+        for (auto* volume : object->volumes)
+            snapshot.volume_configs.emplace_back(volume, static_cast<const ModelConfig&>(volume->config));
+        for (auto* instance : object->instances)
+            snapshot.instance_transforms.emplace_back(instance, instance->get_transformation());
+    }
+    return snapshot;
+}
+
+void restore_model_mutation_snapshot(ModelMutationSnapshot& snapshot) noexcept
+{
+    try {
+        for (auto& [object, config] : snapshot.object_configs) {
+            object->config.assign_config(std::move(config));
+            object->invalidate_bounding_box();
+        }
+        for (auto& [volume, config] : snapshot.volume_configs)
+            volume->config.assign_config(std::move(config));
+        for (auto& [instance, transform] : snapshot.instance_transforms)
+            instance->set_transformation(transform);
+    } catch (...) {}
 }
 
 template <class Config>
@@ -211,9 +251,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_project_config_overlay() {
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* scope_cstr,
-                                                                  const char* id_cstr,
-                                                                  const char* option_key_cstr,
-                                                                  const char* value_cstr) {
+                                                                   const char* id_cstr,
+                                                                   const char* option_key_cstr,
+                                                                   const char* value_cstr) {
     using namespace Slic3r::Neo::Bridge;
     using ProjectOverlay::apply_overlay_to_config;
     using ProjectOverlay::native_configuration_status;
@@ -221,6 +261,30 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
     using ProjectOverlay::project_config_overlay_result;
     std::string scope;
     std::string id;
+    std::optional<ProjectOverlay::ModelMutationSnapshot> before_model;
+    std::optional<DynamicPrintConfig> before_project_config;
+    std::optional<std::vector<BridgeState::PlateSessionPlate>> before_plates;
+    std::optional<json> before_overlay;
+    std::optional<std::map<std::string, std::uint64_t>> before_revisions;
+    std::optional<std::map<std::string, std::set<std::size_t>>> before_out_of_bounds;
+    std::optional<std::set<std::size_t>> before_pending;
+    std::optional<PlateRuntimeRegistry::LifecycleSnapshots> before_lifecycle;
+    const auto rollback = [&]() noexcept {
+        if (!before_model || !before_project_config || !before_plates || !before_overlay ||
+            !before_revisions || !before_out_of_bounds || !before_pending || !before_lifecycle) return;
+        try {
+            ProjectOverlay::restore_model_mutation_snapshot(*before_model);
+            state().mutable_object_capture_cache.clear();
+            state().presets.project_config = std::move(*before_project_config);
+            state().plate_session_plates = std::move(*before_plates);
+            state().project_config_overlay = std::move(*before_overlay);
+            state().plate_input_revisions = std::move(*before_revisions);
+            state().plate_out_of_bounds_ids = std::move(*before_out_of_bounds);
+            state().pending_membership_instance_ids = std::move(*before_pending);
+            state().plate_runtime_registry.restore_lifecycle(*before_lifecycle);
+            PrimeTower::invalidate_projection_cache();
+        } catch (...) {}
+    };
     try {
         PlateSession::ensure_plate_session_state();
         scope = scope_cstr ? scope_cstr : "";
@@ -230,7 +294,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
         const auto configuration_error = [](const std::string& code, const std::string& message) {
             return ProjectOverlay::native_configuration_error_json(code, message);
         };
-        if (scope != "project" && scope != "object" && scope != "part")
+        if (scope != "project" && scope != "object" && scope != "part" && scope != "plate")
             return configuration_error("invalid_command", "invalid project configuration scope");
         if (key.empty()) return configuration_error("invalid_command", "option key is required");
         if (key == "wipe_tower_x" || key == "wipe_tower_y")
@@ -240,6 +304,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
         if (scope != "project" && id.empty()) return configuration_error("invalid_command", "scope id is required");
         Slic3r::ConfigSubstitutionContext substitutions{Slic3r::ForwardCompatibilitySubstitutionRule::Disable};
         Slic3r::DynamicPrintConfig project_candidate;
+        Slic3r::DynamicPrintConfig scoped_candidate;
+        ModelObject* object_target = nullptr;
+        ModelVolume* part_target = nullptr;
+        BridgeState::PlateSessionPlate* plate_target = nullptr;
+        std::set<std::string> affected_plates;
         std::optional<json> configuration_status;
         std::string effective_value;
         const auto effective_for = [&key](const auto& config) {
@@ -253,39 +322,80 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
             project_candidate.set_deserialize(key, value, substitutions);
             configuration_status = native_configuration_status(project_candidate, key, value);
             effective_value = effective_for(project_candidate);
+            affected_plates = PlateSession::all_plate_ids();
         } else if (scope == "object") {
-            auto* object = ModelOperations::find_object_by_id(static_cast<std::size_t>(std::stoull(id)));
-            if (!object) return configuration_error("unsupported_reference", "object not found");
-            Slic3r::DynamicPrintConfig candidate = object->config.get();
-            candidate.set_deserialize(key, value, substitutions);
-            configuration_status = native_configuration_status(candidate, key, value);
-            effective_value = effective_for(candidate);
-            object->config.assign_config(candidate);
+            object_target = ModelOperations::find_object_by_id(static_cast<std::size_t>(std::stoull(id)));
+            if (!object_target) return configuration_error("unsupported_reference", "object not found");
+            scoped_candidate = object_target->config.get();
+            scoped_candidate.set_deserialize(key, value, substitutions);
+            configuration_status = native_configuration_status(scoped_candidate, key, value);
+            effective_value = effective_for(scoped_candidate);
+            std::set<std::size_t> instance_ids;
+            for (const auto* instance : object_target->instances) instance_ids.insert(instance->id().id);
+            affected_plates = PlateSession::member_plate_ids_for_instances(instance_ids);
         } else if (scope == "part") {
-            auto* volume = ModelOperations::find_volume_by_id(static_cast<std::size_t>(std::stoull(id)));
-            if (!volume) return configuration_error("unsupported_reference", "part not found");
-            Slic3r::DynamicPrintConfig candidate = volume->config.get();
-            candidate.set_deserialize(key, value, substitutions);
-            configuration_status = native_configuration_status(candidate, key, value);
-            effective_value = effective_for(candidate);
-            volume->config.assign_config(candidate);
+            part_target = ModelOperations::find_volume_by_id(static_cast<std::size_t>(std::stoull(id)));
+            if (!part_target) return configuration_error("unsupported_reference", "part not found");
+            scoped_candidate = part_target->config.get();
+            scoped_candidate.set_deserialize(key, value, substitutions);
+            configuration_status = native_configuration_status(scoped_candidate, key, value);
+            effective_value = effective_for(scoped_candidate);
+            std::set<std::size_t> instance_ids;
+            for (const auto* instance : part_target->get_object()->instances) instance_ids.insert(instance->id().id);
+            affected_plates = PlateSession::member_plate_ids_for_instances(instance_ids);
+        } else {
+            plate_target = PlateSession::find_plate_mutable(id);
+            if (!plate_target) return configuration_error("unsupported_reference", "plate not found");
+            scoped_candidate = plate_target->settings;
+            scoped_candidate.set_deserialize(key, value, substitutions);
+            configuration_status = native_configuration_status(scoped_candidate, key, value);
+            effective_value = effective_for(scoped_candidate);
+            affected_plates.insert(id);
         }
+
+        // From this point onward the command publishes native state. Keep one
+        // exact rollback image so a late allocation/validation failure cannot
+        // advance stamps, move plate origins, or withdraw a valid result.
+        before_model.emplace(ProjectOverlay::capture_model_mutation_snapshot(state().model));
+        before_project_config.emplace(state().presets.project_config);
+        before_plates.emplace(state().plate_session_plates);
+        before_overlay.emplace(state().project_config_overlay);
+        before_revisions.emplace(state().plate_input_revisions);
+        before_out_of_bounds.emplace(state().plate_out_of_bounds_ids);
+        before_pending.emplace(state().pending_membership_instance_ids);
+        before_lifecycle.emplace(state().plate_runtime_registry.capture_lifecycle());
+
         json& bucket = scope == "project" ? state().project_config_overlay["project"]
             : scope == "object" ? state().project_config_overlay["objects"][id]
-            : state().project_config_overlay["parts"][id];
+            : scope == "part" ? state().project_config_overlay["parts"][id]
+            : state().project_config_overlay["plates"][id];
         bucket[key] = effective_value;
-        if (scope == "project")
+        if (scope == "project") {
             state().presets.project_config = std::move(project_candidate);
-        const auto mutation = PlateSession::shared_configuration_mutation_snapshot();
+        } else if (scope == "object") {
+            object_target->config.assign_config(scoped_candidate);
+        } else if (scope == "part") {
+            part_target->config.assign_config(scoped_candidate);
+        } else {
+            plate_target->settings = std::move(scoped_candidate);
+            plate_target->settings_metadata = Filament::State::config_metadata_json(plate_target->settings);
+        }
+        const auto mutation = scope == "project"
+            ? PlateSession::shared_configuration_mutation_snapshot()
+            : PlateSession::configuration_mutation_snapshot(
+                affected_plates, {scope + "-configuration"});
         json result = project_config_overlay_result();
         result["plate_session"] = mutation;
         if (configuration_status.has_value()) result["configuration_status"] = *configuration_status;
         return ProjectOverlay::duplicate_json(result.dump());
     } catch (const Slic3r::BadOptionValueException& e) {
+        rollback();
         return native_configuration_error_json("native_validation_failure", e.what());
     } catch (const std::exception& e) {
+        rollback();
         return native_configuration_error_json("native_validation_failure", e.what());
     } catch (...) {
+        rollback();
         return native_configuration_error_json("native_validation_failure", "unknown C++ exception");
     }
 }
@@ -293,7 +403,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_project_config_override(const char* sco
 EMSCRIPTEN_KEEPALIVE const char* orc_revalidate_project_config_overlay() {
     using namespace Slic3r::Neo::Bridge::ProjectOverlay;
     try {
-        for (const char* scope : {"project", "objects", "parts"}) {
+        for (const char* scope : {"project", "objects", "parts", "plates"}) {
             auto& values = state().project_config_overlay[scope];
             for (auto it = values.begin(); it != values.end();) {
                 if (scope == std::string("project")) {

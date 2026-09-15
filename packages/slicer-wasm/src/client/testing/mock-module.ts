@@ -319,13 +319,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     project: Record<string, string>;
     objects: Record<string, Record<string, string>>;
     parts: Record<string, Record<string, string>>;
+    plates: Record<string, Record<string, string>>;
   };
-  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {} });
-  function overlayProjection(): MockOverlay & { plates: Record<string, Record<string, string>> } {
-    // Prime Tower coordinates are one native project-level array pair. The
-    // generic overlay carries an empty plate bucket, never a derived X/Y
-    // compatibility projection.
-    return { ...clone(projectConfigOverlay), plates: {} };
+  const emptyOverlay = (): MockOverlay => ({ project: {}, objects: {}, parts: {}, plates: {} });
+  function overlayProjection(): MockOverlay {
+    // Prime Tower coordinates remain one native project-level array pair;
+    // plate buckets carry only ordinary plate-local overrides.
+    return clone(projectConfigOverlay);
   }
   const sliceWarnings = opts.sliceWarnings ? [...opts.sliceWarnings] : [];
   let projectConfigOverlay = opts.primeTowerFixture
@@ -1394,17 +1394,34 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     orc_set_project_config_override(scope: string, id: string, optionKey: string, value: string) {
       if (opts.projectConfigOverride !== undefined) return opts.projectConfigOverride;
-      if (!['project', 'object', 'part'].includes(scope)) return { error: 'invalid project configuration scope' };
+      if (!['project', 'object', 'part', 'plate'].includes(scope)) return { error: 'invalid project configuration scope' };
       if (!optionKey) return { error: 'option key is required' };
       if (optionKey === 'wipe_tower_x' || optionKey === 'wipe_tower_y')
         return { ok: false, error: 'prime tower coordinates are scene-only', error_code: 'unsupported_reference' };
       if (scope !== 'project' && !id) return { error: 'scope id is required' };
+      let affected: string[];
+      if (scope === 'project') {
+        affected = [...plateIds];
+      } else if (scope === 'plate') {
+        if (!plateIds.includes(id)) return { ok: false, error: 'plate not found', error_code: 'unsupported_reference' };
+        affected = [id];
+      } else {
+        const objectIndex = scope === 'object'
+          ? objectMeta.findIndex((object) => String(object.id) === id)
+          : volumeMeta.findIndex((volumes) => volumes.some((volume) => String(volume.id) === id));
+        if (objectIndex < 0)
+          return { ok: false, error: scope === 'object' ? 'object not found' : 'part not found', error_code: 'unsupported_reference' };
+        affected = objectPlateIds[objectIndex] ? [objectPlateIds[objectIndex]] : [];
+      }
       const bucket = scope === 'project' ? projectConfigOverlay.project
         : scope === 'object' ? (projectConfigOverlay.objects[id] ??= {})
-          : (projectConfigOverlay.parts[id] ??= {});
+          : scope === 'part' ? (projectConfigOverlay.parts[id] ??= {})
+            : (projectConfigOverlay.plates[id] ??= {});
       const effective = value;
       bucket[optionKey] = effective;
-      const mutation = bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>;
+      const mutation = scope === 'project'
+        ? bridge.orc_mark_shared_configuration_mutation() as Record<string, unknown>
+        : plateMutation(`${scope}-configuration`, affected, affected);
       return { ok: true, overlay: overlayProjection(), plate_session: mutation,
         configuration_status: { state: 'ready', corrections: effective === value ? [] : [{ key: optionKey, requested: value, effective }], warnings: [], errors: [] } };
     },
@@ -1413,7 +1430,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       // fixture exposes the same contract while retaining valid keys.
       for (const key of Object.keys(projectConfigOverlay.project))
         if (!(key in metadata)) delete projectConfigOverlay.project[key];
-      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts]) {
+      for (const scope of [projectConfigOverlay.objects, projectConfigOverlay.parts, projectConfigOverlay.plates]) {
         for (const [id, values] of Object.entries(scope)) {
           for (const key of Object.keys(values)) if (!(key in metadata)) delete values[key];
           if (Object.keys(values).length === 0) delete scope[id];

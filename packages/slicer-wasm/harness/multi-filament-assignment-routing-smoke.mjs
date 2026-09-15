@@ -109,7 +109,7 @@ assert.equal(result.ok, true, JSON.stringify(result));
 assert.equal(result.result.mutation.all_plate_results_invalidated, true);
 assert.deepEqual(result.result.mutation.affected_plate_ids, plates.plates.map((entry) => entry.plate_id));
 for (const plate of plates.plates)
-  assert.equal(result.result.snapshot.revisions.plates[plate.plate_id], projectSupportBefore.plates[plate.plate_id] + 1,
+  assert.ok(result.result.snapshot.revisions.plates[plate.plate_id] > projectSupportBefore.plates[plate.plate_id],
     `project route must revise every plate: ${plate.plate_id}`);
 snapshot = result.result.snapshot;
 result = request('orc_set_filament_routing', { version: 1, revision: snapshot.revisions.session, selector: 'support-base', slot: 0,

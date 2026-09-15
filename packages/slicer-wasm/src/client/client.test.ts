@@ -623,7 +623,7 @@ describe('SlicerClient bridge contract', () => {
   it('keeps project configuration overrides in the Worker and scopes them by stable identity', async () => {
     const c = makeClient();
     const initial = await c.getProjectConfigOverlay();
-    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {} } });
+    expect(initial).toMatchObject({ ok: true, overlay: { project: {}, objects: {}, parts: {}, plates: {} } });
     const project = await c.setProjectConfigOverride({ scope: 'project' }, 'layer_height', '0.16');
     expect(project).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
     await c.addModel(new Uint8Array([1, 2, 3, 4]), 'stl');
@@ -635,6 +635,15 @@ describe('SlicerClient bridge contract', () => {
       .resolves.toMatchObject({ overlay: { objects: { [objectId]: { wall_loops: '3' } } } });
     await expect(c.setProjectConfigOverride({ scope: 'part', id: partId }, 'enable_support', '1'))
       .resolves.toMatchObject({ overlay: { parts: { [partId]: { enable_support: '1' } } } });
+    const plateSession = await c.getPlateSessionSnapshot();
+    if (!plateSession.ok) throw new Error(plateSession.error);
+    const plateId = plateSession.currentPlateId;
+    const plateRevision = plateSession.inputRevisions?.[plateId] ?? 0;
+    await expect(c.setProjectConfigOverride({ scope: 'plate', id: plateId }, 'layer_height', '0.12'))
+      .resolves.toMatchObject({
+        overlay: { plates: { [plateId]: { layer_height: '0.12' } } },
+        plateSession: { affectedPlateIds: [plateId], inputRevisions: { [plateId]: plateRevision + 1 } },
+      });
     const revalidated = await c.revalidateProjectConfigOverlay();
     expect(revalidated).toMatchObject({ ok: true, overlay: { project: { layer_height: '0.16' } } });
   });
