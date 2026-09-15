@@ -70,6 +70,33 @@ assert.equal(assertNoPlateCoordinates().plates.length, 1);
 let projection = callJson('orc_get_prime_tower_projection');
 assert.equal(projection.plates[0].eligible, true, JSON.stringify(projection));
 
+// A settled second read must reconstruct the response from the runtime-only
+// per-plate cache, without repeating any plate-local model/Print work.
+callJson('orc_take_performance_profile');
+const cachedProjection = callJson('orc_get_prime_tower_projection');
+const cachedProfile = callJson('orc_take_performance_profile');
+const cachedSample = cachedProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
+assert.ok(cachedSample, JSON.stringify(cachedProfile));
+assert.equal(cachedSample.stages_ms.used_slot_scan, 0, JSON.stringify(cachedSample));
+assert.equal(cachedSample.stages_ms.print_apply_wipe_tower_data, 0, JSON.stringify(cachedSample));
+assert.ok(cachedSample.per_plate_stages_ms.every((plate) => plate.total === 0), JSON.stringify(cachedSample));
+assert.deepEqual(cachedProjection, projection);
+
+// Z translation changes the model height used by the tower estimate and must
+// invalidate the owning plate even when membership stays on the same plate.
+assert.equal(callJson('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
+  [0, 0, 100, 100, 1]).ok, true);
+assert.equal(callJson('orc_recompute_plate_membership').ok, true);
+callJson('orc_take_performance_profile');
+callJson('orc_get_prime_tower_projection');
+const zMoveProfile = callJson('orc_take_performance_profile');
+const zMoveSample = zMoveProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
+assert.ok(zMoveSample, JSON.stringify(zMoveProfile));
+assert.ok(zMoveSample.per_plate_stages_ms.some((plate) => plate.total > 0), JSON.stringify(zMoveSample));
+assert.equal(callJson('orc_set_instance_offset', ['number', 'number', 'number', 'number', 'number'],
+  [0, 0, 100, 100, 0]).ok, true);
+assert.equal(callJson('orc_recompute_plate_membership').ok, true);
+
 // Printer transitions recompute the native footprint without publishing a
 // user history entry or dirtying the project.
 const presets = callJson('orc_get_preset_snapshot');

@@ -4,7 +4,8 @@ Date: 2026-09-14
 Status: Implemented with object/mesh reuse, Add Plate delta history, sparse
 Move delta history, renderer-local adjacent Move restore projection, validated
 retained plate/session delta publication and narrow wipe-tower projection
-refresh, plus bounded Prime Tower projection profiling
+refresh, plus bounded Prime Tower projection profiling and runtime per-plate
+projection caching
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
 ## Problem
@@ -211,11 +212,28 @@ The slowest indexed plate-local samples were plate index 9 at 192.64 ms
 34.15 ms. These are measured facts from one run, not optimization claims. The
 current optimization hypotheses are that the repeated used-slot scans and the
 per-plate Print/wipe data construction deserve investigation first; no
-semantic change or optimization is included in this profiling step. The same
-post-Undo run measured 556.03 ms click-to-restored-projection, 480.44 ms
-application publication, 9.97 ms client restore, 9.45 ms Worker restore,
-475.95 ms client projection round-trip, 475.74 ms Worker projection dispatch,
-and 0.52 ms renderer-to-Worker/client-JS residual around the read.
+semantic change or optimization is included in this profiling step. This has
+now been addressed by a runtime-only cache keyed by stable native plate id.
+The same-plate translation-only path retains all cached plate projections;
+cross-plate membership or out-of-bounds changes evict only source and
+destination plates;
+rotation/scale/mirror/shear changes evict affected plates; plate structure,
+configuration, project load, and complete history restore evict all entries.
+The cache is never serialized and has no cross-version compatibility contract.
+
+The independently accepted post-cache real threaded-WASM run measured 322.80 ms
+click-to-restored-projection, 247.16 ms application publication, and 242.47
+ms client projection round-trip. The native history restore itself was 3.31
+ms; the remaining time is the authoritative projection publication/read
+fence. Only two indexed plates were recomputed: plate 0 (36.40 ms) and plate
+9 (205.03 ms); the other nine plate-local samples were zero. Native projection
+time was 241.94 ms, including 199.25 ms used-slot scanning and 31.26 ms
+Print/wipe data construction. The same run measured 71.00 ms from pointer-up
+to visible Undo and 0.56 ms of renderer-to-Worker/client-JS residual around
+the read. A cache hit records zero for every plate-local stage and returns the
+same projection JSON; same-plate XY-only movement therefore avoids this
+projection work entirely, while Z/geometry or membership changes invalidate
+only the affected plate entries.
 
 ## Verification
 
@@ -229,6 +247,9 @@ and 0.52 ms renderer-to-Worker/client-JS residual around the read.
   serial WASM artifacts built and validated.
 - `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/serial/orca_slice.js` — passed, including sparse Move begin/commit/Undo/Redo, normal-edit crossing, Add Plate delta, and redo-branch checks.
 - `node packages/slicer-wasm/harness/history-smoke.mjs packages/slicer-wasm/out/threaded/orca_slice.js` — passed with the same sparse Move coverage.
+- `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` — passed; verifies cache hits have zero plate-local used-slot/Print work, Z translation invalidation, and configuration/history invalidation.
+- `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js` — passed with the same cache and invalidation coverage.
+- `node packages/slicer-wasm/harness/multi-filament-prime-tower-move-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; Prime Tower Undo/Redo repopulates the target plate projection after its targeted cache invalidation while retaining the narrow frame and unaffected preview contract.
 - `pnpm stage:assets` from the repository root, then `pnpm exec electron-vite
   build` from `apps/desktop` with `VITE_USE_MOCK=0` and `VITE_E2E=1` — stages
   the just-built WASM into renderer source before the Electron bundle is made.

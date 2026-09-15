@@ -180,6 +180,9 @@ struct BridgeState {
     // not advance these values; a committed model/configuration mutation does
     // so only for plates containing an instance before or after the command.
     std::map<std::string, std::uint64_t> plate_input_revisions;
+    // Runtime-only derived Prime Tower projections keyed by stable plate id.
+    // Never serialized into project or history state.
+    std::map<std::string, nlohmann::json> prime_tower_projection_cache;
 
     BridgeState();
 };

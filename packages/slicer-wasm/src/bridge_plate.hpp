@@ -90,7 +90,8 @@ json plate_mutation_snapshot(
     const std::set<std::string>& before,
     const std::vector<std::string>& dirty_reasons,
     const json& instance_transforms = json::array(),
-    const std::set<std::size_t>* affected_instances = nullptr);
+    const std::set<std::size_t>* affected_instances = nullptr,
+    const std::map<std::string, std::set<std::size_t>>* before_out_of_bounds = nullptr);
 std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& bounds);
 void refresh_existing_plate_validity(const PlateBounds& bounds);
 json shared_configuration_mutation_snapshot();

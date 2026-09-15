@@ -19,6 +19,7 @@
 #include "bridge_buffers.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_performance.hpp"
+#include "bridge_prime_tower.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -41,6 +42,7 @@ char* error_json(const std::string& message) {
 }
 void invalidate_preview_source() {
     auto& s = state();
+    Neo::Bridge::PrimeTower::invalidate_projection_cache();
     ++s.preview_result_id;
     s.preview_gcode_path.clear();
     s.preview_gcode_size = 0;
@@ -928,6 +930,24 @@ static void set_transform(Slic3r::Geometry::Transformation& target, const json& 
     target.set_mirror(transform_vec3(transform, "mirror"));
 }
 
+// Translation changes plate membership, which is handled by the plate
+// mutation snapshot. The Prime Tower estimate also depends on the object's
+// shape, so invalidate a same-plate projection only when the affine linear
+// part changes (rotation, scale, mirror, or shear).
+static bool transform_geometry_changed(const Slic3r::Geometry::Transformation& before,
+                                       const Slic3r::Geometry::Transformation& after)
+{
+    const auto before_matrix = before.get_matrix().matrix();
+    const auto after_matrix = after.get_matrix().matrix();
+    for (int column = 0; column < 3; ++column)
+        for (int row = 0; row < 3; ++row)
+            if (before_matrix(row, column) != after_matrix(row, column)) return true;
+    // XY translation is invariant for the plate-local tower dimensions and
+    // footprint offsets. Z translation is not: the model height used by the
+    // estimate can change, so keep it in the invalidation proof.
+    return before_matrix(2, 3) != after_matrix(2, 3);
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int instance_idx, double x, double y, double z) {
     try {
         invalidate_transform_delta_candidate();
@@ -940,8 +960,11 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_offset(int object_idx, int ins
         // Drift surface: ModelInstance::set_offset(Vec3d) — confirm at SHA.
         auto* instance = obj->instances[static_cast<size_t>(instance_idx)];
         const auto previous = instance->get_offset();
+        const auto affected_before = member_plate_ids_for_instances({instance->id().id});
         instance->set_offset(Slic3r::Vec3d(x, y, z));
         if (previous != instance->get_offset()) obj->config.touch();
+        if (previous.z() != instance->get_offset().z())
+            Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
         state().pending_membership_instance_ids.insert(instance->id().id);
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -971,12 +994,17 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transform(
         auto volume = object->volumes[static_cast<size_t>(volume_idx)]->get_transformation();
         const auto previous_instance = instance;
         const auto previous_volume = volume;
+        const auto affected_before = member_plate_ids_for_instances({
+            object->instances[static_cast<size_t>(instance_idx)]->id().id});
         set_transform(instance, instance_transform);
         set_transform(volume, volume_transform);
         object->instances[static_cast<size_t>(instance_idx)]->set_transformation(instance);
         object->volumes[static_cast<size_t>(volume_idx)]->set_transformation(volume);
         if (instance != previous_instance || volume != previous_volume) object->config.touch();
         object->invalidate_bounding_box();
+        if (transform_geometry_changed(previous_instance, instance) ||
+            transform_geometry_changed(previous_volume, volume))
+            Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
         // Slicing synchronizes every rendered composite before starting the
         // job. Re-emitting an identical transform is not an editing
         // transaction and must not advance a plate's input revision; doing
@@ -1060,8 +1088,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
         const double validation_finished_at = Neo::Bridge::Performance::now_ms();
 
         const double membership_lookup_started_at = Neo::Bridge::Performance::now_ms();
+        const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
         const auto affected_before = affected_instances.empty()
             ? std::set<std::string>{} : member_plate_ids_for_instances(affected_instances);
+        const bool projection_geometry_changed = std::any_of(staged.begin(), staged.end(),
+            [](const StagedTransform& item) {
+                return transform_geometry_changed(item.previous_instance, item.next_instance) ||
+                    transform_geometry_changed(item.previous_volume, item.next_volume);
+            });
         const double membership_lookup_finished_at = Neo::Bridge::Performance::now_ms();
         const double mutation_started_at = Neo::Bridge::Performance::now_ms();
         const std::size_t transform_record_count_before = active->transform_records.size();
@@ -1074,6 +1108,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
                     item.object->config.touch();
             }
+            if (projection_geometry_changed)
+                Neo::Bridge::PrimeTower::invalidate_projection_cache(affected_before);
             const double mutation_finished_at = Neo::Bridge::Performance::now_ms();
             const double membership_reflow_started_at = Neo::Bridge::Performance::now_ms();
             rebuild_plate_membership(true);
@@ -1114,7 +1150,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 active->transform_delta_mutated = !active->transform_records.empty();
             }
             const auto mutation = plate_mutation_snapshot(affected_before, {"model-transform"},
-                                                           json::array(), &affected_instances);
+                                                           json::array(), &affected_instances, &before_out_of_bounds);
             const double membership_reflow_finished_at = Neo::Bridge::Performance::now_ms();
             const double response_started_at = Neo::Bridge::Performance::now_ms();
             const std::string response = mutation.dump();

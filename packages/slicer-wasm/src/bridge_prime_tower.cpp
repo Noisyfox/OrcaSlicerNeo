@@ -548,9 +548,20 @@ json projection_json(ProjectionTimings* timings)
     }
     json plates = json::array();
     if (timings != nullptr) timings->per_plate.resize(state().plate_session_plates.size());
-    for (std::size_t index = 0; index < state().plate_session_plates.size(); ++index)
-        plates.push_back(projection_for_plate(state().plate_session_plates[index], bounds, index,
-                                              timings != nullptr ? &timings->per_plate[index] : nullptr));
+    for (std::size_t index = 0; index < state().plate_session_plates.size(); ++index) {
+        const auto& plate = state().plate_session_plates[index];
+        auto cached = state().prime_tower_projection_cache.find(plate.id);
+        if (cached == state().prime_tower_projection_cache.end()) {
+            auto projected = projection_for_plate(plate, bounds, index,
+                                                  timings != nullptr ? &timings->per_plate[index] : nullptr);
+            cached = state().prime_tower_projection_cache.emplace(plate.id, std::move(projected)).first;
+        }
+        auto projected = cached->second;
+        projected["build_area"] = {{"min_x", bounds.min_x}, {"max_x", bounds.max_x},
+                                    {"min_y", bounds.min_y}, {"max_y", bounds.max_y},
+                                    {"max_z", bounds.max_z}};
+        plates.push_back(std::move(projected));
+    }
     return {{"ok", true}, {"version", 1}, {"current_plate_id", state().current_plate_id},
             {"build_area", {{"min_x", bounds.min_x}, {"max_x", bounds.max_x},
                              {"min_y", bounds.min_y}, {"max_y", bounds.max_y},
@@ -560,6 +571,17 @@ json projection_json(ProjectionTimings* timings)
 json projection_json()
 {
     return projection_json(nullptr);
+}
+
+void invalidate_projection_cache()
+{
+    state().prime_tower_projection_cache.clear();
+}
+
+void invalidate_projection_cache(const std::set<std::string>& plate_ids)
+{
+    for (const auto& plate_id : plate_ids)
+        state().prime_tower_projection_cache.erase(plate_id);
 }
 
 bool normalize_coordinate_positions()
@@ -815,6 +837,7 @@ json move_position_json(const char* request_cstr)
         state().project_config_overlay["project"]["wipe_tower_y"] =
             state().presets.project_config.option("wipe_tower_y")->serialize();
         ++state().plate_input_revisions[plate_id];
+        invalidate_projection_cache({plate_id});
         // ConfigOptionFloat canonically stores this value at float precision.
         // Read the post-write effective configuration: `config` is the
         // pre-move snapshot used for eligibility/geometry and still contains
@@ -891,7 +914,7 @@ json move_position_json(const char* request_cstr)
         // This is the post-publication path. Keep it non-throwing so a native
         // cleanup failure cannot report an error after history has advanced.
         try { state().print.clear(); } catch (...) {}
-        try { SlicingPipeline::invalidate_preview_source(); } catch (...) {}
+        try { Neo::Bridge::SlicingPipeline::invalidate_preview_result_only(); } catch (...) {}
     }
     response["result"]["history_status"] = HistoryMetadata::history_status_json(state());
     return response;

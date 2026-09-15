@@ -311,6 +311,7 @@ json restore_add_plate_frame(const Runtime& runtime, const Neo::History::Restore
         {"total", Neo::Bridge::Performance::now_ms() - apply_started_at},
     });
     state().print.clear();
+    Neo::Bridge::PrimeTower::invalidate_projection_cache();
     if (runtime.invalidate_preview) runtime.invalidate_preview();
     HistoryMetadata::advance_history_epoch(state());
     // Entering an Add Plate entry from a later ordinary edit stages the
@@ -344,6 +345,17 @@ json transform_json(const Slic3r::Geometry::Transformation& transform)
                              matrix(0, 1), matrix(1, 1), matrix(2, 1), matrix(3, 1),
                              matrix(0, 2), matrix(1, 2), matrix(2, 2), matrix(3, 2),
                              matrix(0, 3), matrix(1, 3), matrix(2, 3), matrix(3, 3)}}};
+}
+
+static bool transform_geometry_changed(const Slic3r::Geometry::Transformation& before,
+                                       const Slic3r::Geometry::Transformation& after)
+{
+    const auto before_matrix = before.get_matrix().matrix();
+    const auto after_matrix = after.get_matrix().matrix();
+    for (int column = 0; column < 3; ++column)
+        for (int row = 0; row < 3; ++row)
+            if (before_matrix(row, column) != after_matrix(row, column)) return true;
+    return before_matrix(2, 3) != after_matrix(2, 3);
 }
 
 json restore_transform_frame(const Runtime& runtime, const Neo::History::RestorePlan& plan,
@@ -454,6 +466,32 @@ json restore_transform_frame(const Runtime& runtime, const Neo::History::Restore
         state().project_config_overlay = before_overlay;
         throw;
     }
+    std::set<std::string> projection_invalidations;
+    for (std::size_t index = 0; index < frame.records.size(); ++index) {
+        const auto& record = frame.records[index];
+        const auto before_it = before_membership.find(record.instance_id);
+        const auto after_it = state().instance_plate_ids.find(record.instance_id);
+        const std::string before_plate = before_it == before_membership.end() ? std::string{} : before_it->second;
+        const std::string after_plate = after_it == state().instance_plate_ids.end() ? std::string{} : after_it->second;
+        const auto was_out_of_bounds = [&](const auto& values, const std::string& plate_id) {
+            const auto it = values.find(plate_id);
+            return it != values.end() && it->second.find(record.instance_id) != it->second.end();
+        };
+        if (before_plate != after_plate) {
+            if (!before_plate.empty()) projection_invalidations.insert(before_plate);
+            if (!after_plate.empty()) projection_invalidations.insert(after_plate);
+        } else if (!before_plate.empty() &&
+                   was_out_of_bounds(before_out_of_bounds, before_plate) !=
+                       was_out_of_bounds(state().plate_out_of_bounds_ids, after_plate)) {
+            projection_invalidations.insert(before_plate);
+        } else if (!before_plate.empty() &&
+                   (transform_geometry_changed(record.before_instance, record.after_instance) ||
+                    transform_geometry_changed(record.before_volume, record.after_volume))) {
+            projection_invalidations.insert(before_plate);
+        }
+    }
+    if (!projection_invalidations.empty())
+        Neo::Bridge::PrimeTower::invalidate_projection_cache(projection_invalidations);
     state().print.clear();
     if (runtime.invalidate_preview) runtime.invalidate_preview();
     HistoryMetadata::advance_history_epoch(state());
@@ -621,6 +659,7 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
         throw;
     }
     state().print.clear();
+    Neo::Bridge::PrimeTower::invalidate_projection_cache();
     if (runtime.invalidate_preview) runtime.invalidate_preview();
     HistoryMetadata::advance_history_epoch(state());
     return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
@@ -688,6 +727,10 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
         state().plate_input_revisions[frame.plate_id] = before_revision;
         throw;
     }
+    // The narrow frame rewrites only this plate's tower coordinates. Preserve
+    // every unrelated plate projection, but never let the target plate reuse
+    // the pre-restore JSON after Undo or Redo.
+    Neo::Bridge::PrimeTower::invalidate_projection_cache({frame.plate_id});
     // History never retains slice products. A Prime Tower restore always
     // invalidates the target plate if it is the currently retained result;
     // an unrelated plate's real result is left untouched.
@@ -696,7 +739,7 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
         // history cursor must not advance without the target result becoming
         // invalid, and cleanup must not report a failure after publication.
         try { state().print.clear(); } catch (...) {}
-        try { invalidate_preview_source(); } catch (...) {}
+        try { Neo::Bridge::SlicingPipeline::invalidate_preview_result_only(); } catch (...) {}
         try { if (runtime.invalidate_preview) runtime.invalidate_preview(); } catch (...) {}
     }
     HistoryMetadata::advance_history_epoch(state());
@@ -823,6 +866,7 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
         throw;
     }
     state().print.clear();
+    Neo::Bridge::PrimeTower::invalidate_projection_cache();
     if (runtime.invalidate_preview) runtime.invalidate_preview();
     HistoryMetadata::advance_history_epoch(state());
     json result{{"ok", true}, {"context", context}, {"status", history_status_json()},
@@ -1707,6 +1751,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             state().mutable_object_capture_cache.clear();
             state().nested_history_transactions.pop_back();
             state().print.clear();
+            Neo::Bridge::PrimeTower::invalidate_projection_cache();
             if (runtime.invalidate_preview) runtime.invalidate_preview();
             HistoryMetadata::advance_history_epoch(state());
             return duplicate_json(json{{"ok", true}, {"context", tx.before_context}, {"status", history_status_json()}}.dump());
@@ -1730,6 +1775,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             state().active_history_transaction.reset();
             state().nested_history_transactions.clear();
             state().print.clear();
+            Neo::Bridge::PrimeTower::invalidate_projection_cache();
             if (runtime.invalidate_preview) runtime.invalidate_preview();
             if (tx.add_plate_mutated) HistoryMetadata::advance_history_epoch(state());
             return duplicate_json(json{{"ok", true}, {"context", tx.before_context},
@@ -1741,6 +1787,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
         restore_history_transaction_state(tx.before_context, tx.before_model);
         state().mutable_object_capture_cache.clear();
         state().print.clear();
+        Neo::Bridge::PrimeTower::invalidate_projection_cache();
         if (runtime.invalidate_preview) runtime.invalidate_preview();
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();

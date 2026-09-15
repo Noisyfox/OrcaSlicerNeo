@@ -83,7 +83,7 @@ void apply_overlay_to_config(Config& config, const json& values)
 }
 } // namespace
 
-void invalidate_preview_source()
+void invalidate_preview_result_only()
 {
     auto& bridge_state = state();
     bridge_state.preview_result_id = 0;
@@ -93,6 +93,12 @@ void invalidate_preview_source()
     bridge_state.preview_text_available = false;
     bridge_state.preview_plate_id.clear();
     bridge_state.preview_plate_revision = 0;
+}
+
+void invalidate_preview_source()
+{
+    PrimeTower::invalidate_projection_cache();
+    invalidate_preview_result_only();
 }
 
 extern "C" {

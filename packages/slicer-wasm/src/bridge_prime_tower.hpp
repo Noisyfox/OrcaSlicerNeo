@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 
 #include "history/ProjectHistory.hpp"
@@ -84,6 +85,9 @@ std::optional<History::RestoreState::DirectFrame>
 make_narrow_history_frame(const NarrowHistoryFrame& frame);
 
 json projection_json();
+
+void invalidate_projection_cache();
+void invalidate_projection_cache(const std::set<std::string>& plate_ids);
 
 json move_position_json(const char* request_cstr);
 

@@ -26,6 +26,7 @@
 #include "bridge_profiles.hpp"
 #include "bridge_project_overlay.hpp"
 #include "bridge_project_persistence.hpp"
+#include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_state.hpp"
 
@@ -71,7 +72,7 @@ namespace Slic3r::Neo::Bridge::HistoryRuntime {
 Runtime runtime()
 {
     return {[] { return history_state_json(state().presets); },
-            [] { Slic3r::Neo::Bridge::SlicingPipeline::invalidate_preview_source(); }};
+            [] { Slic3r::Neo::Bridge::SlicingPipeline::invalidate_preview_result_only(); }};
 }
 
 } // namespace Slic3r::Neo::Bridge::HistoryRuntime
@@ -106,6 +107,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
 
         const char* result = Slic3r::Neo::Bridge::Profiles::init_profiles();
         Slic3r::Neo::Bridge::PlateSession::reset_plate_session_state();
+        Slic3r::Neo::Bridge::PrimeTower::invalidate_projection_cache();
         state().project_config_overlay = empty_project_config_overlay();
         state().history.clear();
         state().mesh_capture_cache.clear();
