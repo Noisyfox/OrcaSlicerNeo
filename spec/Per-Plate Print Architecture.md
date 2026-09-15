@@ -297,6 +297,21 @@ there is no concurrent export task, result lease, or ambiguous snapshot
 download in this refactor. Once the slice job reaches a terminal state, Export
 is reevaluated solely from the selected plate's matching result stamp.
 
+### 2.13.1 Save is an input-only operation
+
+Threaded wasm64 permits Save Project while a slice job is active. The main
+Worker captures one consistent snapshot of the authoritative Model, plate
+definitions, and persistent configuration, then writes it using a one-slot
+export arena. Save does not cancel the job, write history, change input stamps,
+or serialize runtime Print/result/task state. Its own synchronous serialization
+may temporarily occupy the main Worker; the edit-plus-Undo latency guarantee
+does not apply while Save is in progress.
+
+Serial wasm64 disables Save while slicing because its sole Worker cannot
+respond until `Print::process()` returns. This follows Orca's distinction:
+desktop Save remains available during background slicing, whereas operations
+which replace or mutate the project are disabled.
+
 ### 2.14 Selected, active-slice, and preview plate identities are distinct
 
 Neo maintains three explicit runtime identities when needed:
