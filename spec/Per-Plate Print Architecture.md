@@ -411,6 +411,15 @@ The reorder integration test must distinguish unchanged from changed origins,
 retain only the former results, invalidate only the latter, and show zero
 `Print::apply` calls during the reordering operation.
 
+### 2.6.2 Duplicate Plate is outside the first delivery
+
+The first per-plate Print delivery does not support `Duplicate Plate`. It adds
+no bridge, runtime, or UI compatibility route that emulates duplication through
+`Add Plate` plus a model, Print, or result copy. A later feature, if added,
+must be specified separately with Orca-compatible model duplication and a
+fresh empty registry Print/result; it must not silently copy a source plate's
+runtime slice cache.
+
 ### 2.7 Delete Plate parks models, then reflows only affected survivors
 
 Deleting a nonempty plate moves its instances to the unprintable/parked area;
