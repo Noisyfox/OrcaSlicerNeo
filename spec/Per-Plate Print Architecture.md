@@ -204,6 +204,12 @@ previewed plate. Switching to a valid plate requests that plate's retained
 Worker-side result and rebuilds the one renderer projection. Neo must not keep
 a second CPU/GPU toolpath copy for every valid plate.
 
+If the explicitly activated preview plate has no result matching its current
+stamp, the renderer releases its prior toolpath projection and shows the
+plate's empty "needs slicing" state. It must not leave a different plate's
+toolpath visible as a fallback. That different plate's valid Worker-side
+result remains retained but is not rendered.
+
 This matches Orca's Preview binding, which is updated to the current
 PartPlate's GCodeResult rather than drawing every plate result at once.
 
@@ -213,8 +219,9 @@ The primary Slice command applies and processes only the selected current
 plate. The primary Export command exports only that same plate and is enabled
 only when its result stamp is valid. Selecting an unsliced or invalid plate
 immediately disables Export; Neo must never export the most recently sliced
-but no-longer-selected plate by accident. Explicit Slice All Plates and Export
-All Plates remain future commands.
+but no-longer-selected plate by accident. An invalid selected plate must not
+fall back to another plate's result for either Preview or Export. Explicit
+Slice All Plates and Export All Plates remain future commands.
 
 ### 2.14 Selected, active-slice, and preview plate identities are distinct
 
@@ -232,8 +239,11 @@ not affect the active job. This follows Orca: it commits the plate selection
 before checking whether its background process can switch Print, so the Prepare
 selection may change while the active Print remains unchanged. During that
 interval Preview and progress remain bound to `active_slice_plate_id`; no
-Preview result or Print context is rebound. After completion or cancellation,
-the next Preview activation binds the selected plate's valid result.
+Preview result or Print context is rebound. Completion or cancellation does
+not retrospectively rebind Preview to a plate selected during the job: the
+completion status and existing projection remain associated with the active
+job plate. Only a subsequent explicit Preview activation binds the selected
+plate's valid result (or its empty state).
 
 In serial mode, all editing context is locked while slicing: the selected,
 active-slice, and preview identities remain the active plate. The UI may keep
