@@ -55,15 +55,38 @@ invoking its slicing process.
 ### 2.3 Stable plate IDs are session-only
 
 The registry and Worker history use a stable plate ID only for the lifetime of
-one loaded project session. A project load creates new IDs and an empty
-registry. Project persistence remains index/order based and compatible with
-the existing Orca/BBS 3MF representation.
+one loaded project session. A project load creates new IDs and fresh registry
+entries with no retained result. Project persistence remains index/order based
+and compatible with the existing Orca/BBS 3MF representation.
 
 No Neo-specific persistent UUID is added. On save, the bridge materializes the
 ordered plate configuration, prime-tower coordinate arrays, membership, and
 custom G-code in the existing project format. On load, it reconstructs the
 session mapping. This follows Orca's distinction between serialized plate
 state and nonserialized Print references.
+
+### 2.3.1 Project-load registry construction and replacement fence
+
+After a project has been admitted for loading, Neo eagerly constructs one
+empty runtime Print/result registry entry for every reconstructed plate. This
+matches Orca's `rebuild_plates_after_deserialize()` behavior. Construction
+creates only the Print/result containers and their plate association: it does
+not clone a per-plate Model, call `Print::apply()`, recover unsaved runtime
+results, or restore history. A first Slice still materializes the target
+plate's input and applies it to that entry.
+
+Replacing a whole project (open, new, or clear) is stricter than an ordinary
+threaded edit. If a job is active, Neo first requests its cancellation and
+waits for its terminal state and registry lease release. Only then does it
+parse into temporary project state and atomically publish the new Model, plate
+definitions, session IDs, and eager empty registry. The old and new full
+registries therefore never coexist merely to let an obsolete job finish.
+
+In serial wasm64, whole-project operations are restricted by the same runtime
+and bridge admission gates as Slice; they create no deferred project-replace
+queue. In threaded wasm64, the admitted whole-project replacement owns the
+cancellation/fence sequence above and must not publish any state if parsing
+fails.
 
 ### 2.4 Strict per-plate slice-input stamps
 
