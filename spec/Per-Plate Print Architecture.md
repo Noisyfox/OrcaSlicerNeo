@@ -507,6 +507,20 @@ slice-input stamp:
 - a plate affected by the restored history action may not recover a retired
   historical result merely because an older stamp happens to match.
 
+History records session-stable plate IDs solely to reconcile this runtime
+registry. If Undo removes a plate and Redo restores it, Redo uses the same
+session ID but creates a fresh empty Print/result entry; it does not revive a
+prior slice cache. Those IDs disappear when the project session closes and are
+never written to a project file.
+
+Every plate whose input is changed by the history target receives a fresh,
+monotonic input stamp, even if its reconstructed persistent inputs happen to
+equal an earlier state. Its G-code and React projection remain presentation
+invalid until an explicit Slice completes. The retained pointer-safe Print may
+still reuse its own native steps during that later `apply/process`; it is not a
+historical output cache. Plates unaffected by the history target keep their
+stamp and may retain a matching valid result.
+
 Retention is conditional on native pointer safety. An implementation must
 prove that a retained Print has no stale pointer into a replaced
 `state().model`; otherwise it recreates an empty invalidated entry. Registry
