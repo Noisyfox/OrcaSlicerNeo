@@ -143,6 +143,11 @@ presentation state, and start a new empty project session. The new file is
 then parsed directly into that fresh session, which eagerly constructs its
 empty registry entries after its plates are reconstructed. The old and new
 full registries therefore never coexist merely to let an obsolete job finish.
+Closing the old session is also a history separator: its entire Undo/Redo
+stack is destroyed, the new empty session starts with a clean baseline, and a
+successfully loaded project replaces that with its own clean baseline. Neither
+an Undo nor a Redo can cross this boundary. A failed load or cancelled
+post-close warning retains only the empty-session baseline.
 
 This deliberately follows Orca's user-visible replacement semantics:
 `Plater::load_project()` calls `reset()` before `load_files()`. Consequently a
