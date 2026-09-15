@@ -48,6 +48,14 @@ It applies and processes the current plate's registry-owned Print, leaving
 other valid plate results intact. A future explicit `Slice All Plates` command
 may schedule every printable plate, but is outside this refactor.
 
+The application never short-circuits an admitted Slice merely because that
+plate currently has a matching result. Every admitted Slice runs the normal
+`Print::apply()` / `Print::process()` request and the complete result-handling
+pipeline. Native step state may skip calculation that is already current, but
+it may not skip result collection, replacement, and preview publication. The
+task always reaches the ordinary `completed`, `failed`, or `cancelled` terminal
+state; there is no application-level `completed_no_work` shortcut.
+
 This retains Neo's current command semantics and matches Orca's plate-local
 slice context: Orca selects the current `PartPlate`'s Print and result before
 invoking its slicing process.
@@ -122,9 +130,10 @@ therefore must never produce ambiguous history or a competing job.
 ### 2.4 Strict per-plate slice-input stamps
 
 Every registry entry has an opaque, monotonic slice-input stamp. A plate result
-is available only when its completed-result stamp exactly equals the plate's
-current input stamp. The stamp is advanced by known native mutations rather
-than by serializing or hashing the complete model.
+is available only when its result state is `valid`, its result data exists, and
+its completed-result stamp exactly equals the plate's current input stamp. The
+stamp is advanced by known native mutations rather than by serializing or
+hashing the complete model.
 
 - Instance/volume changes, transforms, printable state, or membership changes
   invalidate the owning plate; a cross-plate operation invalidates both source
@@ -140,6 +149,21 @@ This mirrors Orca's use of a plate-local `update_slice_result_valid_state()`
 for local changes and `PartPlateList::invalid_all_slice_result()` for shared
 changes. The stamp supplies the same rule without coupling validity to the GUI
 objects.
+
+### 2.4.1 Explicit Slice invalidates output without changing slice input
+
+An admitted explicit Slice changes a plate's result state from `valid` or
+`invalid` to `slicing`, immediately releases any old result, and clears its
+renderer projection. It does **not** advance that plate's input stamp: its
+inputs have not changed. The task captures the existing input stamp at launch
+and may publish a new result only if that stamp and its task identity still
+match at completion. Success makes the state `valid`; cancellation or failure
+leaves it `invalid` with no old-result fallback.
+
+This is deliberately a result-lifecycle transition rather than a model
+revision. Orca similarly has a separate `m_slice_result_valid` flag: setting
+it false does not mutate model inputs. Neo additionally releases the old
+WASM-resident data at this boundary.
 
 ### 2.5 No proactive result eviction
 
@@ -162,7 +186,9 @@ input stamp, Neo immediately releases that plate's now-stale G-code result,
 Worker-side preview source, and any associated generated-output metadata. The
 renderer also releases its projection if it was showing that plate. The
 registry-owned Print container remains ready for a later explicit Slice, but
-the old result is neither previewable nor exportable.
+the old result is neither previewable nor exportable. Section 2.4.1 applies
+the same release rule when an explicit Slice begins without advancing input
+stamp.
 
 This rule is applied only after the input mutation has committed. A rejected,
 failed, or cancelled edit leaves the prior stamp and its valid result intact.
@@ -178,7 +204,9 @@ active. Neo releases it at the successful mutation boundary instead, because
 WASM/MEMFS result residency has a tighter memory cost and a stale result is
 never usable. Tests must prove a failed edit preserves the old valid result,
 whereas a successful local edit releases only the edited plate's result and
-its renderer projection.
+its renderer projection. They must separately prove that explicit Slice
+releases even a stamp-matching old result at task start, and that a failed or
+cancelled re-slice does not resurrect it.
 
 ### 2.6 Add Plate follows Orca's layout-change gate
 
@@ -498,7 +526,11 @@ explicit Slice requests replace that pending request, so the last one wins and
 the system never forms an unbounded queue. The replacement captures its input
 stamp only when it actually starts; if its plate has been deleted or its input
 has become unsliceable while it waited, it is discarded with a clear terminal
-status. An edit must never enqueue a replacement Slice automatically.
+status. Once it starts, it follows the full Slice and result lifecycle in
+Sections 2.2 and 2.4.1 even if that plate previously had a stamp-matching
+result; native calculation may skip current steps, but result processing and
+publication still run. An edit must never enqueue a replacement Slice
+automatically.
 
 In serial wasm64, Slice is one of the restricted operations rejected by the
 runtime and bridge admission gates while the sole job runs; it creates no
