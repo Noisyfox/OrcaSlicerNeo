@@ -87,5 +87,31 @@ int main()
     CHECK(registry.size() == 3);
     CHECK(registry.find("plate-b")->print.get() == second_print);
     CHECK(registry.find("plate-b")->gcode_result.get() == second_result);
+
+    // A structural reflow invalidates exactly the changed-origin set.  The
+    // registry keeps every native allocation resident, and a rollback can
+    // restore the prior lifecycle metadata only for those same incarnations.
+    auto* plate_b = registry.find("plate-b");
+    auto* plate_c = registry.find("plate-c");
+    CHECK(plate_b != nullptr && plate_c != nullptr);
+    PlateRuntimeRegistry::begin_slice(*plate_b);
+    PlateRuntimeRegistry::mark_process_completed(*plate_b, 4, 4);
+    PlateRuntimeRegistry::mark_presentation_valid(*plate_b, 4);
+    PlateRuntimeRegistry::begin_slice(*plate_c);
+    PlateRuntimeRegistry::mark_process_completed(*plate_c, 7, 7);
+    PlateRuntimeRegistry::mark_presentation_valid(*plate_c, 7);
+    const auto b_print = plate_b->print.get();
+    const auto b_result = plate_b->gcode_result.get();
+    const auto lifecycle_before = registry.capture_lifecycle();
+    registry.invalidate_presentations({"plate-c"});
+    CHECK(plate_b->presentation == PlateRuntimeRegistry::PresentationLifecycle::Valid);
+    CHECK(plate_c->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
+    CHECK(plate_b->print.get() == b_print && plate_b->gcode_result.get() == b_result);
+    registry.restore_lifecycle(lifecycle_before);
+    CHECK(plate_b->presentation == PlateRuntimeRegistry::PresentationLifecycle::Valid);
+    CHECK(plate_c->presentation == PlateRuntimeRegistry::PresentationLifecycle::Valid);
+    registry.reconcile({"plate-b", "plate-c", "plate-e"});
+    registry.restore_lifecycle(lifecycle_before);
+    CHECK(registry.find("plate-e")->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
     return 0;
 }

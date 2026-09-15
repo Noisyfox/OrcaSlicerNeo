@@ -76,6 +76,40 @@ void PlateRuntimeRegistry::mark_presentation_invalid(Entry& entry) noexcept
     entry.presentation = PresentationLifecycle::Invalid;
 }
 
+void PlateRuntimeRegistry::invalidate_presentations(const std::set<std::string>& plate_ids) noexcept
+{
+    for (const auto& plate_id : plate_ids) {
+        if (auto* entry = find(plate_id); entry != nullptr)
+            mark_presentation_invalid(*entry);
+    }
+}
+
+PlateRuntimeRegistry::LifecycleSnapshots PlateRuntimeRegistry::capture_lifecycle() const
+{
+    LifecycleSnapshots snapshots;
+    for (const auto& [plate_id, entry] : entries_)
+        snapshots.emplace(plate_id, LifecycleSnapshot{
+            entry.print.get(), entry.gcode_result.get(), entry.presentation,
+            entry.completed_input_revision, entry.native_core_materialized});
+    return snapshots;
+}
+
+void PlateRuntimeRegistry::restore_lifecycle(const LifecycleSnapshots& snapshots) noexcept
+{
+    for (const auto& [plate_id, snapshot] : snapshots) {
+        auto* entry = find(plate_id);
+        // A deleted entry may have been reconciled back as a fresh
+        // incarnation.  Its newly allocated native objects must remain
+        // presentation-invalid rather than inheriting stale metadata.
+        if (entry == nullptr || entry->print.get() != snapshot.print ||
+            entry->gcode_result.get() != snapshot.gcode_result)
+            continue;
+        entry->presentation = snapshot.presentation;
+        entry->completed_input_revision = snapshot.completed_input_revision;
+        entry->native_core_materialized = snapshot.native_core_materialized;
+    }
+}
+
 bool PlateRuntimeRegistry::can_materialize_result(const Entry& entry,
                                                   const std::uint64_t current_revision) noexcept
 {

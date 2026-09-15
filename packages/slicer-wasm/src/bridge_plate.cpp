@@ -647,6 +647,26 @@ json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_pla
     // plate already owns a fresh empty registry entry and revision zero.
     if (!changed_origin_plates.empty()) {
         PrimeTower::invalidate_projection_cache(changed_origin_plates);
+        state().plate_runtime_registry.invalidate_presentations(changed_origin_plates);
+        for (const auto& plate_id : changed_origin_plates)
+            if (find_plate(plate_id) != nullptr) ++state().plate_input_revisions[plate_id];
+    }
+    json result = plate_session_snapshot_json(instance_transforms);
+    result["input_revisions"] = plate_revisions_json();
+    result["affected_plate_ids_before"] = plate_id_array(changed_origin_plates);
+    result["affected_plate_ids_after"] = plate_id_array(changed_origin_plates);
+    result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
+    result["dirty_reasons"] = {"plate-structure"};
+    state().pending_membership_instance_ids.clear();
+    return result;
+}
+
+json delete_plate_mutation_snapshot(const std::set<std::string>& changed_origin_plates,
+                                    const json& instance_transforms)
+{
+    if (!changed_origin_plates.empty()) {
+        PrimeTower::invalidate_projection_cache(changed_origin_plates);
+        state().plate_runtime_registry.invalidate_presentations(changed_origin_plates);
         for (const auto& plate_id : changed_origin_plates)
             if (find_plate(plate_id) != nullptr) ++state().plate_input_revisions[plate_id];
     }
@@ -819,10 +839,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_select_plate(const char* plate_id_cstr)
 
 EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
 {
+    std::optional<Neo::Bridge::PlateRuntimeRegistry::LifecycleSnapshots> before_lifecycle;
     try {
         invalidate_transform_delta_candidate(state());
         const double profile_started_at = Neo::Bridge::Performance::now_ms();
         ensure_plate_session_state();
+        before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const bool add_plate_delta = state().active_history_transaction &&
             state().active_history_transaction->add_plate_delta;
         if (add_plate_delta && state().active_history_transaction->base_history_revision != state().history_revision)
@@ -896,17 +918,21 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
         });
         return dup_json(response);
     } catch (const std::exception& e) {
+        if (before_lifecycle) state().plate_runtime_registry.restore_lifecycle(*before_lifecycle);
         return error_json(e.what());
     } catch (...) {
+        if (before_lifecycle) state().plate_runtime_registry.restore_lifecycle(*before_lifecycle);
         return error_json("unknown C++ exception");
     }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
 {
+    std::optional<Neo::Bridge::PlateRuntimeRegistry::LifecycleSnapshots> before_lifecycle;
     try {
         invalidate_transform_delta_candidate(state());
         ensure_plate_session_state();
+        before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const std::string requested = plate_id_cstr ? plate_id_cstr : "";
         if (requested.empty()) return error_json("plateId is required");
         const auto it = std::find_if(state().plate_session_plates.begin(), state().plate_session_plates.end(),
@@ -914,7 +940,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
         if (it == state().plate_session_plates.end()) return error_json("plate not found");
         if (state().plate_session_plates.size() <= 1) return error_json("at least one plate must remain");
         rebuild_plate_membership(false);
-        const auto affected_before = member_plate_ids();
         const PlateBounds bounds = selected_plate_bounds();
         const size_t deleted_index = static_cast<size_t>(std::distance(state().plate_session_plates.begin(), it));
         const auto old_plates = state().plate_session_plates;
@@ -922,6 +947,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
         const auto refs_by_id = index_plate_instance_refs(refs);
         const bool deleting_current = state().current_plate_id == requested;
         const int new_count = static_cast<int>(old_plates.size()) - 1;
+        std::set<std::string> changed_origin_plates;
+        for (size_t index = 0; index < old_plates.size(); ++index) {
+            if (index == deleted_index) continue;
+            const size_t new_index = index < deleted_index ? index : index - 1;
+            if (plate_origin_for_index(static_cast<int>(new_index), new_count, bounds) != old_plates[index].origin)
+                changed_origin_plates.insert(old_plates[index].id);
+        }
         std::map<std::size_t, Vec3d> changed;
         const Vec3d parking_origin = parked_origin_for_count(new_count, bounds);
         const Vec3d deleted_delta = parking_origin - old_plates[deleted_index].origin;
@@ -964,12 +996,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
             state().current_plate_id = state().plate_session_plates[selected_index].id;
         }
         Neo::Bridge::PrimeTower::normalize_coordinate_positions();
-        const auto mutation = plate_mutation_snapshot(affected_before, {"plate-structure"},
-                                                       reflow_instance_transforms(changed));
+        const auto mutation = delete_plate_mutation_snapshot(changed_origin_plates,
+                                                             reflow_instance_transforms(changed));
         return dup_json(mutation.dump());
     } catch (const std::exception& e) {
+        if (before_lifecycle) state().plate_runtime_registry.restore_lifecycle(*before_lifecycle);
         return error_json(e.what());
     } catch (...) {
+        if (before_lifecycle) state().plate_runtime_registry.restore_lifecycle(*before_lifecycle);
         return error_json("unknown C++ exception");
     }
 }

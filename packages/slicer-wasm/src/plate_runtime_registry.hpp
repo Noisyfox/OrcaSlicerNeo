@@ -11,8 +11,10 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
+#include <map>
 #include <unordered_map>
 #include <vector>
 
@@ -44,6 +46,19 @@ public:
         bool native_core_materialized = false;
     };
 
+    // Runtime-only lifecycle metadata used to make plate-structure rollback
+    // atomic without copying or serializing the native Print/result objects.
+    // The pointer identities ensure a restored metadata record is never
+    // applied to a freshly-created replacement entry.
+    struct LifecycleSnapshot {
+        const Print* print = nullptr;
+        const GCodeProcessorResult* gcode_result = nullptr;
+        PresentationLifecycle presentation = PresentationLifecycle::Invalid;
+        std::optional<std::uint64_t> completed_input_revision;
+        bool native_core_materialized = false;
+    };
+    using LifecycleSnapshots = std::map<std::string, LifecycleSnapshot>;
+
     // Reconcile runtime ownership with the current ordered plate ids.  An
     // existing id retains the same Print and result pointers; a new id gets a
     // fresh pair and an absent id is released immediately.
@@ -59,6 +74,9 @@ public:
     static void mark_presentation_valid(Entry& entry,
                                         std::uint64_t current_revision) noexcept;
     static void mark_presentation_invalid(Entry& entry) noexcept;
+    void invalidate_presentations(const std::set<std::string>& plate_ids) noexcept;
+    LifecycleSnapshots capture_lifecycle() const;
+    void restore_lifecycle(const LifecycleSnapshots& snapshots) noexcept;
     static bool can_materialize_result(const Entry& entry,
                                        std::uint64_t current_revision) noexcept;
     static bool is_publishable(const Entry& entry,

@@ -107,6 +107,7 @@ struct BridgeState {
         bool transform_delta_mutated = false;
         bool transform_delta_invalidated = false;
         std::vector<TransformHistoryRecord> transform_records;
+        PlateRuntimeRegistry::LifecycleSnapshots before_plate_runtime_lifecycle;
     };
     std::optional<HistoryTransaction> active_history_transaction;
     // Nested/coalesced transactions are intentionally dormant: they publish

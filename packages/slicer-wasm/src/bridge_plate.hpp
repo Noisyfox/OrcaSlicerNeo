@@ -98,6 +98,12 @@ json plate_mutation_snapshot(
 // changed; a newly-created plate starts with its fresh zero revision.
 json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_plates,
                                  const json& instance_transforms = json::array());
+// Delete Plate has one additional structural effect: the deleted entry is
+// removed, while only surviving plates whose physical origins reflow are
+// invalidated.  This must not use the broader model-membership mutation
+// helper because empty and origin-stable plates retain their presentations.
+json delete_plate_mutation_snapshot(const std::set<std::string>& changed_origin_plates,
+                                    const json& instance_transforms = json::array());
 std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& bounds);
 void refresh_existing_plate_validity(const PlateBounds& bounds);
 json shared_configuration_mutation_snapshot();

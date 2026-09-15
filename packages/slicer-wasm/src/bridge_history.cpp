@@ -1580,7 +1580,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
                 category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
                 before_context, capture_model_state(
                     state().model, state().mesh_capture_cache, state().mutable_object_capture_cache), true, parent_target,
-                state().history_revision});
+                state().history_revision, false, false, std::nullopt, std::nullopt,
+                false, false, false, {}, state().plate_runtime_registry.capture_lifecycle()});
             return duplicate_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
         }
         const bool add_plate_delta = label == "Add Plate" && category == "project";
@@ -1614,6 +1615,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
             before_context, std::move(before_model), false, {}, state().history_revision,
             add_plate_delta};
         state().active_history_transaction->transform_delta_candidate = transform_delta;
+        state().active_history_transaction->before_plate_runtime_lifecycle =
+            state().plate_runtime_registry.capture_lifecycle();
         Neo::Bridge::Performance::Timings begin_stages{
             {"total", Neo::Bridge::Performance::now_ms() - profile_started_at}};
         if (add_plate_delta || transform_delta) {
@@ -1756,6 +1759,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             restore_history_transaction_state(tx.before_context, tx.before_model);
             state().mutable_object_capture_cache.clear();
             state().nested_history_transactions.pop_back();
+            state().plate_runtime_registry.restore_lifecycle(tx.before_plate_runtime_lifecycle);
             state().print.clear();
             Neo::Bridge::PrimeTower::invalidate_projection_cache();
             if (runtime.invalidate_preview) runtime.invalidate_preview();
@@ -1778,6 +1782,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
                 Neo::Bridge::PlateSession::normalize_coordinate_arrays(
                     state().presets.project_config, state().plate_session_plates.size());
             }
+            state().plate_runtime_registry.restore_lifecycle(tx.before_plate_runtime_lifecycle);
             state().active_history_transaction.reset();
             state().nested_history_transactions.clear();
             state().print.clear();
@@ -1791,6 +1796,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             capture_model_state(
                 state().model, state().mesh_capture_cache, state().mutable_object_capture_cache), tx.before_model);
         restore_history_transaction_state(tx.before_context, tx.before_model);
+        state().plate_runtime_registry.restore_lifecycle(tx.before_plate_runtime_lifecycle);
         state().mutable_object_capture_cache.clear();
         state().print.clear();
         Neo::Bridge::PrimeTower::invalidate_projection_cache();
