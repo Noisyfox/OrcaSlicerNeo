@@ -873,6 +873,15 @@ start a replacement, and reports the eventual cancelled terminal state. An
 explicit Slice replacement is the only cancellation path that may subsequently
 start another job.
 
+Cancellation, an affected edit, and explicit Slice replacement retain the
+target registry Print rather than reconstructing it. They never publish the
+cancelled task's partial result or G-code. The next explicitly admitted Slice
+runs normal `Print::apply()` and lets native step invalidation decide which
+safe internal work remains reusable. This follows Orca's
+`BackgroundSlicingProcess::reset()`, which stops work without clearing the
+PartPlate-owned Print. Only project close, completed deletion/tombstone release,
+or failed native pointer-safety validation destroys that Print.
+
 The automated job tests must prove all of the following: serial Slice attempts
 and cancel bypasses do not form a queue; threaded repeated explicit Slice
 requests retain only the last replacement; normal edits do not create a
