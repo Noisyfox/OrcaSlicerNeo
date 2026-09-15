@@ -120,20 +120,31 @@ plate's input and applies it to that entry.
 
 Replacing a whole project (open, new, or clear) is stricter than an ordinary
 threaded edit. If a job is active, Neo first requests its cancellation and
-waits for its terminal state and registry lease release. Only then does it
-parse into temporary project state and atomically publish the new Model, plate
-definitions, session IDs, and eager empty registry. The old and new full
-registries therefore never coexist merely to let an obsolete job finish.
+waits for its terminal state and registry lease release. It then closes the
+old project before parsing the requested project: release its runtime registry
+and result leases, clear its Model, plate definitions, history, and
+presentation state, and start a new empty project session. The new file is
+then parsed directly into that fresh session, which eagerly constructs its
+empty registry entries after its plates are reconstructed. The old and new
+full registries therefore never coexist merely to let an obsolete job finish.
+
+This deliberately follows Orca's user-visible replacement semantics:
+`Plater::load_project()` calls `reset()` before `load_files()`. Consequently a
+parse or load failure leaves Neo's new, empty project session rather than
+reviving the closed project. The earlier atomic-old-project-preservation
+proposal is not part of this design.
 
 In serial wasm64, whole-project operations are restricted by the same runtime
 and bridge admission gates as Slice; they create no deferred project-replace
 queue. In threaded wasm64, the admitted whole-project replacement owns the
-cancellation/fence sequence above and must not publish any state if parsing
-fails. From admission until its success or failure terminal state, it also
+cancellation/fence sequence above. From admission until its success or failure
+terminal state, it also
 locks all native mutation, Undo/Redo, Slice, and Export operations with
 `project_replacing`; only progress and camera/window navigation remain
 available. Such edits would necessarily be discarded by the replacement and
-therefore must never produce ambiguous history or a competing job.
+therefore must never produce ambiguous history or a competing job. The old
+slice task's terminal mailbox event is drained before the close/load event for
+the new session, including when parsing subsequently fails.
 
 ### 2.4 Per-plate slice-input stamps and presentation validity
 
