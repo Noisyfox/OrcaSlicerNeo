@@ -193,6 +193,61 @@ This is the headless equivalent of Orca's background-process switch guard:
 Orca does not switch its active PartPlate Print until the background process
 can safely switch print context.
 
+### 2.12 Renderer retains only the currently previewed plate projection
+
+The Worker retains every valid plate result under the no-eviction rule, but the
+renderer retains typed-array and GPU toolpath resources only for the currently
+previewed plate. Switching to a valid plate requests that plate's retained
+Worker-side result and rebuilds the one renderer projection. Neo must not keep
+a second CPU/GPU toolpath copy for every valid plate.
+
+This matches Orca's Preview binding, which is updated to the current
+PartPlate's GCodeResult rather than drawing every plate result at once.
+
+### 2.13 Slice and Export target the selected current plate
+
+The primary Slice command applies and processes only the selected current
+plate. The primary Export command exports only that same plate and is enabled
+only when its result stamp is valid. Selecting an unsliced or invalid plate
+immediately disables Export; Neo must never export the most recently sliced
+but no-longer-selected plate by accident. Explicit Slice All Plates and Export
+All Plates remain future commands.
+
+### 2.14 Selected, active-slice, and preview plate identities are distinct
+
+Neo maintains three explicit runtime identities when needed:
+
+- `selected_plate_id` is the plate selected in Prepare and targeted by normal
+  editing, Slice, and Export commands.
+- `active_slice_plate_id` is the plate whose registry Print is currently in
+  synchronous native processing.
+- `preview_plate_id` is the one plate whose retained result is projected into
+  renderer CPU/GPU resources.
+
+While a plate is slicing, Prepare may select and edit another plate whose
+input does not affect the active job. This follows Orca: it commits the plate
+selection before checking whether its background process can switch Print, so
+the Prepare selection may change while the active Print remains unchanged.
+During that interval Preview and progress remain bound to
+`active_slice_plate_id`; no Preview result or Print context is rebound. After
+completion or cancellation, the next Preview activation binds the selected
+plate's valid result.
+
+### 2.15 Active-slice-affecting edits cancel before mutation
+
+Neo retains one stateful, synchronous WASM Worker and does not introduce a
+separate SliceJob Worker. A local mutation for a non-active plate proceeds
+immediately. A mutation for the active slice plate, or a shared mutation that
+affects every plate, first requests cancellation and waits for the native
+slice completion/cancellation fence. It then commits the mutation and marks
+the required plate stamps invalid. The bridge never mutates authoritative
+model or configuration state concurrently with `Print::process()`.
+
+This applies equally to Undo/Redo and ordinary edits. A stale-result stamp
+check remains a required final defence, but it is not a substitute for the
+fence: with synchronous serial WASM, a Worker cannot execute a queued edit or
+cancel command while `Print::process()` occupies that Worker.
+
 ## 3. Constraints Carried Forward
 
 - The React application continues to use the typed runtime/client boundary;
