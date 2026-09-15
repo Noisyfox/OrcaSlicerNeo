@@ -83,6 +83,8 @@ export interface MockModuleOptions {
   projectConfigOverride?: unknown;
   /** Optional raw Prime Tower projection override for normalization tests. */
   primeTowerProjection?: unknown;
+  /** Optional raw native performance profile override for normalization tests. */
+  nativePerformanceProfile?: unknown;
   /** Deterministic eligible tower projections for mock Electron interaction tests. */
   primeTowerFixture?: boolean;
   /** Native-shaped advisory warnings returned by the deterministic slice fixture. */
@@ -1281,6 +1283,9 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_get_prime_tower_projection() {
       return primeTowerProjection();
     },
+    orc_take_performance_profile() {
+      return opts.nativePerformanceProfile ?? { version: 1, samples: [] };
+    },
     orc_move_prime_tower(requestJson: string) {
       return movePrimeTower(requestJson);
     },
@@ -2191,6 +2196,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_clear_model: { ret: 'number', args: [] },
     orc_get_plate_session_snapshot: { ret: 'number', args: [] },
     orc_get_prime_tower_projection: { ret: 'number', args: [] },
+    orc_take_performance_profile: { ret: 'number', args: [] },
     orc_move_prime_tower: { ret: 'number', args: ['string'] },
     orc_get_filament_session_snapshot: { ret: 'number', args: [] },
     orc_select_filament_slot_preset: { ret: 'number', args: ['string'] },

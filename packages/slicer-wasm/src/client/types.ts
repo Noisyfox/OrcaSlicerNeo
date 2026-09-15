@@ -1024,9 +1024,24 @@ export interface AtomicCommandErrorEnvelope {
 export type AtomicCommandResult<T> = AtomicCommandSuccessEnvelope<T> | AtomicCommandErrorEnvelope;
 
 /** Bounded native timing sample used only by local performance diagnostics. */
+export type NativePrimeTowerProjectionStage =
+  | 'session_preparation'
+  | 'bounds_scan'
+  | 'effective_config_construction'
+  | 'plate_local_model_construction'
+  | 'used_slot_scan'
+  | 'printable_height_bounds_scan'
+  | 'print_apply_wipe_tower_data'
+  | 'footprint_bands_projection_json'
+  | 'final_json_serialization'
+  | 'final_json_copy'
+  | 'total';
+
 export interface NativePerformanceSample {
   readonly operation: string;
   readonly stagesMs: Readonly<Record<string, number>>;
+  /** Present only for the prime-tower projection sample; array index is the native plate index. */
+  readonly perPlateStagesMs?: readonly Readonly<Record<string, number>>[];
 }
 
 /** Drains the bounded native diagnostic ring without retaining model data. */

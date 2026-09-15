@@ -71,6 +71,18 @@ function normalizeModelTransform(raw: unknown): ModelTransform | undefined {
 function normalizeNativePerformanceProfile(raw: unknown): NativePerformanceProfile {
   if (!isRecord(raw) || raw.version !== 1 || !Array.isArray(raw.samples))
     throw new Error('invalid native performance profile');
+  if (raw.samples.length > 16) throw new Error('invalid native performance profile sample count');
+  const aggregateStages = [
+    'session_preparation', 'bounds_scan', 'effective_config_construction',
+    'plate_local_model_construction', 'used_slot_scan', 'printable_height_bounds_scan',
+    'print_apply_wipe_tower_data', 'footprint_bands_projection_json',
+    'final_json_serialization', 'final_json_copy', 'total',
+  ];
+  const plateStages = [
+    'effective_config_construction', 'plate_local_model_construction', 'used_slot_scan',
+    'printable_height_bounds_scan', 'print_apply_wipe_tower_data',
+    'footprint_bands_projection_json', 'total',
+  ];
   const samples = raw.samples.map((sample): NativePerformanceProfile['samples'][number] => {
     if (!isRecord(sample) || typeof sample.operation !== 'string' || !isRecord(sample.stages_ms))
       throw new Error('invalid native performance sample');
@@ -80,9 +92,32 @@ function normalizeNativePerformanceProfile(raw: unknown): NativePerformanceProfi
         throw new Error('invalid native performance stage');
       stagesMs[stage] = value;
     }
+    if (sample.operation === 'prime_tower_projection') {
+      if (!sameKeys(stagesMs, aggregateStages) || !Array.isArray(sample.per_plate_stages_ms))
+        throw new Error('invalid prime tower performance stages');
+      const perPlateStagesMs = sample.per_plate_stages_ms.map((plate) => {
+        if (!isRecord(plate)) throw new Error('invalid prime tower performance plate stages');
+        const normalized: Record<string, number> = {};
+        for (const [stage, value] of Object.entries(plate)) {
+          if (typeof value !== 'number' || !Number.isFinite(value) || value < 0)
+            throw new Error('invalid prime tower performance plate stage');
+          normalized[stage] = value;
+        }
+        if (!sameKeys(normalized, plateStages)) throw new Error('invalid prime tower performance plate stages');
+        return normalized;
+      });
+      return { operation: sample.operation, stagesMs, perPlateStagesMs };
+    }
+    if (sample.per_plate_stages_ms !== undefined)
+      throw new Error('invalid native performance sample');
     return { operation: sample.operation, stagesMs };
   });
   return { version: 1, samples };
+}
+
+function sameKeys(record: Record<string, unknown>, expected: readonly string[]): boolean {
+  const actual = Object.keys(record).sort();
+  return actual.length === expected.length && actual.every((key, index) => key === [...expected].sort()[index]);
 }
 
 function normalizeConfigurationStatus(raw: unknown, allowReady: boolean): ConfigurationStatus | null {

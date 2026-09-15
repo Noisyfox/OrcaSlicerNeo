@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { performance } from 'node:perf_hooks';
 
 type Timing = { count: number; totalMs: number; lastMs: number };
-type Layer = { mutation: Timing; restore: Timing; directRestore: Timing; fullRestore: Timing };
+type Layer = { mutation: Timing; restore: Timing; directRestore: Timing; fullRestore: Timing;
+  reads?: { primeTowerProjection: Timing } };
 type Diagnostics = { worker: Layer | null; client: Layer | null; app: Layer & {
   queue: Timing; projection: Timing; fullRestoreModelReloads: number;
   transformReceiptApplied: number; transformReceiptFallbacks: number;
@@ -17,7 +18,7 @@ type Diagnostics = { worker: Layer | null; client: Layer | null; app: Layer & {
   primeTowerProjectionRead: Timing; primeTowerSetProjection: Timing;
   primeTowerReconcile: Timing; primeTowerEmit: Timing;
 } };
-type NativeSample = { operation: string; stagesMs: Record<string, number> };
+type NativeSample = { operation: string; stagesMs: Record<string, number>; perPlateStagesMs?: Array<Record<string, number>> };
 type NativeProfile = { version: 1; samples: NativeSample[] };
 type ProjectLoadEvidence = {
   receipt: {
@@ -327,18 +328,52 @@ test('profiles a real object move through the visible Undo Move boundary', async
 
     const undoAfter = await readDiagnostics();
     if (!undoAfter?.worker || !undoAfter.client) throw new Error('history diagnostics disappeared during Undo Move');
+    expect(undoAfter.worker.reads?.primeTowerProjection.count)
+      .toBe((undoBefore.worker!.reads?.primeTowerProjection.count ?? 0) + 1);
+    expect(undoAfter.client.reads?.primeTowerProjection.count)
+      .toBe((undoBefore.client!.reads?.primeTowerProjection.count ?? 0) + 1);
     const restoreNative = await takeNativeProfile();
     const restoreSamples = restoreNative.samples.filter((sample) => sample.operation === 'history_restore');
-    expect(restoreNative.samples.map((sample) => sample.operation)).toEqual(['history_restore']);
+    const projectionSamples = restoreNative.samples.filter((sample) => sample.operation === 'prime_tower_projection');
+    expect(restoreNative.samples.map((sample) => sample.operation)).toEqual(['history_restore', 'prime_tower_projection']);
     expect(restoreSamples).toHaveLength(1);
+    expect(projectionSamples).toHaveLength(1);
     const restoreStageNames = ['delta_apply', 'total'];
     expect(Object.keys(restoreSamples[0].stagesMs).sort()).toEqual([...restoreStageNames].sort());
     expect(restoreStageNames.every((stage) => Number.isFinite(restoreSamples[0].stagesMs[stage]) &&
       restoreSamples[0].stagesMs[stage] >= 0)).toBe(true);
     expect(restoreSamples[0].stagesMs.total).toBeGreaterThanOrEqual(Math.max(...restoreStageNames
       .filter((stage) => stage !== 'total').map((stage) => restoreSamples[0].stagesMs[stage])));
+    const projectionStageNames = [
+      'session_preparation', 'bounds_scan', 'effective_config_construction',
+      'plate_local_model_construction', 'used_slot_scan', 'printable_height_bounds_scan',
+      'print_apply_wipe_tower_data', 'footprint_bands_projection_json',
+      'final_json_serialization', 'final_json_copy', 'total',
+    ];
+    const projectionPlateStageNames = [
+      'effective_config_construction', 'plate_local_model_construction', 'used_slot_scan',
+      'printable_height_bounds_scan', 'print_apply_wipe_tower_data',
+      'footprint_bands_projection_json', 'total',
+    ];
+    const projection = projectionSamples[0];
+    expect(Object.keys(projection.stagesMs).sort()).toEqual([...projectionStageNames].sort());
+    expect(projection.perPlateStagesMs).toHaveLength(plateCount);
+    for (const plateStages of projection.perPlateStagesMs!) {
+      expect(Object.keys(plateStages).sort()).toEqual([...projectionPlateStageNames].sort());
+      expect(Object.values(plateStages).every((value) => Number.isFinite(value) && value >= 0)).toBe(true);
+      expect(plateStages.total).toBeGreaterThanOrEqual(Math.max(...projectionPlateStageNames
+        .filter((stage) => stage !== 'total').map((stage) => plateStages[stage])));
+    }
+    expect(Object.values(projection.stagesMs).every((value) => Number.isFinite(value) && value >= 0)).toBe(true);
+    expect(projection.stagesMs.total).toBeGreaterThanOrEqual(Math.max(...projectionStageNames
+      .filter((stage) => stage !== 'total').map((stage) => projection.stagesMs[stage])));
+    expect(projection).not.toHaveProperty('plateIds');
     const restoreWorkerMs = delta(undoBefore.worker!.fullRestore, undoAfter.worker.fullRestore, 'Worker Undo restore');
     const restoreClientMs = delta(undoBefore.client!.fullRestore, undoAfter.client.fullRestore, 'client Undo restore');
+    const restoreWorkerProjectionReadMs = delta(undoBefore.worker!.reads!.primeTowerProjection,
+      undoAfter.worker.reads!.primeTowerProjection, 'Worker Prime Tower projection read');
+    const restoreClientProjectionReadMs = delta(undoBefore.client!.reads!.primeTowerProjection,
+      undoAfter.client.reads!.primeTowerProjection, 'client Prime Tower projection read');
     const restoreAppMs = delta(undoBefore.app.fullRestore, undoAfter.app.fullRestore, 'application Undo restore');
     const restoreProjectionMs = delta(undoBefore.app.projection, undoAfter.app.projection, 'application Undo publication');
     const restoreNativeMs = restoreSamples[0].stagesMs.total;
@@ -362,10 +397,14 @@ test('profiles a real object move through the visible Undo Move boundary', async
       applicationPublicationMs: restoreProjectionMs,
       clientRestoreMs: restoreClientMs,
       workerRestoreMs: restoreWorkerMs,
+      clientPrimeTowerProjectionReadMs: restoreClientProjectionReadMs,
+      workerPrimeTowerProjectionReadMs: restoreWorkerProjectionReadMs,
       nativeInstrumentedTotalMs: restoreNativeMs,
       rendererToWorkerTransportAndClientJsResidualMs: restoreClientMs - restoreWorkerMs,
       workerJsAndUninstrumentedNativeResidualMs: restoreWorkerMs - restoreNativeMs,
       nativeStages: restoreSamples[0].stagesMs,
+      primeTowerProjectionStages: projection.stagesMs,
+      primeTowerProjectionPerPlateStages: projection.perPlateStagesMs,
       transformReceiptProof: {
         failures: undoAfter.app.transformReceiptProofFailures,
         lastFailure: undoAfter.app.transformReceiptProofLastFailure,

@@ -2,9 +2,9 @@
 
 Date: 2026-09-14
 Status: Implemented with object/mesh reuse, Add Plate delta history, sparse
-Move delta history, renderer-local adjacent Move restore projection, and
-validated retained plate/session delta publication and narrow wipe-tower
-projection refresh
+Move delta history, renderer-local adjacent Move restore projection, validated
+retained plate/session delta publication and narrow wipe-tower projection
+refresh, plus bounded Prime Tower projection profiling
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
 ## Problem
@@ -176,11 +176,54 @@ isolated narrow tower projection delta; fallback coverage verifies that
 malformed/stale or ambiguous session/receipt values take the authoritative
 projection path.
 
+## Prime Tower Projection Profile: Post-Undo Read
+
+The profiling-only native contract now records one bounded, drain-on-read
+`prime_tower_projection` sample for the narrow projection read. Its aggregate
+`stages_ms` contains session preparation, printer bounds, the six plate-local
+stages, final JSON serialization/copy, and the ABI `total`. Its
+`per_plate_stages_ms` array is indexed only by native plate index and contains
+the plate-local stages plus `total`; it contains no plate IDs, project names,
+model data, or mesh bytes. The client normalizer requires these exact stage
+sets, rejects extra or missing stages, and bounds the profile ring at 16
+samples.
+
+The latest real threaded-WASM post-Undo sample on the exact u1 fixture (11
+plates; 45,586,816-byte `OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf`),
+captured after draining the settled pre-Undo baseline, measured (milliseconds):
+
+| Native aggregate stage | Time |
+| --- | ---: |
+| Session preparation | 0.00 |
+| Printer bounds scan | 0.00 |
+| Effective config construction (sum of plates) | 19.09 |
+| Plate-local model construction (sum of plates) | 11.26 |
+| Used-slot scan (sum of plates) | 357.42 |
+| Printable/height/bounds scan (sum of plates) | 9.00 |
+| `Print.apply` + `wipe_tower_data` (sum of plates) | 76.63 |
+| Footprint/bands projection JSON (sum of plates) | 0.85 |
+| Final JSON serialization | 0.08 |
+| Final JSON copy | 0.00 |
+| Native ABI total | 475.41 |
+
+The slowest indexed plate-local samples were plate index 9 at 192.64 ms
+(161.05 ms used-slot scan and 24.60 ms Print/wipe data) and plate index 0 at
+34.15 ms. These are measured facts from one run, not optimization claims. The
+current optimization hypotheses are that the repeated used-slot scans and the
+per-plate Print/wipe data construction deserve investigation first; no
+semantic change or optimization is included in this profiling step. The same
+post-Undo run measured 556.03 ms click-to-restored-projection, 480.44 ms
+application publication, 9.97 ms client restore, 9.45 ms Worker restore,
+475.95 ms client projection round-trip, 475.74 ms Worker projection dispatch,
+and 0.52 ms renderer-to-Worker/client-JS residual around the read.
+
 ## Verification
 
-- `pnpm --filter @orca/slicer-wasm test` — 143 tests passed.
+- `pnpm --filter @orca/slicer-wasm test` — 148 tests passed.
 - `pnpm --filter @orca/slicer-wasm typecheck` — passed.
-- `pnpm --filter @orca/slicer-app test` — 558 tests passed.
+- `pnpm --filter @orca/desktop test` — 67 tests passed.
+- `pnpm --filter @orca/desktop typecheck` — passed.
+- `pnpm --filter @orca/slicer-app test` — 571 tests passed.
 - `pnpm --filter @orca/slicer-app typecheck` — passed.
 - `cmd /c scripts\build-windows.bat quick --variant both` — threaded and
   serial WASM artifacts built and validated.
@@ -197,8 +240,10 @@ projection path.
   `pnpm exec playwright test e2e/object-move-history-profile.e2e.ts -g
   "profiles a real object move"` from `apps/desktop` — passed; it verifies
   the real receipt, canvas drag, consumed Undo/visible enabled Redo fence,
-  restored renderer projection, and sparse native `delta_record`/
-  `delta_apply` stages without full native staging.
+  restored renderer projection, Worker/client read boundaries, and the exact
+  scalar native `prime_tower_projection` aggregate/per-plate stage schema
+  alongside sparse native `delta_record`/`delta_apply` stages without full
+  native staging.
 - `git diff --check` — passed.
 
 Do not treat a build under `packages/slicer-wasm/.work` or

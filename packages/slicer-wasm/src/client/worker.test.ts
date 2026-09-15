@@ -27,6 +27,28 @@ function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | 
 }
 
 describe('worker protocol', () => {
+  it('round-trips the scalar Prime Tower performance profile without plate identifiers', async () => {
+    const module = createMockModule({ nativePerformanceProfile: {
+      version: 1,
+      samples: [{ operation: 'prime_tower_projection', stages_ms: {
+        session_preparation: 0, bounds_scan: 0, effective_config_construction: 0,
+        plate_local_model_construction: 0, used_slot_scan: 0, printable_height_bounds_scan: 0,
+        print_apply_wipe_tower_data: 0, footprint_bands_projection_json: 0,
+        final_json_serialization: 0, final_json_copy: 0, total: 0,
+      }, per_plate_stages_ms: [{
+        effective_config_construction: 0, plate_local_model_construction: 0,
+        used_slot_scan: 0, printable_height_bounds_scan: 0,
+        print_apply_wipe_tower_data: 0, footprint_bands_projection_json: 0, total: 0,
+      }] }],
+    } });
+    const channel = new Channel();
+    const workerClient = createWorkerClient(channel);
+    void startWorker(async () => module, (msg, transfer) => channel.post(msg, transfer), (fn) => channel.onMessage(fn));
+    const profile = await workerClient.takeNativePerformanceProfile!();
+    expect(profile.samples[0]).toMatchObject({ operation: 'prime_tower_projection', perPlateStagesMs: [{}] });
+    expect(profile.samples[0]).not.toHaveProperty('plateIds');
+  });
+
   it('round-trips init through the message channel', async () => {
     const { workerClient } = setup();
     const r = await workerClient.init();

@@ -13,6 +13,34 @@ function makeClient() {
 }
 
 describe('SlicerClient bridge contract', () => {
+  it('normalizes the strict scalar native Prime Tower profile schema', async () => {
+    const aggregateStages = {
+      session_preparation: 0.1, bounds_scan: 0.2, effective_config_construction: 1,
+      plate_local_model_construction: 2, used_slot_scan: 3, printable_height_bounds_scan: 4,
+      print_apply_wipe_tower_data: 5, footprint_bands_projection_json: 6,
+      final_json_serialization: 0.7, final_json_copy: 0.8, total: 23.8,
+    };
+    const plateStages = {
+      effective_config_construction: 0.1, plate_local_model_construction: 0.2,
+      used_slot_scan: 0.3, printable_height_bounds_scan: 0.4,
+      print_apply_wipe_tower_data: 0.5, footprint_bands_projection_json: 0.6, total: 2.1,
+    };
+    const profile = await createClient(async () => createMockModule({ nativePerformanceProfile: {
+      version: 1, samples: [{ operation: 'prime_tower_projection', stages_ms: aggregateStages,
+        per_plate_stages_ms: [plateStages, plateStages] }],
+    } })).takeNativePerformanceProfile!();
+    expect(profile).toEqual({ version: 1, samples: [{ operation: 'prime_tower_projection',
+      stagesMs: aggregateStages, perPlateStagesMs: [plateStages, plateStages] }] });
+  });
+
+  it('rejects malformed Prime Tower native profile stage shape', async () => {
+    const profile = { version: 1, samples: [{ operation: 'prime_tower_projection', stages_ms: {
+      total: 1,
+    }, per_plate_stages_ms: [] }] };
+    await expect(createClient(async () => createMockModule({ nativePerformanceProfile: profile }))
+      .takeNativePerformanceProfile!()).rejects.toThrow('invalid prime tower performance stages');
+  });
+
   it('keeps disabled prime towers non-empty while clearing eligibility', async () => {
     const module = createMockModule({ primeTowerFixture: true });
     const c = createClient(async () => module);

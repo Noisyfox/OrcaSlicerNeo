@@ -20,6 +20,7 @@
 
 #include "bridge_filament.hpp"
 #include "bridge_history.hpp"
+#include "bridge_performance.hpp"
 #include "bridge_plate.hpp"
 #include "bridge_project_overlay.hpp"
 #include "bridge_state.hpp"
@@ -154,6 +155,32 @@ using Neo::Bridge::PlateSession::PlateBounds;
 
 constexpr double kVisibleHeight = 0.1;
 constexpr double kBandOpacity = 0.66;
+
+struct ProjectionPlateTimings {
+    double effective_config_construction_ms { 0. };
+    double plate_local_model_construction_ms { 0. };
+    double used_slot_scan_ms { 0. };
+    double printable_height_bounds_scan_ms { 0. };
+    double print_apply_wipe_tower_data_ms { 0. };
+    double footprint_bands_projection_json_ms { 0. };
+    double total_ms { 0. };
+};
+
+struct ProjectionTimings {
+    double session_preparation_ms { 0. };
+    double bounds_scan_ms { 0. };
+    std::vector<ProjectionPlateTimings> per_plate;
+};
+
+class ScopedTiming {
+public:
+    explicit ScopedTiming(double& destination) : m_destination(destination), m_started_at(Neo::Bridge::Performance::now_ms()) {}
+    ~ScopedTiming() { m_destination += Neo::Bridge::Performance::now_ms() - m_started_at; }
+
+private:
+    double& m_destination;
+    double m_started_at;
+};
 
 bool read_colour(const std::string& value, unsigned& r, unsigned& g, unsigned& b)
 {
@@ -325,22 +352,38 @@ struct Placement {
 };
 
 Placement placement_for(const DynamicPrintConfig& config, const Model* model,
-                        std::size_t slot_count, int plate_index)
+                        std::size_t slot_count, int plate_index,
+                        ProjectionPlateTimings* timings = nullptr)
 {
     Placement placement;
     placement.width = std::max(2., config.opt_float("prime_tower_width"));
-    placement.height = model == nullptr ? kVisibleHeight : model_height(*model);
+    if (model != nullptr) {
+        if (timings != nullptr) {
+            ScopedTiming timer(timings->printable_height_bounds_scan_ms);
+            placement.height = model_height(*model);
+        } else {
+            placement.height = model_height(*model);
+        }
+    }
     placement.brim = config.opt_float("prime_tower_brim_width");
     if (model != nullptr) {
-        Print native_print;
-        (void)native_print.apply(*model, config);
-        const auto& data = native_print.wipe_tower_data(slot_count);
-        placement.depth = data.depth;
-        if (placement.brim < 0.)
-            placement.brim = WipeTower::get_auto_brim_by_height(static_cast<float>(placement.height));
-        if (data.brim_width >= 0.) placement.brim = data.brim_width;
-        if (config.opt_enum<WipeTowerWallType>("wipe_tower_wall_type") == WipeTowerWallType::wtwRib)
-            placement.width = placement.depth;
+        const auto apply_print = [&]() {
+            Print native_print;
+            (void)native_print.apply(*model, config);
+            const auto& data = native_print.wipe_tower_data(slot_count);
+            placement.depth = data.depth;
+            if (placement.brim < 0.)
+                placement.brim = WipeTower::get_auto_brim_by_height(static_cast<float>(placement.height));
+            if (data.brim_width >= 0.) placement.brim = data.brim_width;
+            if (config.opt_enum<WipeTowerWallType>("wipe_tower_wall_type") == WipeTowerWallType::wtwRib)
+                placement.width = placement.depth;
+        };
+        if (timings != nullptr) {
+            ScopedTiming timer(timings->print_apply_wipe_tower_data_ms);
+            apply_print();
+        } else {
+            apply_print();
+        }
     }
     placement.rotation = config.opt_float("wipe_tower_rotation_angle");
     const double radians = placement.rotation * M_PI / 180.;
@@ -390,15 +433,35 @@ double clamp_axis(const double requested, const double min_offset, const double 
 }
 
 json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
-                          const PlateBounds& bounds, std::size_t index)
+                          const PlateBounds& bounds, std::size_t index,
+                          ProjectionPlateTimings* timings = nullptr)
 {
-    const DynamicPrintConfig config = effective_config(plate);
+    const double plate_started_at = Neo::Bridge::Performance::now_ms();
+    DynamicPrintConfig config;
+    if (timings != nullptr) {
+        ScopedTiming timer(timings->effective_config_construction_ms);
+        config = effective_config(plate);
+    } else {
+        config = effective_config(plate);
+    }
     const auto colours = config.opt<ConfigOptionStrings>("filament_colour");
     const std::size_t slot_count = state().presets.filament_presets.size();
     std::string model_error;
-    const auto model = make_current_plate_model(plate, model_error);
+    std::optional<Model> model;
+    if (timings != nullptr) {
+        ScopedTiming timer(timings->plate_local_model_construction_ms);
+        model = make_current_plate_model(plate, model_error);
+    } else {
+        model = make_current_plate_model(plate, model_error);
+    }
     const bool empty = !model.has_value();
-    const auto slots = model ? used_slots(*model, config, slot_count, static_cast<int>(plate.display_index)) : std::vector<int>{};
+    std::vector<int> slots;
+    if (timings != nullptr) {
+        ScopedTiming timer(timings->used_slot_scan_ms);
+        slots = model ? used_slots(*model, config, slot_count, static_cast<int>(plate.display_index)) : std::vector<int>{};
+    } else {
+        slots = model ? used_slots(*model, config, slot_count, static_cast<int>(plate.display_index)) : std::vector<int>{};
+    }
     const bool smooth = config.opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlSmooth;
     const auto* wrapping = config.opt<ConfigOptionBool>("enable_wrapping_detection");
     const auto* wrapping_area = config.opt<ConfigOptionPoints>("wrapping_exclude_area");
@@ -407,7 +470,15 @@ json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
     const bool by_object = config.opt_enum<PrintSequence>("print_sequence") == PrintSequence::ByObject;
     const bool enabled = config.opt_bool("enable_prime_tower");
     std::size_t printable_instances = 0;
-    if (model) {
+    if (timings != nullptr) {
+        ScopedTiming timer(timings->printable_height_bounds_scan_ms);
+        if (model) {
+            for (const ModelObject* object : model->objects)
+                if (object != nullptr)
+                    printable_instances += static_cast<std::size_t>(std::count_if(object->instances.begin(), object->instances.end(),
+                        [](const ModelInstance* instance) { return instance != nullptr && instance->is_printable(); }));
+        }
+    } else if (model) {
         for (const ModelObject* object : model->objects)
             if (object != nullptr)
                 printable_instances += static_cast<std::size_t>(std::count_if(object->instances.begin(), object->instances.end(),
@@ -417,7 +488,7 @@ json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
         (!by_object || printable_instances == 1);
 
     const Placement placement = placement_for(config, model ? &*model : nullptr,
-                                              slots.size(), static_cast<int>(plate.display_index));
+                                              slots.size(), static_cast<int>(plate.display_index), timings);
     const double width = placement.width;
     const double depth = placement.depth;
     const double height = placement.height;
@@ -425,6 +496,8 @@ json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
     const double x = indexed_float(config, "wipe_tower_x", index, 15.);
     const double y = indexed_float(config, "wipe_tower_y", index, 220.);
     const double rotation = placement.rotation;
+    std::optional<ScopedTiming> footprint_timer;
+    if (timings != nullptr) footprint_timer.emplace(timings->footprint_bands_projection_json_ms);
     const json footprint = placement_footprint(placement, x, y);
     const bool outside_boundary = eligible &&
         (footprint["min_x"].get<double>() < bounds.min_x || footprint["max_x"].get<double>() > bounds.max_x ||
@@ -439,7 +512,7 @@ json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
                          {"end_depth", (band + 1) * band_depth},
                          {"colour", adjusted_colour(source)}, {"opacity", kBandOpacity}});
     }
-    return {{"plate_id", plate.id}, {"display_index", plate.display_index},
+    const json result = {{"plate_id", plate.id}, {"display_index", plate.display_index},
             {"eligible", eligible}, {"empty", empty}, {"forced", forced},
             {"used_slots", slots}, {"width", eligible ? width : 0.},
             {"depth", eligible ? depth : 0.}, {"height", eligible ? height : 0.},
@@ -451,21 +524,42 @@ json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
             {"build_area", {{"min_x", bounds.min_x}, {"max_x", bounds.max_x},
                              {"min_y", bounds.min_y}, {"max_y", bounds.max_y},
                              {"max_z", bounds.max_z}}}};
+    if (footprint_timer) footprint_timer.reset();
+    if (timings != nullptr) timings->total_ms = Neo::Bridge::Performance::now_ms() - plate_started_at;
+    return result;
 }
 
 } // namespace
 
-json projection_json()
+json projection_json(ProjectionTimings* timings)
 {
-    ensure_plate_session_state();
-    const auto bounds = selected_plate_bounds();
+    if (timings != nullptr) {
+        ScopedTiming timer(timings->session_preparation_ms);
+        ensure_plate_session_state();
+    } else {
+        ensure_plate_session_state();
+    }
+    PlateBounds bounds;
+    if (timings != nullptr) {
+        ScopedTiming timer(timings->bounds_scan_ms);
+        bounds = selected_plate_bounds();
+    } else {
+        bounds = selected_plate_bounds();
+    }
     json plates = json::array();
+    if (timings != nullptr) timings->per_plate.resize(state().plate_session_plates.size());
     for (std::size_t index = 0; index < state().plate_session_plates.size(); ++index)
-        plates.push_back(projection_for_plate(state().plate_session_plates[index], bounds, index));
+        plates.push_back(projection_for_plate(state().plate_session_plates[index], bounds, index,
+                                              timings != nullptr ? &timings->per_plate[index] : nullptr));
     return {{"ok", true}, {"version", 1}, {"current_plate_id", state().current_plate_id},
             {"build_area", {{"min_x", bounds.min_x}, {"max_x", bounds.max_x},
                              {"min_y", bounds.min_y}, {"max_y", bounds.max_y},
                              {"max_z", bounds.max_z}}}, {"plates", std::move(plates)}};
+}
+
+json projection_json()
+{
+    return projection_json(nullptr);
 }
 
 bool normalize_coordinate_positions()
@@ -810,8 +904,54 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
 {
     try {
-        return Slic3r::Neo::Bridge::PrimeTower::duplicate_json(
-            Slic3r::Neo::Bridge::PrimeTower::projection_json().dump());
+        const double started_at = Slic3r::Neo::Bridge::Performance::now_ms();
+        Slic3r::Neo::Bridge::PrimeTower::ProjectionTimings timings;
+        const auto result = Slic3r::Neo::Bridge::PrimeTower::projection_json(&timings);
+        const double serialization_started_at = Slic3r::Neo::Bridge::Performance::now_ms();
+        const std::string text = result.dump();
+        const double copy_started_at = Slic3r::Neo::Bridge::Performance::now_ms();
+        const char* response = Slic3r::Neo::Bridge::PrimeTower::duplicate_json(text);
+        const double finished_at = Slic3r::Neo::Bridge::Performance::now_ms();
+        double effective_config_ms = 0.;
+        double plate_model_ms = 0.;
+        double used_slots_ms = 0.;
+        double printable_height_bounds_ms = 0.;
+        double print_apply_ms = 0.;
+        double footprint_bands_ms = 0.;
+        Slic3r::Neo::Bridge::Performance::Timings aggregate{
+            {"session_preparation", timings.session_preparation_ms},
+            {"bounds_scan", timings.bounds_scan_ms},
+        };
+        Slic3r::Neo::Bridge::Performance::PerPlateTimings per_plate;
+        per_plate.reserve(timings.per_plate.size());
+        for (const auto& plate : timings.per_plate) {
+            effective_config_ms += plate.effective_config_construction_ms;
+            plate_model_ms += plate.plate_local_model_construction_ms;
+            used_slots_ms += plate.used_slot_scan_ms;
+            printable_height_bounds_ms += plate.printable_height_bounds_scan_ms;
+            print_apply_ms += plate.print_apply_wipe_tower_data_ms;
+            footprint_bands_ms += plate.footprint_bands_projection_json_ms;
+            per_plate.push_back({
+                {"effective_config_construction", plate.effective_config_construction_ms},
+                {"plate_local_model_construction", plate.plate_local_model_construction_ms},
+                {"used_slot_scan", plate.used_slot_scan_ms},
+                {"printable_height_bounds_scan", plate.printable_height_bounds_scan_ms},
+                {"print_apply_wipe_tower_data", plate.print_apply_wipe_tower_data_ms},
+                {"footprint_bands_projection_json", plate.footprint_bands_projection_json_ms},
+                {"total", plate.total_ms},
+            });
+        }
+        aggregate.emplace_back("effective_config_construction", effective_config_ms);
+        aggregate.emplace_back("plate_local_model_construction", plate_model_ms);
+        aggregate.emplace_back("used_slot_scan", used_slots_ms);
+        aggregate.emplace_back("printable_height_bounds_scan", printable_height_bounds_ms);
+        aggregate.emplace_back("print_apply_wipe_tower_data", print_apply_ms);
+        aggregate.emplace_back("footprint_bands_projection_json", footprint_bands_ms);
+        aggregate.emplace_back("final_json_serialization", copy_started_at - serialization_started_at);
+        aggregate.emplace_back("final_json_copy", finished_at - copy_started_at);
+        aggregate.emplace_back("total", finished_at - started_at);
+        Slic3r::Neo::Bridge::Performance::record("prime_tower_projection", std::move(aggregate), std::move(per_plate));
+        return response;
     } catch (const std::exception& e) {
         return Slic3r::Neo::Bridge::PrimeTower::duplicate_json(
             nlohmann::json{{"ok", false}, {"version", 1}, {"error", e.what()}}.dump());

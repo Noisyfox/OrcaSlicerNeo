@@ -15,12 +15,23 @@ double now_ms()
     return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
 }
 
-void record(std::string operation, Timings timings)
+void record(std::string operation, Timings timings, PerPlateTimings per_plate)
 {
     nlohmann::json stages = nlohmann::json::object();
     for (const auto& [name, duration_ms] : timings)
         stages[name] = duration_ms < 0.0 ? 0.0 : duration_ms;
-    samples.push_back({{"operation", std::move(operation)}, {"stages_ms", std::move(stages)}});
+    nlohmann::json sample{{"operation", std::move(operation)}, {"stages_ms", std::move(stages)}};
+    if (!per_plate.empty()) {
+        nlohmann::json plates = nlohmann::json::array();
+        for (const auto& plate_timings : per_plate) {
+            nlohmann::json plate = nlohmann::json::object();
+            for (const auto& [name, duration_ms] : plate_timings)
+                plate[name] = duration_ms < 0.0 ? 0.0 : duration_ms;
+            plates.push_back(std::move(plate));
+        }
+        sample["per_plate_stages_ms"] = std::move(plates);
+    }
+    samples.push_back(std::move(sample));
     if (samples.size() > kMaxSamples) samples.erase(samples.begin());
 }
 
