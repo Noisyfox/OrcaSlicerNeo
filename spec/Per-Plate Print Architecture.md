@@ -970,6 +970,10 @@ time alone is insufficient.
 
 ## 3. Constraints Carried Forward
 
+- This refactor targets FFF only. It introduces no SLA compatibility,
+  migration, fallback, or partial per-plate Print path; all registry, Slice,
+  result, profile, and acceptance requirements in this document are FFF
+  requirements.
 - The React application continues to use the typed runtime/client boundary;
   only `packages/slicer-wasm/src/client` talks to Emscripten directly.
 - The Worker remains the owner of model, plate, print, history, and derived
