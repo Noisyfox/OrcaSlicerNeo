@@ -334,6 +334,38 @@ after `Print::apply()` does not read or mutate the authoritative model,
 PresetBundle, or plate registry. This is a mandatory delivery gate, not a
 fallback to serial locking for threaded builds.
 
+### 2.15.1 Thread budget and generic asynchronous task identity
+
+Threaded Neo keeps the production pthread pool at
+`navigator.hardwareConcurrency`. The dedicated job pthread participates in the
+same TBB arena as `Print::process()`; it does not reserve a speculative extra
+`+1` worker. The stateful Worker never runs TBB work while a job is active: it
+remains available for mutations, stamps, cancellation, and progress control.
+The actual pool/arena sizing is a measured build decision, not a guessed one.
+The threaded acceptance build must prove no pool starvation or deadlock, at
+least two effective TBB threads on a multicore host, and the required 100 ms
+edit-plus-Undo response while slicing.
+
+Every asynchronous task receives an `AsyncTaskId` from one global runtime
+generator, rather than from a slice-specific epoch. The ID is a non-reused,
+monotonic 64-bit value for one WASM session; it is transmitted through JSON as
+a decimal string and through a shared-memory mailbox as seqlock-protected
+high/low `uint32` fields. It is not serialized into a project file.
+
+Each task record contains `task_id`, `kind`, lifecycle state, and task-specific
+context. Slice records additionally carry `plate_id` and the runtime-entry
+incarnation; `slice-input stamp` remains a separate result-publication
+validity test. The initial kinds are `slice` and `project-load`; the generator
+and task-message envelope are intentionally shared by later asynchronous
+operations such as export or analysis.
+
+Threaded progress messages include the full task identity. A writer may update
+the foreground mailbox only while its task is still active, and the runtime
+renders a progress update only when its `task_id`, kind, plate identity, and
+entry incarnation match the active task record. A task-terminal bridge event,
+not a mailbox update, is authoritative for completion, cancellation, and
+result publication.
+
 ### 2.16 One global job; explicit Slice replaces it
 
 Neo permits at most one active slice job across all plates, in both wasm
@@ -394,6 +426,10 @@ must prove no use-after-free and no result publication. A second case must Undo
 the deletion before the old job terminates and prove the restored live entry is
 a distinct incarnation; only the old tombstone is released at the old job's
 terminal state.
+
+The threaded task-message test must prove global `AsyncTaskId` non-reuse and
+that a late progress message for a cancelled/replaced task cannot update the
+new active task's progress or terminal status.
 
 ## 3. Constraints Carried Forward
 
