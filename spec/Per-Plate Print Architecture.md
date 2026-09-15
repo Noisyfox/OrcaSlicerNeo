@@ -2,9 +2,7 @@
 
 **Date:** 2026-09-15
 
-**Status:** Draft — accepted decisions are recorded as each related discussion
-group closes. Implementation must not begin until this specification is
-approved as a whole.
+**Status:** Approved — implementation basis as of 2026-09-15.
 
 **Scope:** Replace Neo's single reusable `BridgeState::print` with a headless,
 per-plate print/result architecture equivalent in ownership and lifecycle to
