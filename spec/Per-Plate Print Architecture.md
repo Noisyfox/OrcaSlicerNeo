@@ -169,12 +169,16 @@ failed, or cancelled edit leaves the prior stamp and its valid result intact.
 It is distinct from result eviction: Neo still never discards a result whose
 completed stamp matches the current input stamp.
 
-Orca follows the same stale-result direction in
-`BackgroundSlicingProcess::apply()`: after an invalidating apply, it resets
-the active `GCodeProcessorResult` before a new output is available. Neo makes
-that ownership transition explicit and plate-local. Tests must prove a failed
-edit preserves the old valid result, whereas a successful local edit releases
-only the edited plate's result and its renderer projection.
+This intentionally differs from Orca's timing. Orca's
+`PartPlate::update_slice_result_valid_state(false)` only changes the plate
+validity flag; its non-current plate movement path leaves that plate's
+`GCodeProcessorResult` allocated. A later invalidating
+`BackgroundSlicingProcess::apply()` can reset the result once that Print is
+active. Neo releases it at the successful mutation boundary instead, because
+WASM/MEMFS result residency has a tighter memory cost and a stale result is
+never usable. Tests must prove a failed edit preserves the old valid result,
+whereas a successful local edit releases only the edited plate's result and
+its renderer projection.
 
 ### 2.6 Add Plate follows Orca's layout-change gate
 
