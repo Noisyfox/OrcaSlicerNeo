@@ -434,11 +434,16 @@ if(NEO_PROJECT_HISTORY_TEST)
     -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
     "${OCCT_ROOT}/lib/libfreetype.a"
   )
+  target_link_libraries(plate_runtime_registry_test PRIVATE
+    -Wl,--start-group ${OCCT_ARCHIVES} -Wl,--end-group
+    "${OCCT_ROOT}/lib/libfreetype.a"
+  )
 endif()
 if(WASM_THREADING)
   target_link_libraries(orca_slice PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
   if(NEO_PROJECT_HISTORY_TEST)
     target_link_libraries(history_mesh_capture_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
+    target_link_libraries(plate_runtime_registry_test PRIVATE "${TBB_ARCHIVE}" "${TBBMALLOC_ARCHIVE}")
   endif()
 endif()
 # Boost static archives (Emscripten-built wasm64, build-boost-wasm64.sh):
@@ -450,6 +455,7 @@ if(BOOST_ARCHIVES)
   target_link_libraries(orca_slice PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
   if(NEO_PROJECT_HISTORY_TEST)
     target_link_libraries(history_mesh_capture_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
+    target_link_libraries(plate_runtime_registry_test PRIVATE -Wl,--start-group ${BOOST_ARCHIVES} -Wl,--end-group)
   endif()
 endif()
 set_target_properties(orca_slice PROPERTIES OUTPUT_NAME "orca_slice" SUFFIX ".js")
