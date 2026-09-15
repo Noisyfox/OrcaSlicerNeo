@@ -447,6 +447,23 @@ This is the headless equivalent of Orca's background-process switch guard:
 Orca does not switch its active PartPlate Print until the background process
 can safely switch print context.
 
+### 2.11.1 Object deletion commits against the authoritative Model
+
+Deleting an object or instance commits immediately as one history-backed input
+mutation. The Worker updates membership, invalidates the affected plate or
+plates, advances their stamps, and releases their React presentation payloads.
+If the active slice captured any affected stamp, it requests asynchronous
+cancellation; its later terminal event may not publish.
+
+The deletion does not retain an authoritative-Model tombstone. `Print::apply()`
+is the linearization boundary: Worker commands serialize so the deletion either
+commits before apply and is included in the slice input, or commits after apply
+and the task reads only the Print-owned model snapshot. This follows Orca's
+`delete_object_from_model()` path, which cancels its worker, mutates the
+authoritative Model, and updates `PartPlateList` without waiting for processing
+to end. The existing retired Print tombstone remains exclusive to deletion of
+the active plate itself.
+
 ### 2.12 Renderer retains only the currently previewed plate projection
 
 The Worker retains every plate's native core cache under the no-eviction rule,
