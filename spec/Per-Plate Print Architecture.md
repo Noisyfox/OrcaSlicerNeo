@@ -173,6 +173,16 @@ matches Neo's current actual-load capability (its existing cancellation only
 discards an already-complete preflight token) while giving the post-close empty
 session one common outcome contract.
 
+The renderer observes the close before any new-project progress. After any
+old slice terminal has been drained, the Worker closes the old project and
+emits `project-closed` with the new session/incarnation. React immediately
+clears its scene, selection, plate/result/projection state, and history UI.
+Only then may the task stream emit `project-load` progress, followed by exactly
+one `project-loaded` or `project-load-failed` terminal. Parsing need not wait
+for a React acknowledgement, but FIFO delivery order makes `project-closed`
+visible before all new-load messages; failure leaves that empty presentation in
+place. This mirrors Orca's `reset()` refresh before `load_files()`.
+
 In serial wasm64, whole-project operations are restricted by the same runtime
 and bridge admission gates as Slice; they create no deferred project-replace
 queue. In threaded wasm64, the admitted whole-project replacement owns the
