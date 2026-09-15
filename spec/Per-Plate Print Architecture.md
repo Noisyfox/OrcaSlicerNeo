@@ -986,7 +986,10 @@ time alone is insufficient.
 - The previous sparse Move and Add Plate history receipts remain supported and
   follow the stamp, invalidation, and registry-reconciliation rules above.
 
-## 4. Open Decision Groups
+## 4. Decision Status
 
-1. Typed client/UI result switching, export targeting, progress, cancellation,
-   profiling, and acceptance gates.
+All high-impact groups for the first FFF delivery are closed: runtime
+ownership, input/configuration scope, project compatibility, history,
+plate-lifecycle scope, task cancellation, result transport, and real-project
+performance acceptance. The specification remains Draft until whole-spec
+approval; no implementation may begin before that approval.
