@@ -477,6 +477,20 @@ it; `unavailable` renders the target plate's needs-slicing state; only
 `failed` reports a bridge or allocation error. No result read throws merely
 because a concurrent edit, cancellation, or new Slice superseded its receipt.
 
+Each entry owns its `GCodeProcessorResult` and an exclusive MEMFS temporary
+G-code file, named by its stable plate ID and result generation. This mirrors
+Orca's per-`PartPlate` `GCodeResult` and temporary G-code path: valid results
+for multiple plates coexist, and Export/text paging read the target entry's
+file without rerunning `Print::export_gcode()`. The file is runtime-only and
+is never serialized into a project.
+
+Result generations are immutable after publication. Projection, text paging,
+and Export acquire a short result-generation lease. A successful replacement
+publishes its new generation atomically; the prior result and its temporary
+file remain only until their leases reach zero, then release. Deleting a plate
+with a live result lease uses the same tombstone rule. Input invalidation alone
+does not delete the retained core result or its G-code file.
+
 ### 2.13 Slice and Export target the selected current plate
 
 The primary Slice command applies and processes only the selected current
