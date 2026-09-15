@@ -653,11 +653,39 @@ historyCheck('locked plate state survives reorder Undo/Redo',
 // entries and their undo chain without materializing the model archive.
 historyCheck('return to three-plate baseline before add reflow profile',
   callJson('orc_history_undo', [], []).ok === true);
+const addNoReflowBefore = callJson('orc_get_plate_session_snapshot', [], []);
+const addNoReflowBeforeMesh = callJson('orc_get_model_mesh', [], []);
+const addNoReflowPlateIds = new Set(addNoReflowBefore.plates.map((plate) => plate.plate_id));
+const modelTransformState = (mesh) => (mesh.objects ?? []).map((object) => ({
+  object_idx: object.object_idx,
+  instance_transform: object.instance_transform,
+}));
 const addNoReflowTransaction = beginHistory('Add Plate');
 const addNoReflow = callJson('orc_add_plate', [], []);
 historyCheck('Add Plate no-reflow omits transform receipt',
   addNoReflow.ok === true && addNoReflow.plates.length === 4 &&
   (!Object.hasOwn(addNoReflow, 'instance_transforms') || addNoReflow.instance_transforms.length === 0),
+  JSON.stringify(addNoReflow));
+const addNoReflowStableBefore = {
+  plates: addNoReflowBefore.plates.filter((plate) => addNoReflowPlateIds.has(plate.plate_id)),
+  instances: addNoReflowBefore.instances,
+  input_revisions: Object.fromEntries([...addNoReflowPlateIds].map((id) => [id, addNoReflowBefore.input_revisions[id]])),
+};
+const addNoReflowStableAfter = {
+  plates: addNoReflow.plates.filter((plate) => addNoReflowPlateIds.has(plate.plate_id)),
+  instances: addNoReflow.instances,
+  input_revisions: Object.fromEntries([...addNoReflowPlateIds].map((id) => [id, addNoReflow.input_revisions[id]])),
+};
+historyCheck('Add Plate stable-origin gate preserves old state',
+  JSON.stringify(addNoReflowStableAfter) === JSON.stringify(addNoReflowStableBefore) &&
+  JSON.stringify(modelTransformState(callJson('orc_get_model_mesh', [], []))) ===
+    JSON.stringify(modelTransformState(addNoReflowBeforeMesh)) &&
+  Array.isArray(addNoReflow.affected_plate_ids) && addNoReflow.affected_plate_ids.length === 0,
+  JSON.stringify({ before: addNoReflowStableBefore, after: addNoReflowStableAfter, addNoReflow }));
+historyCheck('Add Plate creates a fresh zero-revision plate entry',
+  addNoReflow.plates.some((plate) => !addNoReflowPlateIds.has(plate.plate_id)) &&
+  addNoReflow.plates.filter((plate) => !addNoReflowPlateIds.has(plate.plate_id))
+    .every((plate) => addNoReflow.input_revisions[plate.plate_id] === 0),
   JSON.stringify(addNoReflow));
 const addNoReflowCommit = commitHistory('Add Plate no-reflow', addNoReflowTransaction);
 const addNoReflowProfile = callJson('orc_take_performance_profile', [], []);
@@ -669,11 +697,30 @@ historyCheck('Add Plate no-reflow profile omits model capture',
     .every((sample) => sample.stages_ms.capture_model_state === undefined &&
       typeof sample.stages_ms.delta_record === 'number'));
 const addReflowTransaction = beginHistory('Add Plate');
+const addReflowBefore = callJson('orc_get_plate_session_snapshot', [], []);
 const addReflow = callJson('orc_add_plate', [], []);
 historyCheck('Add Plate reflow records only moved instances',
   addReflow.ok === true && addReflow.plates.length === 5 &&
   Array.isArray(addReflow.instance_transforms) && addReflow.instance_transforms.length > 0,
   JSON.stringify(addReflow));
+const addReflowChanged = new Set(addReflow.affected_plate_ids ?? []);
+const addReflowOldIds = addReflowBefore.plates.map((plate) => plate.plate_id);
+const expectedAddReflowChanged = new Set(addReflowBefore.plates
+  .filter((beforePlate) => {
+    const afterPlate = addReflow.plates.find((plate) => plate.plate_id === beforePlate.plate_id);
+    return afterPlate !== undefined && afterPlate.origin.some((value, axis) => value !== beforePlate.origin[axis]);
+  })
+  .map((plate) => plate.plate_id));
+historyCheck('Add Plate reflow invalidates only origin-changed plates',
+  addReflowChanged.size === expectedAddReflowChanged.size &&
+  addReflow.affected_plate_ids?.length === expectedAddReflowChanged.size &&
+  [...expectedAddReflowChanged].every((id) => addReflowChanged.has(id)) &&
+  addReflowOldIds.every((id) => addReflow.input_revisions[id] ===
+    addReflowBefore.input_revisions[id] + (addReflowChanged.has(id) ? 1 : 0)) &&
+  addReflow.plates.filter((plate) => !addReflowOldIds.includes(plate.plate_id))
+    .every((plate) => addReflow.input_revisions[plate.plate_id] === 0),
+  JSON.stringify({ before: addReflowBefore.input_revisions, after: addReflow.input_revisions,
+    expected: [...expectedAddReflowChanged], affected: addReflow.affected_plate_ids }));
 const addReflowCommit = commitHistory('Add Plate reflow', addReflowTransaction);
 const addReflowProfile = callJson('orc_take_performance_profile', [], []);
 const addReflowHistorySamples = addReflowProfile.samples.filter((sample) =>

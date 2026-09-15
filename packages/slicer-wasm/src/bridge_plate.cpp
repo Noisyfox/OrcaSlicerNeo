@@ -639,6 +639,27 @@ json plate_mutation_snapshot(const std::set<std::string>& before,
     return result;
 }
 
+json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_plates,
+                                 const json& instance_transforms)
+{
+    // A same-column-count insertion has no old-plate input mutation. When the
+    // grid grows, invalidate only plates whose physical origin moved; the new
+    // plate already owns a fresh empty registry entry and revision zero.
+    if (!changed_origin_plates.empty()) {
+        PrimeTower::invalidate_projection_cache(changed_origin_plates);
+        for (const auto& plate_id : changed_origin_plates)
+            if (find_plate(plate_id) != nullptr) ++state().plate_input_revisions[plate_id];
+    }
+    json result = plate_session_snapshot_json(instance_transforms);
+    result["input_revisions"] = plate_revisions_json();
+    result["affected_plate_ids_before"] = plate_id_array(changed_origin_plates);
+    result["affected_plate_ids_after"] = plate_id_array(changed_origin_plates);
+    result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
+    result["dirty_reasons"] = {"plate-structure"};
+    state().pending_membership_instance_ids.clear();
+    return result;
+}
+
 // Reflow the display grid after a shared configuration change (most notably a
 // printer preset changing printable_area).  Plate membership is deliberately
 // not recomputed here: every member keeps the same plate-local coordinates,
@@ -808,31 +829,37 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
             return error_json("history transaction revision is stale");
         if (state().plate_session_plates.size() >= static_cast<std::size_t>(kMaxPlateCommandCount))
             return error_json("maximum of 36 plates");
-        const double membership_started_at = Neo::Bridge::Performance::now_ms();
-        rebuild_plate_membership(false);
-        const double membership_finished_at = Neo::Bridge::Performance::now_ms();
-        const auto affected_before = member_plate_ids();
         const PlateBounds bounds = selected_plate_bounds();
         const auto old_plates = state().plate_session_plates;
-        const auto refs = plate_instance_refs();
-        const auto refs_by_id = index_plate_instance_refs(refs);
+        const std::size_t old_count = old_plates.size();
         const int new_count = static_cast<int>(old_plates.size()) + 1;
+        const bool column_count_changed = plate_column_count(static_cast<int>(old_count)) !=
+            plate_column_count(new_count);
+        const double membership_started_at = Neo::Bridge::Performance::now_ms();
+        if (column_count_changed) rebuild_plate_membership(false);
+        const double membership_finished_at = Neo::Bridge::Performance::now_ms();
         const double reflow_started_at = Neo::Bridge::Performance::now_ms();
         std::map<std::size_t, Vec3d> changed;
+        std::set<std::string> changed_origin_plates;
         std::optional<json> before_transforms;
-        for (size_t index = 0; index < old_plates.size(); ++index) {
-            const Vec3d delta = plate_origin_for_index(static_cast<int>(index), new_count, bounds) - old_plates[index].origin;
-            if (delta == Vec3d::Zero()) continue;
-            for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
-                if (plate_id != old_plates[index].id) continue;
-                const auto ref = refs_by_id.find(instance_id);
-                if (ref == refs_by_id.end()) continue;
-                if (add_plate_delta) {
-                    if (!before_transforms) before_transforms = json::array();
-                    before_transforms->push_back(instance_transform_record(*ref->second));
+        if (column_count_changed) {
+            const auto refs = plate_instance_refs();
+            const auto refs_by_id = index_plate_instance_refs(refs);
+            for (size_t index = 0; index < old_plates.size(); ++index) {
+                const Vec3d delta = plate_origin_for_index(static_cast<int>(index), new_count, bounds) - old_plates[index].origin;
+                if (delta == Vec3d::Zero()) continue;
+                changed_origin_plates.insert(old_plates[index].id);
+                for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
+                    if (plate_id != old_plates[index].id) continue;
+                    const auto ref = refs_by_id.find(instance_id);
+                    if (ref == refs_by_id.end()) continue;
+                    if (add_plate_delta) {
+                        if (!before_transforms) before_transforms = json::array();
+                        before_transforms->push_back(instance_transform_record(*ref->second));
+                    }
+                    translate_instance(*ref->second, delta);
+                    changed[instance_id] = delta;
                 }
-                translate_instance(*ref->second, delta);
-                changed[instance_id] = delta;
             }
         }
         const auto sequence = next_plate_id_sequence();
@@ -847,7 +874,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
             plate.origin = plate_origin_for_index(static_cast<int>(index), new_count, bounds);
         }
         reconcile_plate_runtime_registry();
-        Neo::Bridge::PrimeTower::normalize_coordinate_positions();
+        if (column_count_changed)
+            Neo::Bridge::PrimeTower::normalize_coordinate_positions();
         state().current_plate_id = id;
         const double reflow_finished_at = Neo::Bridge::Performance::now_ms();
         const double snapshot_started_at = Neo::Bridge::Performance::now_ms();
@@ -857,8 +885,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
             state().active_history_transaction->add_plate_before_transforms = std::move(before_transforms);
             if (!changed.empty()) state().active_history_transaction->add_plate_after_transforms = after_transforms;
         }
-        const auto mutation = plate_mutation_snapshot(affected_before, {"plate-structure"},
-                                                       after_transforms);
+        const auto mutation = add_plate_mutation_snapshot(changed_origin_plates, after_transforms);
         const std::string response = mutation.dump();
         const double snapshot_finished_at = Neo::Bridge::Performance::now_ms();
         Neo::Bridge::Performance::record("add_plate", {

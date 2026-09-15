@@ -93,6 +93,11 @@ json plate_mutation_snapshot(
     const json& instance_transforms = json::array(),
     const std::set<std::size_t>* affected_instances = nullptr,
     const std::map<std::string, std::set<std::size_t>>* before_out_of_bounds = nullptr);
+// Complete an Add Plate structure mutation without treating every member plate
+// as affected. The caller supplies exactly the plates whose physical origins
+// changed; a newly-created plate starts with its fresh zero revision.
+json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_plates,
+                                 const json& instance_transforms = json::array());
 std::map<std::size_t, Vec3d> reflow_plate_origins_for_bounds(const PlateBounds& bounds);
 void refresh_existing_plate_validity(const PlateBounds& bounds);
 json shared_configuration_mutation_snapshot();
