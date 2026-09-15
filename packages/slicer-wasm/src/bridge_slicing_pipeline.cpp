@@ -205,6 +205,17 @@ void stop_progress()
     g_progress_open = false;
 }
 
+PlateRuntimeRegistry::Entry* runtime_entry_for_plate(const std::string& plate_id,
+                                                      std::string& error)
+{
+    auto* entry = state().plate_runtime_registry.find(plate_id);
+    if (entry == nullptr || entry->print == nullptr || entry->gcode_result == nullptr) {
+        error = "plate operation target was not found";
+        return nullptr;
+    }
+    return entry;
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_get_progress_mailbox()
 {
     return dup_json(json{{"ok", true},
@@ -233,6 +244,10 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         std::string target_error;
         if (!validate_plate_operation_target(plate_id, revision, target_error))
             return error_json(target_error);
+        auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
+        if (runtime_entry == nullptr)
+            return error_json(target_error);
+        auto& print = *runtime_entry->print;
         std::string model_error;
         local_model = make_current_plate_model(*find_plate(plate_id), model_error);
         if (!local_model) return error_json(model_error);
@@ -362,19 +377,19 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // carry the active preset bundle's vendor identity across explicitly.
         // Without it Bambu G-code takes the non-Bambu nozzle/context path and
         // a successful P1P slice can later yield an empty preview.
-        state().print.is_BBL_printer() = state().presets.is_bbl_vendor();
+        print.is_BBL_printer() = state().presets.is_bbl_vendor();
         const auto* target_plate = find_plate(plate_id);
         if (target_plate == nullptr || target_plate->display_index < 0)
             return error_json("plate operation target was not found");
         // PartPlate binds the reusable Print before applying the complete
         // world-space Model.  The binding supplies both per-plate config
         // selection and the target BuildVolume context used by apply/process.
-        state().print.set_plate_index(target_plate->display_index);
-        state().print.set_plate_origin(target_plate->origin);
+        print.set_plate_index(target_plate->display_index);
+        print.set_plate_origin(target_plate->origin);
         // Apply and process the plate-filtered complete model.  The copied
         // model retains authoritative world-space transforms; `state().model`
         // itself is never changed by a slice operation.
-        state().print.apply(*local_model, config);
+        print.apply(*local_model, config);
         // Native validation also checks whether the generated prime tower
         // footprint overlaps a configured exclusion/wrapping area.  Those
         // three tower collision classes are slice-time advisories in Neo;
@@ -387,7 +402,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // Drift at the pinned SHA: validate() returns StringObjectException
         // (PrintBase.hpp:30); use its .string member (same adaptation as
         // slice_main.cpp:55).
-        const StringObjectException validation_error = state().print.validate();
+        const StringObjectException validation_error = print.validate();
         if (!validation_error.string.empty()) {
             const auto has_tower_warning = [&tower_warnings](const char* warning) {
                 return std::find(tower_warnings.begin(), tower_warnings.end(), warning) != tower_warnings.end();
@@ -409,18 +424,18 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // Drift at the pinned SHA: SlicingStatus is nested as
         // PrintBase::SlicingStatus (PrintBase.hpp:440), not a Slic3r-top-level
         // type — qualify it (status_callback_type is PrintBase's typedef too).
-        state().print.set_status_callback([&](const PrintBase::SlicingStatus& st) {
+        print.set_status_callback([&](const PrintBase::SlicingStatus& st) {
             publish_slicer_progress(st.percent, st.text);
         });
 #ifdef ORCA_WASM_THREADING
         // Keep every libslic3r parallel_for inside the same fixed-size arena.
         // This mirrors the known-good oneTBB probe and prevents oneTBB from
         // trying to use more workers than Emscripten pre-created.
-        state().tbb_arena.execute([&] { state().print.process(); });
+        state().tbb_arena.execute([&] { print.process(); });
 #else
-        state().print.process();
+        print.process();
 #endif
-        state().print.set_status_default();
+        print.set_status_default();
         finish_progress();
         // Fix round 2: additive success field — always present, empty when the
         // config is clean. M2 clients (config UI) rely on this to warn about
@@ -491,7 +506,12 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice_plate(const char* config_json,
 // normal callJson path).
 EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     try {
-        auto& print = state().print;
+        ensure_plate_session_state();
+        std::string target_error;
+        auto* runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
+        if (runtime_entry == nullptr)
+            return error_json(target_error);
+        auto& print = *runtime_entry->print;
         if (print.objects().empty()) {
             invalidate_preview_source();
             json empty_toolpath{{"segment_count", 0},
@@ -509,14 +529,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                  {"toolpath", std::move(empty_toolpath)}}.dump());
         }
 
-        Slic3r::GCodeProcessorResult gcode_result;
         // Orca's Print::export_gcode configures GCode with the selected plate
         // origin before emission. Passing a result sink keeps the native
         // GCodeProcessorResult while /out.gcode remains printer-local for
         // export/send. GCodeProcessor's MoveVertex already adds that same
         // origin to its rendering positions; the bridge therefore publishes
         // those positions unchanged as world-space preview coordinates.
-        print.export_gcode("/out.gcode", &gcode_result, nullptr);
+        print.export_gcode("/out.gcode", runtime_entry->gcode_result.get(), nullptr);
+        auto& gcode_result = *runtime_entry->gcode_result;
         {
             auto& bridge_state = state();
             bridge_state.preview_result_id = gcode_result.id;
@@ -838,8 +858,11 @@ const char* export_gcode_for_target(const std::string& plate_id,
             return error_json(target_error);
         if (state().preview_plate_id != plate_id || state().preview_plate_revision != revision)
             return error_json("plate slice result is stale or unavailable");
+        auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
+        if (runtime_entry == nullptr)
+            return error_json(target_error);
         const std::string path = "/out.gcode";
-        state().print.export_gcode(path, nullptr, nullptr);
+        runtime_entry->print->export_gcode(path, nullptr, nullptr);
         return dup_json(json{{"ok", true}, {"path", path}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -851,10 +874,14 @@ const char* export_gcode_for_target(const std::string& plate_id,
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
-    ensure_plate_session_state();
     try {
+        ensure_plate_session_state();
+        std::string target_error;
+        auto* runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
+        if (runtime_entry == nullptr)
+            return error_json(target_error);
         const std::string path = "/out.gcode";
-        state().print.export_gcode(path, nullptr, nullptr);
+        runtime_entry->print->export_gcode(path, nullptr, nullptr);
         return dup_json(json{{"ok", true}, {"path", path}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());
@@ -881,8 +908,13 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* plate_id,
 
 EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
     try {
+        ensure_plate_session_state();
+        std::string target_error;
+        auto* runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
+        if (runtime_entry == nullptr)
+            return error_json(target_error);
         invalidate_preview_source();
-        state().print.cancel();
+        runtime_entry->print->cancel();
         // Fix round 1: the bridge is strictly synchronous — JS cannot reenter
         // wasm while orc_slice is running, so a cancel can never interrupt an
         // in-flight slice. A surviving CANCELED_BY_USER flag (only restart()
@@ -892,7 +924,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
         // (observed deterministically; the throw is caught and rethrown by
         // libslic3r internals, and the rethrow carries poisoned EH state).
         // Cancel is therefore a state reset: it must never poison the module.
-        state().print.restart();
+        runtime_entry->print->restart();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
         return error_json(e.what());

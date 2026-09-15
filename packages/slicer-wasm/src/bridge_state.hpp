@@ -62,9 +62,9 @@ struct BridgeState {
     PresetBundle presets;
     Model       model;
     Print       print;
-    // FFF per-plate native ownership.  The legacy single Print remains in
-    // place until the slicing pipeline is switched in a later step; this
-    // registry is already authoritative for runtime cardinality/lifetime.
+    // FFF per-plate native ownership.  Selected-plate slice/result/export/
+    // cancel operations resolve this registry; the legacy single Print stays
+    // in place for untouched mutation/history paths until their later steps.
     PlateRuntimeRegistry plate_runtime_registry;
     // Project-owned overrides are kept in the Worker/WASM session. React only
     // receives a render projection and never becomes their source of truth.

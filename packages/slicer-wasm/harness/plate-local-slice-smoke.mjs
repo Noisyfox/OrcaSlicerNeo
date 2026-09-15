@@ -52,6 +52,9 @@ const sliceFirst = callJson('orc_slice_plate', ['string', 'string', 'number'], [
 check('slice plate 1', sliceFirst.ok === true, JSON.stringify(sliceFirst));
 const modelAfterSlice = callJson('orc_get_model_structure');
 check('local slice preserves global model', JSON.stringify(modelAfterSlice) === JSON.stringify(modelBeforeSlice));
+const firstPreview = callJson('orc_get_slice_result');
+check('preview plate 1 uses its print', firstPreview.ok === true && firstPreview.objects === 1,
+  JSON.stringify(firstPreview));
 const exportFirst = callJson('orc_export_gcode_plate', ['string', 'number'], [firstTarget.id, firstTarget.revision]);
 const firstGcode = exportFirst.ok ? Buffer.from(Module.FS.readFile('/out.gcode')).toString('utf8') : '';
 check('export plate 1', exportFirst.ok === true, JSON.stringify(exportFirst));
@@ -60,6 +63,9 @@ const selectSecond = callJson('orc_select_plate', ['string'], [secondTarget.id])
 check('select plate 2', selectSecond.ok === true && selectSecond.current_plate_id === secondTarget.id);
 const sliceSecond = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', secondTarget.id, secondTarget.revision]);
 check('slice plate 2', sliceSecond.ok === true, JSON.stringify(sliceSecond));
+const secondPreview = callJson('orc_get_slice_result');
+check('preview plate 2 uses its print', secondPreview.ok === true && secondPreview.objects === 1,
+  JSON.stringify(secondPreview));
 const exportSecond = callJson('orc_export_gcode_plate', ['string', 'number'], [secondTarget.id, secondTarget.revision]);
 const secondGcode = exportSecond.ok ? Buffer.from(Module.FS.readFile('/out.gcode')).toString('utf8') : '';
 const moves = (gcode) => gcode.split('\n').filter((line) => /^G[01]\s/.test(line)).join('\n');
@@ -68,9 +74,33 @@ check('equivalent local geometry has equivalent moves', moves(firstGcode) === mo
 
 const nonCurrent = callJson('orc_export_gcode_plate', ['string', 'number'], [firstTarget.id, firstTarget.revision]);
 check('non-current export rejected', nonCurrent.ok !== true && /current plate/.test(nonCurrent.error ?? ''));
+check('distinct plate previews have distinct result storage',
+  firstPreview.metadata?.result_id !== secondPreview.metadata?.result_id);
+const secondRevisionChange = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Second plate extra']);
+check('second plate state change accepted', secondRevisionChange.ok === true);
+const secondChanged = callJson('orc_get_plate_session_snapshot');
+const secondChangedTarget = {
+  id: secondChanged.current_plate_id,
+  revision: secondChanged.input_revisions[secondChanged.current_plate_id],
+};
+const sliceSecondChanged = callJson('orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', secondChangedTarget.id, secondChangedTarget.revision]);
+check('slice changed plate 2', sliceSecondChanged.ok === true, JSON.stringify(sliceSecondChanged));
+const changedSecondPreview = callJson('orc_get_slice_result');
+check('changed plate 2 preview is still selected',
+  changedSecondPreview.ok === true && changedSecondPreview.objects === 2,
+  JSON.stringify(changedSecondPreview));
+const cancelSecond = callJson('orc_cancel');
+check('cancel resets the selected plate print', cancelSecond.ok === true, JSON.stringify(cancelSecond));
+const returnFirst = callJson('orc_select_plate', ['string'], [firstTarget.id]);
+check('return to plate 1', returnFirst.ok === true);
+const returnedFirstPreview = callJson('orc_get_slice_result');
+check('returning to plate 1 reads plate 1 print',
+  returnedFirstPreview.ok === true && returnedFirstPreview.objects === 1,
+  JSON.stringify(returnedFirstPreview));
 const changed = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Revision change']);
 check('revision change accepted', changed.ok === true);
-const stale = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', secondTarget.id, secondTarget.revision]);
+const stale = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', firstTarget.id, firstTarget.revision]);
 check('stale slice rejected', stale.ok !== true && /stale/.test(stale.error ?? ''));
 
 if (failures > 0) process.exitCode = 1;
