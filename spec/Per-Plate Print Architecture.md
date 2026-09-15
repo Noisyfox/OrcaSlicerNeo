@@ -54,8 +54,15 @@ plate currently has a matching result. Every admitted Slice runs the normal
 `Print::apply()` / `Print::process()` request and the complete result-handling
 pipeline. Native step state may skip calculation that is already current, but
 it may not skip result collection, replacement, and preview publication. The
-task always reaches the ordinary `completed`, `failed`, or `cancelled` terminal
-state; there is no application-level `completed_no_work` shortcut.
+task always reaches an ordinary Slice terminal; a feasible success is
+`completed`, and cancellation or execution failure is reported explicitly.
+Section 2.16.1 defines the typed terminal reasons discovered before native
+processing. There is no application-level `completed_no_work` shortcut.
+
+`Print::empty()` is not a pre-click admissibility predicate. Unlike Orca, Neo
+does not run a delayed background `apply` after each edit, so a registry
+Print's object list may describe an earlier input state until the requested
+Slice applies the current Model and configuration.
 
 This retains Neo's current command semantics and matches Orca's plate-local
 slice context: Orca selects the current `PartPlate`'s Print and result before
@@ -594,6 +601,27 @@ In serial wasm64, Slice is one of the restricted operations rejected by the
 runtime and bridge admission gates while the sole job runs; it creates no
 pending replacement.
 
+### 2.16.1 Slice materializes native feasibility inside its task
+
+Before allocating a Slice task, Neo performs only cheap structural admission:
+the selected plate must exist and the runtime must not be blocked by the
+serial busy or project-replacement gates. Once admitted, the task first marks
+the React projection `slicing`, binds the target registry Print, and executes
+`Print::apply()` against the current Model and effective configuration. It
+then evaluates the resulting `Print::empty()` state and native `validate()`
+result before entering `Print::process()`.
+
+An empty Print or no printable instance ends that already-created task as
+`not_sliceable`; a user-correctable `validate()` error ends it as
+`invalid_input`; allocation failure and unexpected native exceptions end it as
+`out_of_memory` or `failed`. These terminals release the global slice-job slot
+and leave the React presentation invalid, but do not reset the retained native
+core cache. Only a feasible task continues to native processing and the normal
+result pipeline. This mirrors Orca's ordering—its
+`update_background_process()` applies first and
+`BackgroundSlicingProcess::start()` then reads `Print::empty()`—while placing
+both steps in Neo's explicit Slice task.
+
 ### 2.17 Cancellation policy and acceptance boundary
 
 Serial wasm64 exposes no Cancel command. Synchronous `Print::process()` owns
@@ -621,6 +649,14 @@ restricted runtime operation rejects with `slice_busy` before that slice
 reaches a terminal state. It must also prove that no request reaches native
 mutation or history creation. A queued stale request with an older terminal
 epoch must be rejected by the bridge after the slice finishes.
+
+The Slice-feasibility test must begin with a registry Print whose cached
+`empty()` state is stale relative to a newly edited Model. It must prove that
+Neo admits the task, executes and profiles `Print::apply()` first, then emits
+the appropriate `not_sliceable`, `invalid_input`, `out_of_memory`, or `failed`
+terminal without entering `Print::process()` when native feasibility fails.
+It must also prove that no empty-Print conclusion is made from the pre-click
+cache alone.
 
 The threaded real-Electron test, using the non-mock staged `u1.3mf` Odyssey
 fixture, must start a slice and then edit the active plate or shared settings.
