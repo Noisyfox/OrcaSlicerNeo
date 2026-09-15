@@ -241,6 +241,22 @@ camera/navigation controls available, but it must not accept plate selection,
 native mutation, configuration, history, Slice, or Export commands until the
 slice reaches a terminal state.
 
+Serial mode uses two admission gates for every restricted operation. The typed
+runtime gate records the active serial-slice epoch before it dispatches Slice,
+then rejects a restricted request immediately with `slice_busy` without
+posting it to the occupied Worker. This is the gate which provides a prompt
+answer: while synchronous `Print::process()` is running, the Worker cannot
+receive another message and therefore cannot itself respond promptly.
+
+The bridge is the second, authoritative gate. A restricted request carries the
+runtime's observed terminal serial-slice epoch. When the Worker next receives
+that request, the bridge accepts it only if no serial slice is active and the
+epoch still equals its own terminal epoch; otherwise it returns `slice_busy`
+without mutating state or creating a history entry. This rejects queued or
+future bypassed requests that were admitted before a serial slice began but
+were not executed until after it completed. UI disabling is a projection of
+the runtime gate, not its sole enforcement mechanism.
+
 ### 2.15 Threaded jobs support asynchronous cancellation; serial jobs lock
 
 Neo does not introduce a separate SliceJob Worker. In serial wasm64,
@@ -252,16 +268,31 @@ C++ objects between isolated WASM heaps.
 In threaded wasm64, the bridge must run a frozen, registry-owned plate Print
 on a dedicated Emscripten pthread in the same shared WASM memory. The main
 Worker remains available to commit edits and history. An edit affecting the
-active plate, or shared configuration, commits first, advances the required
-stamps, and asynchronously requests cancellation through an atomic job signal.
-The job holds a shared runtime-entry lease until it reaches a terminal state,
-so deletion or history reconciliation cannot release its Print while it runs.
-Only a matching terminal stamp may publish a result.
+active plate, or shared configuration, is **not** blocked by either serial
+gate: it commits first, advances the required stamps, and asynchronously
+requests cancellation through an atomic job signal. The job holds a shared
+runtime-entry lease until it reaches a terminal state, so deletion or history
+reconciliation cannot release its Print while it runs. Only a matching terminal
+stamp may publish a result.
 
 Before enabling this mode, implementation must prove that `Print::process()`
 after `Print::apply()` does not read or mutate the authoritative model,
-PresetBundle, or plate registry. If that proof fails, threaded mode falls back
-to the serial locking rule for the affected operation.
+PresetBundle, or plate registry. This is a mandatory delivery gate, not a
+fallback to serial locking for threaded builds.
+
+### 2.16 Slice admission acceptance boundary
+
+The serial automated test must hold a real slice in progress and show that a
+restricted runtime operation rejects with `slice_busy` before that slice
+reaches a terminal state. It must also prove that no request reaches native
+mutation or history creation. A queued stale request with an older terminal
+epoch must be rejected by the bridge after the slice finishes.
+
+The threaded real-Electron test, using the non-mock staged `u1.3mf` Odyssey
+fixture, must start a slice and then edit the active plate or shared settings.
+The edit and its matching Undo entry must appear within 100 ms; it must not
+return `slice_busy`. The active job must be cancelled or have its result
+discarded by stamp mismatch, and it must never publish stale output.
 
 ## 3. Constraints Carried Forward
 
