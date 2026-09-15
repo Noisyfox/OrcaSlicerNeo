@@ -118,6 +118,15 @@ not clone a per-plate Model, call `Print::apply()`, recover unsaved runtime
 results, or restore history. A first Slice still materializes the target
 plate's input and applies it to that entry.
 
+The first per-plate-Print delivery also does not restore a `gcode_file`
+embedded in a 3MF into a plate result. Although Orca's
+`PartPlateList::rebuild_plates_after_deserialize()` loads that persisted
+G-code into the corresponding `PartPlate` result, Neo initially preserves the
+project input only: every reconstructed plate starts presentation-invalid and
+requires an explicit Slice before Preview or Export is available. Loading
+embedded G-code is deferred as a later persistent-format compatibility feature,
+not treated as an unsaved-runtime-state exception.
+
 Replacing a whole project (open, new, or clear) is stricter than an ordinary
 threaded edit. If a job is active, Neo first requests its cancellation and
 waits for its terminal state and registry lease release. It then closes the
