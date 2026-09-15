@@ -388,6 +388,25 @@ native core cache remains retained but is not transferred or rendered.
 This matches Orca's Preview binding, which is updated to the current
 PartPlate's GCodeResult rather than drawing every plate result at once.
 
+### 2.12.1 Slice completion and React projection have separate terminals
+
+A Slice task reaches `completed` after native `Print::process()` and the
+Worker-side result bridge are ready; the registry entry becomes
+presentation-valid and Export may be reevaluated at that terminal. React
+typed-array transfer and GPU construction occur asynchronously afterward and
+do not keep the Print lease, slice task, or global slice-job slot occupied. A
+projection failure may be retried from the retained native cache without
+invalidating it or changing Export eligibility.
+
+Every projection payload carries the source `slice_task_id`, `plate_id`, and
+`input_stamp`. React assigns a renderer-local, monotonic `projection_epoch`
+to each Preview activation or retry. It applies a payload only when all of the
+following still match: the active `preview_plate_id`, a `valid` presentation
+state, the current input stamp, and the latest local epoch. Otherwise it
+discards the payload without native mutation. This token is deliberately local
+rather than an `AsyncTaskId`: projection delivery is UI work and has no native
+Print/task lifetime to manage.
+
 ### 2.13 Slice and Export target the selected current plate
 
 The primary Slice command applies and processes only the selected current
@@ -517,7 +536,9 @@ the foreground mailbox only while its task is still active, and the runtime
 renders a progress update only when its `task_id`, kind, plate identity, and
 entry incarnation match the active task record. A task-terminal bridge event,
 not a mailbox update, is authoritative for completion, cancellation, and
-result publication.
+result publication. React projection delivery is not a Worker asynchronous
+task: it does not receive its own `AsyncTaskId`, own a Print, or prolong a
+slice task's native lifetime.
 
 ### 2.16 One global job; explicit Slice replaces it
 
@@ -596,6 +617,12 @@ unchanged. The task must still execute normal result-bridge handling. Its
 success may publish a fresh React projection; its failure or cancellation must
 leave the plate presentation-invalid without automatically reusing the retained
 core cache.
+
+The projection-delivery test must delay an old payload behind a newer Preview
+activation, input change, or retry. It must prove that React discards the old
+payload by plate, stamp, presentation-state, and local epoch checks, while the
+Worker keeps the native cache and the completed Slice task has already released
+its job slot.
 
 ### 2.19 Real-project performance acceptance boundary
 
