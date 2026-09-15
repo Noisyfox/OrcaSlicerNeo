@@ -52,6 +52,33 @@ This retains Neo's current command semantics and matches Orca's plate-local
 slice context: Orca selects the current `PartPlate`'s Print and result before
 invoking its slicing process.
 
+### 2.2.1 Slice applies the authoritative world-space Model directly
+
+Neo follows Orca's input path: before Slice, the selected registry Print is
+configured with its plate index and origin, then receives the authoritative
+world-space `state().model` and that plate's effective configuration directly
+through `Print::apply()`. The Slice path must not call
+`make_current_plate_model()` or make another bridge-owned full-Model copy just
+to filter a plate. The Print's plate context supplies the plate-local behavior
+while retaining authoritative world-space transforms.
+
+Membership is maintained incrementally by model and plate mutations. Slice
+validates the target plate's current membership and input stamp, rather than
+unconditionally rebuilding membership before every Slice. `Print::apply()`
+still creates the Print-owned native input snapshot required by libslic3r and
+thread isolation; it remains a named native profile cost. The eliminated cost
+is the additional bridge-layer clone/filter pass, not a claim that a complex
+slice can avoid all native input copying.
+
+Prepare Prime Tower estimation remains outside this path. It uses membership
+and a lightweight projection only; it must not invoke `Print::apply()` merely
+to obtain a preview.
+
+The real-project Slice profile must prove zero calls to the bridge-local
+model-construction helper, exactly one selected registry Print `apply`, and
+separate timing for input validation, native `Print::apply`, and
+`Print::process`.
+
 ### 2.3 Stable plate IDs are session-only
 
 The registry and Worker history use a stable plate ID only for the lifetime of
