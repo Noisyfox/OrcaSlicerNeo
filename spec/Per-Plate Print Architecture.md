@@ -165,6 +165,14 @@ validation leaves the fresh empty session. The temporary-project preflight and
 atomic-commit path are removed rather than retained as an internal compatibility
 API.
 
+Project-load cancellation is admitted only before closing the old session.
+After close, the actual archive load is non-cancellable in both WASM variants:
+the `project_replacing` gate remains held until its success or failure
+terminal, and a request cannot interrupt the synchronous native parser. This
+matches Neo's current actual-load capability (its existing cancellation only
+discards an already-complete preflight token) while giving the post-close empty
+session one common outcome contract.
+
 In serial wasm64, whole-project operations are restricted by the same runtime
 and bridge admission gates as Slice; they create no deferred project-replace
 queue. In threaded wasm64, the admitted whole-project replacement owns the
