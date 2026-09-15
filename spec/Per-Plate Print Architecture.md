@@ -259,6 +259,32 @@ revision. Orca similarly has a separate `m_slice_result_valid` flag: setting
 it false does not mutate model inputs. Neo likewise separates its presentation
 invalidation from native Print ownership.
 
+### 2.4.2 Configuration changes fan out by effective input scope
+
+Each registry entry owns an initially empty plate-configuration override layer.
+`Add Plate` creates that empty layer and a new empty Print; it never copies the
+current plate's bed, print-sequence, spiral-vase, or other plate-local
+overrides. The new entry inherits the then-current global preset when it is
+later applied. This matches Orca's newly constructed `PartPlate::m_config`
+overlay, which is layered over the global `full_config` only during slice
+application.
+
+A committed configuration mutation advances input stamps and invalidates
+presentation only for its effective scope:
+
+- a plate-local override affects that one stable plate ID;
+- a global printer, process, or filament-preset mutation affects every live
+  plate entry; and
+- an object-config mutation affects every plate whose membership contains an
+  instance of that object.
+
+Configuration editing records its normal input/history transaction but never
+eagerly invokes `Print::apply`. Each affected Print is applied only inside a
+later explicitly admitted Slice task. The existing mode-specific task rules
+then apply: serial mode rejects edits while slicing, while threaded mode
+cancels a running Slice only when that task's target plate is among the
+affected entries.
+
 ### 2.5 No proactive core-result eviction
 
 Every per-plate Print, GCodeResult, generated G-code, and completed native
