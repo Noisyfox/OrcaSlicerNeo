@@ -155,6 +155,27 @@ allocate required memory, that slice operation fails explicitly and leaves all
 previously valid plate results intact. A memory budget, storage spill, or
 eviction product policy requires a separate future specification.
 
+### 2.5.1 A committed input change releases that plate's stale result
+
+When a native mutation has committed successfully and advances a plate's
+input stamp, Neo immediately releases that plate's now-stale G-code result,
+Worker-side preview source, and any associated generated-output metadata. The
+renderer also releases its projection if it was showing that plate. The
+registry-owned Print container remains ready for a later explicit Slice, but
+the old result is neither previewable nor exportable.
+
+This rule is applied only after the input mutation has committed. A rejected,
+failed, or cancelled edit leaves the prior stamp and its valid result intact.
+It is distinct from result eviction: Neo still never discards a result whose
+completed stamp matches the current input stamp.
+
+Orca follows the same stale-result direction in
+`BackgroundSlicingProcess::apply()`: after an invalidating apply, it resets
+the active `GCodeProcessorResult` before a new output is available. Neo makes
+that ownership transition explicit and plate-local. Tests must prove a failed
+edit preserves the old valid result, whereas a successful local edit releases
+only the edited plate's result and its renderer projection.
+
 ### 2.6 Add Plate follows Orca's layout-change gate
 
 Adding a plate compares the old and new grid column counts. When the count is
