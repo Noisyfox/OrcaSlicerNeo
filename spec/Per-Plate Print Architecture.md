@@ -32,10 +32,11 @@ boundaries for each plate.
 
 Neo will keep a runtime registry keyed by session-stable plate identity. Each
 plate entry owns one `Print`, its `GCodeResult`/generated G-code metadata, and
-its result-validity state. A result remains available when the user switches
-away from and returns to an unchanged plate. An invalidating change affects
-only the plates whose slice inputs changed; unaffected plate results remain
-available for preview and export.
+its native core-result cache. Separately, a plate has a presentation state and
+at most one transferable React rendering projection. A result remains
+available when the user switches away from and returns to an unchanged plate.
+An invalidating change affects only the plates whose slice inputs changed;
+unaffected plate results remain available for preview and export.
 
 This matches Orca's per-`PartPlate` `Print` and `GCodeResult` lifetime. The
 registry is runtime-only: no native pointers, G-code, preview buffers, or
@@ -127,11 +128,14 @@ locks all native mutation, Undo/Redo, Slice, and Export operations with
 available. Such edits would necessarily be discarded by the replacement and
 therefore must never produce ambiguous history or a competing job.
 
-### 2.4 Strict per-plate slice-input stamps
+### 2.4 Per-plate slice-input stamps and presentation validity
 
 Every registry entry has an opaque, monotonic slice-input stamp. A plate result
-is available only when its result state is `valid`, its result data exists, and
-its completed-result stamp exactly equals the plate's current input stamp. The
+is eligible for React preview or Export only when its presentation state is
+`valid`, a native core result exists, and its completed-result stamp exactly
+equals the plate's current input stamp. Presentation state is not ownership of
+the native core cache: it controls publication to React and Export, while the
+`Print` decides which of its own cached steps and data remain reusable. The
 stamp is advanced by known native mutations rather than by serializing or
 hashing the complete model.
 
@@ -150,63 +154,65 @@ for local changes and `PartPlateList::invalid_all_slice_result()` for shared
 changes. The stamp supplies the same rule without coupling validity to the GUI
 objects.
 
-### 2.4.1 Explicit Slice invalidates output without changing slice input
+### 2.4.1 Explicit Slice invalidates the React projection, not core output
 
 An admitted explicit Slice changes a plate's result state from `valid` or
-`invalid` to `slicing`, immediately releases any old result, and clears its
-renderer projection. It does **not** advance that plate's input stamp: its
-inputs have not changed. The task captures the existing input stamp at launch
-and may publish a new result only if that stamp and its task identity still
-match at completion. Success makes the state `valid`; cancellation or failure
-leaves it `invalid` with no old-result fallback.
+`invalid` to `slicing`, immediately invalidates and releases only the
+Worker-to-React rendering payload and renderer typed-array/GPU projection. It
+does **not** reset, free, or otherwise invalidate the registry Print's native
+`GCodeResult`, generated G-code, or completed native steps. It also does
+**not** advance that plate's input stamp: its inputs have not changed. The
+task captures the existing input stamp at launch and may publish a fresh React
+projection only if that stamp and its task identity still match at completion.
+Success makes the state `valid`; cancellation or failure leaves it `invalid`
+and does not automatically retransfer the retained core cache.
 
 This is deliberately a result-lifecycle transition rather than a model
 revision. Orca similarly has a separate `m_slice_result_valid` flag: setting
-it false does not mutate model inputs. Neo additionally releases the old
-WASM-resident data at this boundary.
+it false does not mutate model inputs. Neo likewise separates its presentation
+invalidation from native Print ownership.
 
-### 2.5 No proactive result eviction
+### 2.5 No proactive core-result eviction
 
-Every valid per-plate Print, GCodeResult, generated G-code, and Worker-side
-preview source remains resident until it becomes invalid or the project
-session closes. Neo does not introduce an LRU or silently discard a valid
-plate result in this refactor.
+Every per-plate Print, GCodeResult, generated G-code, and completed native
+step cache remains resident until native processing itself replaces it, the
+plate entry is destroyed, or the project session closes. Neo does not reset or
+free those core objects merely because an input stamp advances or a React
+projection becomes invalid, and it introduces no LRU in this refactor.
 
-Orca likewise retains a valid plate's result and its temporary G-code path.
-The host difference is intentional: native Orca normally uses a filesystem
-path whereas Neo's data resides in MEMFS/WASM memory. If a new slice cannot
-allocate required memory, that slice operation fails explicitly and leaves all
-previously valid plate results intact. A memory budget, storage spill, or
-eviction product policy requires a separate future specification.
+Orca likewise lets a plate retain its native G-code result and temporary
+G-code path after `update_slice_result_valid_state(false)`. The host difference
+is intentional: native Orca normally uses a filesystem path whereas Neo's
+data resides in MEMFS/WASM memory. A memory budget, storage spill, or eviction
+product policy requires a separate future specification.
 
-### 2.5.1 A committed input change releases that plate's stale result
+### 2.5.1 A committed input change invalidates only presentation
 
 When a native mutation has committed successfully and advances a plate's
-input stamp, Neo immediately releases that plate's now-stale G-code result,
-Worker-side preview source, and any associated generated-output metadata. The
-renderer also releases its projection if it was showing that plate. The
-registry-owned Print container remains ready for a later explicit Slice, but
-the old result is neither previewable nor exportable. Section 2.4.1 applies
-the same release rule when an explicit Slice begins without advancing input
-stamp.
+input stamp, Neo marks that plate's presentation state `invalid` and releases
+its transferable Worker-to-React payload and renderer projection if it was
+showing that plate. The retained core result becomes unpublishable because its
+completed stamp no longer matches; the bridge does not reset or free it.
+`Print::apply()` subsequently determines the minimal native invalidation for
+the next Slice. Section 2.4.1 applies the same presentation release to an
+explicit Slice without advancing input stamp.
 
 This rule is applied only after the input mutation has committed. A rejected,
 failed, or cancelled edit leaves the prior stamp and its valid result intact.
 It is distinct from result eviction: Neo still never discards a result whose
 completed stamp matches the current input stamp.
 
-This intentionally differs from Orca's timing. Orca's
+This follows Orca's ownership boundary. Orca's
 `PartPlate::update_slice_result_valid_state(false)` only changes the plate
 validity flag; its non-current plate movement path leaves that plate's
 `GCodeProcessorResult` allocated. A later invalidating
-`BackgroundSlicingProcess::apply()` can reset the result once that Print is
-active. Neo releases it at the successful mutation boundary instead, because
-WASM/MEMFS result residency has a tighter memory cost and a stale result is
-never usable. Tests must prove a failed edit preserves the old valid result,
-whereas a successful local edit releases only the edited plate's result and
-its renderer projection. They must separately prove that explicit Slice
-releases even a stamp-matching old result at task start, and that a failed or
-cancelled re-slice does not resurrect it.
+`BackgroundSlicingProcess::apply()` may selectively change native state once
+that Print is active. Tests must prove a failed edit preserves the old valid
+projection, whereas a successful local edit releases only the edited plate's
+React projection while retaining its core cache. They must separately prove
+that explicit Slice clears even a stamp-matching old React projection at task
+start, and that a failed or cancelled re-slice does not automatically
+retransfer the retained core cache.
 
 ### 2.6 Add Plate follows Orca's layout-change gate
 
@@ -366,17 +372,18 @@ can safely switch print context.
 
 ### 2.12 Renderer retains only the currently previewed plate projection
 
-The Worker retains every valid plate result under the no-eviction rule, but the
-renderer retains typed-array and GPU toolpath resources only for the currently
-previewed plate. Switching to a valid plate requests that plate's retained
-Worker-side result and rebuilds the one renderer projection. Neo must not keep
-a second CPU/GPU toolpath copy for every valid plate.
+The Worker retains every plate's native core cache under the no-eviction rule,
+but retains transferable rendering payloads only as needed for the currently
+previewed plate. The renderer retains typed-array and GPU toolpath resources
+only for that one plate. Switching to a presentation-valid plate requests a
+fresh projection from its retained core result and rebuilds the one renderer
+projection. Neo must not keep a second CPU/GPU toolpath copy for every plate.
 
-If the explicitly activated preview plate has no result matching its current
-stamp, the renderer releases its prior toolpath projection and shows the
-plate's empty "needs slicing" state. It must not leave a different plate's
-toolpath visible as a fallback. That different plate's valid Worker-side
-result remains retained but is not rendered.
+If the explicitly activated preview plate is not presentation-valid or has no
+result matching its current stamp, the renderer releases its prior toolpath
+projection and shows the plate's empty "needs slicing" state. It must not
+leave a different plate's toolpath visible as a fallback. The target plate's
+native core cache remains retained but is not transferred or rendered.
 
 This matches Orca's Preview binding, which is updated to the current
 PartPlate's GCodeResult rather than drawing every plate result at once.
@@ -580,6 +587,15 @@ terminal state.
 The threaded task-message test must prove global `AsyncTaskId` non-reuse and
 that a late progress message for a cancelled/replaced task cannot update the
 new active task's progress or terminal status.
+
+The explicit-Slice lifecycle test must begin with a visible result whose stamp
+matches unchanged inputs. It must prove that Slice immediately clears only the
+React payload and renderer projection, leaves the native Print/result cache
+available for incremental core processing, and leaves the input stamp
+unchanged. The task must still execute normal result-bridge handling. Its
+success may publish a fresh React projection; its failure or cancellation must
+leave the plate presentation-invalid without automatically reusing the retained
+core cache.
 
 ### 2.19 Real-project performance acceptance boundary
 
