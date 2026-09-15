@@ -621,10 +621,34 @@ Threaded progress messages include the full task identity. A writer may update
 the foreground mailbox only while its task is still active, and the runtime
 renders a progress update only when its `task_id`, kind, plate identity, and
 entry incarnation match the active task record. A task-terminal bridge event,
-not a mailbox update, is authoritative for completion, cancellation, and
+not a progress snapshot, is authoritative for completion, cancellation, and
 result publication. React projection delivery is not a Worker asynchronous
 task: it does not receive its own `AsyncTaskId`, own a Print, or prolong a
 slice task's native lifetime.
+
+`AsyncTaskMailbox` is the common C++-owned, mutex-protected FIFO for all
+asynchronous task messages, including progress, completion, cancellation, and
+error. Every record has a global monotonic sequence and is consumed exactly
+once in order; no progress message is overwritten or coalesced. Its public
+operations and the resulting Worker-to-React message protocol are identical
+in both WASM variants. The existing shared mailbox storage becomes the
+threaded implementation's internal wake mechanism, carrying an independent
+sequence which tells the Worker to drain the FIFO. It is no longer interpreted
+as a latest-progress snapshot for task lifecycle purposes.
+
+The queue starts with a deliberately large fixed capacity. If it fills,
+producers apply backpressure until the Worker consumes messages; they never
+overwrite or drop a record. The dedicated profile build records message count,
+byte count, high-water mark, and backpressure count, while those measurements
+and their guards are compiled out of production. Capacity is revisited only
+from real-project profile evidence.
+
+`AsyncTaskMailbox` hides its notifier internally. In serial wasm64 it invokes
+the registered bridge callback after enqueue; in threaded wasm64 it increments
+the shared wake sequence because pthreads never call JS. In both cases the
+mailbox drains the same FIFO into the same ordered typed Worker-to-React
+messages, including `task-terminal`. No runtime, client, or React caller
+branches on the WASM mode to consume task messages.
 
 ### 2.16 One global job; explicit Slice replaces it
 
