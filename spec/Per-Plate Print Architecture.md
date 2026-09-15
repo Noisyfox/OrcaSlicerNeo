@@ -280,7 +280,47 @@ after `Print::apply()` does not read or mutate the authoritative model,
 PresetBundle, or plate registry. This is a mandatory delivery gate, not a
 fallback to serial locking for threaded builds.
 
-### 2.16 Slice admission acceptance boundary
+### 2.16 One global job; explicit Slice replaces it
+
+Neo permits at most one active slice job across all plates, in both wasm
+variants. Per-plate Print ownership does not imply concurrent slicing of those
+Prints. This follows Orca's single `BackgroundSlicingProcess`: it has one
+current Print, does not switch it while `STATE_RUNNING`, and cancels the
+existing work instead of running a second process.
+
+In threaded wasm64, an explicit Slice for another plate requests cancellation
+of the active job and records one pending explicit replacement. Repeated
+explicit Slice requests replace that pending request, so the last one wins and
+the system never forms an unbounded queue. The replacement captures its input
+stamp only when it actually starts; if its plate has been deleted or its input
+has become unsliceable while it waited, it is discarded with a clear terminal
+status. An edit must never enqueue a replacement Slice automatically.
+
+In serial wasm64, Slice is one of the restricted operations rejected by the
+runtime and bridge admission gates while the sole job runs; it creates no
+pending replacement.
+
+### 2.17 Cancellation policy and acceptance boundary
+
+Serial wasm64 exposes no Cancel command. Synchronous `Print::process()` owns
+the sole Worker and cannot receive a JavaScript-to-WASM cancel call before it
+returns; terminating that Worker would also discard the runtime registry,
+history, and project state. The serial UI therefore waits for the job's normal
+terminal state and the bridge rejects any bypassed cancel request without
+altering state.
+
+Threaded wasm64 Cancel affects only the active global job. It writes an atomic
+cancellation signal, does not change inputs or history, does not automatically
+start a replacement, and reports the eventual cancelled terminal state. An
+explicit Slice replacement is the only cancellation path that may subsequently
+start another job.
+
+The automated job tests must prove all of the following: serial Slice attempts
+and cancel bypasses do not form a queue; threaded repeated explicit Slice
+requests retain only the last replacement; normal edits do not create a
+replacement; and cancel neither creates history nor mutates input stamps.
+
+### 2.18 Slice admission acceptance boundary
 
 The serial automated test must hold a real slice in progress and show that a
 restricted runtime operation rejects with `slice_busy` before that slice
