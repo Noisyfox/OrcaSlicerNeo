@@ -392,11 +392,14 @@ PartPlate's GCodeResult rather than drawing every plate result at once.
 
 A Slice task reaches `completed` after native `Print::process()` and the
 Worker-side result bridge are ready; the registry entry becomes
-presentation-valid and Export may be reevaluated at that terminal. React
-typed-array transfer and GPU construction occur asynchronously afterward and
-do not keep the Print lease, slice task, or global slice-job slot occupied. A
-projection failure may be retried from the retained native cache without
-invalidating it or changing Export eligibility.
+presentation-valid and Export may be reevaluated at that terminal. At the
+same terminal, global slicing progress/busy state ends and its command gates
+are released. React typed-array transfer and GPU construction occur
+asynchronously afterward and do not keep the Print lease, slice task, or
+global slice-job slot occupied. A projection failure may be retried from the
+retained native cache without invalidating it or changing Export eligibility;
+while it is pending, only the relevant Preview surface displays local loading
+state rather than global slicing progress.
 
 Every projection payload carries the source `slice_task_id`, `plate_id`, and
 `input_stamp`. React assigns a renderer-local, monotonic `projection_epoch`
@@ -422,7 +425,9 @@ variants. Threaded per-plate ownership deliberately does not create an
 exception for exporting an unrelated valid plate while another plate slices:
 there is no concurrent export task, result lease, or ambiguous snapshot
 download in this refactor. Once the slice job reaches a terminal state, Export
-is reevaluated solely from the selected plate's matching result stamp.
+is reevaluated solely from the selected plate's matching result stamp and
+presentation state; it does not wait for React typed-array transfer or GPU
+projection construction.
 
 ### 2.13.1 Save is an input-only operation
 
@@ -623,6 +628,12 @@ activation, input change, or retry. It must prove that React discards the old
 payload by plate, stamp, presentation-state, and local epoch checks, while the
 Worker keeps the native cache and the completed Slice task has already released
 its job slot.
+
+The UI result-boundary test must prove that a successful Slice ends global
+slicing progress and restores Export eligibility before an intentionally
+delayed current-plate projection finishes. During that delay, only Preview may
+show local projection-loading state; Slice controls and Export must not remain
+blocked by renderer work.
 
 ### 2.19 Real-project performance acceptance boundary
 
