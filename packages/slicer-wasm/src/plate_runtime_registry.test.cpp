@@ -113,5 +113,34 @@ int main()
     registry.reconcile({"plate-b", "plate-c", "plate-e"});
     registry.restore_lifecycle(lifecycle_before);
     CHECK(registry.find("plate-e")->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
+
+    // A history restore retains an unchanged plate's native entry and
+    // presentation, but a changed stable id is never made publishable merely
+    // because its retained completed revision happens to match the target.
+    const auto* retained_b_print = registry.find("plate-b")->print.get();
+    const auto* retained_b_result = registry.find("plate-b")->gcode_result.get();
+    const auto b_lifecycle = registry.find("plate-b")->presentation;
+    registry.reconcile_history({"plate-b", "plate-f"},
+                               {{"plate-b", 4}, {"plate-c", 7}, {"plate-e", 0}},
+                               {{"plate-b", 4}, {"plate-f", 0}});
+    CHECK(registry.find("plate-b")->print.get() == retained_b_print);
+    CHECK(registry.find("plate-b")->gcode_result.get() == retained_b_result);
+    CHECK(registry.find("plate-b")->presentation == b_lifecycle);
+    CHECK(registry.find("plate-c") == nullptr);
+    CHECK(registry.find("plate-e") == nullptr);
+    CHECK(registry.find("plate-f") != nullptr);
+    CHECK(registry.find("plate-f")->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
+
+    // A changed revision must withdraw presentation even when the retained
+    // native result was completed at the same numeric target revision.
+    auto* changed = registry.find("plate-b");
+    PlateRuntimeRegistry::mark_process_completed(*changed, 4, 4);
+    PlateRuntimeRegistry::mark_presentation_valid(*changed, 4);
+    registry.reconcile_history({"plate-b", "plate-f"},
+                               {{"plate-b", 4}, {"plate-f", 0}},
+                               {{"plate-b", 5}, {"plate-f", 0}});
+    CHECK(changed->print.get() == retained_b_print);
+    CHECK(changed->gcode_result.get() == retained_b_result);
+    CHECK(changed->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
     return 0;
 }
