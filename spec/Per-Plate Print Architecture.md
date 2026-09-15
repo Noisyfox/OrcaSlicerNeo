@@ -182,12 +182,15 @@ results, and history cursor unchanged.
 
 ### 2.11 History and slicing are stamp-safe
 
-If an Undo/Redo operation changes the plate currently being sliced, the bridge
-cancels that job and waits for its cancellation/completion fence before it
-commits the restore. A history operation that does not affect the active
-slice's plate does not cancel the slice. Every completed slice publishes only
-when its start stamp still equals the current plate stamp; a late completion
-after a cancellation or history change is discarded.
+Serial and threaded artifacts have intentionally different active-slice
+interaction rules. In serial mode, native Undo/Redo is disabled while a slice
+is running. In threaded mode, an Undo/Redo affecting the active slice commits
+the restored authoritative state immediately, advances its stamps, and then
+requests asynchronous cancellation of the obsolete job. A history operation
+that does not affect the active slice's plate does not cancel it. Every
+completed slice publishes only when its start stamp still equals the current
+plate stamp; a late completion after a cancellation or history change is
+discarded.
 
 This is the headless equivalent of Orca's background-process switch guard:
 Orca does not switch its active PartPlate Print until the background process
@@ -224,29 +227,41 @@ Neo maintains three explicit runtime identities when needed:
 - `preview_plate_id` is the one plate whose retained result is projected into
   renderer CPU/GPU resources.
 
-While a plate is slicing, Prepare may select and edit another plate whose
-input does not affect the active job. This follows Orca: it commits the plate
-selection before checking whether its background process can switch Print, so
-the Prepare selection may change while the active Print remains unchanged.
-During that interval Preview and progress remain bound to
-`active_slice_plate_id`; no Preview result or Print context is rebound. After
-completion or cancellation, the next Preview activation binds the selected
-plate's valid result.
+In threaded mode, Prepare may select and edit another plate whose input does
+not affect the active job. This follows Orca: it commits the plate selection
+before checking whether its background process can switch Print, so the Prepare
+selection may change while the active Print remains unchanged. During that
+interval Preview and progress remain bound to `active_slice_plate_id`; no
+Preview result or Print context is rebound. After completion or cancellation,
+the next Preview activation binds the selected plate's valid result.
 
-### 2.15 Active-slice-affecting edits cancel before mutation
+In serial mode, all editing context is locked while slicing: the selected,
+active-slice, and preview identities remain the active plate. The UI may keep
+camera/navigation controls available, but it must not accept plate selection,
+native mutation, configuration, history, Slice, or Export commands until the
+slice reaches a terminal state.
 
-Neo retains one stateful, synchronous WASM Worker and does not introduce a
-separate SliceJob Worker. A local mutation for a non-active plate proceeds
-immediately. A mutation for the active slice plate, or a shared mutation that
-affects every plate, first requests cancellation and waits for the native
-slice completion/cancellation fence. It then commits the mutation and marks
-the required plate stamps invalid. The bridge never mutates authoritative
-model or configuration state concurrently with `Print::process()`.
+### 2.15 Threaded jobs support asynchronous cancellation; serial jobs lock
 
-This applies equally to Undo/Redo and ordinary edits. A stale-result stamp
-check remains a required final defence, but it is not a substitute for the
-fence: with synchronous serial WASM, a Worker cannot execute a queued edit or
-cancel command while `Print::process()` occupies that Worker.
+Neo does not introduce a separate SliceJob Worker. In serial wasm64,
+`Print::process()` remains synchronous on the sole stateful Worker, so every
+editing command is disabled until it reaches a terminal state. This preserves
+the same per-plate native Print/result registry without attempting to transfer
+C++ objects between isolated WASM heaps.
+
+In threaded wasm64, the bridge must run a frozen, registry-owned plate Print
+on a dedicated Emscripten pthread in the same shared WASM memory. The main
+Worker remains available to commit edits and history. An edit affecting the
+active plate, or shared configuration, commits first, advances the required
+stamps, and asynchronously requests cancellation through an atomic job signal.
+The job holds a shared runtime-entry lease until it reaches a terminal state,
+so deletion or history reconciliation cannot release its Print while it runs.
+Only a matching terminal stamp may publish a result.
+
+Before enabling this mode, implementation must prove that `Print::process()`
+after `Print::apply()` does not read or mutate the authoritative model,
+PresetBundle, or plate registry. If that proof fails, threaded mode falls back
+to the serial locking rule for the affected operation.
 
 ## 3. Constraints Carried Forward
 
@@ -259,9 +274,8 @@ cancel command while `Print::process()` occupies that Worker.
   runtime state such as Print objects, result caches, and history receipts.
 - Prime-tower Prepare proxies stay pre-slice estimates. Acquiring or updating
   a proxy must not call `Print::apply` merely to construct a preview.
-- The previous sparse Move and Add Plate history receipts remain supported;
-  their per-plate invalidation and registry reconciliation rules are an open
-  decision group below.
+- The previous sparse Move and Add Plate history receipts remain supported and
+  follow the stamp, invalidation, and registry-reconciliation rules above.
 
 ## 4. Open Decision Groups
 
