@@ -183,6 +183,26 @@ for a React acknowledgement, but FIFO delivery order makes `project-closed`
 visible before all new-load messages; failure leaves that empty presentation in
 place. This mirrors Orca's `reset()` refresh before `load_files()`.
 
+### 2.3.2 Geometry-only 3MF import is an Add Model operation
+
+Choosing **Import geometry only** never imports the source 3MF's plate
+definitions, membership, current plate, settings, results, or history. Neo
+matches Orca's geometry-import placement: it calculates one translation for
+the complete imported instance group so that the group's collective centre
+lands at the current plate's bed centre, then applies that same translation to
+every imported instance. Source absolute coordinates are therefore discarded,
+while all intra-group object and instance layout is retained. Normal auto-drop/Z
+handling then applies, and every new instance receives that current stable
+plate ID. Neo does not scan or rewrite existing instances or use source world
+coordinates to classify a new instance onto a different plate.
+
+An imported instance that extends outside the current plate remains a member
+of that plate and is marked out-of-bounds/unprintable; it is never silently
+reassigned to a neighbouring plate. The complete import is one input/history
+transaction and invalidates only its current target plate. In threaded wasm64,
+it requests cancellation only when that target is the active slice; in serial
+mode it follows the existing busy rejection gate.
+
 In serial wasm64, whole-project operations are restricted by the same runtime
 and bridge admission gates as Slice; they create no deferred project-replace
 queue. In threaded wasm64, the admitted whole-project replacement owns the
