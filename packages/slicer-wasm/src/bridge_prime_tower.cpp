@@ -1158,7 +1158,7 @@ json move_position_json(const char* request_cstr)
             state().presets.project_config.option("wipe_tower_x")->serialize();
         state().project_config_overlay["project"]["wipe_tower_y"] =
             state().presets.project_config.option("wipe_tower_y")->serialize();
-        ++state().plate_input_revisions[plate_id];
+        state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
         invalidate_projection_cache({plate_id});
         // ConfigOptionFloat canonically stores this value at float precision.
         // Read the post-write effective configuration: `config` is the

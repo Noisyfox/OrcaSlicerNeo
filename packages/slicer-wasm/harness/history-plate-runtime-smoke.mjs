@@ -61,6 +61,7 @@ requireStatus('commit Plate B object', callJson('orc_history_commit', ['string',
 
 let session = callJson('orc_get_plate_session_snapshot');
 const sliceTarget = (plateId) => [plateId, session.input_revisions[plateId]];
+const stamps = () => callJson('orc_get_plate_session_snapshot').input_revisions;
 requireOk('select A', callJson('orc_select_plate', ['string'], [plateA]));
 session = callJson('orc_get_plate_session_snapshot');
 requireOk('slice A', callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', ...sliceTarget(plateA)]));
@@ -68,6 +69,7 @@ requireOk('select B', callJson('orc_select_plate', ['string'], [plateB]));
 session = callJson('orc_get_plate_session_snapshot');
 requireOk('slice B', callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', ...sliceTarget(plateB)]));
 requireOk('B presentation before history', callJson('orc_get_slice_result'));
+const slicedStamps = stamps();
 
 requireOk('select A for edit', callJson('orc_select_plate', ['string'], [plateA]));
 const editTx = requireOk('begin A edit', callJson('orc_history_begin',
@@ -75,14 +77,25 @@ const editTx = requireOk('begin A edit', callJson('orc_history_begin',
 requireOk('change A', callJson('orc_add_shape', ['string', 'string'], ['Cube', 'History A changed']));
 requireStatus('commit A edit', callJson('orc_history_commit', ['string', 'string'],
   [editTx.transactionId, JSON.stringify(context)]));
+const afterEditStamps = stamps();
+if (!(afterEditStamps[plateA] > slicedStamps[plateA]) || afterEditStamps[plateB] !== slicedStamps[plateB])
+  throw new Error(`edit stamp reconciliation failed: ${JSON.stringify({ slicedStamps, afterEditStamps })}`);
 
 requireStatus('Undo A edit', callJson('orc_history_undo'));
+const afterUndoStamps = stamps();
+if (!(afterUndoStamps[plateA] > afterEditStamps[plateA]) || afterUndoStamps[plateB] !== slicedStamps[plateB])
+  throw new Error(`undo stamp reconciliation regressed or invalidated B: ${JSON.stringify({ afterEditStamps, afterUndoStamps })}`);
 requireOk('select retained B after Undo', callJson('orc_select_plate', ['string'], [plateB]));
 requireOk('B remains publishable after Undo', callJson('orc_get_slice_result'));
 requireOk('select changed A after Undo', callJson('orc_select_plate', ['string'], [plateA]));
 requireStale('A never republishes historical presentation on Undo', callJson('orc_get_slice_result'));
+requireStale('A export rejects the pre-history target after Undo', callJson('orc_export_gcode_plate',
+  ['string', 'number'], [plateA, afterEditStamps[plateA]]));
 
 requireStatus('Redo A edit', callJson('orc_history_redo'));
+const afterRedoStamps = stamps();
+if (!(afterRedoStamps[plateA] > afterUndoStamps[plateA]) || afterRedoStamps[plateB] !== slicedStamps[plateB])
+  throw new Error(`redo stamp reconciliation regressed or invalidated B: ${JSON.stringify({ afterUndoStamps, afterRedoStamps })}`);
 requireOk('select retained B after Redo', callJson('orc_select_plate', ['string'], [plateB]));
 requireOk('B remains publishable after Redo', callJson('orc_get_slice_result'));
 requireOk('select changed A after Redo', callJson('orc_select_plate', ['string'], [plateA]));
@@ -101,6 +114,11 @@ const afterRestore = callJson('orc_get_plate_session_snapshot');
 if (!afterRestore.plates.some((plate) => plate.plate_id === plateB))
   throw new Error(`Delete Plate Undo did not restore stable plate id: ${JSON.stringify(afterRestore)}`);
 requireOk('select restored B', callJson('orc_select_plate', ['string'], [plateB]));
+const restoredStamps = afterRestore.input_revisions;
+// Deleting B can reflow A's world origin, so A is allowed (and expected) to
+// receive its own fresh stamp; it must never regress.  B is newly restored.
+if (!(restoredStamps[plateB] > afterRedoStamps[plateB]) || restoredStamps[plateA] < afterRedoStamps[plateA])
+  throw new Error(`delete undo stamp reconciliation failed: ${JSON.stringify({ afterRedoStamps, restoredStamps })}`);
 requireStale('restored B requires a fresh slice', callJson('orc_get_slice_result'));
 requireStatus('Redo Delete Plate B', callJson('orc_history_redo'));
 const afterRemove = callJson('orc_get_plate_session_snapshot');

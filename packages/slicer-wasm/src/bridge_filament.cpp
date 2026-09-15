@@ -960,7 +960,8 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             // the post-command snapshot; the renderer must not infer this from
             // whichever plate happens to be selected.
             ensure_plate_session_state();
-            for (const auto& plate_id : all_plate_ids()) ++state().plate_input_revisions[plate_id];
+            for (const auto& plate_id : all_plate_ids())
+                state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
             const auto final_snapshot = filament_snapshot_json();
             if (!final_snapshot.value("ok", false)) {
                 rollback_published();
@@ -1111,7 +1112,8 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
                                         state().project_config_overlay);
             Neo::Bridge::PrimeTower::normalize_coordinate_positions();
             ensure_plate_session_state();
-            for (const auto& plate_id : all_plate_ids()) ++state().plate_input_revisions[plate_id];
+            for (const auto& plate_id : all_plate_ids())
+                state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
             const auto final_snapshot = filament_snapshot_json();
             if (!final_snapshot.value("ok", false)) {
                 rollback();
@@ -1394,7 +1396,8 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             state().project_config_overlay = std::move(staged_overlay);
             ensure_plate_session_state();
             Neo::Bridge::PrimeTower::normalize_coordinate_positions();
-            for (const auto& plate_id : affected_plates) ++state().plate_input_revisions[plate_id];
+            for (const auto& plate_id : affected_plates)
+                state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
             auto context = default_command_history_context();
             context["filamentSessionRevision"] = state().history_revision + 1;
             const auto encoded = context.dump();

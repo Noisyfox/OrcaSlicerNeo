@@ -38,18 +38,13 @@ void PlateRuntimeRegistry::reconcile(const std::vector<std::string>& plate_ids)
 
 void PlateRuntimeRegistry::reconcile_history(
     const std::vector<std::string>& plate_ids,
-    const std::map<std::string, std::uint64_t>& previous_revisions,
-    const std::map<std::string, std::uint64_t>& target_revisions)
+    const std::set<std::string>& affected_plate_ids)
 {
     reconcile(plate_ids);
     for (const auto& plate_id : plate_ids) {
         auto* entry = find(plate_id);
         if (entry == nullptr) continue;
-        const auto previous = previous_revisions.find(plate_id);
-        const auto target = target_revisions.find(plate_id);
-        const bool unchanged = previous != previous_revisions.end() &&
-            target != target_revisions.end() && previous->second == target->second;
-        if (!unchanged)
+        if (affected_plate_ids.find(plate_id) != affected_plate_ids.end())
             mark_presentation_invalid(*entry);
     }
 }

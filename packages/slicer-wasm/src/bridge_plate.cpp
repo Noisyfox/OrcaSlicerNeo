@@ -625,7 +625,8 @@ json plate_mutation_snapshot(const std::set<std::string>& before,
     std::set<std::string> affected = before;
     affected.insert(after.begin(), after.end());
     for (const auto& id : affected)
-        if (find_plate(id) != nullptr) ++state().plate_input_revisions[id];
+        if (find_plate(id) != nullptr)
+            state().plate_input_revisions[id] = allocate_plate_input_stamp(state());
     json result = plate_session_snapshot_json(instance_transforms);
     result["input_revisions"] = plate_revisions_json();
     result["affected_plate_ids_before"] = plate_id_array(before);
@@ -649,7 +650,8 @@ json add_plate_mutation_snapshot(const std::set<std::string>& changed_origin_pla
         PrimeTower::invalidate_projection_cache(changed_origin_plates);
         state().plate_runtime_registry.invalidate_presentations(changed_origin_plates);
         for (const auto& plate_id : changed_origin_plates)
-            if (find_plate(plate_id) != nullptr) ++state().plate_input_revisions[plate_id];
+            if (find_plate(plate_id) != nullptr)
+                state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
     }
     json result = plate_session_snapshot_json(instance_transforms);
     result["input_revisions"] = plate_revisions_json();
@@ -668,7 +670,8 @@ json delete_plate_mutation_snapshot(const std::set<std::string>& changed_origin_
         PrimeTower::invalidate_projection_cache(changed_origin_plates);
         state().plate_runtime_registry.invalidate_presentations(changed_origin_plates);
         for (const auto& plate_id : changed_origin_plates)
-            if (find_plate(plate_id) != nullptr) ++state().plate_input_revisions[plate_id];
+            if (find_plate(plate_id) != nullptr)
+                state().plate_input_revisions[plate_id] = allocate_plate_input_stamp(state());
     }
     json result = plate_session_snapshot_json(instance_transforms);
     result["input_revisions"] = plate_revisions_json();
@@ -749,7 +752,8 @@ json shared_configuration_mutation_snapshot()
     PrimeTower::normalize_coordinate_positions();
     PrimeTower::invalidate_projection_cache();
     const auto affected = all_plate_ids();
-    for (const auto& id : affected) ++state().plate_input_revisions[id];
+    for (const auto& id : affected)
+        state().plate_input_revisions[id] = allocate_plate_input_stamp(state());
     json result = plate_session_snapshot_json(reflow_instance_transforms(changed));
     result["input_revisions"] = plate_revisions_json();
     result["affected_plate_ids_before"] = plate_id_array(affected);

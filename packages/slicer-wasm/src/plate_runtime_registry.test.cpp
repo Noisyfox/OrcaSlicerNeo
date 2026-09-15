@@ -121,8 +121,7 @@ int main()
     const auto* retained_b_result = registry.find("plate-b")->gcode_result.get();
     const auto b_lifecycle = registry.find("plate-b")->presentation;
     registry.reconcile_history({"plate-b", "plate-f"},
-                               {{"plate-b", 4}, {"plate-c", 7}, {"plate-e", 0}},
-                               {{"plate-b", 4}, {"plate-f", 0}});
+                               {});
     CHECK(registry.find("plate-b")->print.get() == retained_b_print);
     CHECK(registry.find("plate-b")->gcode_result.get() == retained_b_result);
     CHECK(registry.find("plate-b")->presentation == b_lifecycle);
@@ -137,8 +136,7 @@ int main()
     PlateRuntimeRegistry::mark_process_completed(*changed, 4, 4);
     PlateRuntimeRegistry::mark_presentation_valid(*changed, 4);
     registry.reconcile_history({"plate-b", "plate-f"},
-                               {{"plate-b", 4}, {"plate-f", 0}},
-                               {{"plate-b", 5}, {"plate-f", 0}});
+                               {"plate-b"});
     CHECK(changed->print.get() == retained_b_print);
     CHECK(changed->gcode_result.get() == retained_b_result);
     CHECK(changed->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);

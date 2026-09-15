@@ -64,13 +64,13 @@ public:
     // fresh pair and an absent id is released immediately.
     void reconcile(const std::vector<std::string>& plate_ids);
     // History restores replace the persistent plate/session input after the
-    // target frame has been validated.  Retain an existing entry only when
-    // its stable id and input revision are unchanged; a changed id keeps its
-    // native allocations but loses presentation eligibility.  New ids get a
-    // fresh entry and deleted ids are released by the normal reconciliation.
+    // target frame has been validated.  The bridge supplies the IDs whose
+    // persistent slice inputs changed; numeric historical revisions are not a
+    // runtime eligibility signal.  Unaffected entries retain their native
+    // allocations and presentation, changed entries lose presentation, new
+    // IDs get a fresh entry, and deleted IDs are released.
     void reconcile_history(const std::vector<std::string>& plate_ids,
-                          const std::map<std::string, std::uint64_t>& previous_revisions,
-                          const std::map<std::string, std::uint64_t>& target_revisions);
+                          const std::set<std::string>& affected_plate_ids);
     void clear() noexcept;
 
     // Lifecycle transitions intentionally touch metadata only.  In

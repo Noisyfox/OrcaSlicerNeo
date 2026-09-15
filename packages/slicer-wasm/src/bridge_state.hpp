@@ -10,9 +10,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -108,6 +110,9 @@ struct BridgeState {
         bool transform_delta_invalidated = false;
         std::vector<TransformHistoryRecord> transform_records;
         PlateRuntimeRegistry::LifecycleSnapshots before_plate_runtime_lifecycle;
+        // Abort restores the live runtime stamps captured at transaction
+        // start.  History navigation deliberately uses fresh stamps instead.
+        std::map<std::string, std::uint64_t> before_plate_input_revisions;
     };
     std::optional<HistoryTransaction> active_history_transaction;
     // Nested/coalesced transactions are intentionally dormant: they publish
@@ -186,6 +191,9 @@ struct BridgeState {
     // not advance these values; a committed model/configuration mutation does
     // so only for plates containing an instance before or after the command.
     std::map<std::string, std::uint64_t> plate_input_revisions;
+    // Runtime-only session allocator.  History frames may retain old numeric
+    // revisions as context, but live stamps never come from those values.
+    std::uint64_t next_plate_input_stamp = 1;
     // Runtime-only derived Prime Tower projections keyed by stable plate id.
     // Never serialized into project or history state.
     std::map<std::string, nlohmann::json> prime_tower_projection_cache;
@@ -194,6 +202,13 @@ struct BridgeState {
 };
 
 BridgeState& state();
+
+inline std::uint64_t allocate_plate_input_stamp(BridgeState& bridge_state)
+{
+    if (bridge_state.next_plate_input_stamp == std::numeric_limits<std::uint64_t>::max())
+        throw std::overflow_error("plate input stamp allocator exhausted");
+    return bridge_state.next_plate_input_stamp++;
+}
 
 inline void invalidate_transform_delta_candidate(BridgeState& bridge_state)
 {

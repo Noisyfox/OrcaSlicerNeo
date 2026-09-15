@@ -224,7 +224,6 @@ void restore_history_plate_session(const json& session, const Model& restored_mo
     state().instance_plate_ids.clear();
     state().plate_out_of_bounds_ids.clear();
     state().parked_instance_ids.clear();
-    state().plate_input_revisions.clear();
     for (const auto& instance : session["instances"]) {
         const auto object_index = instance["object_index"].get<std::size_t>();
         const auto instance_index = instance["instance_index"].get<std::size_t>();
@@ -234,19 +233,206 @@ void restore_history_plate_session(const json& session, const Model& restored_mo
         if (instance["parked"].get<bool>()) state().parked_instance_ids.insert(restored_id);
         if (instance["out_of_bounds"].get<bool>()) state().plate_out_of_bounds_ids[plate_id].insert(restored_id);
     }
-    for (const auto& [plate_id, revision] : session["input_revisions"].items())
-        state().plate_input_revisions[plate_id] = revision.get<std::uint64_t>();
+}
+
+std::map<std::string, json> history_plate_input_projection(const json& session)
+{
+    std::map<std::string, json> result;
+    if (!session.is_object() || !session.contains("plates") || !session["plates"].is_array()) return result;
+    std::map<std::string, std::set<std::size_t>> object_ids_by_plate;
+    if (session.contains("instances") && session["instances"].is_array()) {
+        for (const auto& instance : session["instances"]) {
+            if (!instance.is_object() || !instance.contains("plate_id") || !instance["plate_id"].is_string() ||
+                !instance.contains("object_id") || !instance["object_id"].is_number_unsigned()) continue;
+            const auto plate_id = instance["plate_id"].get<std::string>();
+            if (!plate_id.empty() && (instance.value("member", false) || instance.value("out_of_bounds", false)))
+                object_ids_by_plate[plate_id].insert(instance["object_id"].get<std::size_t>());
+        }
+    }
+    for (const auto& plate : session["plates"]) {
+        if (!plate.is_object() || !plate.contains("plate_id") || !plate["plate_id"].is_string()) continue;
+        // Display order, name, lock state, and current selection are context;
+        // these do not change the slicer input.  Origin, local settings, and
+        // membership do.
+        const auto plate_id = plate["plate_id"].get<std::string>();
+        result[plate_id] = json{
+            {"origin", plate.value("origin", json::array())},
+            {"settings", plate.value("settings", json::object())},
+            {"opaque_metadata", plate.value("opaque_metadata", json::array())},
+            {"future_metadata", plate.value("future_metadata", json::object())},
+            // Runtime instance IDs can be rematerialized while restoring a
+            // model.  Object IDs are the persistent membership identity.
+            {"object_ids", object_ids_by_plate[plate_id]},
+        };
+    }
+    return result;
+}
+
+std::map<std::size_t, std::set<std::string>> history_object_plates(const json& session)
+{
+    std::map<std::size_t, std::set<std::string>> result;
+    if (!session.is_object() || !session.contains("instances") || !session["instances"].is_array()) return result;
+    for (const auto& instance : session["instances"]) {
+        if (!instance.is_object() || !instance.value("member", false) ||
+            !instance.contains("object_id") || !instance["object_id"].is_number_unsigned() ||
+            !instance.contains("plate_id") || !instance["plate_id"].is_string()) continue;
+        const auto plate_id = instance["plate_id"].get<std::string>();
+        if (!plate_id.empty()) result[instance["object_id"].get<std::size_t>()].insert(plate_id);
+    }
+    return result;
+}
+
+std::set<std::size_t> changed_history_objects(const Neo::History::ModelState& before,
+                                              const Neo::History::ModelState& target,
+                                              bool& opaque_model_change)
+{
+    std::set<std::size_t> changed;
+    // The legacy serialized blob changes whenever any object changes.  It is
+    // not an opaque input boundary: keyed mutable object records below let us
+    // map that change to the owning plates and preserve unrelated results.
+    opaque_model_change = before.immutable_meshes.size() != target.immutable_meshes.size();
+    std::map<std::size_t, const Neo::History::MutableObject*> before_objects;
+    std::map<std::size_t, const Neo::History::MutableObject*> target_objects;
+    for (const auto& object : before.mutable_objects) before_objects[object.id] = &object;
+    for (const auto& object : target.mutable_objects) target_objects[object.id] = &object;
+    std::set<std::size_t> object_ids;
+    for (const auto& [id, object] : before_objects) object_ids.insert(id);
+    for (const auto& [id, object] : target_objects) object_ids.insert(id);
+    for (const auto id : object_ids) {
+        const auto before_it = before_objects.find(id);
+        const auto target_it = target_objects.find(id);
+        if (before_it == before_objects.end() || target_it == target_objects.end()) {
+            changed.insert(id);
+            continue;
+        }
+        const auto& lhs = *before_it->second;
+        const auto& rhs = *target_it->second;
+        // A restored archive can normalize bytes for an otherwise unchanged
+        // object.  Stable volume identity is the reliable model-input edge;
+        // transform edits have their own delta frame and new/removed objects
+        // are handled by the object-ID set above.
+        if (lhs.volume_ids != rhs.volume_ids)
+            changed.insert(id);
+    }
+    if (before.immutable_meshes.size() == target.immutable_meshes.size()) {
+        for (std::size_t index = 0; index < before.immutable_meshes.size(); ++index) {
+            const auto& lhs = before.immutable_meshes[index];
+            const auto& rhs = target.immutable_meshes[index];
+            if (lhs.key != rhs.key || lhs.optional != rhs.optional || lhs.native.get() != rhs.native.get() ||
+                (lhs.resident && rhs.resident ? *lhs.resident != *rhs.resident : bool(lhs.resident) != bool(rhs.resident)) ||
+                (lhs.deferred && rhs.deferred ? *lhs.deferred != *rhs.deferred : bool(lhs.deferred) != bool(rhs.deferred))) {
+                opaque_model_change = true;
+                break;
+            }
+        }
+    }
+    // Adding/removing a model naturally changes the retained immutable mesh
+    // set, but its keyed mutable object record already identifies the owning
+    // plate.  Only treat an immutable-only change as opaque when no object
+    // record can localize it.
+    if (opaque_model_change && !changed.empty()) opaque_model_change = false;
+    return changed;
+}
+
+void add_history_object_plates(std::set<std::string>& affected,
+                               const std::set<std::size_t>& object_ids,
+                               const json& before_session, const json& target_session)
+{
+    const auto before = history_object_plates(before_session);
+    const auto target = history_object_plates(target_session);
+    for (const auto object_id : object_ids) {
+        if (const auto it = before.find(object_id); it != before.end()) affected.insert(it->second.begin(), it->second.end());
+        if (const auto it = target.find(object_id); it != target.end()) affected.insert(it->second.begin(), it->second.end());
+    }
+}
+
+void add_changed_overlay_object_plates(std::set<std::string>& affected, const json& before_overlay,
+                                       const json& target_overlay, const json& before_session,
+                                       const json& target_session)
+{
+    if (!before_overlay.is_object() && !target_overlay.is_object()) return;
+    std::set<std::size_t> object_ids;
+    for (const char* scope : {"objects", "parts"}) {
+        const auto before = before_overlay.value(scope, json::object());
+        const auto target = target_overlay.value(scope, json::object());
+        std::set<std::string> keys;
+        if (before.is_object()) for (const auto& [key, value] : before.items()) keys.insert(key);
+        if (target.is_object()) for (const auto& [key, value] : target.items()) keys.insert(key);
+        for (const auto& key : keys) {
+            if (before.value(key, json()) == target.value(key, json())) continue;
+            try { object_ids.insert(static_cast<std::size_t>(std::stoull(key))); }
+            catch (...) { return; }
+        }
+    }
+    add_history_object_plates(affected, object_ids, before_session, target_session);
+}
+
+std::set<std::string> history_affected_plate_ids(
+    const json& before_session, const json& target_session,
+    const std::optional<Neo::History::ModelState>& before_model,
+    const std::optional<Neo::History::ModelState>& target_model,
+    const json& before_filament, const json& target_filament,
+    const json& before_overlay, const json& target_overlay,
+    const std::set<std::string>& explicit_affected = {})
+{
+    std::set<std::string> all_ids;
+    for (const auto& [id, value] : history_plate_input_projection(before_session)) all_ids.insert(id);
+    for (const auto& [id, value] : history_plate_input_projection(target_session)) all_ids.insert(id);
+    std::set<std::string> affected = explicit_affected;
+    const auto before_plates = history_plate_input_projection(before_session);
+    const auto target_plates = history_plate_input_projection(target_session);
+    bool plate_projection_changed = false;
+    for (const auto& id : all_ids) {
+        const auto before = before_plates.find(id);
+        const auto target = target_plates.find(id);
+        if (before == before_plates.end() || target == target_plates.end() || before->second != target->second) {
+            affected.insert(id);
+            plate_projection_changed = true;
+        }
+    }
+    if (before_filament != target_filament) affected.insert(all_ids.begin(), all_ids.end());
+    const auto before_project = before_overlay.value("project", json::object());
+    const auto target_project = target_overlay.value("project", json::object());
+    if (before_project != target_project) affected.insert(all_ids.begin(), all_ids.end());
+    const auto before_plate_overlay = before_overlay.value("plates", json::object());
+    const auto target_plate_overlay = target_overlay.value("plates", json::object());
+    if (before_plate_overlay.is_object() && target_plate_overlay.is_object()) {
+        std::set<std::string> overlay_ids;
+        for (const auto& [id, value] : before_plate_overlay.items()) overlay_ids.insert(id);
+        for (const auto& [id, value] : target_plate_overlay.items()) overlay_ids.insert(id);
+        for (const auto& id : overlay_ids)
+            if (before_plate_overlay.value(id, json()) != target_plate_overlay.value(id, json())) affected.insert(id);
+    }
+    add_changed_overlay_object_plates(affected, before_overlay, target_overlay, before_session, target_session);
+    // A membership/origin/settings delta already localizes model additions or
+    // removals to those plates.  Avoid reinterpreting archive bytes for every
+    // restored object (stage/restore can normalize unrelated object bytes).
+    if (before_model && target_model && !plate_projection_changed) {
+        bool opaque_model_change = false;
+        const auto changed_objects = changed_history_objects(*before_model, *target_model, opaque_model_change);
+        add_history_object_plates(affected, changed_objects, before_session, target_session);
+        if (opaque_model_change) affected.insert(all_ids.begin(), all_ids.end());
+    }
+    return affected;
 }
 
 void reconcile_history_runtime_registry(
-    const std::map<std::string, std::uint64_t>& previous_revisions)
+    const std::map<std::string, std::uint64_t>& previous_revisions,
+    const std::set<std::string>& affected_plate_ids)
 {
     std::vector<std::string> plate_ids;
     plate_ids.reserve(state().plate_session_plates.size());
-    for (const auto& plate : state().plate_session_plates)
+    std::map<std::string, std::uint64_t> live_revisions;
+    for (const auto& plate : state().plate_session_plates) {
         plate_ids.push_back(plate.id);
-    state().plate_runtime_registry.reconcile_history(
-        plate_ids, previous_revisions, state().plate_input_revisions);
+        const auto previous = previous_revisions.find(plate.id);
+        if (previous != previous_revisions.end() && affected_plate_ids.find(plate.id) == affected_plate_ids.end())
+            live_revisions.emplace(plate.id, previous->second);
+        else
+            live_revisions.emplace(plate.id, allocate_plate_input_stamp(state()));
+    }
+    state().plate_input_revisions = std::move(live_revisions);
+    state().plate_runtime_registry.reconcile_history(plate_ids, affected_plate_ids);
 }
 
 void apply_add_plate_transforms(const std::optional<json>& transforms)
@@ -294,6 +480,9 @@ json restore_add_plate_frame(const Runtime& runtime, const Neo::History::Restore
     const bool has_model = !plan.state.model.serialized.empty() ||
         !plan.state.model.mutable_objects.empty() || !plan.state.model.immutable_meshes.empty();
     Model before_model = state().model;
+    const auto before_plate_session = plate_session_snapshot_json();
+    const auto before_overlay = state().project_config_overlay;
+    const auto before_filament = runtime.filament_history_state();
     const auto before_plate_revisions = state().plate_input_revisions;
     if (has_model) {
         state().model = Neo::History::Codec::stage_model(state().model, plan.state);
@@ -313,7 +502,11 @@ json restore_add_plate_frame(const Runtime& runtime, const Neo::History::Restore
         if (!state().history.commit_restore(plan)) throw std::runtime_error("history restore became stale");
         // The persistent target is now committed.  Reconcile runtime Prints
         // by stable plate id, preserving only unchanged plate inputs.
-        reconcile_history_runtime_registry(before_plate_revisions);
+        const auto affected = history_affected_plate_ids(
+            before_plate_session, context["plateSession"], std::nullopt, std::nullopt,
+            before_filament, context.value("filamentState", before_filament),
+            before_overlay, context.value("projectConfigOverlay", empty_project_config_overlay()));
+        reconcile_history_runtime_registry(before_plate_revisions, affected);
     } catch (...) {
         if (has_model) {
             state().model = std::move(before_model);
@@ -334,7 +527,9 @@ json restore_add_plate_frame(const Runtime& runtime, const Neo::History::Restore
     // meshes, and must not consume the sparse receipt a second time.  Only
     // adjacent direct Add Plate navigation can safely remain model-less.
     const char* model_impact = has_model ? "full" : "none";
-    json result{{"ok", true}, {"context", context}, {"status", history_status_json()},
+    json response_context = context;
+    response_context["plateSession"]["input_revisions"] = Neo::Bridge::PlateSession::plate_revisions_json();
+    json result{{"ok", true}, {"context", response_context}, {"status", history_status_json()},
                 {"entryId", history_entry_id(plan.state.entry.id)}, {"direct", true},
                 {"impact", {{"version", 1}, {"model", model_impact}, {"plateSession", true},
                             {"filamentRack", false}, {"projectOverlay", true},
@@ -438,6 +633,8 @@ json restore_transform_frame(const Runtime& runtime, const Neo::History::Restore
     const auto before_pending = state().pending_membership_instance_ids;
     const auto before_revisions = state().plate_input_revisions;
     const auto before_overlay = state().project_config_overlay;
+    const auto before_plate_session = plate_session_snapshot_json();
+    const auto before_filament = runtime.filament_history_state();
     std::vector<std::pair<Slic3r::Geometry::Transformation, Slic3r::Geometry::Transformation>> before_transforms;
     before_transforms.reserve(targets.size());
     for (const auto& [object, volume, instance] : targets)
@@ -461,8 +658,18 @@ json restore_transform_frame(const Runtime& runtime, const Neo::History::Restore
         apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
         Neo::Bridge::PlateSession::normalize_coordinate_arrays(
             state().presets.project_config, state().plate_session_plates.size());
+        std::set<std::string> transform_affected;
+        std::set<std::size_t> transform_objects;
+        for (const auto& record : frame.records) transform_objects.insert(record.object_id);
+        add_history_object_plates(transform_affected, transform_objects,
+                                  before_plate_session, context["plateSession"]);
+        const auto affected = history_affected_plate_ids(
+            before_plate_session, context["plateSession"], std::nullopt, std::nullopt,
+            before_filament, context.value("filamentState", before_filament),
+            before_overlay, context.value("projectConfigOverlay", empty_project_config_overlay()),
+            transform_affected);
         if (!state().history.commit_restore(plan)) throw std::runtime_error("history restore became stale");
-        reconcile_history_runtime_registry(before_revisions);
+        reconcile_history_runtime_registry(before_revisions, affected);
     } catch (...) {
         if (original_model) state().model = std::move(*original_model);
         else for (std::size_t index = 0; index < targets.size(); ++index) {
@@ -520,7 +727,9 @@ json restore_transform_frame(const Runtime& runtime, const Neo::History::Restore
         {"delta_apply", Neo::Bridge::Performance::now_ms() - apply_started_at},
         {"total", Neo::Bridge::Performance::now_ms() - apply_started_at},
     });
-    return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
+    json response_context = context;
+    response_context["plateSession"]["input_revisions"] = Neo::Bridge::PlateSession::plate_revisions_json();
+    return json{{"ok", true}, {"context", response_context}, {"status", history_status_json()},
                 {"entryId", history_entry_id(plan.state.entry.id)}, {"direct", true}, {"narrow", true},
                 {"transform_receipt", {{"version", 1}, {"state", after_state ? "after" : "before"},
                                         {"before_revision", frame.before_revision},
@@ -610,7 +819,6 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
     Model staged_model = *frame->model;
     auto staged_plates = frame->plates;
     auto staged_overlay = frame->overlay;
-    auto staged_plate_revisions = frame->plate_input_revisions;
     auto staged_membership = frame->instance_plate_ids;
     auto staged_out_of_bounds = frame->plate_out_of_bounds_ids;
     auto staged_parked = frame->parked_instance_ids;
@@ -624,6 +832,7 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
     const auto before_ams_colours = state().presets.ams_multi_color_filment;
     const auto before_edited = state().presets.filaments.get_edited_preset();
     Model before_model = state().model;
+    const auto before_plate_session = plate_session_snapshot_json();
     const auto before_plates = state().plate_session_plates;
     const auto before_overlay = state().project_config_overlay;
     const auto before_plate_revisions = state().plate_input_revisions;
@@ -645,7 +854,6 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
         apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
         Neo::Bridge::PlateSession::normalize_coordinate_arrays(
             state().presets.project_config, state().plate_session_plates.size());
-        state().plate_input_revisions = std::move(staged_plate_revisions);
         state().instance_plate_ids = std::move(staged_membership);
         state().plate_out_of_bounds_ids = std::move(staged_out_of_bounds);
         state().parked_instance_ids = std::move(staged_parked);
@@ -653,7 +861,17 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
         state().current_plate_id = staged_current_plate;
         state().next_filament_colour_index = staged_colour_index;
         if (!state().history.commit_restore(plan)) throw std::runtime_error("history restore became stale");
-        reconcile_history_runtime_registry(before_plate_revisions);
+        std::set<std::string> direct_affected;
+        for (const auto& plate : before_plate_session["plates"])
+            direct_affected.insert(plate["plate_id"].get<std::string>());
+        for (const auto& plate : context["plateSession"]["plates"])
+            direct_affected.insert(plate["plate_id"].get<std::string>());
+        const auto affected = history_affected_plate_ids(
+            before_plate_session, context["plateSession"], std::nullopt, std::nullopt,
+            runtime.filament_history_state(), context.value("filamentState", json()),
+            before_overlay, context.value("projectConfigOverlay", empty_project_config_overlay()),
+            direct_affected);
+        reconcile_history_runtime_registry(before_plate_revisions, affected);
         ++state().history_minimal_mutable_restore_count;
     } catch (...) {
         state().presets.filament_presets = before_filament_presets;
@@ -676,7 +894,9 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
     Neo::Bridge::PrimeTower::invalidate_projection_cache();
     if (runtime.invalidate_preview) runtime.invalidate_preview();
     HistoryMetadata::advance_history_epoch(state());
-    return json{{"ok", true}, {"context", context}, {"status", history_status_json()},
+    json response_context = context;
+    response_context["plateSession"]["input_revisions"] = Neo::Bridge::PlateSession::plate_revisions_json();
+    return json{{"ok", true}, {"context", response_context}, {"status", history_status_json()},
                 {"entryId", history_entry_id(plan.state.entry.id)}, {"direct", true},
                 // A direct filament frame still replaces a complete native
                 // model/session. Keep its renderer descriptor conservative.
@@ -704,7 +924,8 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
     const auto& x = frame.after_state ? frame.after_x : frame.before_x;
     const auto& y = frame.after_state ? frame.after_y : frame.before_y;
     const auto& footprint = frame.after_state ? frame.after_footprint : frame.before_footprint;
-    const std::uint64_t revision = frame.after_state ? frame.after_revision : frame.before_revision;
+    // The frame revision is historical metadata only.  A restore is a new
+    // runtime input event and must receive a fresh session stamp.
     if (!valid_footprint(footprint)) throw std::runtime_error("invalid prime tower narrow history footprint");
     const auto receipt_coordinate = [](const std::string& serialized) {
         try {
@@ -729,7 +950,7 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
             state().presets.project_config.option("wipe_tower_x")->serialize();
         state().project_config_overlay["project"]["wipe_tower_y"] =
             state().presets.project_config.option("wipe_tower_y")->serialize();
-        state().plate_input_revisions[frame.plate_id] = revision;
+        state().plate_input_revisions[frame.plate_id] = allocate_plate_input_stamp(state());
         if (!state().history.commit_restore(plan)) throw std::runtime_error("history restore became stale");
     } catch (...) {
         Neo::Bridge::PrimeTower::restore_coordinate_settings(
@@ -748,12 +969,12 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
     // History never retains slice products. A Prime Tower restore always
     // invalidates the target plate if it is the currently retained result;
     // an unrelated plate's real result is left untouched.
+    if (auto* entry = state().plate_runtime_registry.find(frame.plate_id); entry != nullptr)
+        Neo::Bridge::PlateRuntimeRegistry::mark_presentation_invalid(*entry);
     if (state().preview_plate_id == frame.plate_id) {
         // This is deliberately after commit_restore but cannot throw: the
         // history cursor must not advance without the target result becoming
         // invalid, and cleanup must not report a failure after publication.
-        if (auto* entry = state().plate_runtime_registry.find(frame.plate_id); entry != nullptr)
-            Neo::Bridge::PlateRuntimeRegistry::mark_presentation_invalid(*entry);
         try { Neo::Bridge::SlicingPipeline::invalidate_preview_result_only(); } catch (...) {}
         try { if (runtime.invalidate_preview) runtime.invalidate_preview(); } catch (...) {}
     }
@@ -765,7 +986,7 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
                 {"status", history_status_json()}, {"entryId", history_entry_id(plan.state.entry.id)},
                 {"direct", true}, {"narrow", true},
                 {"prime_tower_receipt", {{"version", 1}, {"state", "available"},
-                    {"plate_id", frame.plate_id}, {"revision", revision},
+                    {"plate_id", frame.plate_id}, {"revision", state().plate_input_revisions[frame.plate_id]},
                     {"position", {{"x", receipt_x}, {"y", receipt_y}}},
                     {"footprint", {{"min_x", footprint.min_x}, {"max_x", footprint.max_x},
                                     {"min_y", footprint.min_y}, {"max_y", footprint.max_y}}}}},
@@ -840,8 +1061,10 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
                                     context.value("projectConfigOverlay", empty_project_config_overlay()), false);
     if (!state().history.can_commit_restore(plan)) throw std::runtime_error("history restore became stale");
     std::optional<Neo::Bridge::Filament::State::StagedMutableState> before_filament_state;
+    const auto before_filament_json = history_state_json(state().presets);
     if (filament_changed) before_filament_state.emplace(stage_mutable(state().presets, history_state_json(state().presets)));
     Model before_model = state().model;
+    const auto before_plate_session = plate_session_snapshot_json();
     const auto before_plates = state().plate_session_plates;
     const auto before_overlay = state().project_config_overlay;
     const auto before_plate_revisions = state().plate_input_revisions;
@@ -866,7 +1089,12 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
         if (!state().history.commit_restore(plan)) throw std::runtime_error("history restore became stale");
         restore_timings.history_cursor_commit_ms =
             Neo::Bridge::Performance::now_ms() - cursor_commit_started_at;
-        reconcile_history_runtime_registry(before_plate_revisions);
+        const auto affected = history_affected_plate_ids(
+            before_plate_session, context.value("plateSession", json::object()),
+            live_model_state, plan.state.model,
+            before_filament_json, context.value("filamentState", json()),
+            before_overlay, context.value("projectConfigOverlay", empty_project_config_overlay()));
+        reconcile_history_runtime_registry(before_plate_revisions, affected);
     } catch (...) {
         if (before_filament_state) apply_mutable(state(), state().presets, std::move(*before_filament_state));
         state().model = std::move(before_model);
@@ -884,7 +1112,9 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
     Neo::Bridge::PrimeTower::invalidate_projection_cache();
     if (runtime.invalidate_preview) runtime.invalidate_preview();
     HistoryMetadata::advance_history_epoch(state());
-    json result{{"ok", true}, {"context", context}, {"status", history_status_json()},
+    json response_context = context;
+    response_context["plateSession"]["input_revisions"] = Neo::Bridge::PlateSession::plate_revisions_json();
+    json result{{"ok", true}, {"context", response_context}, {"status", history_status_json()},
                 {"entryId", history_entry_id(plan.state.entry.id)},
                 // A full restore may have changed any model-owned domain. Do
                 // not infer narrower effects from React's prior projection.
@@ -1589,8 +1819,10 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
                 category == "project" ? Neo::History::Category::Project : Neo::History::Category::Context,
                 before_context, capture_model_state(
                     state().model, state().mesh_capture_cache, state().mutable_object_capture_cache), true, parent_target,
-                state().history_revision, false, false, std::nullopt, std::nullopt,
+            state().history_revision, false, false, std::nullopt, std::nullopt,
                 false, false, false, {}, state().plate_runtime_registry.capture_lifecycle()});
+            state().nested_history_transactions.back().before_plate_input_revisions =
+                state().plate_input_revisions;
             return duplicate_json(json{{"ok", true}, {"transactionId", id}, {"status", history_status_json()}}.dump());
         }
         const bool add_plate_delta = label == "Add Plate" && category == "project";
@@ -1626,6 +1858,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_begin(const char* label_cstr, const
         state().active_history_transaction->transform_delta_candidate = transform_delta;
         state().active_history_transaction->before_plate_runtime_lifecycle =
             state().plate_runtime_registry.capture_lifecycle();
+        state().active_history_transaction->before_plate_input_revisions =
+            state().plate_input_revisions;
         Neo::Bridge::Performance::Timings begin_stages{
             {"total", Neo::Bridge::Performance::now_ms() - profile_started_at}};
         if (add_plate_delta || transform_delta) {
@@ -1766,6 +2000,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             auto tx = state().nested_history_transactions.back();
             if (requested != tx.id) return error_json("history transaction is stale or belongs to another writer");
             restore_history_transaction_state(tx.before_context, tx.before_model);
+            state().plate_input_revisions = tx.before_plate_input_revisions;
             state().mutable_object_capture_cache.clear();
             state().nested_history_transactions.pop_back();
             Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
@@ -1791,6 +2026,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
                 Neo::Bridge::PlateSession::normalize_coordinate_arrays(
                     state().presets.project_config, state().plate_session_plates.size());
             }
+            state().plate_input_revisions = tx.before_plate_input_revisions;
             Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
             state().plate_runtime_registry.restore_lifecycle(tx.before_plate_runtime_lifecycle);
             state().active_history_transaction.reset();
@@ -1805,6 +2041,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
             capture_model_state(
                 state().model, state().mesh_capture_cache, state().mutable_object_capture_cache), tx.before_model);
         restore_history_transaction_state(tx.before_context, tx.before_model);
+        state().plate_input_revisions = tx.before_plate_input_revisions;
         Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         state().plate_runtime_registry.restore_lifecycle(tx.before_plate_runtime_lifecycle);
         state().mutable_object_capture_cache.clear();
