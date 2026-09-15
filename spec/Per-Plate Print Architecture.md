@@ -186,6 +186,23 @@ is intentional: native Orca normally uses a filesystem path whereas Neo's
 data resides in MEMFS/WASM memory. A memory budget, storage spill, or eviction
 product policy requires a separate future specification.
 
+If creation of a registry entry, Slice, or projection conversion cannot obtain
+memory, Neo reports `out_of_memory` for that requesting operation. It does not
+silently evict any other plate's core cache. A previously committed edit is not
+rolled back merely because its later Slice cannot allocate; its presentation
+remains invalid until a successful Slice. Explicit deletion, project close, or
+a separately specified user-directed cache-management feature are the only
+ways to release a retained plate core cache.
+
+### 2.5.2 Memory attribution is a required profile output
+
+The non-mock real-project profile records the WASM heap before and after each
+relevant operation, per-plate native core-cache object counts and attributable
+byte estimates, plus React typed-array and GPU projection byte counts. The
+initial refactor establishes observability rather than an invented memory
+ceiling; an OOM report must identify the layer and plate attribution available
+at the failing allocation.
+
 ### 2.5.1 A committed input change invalidates only presentation
 
 When a native mutation has committed successfully and advances a plate's
@@ -656,6 +673,11 @@ time alone is insufficient.
   fixed wall-time budget. Its profile must prove that only plates whose origin
   actually changes are moved, and that no plate receives `Print::apply` or an
   old-plate Prime Tower recomputation solely because of reflow.
+- The same profile records WASM heap use, per-plate core-cache attribution, and
+  React typed-array/GPU projection sizes before and after the exercised
+  operations. It establishes no arbitrary memory ceiling, but an induced or
+  observed allocation failure must report `out_of_memory` with available layer
+  and plate attribution and must show no automatic cache eviction.
 
 ## 3. Constraints Carried Forward
 
