@@ -203,6 +203,29 @@ nonserialized Print object: Orca may reconnect a still-resident temporary
 result after rebuild, but ordinary history does not serialize a complete G-code
 payload.
 
+### 2.9.1 Transform drag is one final input transaction
+
+Renderer drag frames are deliberately local presentation state. Pointer-down
+captures only a read-only Worker revision and stable target-identity
+reservation; it creates neither a native history transaction nor a slice-input
+stamp change. Pointer-up validates that reservation, then commits the complete
+final transform set atomically in exactly one object-granular history
+transaction. Only this successful final commit advances the affected plate
+stamps and, in threaded wasm64, requests cancellation of an affected active
+job.
+
+Escape, lost pointer capture, a stale reservation, or a failed final mutation
+creates no history entry, does not cancel a job, and restores the renderer from
+the Worker-authoritative projection. A completed drag creates exactly one Undo
+entry. This gives Neo the one-action boundary of Orca's interactive Undo
+snapshot while retaining Neo's receipt-based history rather than a full
+snapshot.
+
+The transform integration test must exercise multiple visual drag frames and
+prove exactly one native transform mutation, one history entry, no stamp or
+cancellation before pointer-up, and an authority reconcile on an aborted or
+stale gesture.
+
 ### 2.10 Full history restore reconciles the runtime registry precisely
 
 After a full-model restore, the bridge stages and validates the complete
