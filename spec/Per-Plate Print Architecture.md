@@ -150,6 +150,16 @@ parse or load failure leaves Neo's new, empty project session rather than
 reviving the closed project. The earlier atomic-old-project-preservation
 proposal is not part of this design.
 
+The same rule applies to embedded-preset compatibility and substitution
+warnings. The only checks before closing the old project are the user's
+save/discard/cancel choice and file selection; Neo performs no archive parse,
+candidate `PresetBundle` construction, or project-preflight token exchange
+while the old session is retained. After close, the normal load performs those
+checks and may present their warnings. Cancelling such a warning or failing
+validation leaves the fresh empty session. The temporary-project preflight and
+atomic-commit path are removed rather than retained as an internal compatibility
+API.
+
 In serial wasm64, whole-project operations are restricted by the same runtime
 and bridge admission gates as Slice; they create no deferred project-replace
 queue. In threaded wasm64, the admitted whole-project replacement owns the
