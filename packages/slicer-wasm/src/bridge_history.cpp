@@ -789,6 +789,46 @@ void restore_history_transaction_state(const json& context, const Neo::History::
     }
 }
 
+// Move transactions intentionally do not capture a full ModelState.  Abort
+// must therefore use the sparse native receipt, just like Undo/Redo, instead
+// of sending the empty delta candidate through the full restore path.
+void restore_transform_transaction_state(const BridgeState::HistoryTransaction& tx)
+{
+    std::vector<std::tuple<ModelObject*, ModelVolume*, ModelInstance*>> targets;
+    targets.reserve(tx.transform_records.size());
+    for (const auto& record : tx.transform_records) {
+        if (record.object_index >= state().model.objects.size())
+            throw std::runtime_error("transform abort object identity is stale");
+        auto* object = state().model.objects[record.object_index];
+        if (object->id().id != record.object_id ||
+            record.volume_index >= object->volumes.size() ||
+            record.instance_index >= object->instances.size())
+            throw std::runtime_error("transform abort target identity is stale");
+        auto* volume = object->volumes[record.volume_index];
+        auto* instance = object->instances[record.instance_index];
+        if (volume->id().id != record.volume_id || instance->id().id != record.instance_id)
+            throw std::runtime_error("transform abort target identity is stale");
+        targets.emplace_back(object, volume, instance);
+    }
+    for (std::size_t index = 0; index < tx.transform_records.size(); ++index) {
+        const auto& record = tx.transform_records[index];
+        auto [object, volume, instance] = targets[index];
+        instance->set_transformation(record.before_instance);
+        volume->set_transformation(record.before_volume);
+        object->invalidate_bounding_box();
+    }
+    Neo::Bridge::PlateSession::rebuild_plate_membership(true);
+    if (!tx.before_context.contains("plateSession") || !tx.before_context["plateSession"].is_object())
+        throw std::runtime_error("transform abort is missing plate session");
+    restore_history_plate_session(tx.before_context["plateSession"], state().model);
+    if (!valid_project_config_overlay(tx.before_context.value("projectConfigOverlay", empty_project_config_overlay())))
+        throw std::runtime_error("transform abort has invalid project configuration overlay");
+    state().project_config_overlay = tx.before_context["projectConfigOverlay"];
+    apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
+    Neo::Bridge::PlateSession::normalize_coordinate_arrays(
+        state().presets.project_config, state().plate_session_plates.size());
+}
+
 void validate_direct_frame(const DirectHistoryFrame& frame, const json& context)
 {
     if (!frame.model || frame.filament_presets.empty() || frame.filament_presets.size() > 64 || frame.plates.empty())
@@ -2013,6 +2053,20 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_abort(const char* transaction_id_cs
         if (requested != state().active_history_transaction->id)
             return error_json("history transaction is stale or belongs to another writer");
         const auto tx = *state().active_history_transaction;
+        if (tx.transform_delta_candidate) {
+            restore_transform_transaction_state(tx);
+            state().plate_input_revisions = tx.before_plate_input_revisions;
+            Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
+            state().plate_runtime_registry.restore_lifecycle(tx.before_plate_runtime_lifecycle);
+            state().mutable_object_capture_cache.clear();
+            state().active_history_transaction.reset();
+            state().nested_history_transactions.clear();
+            Neo::Bridge::PrimeTower::invalidate_projection_cache();
+            if (runtime.invalidate_preview) runtime.invalidate_preview();
+            if (tx.transform_delta_mutated) HistoryMetadata::advance_history_epoch(state());
+            return duplicate_json(json{{"ok", true}, {"context", tx.before_context},
+                                       {"status", history_status_json()}}.dump());
+        }
         if (tx.add_plate_delta) {
             if (tx.add_plate_mutated) {
                 apply_add_plate_transforms(tx.add_plate_before_transforms);

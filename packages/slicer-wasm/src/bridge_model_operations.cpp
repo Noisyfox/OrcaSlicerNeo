@@ -1089,6 +1089,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
 
         const double membership_lookup_started_at = Neo::Bridge::Performance::now_ms();
         const auto before_out_of_bounds = state().plate_out_of_bounds_ids;
+        const auto before_revisions = state().plate_input_revisions;
+        const auto before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const auto affected_before = affected_instances.empty()
             ? std::set<std::string>{} : member_plate_ids_for_instances(affected_instances);
         const bool projection_geometry_changed = std::any_of(staged.begin(), staged.end(),
@@ -1174,6 +1176,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_model_transforms(
                 if (item.next_instance != item.previous_instance || item.next_volume != item.previous_volume)
                     item.object->config.touch();
             }
+            state().plate_input_revisions = before_revisions;
+            state().plate_runtime_registry.restore_lifecycle(before_lifecycle);
             if (active->transform_delta_candidate) {
                 active->transform_records.resize(transform_record_count_before);
                 active->transform_delta_mutated = transform_delta_mutated_before;

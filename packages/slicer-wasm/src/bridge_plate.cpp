@@ -624,9 +624,23 @@ json plate_mutation_snapshot(const std::set<std::string>& before,
     }
     std::set<std::string> affected = before;
     affected.insert(after.begin(), after.end());
+    // Allocate all new stamps before publishing any of them.  If the session
+    // allocator is exhausted, the mutation must fail without leaving a
+    // partially advanced set of live plate revisions or presentation state.
+    std::map<std::string, std::uint64_t> next_revisions;
+    std::set<std::string> live_affected;
     for (const auto& id : affected)
-        if (find_plate(id) != nullptr)
-            state().plate_input_revisions[id] = allocate_plate_input_stamp(state());
+        if (find_plate(id) != nullptr) {
+            next_revisions.emplace(id, allocate_plate_input_stamp(state()));
+            live_affected.insert(id);
+        }
+    for (const auto& [id, revision] : next_revisions)
+        state().plate_input_revisions[id] = revision;
+    // Presentation validity is a per-plate concern.  Keep every affected
+    // Print/GCode allocation resident while withdrawing only the React/export
+    // projection for plates containing the moved instance before or after the
+    // transaction.
+    state().plate_runtime_registry.invalidate_presentations(live_affected);
     json result = plate_session_snapshot_json(instance_transforms);
     result["input_revisions"] = plate_revisions_json();
     result["affected_plate_ids_before"] = plate_id_array(before);
