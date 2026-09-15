@@ -86,7 +86,11 @@ In serial wasm64, whole-project operations are restricted by the same runtime
 and bridge admission gates as Slice; they create no deferred project-replace
 queue. In threaded wasm64, the admitted whole-project replacement owns the
 cancellation/fence sequence above and must not publish any state if parsing
-fails.
+fails. From admission until its success or failure terminal state, it also
+locks all native mutation, Undo/Redo, Slice, and Export operations with
+`project_replacing`; only progress and camera/window navigation remain
+available. Such edits would necessarily be discarded by the replacement and
+therefore must never produce ambiguous history or a competing job.
 
 ### 2.4 Strict per-plate slice-input stamps
 
