@@ -210,6 +210,14 @@ initial refactor establishes observability rather than an invented memory
 ceiling; an OOM report must identify the layer and plate attribution available
 at the failing allocation.
 
+`Print::apply(global_model)` retains Orca's current copy semantics: each
+per-plate `Print::m_model` has its own model/object/volume/instance/config
+structure, while every copied `ModelVolume` shares its immutable
+`TriangleMesh` and convex-hull `shared_ptr` with the authoritative model.
+Thus the profile reports shared source-mesh bytes separately from each
+plate's structural model-copy bytes and from its derived slice/G-code cache;
+it must not attribute the same mesh bytes once per plate.
+
 The instrumentation for this profile is compiled only into its dedicated,
 non-mock profile build. In a normal production build, C++ preprocessor gates
 and React/Worker compile-time constants must remove the instrumentation and
@@ -441,6 +449,33 @@ state, the current input stamp, and the latest local epoch. Otherwise it
 discards the payload without native mutation. This token is deliberately local
 rather than an `AsyncTaskId`: projection delivery is UI work and has no native
 Print/task lifetime to manage.
+
+The first implementation preserves Neo's existing transport shape. On demand,
+the Worker copies the selected plate's bridge toolpath buffers out of the WASM
+heap into ordinary `ArrayBuffer` instances, then posts those buffers to React
+as transferables, so the Worker-to-React hop transfers ownership without a
+second buffer copy. React never holds a view into WASM memory. This common
+serial/threaded protocol deliberately avoids a `SharedArrayBuffer` view and
+the additional core-result pin/heap-growth lifetime it would require. Profile
+output distinguishes WASM-to-Worker extraction, Worker-to-React transfer, and
+React/GPU construction costs.
+
+Every result-facing bridge request—toolpath projection, G-code text paging,
+and export—is explicitly addressed by `plate_id`, `input_stamp`, and that
+plate's runtime-only `result_generation`. The generation increments only when
+that entry completes a successful normal Slice. The bridge validates the
+three-part receipt before and after extraction; a mismatch returns `stale`
+and publishes no old data. A bare current Print or bare native `result_id` is
+not a cross-plate API identity. Native result IDs may remain internal bridge
+implementation details, but do not replace this receipt or persist in a
+project file. Existing unscoped result APIs are removed in this refactor;
+there are no internal compatibility wrappers, fallbacks, or aliases.
+
+Result reads return a typed terminal state: `ok`, `stale`, `unavailable`, or
+`failed`. `stale` is an expected asynchronous race and React silently drops
+it; `unavailable` renders the target plate's needs-slicing state; only
+`failed` reports a bridge or allocation error. No result read throws merely
+because a concurrent edit, cancellation, or new Slice superseded its receipt.
 
 ### 2.13 Slice and Export target the selected current plate
 
