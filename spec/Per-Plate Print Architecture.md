@@ -454,6 +454,28 @@ The threaded task-message test must prove global `AsyncTaskId` non-reuse and
 that a late progress message for a cancelled/replaced task cannot update the
 new active task's progress or terminal status.
 
+### 2.19 Real-project performance acceptance boundary
+
+Performance acceptance uses the real non-mock, rebuilt-and-staged Electron
+application and the fixture
+`E:\OneDrive\Dokumente\3d打印\模型\奥德赛\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf`.
+Every profile reports the complete click-to-visible-Undo wall time, JavaScript
+time, JS-to-WASM transport time, and named native bridge stages; an aggregate
+time alone is insufficient.
+
+- An Add Plate operation that does not change the grid column count must show
+  its Undo entry within 100 ms. Its profile must prove zero old-plate
+  `Print::apply` calls, Prime Tower estimates, used-slot scans, coordinate
+  write-backs, and position changes.
+- A full object drag must show its one Undo entry within 100 ms after
+  pointer-up, with exactly one transform/history mutation.
+- A threaded object move affecting the active slice must also show its Undo
+  entry within 100 ms; the obsolete task must cancel or fail its stamp check.
+- An Add Plate operation which changes the grid column count has no invented
+  fixed wall-time budget. Its profile must prove that only plates whose origin
+  actually changes are moved, and that no plate receives `Print::apply` or an
+  old-plate Prime Tower recomputation solely because of reflow.
+
 ## 3. Constraints Carried Forward
 
 - The React application continues to use the typed runtime/client boundary;
