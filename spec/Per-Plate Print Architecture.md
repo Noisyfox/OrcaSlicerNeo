@@ -722,7 +722,10 @@ status. Once it starts, it follows the full Slice and result lifecycle in
 Sections 2.2 and 2.4.1 even if that plate previously had a stamp-matching
 result; native calculation may skip current steps, but result processing and
 publication still run. An edit must never enqueue a replacement Slice
-automatically.
+automatically. Orca's optional debounced `auto_slice_after_change` facility
+is not introduced by this refactor. Neo retains only its existing explicit
+Slice commands and its established actual Prepare-to-Preview transition
+trigger.
 
 In serial wasm64, Slice is one of the restricted operations rejected by the
 runtime and bridge admission gates while the sole job runs; it creates no
