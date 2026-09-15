@@ -148,14 +148,31 @@ unconditional all-plate Prime Tower normalization in this path.
 
 Deleting a nonempty plate moves its instances to the unprintable/parked area;
 it does not delete the model or silently move it to a neighbouring printable
-plate. The deleted plate's registry entry, Print, result, and generated G-code
-are destroyed. Later plates whose physical origin changes are reflowed and
-invalidated; unaffected plates retain their registry entries and valid
-results.
+plate. When no job leases its registry entry, the deleted plate's Print,
+result, and generated G-code are destroyed. Later plates whose physical origin
+changes are reflowed and invalidated; unaffected plates retain their registry
+entries and valid results.
 
-This follows Orca's `PartPlateList::delete_plate()` behaviour. The history
-rule governing a subsequent Undo restoration of a deleted plate's prior result
-is deliberately specified separately below.
+In threaded wasm64, deleting the active-slice plate commits the persistent
+deletion immediately and removes the plate from the live registry. It advances
+the job's required stamp, requests cancellation, and transfers that exact
+runtime-entry incarnation to a retired tombstone container. The job lease is
+the sole owner permitted to access the tombstone Print until its terminal
+state; it may never publish a result. Only then is the tombstone's Print,
+result, and generated G-code destroyed.
+
+Undo before that terminal state restores the plate definition with the same
+session plate ID but creates a fresh live registry-entry incarnation. It must
+never reuse the tombstone Print that the old job may still access. A model or
+instance deletion from an active plate follows the same snapshot rule without
+needing a tombstone: it commits the authoritative Model change, advances the
+plate stamp, and requests cancellation, but does not apply to, mutate, or
+destroy the running Print before that job terminates.
+
+Orca's `PartPlateList::delete_plate()` immediately destroys the deleted
+plate's Print. Neo intentionally differs for a pthread-held active Print, so
+the history rule governing a subsequent Undo restoration is safe even while
+the obsolete job drains.
 
 ### 2.8 Prime Tower coordinates are plate-local through layout reflow
 
@@ -370,6 +387,13 @@ fixture, must start a slice and then edit the active plate or shared settings.
 The edit and its matching Undo entry must appear within 100 ms; it must not
 return `slice_busy`. The active job must be cancelled or have its result
 discarded by stamp mismatch, and it must never publish stale output.
+
+The threaded native lifecycle test must pause an active job, delete its plate,
+and then complete or cancel that job under memory-safety instrumentation. It
+must prove no use-after-free and no result publication. A second case must Undo
+the deletion before the old job terminates and prove the restored live entry is
+a distinct incarnation; only the old tombstone is released at the old job's
+terminal state.
 
 ## 3. Constraints Carried Forward
 
