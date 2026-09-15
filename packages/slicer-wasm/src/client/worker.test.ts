@@ -32,12 +32,14 @@ describe('worker protocol', () => {
       version: 1,
       samples: [{ operation: 'prime_tower_projection', stages_ms: {
         session_preparation: 0, bounds_scan: 0, effective_config_construction: 0,
-        plate_local_model_construction: 0, used_slot_scan: 0, printable_height_bounds_scan: 0,
+        plate_local_model_construction: 0, used_slot_summary_hit: 0, used_slot_summary_delta: 0,
+        used_slot_full_scan_fallback: 0, used_slot_scan: 0, printable_height_bounds_scan: 0,
         direct_wipe_tower_estimate: 0, print_apply_wipe_tower_data_fallback: 0,
         footprint_bands_projection_json: 0,
         final_json_serialization: 0, final_json_copy: 0, total: 0,
       }, per_plate_stages_ms: [{
         effective_config_construction: 0, plate_local_model_construction: 0,
+        used_slot_summary_hit: 0, used_slot_summary_delta: 0, used_slot_full_scan_fallback: 0,
         used_slot_scan: 0, printable_height_bounds_scan: 0,
         direct_wipe_tower_estimate: 0, print_apply_wipe_tower_data_fallback: 0,
         footprint_bands_projection_json: 0, total: 0,

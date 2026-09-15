@@ -74,13 +74,15 @@ function normalizeNativePerformanceProfile(raw: unknown): NativePerformanceProfi
   if (raw.samples.length > 16) throw new Error('invalid native performance profile sample count');
   const aggregateStages = [
     'session_preparation', 'bounds_scan', 'effective_config_construction',
-    'plate_local_model_construction', 'used_slot_scan', 'printable_height_bounds_scan',
+    'plate_local_model_construction', 'used_slot_summary_hit', 'used_slot_summary_delta',
+    'used_slot_full_scan_fallback', 'used_slot_scan', 'printable_height_bounds_scan',
     'direct_wipe_tower_estimate', 'print_apply_wipe_tower_data_fallback',
     'footprint_bands_projection_json',
     'final_json_serialization', 'final_json_copy', 'total',
   ];
   const plateStages = [
-    'effective_config_construction', 'plate_local_model_construction', 'used_slot_scan',
+    'effective_config_construction', 'plate_local_model_construction', 'used_slot_summary_hit',
+    'used_slot_summary_delta', 'used_slot_full_scan_fallback', 'used_slot_scan',
     'printable_height_bounds_scan', 'direct_wipe_tower_estimate',
     'print_apply_wipe_tower_data_fallback',
     'footprint_bands_projection_json', 'total',

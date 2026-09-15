@@ -16,14 +16,16 @@ describe('SlicerClient bridge contract', () => {
   it('normalizes the strict scalar native Prime Tower profile schema', async () => {
     const aggregateStages = {
       session_preparation: 0.1, bounds_scan: 0.2, effective_config_construction: 1,
-      plate_local_model_construction: 2, used_slot_scan: 3, printable_height_bounds_scan: 4,
+      plate_local_model_construction: 2, used_slot_summary_hit: 0.1, used_slot_summary_delta: 0.2,
+      used_slot_full_scan_fallback: 2.7, used_slot_scan: 3, printable_height_bounds_scan: 4,
       direct_wipe_tower_estimate: 5, print_apply_wipe_tower_data_fallback: 0,
       footprint_bands_projection_json: 6,
       final_json_serialization: 0.7, final_json_copy: 0.8, total: 23.8,
     };
     const plateStages = {
       effective_config_construction: 0.1, plate_local_model_construction: 0.2,
-      used_slot_scan: 0.3, printable_height_bounds_scan: 0.4,
+      used_slot_summary_hit: 0.01, used_slot_summary_delta: 0.02,
+      used_slot_full_scan_fallback: 0.27, used_slot_scan: 0.3, printable_height_bounds_scan: 0.4,
       direct_wipe_tower_estimate: 0.5, print_apply_wipe_tower_data_fallback: 0,
       footprint_bands_projection_json: 0.6, total: 2.1,
     };

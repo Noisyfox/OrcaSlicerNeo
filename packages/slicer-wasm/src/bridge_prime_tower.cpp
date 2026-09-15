@@ -10,6 +10,7 @@
 #include <iomanip>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -159,6 +160,9 @@ constexpr double kBandOpacity = 0.66;
 struct ProjectionPlateTimings {
     double effective_config_construction_ms { 0. };
     double plate_local_model_construction_ms { 0. };
+    double used_slot_summary_hit_ms { 0. };
+    double used_slot_summary_delta_ms { 0. };
+    double used_slot_full_scan_fallback_ms { 0. };
     double used_slot_scan_ms { 0. };
     double printable_height_bounds_scan_ms { 0. };
     double direct_wipe_tower_estimate_ms { 0. };
@@ -221,55 +225,61 @@ DynamicPrintConfig effective_config(const BridgeState::PlateSessionPlate& plate)
     return config;
 }
 
-std::vector<int> used_slots(const Model& model, const DynamicPrintConfig& config,
-                            std::size_t slot_count, int plate_index)
-{
-    std::set<int> slots;
-    const auto option_int = [](const auto& source, const char* key) {
-        const ConfigOption* option = source.option(key);
-        return option == nullptr ? 0 : option->getInt();
-    };
-    const auto option_bool = [](const auto& source, const char* key) {
-        const ConfigOption* option = source.option(key);
-        return option != nullptr && option->getBool();
-    };
-    const int global_support_interface = option_int(config, "support_interface_filament");
-    const int global_support = option_int(config, "support_filament");
-    int global_outer_wall = option_int(config, "outer_wall_filament_id");
-    int global_inner_wall = option_int(config, "inner_wall_filament_id");
-    if (global_outer_wall == 0) global_outer_wall = global_inner_wall;
-    if (global_inner_wall == 0) global_inner_wall = global_outer_wall;
-    const int global_sparse_infill = option_int(config, "sparse_infill_filament_id");
-    const int global_internal_solid = option_int(config, "internal_solid_filament_id");
-    int global_top_surface = option_int(config, "top_surface_filament_id");
-    int global_bottom_surface = option_int(config, "bottom_surface_filament_id");
-    if (global_top_surface == 0) global_top_surface = global_internal_solid;
-    if (global_bottom_surface == 0) global_bottom_surface = global_internal_solid;
-    const bool global_support_enabled = option_bool(config, "enable_support") ||
-        option_int(config, "raft_layers") > 0;
-    const auto append = [&slots, slot_count](const int slot) {
-        if (slot > 0 && static_cast<std::size_t>(slot) <= slot_count) slots.insert(slot);
-    };
-    for (const ModelObject* object : model.objects) {
-        if (object == nullptr) continue;
-        if (!std::any_of(object->instances.begin(), object->instances.end(),
-                         [](const ModelInstance* instance) {
-                             return instance != nullptr && instance->is_printable();
-                         })) continue;
-        for (const ModelVolume* volume : object->volumes) {
-            if (volume == nullptr) continue;
-            for (const int slot : volume->get_extruders())
-                append(slot);
-        }
+struct UsedSlotContext {
+    std::size_t slot_count = 0;
+    int global_support_interface = 0;
+    int global_support = 0;
+    int global_outer_wall = 0;
+    int global_inner_wall = 0;
+    int global_sparse_infill = 0;
+    int global_internal_solid = 0;
+    int global_top_surface = 0;
+    int global_bottom_surface = 0;
+    bool global_support_enabled = false;
 
-        for (const auto& layer_range : object->layer_config_ranges) {
+    explicit UsedSlotContext(const DynamicPrintConfig& config, std::size_t slots) : slot_count(slots)
+    {
+        const auto option_int = [&config](const char* key) {
+            const ConfigOption* option = config.option(key);
+            return option == nullptr ? 0 : option->getInt();
+        };
+        global_support_interface = option_int("support_interface_filament");
+        global_support = option_int("support_filament");
+        global_outer_wall = option_int("outer_wall_filament_id");
+        global_inner_wall = option_int("inner_wall_filament_id");
+        if (global_outer_wall == 0) global_outer_wall = global_inner_wall;
+        if (global_inner_wall == 0) global_inner_wall = global_outer_wall;
+        global_sparse_infill = option_int("sparse_infill_filament_id");
+        global_internal_solid = option_int("internal_solid_filament_id");
+        global_top_surface = option_int("top_surface_filament_id");
+        global_bottom_surface = option_int("bottom_surface_filament_id");
+        if (global_top_surface == 0) global_top_surface = global_internal_solid;
+        if (global_bottom_surface == 0) global_bottom_surface = global_internal_solid;
+        const ConfigOption* support = config.option("enable_support");
+        global_support_enabled = (support != nullptr && support->getBool()) ||
+            option_int("raft_layers") > 0;
+    }
+
+    void append(std::set<int>& slots, const int slot) const
+    {
+        if (slot > 0 && static_cast<std::size_t>(slot) <= slot_count) slots.insert(slot);
+    }
+
+    std::set<int> object_slots(const ModelObject& object) const
+    {
+        std::set<int> slots;
+        for (const ModelVolume* volume : object.volumes) {
+            if (volume == nullptr) continue;
+            for (const int slot : volume->get_extruders()) append(slots, slot);
+        }
+        for (const auto& layer_range : object.layer_config_ranges) {
             if (layer_range.second.has("extruder"))
-                append(layer_range.second.option("extruder")->getInt());
+                append(slots, layer_range.second.option("extruder")->getInt());
         }
 
         bool support_enabled = false;
-        const ConfigOption* object_support = object->config.option("enable_support");
-        const ConfigOption* object_raft = object->config.option("raft_layers");
+        const ConfigOption* object_support = object.config.option("enable_support");
+        const ConfigOption* object_raft = object.config.option("raft_layers");
         if (object_support != nullptr || object_raft != nullptr) {
             support_enabled = (object_support != nullptr && object_support->getBool()) ||
                 (object_raft != nullptr && object_raft->getInt() > 0);
@@ -277,29 +287,53 @@ std::vector<int> used_slots(const Model& model, const DynamicPrintConfig& config
             support_enabled = global_support_enabled;
         }
         if (support_enabled) {
-            const int support_interface = option_int(object->config, "support_interface_filament");
-            const int support = option_int(object->config, "support_filament");
-            append(support_interface != 0 ? support_interface : global_support_interface);
-            append(support != 0 ? support : global_support);
+            const auto object_int = [&object](const char* key) {
+                const ConfigOption* option = object.config.option(key);
+                return option == nullptr ? 0 : option->getInt();
+            };
+            const int support_interface = object_int("support_interface_filament");
+            const int support = object_int("support_filament");
+            append(slots, support_interface != 0 ? support_interface : global_support_interface);
+            append(slots, support != 0 ? support : global_support);
         }
 
-        int outer_wall = option_int(object->config, "outer_wall_filament_id");
-        if (outer_wall == 0) outer_wall = option_int(object->config, "inner_wall_filament_id");
-        append(outer_wall != 0 ? outer_wall : global_outer_wall);
-        int inner_wall = option_int(object->config, "inner_wall_filament_id");
-        if (inner_wall == 0) inner_wall = option_int(object->config, "outer_wall_filament_id");
-        append(inner_wall != 0 ? inner_wall : global_inner_wall);
-
-        const int sparse_infill = option_int(object->config, "sparse_infill_filament_id");
-        append(sparse_infill != 0 ? sparse_infill : global_sparse_infill);
-        const int internal_solid = option_int(object->config, "internal_solid_filament_id");
-        append(internal_solid != 0 ? internal_solid : global_internal_solid);
-        int top_surface = option_int(object->config, "top_surface_filament_id");
+        const auto object_int = [&object](const char* key) {
+            const ConfigOption* option = object.config.option(key);
+            return option == nullptr ? 0 : option->getInt();
+        };
+        int outer_wall = object_int("outer_wall_filament_id");
+        if (outer_wall == 0) outer_wall = object_int("inner_wall_filament_id");
+        append(slots, outer_wall != 0 ? outer_wall : global_outer_wall);
+        int inner_wall = object_int("inner_wall_filament_id");
+        if (inner_wall == 0) inner_wall = object_int("outer_wall_filament_id");
+        append(slots, inner_wall != 0 ? inner_wall : global_inner_wall);
+        const int sparse_infill = object_int("sparse_infill_filament_id");
+        append(slots, sparse_infill != 0 ? sparse_infill : global_sparse_infill);
+        const int internal_solid = object_int("internal_solid_filament_id");
+        append(slots, internal_solid != 0 ? internal_solid : global_internal_solid);
+        int top_surface = object_int("top_surface_filament_id");
         if (top_surface == 0) top_surface = internal_solid;
-        append(top_surface != 0 ? top_surface : global_top_surface);
-        int bottom_surface = option_int(object->config, "bottom_surface_filament_id");
+        append(slots, top_surface != 0 ? top_surface : global_top_surface);
+        int bottom_surface = object_int("bottom_surface_filament_id");
         if (bottom_surface == 0) bottom_surface = internal_solid;
-        append(bottom_surface != 0 ? bottom_surface : global_bottom_surface);
+        append(slots, bottom_surface != 0 ? bottom_surface : global_bottom_surface);
+        return slots;
+    }
+};
+
+std::vector<int> used_slots(const Model& model, const DynamicPrintConfig& config,
+                            std::size_t slot_count, int plate_index)
+{
+    std::set<int> slots;
+    const UsedSlotContext context(config, slot_count);
+    for (const ModelObject* object : model.objects) {
+        if (object == nullptr) continue;
+        if (!std::any_of(object->instances.begin(), object->instances.end(),
+                         [](const ModelInstance* instance) {
+                             return instance != nullptr && instance->is_printable();
+                         })) continue;
+        const auto object_slots = context.object_slots(*object);
+        slots.insert(object_slots.begin(), object_slots.end());
     }
     if (plate_index >= 0) {
         const auto custom = state().model.plates_custom_gcodes.find(plate_index);
@@ -309,11 +343,157 @@ std::vector<int> used_slots(const Model& model, const DynamicPrintConfig& config
             for (const auto& item : custom->second.gcodes) {
                 if (item.type == CustomGCode::Type::ToolChange && item.extruder > 0 &&
                     static_cast<std::size_t>(item.extruder) <= colour_count)
-                    append(item.extruder);
+                    context.append(slots, item.extruder);
             }
         }
     }
     return {slots.begin(), slots.end()};
+}
+
+struct UsedSlotSummary {
+    bool valid = false;
+    std::string config_signature;
+    std::set<std::size_t> object_ids;
+    std::map<std::size_t, std::set<int>> object_slots;
+    std::vector<int> slots;
+};
+
+enum class UsedSlotLookupKind { Hit, Delta, FullScan };
+
+std::map<std::string, UsedSlotSummary> g_used_slot_summaries;
+
+std::string used_slot_config_signature(const DynamicPrintConfig& config, int plate_index)
+{
+    std::ostringstream signature;
+    // These are exactly the effective-config keys read by UsedSlotContext. A
+    // narrow signature keeps the runtime summary safe if a caller changes a
+    // plate override without relying solely on global invalidation.
+    for (const char* key : {"support_interface_filament", "support_filament", "enable_support",
+                            "raft_layers", "outer_wall_filament_id", "inner_wall_filament_id",
+                            "sparse_infill_filament_id", "internal_solid_filament_id",
+                            "top_surface_filament_id", "bottom_surface_filament_id",
+                            "filament_colour"}) {
+        signature << key << '=';
+        if (config.has(key)) signature << config.opt_serialize(key);
+        signature << ';';
+    }
+    signature << "custom=";
+    const auto custom = state().model.plates_custom_gcodes.find(plate_index);
+    if (custom != state().model.plates_custom_gcodes.end()) {
+        for (const auto& item : custom->second.gcodes)
+            if (item.type == CustomGCode::Type::ToolChange)
+                signature << static_cast<int>(item.type) << ':' << item.extruder << ';';
+    }
+    return signature.str();
+}
+
+bool current_plate_object_ids(const BridgeState::PlateSessionPlate& plate,
+                              std::set<std::size_t>& object_ids)
+{
+    object_ids.clear();
+    const auto outside = state().plate_out_of_bounds_ids.find(plate.id);
+    std::set<std::size_t> expected_instances;
+    for (const auto& [instance_id, instance_plate_id] : state().instance_plate_ids) {
+        if (instance_plate_id != plate.id ||
+            state().parked_instance_ids.find(instance_id) != state().parked_instance_ids.end())
+            continue;
+        if (outside != state().plate_out_of_bounds_ids.end() && outside->second.count(instance_id) != 0)
+            continue;
+        expected_instances.insert(instance_id);
+    }
+
+    // Resolve against the current model on every lookup. History restore may
+    // replace state().model while retaining a plate-local projection cache;
+    // retaining ModelObject/ModelInstance pointers here would leave a stale
+    // native pointer in threaded WASM. This scan visits only object/instance
+    // identity and printable flags, never volume geometry or mesh data.
+    std::set<std::size_t> seen_instances;
+    for (const ModelObject* object : state().model.objects) {
+        if (object == nullptr) continue;
+        for (const ModelInstance* instance : object->instances) {
+            if (instance == nullptr || expected_instances.find(instance->id().id) == expected_instances.end())
+                continue;
+            seen_instances.insert(instance->id().id);
+            if (object->printable && instance->printable)
+                object_ids.insert(object->id().id);
+        }
+    }
+    return seen_instances == expected_instances;
+}
+
+void refresh_summary_slots(UsedSlotSummary& summary, const UsedSlotContext& context,
+                           const DynamicPrintConfig& config, int plate_index)
+{
+    std::set<int> slots;
+    for (const auto& [object_id, object_slots] : summary.object_slots)
+        slots.insert(object_slots.begin(), object_slots.end());
+    const auto colours = config.opt<ConfigOptionStrings>("filament_colour");
+    const std::size_t colour_count = colours == nullptr ? context.slot_count : colours->values.size();
+    const auto custom = state().model.plates_custom_gcodes.find(plate_index);
+    if (custom != state().model.plates_custom_gcodes.end()) {
+        for (const auto& item : custom->second.gcodes)
+            if (item.type == CustomGCode::Type::ToolChange && item.extruder > 0 &&
+                static_cast<std::size_t>(item.extruder) <= colour_count)
+                context.append(slots, item.extruder);
+    }
+    summary.slots.assign(slots.begin(), slots.end());
+}
+
+std::vector<int> used_slots_incremental(const BridgeState::PlateSessionPlate& plate,
+                                        const Model& model, const DynamicPrintConfig& config,
+                                        std::size_t slot_count, int plate_index,
+                                        UsedSlotLookupKind& kind)
+{
+    std::set<std::size_t> object_ids;
+    const std::string signature = used_slot_config_signature(config, plate_index);
+    auto& summary = g_used_slot_summaries[plate.id];
+    const bool objects_known = current_plate_object_ids(plate, object_ids);
+    const bool signature_matches = summary.valid && summary.config_signature == signature;
+    if (!objects_known || !signature_matches) {
+        kind = UsedSlotLookupKind::FullScan;
+        summary = {};
+        summary.config_signature = signature;
+        summary.object_ids = object_ids;
+        const UsedSlotContext context(config, slot_count);
+        for (const ModelObject* object : model.objects) {
+            if (object == nullptr || object_ids.find(object->id().id) == object_ids.end()) continue;
+            summary.object_slots[object->id().id] = context.object_slots(*object);
+        }
+        summary.valid = true;
+        refresh_summary_slots(summary, context, config, plate_index);
+        return used_slots(model, config, slot_count, plate_index);
+    }
+
+    const UsedSlotContext context(config, slot_count);
+    if (summary.object_ids == object_ids) {
+        kind = UsedSlotLookupKind::Hit;
+        return summary.slots;
+    }
+
+    kind = UsedSlotLookupKind::Delta;
+    for (auto it = summary.object_slots.begin(); it != summary.object_slots.end();) {
+        if (object_ids.find(it->first) == object_ids.end()) it = summary.object_slots.erase(it);
+        else ++it;
+    }
+    for (const std::size_t object_id : object_ids) {
+        if (summary.object_slots.find(object_id) != summary.object_slots.end()) continue;
+        const auto object = std::find_if(model.objects.begin(), model.objects.end(),
+                                         [object_id](const ModelObject* candidate) {
+                                             return candidate != nullptr && candidate->id().id == object_id;
+                                         });
+        if (object == model.objects.end()) {
+            // The model changed without a corresponding global invalidation;
+            // preserve exactness by retrying through the full scan path.
+            summary = {};
+            summary.config_signature.clear();
+            kind = UsedSlotLookupKind::FullScan;
+            return used_slots_incremental(plate, model, config, slot_count, plate_index, kind);
+        }
+        summary.object_slots[object_id] = context.object_slots(**object);
+    }
+    summary.object_ids = std::move(object_ids);
+    refresh_summary_slots(summary, context, config, plate_index);
+    return summary.slots;
 }
 
 double model_height(const Model& model)
@@ -580,11 +760,28 @@ json projection_for_plate(const BridgeState::PlateSessionPlate& plate,
     }
     const bool empty = !model.has_value();
     std::vector<int> slots;
-    if (timings != nullptr) {
-        ScopedTiming timer(timings->used_slot_scan_ms);
-        slots = model ? used_slots(*model, config, slot_count, static_cast<int>(plate.display_index)) : std::vector<int>{};
-    } else {
-        slots = model ? used_slots(*model, config, slot_count, static_cast<int>(plate.display_index)) : std::vector<int>{};
+    if (model) {
+        UsedSlotLookupKind lookup_kind = UsedSlotLookupKind::FullScan;
+        if (timings != nullptr) {
+            ScopedTiming total_timer(timings->used_slot_scan_ms);
+            slots = used_slots_incremental(plate, *model, config, slot_count,
+                                           static_cast<int>(plate.display_index), lookup_kind);
+        } else {
+            slots = used_slots_incremental(plate, *model, config, slot_count,
+                                           static_cast<int>(plate.display_index), lookup_kind);
+        }
+        if (timings != nullptr) {
+            // Attribute the same lookup interval to exactly one semantic path.
+            // This second measurement is intentionally around no work; the
+            // actual per-path scope below is populated by the lookup kind.
+            // The total stage remains the authoritative wall-clock value.
+            if (lookup_kind == UsedSlotLookupKind::Hit)
+                timings->used_slot_summary_hit_ms = timings->used_slot_scan_ms;
+            else if (lookup_kind == UsedSlotLookupKind::Delta)
+                timings->used_slot_summary_delta_ms = timings->used_slot_scan_ms;
+            else
+                timings->used_slot_full_scan_fallback_ms = timings->used_slot_scan_ms;
+        }
     }
     const bool smooth = config.opt_enum<TimelapseType>("timelapse_type") == TimelapseType::tlSmooth;
     const auto* wrapping = config.opt<ConfigOptionBool>("enable_wrapping_detection");
@@ -700,6 +897,7 @@ json projection_json()
 void invalidate_projection_cache()
 {
     state().prime_tower_projection_cache.clear();
+    g_used_slot_summaries.clear();
 }
 
 void invalidate_projection_cache(const std::set<std::string>& plate_ids)
@@ -1061,6 +1259,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
         const double finished_at = Slic3r::Neo::Bridge::Performance::now_ms();
         double effective_config_ms = 0.;
         double plate_model_ms = 0.;
+        double used_slot_summary_hit_ms = 0.;
+        double used_slot_summary_delta_ms = 0.;
+        double used_slot_full_scan_fallback_ms = 0.;
         double used_slots_ms = 0.;
         double printable_height_bounds_ms = 0.;
         double direct_estimate_ms = 0.;
@@ -1075,6 +1276,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
         for (const auto& plate : timings.per_plate) {
             effective_config_ms += plate.effective_config_construction_ms;
             plate_model_ms += plate.plate_local_model_construction_ms;
+            used_slot_summary_hit_ms += plate.used_slot_summary_hit_ms;
+            used_slot_summary_delta_ms += plate.used_slot_summary_delta_ms;
+            used_slot_full_scan_fallback_ms += plate.used_slot_full_scan_fallback_ms;
             used_slots_ms += plate.used_slot_scan_ms;
             printable_height_bounds_ms += plate.printable_height_bounds_scan_ms;
             direct_estimate_ms += plate.direct_wipe_tower_estimate_ms;
@@ -1083,6 +1287,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
             per_plate.push_back({
                 {"effective_config_construction", plate.effective_config_construction_ms},
                 {"plate_local_model_construction", plate.plate_local_model_construction_ms},
+                {"used_slot_summary_hit", plate.used_slot_summary_hit_ms},
+                {"used_slot_summary_delta", plate.used_slot_summary_delta_ms},
+                {"used_slot_full_scan_fallback", plate.used_slot_full_scan_fallback_ms},
                 {"used_slot_scan", plate.used_slot_scan_ms},
                 {"printable_height_bounds_scan", plate.printable_height_bounds_scan_ms},
                 {"direct_wipe_tower_estimate", plate.direct_wipe_tower_estimate_ms},
@@ -1093,6 +1300,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
         }
         aggregate.emplace_back("effective_config_construction", effective_config_ms);
         aggregate.emplace_back("plate_local_model_construction", plate_model_ms);
+        aggregate.emplace_back("used_slot_summary_hit", used_slot_summary_hit_ms);
+        aggregate.emplace_back("used_slot_summary_delta", used_slot_summary_delta_ms);
+        aggregate.emplace_back("used_slot_full_scan_fallback", used_slot_full_scan_fallback_ms);
         aggregate.emplace_back("used_slot_scan", used_slots_ms);
         aggregate.emplace_back("printable_height_bounds_scan", printable_height_bounds_ms);
         aggregate.emplace_back("direct_wipe_tower_estimate", direct_estimate_ms);

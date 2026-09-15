@@ -249,6 +249,37 @@ same projection JSON; same-plate XY-only movement therefore avoids this
 projection work entirely, while Z/geometry or membership changes invalidate
 only the affected plate entries.
 
+## Step 15: incremental used-slot summaries
+
+The remaining Step 14 hotspot was the per-plate `used_slot_scan`. The bridge
+now keeps a runtime-only summary for each stable plate ID. The summary stores
+the effective used-slot contribution of each currently printable object, the
+active object-ID set, and the plate custom-toolchange contribution. A same
+plate projection is a summary hit. When membership changes move an object
+between plates, only the source/destination object-ID sets and changed object
+contributions are merged; volume extruders, layer-range extruders, support and
+raft fallbacks, object material IDs, and custom toolchanges retain the exact
+ascending unique-slot semantics of the original scan.
+
+The summary and its instance-owner index are never serialized. Complete model,
+filament, project-config, plate-structure, custom-G-code, and history restores
+clear them. A missing owner, changed effective used-slot config signature, or
+unknown model object takes the original full scan fallback and rebuilds the
+summary. Thus a stale runtime summary cannot change the published slot set.
+The native profile now separates `used_slot_summary_hit`,
+`used_slot_summary_delta`, and `used_slot_full_scan_fallback`; `used_slot_scan`
+remains their total lookup wall time.
+
+The independently accepted real u1.3mf threaded non-mock E2E measured 104.58
+ms from Undo click to restored projection, 28.70 ms client projection read,
+11.96 ms Worker projection read, and 11.65 ms native projection work. The
+affected plates used summary hits only: `used_slot_summary_hit` was 0.115 ms,
+`used_slot_summary_delta` and `used_slot_full_scan_fallback` were 0 ms, and
+the complete native `used_slot_scan` total was 0.115 ms. This is lower than
+the Step 14 208.87 ms native projection / 278.85 ms click-to-restored profile;
+the remaining native work is primarily effective-config construction,
+plate-local model construction, and height bounds.
+
 ## Verification
 
 - `pnpm --filter @orca/slicer-wasm test` — 148 tests passed.
@@ -264,6 +295,7 @@ only the affected plate entries.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` — passed; verifies cache hits have zero plate-local used-slot/Print work, Z translation invalidation, and configuration/history invalidation.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js` — passed with the same cache and invalidation coverage.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-move-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; Prime Tower Undo/Redo repopulates the target plate projection after its targeted cache invalidation while retaining the narrow frame and unaffected preview contract.
+- `node packages/slicer-wasm/harness/multi-filament-prime-tower-native-input-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; painted volume slots, custom plate toolchanges, routing, and hidden-object filtering retain the exact slot sets.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-projection-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; rectangle, Rib, Smooth timelapse, and multifilament cases use the direct estimator and record zero Print fallback.
 - `pnpm stage:assets` from the repository root, then `pnpm exec electron-vite
   build` from `apps/desktop` with `VITE_USE_MOCK=0` and `VITE_E2E=1` — stages

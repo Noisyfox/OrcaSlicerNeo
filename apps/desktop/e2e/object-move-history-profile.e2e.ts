@@ -346,13 +346,15 @@ test('profiles a real object move through the visible Undo Move boundary', async
       .filter((stage) => stage !== 'total').map((stage) => restoreSamples[0].stagesMs[stage])));
     const projectionStageNames = [
       'session_preparation', 'bounds_scan', 'effective_config_construction',
-      'plate_local_model_construction', 'used_slot_scan', 'printable_height_bounds_scan',
+      'plate_local_model_construction', 'used_slot_summary_hit', 'used_slot_summary_delta',
+      'used_slot_full_scan_fallback', 'used_slot_scan', 'printable_height_bounds_scan',
       'direct_wipe_tower_estimate', 'print_apply_wipe_tower_data_fallback',
       'footprint_bands_projection_json',
       'final_json_serialization', 'final_json_copy', 'total',
     ];
     const projectionPlateStageNames = [
-      'effective_config_construction', 'plate_local_model_construction', 'used_slot_scan',
+      'effective_config_construction', 'plate_local_model_construction', 'used_slot_summary_hit',
+      'used_slot_summary_delta', 'used_slot_full_scan_fallback', 'used_slot_scan',
       'printable_height_bounds_scan', 'direct_wipe_tower_estimate',
       'print_apply_wipe_tower_data_fallback',
       'footprint_bands_projection_json', 'total',

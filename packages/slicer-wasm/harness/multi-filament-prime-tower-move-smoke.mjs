@@ -128,6 +128,9 @@ const undoProjectionProfile = callJson('orc_take_performance_profile');
 const undoProjectionSample = undoProjectionProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
 assert.ok(undoProjectionSample, JSON.stringify(undoProjectionProfile));
 assert.ok(undoProjectionSample.per_plate_stages_ms[0].total > 0, JSON.stringify(undoProjectionSample));
+assert.equal(undoProjectionSample.stages_ms.used_slot_full_scan_fallback, 0, JSON.stringify(undoProjectionSample));
+assert.ok(undoProjectionSample.stages_ms.used_slot_summary_hit > 0 ||
+  undoProjectionSample.stages_ms.used_slot_summary_delta > 0, JSON.stringify(undoProjectionSample));
 const multifilamentRedo = callJson('orc_history_redo');
 assert.equal(multifilamentRedo.ok, true);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, multifilamentAfter);
@@ -144,6 +147,9 @@ const redoProjectionProfile = callJson('orc_take_performance_profile');
 const redoProjectionSample = redoProjectionProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
 assert.ok(redoProjectionSample, JSON.stringify(redoProjectionProfile));
 assert.ok(redoProjectionSample.per_plate_stages_ms[0].total > 0, JSON.stringify(redoProjectionSample));
+assert.equal(redoProjectionSample.stages_ms.used_slot_full_scan_fallback, 0, JSON.stringify(redoProjectionSample));
+assert.ok(redoProjectionSample.stages_ms.used_slot_summary_hit > 0 ||
+  redoProjectionSample.stages_ms.used_slot_summary_delta > 0, JSON.stringify(redoProjectionSample));
 
 const thirdRevision = session().input_revisions[thirdPlate];
 const thirdSlice = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);
