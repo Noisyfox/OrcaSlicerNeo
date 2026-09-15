@@ -278,9 +278,8 @@ check('reload preserves plate membership', afterSession.instances?.some((instanc
       && afterSession.instances?.some((instance) => instance.plate_id === afterSession.plates[1].plate_id),
       JSON.stringify(afterSession.instances));
 const afterSlice = callJson('orc_get_slice_result', [], []);
-check('reload does not restore derived slice result', afterSlice.ok === true && afterSlice.objects === 0
-      && afterSlice.layers === 0 && afterSlice.metadata?.result_id === 0
-      && afterSlice.metadata?.source_text?.available === false, JSON.stringify(afterSlice));
+check('reload does not restore derived slice result', afterSlice.ok !== true
+      && /stale or unavailable/.test(afterSlice.error ?? ''), JSON.stringify(afterSlice));
 
 const after = callJson('orc_get_model_structure', [], []);
 const afterObject = after.objects?.[0];

@@ -8,7 +8,9 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -21,10 +23,25 @@ namespace Slic3r::Neo::Bridge {
 
 class PlateRuntimeRegistry {
 public:
+    enum class PresentationLifecycle {
+        Invalid,
+        Slicing,
+        Valid,
+    };
+
     struct Entry {
         std::string plate_id;
         std::unique_ptr<Print> print;
         std::unique_ptr<GCodeProcessorResult> gcode_result;
+        // Presentation state is deliberately separate from the retained
+        // native Print/G-code objects.  A new slice hides the old React
+        // presentation without discarding the native core cache.
+        PresentationLifecycle presentation = PresentationLifecycle::Invalid;
+        // This is the revision completed by the most recent successful
+        // process.  The current revision remains authoritative in
+        // BridgeState::plate_input_revisions and is never duplicated here.
+        std::optional<std::uint64_t> completed_input_revision;
+        bool native_core_materialized = false;
     };
 
     // Reconcile runtime ownership with the current ordered plate ids.  An
@@ -32,6 +49,20 @@ public:
     // fresh pair and an absent id is released immediately.
     void reconcile(const std::vector<std::string>& plate_ids);
     void clear() noexcept;
+
+    // Lifecycle transitions intentionally touch metadata only.  In
+    // particular, beginning a slice must preserve both native core pointers.
+    static void begin_slice(Entry& entry) noexcept;
+    static void mark_process_completed(Entry& entry,
+                                       std::uint64_t completed_revision,
+                                       std::uint64_t current_revision) noexcept;
+    static void mark_presentation_valid(Entry& entry,
+                                        std::uint64_t current_revision) noexcept;
+    static void mark_presentation_invalid(Entry& entry) noexcept;
+    static bool can_materialize_result(const Entry& entry,
+                                       std::uint64_t current_revision) noexcept;
+    static bool is_publishable(const Entry& entry,
+                               std::uint64_t current_revision) noexcept;
 
     Entry* find(std::string_view plate_id) noexcept;
     const Entry* find(std::string_view plate_id) const noexcept;

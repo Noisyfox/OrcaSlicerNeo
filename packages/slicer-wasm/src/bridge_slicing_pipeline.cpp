@@ -266,6 +266,17 @@ PlateRuntimeRegistry::Entry* runtime_entry_for_plate(const std::string& plate_id
     return entry;
 }
 
+std::uint64_t current_input_revision_for_plate(const std::string& plate_id)
+{
+    const auto it = state().plate_input_revisions.find(plate_id);
+    return it == state().plate_input_revisions.end() ? 0 : it->second;
+}
+
+const char* result_unavailable_error()
+{
+    return error_json("plate slice result is stale or unavailable");
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_get_progress_mailbox()
 {
     return dup_json(json{{"ok", true},
@@ -285,6 +296,7 @@ EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
 
 const char* slice_for_plate(const char* config_json, const std::string& plate_id,
                             const std::uint64_t revision) {
+    PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
     try {
         // Refresh membership before the operation gate.  This is read-only
         // with respect to the editing model and makes direct bridge callers
@@ -293,9 +305,10 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         std::string target_error;
         if (!validate_plate_operation_target(plate_id, revision, target_error))
             return error_json(target_error);
-        auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
+        runtime_entry = runtime_entry_for_plate(plate_id, target_error);
         if (runtime_entry == nullptr)
             return error_json(target_error);
+        PlateRuntimeRegistry::begin_slice(*runtime_entry);
         auto& print = *runtime_entry->print;
 
         // A new slice invalidates both the old toolpath and its source text
@@ -489,6 +502,8 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         print.process();
 #endif
         print.set_status_default();
+        PlateRuntimeRegistry::mark_process_completed(
+            *runtime_entry, revision, current_input_revision_for_plate(plate_id));
         finish_progress();
         // Fix round 2: additive success field — always present, empty when the
         // config is clean. M2 clients (config UI) rely on this to warn about
@@ -504,6 +519,8 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)},
                              {"warnings", std::move(warnings)}}.dump());
     } catch (const std::exception& e) {
+        if (runtime_entry != nullptr)
+            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         stop_progress();
         // process() is where libslic3r throws SlicingErrors (GCode.cpp:2250);
         // the helper surfaces the per-object messages instead of the bare
@@ -511,6 +528,8 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // other catches keep plain e.what().
         return error_json_from_exception(e);
     } catch (...) {
+        if (runtime_entry != nullptr)
+            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         stop_progress();
         // Fix round 1: a canceled print (orc_cancel → PrintBase::cancel sets
         // CANCELED_BY_USER; only restart() clears it) makes the NEXT process()
@@ -558,13 +577,19 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice_plate(const char* config_json,
 // corresponding heap allocation immediately (the JSON itself is freed by the
 // normal callJson path).
 EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
+    PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
     try {
         ensure_plate_session_state();
         std::string target_error;
-        auto* runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
+        runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
         if (runtime_entry == nullptr)
             return error_json(target_error);
         auto& print = *runtime_entry->print;
+        const auto current_revision = current_input_revision_for_plate(state().current_plate_id);
+        if (!PlateRuntimeRegistry::can_materialize_result(*runtime_entry, current_revision)) {
+            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
+            return result_unavailable_error();
+        }
         if (print.objects().empty()) {
             invalidate_preview_source();
             json empty_toolpath{{"segment_count", 0},
@@ -574,6 +599,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                 {"extrusion_role_ptr", 0}, {"extruder_id_ptr", 0},
                                 {"color_print_id_ptr", 0}, {"width_ptr", 0}, {"height_ptr", 0},
                                 {"metrics", json::object()}};
+            PlateRuntimeRegistry::mark_presentation_valid(*runtime_entry, current_revision);
             return dup_json(json{{"ok", true}, {"preview_version", 2},
                                  {"objects", 0}, {"layers", 0},
                                  {"metadata", json{{"result_id", 0}, {"layer_ranges", json::array()},
@@ -742,10 +768,16 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         tp.fan_speeds.release(); tp.temperatures.release(); tp.pressure_advances.release();
         tp.accelerations.release(); tp.jerks.release(); tp.times.release();
         tp.layer_durations.release();
+        PlateRuntimeRegistry::mark_presentation_valid(
+            *runtime_entry, current_input_revision_for_plate(state().current_plate_id));
         return dup_json(out.dump());
     } catch (const std::exception& e) {
+        if (runtime_entry != nullptr)
+            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         return error_json(e.what());
     } catch (...) {
+        if (runtime_entry != nullptr)
+            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
         return error_json("unknown C++ exception");
@@ -905,40 +937,60 @@ EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(double result_id_number,
 
 const char* export_gcode_for_target(const std::string& plate_id,
                                     const std::uint64_t revision) {
+    PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
     try {
         std::string target_error;
         if (!validate_plate_operation_target(plate_id, revision, target_error))
             return error_json(target_error);
-        if (state().preview_plate_id != plate_id || state().preview_plate_revision != revision)
-            return error_json("plate slice result is stale or unavailable");
-        auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
+        runtime_entry = runtime_entry_for_plate(plate_id, target_error);
         if (runtime_entry == nullptr)
             return error_json(target_error);
+        const auto current_revision = current_input_revision_for_plate(plate_id);
+        if (!PlateRuntimeRegistry::can_materialize_result(
+                *runtime_entry, current_revision))
+            return result_unavailable_error();
+        if (!runtime_entry->completed_input_revision.has_value() ||
+            *runtime_entry->completed_input_revision != revision)
+            return result_unavailable_error();
         const std::string path = "/out.gcode";
         runtime_entry->print->export_gcode(path, nullptr, nullptr);
+        PlateRuntimeRegistry::mark_presentation_valid(*runtime_entry, current_revision);
         return dup_json(json{{"ok", true}, {"path", path}}.dump());
     } catch (const std::exception& e) {
+        if (runtime_entry != nullptr)
+            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         return error_json(e.what());
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
+        if (runtime_entry != nullptr)
+            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         return error_json("unknown C++ exception");
     }
 }
 
 EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
+    PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
     try {
         ensure_plate_session_state();
         std::string target_error;
-        auto* runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
+        runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
         if (runtime_entry == nullptr)
             return error_json(target_error);
+        const auto current_revision = current_input_revision_for_plate(state().current_plate_id);
+        if (!PlateRuntimeRegistry::can_materialize_result(*runtime_entry, current_revision))
+            return result_unavailable_error();
         const std::string path = "/out.gcode";
         runtime_entry->print->export_gcode(path, nullptr, nullptr);
+        PlateRuntimeRegistry::mark_presentation_valid(*runtime_entry, current_revision);
         return dup_json(json{{"ok", true}, {"path", path}}.dump());
     } catch (const std::exception& e) {
+        if (runtime_entry != nullptr)
+            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         return error_json(e.what());
     } catch (...) {
+        if (runtime_entry != nullptr)
+            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         return error_json("unknown C++ exception");
     }
 }
@@ -966,6 +1018,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
         auto* runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
         if (runtime_entry == nullptr)
             return error_json(target_error);
+        PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
         invalidate_preview_source();
         runtime_entry->print->cancel();
         // Fix round 1: the bridge is strictly synchronous — JS cannot reenter

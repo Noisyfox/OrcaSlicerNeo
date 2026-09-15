@@ -22,9 +22,34 @@ int main()
     CHECK(first->plate_id == "plate-a");
     CHECK(first->print != nullptr);
     CHECK(first->gcode_result != nullptr);
+    CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
+    CHECK(!first->completed_input_revision.has_value());
+    CHECK(!first->native_core_materialized);
 
     const auto* first_print = first->print.get();
     const auto* first_result = first->gcode_result.get();
+    PlateRuntimeRegistry::begin_slice(*first);
+    CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
+    CHECK(first->print.get() == first_print);
+    CHECK(first->gcode_result.get() == first_result);
+    PlateRuntimeRegistry::mark_process_completed(*first, 0, 0);
+    CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
+    CHECK(first->native_core_materialized);
+    CHECK(first->completed_input_revision == 0);
+    CHECK(PlateRuntimeRegistry::can_materialize_result(*first, 0));
+    PlateRuntimeRegistry::mark_presentation_valid(*first, 0);
+    CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Valid);
+    CHECK(PlateRuntimeRegistry::is_publishable(*first, 0));
+
+    // Re-slicing the same input keeps the revision and native allocations but
+    // withdraws the old presentation until the new result is materialized.
+    PlateRuntimeRegistry::begin_slice(*first);
+    CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
+    CHECK(first->print.get() == first_print);
+    CHECK(first->gcode_result.get() == first_result);
+    CHECK(first->completed_input_revision == 0);
+    CHECK(!PlateRuntimeRegistry::is_publishable(*first, 0));
+
     registry.reconcile({"plate-a", "plate-b"});
     CHECK(registry.size() == 2);
     auto* retained = registry.find("plate-a");
@@ -35,6 +60,13 @@ int main()
     CHECK(retained->gcode_result.get() == first_result);
     CHECK(created->print.get() != retained->print.get());
     CHECK(created->gcode_result.get() != retained->gcode_result.get());
+    CHECK(created->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
+    PlateRuntimeRegistry::begin_slice(*created);
+    PlateRuntimeRegistry::mark_process_completed(*created, 0, 1);
+    CHECK(created->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
+    CHECK(created->native_core_materialized);
+    CHECK(!PlateRuntimeRegistry::can_materialize_result(*created, 1));
+    CHECK(!PlateRuntimeRegistry::is_publishable(*created, 1));
 
     registry.reconcile({"plate-b"});
     CHECK(registry.size() == 1);
