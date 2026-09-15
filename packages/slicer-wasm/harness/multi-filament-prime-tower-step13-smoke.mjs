@@ -78,7 +78,8 @@ const cachedProfile = callJson('orc_take_performance_profile');
 const cachedSample = cachedProfile.samples.find((sample) => sample.operation === 'prime_tower_projection');
 assert.ok(cachedSample, JSON.stringify(cachedProfile));
 assert.equal(cachedSample.stages_ms.used_slot_scan, 0, JSON.stringify(cachedSample));
-assert.equal(cachedSample.stages_ms.print_apply_wipe_tower_data, 0, JSON.stringify(cachedSample));
+assert.equal(cachedSample.stages_ms.direct_wipe_tower_estimate, 0, JSON.stringify(cachedSample));
+assert.equal(cachedSample.stages_ms.print_apply_wipe_tower_data_fallback, 0, JSON.stringify(cachedSample));
 assert.ok(cachedSample.per_plate_stages_ms.every((plate) => plate.total === 0), JSON.stringify(cachedSample));
 assert.deepEqual(cachedProjection, projection);
 

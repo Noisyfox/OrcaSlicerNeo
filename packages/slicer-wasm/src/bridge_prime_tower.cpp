@@ -161,7 +161,8 @@ struct ProjectionPlateTimings {
     double plate_local_model_construction_ms { 0. };
     double used_slot_scan_ms { 0. };
     double printable_height_bounds_scan_ms { 0. };
-    double print_apply_wipe_tower_data_ms { 0. };
+    double direct_wipe_tower_estimate_ms { 0. };
+    double print_apply_wipe_tower_data_fallback_ms { 0. };
     double footprint_bands_projection_json_ms { 0. };
     double total_ms { 0. };
 };
@@ -351,6 +352,107 @@ struct Placement {
     double max_offset_y = 0.;
 };
 
+// This is the same pre-slice estimate used by Orca's PartPlate/Print preview
+// path.  It deliberately consumes only the already prepared effective config,
+// used-slot count, and the current plate height.  In particular, it must not
+// create a temporary Print: the latter applies every model object and is the
+// dominant cost of a narrow projection read.
+std::optional<double> direct_wipe_tower_depth(const DynamicPrintConfig& config,
+                                               double height,
+                                               std::size_t filament_count)
+{
+    if (filament_count == 0 || !std::isfinite(height) || height <= 0.) return 0.;
+
+    const auto* layer_height_option = config.option("layer_height");
+    const auto* spacing_option = config.option("prime_tower_infill_gap");
+    const auto* width_option = config.option("prime_tower_width");
+    const auto* prime_volume_option = config.option("prime_volume");
+    const auto* nozzle_option = config.opt<ConfigOptionFloats>("nozzle_diameter");
+    const auto* wall_option = config.opt<ConfigOptionEnum<WipeTowerWallType>>("wipe_tower_wall_type");
+    const auto* timelapse_option = config.opt<ConfigOptionEnum<TimelapseType>>("timelapse_type");
+    const auto* rib_width_option = config.option("wipe_tower_rib_width");
+    const auto* rib_length_option = config.option("wipe_tower_extra_rib_length");
+    if (nozzle_option == nullptr) return std::nullopt;
+    const double layer_height = layer_height_option == nullptr ? 0.08 : layer_height_option->getFloat();
+    const double extra_spacing = (spacing_option == nullptr ? 150. : spacing_option->getFloat()) / 100.;
+    const double width = width_option == nullptr ? 60. : width_option->getFloat();
+    const double prime_volume = prime_volume_option == nullptr ? 45. : prime_volume_option->getFloat();
+    if (!std::isfinite(layer_height) || layer_height <= 0. || !std::isfinite(extra_spacing) ||
+        extra_spacing < 0. || !std::isfinite(width) || width <= 0. || !std::isfinite(prime_volume) ||
+        prime_volume < 0.) return std::nullopt;
+
+    const bool rib = wall_option == nullptr || wall_option->getInt() == static_cast<int>(WipeTowerWallType::wtwRib);
+    const bool smooth_timelapse = timelapse_option != nullptr &&
+        timelapse_option->getInt() == static_cast<int>(TimelapseType::tlSmooth);
+    const bool need_wipe_tower = smooth_timelapse || rib;
+    double filament_change_volume = 0.;
+    const auto* lengths = config.opt<ConfigOptionFloats>("filament_change_length");
+    const double length = lengths == nullptr || lengths->values.empty() ? 0. :
+        *std::max_element(lengths->values.begin(), lengths->values.end());
+    const auto* diameters = config.opt<ConfigOptionFloats>("filament_diameter");
+    const double diameter = diameters == nullptr || diameters->values.empty() ? 1.75 :
+        *std::max_element(diameters->values.begin(), diameters->values.end());
+    if (!std::isfinite(length) || length < 0. || !std::isfinite(diameter) || diameter <= 0.)
+        return std::nullopt;
+    filament_change_volume = length * M_PI * diameter * diameter / 4.;
+
+    const bool dual_nozzle = nozzle_option->values.size() == 2;
+    std::size_t depth_count = dual_nozzle ? filament_count : filament_count - 1;
+    if (filament_count == 1 && smooth_timelapse) depth_count = 1;
+    double volume = prime_volume * static_cast<double>(depth_count);
+    if (dual_nozzle) volume += filament_change_volume * static_cast<double>(filament_count / 2);
+
+    if (rib) {
+        double depth = std::sqrt(std::max(0., volume / layer_height * extra_spacing));
+        if (need_wipe_tower || filament_count > 1) {
+            const double minimum = WipeTower::get_limit_depth_by_height(static_cast<float>(height));
+            depth = std::max(minimum, depth);
+            const double rib_width = std::min(rib_width_option == nullptr ? 8. : rib_width_option->getFloat(), depth / 2.);
+            depth += rib_width / std::sqrt(2.) + (rib_length_option == nullptr ? 0. : rib_length_option->getFloat());
+        }
+        return std::isfinite(depth) && depth >= 0. ? std::optional<double>(depth) : std::nullopt;
+    }
+
+    // Match Print::wipe_tower_data's SEMM preview branch without constructing
+    // PrintConfig/Print. The matrix is expected to be a square native plane;
+    // malformed input uses the conservative fallback path below.
+    const bool purge_in_tower = config.opt_bool("purge_in_prime_tower");
+    const bool single_extruder_multi_material = config.opt_bool("single_extruder_multi_material");
+    if (purge_in_tower && single_extruder_multi_material) {
+        const auto* matrix = config.opt<ConfigOptionFloats>("flush_volumes_matrix");
+        const auto* multiplier = config.opt<ConfigOptionFloats>("flush_multiplier");
+        const auto* minimum_purge = config.opt<ConfigOptionFloats>("filament_minimal_purge_on_wipe_tower");
+        if (matrix == nullptr || multiplier == nullptr || minimum_purge == nullptr ||
+            multiplier->values.empty()) return std::nullopt;
+        const double side = std::sqrt(static_cast<double>(matrix->values.size()));
+        const std::size_t extruders = static_cast<std::size_t>(side + 1e-9);
+        if (extruders == 0 || extruders * extruders != matrix->values.size()) return std::nullopt;
+        const double scale = multiplier->values.front();
+        if (!std::isfinite(scale)) return std::nullopt;
+        double maximum = 0.;
+        for (std::size_t row = 0; row < extruders; ++row) {
+            double row_max = 0.;
+            for (std::size_t column = 0; column < extruders; ++column) {
+                const double matrix_value = matrix->values[row * extruders + column];
+                const double minimum = column < minimum_purge->values.size()
+                    ? minimum_purge->values[column] : 0.;
+                if (!std::isfinite(matrix_value) || !std::isfinite(minimum)) return std::nullopt;
+                row_max = std::max(row_max, std::max(matrix_value * scale, minimum));
+            }
+            maximum += row_max;
+        }
+        maximum = maximum * static_cast<double>(filament_count) /
+                  static_cast<double>(extruders) * 0.6;
+        const double depth = maximum / (layer_height * width);
+        return std::isfinite(depth) && depth >= 0. ? std::optional<double>(depth) : std::nullopt;
+    }
+
+    double depth = volume / (layer_height * width) * extra_spacing;
+    if (need_wipe_tower || depth > EPSILON)
+        depth = std::max(static_cast<double>(WipeTower::get_limit_depth_by_height(static_cast<float>(height))), depth);
+    return std::isfinite(depth) && depth >= 0. ? std::optional<double>(depth) : std::nullopt;
+}
+
 Placement placement_for(const DynamicPrintConfig& config, const Model* model,
                         std::size_t slot_count, int plate_index,
                         ProjectionPlateTimings* timings = nullptr)
@@ -367,22 +469,44 @@ Placement placement_for(const DynamicPrintConfig& config, const Model* model,
     }
     placement.brim = config.opt_float("prime_tower_brim_width");
     if (model != nullptr) {
-        const auto apply_print = [&]() {
-            Print native_print;
-            (void)native_print.apply(*model, config);
-            const auto& data = native_print.wipe_tower_data(slot_count);
-            placement.depth = data.depth;
-            if (placement.brim < 0.)
+        const auto estimate = [&]() {
+            const auto depth = direct_wipe_tower_depth(config, placement.height, slot_count);
+            if (!depth) return false;
+            placement.depth = *depth;
+            if (slot_count == 0) {
+                placement.brim = 0.;
+            } else if (placement.brim < 0.) {
                 placement.brim = WipeTower::get_auto_brim_by_height(static_cast<float>(placement.height));
-            if (data.brim_width >= 0.) placement.brim = data.brim_width;
+            }
             if (config.opt_enum<WipeTowerWallType>("wipe_tower_wall_type") == WipeTowerWallType::wtwRib)
                 placement.width = placement.depth;
+            return true;
         };
+        bool estimated = false;
         if (timings != nullptr) {
-            ScopedTiming timer(timings->print_apply_wipe_tower_data_ms);
-            apply_print();
+            ScopedTiming timer(timings->direct_wipe_tower_estimate_ms);
+            estimated = estimate();
         } else {
-            apply_print();
+            estimated = estimate();
+        }
+        if (!estimated) {
+            const auto apply_print = [&]() {
+                Print native_print;
+                (void)native_print.apply(*model, config);
+                const auto& data = native_print.wipe_tower_data(slot_count);
+                placement.depth = data.depth;
+                if (placement.brim < 0.)
+                    placement.brim = WipeTower::get_auto_brim_by_height(static_cast<float>(placement.height));
+                if (data.brim_width >= 0.) placement.brim = data.brim_width;
+                if (config.opt_enum<WipeTowerWallType>("wipe_tower_wall_type") == WipeTowerWallType::wtwRib)
+                    placement.width = placement.depth;
+            };
+            if (timings != nullptr) {
+                ScopedTiming timer(timings->print_apply_wipe_tower_data_fallback_ms);
+                apply_print();
+            } else {
+                apply_print();
+            }
         }
     }
     placement.rotation = config.opt_float("wipe_tower_rotation_angle");
@@ -939,7 +1063,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
         double plate_model_ms = 0.;
         double used_slots_ms = 0.;
         double printable_height_bounds_ms = 0.;
-        double print_apply_ms = 0.;
+        double direct_estimate_ms = 0.;
+        double print_apply_fallback_ms = 0.;
         double footprint_bands_ms = 0.;
         Slic3r::Neo::Bridge::Performance::Timings aggregate{
             {"session_preparation", timings.session_preparation_ms},
@@ -952,14 +1077,16 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
             plate_model_ms += plate.plate_local_model_construction_ms;
             used_slots_ms += plate.used_slot_scan_ms;
             printable_height_bounds_ms += plate.printable_height_bounds_scan_ms;
-            print_apply_ms += plate.print_apply_wipe_tower_data_ms;
+            direct_estimate_ms += plate.direct_wipe_tower_estimate_ms;
+            print_apply_fallback_ms += plate.print_apply_wipe_tower_data_fallback_ms;
             footprint_bands_ms += plate.footprint_bands_projection_json_ms;
             per_plate.push_back({
                 {"effective_config_construction", plate.effective_config_construction_ms},
                 {"plate_local_model_construction", plate.plate_local_model_construction_ms},
                 {"used_slot_scan", plate.used_slot_scan_ms},
                 {"printable_height_bounds_scan", plate.printable_height_bounds_scan_ms},
-                {"print_apply_wipe_tower_data", plate.print_apply_wipe_tower_data_ms},
+                {"direct_wipe_tower_estimate", plate.direct_wipe_tower_estimate_ms},
+                {"print_apply_wipe_tower_data_fallback", plate.print_apply_wipe_tower_data_fallback_ms},
                 {"footprint_bands_projection_json", plate.footprint_bands_projection_json_ms},
                 {"total", plate.total_ms},
             });
@@ -968,7 +1095,8 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_prime_tower_projection()
         aggregate.emplace_back("plate_local_model_construction", plate_model_ms);
         aggregate.emplace_back("used_slot_scan", used_slots_ms);
         aggregate.emplace_back("printable_height_bounds_scan", printable_height_bounds_ms);
-        aggregate.emplace_back("print_apply_wipe_tower_data", print_apply_ms);
+        aggregate.emplace_back("direct_wipe_tower_estimate", direct_estimate_ms);
+        aggregate.emplace_back("print_apply_wipe_tower_data_fallback", print_apply_fallback_ms);
         aggregate.emplace_back("footprint_bands_projection_json", footprint_bands_ms);
         aggregate.emplace_back("final_json_serialization", copy_started_at - serialization_started_at);
         aggregate.emplace_back("final_json_copy", finished_at - copy_started_at);

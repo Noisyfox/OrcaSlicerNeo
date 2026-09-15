@@ -181,7 +181,7 @@ projection path.
 
 The profiling-only native contract now records one bounded, drain-on-read
 `prime_tower_projection` sample for the narrow projection read. Its aggregate
-`stages_ms` contains session preparation, printer bounds, the six plate-local
+`stages_ms` contains session preparation, printer bounds, the seven plate-local
 stages, final JSON serialization/copy, and the ABI `total`. Its
 `per_plate_stages_ms` array is indexed only by native plate index and contains
 the plate-local stages plus `total`; it contains no plate IDs, project names,
@@ -197,23 +197,33 @@ captured after draining the settled pre-Undo baseline, measured (milliseconds):
 | --- | ---: |
 | Session preparation | 0.00 |
 | Printer bounds scan | 0.00 |
-| Effective config construction (sum of plates) | 19.09 |
-| Plate-local model construction (sum of plates) | 11.26 |
-| Used-slot scan (sum of plates) | 357.42 |
-| Printable/height/bounds scan (sum of plates) | 9.00 |
-| `Print.apply` + `wipe_tower_data` (sum of plates) | 76.63 |
-| Footprint/bands projection JSON (sum of plates) | 0.85 |
-| Final JSON serialization | 0.08 |
+| Effective config construction (sum of plates) | 3.69 |
+| Plate-local model construction (sum of plates) | 2.48 |
+| Used-slot scan (sum of plates) | 196.73 |
+| Printable/height/bounds scan (sum of plates) | 5.17 |
+| Direct Orca-style wipe-tower estimate (sum of plates) | 0.03 |
+| `Print.apply` fallback (sum of plates) | 0.00 |
+| Footprint/bands projection JSON (sum of plates) | 0.16 |
+| Final JSON serialization | 0.07 |
 | Final JSON copy | 0.00 |
-| Native ABI total | 475.41 |
+| Native ABI total | 208.87 |
 
-The slowest indexed plate-local samples were plate index 9 at 192.64 ms
-(161.05 ms used-slot scan and 24.60 ms Print/wipe data) and plate index 0 at
-34.15 ms. These are measured facts from one run, not optimization claims. The
-current optimization hypotheses are that the repeated used-slot scans and the
-per-plate Print/wipe data construction deserve investigation first; no
-semantic change or optimization is included in this profiling step. This has
-now been addressed by a runtime-only cache keyed by stable native plate id.
+The slowest indexed plate-local samples were plate index 9 at 178.70 ms
+(170.92 ms used-slot scan) and plate index 0 at 29.61 ms. The direct estimator
+is the Orca pre-slice formula: it uses the current height, used-slot count,
+prime volume, layer height, infill gap, wall type, rib settings, filament
+change volume, and (when enabled) the square SEMM purge matrix. It does not
+construct a temporary `Print`; only malformed or incomplete matrix/numeric
+inputs use the local `Print.apply` fallback, which is profiled separately and
+was zero on this real project. The rectangle, Rib, Smooth timelapse, and
+multi-filament native-input smoke cases all assert the direct path and zero
+fallback. This is runtime-only state and is never serialized or compatibility
+loaded.
+
+The measured direct-estimator run is compared with the accepted post-cache
+baseline below: it removes the 31.26 ms temporary Print/wipe stage, while the
+remaining cost is the still-unchanged used-slot scan. This step deliberately
+does not implement per-object used-slot caching.
 The same-plate translation-only path retains all cached plate projections;
 cross-plate membership or out-of-bounds changes evict only source and
 destination plates;
@@ -228,8 +238,12 @@ ms; the remaining time is the authoritative projection publication/read
 fence. Only two indexed plates were recomputed: plate 0 (36.40 ms) and plate
 9 (205.03 ms); the other nine plate-local samples were zero. Native projection
 time was 241.94 ms, including 199.25 ms used-slot scanning and 31.26 ms
-Print/wipe data construction. The same run measured 71.00 ms from pointer-up
-to visible Undo and 0.56 ms of renderer-to-Worker/client-JS residual around
+Print/wipe data construction. The Step 14 direct-estimator run measured
+208.87 ms native projection time, including 196.73 ms used-slot scanning,
+0.03 ms direct estimate, and zero fallback. It measured 278.85 ms
+click-to-restored projection, 214.19 ms application publication, and 209.43
+ms client projection round-trip. The same run measured 99.44 ms from pointer-up
+to visible Undo and 0.81 ms of renderer-to-Worker/client-JS residual around
 the read. A cache hit records zero for every plate-local stage and returns the
 same projection JSON; same-plate XY-only movement therefore avoids this
 projection work entirely, while Z/geometry or membership changes invalidate
@@ -250,6 +264,7 @@ only the affected plate entries.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` — passed; verifies cache hits have zero plate-local used-slot/Print work, Z translation invalidation, and configuration/history invalidation.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-step13-smoke.mjs --module packages/slicer-wasm/out/threaded/orca_slice.js` — passed with the same cache and invalidation coverage.
 - `node packages/slicer-wasm/harness/multi-filament-prime-tower-move-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; Prime Tower Undo/Redo repopulates the target plate projection after its targeted cache invalidation while retaining the narrow frame and unaffected preview contract.
+- `node packages/slicer-wasm/harness/multi-filament-prime-tower-projection-smoke.mjs --module packages/slicer-wasm/out/serial/orca_slice.js` and the threaded artifact — passed; rectangle, Rib, Smooth timelapse, and multifilament cases use the direct estimator and record zero Print fallback.
 - `pnpm stage:assets` from the repository root, then `pnpm exec electron-vite
   build` from `apps/desktop` with `VITE_USE_MOCK=0` and `VITE_E2E=1` — stages
   the just-built WASM into renderer source before the Electron bundle is made.

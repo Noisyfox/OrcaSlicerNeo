@@ -18,6 +18,14 @@ function callJson(name, types = [], args = []) {
   const result = JSON.parse(Module.UTF8ToString(ptr)); Module._free(ptr); return result;
 }
 function request(name, body) { return callJson(name, ['string'], [JSON.stringify(body)]); }
+function assertDirectEstimateProfile(label) {
+  const profile = callJson('orc_take_performance_profile');
+  const sample = profile.samples.find((item) => item.operation === 'prime_tower_projection');
+  assert.ok(sample, `${label}: missing prime tower profile`);
+  assert.ok(sample.stages_ms.direct_wipe_tower_estimate > 0, `${label}: direct estimator was not used`);
+  assert.equal(sample.stages_ms.print_apply_wipe_tower_data_fallback, 0,
+    `${label}: unexpected Print fallback ${JSON.stringify(sample)}`);
+}
 const init = callJson('orc_init', ['string'], ['']);
 assert.equal(init.ok, true, JSON.stringify(init));
 
@@ -41,6 +49,7 @@ projection = callJson('orc_get_prime_tower_projection');
 assert.equal(projection.plates[0].eligible, true, JSON.stringify(projection));
 assert.equal(projection.plates[0].forced, true);
 assert.deepEqual(projection.plates[0].used_slots, [1]);
+assertDirectEstimateProfile('smooth timelapse');
 callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'], ['project', '', 'timelapse_type', '0']);
 
 // Paint/assign a second slot: eligibility, native dimensions, and equal bands
@@ -70,11 +79,13 @@ assert.equal(tower.bands[0].start_depth, 0);
 assert.equal(tower.bands[0].end_depth, tower.bands[1].start_depth);
 assert.equal(tower.bands[1].end_depth, tower.depth);
 assert.equal(tower.bands[0].opacity, 0.66);
+assertDirectEstimateProfile('multifilament rectangle');
 
 // Rib-wall towers use the native estimated depth for both dimensions.
 callJson('orc_set_project_config_override', ['string', 'string', 'string', 'string'], ['project', '', 'wipe_tower_wall_type', 'rib']);
 projection = callJson('orc_get_prime_tower_projection');
 assert.equal(projection.plates[0].width, projection.plates[0].depth);
+assertDirectEstimateProfile('multifilament rib');
 
 // A degenerate native height still gets the accepted minimum visible proxy
 // height. The zero-Z transform is setup only; the feature remains read-only.
