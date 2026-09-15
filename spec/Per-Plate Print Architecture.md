@@ -290,6 +290,13 @@ but no-longer-selected plate by accident. An invalid selected plate must not
 fall back to another plate's result for either Preview or Export. Explicit
 Slice All Plates and Export All Plates remain future commands.
 
+Export is globally disabled while any slice job is active, in both wasm
+variants. Threaded per-plate ownership deliberately does not create an
+exception for exporting an unrelated valid plate while another plate slices:
+there is no concurrent export task, result lease, or ambiguous snapshot
+download in this refactor. Once the slice job reaches a terminal state, Export
+is reevaluated solely from the selected plate's matching result stamp.
+
 ### 2.14 Selected, active-slice, and preview plate identities are distinct
 
 Neo maintains three explicit runtime identities when needed:
