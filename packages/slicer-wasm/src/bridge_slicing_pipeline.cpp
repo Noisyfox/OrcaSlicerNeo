@@ -29,6 +29,7 @@
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
 #include "bridge_state.hpp"
+#include "libslic3r/BuildVolume.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/PrintConfig.hpp"
@@ -94,6 +95,55 @@ void invalidate_preview_result_only()
     bridge_state.preview_plate_id.clear();
     bridge_state.preview_plate_revision = 0;
 }
+
+// Print::apply() reads ModelInstance::is_printable() while it builds its
+// native snapshot.  Keep that existing PartPlate context on the authoritative
+// model for the duration of the synchronous apply, then restore the bridge
+// model before any later slice stage can observe it.  This carries only the
+// derived print-volume states and plate index; it never clones or filters a
+// Model just for Slice.
+class ScopedPlateModelContext {
+    struct InstanceState {
+        ModelInstance* instance;
+        ModelInstanceEPrintVolumeState print_volume_state;
+    };
+
+    Model& model_;
+    const int previous_plate_index_;
+    std::vector<InstanceState> previous_instance_states_;
+
+public:
+    ScopedPlateModelContext(Model& model, const BridgeState::PlateSessionPlate& plate)
+        : model_(model), previous_plate_index_(model.curr_plate_index)
+    {
+        for (ModelObject* object : model_.objects)
+            for (ModelInstance* instance : object->instances)
+                previous_instance_states_.push_back({instance, instance->print_volume_state});
+
+        try {
+            const PlateBounds bounds = selected_plate_bounds();
+            const BuildVolume build_volume(selected_printable_area(bounds, plate), bounds.max_z, {}, {});
+            model_.curr_plate_index = plate.display_index;
+            model_.update_print_volume_state(build_volume);
+        } catch (...) {
+            restore();
+            throw;
+        }
+    }
+
+    ~ScopedPlateModelContext()
+    {
+        restore();
+    }
+
+private:
+    void restore()
+    {
+        model_.curr_plate_index = previous_plate_index_;
+        for (const InstanceState& previous : previous_instance_states_)
+            previous.instance->print_volume_state = previous.print_volume_state;
+    }
+};
 
 void invalidate_preview_source()
 {
@@ -235,7 +285,6 @@ EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
 
 const char* slice_for_plate(const char* config_json, const std::string& plate_id,
                             const std::uint64_t revision) {
-    std::optional<Model> local_model;
     try {
         // Refresh membership before the operation gate.  This is read-only
         // with respect to the editing model and makes direct bridge callers
@@ -248,9 +297,6 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         if (runtime_entry == nullptr)
             return error_json(target_error);
         auto& print = *runtime_entry->print;
-        std::string model_error;
-        local_model = make_current_plate_model(*find_plate(plate_id), model_error);
-        if (!local_model) return error_json(model_error);
 
         // A new slice invalidates both the old toolpath and its source text
         // before any work begins. The client must fetch a fresh result id.
@@ -386,10 +432,17 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // selection and the target BuildVolume context used by apply/process.
         print.set_plate_index(target_plate->display_index);
         print.set_plate_origin(target_plate->origin);
-        // Apply and process the plate-filtered complete model.  The copied
-        // model retains authoritative world-space transforms; `state().model`
-        // itself is never changed by a slice operation.
-        print.apply(*local_model, config);
+        // Apply and process the authoritative world-space model directly.
+        // Membership is maintained incrementally on the model's instances;
+        // the scoped native context supplies the selected plate's printable
+        // instances while PartPlate's plate index/origin supplies its local
+        // coordinate context.  Print::apply() owns the native processing
+        // snapshot, while the bridge must not clone/filter a Model just for
+        // this slice.
+        {
+            ScopedPlateModelContext model_context(state().model, *target_plate);
+            print.apply(state().model, config);
+        }
         // Native validation also checks whether the generated prime tower
         // footprint overlaps a configured exclusion/wrapping area.  Those
         // three tower collision classes are slice-time advisories in Neo;
