@@ -23,6 +23,7 @@
 #include "history/ProjectHistory.hpp"
 #include "history/MeshCaptureCache.hpp"
 #include "history/MutableObjectCaptureCache.hpp"
+#include "plate_runtime_registry.hpp"
 #include "nlohmann/json.hpp"
 
 #ifdef ORCA_WASM_THREADING
@@ -61,6 +62,10 @@ struct BridgeState {
     PresetBundle presets;
     Model       model;
     Print       print;
+    // FFF per-plate native ownership.  The legacy single Print remains in
+    // place until the slicing pipeline is switched in a later step; this
+    // registry is already authoritative for runtime cardinality/lifetime.
+    PlateRuntimeRegistry plate_runtime_registry;
     // Project-owned overrides are kept in the Worker/WASM session. React only
     // receives a render projection and never becomes their source of truth.
     nlohmann::json project_config_overlay =

@@ -927,6 +927,7 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             state().model = before_model;
             state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
+            Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
             state().project_config_overlay = before_overlay;
             state().plate_input_revisions = before_plate_revisions;
             state().instance_plate_ids = before_membership;
@@ -1086,6 +1087,7 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
             if (before_model) state().model = *before_model;
             state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
+            Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
             state().project_config_overlay = before_overlay;
             state().plate_input_revisions = before_plate_revisions;
             state().instance_plate_ids = before_membership;
@@ -1370,6 +1372,7 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             state().model = before_model;
             state().mutable_object_capture_cache.clear();
             state().plate_session_plates = before_plates;
+            Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
             state().project_config_overlay = before_overlay;
             state().plate_input_revisions = before_plate_revisions;
             state().instance_plate_ids = before_membership;

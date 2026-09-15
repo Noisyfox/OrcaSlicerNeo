@@ -220,6 +220,7 @@ void restore_history_plate_session(const json& session, const Model& restored_mo
 {
     auto restored_plates = build_history_plate_session(session, restored_model);
     state().plate_session_plates = std::move(restored_plates);
+    Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
     state().current_plate_id = session["current_plate_id"].get<std::string>();
     state().instance_plate_ids.clear();
     state().plate_out_of_bounds_ids.clear();
@@ -457,6 +458,7 @@ json restore_transform_frame(const Runtime& runtime, const Neo::History::Restore
                 object->invalidate_bounding_box();
             }
         state().plate_session_plates = before_plates;
+        Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         state().current_plate_id = before_current_plate;
         state().instance_plate_ids = before_membership;
         state().plate_out_of_bounds_ids = before_out_of_bounds;
@@ -561,6 +563,7 @@ void restore_history_transaction_state(const json& context, const Neo::History::
         apply_mutable(state(), state().presets, std::move(before_filament_state));
         state().model = before_model;
         state().plate_session_plates = before_plates;
+        Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         state().project_config_overlay = before_overlay;
         throw;
     }
@@ -627,6 +630,7 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
         state().model = std::move(staged_model);
         state().mutable_object_capture_cache.clear();
         state().plate_session_plates = std::move(staged_plates);
+        Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         state().project_config_overlay = std::move(staged_overlay);
         apply_plate_overlay_to_configs(state().plate_session_plates, state().project_config_overlay);
         Neo::Bridge::PlateSession::normalize_coordinate_arrays(
@@ -648,6 +652,7 @@ json restore_direct_frame(const Runtime& runtime, const Neo::History::RestorePla
         state().model = std::move(before_model);
         state().mutable_object_capture_cache.clear();
         state().plate_session_plates = before_plates;
+        Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         state().project_config_overlay = before_overlay;
         state().plate_input_revisions = before_plate_revisions;
         state().instance_plate_ids = before_membership;
@@ -855,6 +860,7 @@ json restore_result(const Runtime& runtime, const Neo::History::RestorePlan& pla
         if (before_filament_state) apply_mutable(state(), state().presets, std::move(*before_filament_state));
         state().model = std::move(before_model);
         state().plate_session_plates = before_plates;
+        Neo::Bridge::PlateSession::reconcile_plate_runtime_registry();
         state().project_config_overlay = before_overlay;
         state().plate_input_revisions = before_plate_revisions;
         state().instance_plate_ids = before_membership;

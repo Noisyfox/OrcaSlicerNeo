@@ -182,11 +182,22 @@ void reset_plate_session_state()
     s.plate_input_revisions[plate_id] = 0;
     s.current_plate_id = plate_id;
     normalize_coordinate_arrays(s.presets.project_config, s.plate_session_plates.size());
+    reconcile_plate_runtime_registry();
 }
 
 void ensure_plate_session_state()
 {
     if (state().plate_session_plates.empty() || state().current_plate_id.empty()) reset_plate_session_state();
+    else reconcile_plate_runtime_registry();
+}
+
+void reconcile_plate_runtime_registry()
+{
+    std::vector<std::string> plate_ids;
+    plate_ids.reserve(state().plate_session_plates.size());
+    for (const auto& plate : state().plate_session_plates)
+        plate_ids.push_back(plate.id);
+    state().plate_runtime_registry.reconcile(plate_ids);
 }
 
 const BridgeState::PlateSessionPlate* find_plate(const std::string& id)
@@ -835,6 +846,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
             plate.display_index = static_cast<int>(index);
             plate.origin = plate_origin_for_index(static_cast<int>(index), new_count, bounds);
         }
+        reconcile_plate_runtime_registry();
         Neo::Bridge::PrimeTower::normalize_coordinate_positions();
         state().current_plate_id = id;
         const double reflow_finished_at = Neo::Bridge::Performance::now_ms();
@@ -919,6 +931,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
             plate.display_index = static_cast<int>(index);
             plate.origin = new_origin;
         }
+        reconcile_plate_runtime_registry();
         if (deleting_current) {
             const size_t selected_index = std::min(deleted_index, state().plate_session_plates.size() - 1);
             state().current_plate_id = state().plate_session_plates[selected_index].id;

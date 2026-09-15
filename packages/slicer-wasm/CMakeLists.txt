@@ -348,6 +348,7 @@ set(ORCA_BRIDGE_SRC
   "${CMAKE_CURRENT_SOURCE_DIR}/src/wasm_log.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_state.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_performance.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_filament.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/bridge_prime_tower.cpp"
@@ -367,6 +368,15 @@ set(ORCA_SLICE_SRC
 )
 add_executable(orca_slice ${ORCA_SLICE_SRC})
 if(NEO_PROJECT_HISTORY_TEST)
+  add_executable(plate_runtime_registry_test
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/plate_runtime_registry.test.cpp")
+  target_compile_definitions(plate_runtime_registry_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
+  target_compile_options(plate_runtime_registry_test PRIVATE -fexceptions)
+  target_link_options(plate_runtime_registry_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
+    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+  target_link_libraries(plate_runtime_registry_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
+
   add_executable(project_history_core_test
     "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/history/ProjectHistory.test.cpp")

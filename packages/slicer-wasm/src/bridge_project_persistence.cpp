@@ -379,6 +379,7 @@ void initialize_plate_session_from_records(const std::vector<PlateData*>& native
     s.pending_membership_instance_ids.clear();
     s.plate_input_revisions.clear();
     for (const auto& plate : s.plate_session_plates) s.plate_input_revisions[plate.id] = 0;
+    PlateSession::reconcile_plate_runtime_registry();
 }
 
 std::vector<BridgeState::PlateSessionPlate> build_plate_session_from_records(
@@ -1000,6 +1001,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 state().history = std::move(rollback.history);
                 state().project_config_overlay = std::move(rollback.overlay);
                 state().plate_session_plates = std::move(rollback.plates);
+                PlateSession::reconcile_plate_runtime_registry();
                 state().current_plate_id = std::move(rollback.current_plate);
                 state().instance_plate_ids = std::move(rollback.instance_plate_ids);
                 state().plate_out_of_bounds_ids = std::move(rollback.out_of_bounds);
