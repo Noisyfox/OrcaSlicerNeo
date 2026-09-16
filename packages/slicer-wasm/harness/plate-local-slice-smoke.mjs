@@ -123,4 +123,38 @@ check('revision change accepted', changed.ok === true);
 const stale = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', firstTarget.id, firstTarget.revision]);
 check('stale slice rejected', stale.ok !== true && /stale/.test(stale.error ?? ''));
 
+// Step 13: once a current plate has a fresh native result, Delete Plate must
+// park its authoritative-model instances immediately and make every receipt
+// for the deleted registry incarnation unusable. The native lease test covers
+// the concurrently running/tombstoned lifetime; this real bridge probe covers
+// the persistent mutation and externally visible stale-result boundary.
+const beforeDelete = callJson('orc_get_plate_session_snapshot');
+const deleteTarget = {
+  id: beforeDelete.current_plate_id,
+  revision: beforeDelete.input_revisions[beforeDelete.current_plate_id],
+};
+const deleteTargetInstances = beforeDelete.instances
+  .filter((instance) => instance.plate_id === deleteTarget.id)
+  .map((instance) => instance.instance_id);
+const freshBeforeDelete = callJson('orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', deleteTarget.id, deleteTarget.revision]);
+check('slice current plate before deletion', freshBeforeDelete.ok === true, JSON.stringify(freshBeforeDelete));
+const resultBeforeDelete = callJson('orc_get_slice_result');
+check('deleted plate starts with a publishable result', resultBeforeDelete.ok === true,
+  JSON.stringify(resultBeforeDelete));
+const deletedCurrent = callJson('orc_delete_plate', ['string'], [deleteTarget.id]);
+check('delete current plate commits and selects a survivor', deletedCurrent.ok === true &&
+  deletedCurrent.current_plate_id !== deleteTarget.id &&
+  !deletedCurrent.plates.some((plate) => plate.plate_id === deleteTarget.id),
+  JSON.stringify(deletedCurrent));
+check('delete current plate parks its models immediately', deleteTargetInstances.length > 0 &&
+  deleteTargetInstances.every((instanceId) => deletedCurrent.instances.some((instance) =>
+    instance.instance_id === instanceId && instance.plate_id === '' && instance.unprintable === true)),
+  JSON.stringify(deletedCurrent.instances));
+const deletedReceiptExport = callJson('orc_export_gcode_plate', ['string', 'number'],
+  [deleteTarget.id, deleteTarget.revision]);
+check('deleted plate result can no longer publish', deletedReceiptExport.ok !== true &&
+  /not found|not the current plate|stale|unavailable/.test(deletedReceiptExport.error ?? ''),
+  JSON.stringify(deletedReceiptExport));
+
 if (failures > 0) process.exitCode = 1;

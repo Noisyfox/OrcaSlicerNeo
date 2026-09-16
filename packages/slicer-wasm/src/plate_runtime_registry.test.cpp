@@ -28,11 +28,17 @@ int main()
 
     const auto* first_print = first->print.get();
     const auto* first_result = first->gcode_result.get();
-    PlateRuntimeRegistry::begin_slice(*first);
-    CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
-    CHECK(first->print.get() == first_print);
-    CHECK(first->gcode_result.get() == first_result);
-    PlateRuntimeRegistry::mark_process_completed(*first, 0, 0, 17);
+    {
+        auto job = registry.begin_slice("plate-a", 17, 0);
+        CHECK(&job.entry() == first);
+        CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
+        CHECK(first->print.get() == first_print);
+        CHECK(first->gcode_result.get() == first_result);
+        CHECK(registry.has_active_job("plate-a"));
+        CHECK(registry.mark_process_completed(job, 0, 0));
+        CHECK(registry.can_publish_completed_job(job, 0));
+    }
+    CHECK(!registry.has_active_job("plate-a"));
     CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
     CHECK(first->native_core_materialized);
     CHECK(first->completed_input_revision == 0);
@@ -44,12 +50,15 @@ int main()
 
     // Re-slicing the same input keeps the revision and native allocations but
     // withdraws the old presentation until the new result is materialized.
-    PlateRuntimeRegistry::begin_slice(*first);
-    CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
-    CHECK(first->print.get() == first_print);
-    CHECK(first->gcode_result.get() == first_result);
-    CHECK(first->completed_input_revision == 0);
-    CHECK(!PlateRuntimeRegistry::is_publishable(*first, 0));
+    {
+        auto job = registry.begin_slice("plate-a", 19, 0);
+        CHECK(first->presentation == PlateRuntimeRegistry::PresentationLifecycle::Slicing);
+        CHECK(first->print.get() == first_print);
+        CHECK(first->gcode_result.get() == first_result);
+        CHECK(first->completed_input_revision == 0);
+        CHECK(!PlateRuntimeRegistry::is_publishable(*first, 0));
+        CHECK(registry.mark_process_completed(job, 0, 0));
+    }
 
     registry.reconcile({"plate-a", "plate-b"});
     CHECK(registry.size() == 2);
@@ -62,8 +71,11 @@ int main()
     CHECK(created->print.get() != retained->print.get());
     CHECK(created->gcode_result.get() != retained->gcode_result.get());
     CHECK(created->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
-    PlateRuntimeRegistry::begin_slice(*created);
-    PlateRuntimeRegistry::mark_process_completed(*created, 0, 1, 18);
+    {
+        auto job = registry.begin_slice("plate-b", 18, 0);
+        CHECK(registry.mark_process_completed(job, 0, 1));
+        CHECK(!registry.can_publish_completed_job(job, 1));
+    }
     CHECK(created->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
     CHECK(created->native_core_materialized);
     CHECK(!PlateRuntimeRegistry::can_materialize_result(*created, 1));
@@ -95,11 +107,15 @@ int main()
     auto* plate_b = registry.find("plate-b");
     auto* plate_c = registry.find("plate-c");
     CHECK(plate_b != nullptr && plate_c != nullptr);
-    PlateRuntimeRegistry::begin_slice(*plate_b);
-    PlateRuntimeRegistry::mark_process_completed(*plate_b, 4, 4, 41);
+    {
+        auto job = registry.begin_slice("plate-b", 41, 4);
+        CHECK(registry.mark_process_completed(job, 4, 4));
+    }
     PlateRuntimeRegistry::mark_presentation_valid(*plate_b, 4);
-    PlateRuntimeRegistry::begin_slice(*plate_c);
-    PlateRuntimeRegistry::mark_process_completed(*plate_c, 7, 7, 71);
+    {
+        auto job = registry.begin_slice("plate-c", 71, 7);
+        CHECK(registry.mark_process_completed(job, 7, 7));
+    }
     PlateRuntimeRegistry::mark_presentation_valid(*plate_c, 7);
     const auto b_print = plate_b->print.get();
     const auto b_result = plate_b->gcode_result.get();
@@ -136,12 +152,53 @@ int main()
     // A changed revision must withdraw presentation even when the retained
     // native result was completed at the same numeric target revision.
     auto* changed = registry.find("plate-b");
-    PlateRuntimeRegistry::mark_process_completed(*changed, 4, 4, 42);
+    {
+        auto job = registry.begin_slice("plate-b", 42, 4);
+        CHECK(registry.mark_process_completed(job, 4, 4));
+    }
     PlateRuntimeRegistry::mark_presentation_valid(*changed, 4);
     registry.reconcile_history({"plate-b", "plate-f"},
                                {"plate-b"});
     CHECK(changed->print.get() == retained_b_print);
     CHECK(changed->gcode_result.get() == retained_b_result);
     CHECK(changed->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
+
+    // Deleting a leased entry removes it from the live registry immediately
+    // but retains the exact native incarnation as a non-publishable tombstone.
+    // Restoring the stable plate id before the old terminal creates a fresh
+    // Print/result pair and cannot adopt the old job's lifecycle.
+    registry.reconcile({"plate-b", "plate-f", "plate-z"});
+    auto* old_z = registry.find("plate-z");
+    CHECK(old_z != nullptr);
+    const auto old_z_incarnation = old_z->incarnation_id;
+    const auto* old_z_print = old_z->print.get();
+    const auto* old_z_result = old_z->gcode_result.get();
+    {
+        auto old_job = registry.begin_slice("plate-z", 91, 12);
+        const auto retired = registry.reconcile({"plate-b", "plate-f"});
+        CHECK(retired.size() == 1);
+        CHECK(retired[0].plate_id == "plate-z");
+        CHECK(retired[0].incarnation_id == old_z_incarnation);
+        CHECK(registry.find("plate-z") == nullptr);
+        CHECK(registry.retired_size() == 1);
+#ifdef ORCA_WASM_THREADING
+        CHECK(registry.request_retired_job_cancellation(old_z_incarnation));
+        CHECK(registry.cancellation_requested(old_job));
+#endif
+        CHECK(!registry.mark_process_completed(old_job, 12, 12));
+        CHECK(!registry.can_publish_completed_job(old_job, 12));
+
+        registry.reconcile({"plate-b", "plate-f", "plate-z"});
+        auto* restored_z = registry.find("plate-z");
+        CHECK(restored_z != nullptr);
+        CHECK(restored_z->incarnation_id != old_z_incarnation);
+        CHECK(restored_z->print.get() != old_z_print);
+        CHECK(restored_z->gcode_result.get() != old_z_result);
+        CHECK(restored_z->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
+        CHECK(old_job.entry().print.get() == old_z_print);
+        CHECK(old_job.entry().gcode_result.get() == old_z_result);
+    }
+    CHECK(registry.retired_size() == 0);
+    CHECK(registry.find("plate-z") != nullptr);
     return 0;
 }

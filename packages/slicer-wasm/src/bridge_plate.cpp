@@ -191,13 +191,13 @@ void ensure_plate_session_state()
     else reconcile_plate_runtime_registry();
 }
 
-void reconcile_plate_runtime_registry()
+PlateRuntimeRegistry::Retirements reconcile_plate_runtime_registry()
 {
     std::vector<std::string> plate_ids;
     plate_ids.reserve(state().plate_session_plates.size());
     for (const auto& plate : state().plate_session_plates)
         plate_ids.push_back(plate.id);
-    state().plate_runtime_registry.reconcile(plate_ids);
+    return state().plate_runtime_registry.reconcile(plate_ids);
 }
 
 const BridgeState::PlateSessionPlate* find_plate(const std::string& id)
@@ -981,6 +981,14 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
                                      [&](const auto& plate) { return plate.id == requested; });
         if (it == state().plate_session_plates.end()) return error_json("plate not found");
         if (state().plate_session_plates.size() <= 1) return error_json("at least one plate must remain");
+#ifndef ORCA_WASM_THREADING
+        // A serial module cannot service this command until synchronous
+        // Print::process() returns. Keep the native admission fence explicit
+        // as well so a direct or queued bypass cannot create model/history
+        // state before reporting the established busy terminal.
+        if (state().plate_runtime_registry.has_active_job(requested))
+            return error_json("slice_busy");
+#endif
         rebuild_plate_membership(false);
         const PlateBounds bounds = selected_plate_bounds();
         const size_t deleted_index = static_cast<size_t>(std::distance(state().plate_session_plates.begin(), it));
@@ -1032,7 +1040,15 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
             plate.display_index = static_cast<int>(index);
             plate.origin = new_origin;
         }
-        reconcile_plate_runtime_registry();
+        [[maybe_unused]] const auto retirements = reconcile_plate_runtime_registry();
+#ifdef ORCA_WASM_THREADING
+        // Persistent deletion, model parking, and survivor reflow are already
+        // committed. Cancellation is only an atomic request on the retired
+        // incarnation; it never waits for the job lease to drain.
+        for (const auto& retirement : retirements)
+            state().plate_runtime_registry.request_retired_job_cancellation(
+                retirement.incarnation_id);
+#endif
         if (deleting_current) {
             const size_t selected_index = std::min(deleted_index, state().plate_session_plates.size() - 1);
             state().current_plate_id = state().plate_session_plates[selected_index].id;

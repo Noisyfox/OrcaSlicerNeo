@@ -303,7 +303,7 @@ EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
 
 const char* slice_for_plate(const char* config_json, const std::string& plate_id,
                             const std::uint64_t revision) {
-    PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
+    std::optional<PlateRuntimeRegistry::JobLease> job_lease;
     try {
         // Refresh membership before the operation gate.  This is read-only
         // with respect to the editing model and makes direct bridge callers
@@ -312,11 +312,13 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         std::string target_error;
         if (!validate_plate_operation_target(plate_id, revision, target_error))
             return error_json(target_error);
-        runtime_entry = runtime_entry_for_plate(plate_id, target_error);
+        auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
         if (runtime_entry == nullptr)
             return error_json(target_error);
         const std::uint64_t slice_task_id = state().next_slice_task_id++;
-        PlateRuntimeRegistry::begin_slice(*runtime_entry);
+        job_lease.emplace(state().plate_runtime_registry.begin_slice(
+            plate_id, slice_task_id, revision));
+        runtime_entry = &job_lease->entry();
         auto& print = *runtime_entry->print;
 
         // A new slice invalidates both the old toolpath and its source text
@@ -510,10 +512,14 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         print.process();
 #endif
         print.set_status_default();
-        PlateRuntimeRegistry::mark_process_completed(
-            *runtime_entry, revision, current_input_revision_for_plate(plate_id),
-            slice_task_id);
+        const std::uint64_t current_revision = current_input_revision_for_plate(plate_id);
+        const bool live_completion = state().plate_runtime_registry.mark_process_completed(
+            *job_lease, revision, current_revision);
         finish_progress();
+        if (!live_completion ||
+            !state().plate_runtime_registry.can_publish_completed_job(
+                *job_lease, current_revision))
+            return result_unavailable_error();
         // Fix round 2: additive success field — always present, empty when the
         // config is clean. M2 clients (config UI) rely on this to warn about
         // keys the pinned libslic3r dropped (handle_legacy's catch-all).
@@ -529,8 +535,8 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
                              {"warnings", std::move(warnings)},
                              {"receipt", projection_receipt(*runtime_entry)}}.dump());
     } catch (const std::exception& e) {
-        if (runtime_entry != nullptr)
-            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
+        if (job_lease)
+            state().plate_runtime_registry.mark_process_failed(*job_lease);
         stop_progress();
         // process() is where libslic3r throws SlicingErrors (GCode.cpp:2250);
         // the helper surfaces the per-object messages instead of the bare
@@ -538,8 +544,8 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // other catches keep plain e.what().
         return error_json_from_exception(e);
     } catch (...) {
-        if (runtime_entry != nullptr)
-            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
+        if (job_lease)
+            state().plate_runtime_registry.mark_process_failed(*job_lease);
         stop_progress();
         // Fix round 1: a canceled print (orc_cancel → PrintBase::cancel sets
         // CANCELED_BY_USER; only restart() clears it) makes the NEXT process()

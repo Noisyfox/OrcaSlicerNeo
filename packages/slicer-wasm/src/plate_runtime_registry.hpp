@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -33,6 +34,7 @@ public:
 
     struct Entry {
         std::string plate_id;
+        std::uint64_t incarnation_id = 0;
         std::unique_ptr<Print> print;
         std::unique_ptr<GCodeProcessorResult> gcode_result;
         // Presentation state is deliberately separate from the retained
@@ -49,7 +51,48 @@ public:
         // the same unchanged input stamp.
         std::optional<std::uint64_t> completed_slice_task_id;
         bool native_core_materialized = false;
+
+    private:
+        friend class PlateRuntimeRegistry;
+        std::size_t active_job_leases = 0;
+        std::optional<std::uint64_t> active_slice_task_id;
+        std::optional<std::uint64_t> active_input_revision;
+        bool retired = false;
+        bool cancel_requested = false;
     };
+
+    class JobLease {
+    public:
+        JobLease() = default;
+        JobLease(const JobLease&) = delete;
+        JobLease& operator=(const JobLease&) = delete;
+        JobLease(JobLease&& other) noexcept;
+        JobLease& operator=(JobLease&& other) noexcept;
+        ~JobLease();
+
+        Entry& entry() const noexcept { return *entry_; }
+        std::uint64_t slice_task_id() const noexcept { return slice_task_id_; }
+        std::uint64_t input_revision() const noexcept { return input_revision_; }
+        explicit operator bool() const noexcept { return entry_ != nullptr; }
+
+    private:
+        friend class PlateRuntimeRegistry;
+        JobLease(PlateRuntimeRegistry& owner, std::shared_ptr<Entry> entry,
+                 std::uint64_t slice_task_id, std::uint64_t input_revision) noexcept;
+        void release() noexcept;
+
+        PlateRuntimeRegistry* owner_ = nullptr;
+        std::shared_ptr<Entry> entry_;
+        std::uint64_t slice_task_id_ = 0;
+        std::uint64_t input_revision_ = 0;
+        bool process_completed_ = false;
+    };
+
+    struct Retirement {
+        std::string plate_id;
+        std::uint64_t incarnation_id = 0;
+    };
+    using Retirements = std::vector<Retirement>;
 
     // Runtime-only lifecycle metadata used to make plate-structure rollback
     // atomic without copying or serializing the native Print/result objects.
@@ -67,25 +110,38 @@ public:
 
     // Reconcile runtime ownership with the current ordered plate ids.  An
     // existing id retains the same Print and result pointers; a new id gets a
-    // fresh pair and an absent id is released immediately.
-    void reconcile(const std::vector<std::string>& plate_ids);
+    // fresh pair. An absent id is released immediately unless a job lease owns
+    // it, in which case the exact incarnation becomes a retired tombstone until
+    // that lease reaches its terminal state.
+    Retirements reconcile(const std::vector<std::string>& plate_ids);
     // History restores replace the persistent plate/session input after the
     // target frame has been validated.  The bridge supplies the IDs whose
     // persistent slice inputs changed; numeric historical revisions are not a
     // runtime eligibility signal.  Unaffected entries retain their native
     // allocations and presentation, changed entries lose presentation, new
     // IDs get a fresh entry, and deleted IDs are released.
-    void reconcile_history(const std::vector<std::string>& plate_ids,
-                          const std::set<std::string>& affected_plate_ids);
+    Retirements reconcile_history(const std::vector<std::string>& plate_ids,
+                                  const std::set<std::string>& affected_plate_ids);
     void clear() noexcept;
 
-    // Lifecycle transitions intentionally touch metadata only.  In
-    // particular, beginning a slice must preserve both native core pointers.
-    static void begin_slice(Entry& entry) noexcept;
-    static void mark_process_completed(Entry& entry,
-                                       std::uint64_t completed_revision,
-                                       std::uint64_t current_revision,
-                                       std::uint64_t slice_task_id) noexcept;
+    // A running slice owns one explicit lease on an immutable registry-entry
+    // incarnation. The lease, rather than a raw map pointer, remains valid if
+    // Delete Plate removes the live entry. A plate has at most one active job.
+    JobLease begin_slice(std::string_view plate_id,
+                         std::uint64_t slice_task_id,
+                         std::uint64_t input_revision);
+    bool mark_process_completed(JobLease& lease,
+                                std::uint64_t completed_revision,
+                                std::uint64_t current_revision) noexcept;
+    void mark_process_failed(JobLease& lease) noexcept;
+    bool can_publish_completed_job(const JobLease& lease,
+                                   std::uint64_t current_revision) const noexcept;
+    bool has_active_job(std::string_view plate_id) const noexcept;
+    // Cancellation is deliberately a separate, non-blocking operation after
+    // the persistent deletion commits. Only retired leased incarnations are
+    // addressable; live entries and restored same-id entries cannot be hit.
+    bool request_retired_job_cancellation(std::uint64_t incarnation_id) noexcept;
+    bool cancellation_requested(const JobLease& lease) const noexcept;
     static void mark_presentation_valid(Entry& entry,
                                         std::uint64_t current_revision) noexcept;
     static void mark_presentation_invalid(Entry& entry) noexcept;
@@ -100,11 +156,17 @@ public:
     Entry* find(std::string_view plate_id) noexcept;
     const Entry* find(std::string_view plate_id) const noexcept;
 
-    std::size_t size() const noexcept { return entries_.size(); }
-    bool empty() const noexcept { return entries_.empty(); }
+    std::size_t size() const noexcept;
+    bool empty() const noexcept;
+    std::size_t retired_size() const noexcept;
 
 private:
-    std::unordered_map<std::string, Entry> entries_;
+    void release_job(JobLease& lease) noexcept;
+
+    mutable std::mutex mutex_;
+    std::unordered_map<std::string, std::shared_ptr<Entry>> entries_;
+    std::unordered_map<std::uint64_t, std::shared_ptr<Entry>> retired_entries_;
+    std::uint64_t next_incarnation_id_ = 1;
 };
 
 } // namespace Slic3r::Neo::Bridge
