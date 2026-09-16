@@ -170,20 +170,41 @@ int main()
     CHECK(lazy.redo(restored));
     CHECK(restored.roots.session.history_context == lazy_after.session.history_context);
 
-    // Native timestamps are a reuse hint, not an identity fallback. If an
-    // archive changes without its optional timestamp gate advancing, retain a
-    // distinct stable-ID object version instead of rejecting Undo.
+    // The authoritative snapshot still retains a distinct archive if bytes
+    // differ despite an unchanged synthetic timestamp. SceneDelta deliberately
+    // relies on the native mutation contract to advance that timestamp and
+    // therefore never copies archive bytes to detect this impossible bridge
+    // state a second time.
     TimestampedHistory timestamp_hint;
     const auto hint_before = roots(1, { object(1, 5, 1) });
     const auto hint_after = roots(2, { object(1, 5, 2) });
     CHECK(timestamp_hint.begin_operation("timestamp hint", hint_before));
     CHECK(timestamp_hint.commit_operation(hint_after));
     CHECK(timestamp_hint.undo(hint_after, restored));
-    CHECK(restored.scene_delta.object_ids == std::vector<ObjectID>({1}));
+    CHECK(restored.scene_delta.object_ids.empty());
     CHECK(timestamp_hint.object_archive_count() == 2);
     CHECK(timestamp_hint.redo(restored));
     CHECK(object_is(restored, 0, 1, 5, 2));
-    CHECK(restored.scene_delta.object_ids == std::vector<ObjectID>({1}));
+    CHECK(restored.scene_delta.object_ids.empty());
+
+    // Active SceneDelta derivation retains only bounded ID/version metadata.
+    // Increasing serialized object bytes grows bytes_used by exactly one
+    // authoritative archive, not by a second before-scene copy.
+    TimestampedHistory small_delta_metadata;
+    TimestampedHistory large_delta_metadata;
+    const auto small_metadata_roots = roots(1, { object(1, 1, 1, 1) });
+    const auto large_metadata_roots = roots(1, { object(1, 1, 1, 1024 * 1024) });
+    CHECK(small_delta_metadata.begin_operation("metadata", small_metadata_roots));
+    CHECK(large_delta_metadata.begin_operation("metadata", large_metadata_roots));
+    const auto small_archive = small_delta_metadata.object_archive(0, 1);
+    const auto large_archive = large_delta_metadata.object_archive(0, 1);
+    CHECK(small_archive && large_archive);
+    const auto authoritative_archive_growth =
+        large_archive->data.capacity() - small_archive->data.capacity();
+    CHECK(large_delta_metadata.bytes_used() - small_delta_metadata.bytes_used() ==
+          authoritative_archive_growth);
+    CHECK(small_delta_metadata.abort_operation());
+    CHECK(large_delta_metadata.abort_operation());
 
     // Committing from an earlier timestamp discards the old Redo future.
     TimestampedHistory branch;

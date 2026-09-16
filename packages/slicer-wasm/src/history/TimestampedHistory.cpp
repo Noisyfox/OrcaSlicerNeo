@@ -57,7 +57,6 @@ template <class T> void append_unique(std::vector<T>& target, const std::vector<
 struct SceneObjectState {
     ObjectID id { 0 };
     std::uint64_t timestamp { 0 };
-    Bytes data;
     std::vector<ObjectID> volume_ids;
     std::vector<ObjectID> instance_ids;
 };
@@ -72,7 +71,7 @@ SceneState scene_state(const TimestampedRoots& roots)
     SceneState result;
     result.objects.reserve(roots.model.mutable_objects.size());
     for (const MutableObject& object : roots.model.mutable_objects)
-        result.objects.push_back({object.id, object.timestamp, object.data, object.volume_ids, object.instance_ids});
+        result.objects.push_back({object.id, object.timestamp, object.volume_ids, object.instance_ids});
     result.plate_ids = roots.session.scene_plate_ids;
     sort_unique(result.plate_ids);
     return result;
@@ -94,7 +93,6 @@ SceneDelta scene_delta(const SceneState& before, const SceneState& after)
         const auto new_object = after_by_id.find(id);
         const bool changed = old_object == before_by_id.end() || new_object == after_by_id.end() ||
             old_object->second->timestamp != new_object->second->timestamp ||
-            old_object->second->data != new_object->second->data ||
             old_object->second->volume_ids != new_object->second->volume_ids ||
             old_object->second->instance_ids != new_object->second->instance_ids;
         if (!changed) continue;
@@ -511,7 +509,7 @@ struct TimestampedHistory::Impl {
             result += kEntryBytes + string_bytes(operation->label) + vector_bytes(operation->before_scene.objects) +
                       vector_bytes(operation->before_scene.plate_ids);
             for (const auto& object : operation->before_scene.objects)
-                result += vector_bytes(object.data) + vector_bytes(object.volume_ids) + vector_bytes(object.instance_ids);
+                result += vector_bytes(object.volume_ids) + vector_bytes(object.instance_ids);
             for (const auto& plate_id : operation->before_scene.plate_ids) result += string_bytes(plate_id);
         }
         return result;

@@ -925,9 +925,11 @@ one restore rather than traversing sparse adjacent receipts.
 - Every committed timestamp edge now retains a non-authoritative `SceneDelta`
   derived from its authoritative before/after model roots. It contains the
   sorted stable object, volume, instance, and plate IDs changed by the complete
-  outer transaction. Nested commits still produce one outer entry. A direct
-  history jump unions each crossed edge once and publishes the final native
-  object order with the single restore response.
+  outer transaction. Active derivation retains only stable IDs and native
+  object timestamps; it never copies serialized mutable-object archives.
+  Nested commits still produce one outer entry. A direct history jump unions
+  each crossed edge once and publishes the final native object order with the
+  single restore response.
 - The bridge exposes one typed `orc_get_model_scene_patch` read that accepts
   the affected stable object IDs and returns only their current structure and
   mesh buffers plus the complete target object order. Full mesh buffers and
@@ -943,11 +945,12 @@ one restore rather than traversing sparse adjacent receipts.
   strings. Ordinary Undo, Redo, and directional jumps do not call the full
   `getModelStructure`/`getModelMesh` projection route.
 - Exact native and renderer fixtures cover nested multi-object add/move/delete,
-  equal timestamp hints with changed archives, adjacent Undo/Redo, non-adjacent
-  jump union, plate context, targeted real-WASM mesh reads, and unchanged-scene
-  identity/geometry preservation. Both serial and threaded wasm64 quick builds,
+  bounded delta metadata with no duplicate archive bytes, adjacent Undo/Redo,
+  non-adjacent jump union, plate context, targeted real-WASM mesh reads, and
+  unchanged-scene identity/geometry preservation. Both serial and threaded
+  wasm64 quick builds,
   timestamped-history executables, and real history harnesses pass. The complete
-  workspace unit suite passes (158 slicer-wasm, 583 slicer-app, and all host and
+  workspace unit suite passes (158 slicer-wasm, 584 slicer-app, and all host and
   supporting-package tests), the affected package typechecks pass, and a headed
   Electron run against the staged real WASM confirms Undo/Redo stays on the
   direct projection path with zero full-model reloads.
