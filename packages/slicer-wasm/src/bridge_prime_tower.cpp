@@ -34,30 +34,11 @@ using namespace Slic3r;
 
 namespace Slic3r::Neo::Bridge::PrimeTower {
 
-std::size_t narrow_history_frame_bytes(const NarrowHistoryFrame& frame)
-{
-    const auto value_bytes = [](const NarrowHistoryFrame::CoordinateValue& value) {
-        return value.value ? value.value->capacity() : 0;
-    };
-    return sizeof(NarrowHistoryFrame) + frame.plate_id.capacity() +
-        value_bytes(frame.before_x) + value_bytes(frame.before_y) +
-        value_bytes(frame.after_x) + value_bytes(frame.after_y);
-}
-
-std::optional<History::RestoreState::DirectFrame>
-make_narrow_history_frame(const NarrowHistoryFrame& frame)
-{
-    auto payload = std::make_shared<NarrowHistoryFrame>(frame);
-    return History::RestoreState::DirectFrame{
-        History::RestoreState::DirectFrame::Kind::PrimeTower,
-        std::static_pointer_cast<const void>(std::move(payload)), narrow_history_frame_bytes(frame)};
-}
-
 CoordinateSettingsSnapshot snapshot_coordinate_settings(const DynamicPrintConfig& settings,
                                                          std::size_t plate_index)
 {
     const auto snapshot_value = [plate_index](const DynamicPrintConfig& config, const char* key) {
-        NarrowHistoryFrame::CoordinateValue result;
+        CoordinateValue result;
         const auto* option = config.opt<ConfigOptionFloats>(key);
         if (option == nullptr) return result;
         result.option_present = true;
@@ -74,7 +55,7 @@ CoordinateSettingsSnapshot snapshot_coordinate_settings(const DynamicPrintConfig
 namespace {
 
 void restore_coordinate_option(DynamicPrintConfig& settings, const char* key,
-                               const NarrowHistoryFrame::CoordinateValue& snapshot,
+                               const CoordinateValue& snapshot,
                                std::size_t plate_index, double fallback)
 {
     if (!snapshot.option_present) {
@@ -1134,23 +1115,9 @@ json move_position_json(const char* request_cstr)
     const std::uint64_t before_revision = plate_revision_before;
     const auto history_runtime = HistoryRuntime::runtime();
     const auto before_history_context = HistoryRuntime::default_history_context(history_runtime);
-    NarrowHistoryFrame frame;
-    frame.plate_id = plate_id;
-    frame.before_x = before_settings.x;
-    frame.before_y = before_settings.y;
-    frame.after_x = before_settings.x;
-    frame.after_y = before_settings.y;
-    frame.after_x.value = ConfigOptionFloat(x).serialize();
-    frame.after_y.value = ConfigOptionFloat(y).serialize();
-    frame.after_x.option_present = true;
-    frame.after_y.option_present = true;
-    frame.before_revision = plate_revision_before;
-    frame.after_revision = plate_revision_before + 1;
-    const json before_footprint = placement_footprint(placement, old_x, old_y);
-    frame.before_footprint = {before_footprint["min_x"].get<double>(), before_footprint["max_x"].get<double>(),
-                              before_footprint["min_y"].get<double>(), before_footprint["max_y"].get<double>()};
-    const auto before_frame = frame;
-
+    if (!HistoryMetadata::begin_timestamped_operation(state(), "Move Prime Tower", before_history_context))
+        return move_error("native_validation_failure", "could not capture prime tower history predecessor");
+    bool history_started = true;
     json response;
     try {
         set_coordinate_settings(state().presets.project_config, plate_index, x, y, old_x, old_y);
@@ -1168,24 +1135,7 @@ json move_position_json(const char* request_cstr)
         const DynamicPrintConfig stored_config = effective_config(*plate);
         const double stored_x = indexed_float(stored_config, "wipe_tower_x", plate_index, x);
         const double stored_y = indexed_float(stored_config, "wipe_tower_y", plate_index, y);
-        const json stored_footprint = placement_footprint(placement, stored_x, stored_y);
-        frame.after_footprint = {stored_footprint["min_x"].get<double>(), stored_footprint["max_x"].get<double>(),
-                                 stored_footprint["min_y"].get<double>(), stored_footprint["max_y"].get<double>()};
-        const auto after_settings = snapshot_coordinate_settings(state().presets.project_config, plate_index);
-        frame.after_x = after_settings.x;
-        frame.after_y = after_settings.y;
-        NarrowHistoryFrame after_frame = frame;
-        after_frame.after_state = true;
-        const auto before_direct = make_narrow_history_frame(before_frame);
-        const auto after_direct = make_narrow_history_frame(after_frame);
-        // Keep complete checkpoints for mixed navigation. The direct frame is
-        // only a scalar X/Y transition optimization; it cannot stand in for a
-        // target model or unrelated project-owned state.
-        const auto before_context = before_history_context.dump();
-        const auto after_context = HistoryRuntime::default_history_context(history_runtime).dump();
-        const auto before_bytes = Neo::History::Bytes(before_context.begin(), before_context.end());
-        const auto after_bytes = Neo::History::Bytes(after_context.begin(), after_context.end());
-        const bool first_history_entry = state().history.entries().empty();
+        const auto after_context = HistoryRuntime::default_history_context(history_runtime);
         response = { {"ok", true}, {"version", 1}, {"result", {
             {"mutation", {{"kind", "move"}, {"plate_id", plate_id},
                            {"history_entry_delta", 1}, {"revision_before", plate_revision_before},
@@ -1198,21 +1148,11 @@ json move_position_json(const char* request_cstr)
         }} };
         if (request.value("inject_failure_stage", "") == "before-publish")
             throw std::runtime_error("injected prime tower post-validation failure");
-        bool committed = false;
-        if (first_history_entry) {
-            const auto model_state = Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache, state().mutable_object_capture_cache);
-            committed = HistoryMetadata::commit_history_entry(state(), [&]() {
-                return state().history.commit_with_baseline("Move Prime Tower", Neo::History::Category::Project,
-                    model_state, before_bytes, model_state, after_bytes, before_direct, after_direct);
-            });
-        } else {
-            committed = HistoryMetadata::commit_history_entry(state(), [&]() {
-                return state().history.commit_reusing_current_model("Move Prime Tower", Neo::History::Category::Project,
-                    Neo::History::Bytes(after_bytes.begin(), after_bytes.end()), after_direct, before_direct);
-            });
-        }
+        const bool committed = HistoryMetadata::commit_timestamped_operation(state(), after_context);
         if (!committed) throw std::runtime_error("could not commit prime tower move history");
+        history_started = false;
     } catch (const std::exception& e) {
+        if (history_started) HistoryMetadata::abort_timestamped_operation(state());
         restore_coordinate_settings(state().presets.project_config, before_settings, plate_index, old_x, old_y);
         if (before_project_x) state().project_config_overlay["project"]["wipe_tower_x"] = *before_project_x;
         else state().project_config_overlay["project"].erase("wipe_tower_x");
@@ -1221,6 +1161,7 @@ json move_position_json(const char* request_cstr)
         state().plate_input_revisions[plate_id] = before_revision;
         return move_error("native_validation_failure", e.what());
     } catch (...) {
+        if (history_started) HistoryMetadata::abort_timestamped_operation(state());
         restore_coordinate_settings(state().presets.project_config, before_settings, plate_index, old_x, old_y);
         if (before_project_x) state().project_config_overlay["project"]["wipe_tower_x"] = *before_project_x;
         else state().project_config_overlay["project"].erase("wipe_tower_x");

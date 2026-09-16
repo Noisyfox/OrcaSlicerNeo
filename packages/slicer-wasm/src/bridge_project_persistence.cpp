@@ -28,7 +28,6 @@
 #include "bridge_profiles.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
-#include "history/ProjectHistory.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/miniz_extension.hpp"
@@ -93,15 +92,8 @@ void establish_clean_history_baseline()
     state().active_history_transaction.reset();
     state().nested_history_transactions.clear();
     state().history_disabled = false;
-    const std::string context_text = project_history_context().dump();
-    const Neo::History::Bytes context_bytes(context_text.begin(), context_text.end());
-    if (!HistoryMetadata::commit_history_entry(state(), [&]() {
-        return state().history.commit("", Neo::History::Category::Project,
-            Neo::History::Codec::capture_model_state(state().model, state().mesh_capture_cache,
-                                                      state().mutable_object_capture_cache),
-            context_bytes);
-    }))
-        throw Slic3r::RuntimeError("could not establish project history baseline");
+    state().history_live_context = project_history_context();
+    HistoryMetadata::advance_history_epoch(state());
     state().history.mark_current_as_saved();
 }
 
@@ -920,7 +912,8 @@ static const char* orc_load_project_impl(const char* data, int len,
             struct ProjectCommitRollback {
                 Model model;
                 PresetBundle presets;
-                Neo::History::ProjectHistory history;
+                Neo::History::TimestampedHistory history;
+                json history_live_context;
                 json overlay;
                 std::vector<BridgeState::PlateSessionPlate> plates;
                 std::string current_plate;
@@ -939,6 +932,11 @@ static const char* orc_load_project_impl(const char* data, int len,
             rollback.model = std::move(state().model);
             rollback.presets = std::move(state().presets);
             rollback.history = std::move(state().history);
+            // TimestampedHistory is move-only. Keep the publication target
+            // valid while rollback owns the closed session; the successful
+            // project load establishes its clean baseline in this fresh core.
+            state().history = Neo::History::TimestampedHistory(rollback.history.byte_budget());
+            rollback.history_live_context = std::move(state().history_live_context);
             rollback.overlay = std::move(state().project_config_overlay);
             rollback.plates = std::move(state().plate_session_plates);
             rollback.current_plate = std::move(state().current_plate_id);
@@ -995,6 +993,7 @@ static const char* orc_load_project_impl(const char* data, int len,
                 state().mutable_object_capture_cache.clear();
                 state().presets = std::move(rollback.presets);
                 state().history = std::move(rollback.history);
+                state().history_live_context = std::move(rollback.history_live_context);
                 state().project_config_overlay = std::move(rollback.overlay);
                 state().plate_session_plates = std::move(rollback.plates);
                 PlateSession::reconcile_plate_runtime_registry();

@@ -9,7 +9,7 @@
 #include "bridge_state.hpp"
 #include "history/MeshCaptureCache.hpp"
 #include "history/MutableObjectCaptureCache.hpp"
-#include "history/ProjectHistory.hpp"
+#include "history/TimestampedHistory.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "nlohmann/json.hpp"
@@ -48,11 +48,9 @@ struct CaptureTimings {
 // bridge owns this sink; no model, context, identifiers, or payloads cross
 // the diagnostic boundary.
 struct RestoreTimings {
-    double capture_model_equality_check_ms = 0.0;
     double model_staging_deserialization_ms = 0.0;
     double immutable_mesh_reconnect_ms = 0.0;
     double plate_session_project_overlay_restore_ms = 0.0;
-    double history_cursor_commit_ms = 0.0;
 };
 
 // Capture the mutable object records and shared immutable mesh payloads used
@@ -75,29 +73,6 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
 bool model_state_equal(const ModelState& lhs, const ModelState& rhs);
 
 } // namespace Slic3r::Neo::History::Codec
-
-namespace Slic3r::Neo::Bridge::HistoryRuntime {
-
-// Add Plate changes only the runtime plate session and the world transforms
-// of instances moved by the display-grid reflow.  Keep this receipt opaque to
-// ProjectHistory; the bridge validates and applies it against the live model.
-struct AddPlateHistoryFrame {
-    // Absent means the grid reflow did not move any instance.  Keeping this
-    // optional avoids allocating or serializing an empty position receipt.
-    std::optional<nlohmann::json> before_transforms;
-    std::optional<nlohmann::json> after_transforms;
-};
-
-// Sparse receipt for an ordinary Move transaction. It retains only the
-// affected object/volume/instance identities and their before/after
-// transforms; mesh and mutable-object archives stay shared in ProjectHistory.
-struct TransformHistoryFrame {
-    std::vector<TransformHistoryRecord> records;
-    std::uint64_t before_revision { 0 };
-    std::uint64_t after_revision { 0 };
-};
-
-} // namespace Slic3r::Neo::Bridge::HistoryRuntime
 
 namespace Slic3r::Neo::Bridge::HistoryMetadata {
 
@@ -125,9 +100,11 @@ json restore_diagnostics_json(const BridgeState& state);
 // move backwards.
 std::uint64_t advance_history_epoch(BridgeState& state);
 
-// Execute one revision-producing ProjectHistory append as the bridge's atomic
-// history-publication boundary. Callers supply only the append operation; a
-// successful append is the sole condition that advances the observed epoch.
-bool commit_history_entry(BridgeState& state, const std::function<bool()>& append);
+History::TimestampedRoots capture_history_roots(BridgeState& state, const json& context,
+                                                History::Codec::CaptureTimings* timings = nullptr);
+bool begin_timestamped_operation(BridgeState& state, const std::string& label, const json& before_context,
+                                 History::Codec::CaptureTimings* timings = nullptr);
+bool commit_timestamped_operation(BridgeState& state, const json& after_context);
+void abort_timestamped_operation(BridgeState& state);
 
 } // namespace Slic3r::Neo::Bridge::HistoryMetadata

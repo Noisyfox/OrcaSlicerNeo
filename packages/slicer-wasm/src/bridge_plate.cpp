@@ -857,7 +857,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_plate_session_snapshot()
 EMSCRIPTEN_KEEPALIVE const char* orc_reset_plate_session()
 {
     try {
-        invalidate_transform_delta_candidate(state());
         reset_plate_session_state();
         return dup_json(plate_session_snapshot_json().dump());
     } catch (const std::exception& e) {
@@ -889,14 +888,9 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
 {
     std::optional<Neo::Bridge::PlateRuntimeRegistry::LifecycleSnapshots> before_lifecycle;
     try {
-        invalidate_transform_delta_candidate(state());
         const double profile_started_at = Neo::Bridge::Performance::now_ms();
         ensure_plate_session_state();
         before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
-        const bool add_plate_delta = state().active_history_transaction &&
-            state().active_history_transaction->add_plate_delta;
-        if (add_plate_delta && state().active_history_transaction->base_history_revision != state().history_revision)
-            return error_json("history transaction revision is stale");
         if (state().plate_session_plates.size() >= static_cast<std::size_t>(kMaxPlateCommandCount))
             return error_json("maximum of 36 plates");
         const PlateBounds bounds = selected_plate_bounds();
@@ -911,7 +905,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
         const double reflow_started_at = Neo::Bridge::Performance::now_ms();
         std::map<std::size_t, Vec3d> changed;
         std::set<std::string> changed_origin_plates;
-        std::optional<json> before_transforms;
         if (column_count_changed) {
             const auto refs = plate_instance_refs();
             const auto refs_by_id = index_plate_instance_refs(refs);
@@ -923,10 +916,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
                     if (plate_id != old_plates[index].id) continue;
                     const auto ref = refs_by_id.find(instance_id);
                     if (ref == refs_by_id.end()) continue;
-                    if (add_plate_delta) {
-                        if (!before_transforms) before_transforms = json::array();
-                        before_transforms->push_back(instance_transform_record(*ref->second));
-                    }
                     translate_instance(*ref->second, delta);
                     changed[instance_id] = delta;
                 }
@@ -950,11 +939,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
         const double reflow_finished_at = Neo::Bridge::Performance::now_ms();
         const double snapshot_started_at = Neo::Bridge::Performance::now_ms();
         const auto after_transforms = reflow_instance_transforms(changed);
-        if (add_plate_delta) {
-            state().active_history_transaction->add_plate_mutated = true;
-            state().active_history_transaction->add_plate_before_transforms = std::move(before_transforms);
-            if (!changed.empty()) state().active_history_transaction->add_plate_after_transforms = after_transforms;
-        }
         const auto mutation = add_plate_mutation_snapshot(changed_origin_plates, after_transforms);
         const std::string response = mutation.dump();
         const double snapshot_finished_at = Neo::Bridge::Performance::now_ms();
@@ -977,7 +961,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
 EMSCRIPTEN_KEEPALIVE const char* orc_reorder_plates(const char* plate_ids_json)
 {
     try {
-        invalidate_transform_delta_candidate(state());
         ensure_plate_session_state();
         const json requested_json = json::parse(plate_ids_json ? plate_ids_json : "");
         if (!requested_json.is_array() || requested_json.size() != state().plate_session_plates.size())
@@ -1066,7 +1049,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
 {
     std::optional<Neo::Bridge::PlateRuntimeRegistry::LifecycleSnapshots> before_lifecycle;
     try {
-        invalidate_transform_delta_candidate(state());
         ensure_plate_session_state();
         before_lifecycle = state().plate_runtime_registry.capture_lifecycle();
         const std::string requested = plate_id_cstr ? plate_id_cstr : "";
@@ -1230,7 +1212,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_mark_shared_configuration_mutation()
         before_pending.emplace(state().pending_membership_instance_ids);
         before_lifecycle.emplace(state().plate_runtime_registry.capture_lifecycle());
         const auto* response = dup_json(shared_configuration_mutation_snapshot().dump());
-        invalidate_transform_delta_candidate(state());
         return response;
     } catch (const std::exception& e) {
         rollback();

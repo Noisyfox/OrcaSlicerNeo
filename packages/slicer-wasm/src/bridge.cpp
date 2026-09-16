@@ -114,6 +114,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_init(const char* options_json) {
         state().mutable_object_capture_cache.clear();
         state().active_history_transaction.reset();
         state().nested_history_transactions.clear();
+        state().history_live_context = nlohmann::json::object();
         state().history_disabled = false;
         state().next_filament_colour_index = 0;
         Slic3r::Neo::Bridge::HistoryMetadata::advance_history_epoch(state());

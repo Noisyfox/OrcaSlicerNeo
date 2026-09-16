@@ -110,8 +110,8 @@ test('profiles Add Plate click through its visible Undo entry on the real Odysse
       sample.operation === 'history_begin' || sample.operation === 'add_plate' || sample.operation === 'history_commit');
     expect(samples.map((sample) => sample.operation)).toEqual(['history_begin', 'add_plate', 'history_commit']);
     expect(samples.filter((sample) => sample.operation !== 'add_plate')
-      .every((sample) => sample.stagesMs.capture_model_state === undefined &&
-        typeof sample.stagesMs.delta_record === 'number')).toBe(true);
+      .every((sample) => typeof sample.stagesMs.capture_model_state === 'number' &&
+        typeof sample.stagesMs.capture_collection_cache === 'number')).toBe(true);
 
     const workerMs = lastDelta(before.worker.mutation, after.worker.mutation);
     const clientMs = lastDelta(before.client.mutation, after.client.mutation);

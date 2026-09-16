@@ -177,9 +177,6 @@ struct TimestampedHistory::Impl {
             if (previous) {
                 const auto found = previous->objects.find(source.id);
                 if (found != previous->objects.end()) {
-                    if (source.timestamp != 0 && found->second->timestamp == source.timestamp &&
-                        !mutable_equal(*found->second, source))
-                        return false;
                     if (mutable_equal(*found->second, source)) archive = found->second;
                 }
             }
@@ -215,6 +212,32 @@ struct TimestampedHistory::Impl {
         else
             existing->second = std::move(snapshot);
         rebuild_intervals();
+        return true;
+    }
+
+    bool refresh_restored_context(LogicalTimestamp timestamp, const TimestampedRoots& roots)
+    {
+        const auto existing = snapshots.find(timestamp);
+        if (existing == snapshots.end()) return false;
+        const Snapshot& prior = *existing->second;
+        if (prior.object_order.size() != roots.model.mutable_objects.size() ||
+            prior.meshes.size() != roots.model.immutable_meshes.size())
+            return false;
+        for (std::size_t index = 0; index < prior.object_order.size(); ++index) {
+            const auto found = prior.objects.find(prior.object_order[index]);
+            if (found == prior.objects.end() || prior.object_order[index] != roots.model.mutable_objects[index].id ||
+                found->second->timestamp != roots.model.mutable_objects[index].timestamp)
+                return false;
+        }
+        for (std::size_t index = 0; index < prior.meshes.size(); ++index)
+            if (prior.meshes[index]->key != roots.model.immutable_meshes[index].key) return false;
+
+        auto snapshot = std::make_shared<Snapshot>(prior);
+        snapshot->plate_session = store_blob(roots.session.plate_session, prior.plate_session);
+        snapshot->history_context = store_blob(roots.session.history_context, prior.history_context);
+        snapshot->project_config_overlay =
+            store_blob(roots.project_config_overlay, prior.project_config_overlay);
+        existing->second = std::move(snapshot);
         return true;
     }
 
@@ -452,7 +475,14 @@ bool TimestampedHistory::begin_operation(std::string label, const TimestampedRoo
     }
     const auto existing = m_impl->snapshots.find(m_impl->current_timestamp);
     const auto prior_snapshot = existing == m_impl->snapshots.end() ? std::shared_ptr<Impl::Snapshot>() : existing->second;
-    if (!m_impl->capture(m_impl->current_timestamp, predecessor, true)) return false;
+    // A restored timestamp already owns its immutable model archive. Refresh
+    // only the live session/editing roots so the next real mutation samples
+    // UI-only context without re-archiving or rewriting that model version.
+    if (existing == m_impl->snapshots.end()) {
+        if (!m_impl->capture(m_impl->current_timestamp, predecessor, true)) return false;
+    } else if (!m_impl->refresh_restored_context(m_impl->current_timestamp, predecessor)) {
+        return false;
+    }
     m_impl->operation = Impl::Operation { std::move(label), m_impl->current_timestamp, 1, prior_snapshot };
     return true;
 }
@@ -501,7 +531,12 @@ bool TimestampedHistory::undo(const TimestampedRoots& live_current, TimestampedR
     const auto* entry = m_impl->undo_entry();
     if (!entry) return false;
     const LogicalTimestamp target = entry->before_timestamp;
-    if (!m_impl->capture(m_impl->current_timestamp, live_current)) return false;
+    // Only the uncaptured logical top needs a lazy archive. A timestamp that
+    // was already materialized (for example after Redo) remains immutable;
+    // UI-only selection/current-plate changes must not rewrite or stale it.
+    if (m_impl->snapshots.find(m_impl->current_timestamp) == m_impl->snapshots.end() &&
+        !m_impl->capture(m_impl->current_timestamp, live_current))
+        return false;
     if (!m_impl->load(target, result)) return false;
     m_impl->current_timestamp = target;
     m_impl->enforce_budget();

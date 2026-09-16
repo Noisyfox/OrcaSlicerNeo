@@ -215,17 +215,18 @@ test('profiles a real object move through the visible Undo Move boundary', async
     expect(transform.stagesMs.total).toBeGreaterThanOrEqual(Math.max(...stageNames.filter((stage) => stage !== 'total').map((stage) => transform.stagesMs[stage])));
     const begin = samples.find((sample) => sample.operation === 'history_begin')!;
     const commit = samples.find((sample) => sample.operation === 'history_commit')!;
-    const captureStageNames = ['delta_record'];
+    const captureStageNames = [
+      'capture_collection_cache', 'capture_mutable_object_archive',
+      'capture_immutable_mesh_retention', 'capture_model_state',
+    ];
     expect(captureStageNames.every((stage) =>
       Number.isFinite(begin.stagesMs[stage]) && begin.stagesMs[stage] >= 0 &&
       Number.isFinite(commit.stagesMs[stage]) && commit.stagesMs[stage] >= 0)).toBe(true);
-    expect(begin.stagesMs.capture_model_state).toBeUndefined();
-    expect(commit.stagesMs.capture_model_state).toBeUndefined();
     expect(Object.keys(begin.stagesMs).sort()).toEqual([
-      'delta_record', 'total',
+      ...captureStageNames, 'total',
     ].sort());
     expect(Object.keys(commit.stagesMs).sort()).toEqual([
-      'delta_record', 'history_store', 'total',
+      ...captureStageNames, 'history_store', 'total',
     ].sort());
 
     const workerMs = delta(before.worker.mutation, after.worker.mutation, 'Worker transaction');

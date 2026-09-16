@@ -878,3 +878,44 @@ one restore rather than traversing sparse adjacent receipts.
 - The legacy bridge remains on `ProjectHistory`; migration is intentionally
   deferred. The pinned C++ submodule remains untouched with its pre-existing
   dirty state, and root acceptance is intentionally not recorded here.
+
+### Stage 4 execution record — live bridge timestamp migration
+
+- The Worker bridge now uses `TimestampedHistory` for mutation, Undo, Redo,
+  direct menu jumps, abort, save-checkpoint, and project-load ownership. An
+  outer transaction captures the canonical native model, complete plate
+  session/history context, and project-only overlay roots at its predecessor;
+  commit creates only the named logical topmost timestamp and leaves its
+  archive lazy until a later Undo needs that Redo endpoint.
+- Undo lazily captures only an uncaptured live topmost state. Redo and both
+  directional history menus restore their selected explicit timestamp in one
+  load, so crossing other entries cannot by itself make the selected target
+  stale. Restored timestamps remain immutable when selection or active-plate
+  context changes, and those UI-only changes neither create entries nor remove
+  a retained Redo branch. Abort restores the predecessor after a mutation and
+  remains revision-stable when the operation made no accepted change.
+- Restore stages the complete model with the stable object, volume, and
+  instance IDs delivered in Stage 2, then atomically restores the complete
+  plate session and project-only overlay. Plate input revisions are regenerated
+  rather than retained as project history, every successful restore invalidates
+  all derived slice/preview results, and no slice result is retained by the
+  history core. Stage 4 deliberately publishes the existing safe full-scene
+  restore impact; incremental renderer `SceneDelta` projection remains Stage 5.
+- The obsolete sparse Transform/Add Plate receipts, traversal/rebase restores,
+  direct-frame Prime Tower/filament snapshots, and their bridge runtime
+  identity fallbacks were removed instead of being preserved as internal
+  compatibility paths. Filament and Prime Tower mutations now participate in
+  the same three-root timestamp transaction.
+- The expanded real-WASM history harness passes Add Cube → Move → Undo twice →
+  Redo twice with exact stable IDs; one atomic multi-object add/move/delete
+  transaction; multiple Add Plate entries with direct non-adjacent Undo/Redo
+  menu targets; UI-only selection and active-plate changes; project-overlay
+  restore; result invalidation; and direct timestamp selection after other
+  entries are crossed. The serial and threaded quick builds and history/Prime
+  Tower harnesses pass, as do the timestamp/identity executables in both
+  variants, all 158 slicer-wasm tests, all 581 slicer-app tests, all 67 desktop
+  tests, the affected typechecks, and a visible headed real-WASM Electron
+  Add Cube/Move/Undo/Redo run.
+- The pinned C++ submodule remains untouched with its pre-existing dirty state.
+  Renderer delta projection is not included, and root acceptance is
+  intentionally not recorded here.

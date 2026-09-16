@@ -22,7 +22,7 @@
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Print.hpp"
-#include "history/ProjectHistory.hpp"
+#include "history/TimestampedHistory.hpp"
 #include "history/MeshCaptureCache.hpp"
 #include "history/MutableObjectCaptureCache.hpp"
 #include "plate_runtime_registry.hpp"
@@ -34,22 +34,6 @@
 #endif
 
 namespace Slic3r::Neo::Bridge {
-
-// Native-only receipt for a transform history frame.  The core history store
-// keeps this behind RestoreState::DirectFrame; the bridge validates stable IDs
-// against the live model before applying it.
-struct TransformHistoryRecord {
-    std::size_t object_index { 0 };
-    std::size_t volume_index { 0 };
-    std::size_t instance_index { 0 };
-    std::size_t object_id { 0 };
-    std::size_t volume_id { 0 };
-    std::size_t instance_id { 0 };
-    Slic3r::Geometry::Transformation before_instance;
-    Slic3r::Geometry::Transformation after_instance;
-    Slic3r::Geometry::Transformation before_volume;
-    Slic3r::Geometry::Transformation after_volume;
-};
 
 struct BridgeState {
 #ifdef ORCA_WASM_THREADING
@@ -74,9 +58,11 @@ struct BridgeState {
                        {"objects", nlohmann::json::object()},
                        {"parts", nlohmann::json::object()},
                        {"plates", nlohmann::json::object()}};
-    // Step 2 history is deliberately Worker/WASM owned. ProjectHistory owns
-    // keyed mutable object versions and shared immutable mesh data.
-    History::ProjectHistory history;
+    // History is deliberately Worker/WASM owned. TimestampedHistory retains
+    // the canonical three roots and names every operation with explicit
+    // before/after logical timestamps.
+    History::TimestampedHistory history;
+    nlohmann::json history_live_context = nlohmann::json::object();
     // Native mesh owners are retained across repeated live-model captures,
     // while shared-owner keys keep cache identity safe across replacement.
     History::Codec::MeshCaptureCache mesh_capture_cache;
@@ -84,30 +70,14 @@ struct BridgeState {
     struct HistoryTransaction {
         std::string id;
         std::string label;
-        History::Category category { History::Category::Project };
         nlohmann::json before_context;
-        History::ModelState before_model;
+        History::TimestampedRoots before_roots;
         bool coalesced { false };
         std::string parent_id;
         // Every command submitted through an active transaction must still
         // target the model revision that transaction captured.  This prevents
         // a delayed renderer gesture from mutating a newly restored branch.
         std::uint64_t base_history_revision { 0 };
-        // Add Plate is the one structural command whose history can be
-        // represented without recapturing the model.  The command fills the
-        // before-transform receipt as it discovers which instances reflow.
-        bool add_plate_delta = false;
-        bool add_plate_mutated = false;
-        std::optional<nlohmann::json> add_plate_before_transforms;
-        std::optional<nlohmann::json> add_plate_after_transforms;
-        // Move history is recorded only when the transaction's sole model
-        // mutation is orc_set_model_transforms.  Other model commands mark
-        // this candidate invalid before commit, so a label alone can never
-        // select the sparse restore path.
-        bool transform_delta_candidate = false;
-        bool transform_delta_mutated = false;
-        bool transform_delta_invalidated = false;
-        std::vector<TransformHistoryRecord> transform_records;
         PlateRuntimeRegistry::LifecycleSnapshots before_plate_runtime_lifecycle;
         // Abort restores the live runtime stamps captured at transaction
         // start.  History navigation deliberately uses fresh stamps instead.
@@ -187,13 +157,6 @@ inline std::uint64_t allocate_plate_input_stamp(BridgeState& bridge_state)
     if (bridge_state.next_plate_input_stamp == std::numeric_limits<std::uint64_t>::max())
         throw std::overflow_error("plate input stamp allocator exhausted");
     return bridge_state.next_plate_input_stamp++;
-}
-
-inline void invalidate_transform_delta_candidate(BridgeState& bridge_state)
-{
-    if (bridge_state.active_history_transaction &&
-        bridge_state.active_history_transaction->transform_delta_candidate)
-        bridge_state.active_history_transaction->transform_delta_invalidated = true;
 }
 
 } // namespace Slic3r::Neo::Bridge

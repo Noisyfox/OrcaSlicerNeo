@@ -8,12 +8,10 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <set>
 #include <string>
 
-#include "history/ProjectHistory.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "nlohmann/json.hpp"
@@ -22,37 +20,14 @@ namespace Slic3r::Neo::Bridge::PrimeTower {
 
 using json = nlohmann::json;
 
-struct NarrowHistoryFrame {
-    // Deliberately excludes all preview/G-code/Print state. A target preview
-    // is invalidated by the move and remains invalid through Undo/Redo.
-    std::string plate_id;
-    struct CoordinateValue {
-        bool option_present { false };
-        std::optional<std::string> value;
-    };
-    CoordinateValue before_x;
-    CoordinateValue before_y;
-    CoordinateValue after_x;
-    CoordinateValue after_y;
-    struct Footprint {
-        double min_x { 0. };
-        double max_x { 0. };
-        double min_y { 0. };
-        double max_y { 0. };
-    };
-    // The direct restore receipt must be a frame-owned fact. Recomputing this
-    // from the restored model would turn a scalar X/Y history transition back
-    // into a costly projection read and could observe a different live state.
-    Footprint before_footprint;
-    Footprint after_footprint;
-    std::uint64_t before_revision { 0 };
-    std::uint64_t after_revision { 0 };
-    bool after_state { false };
+struct CoordinateValue {
+    bool option_present { false };
+    std::optional<std::string> value;
 };
 
 struct CoordinateSettingsSnapshot {
-    NarrowHistoryFrame::CoordinateValue x;
-    NarrowHistoryFrame::CoordinateValue y;
+    CoordinateValue x;
+    CoordinateValue y;
 };
 
 CoordinateSettingsSnapshot snapshot_coordinate_settings(const DynamicPrintConfig& settings,
@@ -79,10 +54,6 @@ void set_coordinate_option_value(DynamicPrintConfig& settings, const char* key,
 void restore_coordinate_settings(DynamicPrintConfig& settings,
                                  const CoordinateSettingsSnapshot& snapshot,
                                  std::size_t plate_index, double fallback_x, double fallback_y);
-
-std::size_t narrow_history_frame_bytes(const NarrowHistoryFrame& frame);
-std::optional<History::RestoreState::DirectFrame>
-make_narrow_history_frame(const NarrowHistoryFrame& frame);
 
 json projection_json();
 

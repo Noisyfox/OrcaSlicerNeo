@@ -145,6 +145,28 @@ int main()
     CHECK(lazy.redo(restored));
     CHECK(!lazy.project_modified());
 
+    // A materialized timestamp is immutable after Redo. UI-only context at
+    // the live top must not rewrite that endpoint or make the next Undo stale.
+    auto lazy_ui_only = lazy_after;
+    lazy_ui_only.session.history_context = bytes(99);
+    CHECK(lazy.undo(lazy_ui_only, restored));
+    CHECK(restored.timestamp == 0);
+    CHECK(lazy.redo(restored));
+    CHECK(restored.roots.session.history_context == lazy_after.session.history_context);
+
+    // Native timestamps are a reuse hint, not an identity fallback. If an
+    // archive changes without its optional timestamp gate advancing, retain a
+    // distinct stable-ID object version instead of rejecting Undo.
+    TimestampedHistory timestamp_hint;
+    const auto hint_before = roots(1, { object(1, 5, 1) });
+    const auto hint_after = roots(2, { object(1, 5, 2) });
+    CHECK(timestamp_hint.begin_operation("timestamp hint", hint_before));
+    CHECK(timestamp_hint.commit_operation());
+    CHECK(timestamp_hint.undo(hint_after, restored));
+    CHECK(timestamp_hint.object_archive_count() == 2);
+    CHECK(timestamp_hint.redo(restored));
+    CHECK(object_is(restored, 0, 1, 5, 2));
+
     // Committing from an earlier timestamp discards the old Redo future.
     TimestampedHistory branch;
     const auto branch_0 = roots(1, { object(1, 1, 1) });
