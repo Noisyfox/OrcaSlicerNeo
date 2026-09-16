@@ -588,11 +588,22 @@ test('shared history toolbar supports buttons, shortcuts, menu jumps, and native
     await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
     await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
 
-    // The restored branch remains available to the directional menu.
+    // One directional-menu command can cross the retained Add Model and Add
+    // Plate entries. The Worker receives the selected opaque entry ID rather
+    // than a sequence of renderer-side button clicks.
     await page.getByTestId('history-undo-menu-trigger').click();
-    await expect(page.getByTestId(/history-undo-entry-/).first()).toBeVisible();
-    await page.getByTestId(/history-undo-entry-/).first().click();
-    await expect(undo).toBeEnabled({ timeout: 30_000 });
+    const undoEntries = page.getByTestId(/history-undo-entry-/);
+    await expect(undoEntries).toHaveCount(4);
+    await undoEntries.last().click();
+    await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+
+    await page.getByTestId('history-redo-menu-trigger').click();
+    const redoEntries = page.getByTestId(/history-redo-entry-/);
+    await expect(redoEntries).toHaveCount(4);
+    await redoEntries.last().click();
+    await expect(objectRows).toHaveCount(3, { timeout: 30_000 });
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
   } finally {
     await app.close();
   }

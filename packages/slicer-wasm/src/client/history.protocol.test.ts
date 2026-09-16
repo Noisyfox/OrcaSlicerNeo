@@ -66,6 +66,47 @@ describe('Worker-owned project history protocol', () => {
     await expect(client.jumpHistory('entry-999999', 'undo')).rejects.toThrow('stale or unavailable');
   });
 
+  it('jumps across mixed Add Cube, Move, and Add Plate entries by opaque entry id', async () => {
+    const client = createClient(async () => createMockModule());
+    const editingContext = context('plate-session-1-plate-1');
+    const firstCube = await client.runProjectHistoryTransaction('Add Cube', 'project', editingContext,
+      async () => client.addShape('Cube'), editingContext);
+    const firstCubeId = firstCube.status.undoEntries[0]?.id;
+    if (!firstCubeId) throw new Error('missing first Add Cube entry id');
+
+    const move = await client.beginHistory('Move', 'project', editingContext);
+    const transform = { offset: [10, 0, 0] as [number, number, number], rotation: [0, 0, 0] as [number, number, number], scale: [1, 1, 1] as [number, number, number], mirror: [1, 1, 1] as [number, number, number] };
+    expect((await client.setModelTransforms(move, [
+      { objectIdx: 0, volumeIdx: 0, instanceIdx: 0, instanceTransform: transform, volumeTransform: { ...transform, offset: [0, 0, 0] } },
+    ])).ok).toBe(true);
+    await client.commitHistory(move, editingContext);
+
+    const addPlate = await client.runProjectHistoryTransaction('Add Plate', 'project', editingContext,
+      async () => client.addPlate(), editingContext);
+    expect(addPlate.result.ok).toBe(true);
+    const secondCube = await client.runProjectHistoryTransaction('Add Cube', 'project', editingContext,
+      async () => client.addShape('Cube'), editingContext);
+    const secondCubeId = secondCube.status.undoEntries[0]?.id;
+    if (!secondCubeId) throw new Error('missing second Add Cube entry id');
+
+    const undone = await client.jumpHistory(firstCubeId, 'undo');
+    expect(undone.ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(0);
+    const undonePlates = await client.getPlateSessionSnapshot();
+    expect(undonePlates.ok).toBe(true);
+    if (!undonePlates.ok) throw new Error(undonePlates.error);
+    expect(undonePlates.plates).toHaveLength(1);
+
+    const redone = await client.jumpHistory(secondCubeId, 'redo');
+    expect(redone.ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(2);
+    expect((await client.getModelMesh()).objects[0]?.instanceTransform.offset[0]).toBe(10);
+    const redonePlates = await client.getPlateSessionSnapshot();
+    expect(redonePlates.ok).toBe(true);
+    if (!redonePlates.ok) throw new Error(redonePlates.error);
+    expect(redonePlates.plates).toHaveLength(2);
+  });
+
   it('does not create a no-op entry and abort restores the model', async () => {
     const client = createClient(async () => createMockModule());
     const before = context();

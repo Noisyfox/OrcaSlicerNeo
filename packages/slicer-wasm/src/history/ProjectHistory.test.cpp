@@ -332,6 +332,57 @@ int main()
     CHECK(mixed_jump.state.model.serialized == bytes(1));
     CHECK(!mixed_jump.direct_frame_transition);
 
+    // A directional menu jump may cross several sparse operations.  The
+    // opaque Add Plate/Move receipts remain adjacent, while the selected
+    // entry ID resolves to one ordered path that the Worker can execute in a
+    // single synchronous command.  Truly direct full-state jumps keep using
+    // prepare_jump above.
+    const RestoreState::DirectFrame transform_frame {
+        RestoreState::DirectFrame::Kind::Transform,
+        std::static_pointer_cast<const void>(direct_payload), direct_payload->size()
+    };
+    const RestoreState::DirectFrame add_plate_frame {
+        RestoreState::DirectFrame::Kind::AddPlate,
+        std::static_pointer_cast<const void>(direct_payload), direct_payload->size()
+    };
+    ProjectHistory sparse_path(1u << 20);
+    CHECK(sparse_path.commit("baseline", Category::Project, model(1), bytes(0x70, 8)));
+    CHECK(sparse_path.commit_reusing_current_model("Move", Category::Project,
+                                                   bytes(0x71, 8), transform_frame));
+    CHECK(sparse_path.commit("Add Cube", Category::Project, model(2), bytes(0x72, 8)));
+    CHECK(sparse_path.commit_reusing_current_model("Add Plate", Category::Project,
+                                                   bytes(0x73, 8), add_plate_frame));
+    CHECK(sparse_path.commit_reusing_current_model("Move", Category::Project,
+                                                   bytes(0x74, 8), transform_frame));
+    const auto sparse_entries = sparse_path.entries();
+    RestorePlan rejected_compound;
+    CHECK(!sparse_path.prepare_jump(sparse_entries[1].id, JumpDirection::Undo, rejected_compound));
+    std::vector<std::size_t> undo_path;
+    CHECK(sparse_path.resolve_jump_path(sparse_entries[1].id, JumpDirection::Undo, undo_path));
+    CHECK(undo_path.size() == 4);
+    for (const auto target : undo_path) {
+        RestorePlan step;
+        CHECK(sparse_path.prepare_undo(step));
+        CHECK(step.target_cursor == target);
+        CHECK(sparse_path.rebase_sparse_restore(step) || !step.direct_frame_transition);
+        CHECK(sparse_path.commit_restore(step));
+    }
+    CHECK(sparse_path.cursor() == 0);
+    std::vector<std::size_t> redo_path;
+    CHECK(sparse_path.resolve_jump_path(sparse_entries[4].id, JumpDirection::Redo, redo_path));
+    CHECK(redo_path.size() == 4);
+    for (const auto target : redo_path) {
+        RestorePlan step;
+        CHECK(sparse_path.prepare_redo(step));
+        CHECK(step.target_cursor == target);
+        CHECK(sparse_path.rebase_sparse_restore(step) || !step.direct_frame_transition);
+        CHECK(sparse_path.commit_restore(step));
+    }
+    CHECK(sparse_path.cursor() == 4);
+    std::vector<std::size_t> stale_path;
+    CHECK(!sparse_path.resolve_jump_path(999999, JumpDirection::Undo, stale_path));
+    CHECK(!sparse_path.resolve_jump_path(sparse_entries[4].id, JumpDirection::Redo, stale_path));
+
     // The sidecar transaction also restores a partially-mutated branch when
     // the append throws. This exercises the same predecessor/direct-frame
     // path used by Prime Tower without relying on allocator failure.

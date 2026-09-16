@@ -901,6 +901,69 @@ historyCheck('restore directional fixture baseline',
   callJson('orc_clear_model', [], []).ok === true &&
   callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
 
+// A menu jump is still one command when its target crosses sparse Move and
+// Add Plate frames.  Those receipts are adjacent-only internally, so this
+// fixture catches the former prepare_jump rejection that surfaced as
+// "history entry is stale" for a perfectly retained menu ID.
+const mixedFirstTransaction = beginHistory('Add Cube');
+const mixedFirstAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Mixed first']);
+historyCheck('mixed jump first Add Cube applies', mixedFirstAdded.ok === true, JSON.stringify(mixedFirstAdded));
+const mixedFirstCommit = commitHistory('mixed jump first Add Cube', mixedFirstTransaction);
+const mixedFirstId = mixedFirstCommit.undoEntries[0]?.id;
+historyCheck('capture mixed jump first ID', typeof mixedFirstId === 'string', JSON.stringify(mixedFirstCommit));
+
+const mixedBeforeMove = callJson('orc_get_model_mesh', [], []);
+const mixedBody = mixedBeforeMove.objects?.[0];
+if (!mixedBody) throw new Error(`mixed jump Cube mesh unavailable: ${JSON.stringify(mixedBeforeMove)}`);
+const mixedMoveTransform = cloneTransform(mixedBody.instance_transform);
+mixedMoveTransform.offset[0] += 10;
+delete mixedMoveTransform.matrix;
+const mixedMoveTransaction = beginHistory('Move');
+const mixedMove = callJson('orc_set_model_transforms', ['string', 'string'], [mixedMoveTransaction,
+  JSON.stringify([{ objectIdx: mixedBody.object_idx, volumeIdx: mixedBody.volume_idx,
+    instanceIdx: mixedBody.instance_idx, instanceTransform: mixedMoveTransform,
+    volumeTransform: mixedBody.volume_transform }])]);
+historyCheck('mixed jump Move applies', mixedMove.ok === true, JSON.stringify(mixedMove));
+commitHistory('mixed jump Move', mixedMoveTransaction);
+
+const mixedPlateTransaction = beginHistory('Add Plate');
+const mixedPlate = callJson('orc_add_plate', [], []);
+historyCheck('mixed jump Add Plate applies', mixedPlate.ok === true && mixedPlate.plates.length === 2,
+  JSON.stringify(mixedPlate));
+commitHistory('mixed jump Add Plate', mixedPlateTransaction);
+
+const mixedSecondTransaction = beginHistory('Add Cube');
+const mixedSecondAdded = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Mixed second']);
+historyCheck('mixed jump second Add Cube applies', mixedSecondAdded.ok === true, JSON.stringify(mixedSecondAdded));
+const mixedSecondCommit = commitHistory('mixed jump second Add Cube', mixedSecondTransaction);
+const mixedSecondId = mixedSecondCommit.undoEntries[0]?.id;
+historyCheck('capture mixed jump second ID', typeof mixedSecondId === 'string', JSON.stringify(mixedSecondCommit));
+const mixedFinalTransforms = modelTransformState(callJson('orc_get_model_mesh', [], []));
+const mixedRevisionBeforeUndo = mixedSecondCommit.revision;
+
+const mixedUndoJump = callJson('orc_history_jump', ['string', 'string'], [mixedFirstId, 'undo']);
+const mixedUndoStructure = callJson('orc_get_model_structure', [], []);
+const mixedUndoPlates = callJson('orc_get_plate_session_snapshot', [], []);
+historyCheck('one Undo jump crosses Add Cube, Move, and Add Plate entries',
+  mixedUndoJump.ok === true && mixedUndoJump.impact?.model === 'full' &&
+  mixedUndoJump.status.revision === mixedRevisionBeforeUndo + 1 &&
+  mixedUndoStructure.objects.length === 0 && mixedUndoPlates.plates.length === 1,
+  JSON.stringify({ mixedUndoJump, mixedUndoStructure, mixedUndoPlates }));
+
+const mixedRedoJump = callJson('orc_history_jump', ['string', 'string'], [mixedSecondId, 'redo']);
+const mixedRedoStructure = callJson('orc_get_model_structure', [], []);
+const mixedRedoPlates = callJson('orc_get_plate_session_snapshot', [], []);
+const mixedRedoTransforms = modelTransformState(callJson('orc_get_model_mesh', [], []));
+historyCheck('one Redo jump restores the complete mixed after-state',
+  mixedRedoJump.ok === true && mixedRedoJump.impact?.model === 'full' &&
+  mixedRedoStructure.objects.length === 2 && mixedRedoPlates.plates.length === 2 &&
+  JSON.stringify(mixedRedoTransforms) === JSON.stringify(mixedFinalTransforms),
+  JSON.stringify({ mixedRedoJump, mixedRedoStructure, mixedRedoPlates,
+    expected: mixedFinalTransforms, actual: mixedRedoTransforms }));
+historyCheck('restore mixed directional fixture baseline',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+
 // Repair 6 real-bridge accounting diagnostic. A genuine project mutation with
 // a long context and label must increase the retained-resource status used by
 // restore. Native fixture tests cover budget eviction deterministically.

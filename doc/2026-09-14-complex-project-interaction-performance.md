@@ -63,8 +63,10 @@ used by the desktop plate-switch performance coverage.
   plate/session context. Crossing between an Add Plate frame and an ordinary
   model edit restores the complete predecessor model before applying the
   relevant receipt, so unrelated changes such as a volume transform cannot
-  leak through Undo. Non-adjacent menu jumps that would skip uncomposed Add
-  Plate deltas are rejected rather than restoring an incomplete state.
+  leak through Undo. A non-adjacent menu jump resolves its retained opaque
+  entry ID to ordered adjacent steps inside one synchronous Worker command;
+  each sparse receipt is rebased on its authoritative retained predecessor,
+  and only the final full renderer projection is published.
 - A completed `Move` transaction is a sparse transform-delta frame only when
   its actual model mutation is `orc_set_model_transforms` and no other model
   mutator ran in the transaction. The frame retains affected object, volume,
@@ -73,8 +75,9 @@ used by the desktop plate-switch performance coverage.
 - Adjacent Move Undo/Redo applies the sparse receipt directly and returns a
   narrow transform receipt plus a full renderer impact descriptor. Crossing
   between a Move frame and a normal model edit stages the retained predecessor
-  only when needed; stale identities and non-adjacent jumps across Move frames
-  are rejected safely.
+  only when needed. Non-adjacent jumps across Move frames use the same internal
+  ordered-step path as Add Plate, while stale, evicted, and opposite-direction
+  IDs remain rejected safely.
 - The real-WASM bridge exposes a bounded, drain-on-read diagnostic timing ring
   for `history_begin`, `set_model_transforms`, `add_plate`, and
   `history_commit`. The atomic transform sample separates input/JSON decode,

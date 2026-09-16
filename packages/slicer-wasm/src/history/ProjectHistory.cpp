@@ -478,13 +478,19 @@ bool ProjectHistory::jump(std::uint64_t entry_id, RestoreState& result)
 
 bool ProjectHistory::prepare_undo(RestorePlan& result) const
 {
+    return prepare_undo_from(m_cursor, result);
+}
+
+bool ProjectHistory::prepare_undo_from(std::size_t cursor, RestorePlan& result) const
+{
     result.direct_frame_transition = false;
     result.direct_frame_after = false;
-    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    if (cursor >= m_impl->states.size()) return false;
+    const std::size_t current_project = project_at_or_before(m_impl->states, cursor);
     const std::size_t target = current_project == kNoProject
         ? kNoProject : previous_project(m_impl->states, current_project);
     if (target == kNoProject) return false;
-    result.from_cursor = m_cursor;
+    result.from_cursor = cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
     const auto& source = m_impl->states[current_project];
@@ -527,13 +533,19 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
 
 bool ProjectHistory::prepare_redo(RestorePlan& result) const
 {
+    return prepare_redo_from(m_cursor, result);
+}
+
+bool ProjectHistory::prepare_redo_from(std::size_t cursor, RestorePlan& result) const
+{
     result.direct_frame_transition = false;
     result.direct_frame_after = false;
-    const std::size_t current_project = project_at_or_before(m_impl->states, m_cursor);
+    if (cursor >= m_impl->states.size()) return false;
+    const std::size_t current_project = project_at_or_before(m_impl->states, cursor);
     if (current_project == kNoProject) return false;
     const std::size_t target = next_project(m_impl->states, current_project);
     if (target == kNoProject) return false;
-    result.from_cursor = m_cursor;
+    result.from_cursor = cursor;
     result.target_cursor = target;
     const auto& state = m_impl->states[target];
     const bool add_plate_transition = state.info.label == "Add Plate" && state.state.direct_frame &&
@@ -679,6 +691,63 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
         result.direct_frame_transition = true;
         result.direct_frame_after = target_transform_transition;
     }
+    return true;
+}
+
+bool ProjectHistory::resolve_jump_path(std::uint64_t entry_id, JumpDirection direction,
+                                       std::vector<std::size_t>& result) const
+{
+    result.clear();
+    auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
+        [entry_id](const StoredEntry& entry) { return entry.info.id == entry_id; });
+    if (it == m_impl->states.end() || it->info.category != Category::Project || it->info.id == 0)
+        return false;
+
+    const std::size_t selected = static_cast<std::size_t>(std::distance(m_impl->states.begin(), it));
+    if (direction == JumpDirection::Undo) {
+        if (selected > m_cursor) return false;
+    } else if (selected <= m_cursor) {
+        return false;
+    }
+
+    const std::size_t target = direction == JumpDirection::Undo
+        ? previous_project(m_impl->states, selected) : selected;
+    if (target == kNoProject) return false;
+
+    std::size_t cursor = m_cursor;
+    while (cursor != target) {
+        const std::size_t current_project = project_at_or_before(m_impl->states, cursor);
+        const std::size_t next = direction == JumpDirection::Undo
+            ? previous_project(m_impl->states, current_project)
+            : next_project(m_impl->states, current_project);
+        if (next == kNoProject) {
+            result.clear();
+            return false;
+        }
+        if (direction == JumpDirection::Undo) {
+            if (next >= cursor || next < target) {
+                result.clear();
+                return false;
+            }
+        } else if (next <= cursor || next > target) {
+            result.clear();
+            return false;
+        }
+        cursor = next;
+        result.push_back(next);
+    }
+    return !result.empty();
+}
+
+bool ProjectHistory::rebase_sparse_restore(RestorePlan& plan) const
+{
+    if (!can_commit_restore(plan) || !plan.direct_frame_transition || !plan.state.direct_frame)
+        return false;
+    const auto kind = plan.state.direct_frame->kind;
+    if (kind != RestoreState::DirectFrame::Kind::AddPlate &&
+        kind != RestoreState::DirectFrame::Kind::Transform)
+        return false;
+    plan.state.model = Impl::restore_model(m_impl->states[plan.target_cursor].state);
     return true;
 }
 

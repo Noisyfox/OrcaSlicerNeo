@@ -419,7 +419,11 @@ Undo/Redo toolbar behaviour:
 - enabled/disabled Undo and Redo buttons in the shared primary toolbar;
 - directional dropdown lists labelled with the available project-modifying Undo
   or Redo entries;
-- direct jump to any listed entry through one atomic Worker restore;
+- direct jump to any listed entry through one atomic Worker restore. Sparse
+  adjacent-only frames crossed by the jump are resolved from the selected
+  opaque entry ID and applied internally in order; React receives only the
+  final full projection, while stale, evicted, and opposite-direction IDs are
+  still rejected;
 - `Ctrl/Cmd+Z` for Undo, and `Ctrl/Cmd+Shift+Z` or `Ctrl+Y` for Redo;
 - when an editable text control owns keyboard focus, its native text
   Undo/Redo takes precedence and project shortcuts do not run.
@@ -440,8 +444,9 @@ Verification is layered across the shared application:
 - unit tests cover transactions, Redo preservation across UI-only context
   changes, Redo truncation on the next genuine mutation, context restoration, saved
   checkpoints, dirty calculation, and saved-checkpoint eviction;
-- Worker/WASM integration covers every exposed mutation category and confirms
-  history remains usable after 3MF save;
+- Worker/WASM integration covers every exposed mutation category, mixed
+  multi-entry menu jumps across Add Plate, Move, and full-model operations,
+  and confirms history remains usable after 3MF save;
 - large-model fixtures verify no per-edit complete-3MF archive, mesh sharing,
   256 MiB accounting/eviction, and safe traversal to the oldest retained frame;
 - Electron, threaded Web, and serial Web end-to-end tests exercise the shared

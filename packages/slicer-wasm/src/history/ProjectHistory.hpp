@@ -206,6 +206,18 @@ public:
     bool prepare_undo(RestorePlan& result) const;
     bool prepare_redo(RestorePlan& result) const;
     bool prepare_jump(std::uint64_t entry_id, JumpDirection direction, RestorePlan& result) const;
+    // Resolve a directional menu entry into adjacent target cursors.  This is
+    // the fallback for a direct jump that crosses sparse Add Plate/Transform
+    // frames: each opaque receipt remains adjacent to the state it describes,
+    // while the Worker still executes the complete path as one synchronous
+    // navigation command. Keeping the path cursor-only avoids materializing
+    // every intermediate model at once.
+    bool resolve_jump_path(std::uint64_t entry_id, JumpDirection direction,
+                           std::vector<std::size_t>& result) const;
+    // A prior full restore may have materialized fresh runtime instance IDs.
+    // Rebase an adjacent sparse receipt on its authoritative retained model so
+    // the bridge can resolve structural indices without trusting those IDs.
+    bool rebase_sparse_restore(RestorePlan& plan) const;
     bool prepare_jump(std::uint64_t entry_id, RestorePlan& result) const;
     bool can_commit_restore(const RestorePlan& plan) const;
     bool commit_restore(const RestorePlan& plan);
@@ -259,6 +271,8 @@ private:
 
     friend struct Impl;
 
+    bool prepare_undo_from(std::size_t cursor, RestorePlan& result) const;
+    bool prepare_redo_from(std::size_t cursor, RestorePlan& result) const;
     void rebuild_intervals();
 };
 

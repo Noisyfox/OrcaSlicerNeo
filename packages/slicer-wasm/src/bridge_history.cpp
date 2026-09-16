@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <functional>
 #include <iterator>
 #include <map>
@@ -2112,10 +2113,136 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, con
         Neo::History::JumpDirection direction;
         if (!parse_history_jump_direction(direction_cstr, direction)) return error_json("invalid history jump direction");
         Neo::History::RestorePlan plan;
-        if (!state().history.prepare_jump(entry_id, direction, plan)) return error_json("history entry is stale, unavailable, or outside the requested direction");
-        std::optional<std::string> serialized_full_response;
-        const json result = restore_result(runtime, plan, &serialized_full_response);
-        return duplicate_json(serialized_full_response ? *serialized_full_response : result.dump());
+        if (state().history.prepare_jump(entry_id, direction, plan)) {
+            std::optional<std::string> serialized_full_response;
+            const json result = restore_result(runtime, plan, &serialized_full_response);
+            return duplicate_json(serialized_full_response ? *serialized_full_response : result.dump());
+        }
+
+        // Sparse Add Plate and Transform receipts describe one adjacent
+        // transition.  A directional menu item may cross several such frames,
+        // so resolve the opaque entry ID once and execute its adjacent path
+        // synchronously inside this Worker call.  No intermediate response is
+        // published to React; the final response deliberately requests a full
+        // renderer projection because one narrow receipt cannot summarize the
+        // complete path.
+        std::vector<std::size_t> path;
+        if (!state().history.resolve_jump_path(entry_id, direction, path))
+            return error_json("history entry is stale, unavailable, or outside the requested direction");
+
+        const std::size_t original_cursor = state().history.cursor();
+        const auto original_entries = state().history.entries();
+        const std::uint64_t rollback_entry_id = direction == Neo::History::JumpDirection::Undo
+            ? original_entries[original_cursor].id : original_entries[original_cursor + 1].id;
+        const Neo::History::JumpDirection rollback_direction = direction == Neo::History::JumpDirection::Undo
+            ? Neo::History::JumpDirection::Redo : Neo::History::JumpDirection::Undo;
+        Model original_model = state().model;
+        const auto original_plates = state().plate_session_plates;
+        const auto original_overlay = state().project_config_overlay;
+        const auto original_membership = state().instance_plate_ids;
+        const auto original_out_of_bounds = state().plate_out_of_bounds_ids;
+        const auto original_parked = state().parked_instance_ids;
+        const auto original_pending = state().pending_membership_instance_ids;
+        const std::string original_current_plate = state().current_plate_id;
+        const std::uint64_t original_revision = state().history_revision;
+        const auto original_plate_revisions = state().plate_input_revisions;
+        const std::uint64_t original_next_plate_stamp = state().next_plate_input_stamp;
+        const auto original_registry_lifecycle = state().plate_runtime_registry.capture_lifecycle();
+        const auto original_prime_tower_cache = state().prime_tower_projection_cache;
+        const std::uint64_t original_minimal_restore_count = state().history_minimal_mutable_restore_count;
+        const auto sparse_restore = [](const Neo::History::RestorePlan& candidate) {
+            if (!candidate.direct_frame_transition || !candidate.state.direct_frame) return false;
+            const auto kind = candidate.state.direct_frame->kind;
+            return kind == Neo::History::RestoreState::DirectFrame::Kind::AddPlate ||
+                kind == Neo::History::RestoreState::DirectFrame::Kind::Transform;
+        };
+        const auto model_state_empty = [](const Neo::History::ModelState& model) {
+            return model.serialized.empty() && model.mutable_objects.empty() && model.immutable_meshes.empty();
+        };
+        json result;
+        std::size_t completed = 0;
+        bool runtime_ids_stable = true;
+        try {
+            for (const auto target_cursor : path) {
+                Neo::History::RestorePlan step;
+                const bool prepared = direction == Neo::History::JumpDirection::Undo
+                    ? state().history.prepare_undo(step) : state().history.prepare_redo(step);
+                if (!prepared || step.target_cursor != target_cursor)
+                    throw std::runtime_error("multi-step history jump became stale");
+                if (!runtime_ids_stable && sparse_restore(step) &&
+                    !state().history.rebase_sparse_restore(step))
+                    throw std::runtime_error("multi-step sparse history restore became stale");
+                const bool preserves_runtime_ids = step.direct_frame_transition &&
+                    (!sparse_restore(step) || model_state_empty(step.state.model));
+                std::optional<std::string> ignored_serialized_response;
+                result = restore_result(runtime, step, &ignored_serialized_response);
+                runtime_ids_stable = runtime_ids_stable && preserves_runtime_ids;
+                ++completed;
+            }
+        } catch (...) {
+            const auto failure = std::current_exception();
+            bool rolled_back = true;
+            try {
+                if (completed > 0) {
+                    std::vector<std::size_t> rollback_path;
+                    if (!state().history.resolve_jump_path(rollback_entry_id, rollback_direction, rollback_path))
+                        throw std::runtime_error("multi-step history rollback is unavailable");
+                    for (const auto target_cursor : rollback_path) {
+                        Neo::History::RestorePlan rollback;
+                        const bool prepared = rollback_direction == Neo::History::JumpDirection::Undo
+                            ? state().history.prepare_undo(rollback) : state().history.prepare_redo(rollback);
+                        if (!prepared || rollback.target_cursor != target_cursor)
+                            throw std::runtime_error("multi-step history rollback became stale");
+                        if (sparse_restore(rollback) && !state().history.rebase_sparse_restore(rollback))
+                            throw std::runtime_error("multi-step sparse history rollback became stale");
+                        std::optional<std::string> ignored_serialized_response;
+                        (void) restore_result(runtime, rollback, &ignored_serialized_response);
+                    }
+                }
+                rolled_back = state().history.cursor() == original_cursor;
+            } catch (...) {
+                rolled_back = false;
+            }
+            if (!rolled_back) {
+                state().history_disabled = true;
+                return restore_failure("multi-step history jump failed and could not be rolled back");
+            }
+            // Reverse navigation restores logical history state. Restore the
+            // exact pre-jump model copy as well so an archive stage cannot
+            // leave the renderer holding instance IDs that changed during a
+            // failed, unpublished command.
+            state().model = std::move(original_model);
+            state().plate_session_plates = original_plates;
+            state().project_config_overlay = original_overlay;
+            state().instance_plate_ids = original_membership;
+            state().plate_out_of_bounds_ids = original_out_of_bounds;
+            state().parked_instance_ids = original_parked;
+            state().pending_membership_instance_ids = original_pending;
+            state().current_plate_id = original_current_plate;
+            state().mutable_object_capture_cache.clear();
+            state().history_revision = original_revision;
+            state().plate_input_revisions = original_plate_revisions;
+            state().next_plate_input_stamp = original_next_plate_stamp;
+            state().plate_runtime_registry.restore_lifecycle(original_registry_lifecycle);
+            state().prime_tower_projection_cache = original_prime_tower_cache;
+            state().history_minimal_mutable_restore_count = original_minimal_restore_count;
+            std::rethrow_exception(failure);
+        }
+
+        // A direct jump is one published native revision even when sparse
+        // storage required several internal adjacent applications.
+        state().history_revision = original_revision + 1;
+        result.erase("direct");
+        result.erase("narrow");
+        result.erase("instance_transforms");
+        result.erase("transform_receipt");
+        result.erase("prime_tower_receipt");
+        result["status"] = history_status_json();
+        result["impact"] = {{"version", 1}, {"model", "full"}, {"plateSession", true},
+                            {"filamentRack", true}, {"projectOverlay", true},
+                            {"selectionContext", true}, {"primeTower", true},
+                            {"preview", "all"}};
+        return duplicate_json(result.dump());
     } catch (const std::exception& e) { return restore_failure(e.what()); }
     catch (...) { return restore_failure("unknown C++ exception"); }
 }

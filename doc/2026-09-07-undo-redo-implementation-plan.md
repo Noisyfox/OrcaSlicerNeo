@@ -710,3 +710,26 @@ writers, removes their restore-only snapshot-suppression choreography, and
 extends the headless commit boundary so predecessor context refresh and branch
 append succeed or roll back together. The public profile-selection boundary is
 unchanged.
+
+## 15. 2026-09-16 correction — multi-entry directional jumps
+
+Directional menu navigation accepts any retained entry displayed on the
+requested side of the cursor. Sparse Add Plate and Move frames remain
+adjacent-only storage optimizations, but they no longer make an older retained
+menu entry appear stale:
+
+- the native history store resolves the selected opaque entry ID and direction
+  to an ordered path of adjacent restore plans;
+- each sparse receipt is applied against its retained predecessor model inside
+  the same synchronous Worker command, so archive rematerialization cannot
+  invalidate a later step's runtime instance IDs;
+- React receives only the final context, status, and full model projection;
+  intermediate steps are never published as independent history navigation;
+- a failed internal step rolls back the completed path before returning the
+  retryable failure, while a failed rollback disables history rather than
+  continuing from a partially restored cursor;
+- stale, evicted, baseline, and opposite-direction entry IDs remain rejected.
+
+The regression boundary mixes Add Cube, sparse Move, and sparse Add Plate in
+one timeline and verifies both an older Undo-menu target and the corresponding
+multi-entry Redo target through the native bridge.
