@@ -505,11 +505,11 @@ json restore_add_plate_frame(const Runtime& runtime, const Neo::History::Restore
     const bool after_state = plan.direct_frame_after;
     const auto& transforms = after_state ? frame.after_transforms : frame.before_transforms;
     // An Add Plate entry retains the predecessor model by shared identity.
-    // Adjacent Add Plate undo/redo keeps the live model and applies only the
-    // transform receipt; returning from a later full model edit still stages
-    // that predecessor model before applying the receipt.
-    const bool has_model = !plan.state.model.serialized.empty() ||
-        !plan.state.model.mutable_objects.empty() || !plan.state.model.immutable_meshes.empty();
+    // Leaving that entry can keep the live model and apply only the transform
+    // receipt; returning from a later full-model edit stages the retained
+    // target first. The plan flag distinguishes that target from a sparse
+    // restore even when the complete target model is empty.
+    const bool has_model = plan.model_state_present;
     Model before_model = state().model;
     const auto before_plate_session = plate_session_snapshot_json();
     const auto before_overlay = state().project_config_overlay;
@@ -605,8 +605,7 @@ json restore_transform_frame(const Runtime& runtime, const Neo::History::Restore
         throw std::runtime_error("transform delta history frame is unavailable");
     const bool after_state = plan.direct_frame_after;
     const double apply_started_at = Neo::Bridge::Performance::now_ms();
-    const bool has_model = !plan.state.model.serialized.empty() ||
-        !plan.state.model.mutable_objects.empty() || !plan.state.model.immutable_meshes.empty();
+    const bool has_model = plan.model_state_present;
     std::optional<Model> original_model;
     std::optional<Model> staged_model;
     if (has_model) {
@@ -2156,9 +2155,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, con
             return kind == Neo::History::RestoreState::DirectFrame::Kind::AddPlate ||
                 kind == Neo::History::RestoreState::DirectFrame::Kind::Transform;
         };
-        const auto model_state_empty = [](const Neo::History::ModelState& model) {
-            return model.serialized.empty() && model.mutable_objects.empty() && model.immutable_meshes.empty();
-        };
         json result;
         std::size_t completed = 0;
         bool runtime_ids_stable = true;
@@ -2173,7 +2169,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_history_jump(const char* entry_id_cstr, con
                     !state().history.rebase_sparse_restore(step))
                     throw std::runtime_error("multi-step sparse history restore became stale");
                 const bool preserves_runtime_ids = step.direct_frame_transition &&
-                    (!sparse_restore(step) || model_state_empty(step.state.model));
+                    (!sparse_restore(step) || !step.model_state_present);
                 std::optional<std::string> ignored_serialized_response;
                 result = restore_result(runtime, step, &ignored_serialized_response);
                 runtime_ids_stable = runtime_ids_stable && preserves_runtime_ids;

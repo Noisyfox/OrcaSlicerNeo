@@ -98,6 +98,10 @@ struct RestorePlan {
     RestoreState state;
     std::size_t from_cursor { 0 };
     std::size_t target_cursor { 0 };
+    // Sparse frames may intentionally reuse the live model. Keep that
+    // decision explicit because an empty ModelState is also the complete,
+    // valid representation of an empty project.
+    bool model_state_present { true };
     // A direct frame can optimize the one adjacent transition it describes.
     // It never makes the target model/context optional for other navigation.
     bool direct_frame_transition { false };

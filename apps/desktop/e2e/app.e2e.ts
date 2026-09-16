@@ -609,6 +609,30 @@ test('shared history toolbar supports buttons, shortcuts, menu jumps, and native
   }
 });
 
+test('undoes the first Cube added after an empty-scene Add Plate', async () => {
+  const { app } = await launchApp();
+  try {
+    const page = await app.firstWindow();
+    const objectRows = page.getByTestId('object-list')
+      .locator('div[data-testid^="object-"]:not([data-testid="object-list"])');
+    await page.getByTestId('add-plate').click();
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await page.getByTestId('btn-add-model').click();
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+
+    await page.getByTestId('history-undo').click();
+    await expect(objectRows).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+    await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+
+    await page.getByTestId('history-redo').click();
+    await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
+    await expect(page.getByTestId('current-plate-label')).toHaveText('Plate 2 (2/36)');
+  } finally {
+    await app.close();
+  }
+});
+
 test('preview overlay: legend, layer range, move end, marker, and theme tokens', async () => {
   const { app } = await launchApp();
   try {

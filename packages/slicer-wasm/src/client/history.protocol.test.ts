@@ -107,6 +107,33 @@ describe('Worker-owned project history protocol', () => {
     expect(redonePlates.plates).toHaveLength(2);
   });
 
+  it('undoes the first Cube after an empty-scene Add Plate', async () => {
+    const client = createClient(async () => createMockModule());
+    const editingContext = context('plate-session-1-plate-1');
+    const addedPlate = await client.runProjectHistoryTransaction('Add Plate', 'project', editingContext,
+      async () => client.addPlate(), editingContext);
+    expect(addedPlate.result.ok).toBe(true);
+    const twoPlates = await client.getPlateSessionSnapshot();
+    expect(twoPlates.ok).toBe(true);
+    if (!twoPlates.ok) throw new Error(twoPlates.error);
+    expect(twoPlates.plates).toHaveLength(2);
+
+    await client.runProjectHistoryTransaction('Add Cube', 'project', editingContext,
+      async () => client.addShape('Cube'), editingContext);
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+
+    const undone = await client.undoHistory();
+    expect(undone.ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(0);
+    const restoredPlates = await client.getPlateSessionSnapshot();
+    expect(restoredPlates.ok).toBe(true);
+    if (!restoredPlates.ok) throw new Error(restoredPlates.error);
+    expect(restoredPlates.plates).toHaveLength(2);
+
+    expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects).toHaveLength(1);
+  });
+
   it('does not create a no-op entry and abort restores the model', async () => {
     const client = createClient(async () => createMockModule());
     const before = context();

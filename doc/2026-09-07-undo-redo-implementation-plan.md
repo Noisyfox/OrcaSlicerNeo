@@ -733,3 +733,18 @@ menu entry appear stale:
 The regression boundary mixes Add Cube, sparse Move, and sparse Add Plate in
 one timeline and verifies both an older Undo-menu target and the corresponding
 multi-entry Redo target through the native bridge.
+
+## 16. 2026-09-16 correction — empty model restore after a sparse frame
+
+An empty `ModelState` is a complete, valid history target and must not double
+as the sentinel for “reuse the live model.” Restore plans now carry that sparse
+decision explicitly. In particular, after Add Plate on an empty project and
+then Add Cube, Undo materializes the retained empty two-plate predecessor
+before applying the Add Plate sidecar context. The plate-session validator
+therefore sees the same zero-instance model represented by that context.
+
+The explicit model-presence signal is also used when rebasing sparse steps in a
+multi-entry jump, preserving the existing runtime-ID and rollback rules. Native
+history coverage fixes the empty-state distinction, the typed client covers the
+single-step contract, the real WASM harness covers the native bridge failure,
+and the visible Electron flow covers the user-facing sequence.

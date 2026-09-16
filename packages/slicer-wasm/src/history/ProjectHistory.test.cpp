@@ -345,6 +345,26 @@ int main()
         RestoreState::DirectFrame::Kind::AddPlate,
         std::static_pointer_cast<const void>(direct_payload), direct_payload->size()
     };
+    // An empty model is a complete target state, not the sentinel for a
+    // sparse restore. Undoing the first Cube after Add Plate must therefore
+    // materialize the retained empty predecessor before applying the plate
+    // frame's after-state.
+    ProjectHistory empty_plate_predecessor(1u << 20);
+    CHECK(empty_plate_predecessor.commit("baseline", Category::Project,
+                                         ModelState{}, bytes(0x68, 8)));
+    CHECK(empty_plate_predecessor.commit_reusing_current_model(
+        "Add Plate", Category::Project, bytes(0x69, 8), add_plate_frame));
+    CHECK(empty_plate_predecessor.commit("Add Cube", Category::Project,
+                                         model(1), bytes(0x6a, 8)));
+    RestorePlan empty_plate_undo;
+    CHECK(empty_plate_predecessor.prepare_undo(empty_plate_undo));
+    CHECK(empty_plate_undo.direct_frame_transition);
+    CHECK(empty_plate_undo.direct_frame_after);
+    CHECK(empty_plate_undo.model_state_present);
+    CHECK(empty_plate_undo.state.model.serialized.empty());
+    CHECK(empty_plate_undo.state.model.mutable_objects.empty());
+    CHECK(empty_plate_undo.state.model.immutable_meshes.empty());
+
     ProjectHistory sparse_path(1u << 20);
     CHECK(sparse_path.commit("baseline", Category::Project, model(1), bytes(0x70, 8)));
     CHECK(sparse_path.commit_reusing_current_model("Move", Category::Project,

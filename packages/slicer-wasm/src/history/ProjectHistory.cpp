@@ -483,6 +483,7 @@ bool ProjectHistory::prepare_undo(RestorePlan& result) const
 
 bool ProjectHistory::prepare_undo_from(std::size_t cursor, RestorePlan& result) const
 {
+    result.model_state_present = true;
     result.direct_frame_transition = false;
     result.direct_frame_after = false;
     if (cursor >= m_impl->states.size()) return false;
@@ -519,12 +520,14 @@ bool ProjectHistory::prepare_undo_from(std::size_t cursor, RestorePlan& result) 
     }
     if (add_plate_transition) {
         result.state.direct_frame = source_add_plate_transition ? source.state.direct_frame : state.state.direct_frame;
+        result.model_state_present = !source_add_plate_transition;
         result.direct_frame_transition = true;
         result.direct_frame_after = !source_add_plate_transition;
     }
     if (source_transform_transition || target_transform_transition) {
         result.state.model = source_transform_transition ? ModelState{} : Impl::restore_model(state.state);
         result.state.direct_frame = source_transform_transition ? source.state.direct_frame : state.state.direct_frame;
+        result.model_state_present = !source_transform_transition;
         result.direct_frame_transition = true;
         result.direct_frame_after = !source_transform_transition;
     }
@@ -538,6 +541,7 @@ bool ProjectHistory::prepare_redo(RestorePlan& result) const
 
 bool ProjectHistory::prepare_redo_from(std::size_t cursor, RestorePlan& result) const
 {
+    result.model_state_present = true;
     result.direct_frame_transition = false;
     result.direct_frame_after = false;
     if (cursor >= m_impl->states.size()) return false;
@@ -564,6 +568,7 @@ bool ProjectHistory::prepare_redo_from(std::size_t cursor, RestorePlan& result) 
     if (transform_transition) {
         result.state.model = ModelState{};
         result.state.direct_frame = state.state.direct_frame;
+        result.model_state_present = false;
         result.direct_frame_transition = true;
         result.direct_frame_after = true;
     }
@@ -572,6 +577,7 @@ bool ProjectHistory::prepare_redo_from(std::size_t cursor, RestorePlan& result) 
 
 bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) const
 {
+    result.model_state_present = true;
     result.direct_frame_transition = false;
     result.direct_frame_after = false;
     auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
@@ -603,6 +609,7 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
     if (add_plate_transition) {
         result.state.direct_frame = entering_add_plate
             ? it->state.direct_frame : source.state.direct_frame;
+        result.model_state_present = !leaving_add_plate;
         result.direct_frame_transition = true;
         result.direct_frame_after = entering_add_plate;
     }
@@ -613,6 +620,7 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
     if (target_transform_transition || source_transform_transition) {
         result.state.model = source_transform_transition ? ModelState{} : Impl::restore_model(it->state);
         result.state.direct_frame = source_transform_transition ? source.state.direct_frame : it->state.direct_frame;
+        result.model_state_present = !source_transform_transition;
         result.direct_frame_transition = true;
         result.direct_frame_after = target_transform_transition;
     }
@@ -621,6 +629,7 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, RestorePlan& result) c
 
 bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection direction, RestorePlan& result) const
 {
+    result.model_state_present = true;
     result.direct_frame_transition = false;
     result.direct_frame_after = false;
     auto it = std::find_if(m_impl->states.begin(), m_impl->states.end(),
@@ -678,6 +687,7 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
     }
     if (source_add_plate_transition || target_add_plate_transition) {
         result.state.direct_frame = source_add_plate_transition ? source_entry.state.direct_frame : target_entry.state.direct_frame;
+        result.model_state_present = !source_add_plate_transition;
         result.direct_frame_transition = true;
         result.direct_frame_after = target_add_plate_transition;
     }
@@ -688,6 +698,7 @@ bool ProjectHistory::prepare_jump(std::uint64_t entry_id, JumpDirection directio
     if (source_transform_transition || target_transform_transition) {
         result.state.model = source_transform_transition ? ModelState{} : Impl::restore_model(target_entry.state);
         result.state.direct_frame = source_transform_transition ? source_entry.state.direct_frame : target_entry.state.direct_frame;
+        result.model_state_present = !source_transform_transition;
         result.direct_frame_transition = true;
         result.direct_frame_after = target_transform_transition;
     }
@@ -748,6 +759,7 @@ bool ProjectHistory::rebase_sparse_restore(RestorePlan& plan) const
         kind != RestoreState::DirectFrame::Kind::Transform)
         return false;
     plan.state.model = Impl::restore_model(m_impl->states[plan.target_cursor].state);
+    plan.model_state_present = true;
     return true;
 }
 

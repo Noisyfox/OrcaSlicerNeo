@@ -901,6 +901,32 @@ historyCheck('restore directional fixture baseline',
   callJson('orc_clear_model', [], []).ok === true &&
   callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
 
+// An Add Plate sparse frame can precede the first full-model edit. Undoing
+// that edit must restore the empty two-plate predecessor, whose complete
+// plate session legitimately has no model instances.
+const emptyPlateTransaction = beginHistory('Add Plate');
+const emptyPlateAdded = callJson('orc_add_plate', [], []);
+historyCheck('empty-scene Add Plate applies',
+  emptyPlateAdded.ok === true && emptyPlateAdded.plates.length === 2,
+  JSON.stringify(emptyPlateAdded));
+commitHistory('empty-scene Add Plate', emptyPlateTransaction);
+const firstCubeAfterPlateTransaction = beginHistory('Add Cube');
+const firstCubeAfterPlate = callJson('orc_add_shape', ['string', 'string'],
+  ['Cube', 'First cube after plate']);
+historyCheck('first Cube after empty-scene Add Plate applies',
+  firstCubeAfterPlate.ok === true, JSON.stringify(firstCubeAfterPlate));
+commitHistory('first Cube after empty-scene Add Plate', firstCubeAfterPlateTransaction);
+const firstCubeAfterPlateUndo = callJson('orc_history_undo', [], []);
+const emptyPlateUndoStructure = callJson('orc_get_model_structure', [], []);
+const emptyPlateUndoSession = callJson('orc_get_plate_session_snapshot', [], []);
+historyCheck('Undo first Cube restores empty two-plate predecessor',
+  firstCubeAfterPlateUndo.ok === true && emptyPlateUndoStructure.objects.length === 0 &&
+  emptyPlateUndoSession.plates.length === 2 && emptyPlateUndoSession.instances.length === 0,
+  JSON.stringify({ firstCubeAfterPlateUndo, emptyPlateUndoStructure, emptyPlateUndoSession }));
+historyCheck('restore empty-plate fixture baseline',
+  callJson('orc_clear_model', [], []).ok === true &&
+  callJson('orc_history_reset', ['string'], [JSON.stringify(context)]).canUndo === false);
+
 // A menu jump is still one command when its target crosses sparse Move and
 // Add Plate frames.  Those receipts are adjacent-only internally, so this
 // fixture catches the former prepare_jump rejection that surfaced as
