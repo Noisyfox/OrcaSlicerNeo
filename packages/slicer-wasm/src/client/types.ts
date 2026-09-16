@@ -23,13 +23,6 @@ export interface OrcaModule {
   };
 }
 
-/** Fixed layout published by the threaded C++ bridge in shared Wasm memory. */
-export interface ProgressMailbox {
-  buffer: SharedArrayBuffer;
-  byteOffset: number;
-  textCapacity: number;
-}
-
 export type OrcaModuleFactory = (opts?: {
   noInitialRun?: boolean;
   print?: (s: string) => void;

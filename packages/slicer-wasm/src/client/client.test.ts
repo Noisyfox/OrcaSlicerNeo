@@ -1468,7 +1468,7 @@ describe('SlicerClient bridge contract', () => {
     await expect(c.slicePlate(target, {})).resolves.toMatchObject({ error: 'plate operation target is stale' });
   });
 
-  it('threaded client publishes progress through shared memory, never addFunction', async () => {
+  it('threaded client publishes FIFO progress after a shared wake, never addFunction', async () => {
     const module = createMockModule({ threaded: true });
     const c = createClient(async () => module);
     await c.init();
@@ -1477,15 +1477,43 @@ describe('SlicerClient bridge contract', () => {
     const words = new Int32Array(module.HEAPU8.buffer, 128, 4);
     expect(Atomics.load(words, 0)).toBeGreaterThan(0);
     expect(Atomics.load(words, 0) % 2).toBe(0);
-    expect(Atomics.load(words, 1)).toBe(100);
+    expect(Atomics.load(words, 1)).toBeGreaterThan(0);
     expect(module._functionRegistrations).toBe(0);
+  });
+
+  it('allocates non-reused monotonically increasing slice task ids', async () => {
+    const c = makeClient();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const first = await c.slice({ layer_height: '0.2' });
+    const second = await c.slice({ layer_height: '0.3' });
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(BigInt(second.receipt!.sliceTaskId)).toBeGreaterThan(BigInt(first.receipt!.sliceTaskId));
+  });
+
+  it('discards late progress from an earlier threaded slice task', async () => {
+    const module = createMockModule({ threaded: true });
+    const texts: string[] = [];
+    const c = createClient(async () => module, (_percent, text) => texts.push(text));
+    await c.init();
+    await c.addModel(new Uint8Array(4), 'stl');
+    const first = await c.slice({ layer_height: '0.2' });
+    texts.length = 0;
+    module._publishTaskMessage(first.receipt!.sliceTaskId, {
+      type: 'progress', kind: 'slice', plate_id: first.receipt!.plateId,
+      entry_incarnation: '1', percent: 99, text: 'late old progress',
+    });
+    const second = await c.slice({ layer_height: '0.3' });
+    expect(second.ok).toBe(true);
+    expect(texts).not.toContain('late old progress');
+    expect(texts).toContain('slice 100%');
   });
 
   it('beforeInit runs once across repeated init calls (StrictMode double-mount)', async () => {
     // App.tsx boots from a StrictMode effect in dev, so init() is sent twice.
     // Profile installation must not re-fetch/re-mount on the second call.
     let installRuns = 0;
-    const c = createClient(async () => createMockModule(), undefined, undefined, async () => { installRuns += 1; });
+    const c = createClient(async () => createMockModule(), undefined, async () => { installRuns += 1; });
     await c.init();
     await c.init();
     expect(installRuns).toBe(1);
@@ -1493,7 +1521,7 @@ describe('SlicerClient bridge contract', () => {
 
   it('beforeInit retries a rejected install on the next init', async () => {
     let installRuns = 0;
-    const c = createClient(async () => createMockModule(), undefined, undefined, async () => {
+    const c = createClient(async () => createMockModule(), undefined, async () => {
       installRuns += 1;
       if (installRuns === 1) throw new Error('first install failed');
     });

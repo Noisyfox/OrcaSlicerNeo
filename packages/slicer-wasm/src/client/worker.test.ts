@@ -18,6 +18,20 @@ class Channel implements WorkerTransport {
   }
 }
 
+class RecordingTransport implements WorkerTransport {
+  private listeners: ((msg: WorkerMessage) => void)[] = [];
+  readonly posted: WorkerMessage[] = [];
+  onMessage(fn: (msg: WorkerMessage) => void): void {
+    this.listeners.push(fn);
+  }
+  post(msg: WorkerMessage): void {
+    this.posted.push(msg);
+  }
+  emit(msg: WorkerMessage): void {
+    for (const listener of this.listeners) listener(msg);
+  }
+}
+
 function setup(beforeRequest?: (op: string, args: unknown[]) => Promise<void> | void) {
   const module = createMockModule();
   const channel = new Channel();
@@ -77,7 +91,31 @@ describe('worker protocol', () => {
     expect(events.length).toBeGreaterThan(0);
   });
 
-  it('reads threaded progress from the shared-memory mailbox without addFunction', async () => {
+  it('rejects serial edits, Slice, Export, and Cancel before posting while Slice is active', async () => {
+    const transport = new RecordingTransport();
+    const workerClient = createWorkerClient(transport);
+    transport.emit({ type: 'runtime-state', threaded: false, serialTerminalEpoch: '0' });
+
+    const activeSlice = workerClient.slice({ layer_height: '0.2' });
+    await Promise.resolve();
+    await expect(workerClient.setInstanceOffset(0, 0, 1, 2, 3))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.slice({ layer_height: '0.3' }))
+      .resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.exportGcode()).resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.cancel()).resolves.toMatchObject({ error: 'slice_busy' });
+
+    const requests = transport.posted.filter((message) => message.type === 'request');
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ type: 'request', op: 'slice', serialTerminalEpoch: '0' });
+    if (requests[0]?.type !== 'request') throw new Error('slice request was not posted');
+    transport.emit({ type: 'runtime-state', threaded: false, serialTerminalEpoch: '1' });
+    transport.emit({ type: 'response', id: requests[0].id, ok: true,
+      result: { ok: false, error: 'cancelled' } });
+    await expect(activeSlice).resolves.toMatchObject({ error: 'cancelled' });
+  });
+
+  it('reads threaded FIFO progress after a shared wake without addFunction', async () => {
     const module = createMockModule({ threaded: true });
     const channel = new Channel();
     const workerClient = createWorkerClient(channel);

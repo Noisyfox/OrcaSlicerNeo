@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -96,20 +97,23 @@ assert.equal(moved.ok, true, JSON.stringify(moved));
 plateRevision = revisions();
 
 assert.equal(callJson('orc_select_plate', ['string'], [firstPlate]).ok, true);
-assert.equal(callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', firstPlate, plateRevision[firstPlate]]).ok, true);
+assert.equal((await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', firstPlate, plateRevision[firstPlate]])).ok, true);
 const firstGcode = exportGcode(firstPlate, plateRevision[firstPlate]);
 assert.match(firstGcode, /X30\.500\s+Y40\.500/, 'plate 1 tower position missing from G-code');
 assert.doesNotMatch(firstGcode, /X130\.500\s+Y140\.500/, 'plate 1 used plate 2 tower position');
 
 assert.equal(callJson('orc_select_plate', ['string'], [secondPlate]).ok, true);
-assert.equal(callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', secondPlate, plateRevision[secondPlate]]).ok, true);
+assert.equal((await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', secondPlate, plateRevision[secondPlate]])).ok, true);
 const secondGcode = exportGcode(secondPlate, plateRevision[secondPlate]);
 assert.match(secondGcode, /X130\.500\s+Y140\.500/, 'plate 2 tower position missing from G-code');
 assert.doesNotMatch(secondGcode, /X30\.500\s+Y40\.500/, 'plate 2 used plate 1 tower position');
 
 assert.equal(callJson('orc_select_plate', ['string'], [firstPlate]).ok, true);
 const finalRevision = revisions()[firstPlate];
-assert.equal(callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', firstPlate, finalRevision]).ok, true);
+assert.equal((await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', firstPlate, finalRevision])).ok, true);
 const firstAgain = exportGcode(firstPlate, finalRevision);
 assert.match(firstAgain, /X30\.500\s+Y40\.500/, '切回 plate 1 后 tower position leaked');
 

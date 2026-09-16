@@ -10,7 +10,7 @@
 //   worker → main: {type:'response', id, ok, result}
 //   worker → main: {type:'progress', percent, text}   (no id)
 // ----------------------------------------------------------------
-import type { SlicerClient, OrcaModuleFactory, ProgressMailbox, PlateSessionMutation, ProjectClosedCallback } from './types';
+import type { SlicerClient, OrcaModuleFactory, PlateSessionMutation, ProjectClosedCallback } from './types';
 import type {
   HistoryDiagnosticLayer,
   HistoryReadDiagnosticLayer,
@@ -18,15 +18,15 @@ import type {
   HistoryTimingDiagnostic,
   RestoreResult,
 } from './history';
-import { createClient } from './client';
+import { createClient, dispatchClientRequest } from './client';
 
 export type WorkerMessage =
-  | { type: 'request'; id: number; op: string; args: unknown[] }
+  | { type: 'request'; id: number; op: string; args: unknown[]; serialTerminalEpoch?: string }
   | { type: 'response'; id: number; ok: boolean; result: unknown; error?: string }
   | { type: 'history-diagnostic'; diagnostic: HistoryWorkerDiagnostic }
   | { type: 'project-closed'; plateSession: PlateSessionMutation }
   | { type: 'progress'; percent: number; text: string }
-  | { type: 'progress-mailbox'; mailbox: ProgressMailbox };
+  | { type: 'runtime-state'; threaded: boolean; serialTerminalEpoch: string };
 
 export interface HistoryWorkerDiagnostic {
   readonly kind: 'mutation' | 'restore' | 'read';
@@ -44,6 +44,27 @@ const historyMutationOperations = new Set([
   'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
   'deleteFilamentSlot', 'mergeFilamentSlots', 'assignFilament',
   'setFilamentRouting', 'movePrimeTower',
+]);
+
+// Serial Print::process() occupies the sole stateful Worker. These commands
+// must fail before postMessage so no edit, history frame, Slice, or Export can
+// wait behind the running task and execute against a later epoch.
+const restrictedWhileSerialSlicing = new Set([
+  'selectFilamentSlotPreset', 'setFilamentSlotColour', 'addFilamentSlot',
+  'deleteFilamentSlot', 'mergeFilamentSlots', 'applyRememberedFilamentRack',
+  'assignFilament', 'setFilamentRouting', 'beginHistory', 'commitHistory',
+  'abortHistory', 'undoHistory', 'redoHistory', 'jumpHistory', 'markHistorySaved',
+  'recordHistoryContext', 'resetHistory', 'movePrimeTower', 'resetPlateSession',
+  'selectPlate', 'addPlate', 'deletePlate', 'recomputePlateMembership',
+  'markSharedConfigurationMutation', 'setProjectConfigOverride',
+  'revalidateProjectConfigOverlay', 'selectProfile', 'addModel', 'closeProject',
+  'loadProject', 'importProjectGeometry', 'addShape', 'clearModel',
+  'setInstanceOffset', 'setModelTransform', 'setModelTransforms', 'deleteObjects',
+  'deleteVolumes', 'cloneObjects', 'reorderObjects', 'reorderVolumes',
+  'splitVolumeToParts', 'splitObjectToObjects', 'mergeObjectsToMultipart',
+  'separateInstances', 'addInstance', 'removeInstance', 'renameObject',
+  'renameVolume', 'setVolumeType', 'setObjectPrintable', 'setInstancePrintable',
+  'slice', 'slicePlate', 'exportGcode', 'exportGcodePlate', 'exportProject', 'cancel',
 ]);
 
 function historyNow(): number {
@@ -139,15 +160,12 @@ export function startWorker(
   beforeInit?: (module: import('./types').OrcaModule) => Promise<void>,
   beforeRequest?: (op: string, args: unknown[]) => Promise<void> | void,
 ): void {
-  // Serial builds forward their permanent bridge callback. Threaded builds
-  // send a SharedArrayBuffer mailbox; the renderer polls it independently
-  // while this worker is synchronously executing a long native operation.
   const client = createClient(moduleFactory, (pct, text) => {
     post({ type: 'progress', percent: pct, text });
-  }, (mailbox) => {
-    post({ type: 'progress-mailbox', mailbox });
   }, beforeInit, (plateSession) => {
     post({ type: 'project-closed', plateSession });
+  }, (runtimeState) => {
+    post({ type: 'runtime-state', ...runtimeState });
   });
 
   // The default remains one writer.  A coalesced child may be nested under
@@ -168,8 +186,6 @@ export function startWorker(
     }
     if (isRestore) restoreInFlight = true;
     try {
-      const method = (client as unknown as Record<string, (...a: unknown[]) => unknown>)[op];
-      if (typeof method !== 'function') throw new Error(`unknown op: ${op}`);
       const callArgs = args ?? [];
       if (op === 'beginHistory') {
         const nested = activeTransactionIds.length > 0;
@@ -201,7 +217,10 @@ export function startWorker(
       // Preserve the client receiver for composed operations. The dispatcher
       // previously invoked a detached method and made `this` undefined in the
       // worker even though the public client contract was otherwise valid.
-      const result = await method.apply(client, callArgs);
+      const result = await dispatchClientRequest(
+        client, op, callArgs, msg.serialTerminalEpoch ?? '0',
+        restrictedWhileSerialSlicing.has(op),
+      );
       if (op === 'beginHistory') {
         if (typeof result !== 'string' || result.length === 0) throw new Error('malformed history transaction id');
         activeTransactionIds.push(result);
@@ -249,10 +268,9 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
   }>();
   const progressListeners = new Set<(pct: number, text: string) => void>();
   const projectClosedListeners = new Set<ProjectClosedCallback>();
-  let mailbox: ProgressMailbox | undefined;
-  let mailboxTimer: ReturnType<typeof setInterval> | undefined;
-  let lastMailboxSequence = -1;
-  const decoder = new TextDecoder();
+  let runtimeThreaded: boolean | undefined;
+  let serialSliceActive = false;
+  let serialTerminalEpoch = '0';
   let diagnostics: HistoryTransportDiagnostics = { version: 1, worker: emptyLayer(), client: emptyLayer() };
 
   function recordLayer(layer: 'worker' | 'client', diagnostic: HistoryWorkerDiagnostic): void {
@@ -272,36 +290,6 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     diagnostics = { ...diagnostics, [layer]: next };
   }
 
-  function emitMailboxProgress(): void {
-    if (!mailbox) return;
-    const words = new Int32Array(mailbox.buffer, mailbox.byteOffset, 4);
-    const before = Atomics.load(words, 0);
-    if ((before & 1) !== 0 || before === lastMailboxSequence) return;
-    const percent = Atomics.load(words, 1);
-    const length = Math.min(Atomics.load(words, 2), mailbox.textCapacity);
-    // Chromium intentionally rejects SharedArrayBuffer-backed views in
-    // TextDecoder. Copy this tiny (<=512 byte) status payload after the
-    // sequence read; the second sequence check below rejects a torn copy.
-    const textBytes = new Uint8Array(length);
-    textBytes.set(new Uint8Array(mailbox.buffer, mailbox.byteOffset + 16, length));
-    const text = decoder.decode(textBytes);
-    // A writer may have begun while the bytes were copied. Discard that read
-    // rather than emitting a torn status string.
-    if (before !== Atomics.load(words, 0)) return;
-    lastMailboxSequence = before;
-    for (const listener of progressListeners) listener(percent, text);
-  }
-
-  function updateMailboxPolling(): void {
-    if (progressListeners.size > 0 && mailbox && !mailboxTimer) {
-      mailboxTimer = setInterval(emitMailboxProgress, 40);
-      emitMailboxProgress();
-    } else if (progressListeners.size === 0 && mailboxTimer) {
-      clearInterval(mailboxTimer);
-      mailboxTimer = undefined;
-    }
-  }
-
   transport.onMessage((msg) => {
     if (msg.type === 'history-diagnostic') {
       recordLayer('worker', msg.diagnostic);
@@ -311,10 +299,10 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
       for (const l of progressListeners) l(msg.percent, msg.text);
       return;
     }
-    if (msg.type === 'progress-mailbox') {
-      mailbox = msg.mailbox;
-      lastMailboxSequence = -1;
-      updateMailboxPolling();
+    if (msg.type === 'runtime-state') {
+      runtimeThreaded = msg.threaded;
+      serialTerminalEpoch = msg.serialTerminalEpoch;
+      if (!msg.threaded) serialSliceActive = false;
       return;
     }
     if (msg.type === 'project-closed') {
@@ -325,6 +313,8 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
     const p = pending.get(msg.id);
     if (!p) return;
     pending.delete(msg.id);
+    if (!runtimeThreaded && (p.op === 'slice' || p.op === 'slicePlate'))
+      serialSliceActive = false;
     if (msg.ok) {
       if (isRestoreOperation(p.op))
         recordLayer('client', { kind: 'restore', path: restorePath(msg.result), durationMs: historyNow() - p.startedAt });
@@ -341,9 +331,13 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
 
   function call(op: string, args: unknown[]): Promise<unknown> {
     const id = nextId++;
+    if (runtimeThreaded !== true && serialSliceActive && restrictedWhileSerialSlicing.has(op))
+      return Promise.resolve({ error: 'slice_busy' });
+    if ((op === 'slice' || op === 'slicePlate') && runtimeThreaded !== true)
+      serialSliceActive = true;
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject, op, startedAt: historyNow() });
-      transport.post({ type: 'request', id, op, args });
+      transport.post({ type: 'request', id, op, args, serialTerminalEpoch });
     });
   }
 
@@ -394,12 +388,9 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
             ? onProjectClosed as ProjectClosedCallback : undefined;
           if (progressListener) progressListeners.add(progressListener);
           if (closedListener) projectClosedListeners.add(closedListener);
-          updateMailboxPolling();
           return call(prop, args.slice(0, 3)).finally(() => {
-            emitMailboxProgress();
             if (progressListener) progressListeners.delete(progressListener);
             if (closedListener) projectClosedListeners.delete(closedListener);
-            updateMailboxPolling();
           });
         };
       }
@@ -409,11 +400,8 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
           if (typeof onProgress !== 'function') return call(prop, args);
           const listener = onProgress as (pct: number, text: string) => void;
           progressListeners.add(listener);
-          updateMailboxPolling();
           return call(prop, args.slice(0, 2)).finally(() => {
-            emitMailboxProgress();
             progressListeners.delete(listener);
-            updateMailboxPolling();
           });
         };
       }
@@ -422,25 +410,16 @@ export function createWorkerClient(transport: WorkerTransport): SlicerClient {
           return (target: unknown, config: Record<string, string>, onProgress?: (percent: number, text: string) => void) => {
             if (!onProgress) return call('slicePlate', [target, config]);
             progressListeners.add(onProgress);
-            updateMailboxPolling();
             return call('slicePlate', [target, config]).finally(() => {
-              emitMailboxProgress();
               progressListeners.delete(onProgress);
-              updateMailboxPolling();
             });
           };
         }
         return (config: Record<string, string>, onProgress?: (percent: number, text: string) => void) => {
           if (!onProgress) return call('slice', [config]);
           progressListeners.add(onProgress);
-          updateMailboxPolling();
           return call('slice', [config]).finally(() => {
-            // Catch the terminal status in same-thread/mock tests too. In the
-            // real app the interval delivers intermediate statuses while the
-            // module worker is busy.
-            emitMailboxProgress();
             progressListeners.delete(onProgress);
-            updateMailboxPolling();
           });
         };
       }

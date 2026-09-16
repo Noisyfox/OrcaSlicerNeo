@@ -133,6 +133,18 @@ int main()
     registry.restore_lifecycle(lifecycle_before);
     CHECK(registry.find("plate-e")->presentation == PlateRuntimeRegistry::PresentationLifecycle::Invalid);
 
+    // An input invalidation on the active entry commits immediately and only
+    // requests the retained Print's atomic cancellation; it never waits for
+    // the job lease or releases the entry under the running process.
+    {
+        auto job = registry.begin_slice("plate-b", 72, 8);
+        registry.invalidate_presentations({"plate-b"});
+        CHECK(registry.cancellation_requested(job));
+        CHECK(registry.has_active_job("plate-b"));
+        registry.mark_process_failed(job);
+        job.entry().print->restart();
+    }
+
     // A history restore retains an unchanged plate's native entry and
     // presentation, but a changed stable id is never made publishable merely
     // because its retained completed revision happens to match the target.

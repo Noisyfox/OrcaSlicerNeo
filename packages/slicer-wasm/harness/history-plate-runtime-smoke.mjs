@@ -6,6 +6,7 @@
 // restored stable id.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -64,10 +65,12 @@ const sliceTarget = (plateId) => [plateId, session.input_revisions[plateId]];
 const stamps = () => callJson('orc_get_plate_session_snapshot').input_revisions;
 requireOk('select A', callJson('orc_select_plate', ['string'], [plateA]));
 session = callJson('orc_get_plate_session_snapshot');
-requireOk('slice A', callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', ...sliceTarget(plateA)]));
+requireOk('slice A', await callAsyncTask(callJson, 'orc_slice_plate',
+  ['string', 'string', 'number'], ['{}', ...sliceTarget(plateA)]));
 requireOk('select B', callJson('orc_select_plate', ['string'], [plateB]));
 session = callJson('orc_get_plate_session_snapshot');
-requireOk('slice B', callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', ...sliceTarget(plateB)]));
+requireOk('slice B', await callAsyncTask(callJson, 'orc_slice_plate',
+  ['string', 'string', 'number'], ['{}', ...sliceTarget(plateB)]));
 requireOk('B presentation before history', callJson('orc_get_slice_result'));
 const slicedStamps = stamps();
 

@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { inflateRawSync } from 'node:zlib';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -204,8 +205,8 @@ check('capture complete multi-plate session', beforeExportSession.ok === true &&
 const oldPlateIds = beforeExportSession.plates?.map((plate) => plate.plate_id) ?? [];
 const oldCurrentPlateId = beforeExportSession.current_plate_id;
 const oldCurrentRevision = beforeExportSession.input_revisions?.[oldCurrentPlateId] ?? 0;
-const seededSlice = callJson('orc_slice_plate', ['string', 'string', 'number'],
-                             ['{}', oldCurrentPlateId, oldCurrentRevision]);
+const seededSlice = await callAsyncTask(callJson, 'orc_slice_plate',
+  ['string', 'string', 'number'], ['{}', oldCurrentPlateId, oldCurrentRevision]);
 check('materialize an old-session result before replacement', seededSlice.ok === true,
       JSON.stringify(seededSlice));
 const seededResult = callJson('orc_get_slice_result', [], []);

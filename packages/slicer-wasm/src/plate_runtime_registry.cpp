@@ -99,12 +99,7 @@ PlateRuntimeRegistry::Retirements PlateRuntimeRegistry::reconcile_history(
     const std::set<std::string>& affected_plate_ids)
 {
     auto retirements = reconcile(plate_ids);
-    for (const auto& plate_id : plate_ids) {
-        auto* entry = find(plate_id);
-        if (entry == nullptr) continue;
-        if (affected_plate_ids.find(plate_id) != affected_plate_ids.end())
-            mark_presentation_invalid(*entry);
-    }
+    invalidate_presentations(affected_plate_ids);
     return retirements;
 }
 
@@ -196,6 +191,23 @@ bool PlateRuntimeRegistry::has_active_job(const std::string_view plate_id) const
     return it != entries_.end() && it->second->active_job_leases != 0;
 }
 
+bool PlateRuntimeRegistry::request_job_cancellation(const JobLease& lease) noexcept
+{
+    std::shared_ptr<Entry> entry;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (lease.owner_ != this || lease.entry_ == nullptr ||
+            lease.entry_->active_job_leases == 0)
+            return false;
+        entry = lease.entry_;
+        entry->cancel_requested = true;
+    }
+    // PrintBase::cancel() is an atomic request.  The caller must remain free
+    // to commit the mutation which made this task obsolete.
+    entry->print->cancel();
+    return true;
+}
+
 bool PlateRuntimeRegistry::request_retired_job_cancellation(
     const std::uint64_t incarnation_id) noexcept
 {
@@ -237,9 +249,18 @@ void PlateRuntimeRegistry::mark_presentation_invalid(Entry& entry) noexcept
 
 void PlateRuntimeRegistry::invalidate_presentations(const std::set<std::string>& plate_ids) noexcept
 {
+    std::lock_guard<std::mutex> lock(mutex_);
     for (const auto& plate_id : plate_ids) {
-        if (auto* entry = find(plate_id); entry != nullptr)
-            mark_presentation_invalid(*entry);
+        const auto it = entries_.find(plate_id);
+        if (it == entries_.end()) continue;
+        auto& entry = *it->second;
+        entry.presentation = PresentationLifecycle::Invalid;
+        if (entry.active_job_leases != 0 && !entry.cancel_requested) {
+            entry.cancel_requested = true;
+            // PrintBase::cancel() only writes the atomic cancellation state;
+            // it never waits for the job or tears down the retained Print.
+            entry.print->cancel();
+        }
     }
 }
 

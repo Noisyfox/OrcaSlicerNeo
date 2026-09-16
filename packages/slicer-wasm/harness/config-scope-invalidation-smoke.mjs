@@ -6,6 +6,7 @@
 // plates. Undo/Redo and abort preserve the same scope and monotonic stamps.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -50,10 +51,11 @@ const result = (plateId) => {
   select(plateId);
   return callJson('orc_get_slice_result');
 };
-const slice = (plateId) => {
+const slice = async (plateId) => {
   select(plateId);
   const revision = stamps()[plateId];
-  requireOk(`slice ${plateId}`, callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', plateId, revision]));
+  requireOk(`slice ${plateId}`, await callAsyncTask(callJson, 'orc_slice_plate',
+    ['string', 'string', 'number'], ['{}', plateId, revision]));
   requireOk(`materialize ${plateId}`, callJson('orc_get_slice_result'));
 };
 function expectScope(label, before, after, changed, unchanged) {
@@ -103,7 +105,7 @@ if (!sharedMembership.some((entry) => entry.plate_id === plateA) ||
   throw new Error(`shared object is not a member of A and B: ${JSON.stringify(sharedMembership)}`);
 requireStatus('reset history baseline', callJson('orc_history_reset', ['string'], [JSON.stringify(context)]));
 
-for (const plateId of [plateA, plateB, plateC]) slice(plateId);
+for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 
 // Rejection is atomic: neither overlay, stamps, nor any valid presentation is
 // touched when native option parsing fails.
@@ -142,7 +144,7 @@ after = stamps();
 expectScope('plate-local redo', before, after, [plateA], [plateB, plateC]);
 requireStale('A remains stale after plate Redo', result(plateA));
 requireOk('C retained after plate Redo', result(plateC));
-slice(plateA);
+await slice(plateA);
 
 // Aborting a published local edit restores both stamps and presentation.
 const beforeAbort = stamps();
@@ -176,8 +178,8 @@ requireStatus('redo object configuration', callJson('orc_history_redo'));
 after = stamps();
 expectScope('object redo', before, after, [plateA, plateB], [plateC]);
 requireOk('C retained through object history', result(plateC));
-slice(plateA);
-slice(plateB);
+await slice(plateA);
+await slice(plateB);
 
 before = stamps();
 const partTx = begin('Part Configuration');
@@ -198,8 +200,8 @@ requireStatus('redo part configuration', callJson('orc_history_redo'));
 after = stamps();
 expectScope('part redo', before, after, [plateA, plateB], [plateC]);
 requireOk('C retained through part history', result(plateC));
-slice(plateA);
-slice(plateB);
+await slice(plateA);
+await slice(plateB);
 
 // Filament rack state is shared slicing input and therefore fans out to every
 // plate even when only one slot field changes.
@@ -210,7 +212,7 @@ const filamentEdit = requireOk('filament colour edit', callJson('orc_set_filamen
 after = stamps();
 expectScope('filament edit', before, after, [plateA, plateB, plateC], []);
 for (const plateId of [plateA, plateB, plateC]) requireStale(`plate stale after filament edit ${plateId}`, result(plateId));
-for (const plateId of [plateA, plateB, plateC]) slice(plateId);
+for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 
 // Project configuration remains the shared/global boundary.
 before = stamps();
@@ -220,7 +222,7 @@ expectScope('global edit', before, after, [plateA, plateB, plateC], []);
 if (!sameJson(globalEdit.plate_session.affected_plate_ids, [plateA, plateB, plateC]))
   throw new Error(`global affected set is wrong: ${JSON.stringify(globalEdit)}`);
 for (const plateId of [plateA, plateB, plateC]) requireStale(`plate stale after global edit ${plateId}`, result(plateId));
-for (const plateId of [plateA, plateB, plateC]) slice(plateId);
+for (const plateId of [plateA, plateB, plateC]) await slice(plateId);
 
 // Printer/process profile activation enters through this shared marker rather
 // than the overlay setter, but it has the same all-plate invalidation contract.

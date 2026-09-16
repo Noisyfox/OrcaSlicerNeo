@@ -504,36 +504,40 @@ function readBytes(Module, ptr, len) {
   }
 }
 
-// 5. progress transport. Threaded builds publish to the shared-memory
-// mailbox: reading it from JS has no function-table callback and therefore
-// remains safe when oneTBB invokes a status update on a pthread. Keep the
-// old callback check for the serial fallback artifact.
-let progressCalls = 0;
-let progressText = '';
-let cb;
-let mailboxWords;
-let mailboxText;
-let mailboxSequence = 0;
-if (threading.threaded) {
-  const mailbox = callJson('orc_get_progress_mailbox', [], []);
-  check('threaded progress mailbox exported', mailbox.ok === true
-        && Number.isInteger(mailbox.byte_offset) && Number.isInteger(mailbox.text_capacity),
-        JSON.stringify(mailbox));
-  if (mailbox.ok && Module.HEAPU8.buffer instanceof SharedArrayBuffer) {
-    mailboxWords = new Int32Array(Module.HEAPU8.buffer, mailbox.byte_offset, 4);
-    mailboxText = new Uint8Array(Module.HEAPU8.buffer, mailbox.byte_offset + 16, mailbox.text_capacity);
-    mailboxSequence = Atomics.load(mailboxWords, 0);
-  } else {
-    check('threaded progress mailbox is shared', false, String(Module.HEAPU8.buffer.constructor?.name));
+const observedTaskMessages = [];
+function drainTaskMessages() {
+  const drained = callJson('orc_drain_async_task_mailbox', [], []);
+  if (drained.ok && Array.isArray(drained.messages)) observedTaskMessages.push(...drained.messages);
+  return drained.messages ?? [];
+}
+async function awaitTaskResult(accepted) {
+  if (accepted?.accepted !== true) return accepted;
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    const terminal = drainTaskMessages().find((message) =>
+      message.type === 'task-terminal' && message.task_id === accepted.task_id);
+    if (terminal) return terminal.result;
+    await new Promise((resolve) => setTimeout(resolve, 10));
   }
-} else {
-  // wasm64: progress_fn is void(*)(int, const char*) = (i32, i64), so the
-  // dynamically registered fallback callback needs signature 'vij'.
-  cb = Module.addFunction((percent, text) => {
-    progressCalls++;
-    progressText = Module.UTF8ToString(Number(text));
-  }, 'vij');
-  Module.ccall('orc_set_progress_callback', null, ['pointer'], [cb]);
+  return { error: `timed out waiting for task ${accepted.task_id}` };
+}
+async function callSlice(name, argTypes, args) {
+  return awaitTaskResult(callJson(name, argTypes, args));
+}
+
+// 5. The shared mailbox is only the pthread-safe wake signal. Lifecycle and
+// progress records remain in the C++ FIFO and are drained exactly once.
+let mailboxWords;
+let mailboxSequence = 0;
+const mailbox = callJson('orc_get_async_task_mailbox', [], []);
+check('async task wake mailbox exported', mailbox.ok === true
+      && Number.isInteger(mailbox.byte_offset) && Number.isInteger(mailbox.capacity),
+      JSON.stringify(mailbox));
+if (threading.threaded && mailbox.ok && Module.HEAPU8.buffer instanceof SharedArrayBuffer) {
+  mailboxWords = new Int32Array(Module.HEAPU8.buffer, mailbox.byte_offset, 4);
+  mailboxSequence = Atomics.load(mailboxWords, 0);
+} else if (threading.threaded) {
+  check('threaded task mailbox is shared', false, String(Module.HEAPU8.buffer.constructor?.name));
 }
 
 // 6. slice config — every key below uses the option names valid at the
@@ -562,29 +566,25 @@ const configJson = {
 };
 for (const k of Object.keys(configJson))
   check(`config key ${k} exists`, k in meta, `type=${meta[k]?.type}`);
-const sliced = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+const sliced = await callSlice('orc_slice', ['string'], [JSON.stringify(configJson)]);
 // Fix round 2: unrecognized_keys is always present on success (empty when the
 // config is valid) — a non-empty array means the client sent dropped keys.
 check('orc_slice ok', sliced.ok === true
       && Array.isArray(sliced.unrecognized_keys) && sliced.unrecognized_keys.length === 0,
       JSON.stringify(sliced));
-if (threading.threaded && mailboxWords && mailboxText) {
+if (threading.threaded && mailboxWords) {
   const sequence = Atomics.load(mailboxWords, 0);
-  const percent = Atomics.load(mailboxWords, 1);
-  const length = Atomics.load(mailboxWords, 2);
-  const text = new TextDecoder().decode(mailboxText.slice(0, length));
-  check('threaded progress mailbox completed a stable update',
-        sequence > mailboxSequence && sequence % 2 === 0 && percent === 100,
-        `before=${mailboxSequence} after=${sequence} percent=${percent}`);
-  check('threaded progress text arrives', text.length > 0, `text="${text.slice(0, 40)}"`);
-} else {
-  check('progress fired', progressCalls > 0, `calls=${progressCalls}`);
-  check('progress text arrives', progressText.length > 0, `text="${progressText.slice(0, 40)}"`);
-  // Clear the serial bridge's stored pointer before removeFunction. Otherwise
-  // a later slice would call a stale table slot and trap.
-  Module.ccall('orc_set_progress_callback', null, ['pointer'], [0]);
-  Module.removeFunction(cb);
+  check('threaded wake mailbox completed a stable update',
+        sequence > mailboxSequence && sequence % 2 === 0,
+        `before=${mailboxSequence} after=${sequence}`);
 }
+const sliceTaskMessages = observedTaskMessages.filter((message) => message.kind === 'slice');
+check('slice FIFO carries ordered progress and terminal',
+      sliceTaskMessages.some((message) => message.type === 'progress' && message.percent === 100)
+      && sliceTaskMessages.some((message) => message.type === 'task-terminal')
+      && sliceTaskMessages.every((message, index, all) => index === 0
+        || BigInt(message.sequence) > BigInt(all[index - 1].sequence)),
+      JSON.stringify(sliceTaskMessages.slice(-3)));
 
 // 7. slice result stats
 const result = callJson('orc_get_slice_result', [], []);
@@ -667,9 +667,67 @@ check('orc_export_gcode ok', exported.ok === true, JSON.stringify(exported));
 const gcode = validateGcode(Module.FS.readFile('/out.gcode'));
 check('gcode valid', gcode.ok, JSON.stringify(gcode));
 
-// 9. cancel is safe
-const cancelled = callJson('orc_cancel', [], []);
-check('orc_cancel ok', cancelled.ok === true, JSON.stringify(cancelled));
+// 9. The runtime admits exactly one global slice. In the threaded build the
+// stateful Worker remains responsive to a mutation and cancellation while the
+// native job is running; the changed input stamp prevents late publication.
+if (threading.threaded) {
+  const active = callJson('orc_slice', ['string'], [JSON.stringify({
+    ...configJson, layer_height: 0.19,
+  })]);
+  check('threaded slice admission returns a task immediately', active.accepted === true,
+        JSON.stringify(active));
+  const replaced = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+  const replacement = callJson('orc_slice', ['string'], [JSON.stringify({
+    ...configJson, layer_height: 0.18,
+  })]);
+  check('one global slice retains only the last explicit replacement',
+        replaced.accepted === true && replacement.accepted === true
+        && BigInt(active.task_id) < BigInt(replaced.task_id)
+        && BigInt(replaced.task_id) < BigInt(replacement.task_id),
+        `${JSON.stringify(replaced)} ${JSON.stringify(replacement)}`);
+  const replacedResult = await awaitTaskResult(replaced);
+  check('superseded pending Slice receives one replaced terminal',
+        replacedResult.ok !== true && /replaced/i.test(replacedResult.error ?? ''),
+        JSON.stringify(replacedResult));
+
+  const mutationStarted = Date.now();
+  const mutatedDuringSlice = callJson('orc_set_instance_offset',
+    ['number', 'number', 'number', 'number', 'number'], [0, 0, 11, 20, 0]);
+  check('threaded mutation is not blocked by active slicing', mutatedDuringSlice.ok === true
+        && Date.now() - mutationStarted < 1_000,
+        `${JSON.stringify(mutatedDuringSlice)} elapsed_ms=${Date.now() - mutationStarted}`);
+  const cancelStarted = Date.now();
+  const cancelled = callJson('orc_cancel', [], []);
+  check('threaded cancellation request is asynchronous', cancelled.ok === true
+        && Date.now() - cancelStarted < 1_000,
+        `${JSON.stringify(cancelled)} elapsed_ms=${Date.now() - cancelStarted}`);
+  const cancelledResult = await awaitTaskResult(active);
+  check('mutated or cancelled task cannot publish a stale result',
+        cancelledResult.ok !== true && /cancel|stale|supersed/i.test(cancelledResult.error ?? ''),
+        JSON.stringify(cancelledResult));
+  const replacementResult = await awaitTaskResult(replacement);
+  check('last explicit replacement starts after cancellation and publishes the new stamp',
+        replacementResult.ok === true
+        && replacementResult.receipt?.slice_task_id === replacement.task_id,
+        JSON.stringify(replacementResult));
+  const replacementResultView = callJson('orc_get_slice_result', [], []);
+  check('cancelled task never overwrites the replacement result',
+        replacementResultView.ok === true
+        && replacementResultView.receipt?.slice_task_id === replacement.task_id,
+        JSON.stringify(replacementResultView));
+} else {
+  const cancelled = callJson('orc_cancel', [], []);
+  check('serial cancel outside a task reports slice_busy', cancelled.error === 'slice_busy',
+        JSON.stringify(cancelled));
+  const serialState = callJson('orc_get_threading_info', [], []);
+  const staleAdmission = callJson('orc_check_serial_admission', ['string'], ['0']);
+  const currentAdmission = callJson('orc_check_serial_admission', ['string'],
+                                    [serialState.serial_terminal_epoch]);
+  check('serial terminal epoch rejects commands queued during slicing',
+        BigInt(serialState.serial_terminal_epoch) > 0n && staleAdmission.error === 'slice_busy'
+        && currentAdmission.ok === true,
+        `${JSON.stringify(serialState)} stale=${JSON.stringify(staleAdmission)} current=${JSON.stringify(currentAdmission)}`);
+}
 
 // Regression: re-slice after the serial fallback callback is removed. A stale
 // g_progress used to trap inside the status lambda during process() ("null
@@ -691,7 +749,7 @@ check('reload before re-slice ok', reloaded.ok === true, JSON.stringify(reloaded
 // orc_slice must surface it in unrecognized_keys instead of silently
 // ignoring it. The real config (check 6) stays clean and asserts the
 // empty case.
-const resliced = callJson('orc_slice', ['string'],
+const resliced = await callSlice('orc_slice', ['string'],
                           [JSON.stringify({ ...configJson, layer_height: 0.25, temperature: 210 })]);
 check('re-slice after progress cleanup ok', resliced.ok === true, JSON.stringify(resliced));
 check('unknown key reported', Array.isArray(resliced.unrecognized_keys)
@@ -731,7 +789,7 @@ if (boxMesh.ok && boxMesh.objects?.[0]) {
 } else {
   check('floating-box mesh available', false, JSON.stringify(boxMesh).slice(0, 120));
 }
-const boxSliced = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+const boxSliced = await callSlice('orc_slice', ['string'], [JSON.stringify(configJson)]);
 check('slice error surfaces the real message, not the bare category',
       !boxSliced.ok && typeof boxSliced.error === 'string'
       && boxSliced.error !== 'Errors' && boxSliced.error.includes('empty first layer'),
@@ -769,7 +827,7 @@ check('slice error surfaces the real message, not the bare category',
           && !afterSplit.objects[0].volumes.some((v) => v.id === vol.id),
           JSON.stringify(afterSplit.objects?.[0]?.volumes?.map((v) => v.id)));
 
-    const S = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+    const S = await callSlice('orc_slice', ['string'], [JSON.stringify(configJson)]);
     check('split parts slice to valid G-code', S.ok === true, JSON.stringify(S));
     if (S.ok) {
       const g = validateGcode(Module.FS.readFile('/out.gcode'));
@@ -807,7 +865,7 @@ check('slice error surfaces the real message, not the bare category',
           && !after.objects.some((o) => o.id === obj.id),
           JSON.stringify(after.objects?.map((o) => o.id)));
 
-    const S = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+    const S = await callSlice('orc_slice', ['string'], [JSON.stringify(configJson)]);
     check('split objects slice to valid G-code', S.ok === true, JSON.stringify(S));
   } else {
     check('multipart object available', false, JSON.stringify(s).slice(0, 120));
@@ -839,7 +897,7 @@ check('slice error surfaces the real message, not the bare category',
         && assembled?.volumes?.length === 2 && assembled.name === 'Assembly',
         JSON.stringify({ id: assembled?.id, name: assembled?.name, volumes: assembled?.volumes?.length }));
 
-  const S = callJson('orc_slice', ['string'], [JSON.stringify(configJson)]);
+  const S = await callSlice('orc_slice', ['string'], [JSON.stringify(configJson)]);
   check('assembled multipart slices to valid G-code', S.ok === true, JSON.stringify(S));
 }
 
@@ -930,7 +988,7 @@ check('slice error surfaces the real message, not the bare category',
                               [0, 0, 128, 128, 10]);
   check('P1P cube loads and is positioned on its plate',
         loaded.ok === true && positioned.ok === true, JSON.stringify({ loaded, positioned }));
-  const sliced = callJson('orc_slice', ['string'], ['{}']);
+  const sliced = await callSlice('orc_slice', ['string'], ['{}']);
   check('P1P cube slices successfully', sliced.ok === true, JSON.stringify(sliced));
   const result = callJson('orc_get_slice_result', [], []);
   check('P1P cube produces a non-empty preview',

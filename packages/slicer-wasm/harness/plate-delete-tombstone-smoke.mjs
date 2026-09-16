@@ -6,6 +6,7 @@
 // survivor, and never exposes the deleted incarnation's completed result.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -56,8 +57,8 @@ const targetInstances = beforeDelete.instances
 if (targetInstances.length === 0)
   throw new Error(`deletion target has no member models: ${JSON.stringify(beforeDelete.instances)}`);
 
-requireOk('slice deletion target', callJson('orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', target, targetRevision]));
+requireOk('slice deletion target', await callAsyncTask(callJson, 'orc_slice_plate',
+  ['string', 'string', 'number'], ['{}', target, targetRevision]));
 requireOk('deletion target result starts publishable', callJson('orc_get_slice_result'));
 
 const deleted = requireOk('delete active current plate',

@@ -59,6 +59,8 @@ export interface MockModule {
   };
   _freedPointers: number[];
   _functionRegistrations: number;
+  /** Test-only injection seam for ordered task-mailbox delivery. */
+  _publishTaskMessage: (taskId: string, message: Record<string, unknown>) => void;
 }
 
 export interface MockModuleOptions {
@@ -304,7 +306,6 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let sliced = false;
   let slicedPlateId = '';
   let slicedPlateRevision = 0;
-  let nextSliceTaskId = 1n;
   const sliceReceipts = new Map<string, { inputStamp: number; sliceTaskId: string }>();
   let plateSessionSequence = 0;
   let plateSessionId = '';
@@ -882,50 +883,63 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     }
     return changed;
   }
-  let progressCallback = 0;
+  let asyncTaskCallback = 0;
   const functionTable = new Map<number, (...args: unknown[]) => void>();
   let nextFunctionIndex = 1000;
   let functionRegistrations = 0;
   const mailboxOffset = 128;
   const mailboxWords = new Int32Array(heap, mailboxOffset, 4);
-  const mailboxText = new Uint8Array(heap, mailboxOffset + 16, 512);
-  function publishMailboxProgress(percent: number, text: string): void {
-    const bytes = new TextEncoder().encode(text).slice(0, mailboxText.length - 1);
+  let nextAsyncTaskId = 1;
+  let nextTaskMessageSequence = 1;
+  let serialTerminalEpoch = 0;
+  let foregroundProgressTaskId: string | undefined;
+  const taskMessages: Array<Record<string, unknown>> = [];
+
+  function publishTaskMessage(taskId: string, message: Record<string, unknown>): void {
+    taskMessages.push({ ...message, task_id: taskId, sequence: String(nextTaskMessageSequence++) });
     Atomics.add(mailboxWords, 0, 1);
-    mailboxText.set(bytes);
-    mailboxText[bytes.length] = 0;
-    Atomics.store(mailboxWords, 1, percent);
-    Atomics.store(mailboxWords, 2, bytes.length);
+    Atomics.add(mailboxWords, 1, 1);
+    const id = BigInt(taskId);
+    Atomics.store(mailboxWords, 2, Number(id & 0xffff_ffffn));
+    Atomics.store(mailboxWords, 3, Number(id >> 32n));
     Atomics.add(mailboxWords, 0, 1);
+    if (!opts.threaded && asyncTaskCallback)
+      functionTable.get(asyncTaskCallback)?.();
   }
 
   function publishProgress(percent: number, text: string): void {
-    if (opts.threaded) {
-      publishMailboxProgress(percent, text);
-      return;
+    if (!foregroundProgressTaskId) foregroundProgressTaskId = String(nextAsyncTaskId++);
+    publishTaskMessage(foregroundProgressTaskId, {
+      type: 'progress', kind: 'project-load', percent, text,
+    });
+    if (percent === 100) {
+      publishTaskMessage(foregroundProgressTaskId, {
+        type: 'task-terminal', kind: 'project-load', terminal: 'completed', result: { ok: true },
+      });
+      foregroundProgressTaskId = undefined;
     }
-    if (!progressCallback) return;
-    const bytes = new TextEncoder().encode(text);
-    const tp = malloc(bytes.length + 1);
-    HEAPU8.set(bytes, tp);
-    functionTable.get(progressCallback)?.(percent, tp);
   }
 
   function runMockSlice(plateId: string, revision: number): unknown {
     if (!modelLoaded) return { error: 'no model loaded' };
     if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
     if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
-    for (let pct = 0; pct <= 100; pct += 25) {
-      publishProgress(pct, `slice ${pct}%`);
-    }
+    const taskId = String(nextAsyncTaskId++);
+    for (let pct = 0; pct <= 100; pct += 25)
+      publishTaskMessage(taskId, { type: 'progress', kind: 'slice', plate_id: plateId,
+        entry_incarnation: '1', percent: pct, text: `slice ${pct}%` });
     sliced = true;
     slicedPlateId = plateId;
     slicedPlateRevision = revision;
-    const receipt = { inputStamp: revision, sliceTaskId: String(nextSliceTaskId++) };
+    const receipt = { inputStamp: revision, sliceTaskId: taskId };
     sliceReceipts.set(plateId, receipt);
-    return { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings], receipt: {
+    const result = { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings], receipt: {
       plate_id: plateId, input_stamp: receipt.inputStamp, slice_task_id: receipt.sliceTaskId,
     } };
+    publishTaskMessage(taskId, { type: 'task-terminal', kind: 'slice', plate_id: plateId,
+      entry_incarnation: '1', terminal: 'completed', result });
+    if (!opts.threaded) serialTerminalEpoch++;
+    return { accepted: true, kind: 'slice', task_id: taskId, plate_id: plateId, entry_incarnation: '1' };
   }
 
   // Serialize the current structure in the bridge's object/part/instance shape.
@@ -1939,14 +1953,23 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }
       return { error: 'instance not found' };
     },
-    orc_set_progress_callback(ptr: number) {
-      progressCallback = ptr;
+    orc_set_async_task_callback(ptr: number) {
+      asyncTaskCallback = ptr;
     },
     orc_get_threading_info() {
-      return { ok: true, threaded: !!opts.threaded, max_concurrency: opts.threaded ? 4 : 1, arena_concurrency: opts.threaded ? 4 : 1 };
+      return { ok: true, threaded: !!opts.threaded, max_concurrency: opts.threaded ? 4 : 1,
+        arena_concurrency: opts.threaded ? 4 : 1, serial_terminal_epoch: String(serialTerminalEpoch) };
     },
-    orc_get_progress_mailbox() {
-      return { ok: true, byte_offset: mailboxOffset, text_capacity: mailboxText.length };
+    orc_get_async_task_mailbox() {
+      return { ok: true, byte_offset: mailboxOffset, capacity: 8192 };
+    },
+    orc_drain_async_task_mailbox() {
+      return { ok: true, messages: taskMessages.splice(0) };
+    },
+    orc_check_serial_admission(observedEpoch: string) {
+      return opts.threaded || observedEpoch === String(serialTerminalEpoch)
+        ? { ok: true, terminal_epoch: String(serialTerminalEpoch) }
+        : { error: 'slice_busy' };
     },
     orc_slice(_config: string) {
       return runMockSlice(currentPlateId, plateInputRevisions[currentPlateId] ?? 0);
@@ -2227,9 +2250,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_set_model_transforms: { ret: 'number', args: ['string', 'string'] },
     orc_get_model_mesh: { ret: 'number', args: [] },
     orc_get_model_structure: { ret: 'number', args: [] },
-    orc_set_progress_callback: { ret: 'void', args: ['pointer'] },
+    orc_set_async_task_callback: { ret: 'void', args: ['pointer'] },
     orc_get_threading_info: { ret: 'number', args: [] },
-    orc_get_progress_mailbox: { ret: 'number', args: [] },
+    orc_get_async_task_mailbox: { ret: 'number', args: [] },
+    orc_drain_async_task_mailbox: { ret: 'number', args: [] },
+    orc_check_serial_admission: { ret: 'number', args: ['string'] },
     orc_slice: { ret: 'number', args: ['string'] },
     orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
     orc_get_slice_result: { ret: 'number', args: [] },
@@ -2279,5 +2304,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     },
     _freedPointers: freedPointers,
     get _functionRegistrations() { return functionRegistrations; },
+    _publishTaskMessage(taskId: string, message: Record<string, unknown>) {
+      publishTaskMessage(taskId, message);
+    },
   };
 }

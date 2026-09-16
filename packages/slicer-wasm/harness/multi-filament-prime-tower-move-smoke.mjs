@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -152,7 +153,8 @@ assert.ok(redoProjectionSample.stages_ms.used_slot_summary_hit > 0 ||
   redoProjectionSample.stages_ms.used_slot_summary_delta > 0, JSON.stringify(redoProjectionSample));
 
 const thirdRevision = session().input_revisions[thirdPlate];
-const thirdSlice = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);
+const thirdSlice = await callAsyncTask(callJson, 'orc_slice_plate',
+  ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);
 assert.equal(thirdSlice.ok, true, JSON.stringify(thirdSlice));
 assert.equal(callJson('orc_get_slice_result').ok, true);
 const previewBefore = callJson('orc_history_restore_diagnostics');
@@ -277,7 +279,8 @@ assert.deepEqual(modelShape(), mixedModelAfter);
 assert.deepEqual({ x: projectArray('wipe_tower_x'), y: projectArray('wipe_tower_y') }, mixedTowerCoordinates);
 
 const targetRevision = session().input_revisions[secondPlate];
-assert.equal(callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', secondPlate, targetRevision]).ok, true);
+assert.equal((await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', secondPlate, targetRevision])).ok, true);
 assert.equal(callJson('orc_get_slice_result').ok, true);
 assert.ok(callJson('orc_history_restore_diagnostics').previewResultId > 0);
 assert.equal(request('orc_move_prime_tower', { version: 1, plate_id: secondPlate, revision: targetRevision, x: 30, y: 30 }).ok, true);

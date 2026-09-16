@@ -495,7 +495,7 @@ target_link_options(orca_slice PRIVATE
   # cross via _malloc/_free + HEAPU8 views) requires the JS side to see the
   # heap view; the bridge smoke stages model bytes through it.
   # addFunction/removeFunction: the progress-callback handoff (orc_
-  # set_progress_callback takes a JS function via the wasm function table;
+  # set_async_task_callback takes a JS function via the wasm function table;
   # ALLOW_TABLE_GROWTH above makes dynamic allocation safe).
   # getExceptionMessage: M4 diag — decodes a CppException's excPtr into the
   # thrown type name (bridge probe); kept in the export list for CI probes.

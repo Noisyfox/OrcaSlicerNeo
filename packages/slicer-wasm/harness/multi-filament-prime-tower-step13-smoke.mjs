@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -167,10 +168,10 @@ assert.equal(projection.plates[0].eligible, true, JSON.stringify(projection));
 
 // Slice-time advisory warnings are returned with successful slice results;
 // deliberately exercise each accepted tower collision class independently.
-function sliceCurrentPlate() {
+async function sliceCurrentPlate() {
   const current = assertNoPlateCoordinates();
-  const result = callJson('orc_slice_plate', ['string', 'string', 'number'], ['{}', current.current_plate_id,
-    current.input_revisions[current.current_plate_id]]);
+  const result = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+    ['{}', current.current_plate_id, current.input_revisions[current.current_plate_id]]);
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.ok(Array.isArray(result.warnings), JSON.stringify(result));
   return result;
@@ -181,24 +182,25 @@ let current = assertNoPlateCoordinates();
 const moved = request('orc_move_prime_tower', { version: 1, plate_id: current.current_plate_id,
   revision: current.input_revisions[current.current_plate_id], x: 105, y: 128 });
 assert.equal(moved.ok, true, JSON.stringify(moved));
-const modelSlice = sliceCurrentPlate();
+const modelSlice = await sliceCurrentPlate();
 assert.ok(modelSlice.warnings.includes('Prime Tower intersects a model.'), JSON.stringify(modelSlice));
 
 assert.equal(setProject('bed_exclude_area', collisionArea).ok, true);
-const exclusionSlice = sliceCurrentPlate();
+const exclusionSlice = await sliceCurrentPlate();
 assert.ok(exclusionSlice.warnings.includes('Prime Tower intersects an exclusion area.'), JSON.stringify(exclusionSlice));
 const combinedPlate = assertNoPlateCoordinates();
-const combinedCollisionAndInvalidConfig = callJson('orc_slice_plate', ['string', 'string', 'number'],
+const combinedCollisionAndInvalidConfig = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
   [JSON.stringify({ nozzle_temperature: [1, 2] }), combinedPlate.current_plate_id,
     combinedPlate.input_revisions[combinedPlate.current_plate_id]]);
 assert.notEqual(combinedCollisionAndInvalidConfig.ok, true, JSON.stringify(combinedCollisionAndInvalidConfig));
 
 assert.equal(setProject('wrapping_exclude_area', collisionArea).ok, true);
-const wrappingSlice = sliceCurrentPlate();
+const wrappingSlice = await sliceCurrentPlate();
 assert.ok(wrappingSlice.warnings.includes('Prime Tower intersects a wrapping-detection area.'), JSON.stringify(wrappingSlice));
 
 // Unrelated native validation remains a hard error.
-const hardError = callJson('orc_slice', ['string'], [JSON.stringify({ nozzle_temperature: [1, 2] })]);
+const hardError = await callAsyncTask(callJson, 'orc_slice', ['string'],
+  [JSON.stringify({ nozzle_temperature: [1, 2] })]);
 assert.notEqual(hardError.ok, true, JSON.stringify(hardError));
 
 console.log(JSON.stringify({ ok: true, historyEntries: colourCommit.undoEntries.length,

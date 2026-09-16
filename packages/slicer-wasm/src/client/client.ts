@@ -22,7 +22,7 @@ import type {
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
   MergeObjectsResult, SeparateInstancesResult, AddInstanceResult, RemoveInstanceResult, VolumeType,
   ClientToolpath, ToolpathFeature, ModelTransform,
-  ProgressMailbox, ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
+  ReadLogResult, PreviewMetadata, PreviewToolpathMetrics,
   PreviewAnalysis, PreviewMetricKey,
   PreviewTextChunk, PreviewTextChunkRequest,
   PreviewTextLines, PreviewTextLinesRequest,
@@ -1120,12 +1120,32 @@ export function normalizeRestoreImpact(raw: unknown): import('./history').Restor
   return value as unknown as import('./history').RestoreImpact;
 }
 
+const clientAdmissionChecks = new WeakMap<SlicerClient,
+  (observedEpoch: string) => Promise<Record<string, unknown>>>();
+
+/** Worker-only dispatcher which applies the authoritative serial bridge gate. */
+export async function dispatchClientRequest(
+  client: SlicerClient, operation: string, args: unknown[],
+  observedSerialEpoch: string, restricted: boolean,
+): Promise<unknown> {
+  if (restricted) {
+    const check = clientAdmissionChecks.get(client);
+    if (check) {
+      const admitted = await check(observedSerialEpoch);
+      if (admitted.ok !== true) return admitted;
+    }
+  }
+  const method = (client as unknown as Record<string, (...values: unknown[]) => unknown>)[operation];
+  if (typeof method !== 'function') throw new Error(`unknown op: ${operation}`);
+  return method.apply(client, args);
+}
+
 export function createClient(
   moduleFactory: OrcaModuleFactory,
   onBridgeProgress?: (percent: number, text: string) => void,
-  onProgressMailbox?: (mailbox: ProgressMailbox) => void,
   beforeInit?: (module: OrcaModule) => Promise<void>,
   onBridgeProjectClosed?: ProjectClosedCallback,
+  onRuntimeState?: (state: { threaded: boolean; serialTerminalEpoch: string }) => void,
 ): SlicerClient {
   let modulePromise: Promise<OrcaModule> | null = null;
   // beforeInit (profile installation in the worker) runs once per client:
@@ -1134,40 +1154,140 @@ export function createClient(
   // install clears the memo so a later init can retry.
   let beforeInitPromise: Promise<void> | null = null;
   const progressListeners = new Set<(percent: number, text: string) => void>();
+  type TaskMessage = {
+    type: 'progress' | 'task-terminal'; sequence: string; task_id: string; kind: string;
+    plate_id?: string; entry_incarnation?: string; percent?: number; text?: string;
+    terminal?: string; result?: unknown;
+  };
+  const pendingSliceTasks = new Map<string, {
+    plateId: string; incarnation: string;
+    resolve: (result: SliceResultStatus) => void;
+  }>();
+  const terminalSliceResults = new Map<string, SliceResultStatus>();
+  let lastTaskMessageSequence = 0n;
+  let asyncWake: { buffer: SharedArrayBuffer; byteOffset: number; sequence: number } | undefined;
+  let asyncWakeTimer: ReturnType<typeof setInterval> | undefined;
+  let activeModule: OrcaModule | undefined;
+  let drainingTaskMessages = false;
+  let runtimeThreaded = false;
+  let serialTerminalEpoch = 0n;
+  let serialSliceAdmissionInProgress = false;
+
+  function handleTaskMessage(raw: unknown): void {
+    if (!raw || typeof raw !== 'object') return;
+    const message = raw as Partial<TaskMessage>;
+    if (typeof message.sequence !== 'string' || typeof message.task_id !== 'string' ||
+        typeof message.kind !== 'string' ||
+        (message.type !== 'progress' && message.type !== 'task-terminal')) return;
+    let sequence: bigint;
+    try { sequence = BigInt(message.sequence); } catch { return; }
+    if (sequence <= lastTaskMessageSequence) return;
+    lastTaskMessageSequence = sequence;
+
+    const pending = pendingSliceTasks.get(message.task_id);
+    const identityMatches = message.kind !== 'slice' ||
+      (pending !== undefined && message.plate_id === pending.plateId &&
+        message.entry_incarnation === pending.incarnation) ||
+      (pending === undefined && message.type === 'task-terminal') ||
+      (!runtimeThreaded && serialSliceAdmissionInProgress);
+    if (!identityMatches) return;
+    if (message.type === 'progress') {
+      // A slice record without the currently accepted task identity is a late
+      // delivery from a superseded task. The serial producer is the one
+      // exception: Print::process() and its callbacks run before the accepted
+      // envelope returns, so that admission window is explicitly tracked.
+      if (message.kind === 'slice' && pending === undefined &&
+          (runtimeThreaded || !serialSliceAdmissionInProgress)) return;
+      if (typeof message.percent !== 'number' || typeof message.text !== 'string') return;
+      for (const listener of progressListeners) listener(message.percent, message.text);
+      onBridgeProgress?.(message.percent, message.text);
+      return;
+    }
+    if (message.kind !== 'slice') return;
+    const result = normalizeSliceResultStatus(message.result);
+    if (!runtimeThreaded) {
+      serialTerminalEpoch += 1n;
+      onRuntimeState?.({ threaded: false, serialTerminalEpoch: serialTerminalEpoch.toString() });
+    }
+    if (pending) {
+      pendingSliceTasks.delete(message.task_id);
+      pending.resolve(result);
+    } else {
+      terminalSliceResults.set(message.task_id, result);
+    }
+  }
+
+  function drainTaskMessages(m = activeModule): void {
+    if (!m || drainingTaskMessages) return;
+    drainingTaskMessages = true;
+    try {
+      const drained = callJson(m, 'orc_drain_async_task_mailbox', [], []) as {
+        ok?: boolean; messages?: unknown[];
+      };
+      if (drained.ok && Array.isArray(drained.messages))
+        drained.messages.forEach(handleTaskMessage);
+    } finally {
+      drainingTaskMessages = false;
+    }
+  }
+
+  function awaitSliceTask(accepted: Record<string, unknown>): Promise<SliceResultStatus> {
+    const taskId = typeof accepted.task_id === 'string' ? accepted.task_id : '';
+    const plateId = typeof accepted.plate_id === 'string' ? accepted.plate_id : '';
+    const incarnation = typeof accepted.entry_incarnation === 'string' ? accepted.entry_incarnation : '';
+    if (!taskId || !plateId || !incarnation)
+      return Promise.resolve(normalizeSliceResultStatus({ error: 'malformed slice task acceptance' }));
+    const terminal = terminalSliceResults.get(taskId);
+    if (terminal) {
+      terminalSliceResults.delete(taskId);
+      return Promise.resolve(terminal);
+    }
+    return new Promise((resolve) => {
+      pendingSliceTasks.set(taskId, { plateId, incarnation, resolve });
+      drainTaskMessages();
+    });
+  }
 
   async function module(): Promise<OrcaModule> {
     if (!modulePromise) {
       modulePromise = moduleFactory({ noInitialRun: true }).then((m) => {
+        activeModule = m;
         // Use the regular JSON bridge decoder instead of ccall('string') so
         // wasm64 and the mock module share the same pointer contract.
         const threading = callJson(m, 'orc_get_threading_info', [], []) as {
-          threaded?: boolean;
+          threaded?: boolean; serial_terminal_epoch?: string;
+        };
+        runtimeThreaded = threading.threaded === true;
+        try { serialTerminalEpoch = BigInt(threading.serial_terminal_epoch ?? '0'); }
+        catch { serialTerminalEpoch = 0n; }
+        onRuntimeState?.({ threaded: runtimeThreaded,
+          serialTerminalEpoch: serialTerminalEpoch.toString() });
+        const mailbox = callJson(m, 'orc_get_async_task_mailbox', [], []) as {
+          ok?: boolean; byte_offset?: number;
         };
         if (threading.threaded) {
-          const mailbox = callJson(m, 'orc_get_progress_mailbox', [], []) as {
-            ok?: boolean; byte_offset?: number; text_capacity?: number;
-          };
           const buffer = m.HEAPU8.buffer;
           if (mailbox.ok && buffer instanceof SharedArrayBuffer &&
-              Number.isSafeInteger(mailbox.byte_offset) &&
-              Number.isSafeInteger(mailbox.text_capacity)) {
-            onProgressMailbox?.({
-              buffer,
-              byteOffset: Number(mailbox.byte_offset),
-              textCapacity: Number(mailbox.text_capacity),
-            });
+              Number.isSafeInteger(mailbox.byte_offset)) {
+            asyncWake = { buffer, byteOffset: Number(mailbox.byte_offset), sequence: -1 };
+            asyncWakeTimer = setInterval(() => {
+              if (!asyncWake) return;
+              const words = new Int32Array(asyncWake.buffer, asyncWake.byteOffset, 4);
+              const before = Atomics.load(words, 0);
+              if ((before & 1) !== 0 || before === asyncWake.sequence) return;
+              if (before !== Atomics.load(words, 0)) return;
+              asyncWake.sequence = before;
+              drainTaskMessages(m);
+            }, 20);
           }
           return m;
         }
 
-        // Register the serial progress callback ONCE and never remove it:
-        // the bridge's g_progress is a raw fn ptr with no clear path.
-        const cb = m.addFunction((pct: unknown, text: unknown) => {
-          const msg = m.UTF8ToString(Number(text));
-          for (const l of progressListeners) l(Number(pct), msg);
-          onBridgeProgress?.(Number(pct), msg);
-        }, 'vij');
-        m.ccall('orc_set_progress_callback', 'void', ['pointer'], [cb]);
+        // Serial producers notify after enqueue. Re-enter only the FIFO drain;
+        // the mailbox mutex has already been released and no task state is
+        // mutated by the callback itself.
+        const cb = m.addFunction(() => drainTaskMessages(m), 'v');
+        m.ccall('orc_set_async_task_callback', 'void', ['pointer'], [cb]);
         return m;
       });
     }
@@ -1253,7 +1373,7 @@ export function createClient(
     }
   }
 
-  return {
+  const client: SlicerClient = {
     async init(): Promise<InitResult> {
       const m = await module();
       if (!beforeInitPromise) {
@@ -1528,6 +1648,7 @@ export function createClient(
             ? { projectConfigOverlay: r.project_config_overlay as ProjectConfigOverlay } : {}),
         };
       } finally {
+        drainTaskMessages(m);
         m._free(ptr);
         if (onProgress) progressListeners.delete(onProgress);
       }
@@ -1573,6 +1694,7 @@ export function createClient(
           })() : {}),
         };
       } finally {
+        drainTaskMessages(m);
         m._free(ptr);
         if (onProgress) progressListeners.delete(onProgress);
       }
@@ -1750,7 +1872,16 @@ export function createClient(
       // progress even with no listener attached; here we just subscribe.
       if (onProgress) progressListeners.add(onProgress);
       try {
-        return normalizeSliceResultStatus(callJson(m, 'orc_slice', ['string'], [JSON.stringify(config)]));
+        if (!runtimeThreaded) serialSliceAdmissionInProgress = true;
+        let raw: unknown;
+        try {
+          raw = callJson(m, 'orc_slice', ['string'], [JSON.stringify(config)]);
+        } finally {
+          serialSliceAdmissionInProgress = false;
+        }
+        if (isRecord(raw) && raw.accepted === true) return await awaitSliceTask(raw);
+        drainTaskMessages(m);
+        return normalizeSliceResultStatus(raw);
       } finally {
         if (onProgress) progressListeners.delete(onProgress);
       }
@@ -1760,9 +1891,18 @@ export function createClient(
       const m = await module();
       if (onProgress) progressListeners.add(onProgress);
       try {
-        return normalizeSliceResultStatus(callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
-          JSON.stringify(config), target.plateId, target.inputRevision,
-        ]));
+        if (!runtimeThreaded) serialSliceAdmissionInProgress = true;
+        let raw: unknown;
+        try {
+          raw = callJson(m, 'orc_slice_plate', ['string', 'string', 'number'], [
+            JSON.stringify(config), target.plateId, target.inputRevision,
+          ]);
+        } finally {
+          serialSliceAdmissionInProgress = false;
+        }
+        if (isRecord(raw) && raw.accepted === true) return await awaitSliceTask(raw);
+        drainTaskMessages(m);
+        return normalizeSliceResultStatus(raw);
       } finally {
         if (onProgress) progressListeners.delete(onProgress);
       }
@@ -2150,4 +2290,9 @@ export function createClient(
       return callJson(m, 'orc_cancel', [], []) as CancelResult;
     },
   };
+  clientAdmissionChecks.set(client, async (observedEpoch) => {
+    const m = await module();
+    return callJson(m, 'orc_check_serial_admission', ['string'], [observedEpoch]) as Record<string, unknown>;
+  });
+  return client;
 }

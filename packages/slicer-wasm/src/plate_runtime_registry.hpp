@@ -137,6 +137,9 @@ public:
     bool can_publish_completed_job(const JobLease& lease,
                                    std::uint64_t current_revision) const noexcept;
     bool has_active_job(std::string_view plate_id) const noexcept;
+    // Request cancellation of the exact live or retired entry held by a job
+    // lease.  This is non-blocking and never waits for Print::process().
+    bool request_job_cancellation(const JobLease& lease) noexcept;
     // Cancellation is deliberately a separate, non-blocking operation after
     // the persistent deletion commits. Only retired leased incarnations are
     // addressable; live entries and restored same-id entries cannot be hit.

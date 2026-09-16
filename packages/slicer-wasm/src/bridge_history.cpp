@@ -1039,8 +1039,7 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
     // History never retains slice products. A Prime Tower restore always
     // invalidates the target plate if it is the currently retained result;
     // an unrelated plate's real result is left untouched.
-    if (auto* entry = state().plate_runtime_registry.find(frame.plate_id); entry != nullptr)
-        Neo::Bridge::PlateRuntimeRegistry::mark_presentation_invalid(*entry);
+    state().plate_runtime_registry.invalidate_presentations({frame.plate_id});
     if (state().preview_plate_id == frame.plate_id) {
         // This is deliberately after commit_restore but cannot throw: the
         // history cursor must not advance without the target result becoming

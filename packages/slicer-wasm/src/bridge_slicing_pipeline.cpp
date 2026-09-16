@@ -1,8 +1,8 @@
 // ----------------------------------------------------------------
 // Slicing, progress, preview, G-code, and threading bridge pipeline.
 //
-// The C ABI and JSON/buffer ownership remain unchanged; this translation unit
-// only owns the slice/result pipeline and its progress transport.
+// This translation unit owns the slice/result pipeline and its asynchronous
+// task transport; renderer-facing client results remain promise-compatible.
 // ----------------------------------------------------------------
 #include <emscripten/emscripten.h>
 
@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <condition_variable>
+#include <deque>
 #include <fstream>
 #include <limits>
 #include <memory>
@@ -21,6 +23,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "bridge_buffers.hpp"
@@ -59,16 +62,20 @@ const char* error_json(const std::string& msg) {
     return dup_json(json{{"error", msg}}.dump());
 }
 
-const char* error_json_from_exception(const std::exception& e) {
+std::string error_message_from_exception(const std::exception& e) {
     if (const auto* se = dynamic_cast<const SlicingErrors*>(&e); se != nullptr) {
         std::string joined;
         for (const auto& err : se->errors_) {
             if (!joined.empty()) joined += "\n";
             joined += err.what();
         }
-        if (!joined.empty()) return error_json(joined);
+        if (!joined.empty()) return joined;
     }
-    return error_json(e.what());
+    return e.what();
+}
+
+const char* error_json_from_exception(const std::exception& e) {
+    return error_json(error_message_from_exception(e));
 }
 
 template <class Config>
@@ -152,108 +159,150 @@ void invalidate_preview_source()
 }
 
 extern "C" {
-using progress_fn = void (*)(int, const char*);
-progress_fn g_progress = nullptr;
+using async_task_notify_fn = void (*)();
 
-// Threaded status transport -------------------------------------------------
-//
-// oneTBB can call Print's status callback from any pthread. Do not call a
-// JS function-table entry from there: dynamically-grown tables are not shared
-// reliably by Chromium's per-pthread Wasm instances. Instead publish the
-// latest status in this fixed shared-memory mailbox. The renderer reads it
-// directly while the module worker is blocked in orc_slice(). See
-// doc/2026-08-18-threaded-progress-mailbox-design.md.
-constexpr std::size_t k_progress_text_capacity = 512;
-struct alignas(4) ProgressMailbox {
+// The shared-memory structure is only a wake signal. Task lifecycle data is
+// retained in the C++ FIFO below and drained exactly once on the stateful
+// Worker. The task id is split into high/low words so wasm64 identities never
+// pass through a lossy JavaScript number.
+struct alignas(4) AsyncTaskWakeMailbox {
     std::atomic<std::uint32_t> sequence{0}; // odd while a writer owns it
-    std::atomic<std::uint32_t> percent{0};
-    std::atomic<std::uint32_t> text_length{0};
-    std::uint32_t reserved{0};
-    std::array<char, k_progress_text_capacity> text{};
+    std::atomic<std::uint32_t> wake_sequence{0};
+    std::atomic<std::uint32_t> task_id_low{0};
+    std::atomic<std::uint32_t> task_id_high{0};
 };
 static_assert(sizeof(std::atomic<std::uint32_t>) == sizeof(std::uint32_t));
-static_assert(offsetof(ProgressMailbox, sequence) == 0);
-static_assert(offsetof(ProgressMailbox, percent) == 4);
-static_assert(offsetof(ProgressMailbox, text_length) == 8);
-static_assert(offsetof(ProgressMailbox, text) == 16);
+static_assert(offsetof(AsyncTaskWakeMailbox, sequence) == 0);
+static_assert(offsetof(AsyncTaskWakeMailbox, wake_sequence) == 4);
+static_assert(offsetof(AsyncTaskWakeMailbox, task_id_low) == 8);
+static_assert(offsetof(AsyncTaskWakeMailbox, task_id_high) == 12);
 
-ProgressMailbox g_progress_mailbox;
-std::mutex g_progress_mailbox_mutex;
-bool g_progress_open = false;
+struct AsyncTaskMessage {
+    std::uint64_t sequence = 0;
+    std::uint64_t task_id = 0;
+    json payload;
+};
 
-void publish_progress_locked(int percent, std::string_view text)
+constexpr std::size_t k_async_task_mailbox_capacity = 8192;
+AsyncTaskWakeMailbox g_async_task_wake_mailbox;
+std::mutex g_async_task_wake_mutex;
+std::mutex g_async_task_mailbox_mutex;
+std::condition_variable g_async_task_mailbox_not_full;
+std::deque<AsyncTaskMessage> g_async_task_messages;
+std::uint64_t g_next_async_task_message_sequence = 1;
+async_task_notify_fn g_async_task_notify = nullptr;
+
+struct ForegroundProgressTask {
+    std::uint64_t id = 0;
+    std::string kind;
+};
+std::mutex g_foreground_progress_mutex;
+std::optional<ForegroundProgressTask> g_foreground_progress_task;
+
+std::uint64_t allocate_async_task_id()
 {
-    // The sequence brackets all non-atomic text writes. Readers retry if it
-    // changes or is odd, so they never render a partially copied UTF-8 value.
-    const std::uint32_t odd =
-        g_progress_mailbox.sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
-    const auto clamped = static_cast<std::uint32_t>(std::clamp(percent, 0, 100));
-    std::size_t len = std::min(text.size(), k_progress_text_capacity - 1);
-    // If the next omitted byte is a continuation, remove the partial code
-    // point that began before the truncation boundary.
-    while (len > 0 && len < text.size() &&
-           (static_cast<unsigned char>(text[len]) & 0xc0u) == 0x80u)
-        --len;
-    std::memcpy(g_progress_mailbox.text.data(), text.data(), len);
-    g_progress_mailbox.text[len] = '\0';
-    g_progress_mailbox.percent.store(clamped, std::memory_order_relaxed);
-    g_progress_mailbox.text_length.store(static_cast<std::uint32_t>(len), std::memory_order_relaxed);
-    g_progress_mailbox.sequence.store(odd + 1, std::memory_order_release);
+    auto& next = state().next_async_task_id;
+    if (next == std::numeric_limits<std::uint64_t>::max())
+        throw std::overflow_error("asynchronous task id allocator exhausted");
+    return next++;
 }
 
-void notify_progress(int percent, std::string_view text)
+void signal_async_task_mailbox(const std::uint64_t task_id)
 {
-#ifndef ORCA_WASM_THREADING
-    if (g_progress) {
-        const std::string owned_text(text);
-        g_progress(percent, owned_text.c_str());
+    {
+        // The stateful Worker and a job pthread may enqueue concurrently.
+        // Serialize wake writers so the seqlock is always odd for the entire
+        // payload write and returns to one strictly newer even generation.
+        std::lock_guard<std::mutex> lock(g_async_task_wake_mutex);
+        const std::uint32_t odd =
+            g_async_task_wake_mailbox.sequence.fetch_add(1, std::memory_order_acq_rel) + 1;
+        g_async_task_wake_mailbox.wake_sequence.fetch_add(1, std::memory_order_relaxed);
+        g_async_task_wake_mailbox.task_id_low.store(
+            static_cast<std::uint32_t>(task_id & 0xffffffffu), std::memory_order_relaxed);
+        g_async_task_wake_mailbox.task_id_high.store(
+            static_cast<std::uint32_t>(task_id >> 32), std::memory_order_relaxed);
+        g_async_task_wake_mailbox.sequence.store(odd + 1, std::memory_order_release);
     }
-#else
-    (void)percent;
-    (void)text;
+#ifndef ORCA_WASM_THREADING
+    if (g_async_task_notify != nullptr) g_async_task_notify();
 #endif
+}
+
+void enqueue_async_task_message(const std::uint64_t task_id, json payload)
+{
+    {
+        std::unique_lock<std::mutex> lock(g_async_task_mailbox_mutex);
+        g_async_task_mailbox_not_full.wait(lock, [] {
+            return g_async_task_messages.size() < k_async_task_mailbox_capacity;
+        });
+        payload["task_id"] = std::to_string(task_id);
+        g_async_task_messages.push_back(
+            {g_next_async_task_message_sequence++, task_id, std::move(payload)});
+    }
+    signal_async_task_mailbox(task_id);
+}
+
+void enqueue_task_progress(const std::uint64_t task_id, const std::string_view kind,
+                           const int percent, const std::string_view text,
+                           const std::string_view plate_id = {},
+                           const std::uint64_t incarnation_id = 0)
+{
+    json message{{"type", "progress"}, {"kind", kind},
+                 {"percent", std::clamp(percent, 0, 100)}, {"text", text}};
+    if (!plate_id.empty()) message["plate_id"] = plate_id;
+    if (incarnation_id != 0)
+        message["entry_incarnation"] = std::to_string(incarnation_id);
+    enqueue_async_task_message(task_id, std::move(message));
+}
+
+void enqueue_task_terminal(const std::uint64_t task_id, const std::string_view kind,
+                           const std::string_view terminal, json result,
+                           const std::string_view plate_id = {},
+                           const std::uint64_t incarnation_id = 0)
+{
+    json message{{"type", "task-terminal"}, {"kind", kind},
+                 {"terminal", terminal}, {"result", std::move(result)}};
+    if (!plate_id.empty()) message["plate_id"] = plate_id;
+    if (incarnation_id != 0)
+        message["entry_incarnation"] = std::to_string(incarnation_id);
+    enqueue_async_task_message(task_id, std::move(message));
 }
 
 void begin_progress(std::string_view text)
 {
-    {
-        std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
-        g_progress_open = true;
-    }
-    publish_slicer_progress(0, text);
+    std::lock_guard<std::mutex> lock(g_foreground_progress_mutex);
+    const std::uint64_t task_id = allocate_async_task_id();
+    g_foreground_progress_task = ForegroundProgressTask{task_id, "project-load"};
+    enqueue_task_progress(task_id, "project-load", 0, text);
 }
 
 void publish_slicer_progress(int percent, std::string_view text)
 {
-    bool active = false;
-    {
-        std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
-        active = g_progress_open;
-        if (active)
-            publish_progress_locked(percent, text);
-    }
-    if (active)
-        notify_progress(percent, text);
+    std::lock_guard<std::mutex> lock(g_foreground_progress_mutex);
+    if (g_foreground_progress_task)
+        enqueue_task_progress(g_foreground_progress_task->id,
+                              g_foreground_progress_task->kind, percent, text);
 }
 
 void finish_progress(std::string_view text)
 {
-    {
-        std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
-        // Close before the terminal write. A status callback that reaches us
-        // later must acquire this same mutex and therefore cannot overwrite
-        // 100%.
-        g_progress_open = false;
-        publish_progress_locked(100, text);
-    }
-    notify_progress(100, text);
+    std::lock_guard<std::mutex> lock(g_foreground_progress_mutex);
+    if (!g_foreground_progress_task) return;
+    const auto task = *g_foreground_progress_task;
+    g_foreground_progress_task.reset();
+    enqueue_task_progress(task.id, task.kind, 100, text);
+    enqueue_task_terminal(task.id, task.kind, "completed", json{{"ok", true}});
 }
 
 void stop_progress()
 {
-    std::lock_guard<std::mutex> lock(g_progress_mailbox_mutex);
-    g_progress_open = false;
+    std::lock_guard<std::mutex> lock(g_foreground_progress_mutex);
+    if (!g_foreground_progress_task) return;
+    const auto task = *g_foreground_progress_task;
+    g_foreground_progress_task.reset();
+    enqueue_task_terminal(task.id, task.kind, "failed", json{{"error", "task failed"}});
 }
+} // extern "C"
 
 PlateRuntimeRegistry::Entry* runtime_entry_for_plate(const std::string& plate_id,
                                                       std::string& error)
@@ -284,41 +333,304 @@ json projection_receipt(const PlateRuntimeRegistry::Entry& entry)
                 {"slice_task_id", std::to_string(entry.completed_slice_task_id.value_or(0))}};
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_get_progress_mailbox()
+struct SliceTask {
+    SliceTask(const std::uint64_t task_id_, std::string plate_id_,
+              const std::uint64_t revision_, PlateRuntimeRegistry::JobLease lease_)
+        : task_id(task_id_), plate_id(std::move(plate_id_)), revision(revision_),
+          incarnation_id(lease_.entry().incarnation_id), lease(std::move(lease_))
+    {}
+
+    std::uint64_t task_id;
+    std::string plate_id;
+    std::uint64_t revision;
+    std::uint64_t incarnation_id;
+    PlateRuntimeRegistry::JobLease lease;
+    json unrecognized_keys = json::array();
+    json warnings = json::array();
+};
+
+struct PendingSliceRequest {
+    std::uint64_t task_id = 0;
+    std::string config_json;
+    std::string plate_id;
+    std::uint64_t entry_incarnation = 0;
+};
+
+std::mutex g_slice_job_mutex;
+std::shared_ptr<SliceTask> g_active_slice_task;
+std::optional<PendingSliceRequest> g_pending_slice_request;
+std::uint64_t g_serial_terminal_epoch = 0;
+
+void start_pending_slice_if_any();
+
+json slice_task_acceptance(const std::uint64_t task_id, const std::string_view plate_id,
+                           const std::uint64_t incarnation_id)
 {
-    return dup_json(json{{"ok", true},
-                         {"byte_offset", reinterpret_cast<std::uintptr_t>(&g_progress_mailbox)},
-                         {"text_capacity", k_progress_text_capacity}}.dump());
+    return json{{"accepted", true}, {"kind", "slice"},
+                {"task_id", std::to_string(task_id)}, {"plate_id", plate_id},
+                {"entry_incarnation", std::to_string(incarnation_id)}};
 }
 
-EMSCRIPTEN_KEEPALIVE void orc_set_progress_callback(progress_fn cb) {
+void release_active_slice_task(const std::shared_ptr<SliceTask>& task)
+{
+    std::lock_guard<std::mutex> lock(g_slice_job_mutex);
+    if (g_active_slice_task == task) {
+        g_active_slice_task.reset();
+#ifndef ORCA_WASM_THREADING
+        ++g_serial_terminal_epoch;
+#endif
+    }
+}
+
+std::pair<std::string, json> finalize_slice_task(
+    const std::shared_ptr<SliceTask>& task, const std::string_view process_outcome,
+    const std::string_view process_error)
+{
+    auto& registry = state().plate_runtime_registry;
+    const bool cancelled = registry.cancellation_requested(task->lease);
+    if (process_outcome != "completed" || cancelled) {
+        registry.mark_process_failed(task->lease);
+        if (cancelled) task->lease.entry().print->restart();
+        invalidate_preview_source();
+        const std::string terminal = cancelled ? "cancelled" : "failed";
+        const std::string error = cancelled ? "slice cancelled" :
+            (process_error.empty() ? "slice failed" : std::string(process_error));
+        release_active_slice_task(task);
+        return {terminal, json{{"error", error}}};
+    }
+
+    const std::uint64_t current_revision = current_input_revision_for_plate(task->plate_id);
+    const bool live_completion = registry.mark_process_completed(
+        task->lease, task->revision, current_revision);
+    if (!live_completion || !registry.can_publish_completed_job(task->lease, current_revision)) {
+        invalidate_preview_source();
+        release_active_slice_task(task);
+        return {"stale", json{{"error", "plate slice result is stale or unavailable"}}};
+    }
+
+    auto& entry = task->lease.entry();
+    state().preview_plate_id = task->plate_id;
+    state().preview_plate_revision = task->revision;
+    json result{{"ok", true}, {"unrecognized_keys", task->unrecognized_keys},
+                {"warnings", task->warnings}, {"receipt", projection_receipt(entry)}};
+    release_active_slice_task(task);
+    return {"completed", std::move(result)};
+}
+
+std::optional<std::pair<std::string, json>> run_slice_process(
+    const std::shared_ptr<SliceTask>& task)
+{
+    auto& print = *task->lease.entry().print;
+    std::string outcome = "completed";
+    std::string error;
+    try {
 #ifdef ORCA_WASM_THREADING
-    // Deliberately ignore raw callbacks in a pthread module. The mailbox above
-    // is the only safe threaded transport, including for direct bridge users.
+        state().tbb_arena.execute([&] { print.process(); });
+#else
+        print.process();
+#endif
+        enqueue_task_progress(task->task_id, "slice", 100, "Slice complete",
+                              task->plate_id, task->incarnation_id);
+    } catch (const std::exception& e) {
+        outcome = "failed";
+        error = error_message_from_exception(e);
+    } catch (...) {
+        outcome = "failed";
+        error = "unknown exception";
+    }
+    print.set_status_default();
+
+#ifdef ORCA_WASM_THREADING
+    enqueue_async_task_message(task->task_id,
+        json{{"type", "native-task-terminal"}, {"kind", "slice"},
+             {"outcome", outcome}, {"error", error}, {"plate_id", task->plate_id},
+             {"entry_incarnation", std::to_string(task->incarnation_id)}});
+    return std::nullopt;
+#else
+    auto terminal_result = finalize_slice_task(task, outcome, error);
+    const auto& [terminal, result] = terminal_result;
+    enqueue_task_terminal(task->task_id, "slice", terminal, result,
+                          task->plate_id, task->incarnation_id);
+    return terminal_result;
+#endif
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_async_task_mailbox()
+{
+    return dup_json(json{{"ok", true},
+                         {"byte_offset", reinterpret_cast<std::uintptr_t>(&g_async_task_wake_mailbox)},
+                         {"capacity", k_async_task_mailbox_capacity}}.dump());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void orc_set_async_task_callback(async_task_notify_fn cb) {
+#ifdef ORCA_WASM_THREADING
+    // Pthreads never call a JavaScript function-table entry. They only update
+    // the shared wake mailbox after appending to the C++ FIFO.
     (void)cb;
 #else
-    g_progress = cb;
+    g_async_task_notify = cb;
+#endif
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_drain_async_task_mailbox()
+{
+    std::deque<AsyncTaskMessage> messages;
+    {
+        std::lock_guard<std::mutex> lock(g_async_task_mailbox_mutex);
+        messages.swap(g_async_task_messages);
+    }
+    g_async_task_mailbox_not_full.notify_all();
+
+    json drained = json::array();
+    bool released_slice_job = false;
+    for (auto& message : messages) {
+        if (message.payload.value("type", "") == "native-task-terminal") {
+            std::shared_ptr<SliceTask> task;
+            {
+                std::lock_guard<std::mutex> lock(g_slice_job_mutex);
+                if (g_active_slice_task && g_active_slice_task->task_id == message.task_id)
+                    task = g_active_slice_task;
+            }
+            std::pair<std::string, json> terminal = task
+                ? finalize_slice_task(task, message.payload.value("outcome", "failed"),
+                                      message.payload.value("error", ""))
+                : std::pair<std::string, json>{"stale", json{{"error", "stale task terminal"}}};
+            message.payload = json{{"type", "task-terminal"}, {"kind", "slice"},
+                                   {"terminal", terminal.first},
+                                   {"result", std::move(terminal.second)},
+                                   {"plate_id", message.payload.value("plate_id", "")},
+                                   {"entry_incarnation", message.payload.value("entry_incarnation", "0")},
+                                   {"task_id", std::to_string(message.task_id)}};
+            released_slice_job = true;
+        }
+        message.payload["sequence"] = std::to_string(message.sequence);
+        drained.push_back(std::move(message.payload));
+    }
+    // The active task's terminal is already in this returned batch. Starting
+    // the one retained replacement now puts all of its messages into the next
+    // FIFO batch, preserving terminal-before-replacement ordering.
+    if (released_slice_job) start_pending_slice_if_any();
+    return dup_json(json{{"ok", true}, {"messages", std::move(drained)}}.dump());
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_check_serial_admission(const char* observed_epoch)
+{
+#ifdef ORCA_WASM_THREADING
+    (void)observed_epoch;
+    return dup_json(json{{"ok", true}}.dump());
+#else
+    try {
+        const std::uint64_t observed = observed_epoch == nullptr
+            ? std::numeric_limits<std::uint64_t>::max()
+            : std::stoull(observed_epoch);
+        std::lock_guard<std::mutex> lock(g_slice_job_mutex);
+        if (g_active_slice_task || observed != g_serial_terminal_epoch)
+            return error_json("slice_busy");
+        return dup_json(json{{"ok", true},
+                             {"terminal_epoch", std::to_string(g_serial_terminal_epoch)}}.dump());
+    } catch (...) {
+        return error_json("slice_busy");
+    }
 #endif
 }
 
 const char* slice_for_plate(const char* config_json, const std::string& plate_id,
-                            const std::uint64_t revision) {
-    std::optional<PlateRuntimeRegistry::JobLease> job_lease;
+                            const std::uint64_t revision,
+                            const std::optional<std::uint64_t> reserved_task_id = std::nullopt,
+                            const std::optional<std::uint64_t> expected_incarnation = std::nullopt) {
+    std::shared_ptr<SliceTask> task;
     try {
+#ifdef ORCA_WASM_THREADING
+        if (!reserved_task_id) {
+            std::shared_ptr<SliceTask> active;
+            std::optional<PendingSliceRequest> replaced;
+            std::uint64_t replacement_task_id = 0;
+            std::uint64_t replacement_incarnation = 0;
+            {
+                std::lock_guard<std::mutex> lock(g_slice_job_mutex);
+                if (g_active_slice_task) {
+                    auto* entry = state().plate_runtime_registry.find(plate_id);
+                    if (entry == nullptr || find_plate(plate_id) == nullptr)
+                        return error_json("plate operation target was not found");
+                    replacement_task_id = allocate_async_task_id();
+                    replacement_incarnation = entry->incarnation_id;
+                    active = g_active_slice_task;
+                    replaced = std::move(g_pending_slice_request);
+                    g_pending_slice_request = PendingSliceRequest{
+                        replacement_task_id, config_json ? config_json : "", plate_id,
+                        replacement_incarnation};
+                }
+            }
+            if (active) {
+                if (replaced) {
+                    enqueue_task_terminal(replaced->task_id, "slice", "replaced",
+                        json{{"error", "slice request was replaced by a newer explicit Slice"}},
+                        replaced->plate_id, replaced->entry_incarnation);
+                }
+                state().plate_runtime_registry.request_job_cancellation(active->lease);
+                return dup_json(slice_task_acceptance(replacement_task_id, plate_id,
+                                                      replacement_incarnation).dump());
+            }
+        }
+#endif
+        {
+            std::lock_guard<std::mutex> lock(g_slice_job_mutex);
+            if (g_active_slice_task)
+                return error_json("slice_busy");
+        }
         // Refresh membership before the operation gate.  This is read-only
         // with respect to the editing model and makes direct bridge callers
         // obey the same empty/out-of-bounds rules as the UI path.
         rebuild_plate_membership(false);
         std::string target_error;
-        if (!validate_plate_operation_target(plate_id, revision, target_error))
+        const bool replacement_target = reserved_task_id.has_value();
+        bool target_valid = false;
+        if (!replacement_target) {
+            target_valid = validate_plate_operation_target(plate_id, revision, target_error);
+        } else {
+            const auto* plate = find_plate(plate_id);
+            const auto out_of_bounds = state().plate_out_of_bounds_ids.find(plate_id);
+            bool has_member = false;
+            for (const auto& [instance_id, member_plate_id] : state().instance_plate_ids) {
+                (void)instance_id;
+                if (member_plate_id == plate_id) { has_member = true; break; }
+            }
+            if (plate == nullptr) target_error = "plate operation target was not found";
+            else if (current_input_revision_for_plate(plate_id) != revision)
+                target_error = "plate operation target is stale";
+            else if (out_of_bounds != state().plate_out_of_bounds_ids.end() &&
+                     !out_of_bounds->second.empty())
+                target_error = "current plate contains an out-of-bounds instance";
+            else if (!has_member) target_error = "current plate is empty";
+            else target_valid = true;
+        }
+        if (!target_valid) {
+            if (reserved_task_id) {
+                enqueue_task_terminal(*reserved_task_id, "slice", "not_sliceable",
+                    json{{"error", target_error}}, plate_id, expected_incarnation.value_or(0));
+            }
             return error_json(target_error);
+        }
         auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
         if (runtime_entry == nullptr)
             return error_json(target_error);
-        const std::uint64_t slice_task_id = state().next_slice_task_id++;
-        job_lease.emplace(state().plate_runtime_registry.begin_slice(
-            plate_id, slice_task_id, revision));
-        runtime_entry = &job_lease->entry();
+        if (expected_incarnation && runtime_entry->incarnation_id != *expected_incarnation) {
+            const json result{{"error", "slice replacement target incarnation is stale"}};
+            enqueue_task_terminal(*reserved_task_id, "slice", "stale", result,
+                                  plate_id, *expected_incarnation);
+            return dup_json(result.dump());
+        }
+        const std::uint64_t slice_task_id = reserved_task_id
+            ? *reserved_task_id : allocate_async_task_id();
+        task = std::make_shared<SliceTask>(slice_task_id, plate_id, revision,
+            state().plate_runtime_registry.begin_slice(plate_id, slice_task_id, revision));
+        {
+            std::lock_guard<std::mutex> lock(g_slice_job_mutex);
+            if (g_active_slice_task)
+                return error_json("slice_busy");
+            g_active_slice_task = task;
+        }
+        runtime_entry = &task->lease.entry();
         auto& print = *runtime_entry->print;
 
         // A new slice invalidates both the old toolpath and its source text
@@ -327,7 +639,8 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         // libslic3r's internal phase reporting does not promise a final 100%
         // notification (the current FDM path often ends at 75%). Establish
         // stable operation boundaries for the UI around those detailed phases.
-        begin_progress();
+        enqueue_task_progress(task->task_id, "slice", 0, "Preparing slice",
+                              task->plate_id, task->incarnation_id);
         // Start from the GUI's own baseline: real OrcaSlicer never slices on
         // bare full_print_config() defaults — it assembles the config from
         // the selected print/filament/printer presets (PresetBundle::
@@ -449,7 +762,7 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         print.is_BBL_printer() = state().presets.is_bbl_vendor();
         const auto* target_plate = find_plate(plate_id);
         if (target_plate == nullptr || target_plate->display_index < 0)
-            return error_json("plate operation target was not found");
+            throw std::invalid_argument("plate operation target was not found");
         // PartPlate binds the reusable Print before applying the complete
         // world-space Model.  The binding supplies both per-plate config
         // selection and the target BuildVolume context used by apply/process.
@@ -494,59 +807,65 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
             const bool wrapping_advisory =
                 has_tower_warning("Prime Tower intersects a wrapping-detection area.") &&
                 is_exact_diagnostic("Prime Tower is too close to clumping detection area, and collisions will be caused.");
-            if (!exclusion_advisory && !wrapping_advisory) return error_json(validation_error.string);
+            if (!exclusion_advisory && !wrapping_advisory) {
+                state().plate_runtime_registry.mark_process_failed(task->lease);
+                release_active_slice_task(task);
+                const json result{{"error", validation_error.string}};
+                enqueue_task_terminal(task->task_id, "slice", "invalid_input", result,
+                                      task->plate_id, task->incarnation_id);
+                return dup_json(result.dump());
+            }
         }
 
         // Drift at the pinned SHA: SlicingStatus is nested as
         // PrintBase::SlicingStatus (PrintBase.hpp:440), not a Slic3r-top-level
         // type — qualify it (status_callback_type is PrintBase's typedef too).
-        print.set_status_callback([&](const PrintBase::SlicingStatus& st) {
-            publish_slicer_progress(st.percent, st.text);
+        print.set_status_callback([task](const PrintBase::SlicingStatus& st) {
+            enqueue_task_progress(task->task_id, "slice", st.percent, st.text,
+                                  task->plate_id, task->incarnation_id);
         });
+        // Preserve the established public Slice result while the task-terminal
+        // message becomes the sole lifecycle authority.
+        for (const std::string& k : substitutions.unrecogized_keys)
+            task->unrecognized_keys.push_back(k);
+        task->warnings = std::move(tower_warnings);
+        try { task->warnings = Neo::Bridge::PrimeTower::slice_warnings_for_plate(plate_id); }
+        catch (...) { /* advisory warnings must never turn a successful slice into a hard error */ }
 #ifdef ORCA_WASM_THREADING
-        // Keep every libslic3r parallel_for inside the same fixed-size arena.
-        // This mirrors the known-good oneTBB probe and prevents oneTBB from
-        // trying to use more workers than Emscripten pre-created.
-        state().tbb_arena.execute([&] { print.process(); });
+        // The dedicated job pthread shares the module heap and participates in
+        // the same oneTBB arena.  The stateful Worker remains available for
+        // edits, cancellation, stamps, and mailbox draining.
+        std::thread([task] { run_slice_process(task); }).detach();
+        return dup_json(slice_task_acceptance(task->task_id, task->plate_id,
+                                              task->incarnation_id).dump());
 #else
-        print.process();
-#endif
-        print.set_status_default();
-        const std::uint64_t current_revision = current_input_revision_for_plate(plate_id);
-        const bool live_completion = state().plate_runtime_registry.mark_process_completed(
-            *job_lease, revision, current_revision);
-        finish_progress();
-        if (!live_completion ||
-            !state().plate_runtime_registry.can_publish_completed_job(
-                *job_lease, current_revision))
-            return result_unavailable_error();
         // Fix round 2: additive success field — always present, empty when the
         // config is clean. M2 clients (config UI) rely on this to warn about
         // keys the pinned libslic3r dropped (handle_legacy's catch-all).
-        json dropped = json::array();
-        for (const std::string& k : substitutions.unrecogized_keys)
-            dropped.push_back(k);
-        state().preview_plate_id = plate_id;
-        state().preview_plate_revision = revision;
-        json warnings = std::move(tower_warnings);
-        try { warnings = Neo::Bridge::PrimeTower::slice_warnings_for_plate(plate_id); }
-        catch (...) { /* advisory warnings must never turn a successful slice into a hard error */ }
-        return dup_json(json{{"ok", true}, {"unrecognized_keys", std::move(dropped)},
-                             {"warnings", std::move(warnings)},
-                             {"receipt", projection_receipt(*runtime_entry)}}.dump());
+#endif
+#ifndef ORCA_WASM_THREADING
+        run_slice_process(task);
+        return dup_json(slice_task_acceptance(task->task_id, task->plate_id,
+                                              task->incarnation_id).dump());
+#endif
     } catch (const std::exception& e) {
-        if (job_lease)
-            state().plate_runtime_registry.mark_process_failed(*job_lease);
-        stop_progress();
+        if (task) {
+            state().plate_runtime_registry.mark_process_failed(task->lease);
+            release_active_slice_task(task);
+            const json result{{"error", e.what()}};
+            enqueue_task_terminal(task->task_id, "slice", "failed", result,
+                                  task->plate_id, task->incarnation_id);
+        }
         // process() is where libslic3r throws SlicingErrors (GCode.cpp:2250);
         // the helper surfaces the per-object messages instead of the bare
         // category. This is the only bridge call that can throw it, so the
         // other catches keep plain e.what().
         return error_json_from_exception(e);
     } catch (...) {
-        if (job_lease)
-            state().plate_runtime_registry.mark_process_failed(*job_lease);
-        stop_progress();
+        if (task) {
+            state().plate_runtime_registry.mark_process_failed(task->lease);
+            release_active_slice_task(task);
+        }
         // Fix round 1: a canceled print (orc_cancel → PrintBase::cancel sets
         // CANCELED_BY_USER; only restart() clears it) makes the NEXT process()
         // abort — but the thrown type escaped the std::exception catch and
@@ -560,17 +879,47 @@ const char* slice_for_plate(const char* config_json, const std::string& plate_id
         catch (const std::string& s) { msg = s; }
         catch (const char* s) { msg = s ? s : "null"; }
         catch (...) {}
+        if (task) {
+            const json result{{"error", msg}};
+            enqueue_task_terminal(task->task_id, "slice", "failed", result,
+                                  task->plate_id, task->incarnation_id);
+        }
         return error_json(msg);
     }
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
+void start_pending_slice_if_any()
+{
+#ifdef ORCA_WASM_THREADING
+    std::optional<PendingSliceRequest> pending;
+    {
+        std::lock_guard<std::mutex> lock(g_slice_job_mutex);
+        if (g_active_slice_task || !g_pending_slice_request) return;
+        pending = std::move(g_pending_slice_request);
+        g_pending_slice_request.reset();
+    }
+    auto* entry = state().plate_runtime_registry.find(pending->plate_id);
+    if (entry == nullptr || entry->incarnation_id != pending->entry_incarnation) {
+        enqueue_task_terminal(pending->task_id, "slice", "stale",
+            json{{"error", "slice replacement target is stale or unavailable"}},
+            pending->plate_id, pending->entry_incarnation);
+        return;
+    }
+    const std::uint64_t revision = current_input_revision_for_plate(pending->plate_id);
+    const char* response = slice_for_plate(pending->config_json.c_str(), pending->plate_id,
+                                           revision, pending->task_id,
+                                           pending->entry_incarnation);
+    std::free(const_cast<char*>(response));
+#endif
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_slice(const char* config_json) {
     ensure_plate_session_state();
     const auto revision = state().plate_input_revisions[state().current_plate_id];
     return slice_for_plate(config_json, state().current_plate_id, revision);
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_slice_plate(const char* config_json,
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_slice_plate(const char* config_json,
                                                   const char* plate_id,
                                                   double revision_number) {
     try {
@@ -592,7 +941,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_slice_plate(const char* config_json,
 // once to the Worker client; that client copies each array and frees the
 // corresponding heap allocation immediately (the JSON itself is freed by the
 // normal callJson path).
-EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
     PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
     try {
         ensure_plate_session_state();
@@ -807,7 +1156,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
 // complete text. `offset` and `length` are doubles at the Emscripten ABI so
 // wasm32/wasm64 callers share one signature; both are validated as exact,
 // non-negative integers before conversion.
-EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_id_number,
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_id_number,
                                                       double offset_number,
                                                       double length_number) {
     try {
@@ -895,7 +1244,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_id_number,
 // Read a seekable bounded page of complete source lines. The line-end table
 // stays in the bridge's current result; only the requested bytes cross the
 // seam, so late-line inspection never walks or copies the preceding file.
-EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(double result_id_number,
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(double result_id_number,
                                                       double start_line_number,
                                                       double line_count_number) {
     try {
@@ -986,7 +1335,7 @@ const char* export_gcode_for_target(const std::string& plate_id,
     }
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
     PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
     try {
         ensure_plate_session_state();
@@ -1012,7 +1361,7 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
     }
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* plate_id,
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* plate_id,
                                                          double revision_number) {
     try {
         if (!plate_id || !std::isfinite(revision_number) || revision_number < 0.0 ||
@@ -1028,27 +1377,26 @@ EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* plate_id,
     }
 }
 
-EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
     try {
-        ensure_plate_session_state();
-        std::string target_error;
-        auto* runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
-        if (runtime_entry == nullptr)
-            return error_json(target_error);
-        PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
+#ifndef ORCA_WASM_THREADING
+        // The sole Worker is occupied by synchronous Print::process(); a
+        // queued cancel cannot interrupt it and must not poison the next run.
+        return error_json("slice_busy");
+#else
+        std::shared_ptr<SliceTask> task;
+        {
+            std::lock_guard<std::mutex> lock(g_slice_job_mutex);
+            task = g_active_slice_task;
+        }
+        if (!task)
+            return error_json("no active slice job");
+        PlateRuntimeRegistry::mark_presentation_invalid(task->lease.entry());
         invalidate_preview_source();
-        runtime_entry->print->cancel();
-        // Fix round 1: the bridge is strictly synchronous — JS cannot reenter
-        // wasm while orc_slice is running, so a cancel can never interrupt an
-        // in-flight slice. A surviving CANCELED_BY_USER flag (only restart()
-        // clears it, PrintBase.hpp) makes the NEXT orc_slice's process()
-        // throw CanceledException, which on Emscripten's -fexceptions runtime
-        // surfaces as an uncatchable CppException that kills the module
-        // (observed deterministically; the throw is caught and rethrown by
-        // libslic3r internals, and the rethrow carries poisoned EH state).
-        // Cancel is therefore a state reset: it must never poison the module.
-        runtime_entry->print->restart();
+        if (!state().plate_runtime_registry.request_job_cancellation(task->lease))
+            return error_json("slice job is no longer active");
         return dup_json(json{{"ok", true}}.dump());
+#endif
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1061,17 +1409,17 @@ EMSCRIPTEN_KEEPALIVE const char* orc_cancel() {
 // Lightweight build/runtime diagnostic for the worker client and smoke tests.
 // It does not initialize presets or mutate the model, so it is safe to query
 // before normal bridge setup.
-EMSCRIPTEN_KEEPALIVE const char* orc_get_threading_info() {
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_threading_info() {
 #ifdef ORCA_WASM_THREADING
     return dup_json(json{{"ok", true}, {"threaded", true},
                          {"max_concurrency", state().tbb_max_concurrency},
-                         {"arena_concurrency", state().tbb_arena.max_concurrency()}}.dump());
+                         {"arena_concurrency", state().tbb_arena.max_concurrency()},
+                         {"serial_terminal_epoch", "0"}}.dump());
 #else
     return dup_json(json{{"ok", true}, {"threaded", false},
-                         {"max_concurrency", 1}, {"arena_concurrency", 1}}.dump());
+                         {"max_concurrency", 1}, {"arena_concurrency", 1},
+                         {"serial_terminal_epoch", std::to_string(g_serial_terminal_epoch)}}.dump());
 #endif
-}
-
 }
 
 } // namespace Slic3r::Neo::Bridge::SlicingPipeline

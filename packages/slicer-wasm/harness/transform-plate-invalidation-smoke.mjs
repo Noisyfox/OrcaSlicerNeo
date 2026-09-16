@@ -6,6 +6,7 @@
 // frame rather than intermediate renderer frames.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -62,12 +63,12 @@ requireStatus('commit B', callJson('orc_history_commit', ['string', 'string'],
 
 requireOk('select A', callJson('orc_select_plate', ['string'], [plateA]));
 let snapshot = callJson('orc_get_plate_session_snapshot');
-requireOk('slice A', callJson('orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', plateA, snapshot.input_revisions[plateA]]));
+requireOk('slice A', await callAsyncTask(callJson, 'orc_slice_plate',
+  ['string', 'string', 'number'], ['{}', plateA, snapshot.input_revisions[plateA]]));
 requireOk('select B', callJson('orc_select_plate', ['string'], [plateB]));
 snapshot = callJson('orc_get_plate_session_snapshot');
-requireOk('slice B', callJson('orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', plateB, snapshot.input_revisions[plateB]]));
+requireOk('slice B', await callAsyncTask(callJson, 'orc_slice_plate',
+  ['string', 'string', 'number'], ['{}', plateB, snapshot.input_revisions[plateB]]));
 requireOk('B result before Move', callJson('orc_get_slice_result'));
 const beforeMoveStamps = stampMap();
 
@@ -119,8 +120,8 @@ requireStale('A presentation invalid after Redo', callJson('orc_get_slice_result
 // An aborted transform must restore both the stamp and the previously valid
 // presentation lifecycle.  The native core allocation is retained throughout.
 snapshot = callJson('orc_get_plate_session_snapshot');
-requireOk('reslice A for abort proof', callJson('orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', plateA, snapshot.input_revisions[plateA]]));
+requireOk('reslice A for abort proof', await callAsyncTask(callJson, 'orc_slice_plate',
+  ['string', 'string', 'number'], ['{}', plateA, snapshot.input_revisions[plateA]]));
 requireOk('A valid before abort', callJson('orc_get_slice_result'));
 const beforeAbortStamps = stampMap();
 const abortMove = requireOk('begin abort Move', callJson('orc_history_begin',

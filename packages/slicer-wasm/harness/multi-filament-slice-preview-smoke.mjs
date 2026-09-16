@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -39,7 +40,7 @@ assert.equal(callJson('orc_select_preset', ['string', 'string'], ['printer', pri
 let session = callJson('orc_get_filament_session_snapshot');
 const primary = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Primary material']);
 assert.equal(primary.ok, true, JSON.stringify(primary));
-const oneSlotSlice = callJson('orc_slice', ['string'], ['{}']);
+const oneSlotSlice = await callAsyncTask(callJson, 'orc_slice', ['string'], ['{}']);
 assert.equal(oneSlotSlice.ok, true, JSON.stringify(oneSlotSlice));
 const oneSlotPreview = callJson('orc_get_slice_result');
 assert.equal(oneSlotPreview.ok, true, JSON.stringify(oneSlotPreview));
@@ -73,7 +74,8 @@ const mixedTemperatureConfig = {
   nozzle_temperature_range_high: [210, 310],
   filament_type: ['PLA', 'ABS'],
 };
-const unusedIncompatible = callJson('orc_slice', ['string'], [JSON.stringify(mixedTemperatureConfig)]);
+const unusedIncompatible = await callAsyncTask(callJson, 'orc_slice', ['string'],
+  [JSON.stringify(mixedTemperatureConfig)]);
 assert.equal(unusedIncompatible.ok, true, JSON.stringify(unusedIncompatible));
 const secondary = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Secondary material']);
 assert.equal(secondary.ok, true, JSON.stringify(secondary));
@@ -94,7 +96,8 @@ const tower = callJson('orc_set_project_config_override', ['string', 'string', '
   ['project', '', 'enable_prime_tower', '1']);
 assert.equal(tower.ok, true, JSON.stringify(tower));
 
-const sliced = callJson('orc_slice', ['string'], [JSON.stringify(mixedTemperatureConfig)]);
+const sliced = await callAsyncTask(callJson, 'orc_slice', ['string'],
+  [JSON.stringify(mixedTemperatureConfig)]);
 // Native bridge errors use the existing error-only envelope (the typed client
 // interprets it as SliceResultStatus.ok === false); preserve that contract
 // while asserting the exact Print::validate message below.
@@ -103,7 +106,7 @@ assert.equal(sliced.error,
   "Selected nozzle temperatures are incompatible. Each filament's nozzle temperature must fall within the recommended nozzle temperature range of the other filaments. Otherwise, nozzle clogging or printer damage may occur. If you still want to print, you can enable the option in Preferences / Control / Slicing / Remove mixed temperature restriction.");
 // The same native error is the existing slice status; no bridge-side warning
 // or bypass decision is introduced by the multi-filament integration.
-const validForPreview = callJson('orc_slice', ['string'], ['{}']);
+const validForPreview = await callAsyncTask(callJson, 'orc_slice', ['string'], ['{}']);
 assert.equal(validForPreview.ok, true, JSON.stringify(validForPreview));
 const preview = callJson('orc_get_slice_result');
 assert.equal(preview.ok, true, JSON.stringify(preview));

@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { loadModuleFactory, validateGcode } from './run-slice.mjs';
 
 const [moduleArg, fixtureDirArg, profileRootArg] = argv.slice(2);
@@ -138,7 +139,7 @@ const config = {
   machine_start_gcode: 'G28\\nG1 Z5 F5000',
   machine_end_gcode: 'M104 S0\\nM140 S0\\nG28 X0\\nM84',
 };
-const sliced = callJson('orc_slice', ['string'], [JSON.stringify(config)]);
+const sliced = await callAsyncTask(callJson, 'orc_slice', ['string'], [JSON.stringify(config)]);
 check('valid STEP slices successfully', sliceInput.ok === true && sliced.ok === true,
       JSON.stringify(sliced));
 const exported = callJson('orc_export_gcode', [], []);

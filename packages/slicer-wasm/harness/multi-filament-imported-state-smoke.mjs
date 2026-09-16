@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
+import { callAsyncTask } from './async-task-mailbox.mjs';
 import { buildIndependentReader3mf } from './multi-filament-fixture-builder.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
@@ -155,7 +156,7 @@ const importedPlates = callJson('orc_get_plate_session_snapshot');
 const importedPlate = importedPlates.plates.find((plate) => plate.plate_id === importedPlates.current_plate_id);
 assert.ok(importedPlate, JSON.stringify(importedPlates));
 assert.match(JSON.stringify(importedPlate.settings), /2[, ]1/);
-const paintedSlice = callJson('orc_slice', ['string'], ['{}']);
+const paintedSlice = await callAsyncTask(callJson, 'orc_slice', ['string'], ['{}']);
 assert.equal(paintedSlice.ok, true, JSON.stringify(paintedSlice));
 const paintedPreview = callJson('orc_get_slice_result');
 assert.equal(paintedPreview.ok, true, JSON.stringify(paintedPreview));

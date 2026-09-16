@@ -120,10 +120,10 @@ struct BridgeState {
     // future painting/support tools one safe outer transaction boundary.
     std::vector<HistoryTransaction> nested_history_transactions;
     std::uint64_t next_history_transaction_id = 1;
-    // Slice-task identities are runtime-only, monotonic, and never reused in
-    // one WASM session. The threaded task system will share this identity
-    // domain; renderer projection epochs remain separate UI-only tokens.
-    std::uint64_t next_slice_task_id = 1;
+    // Every native asynchronous task shares one runtime-only, monotonic
+    // identity domain.  IDs are never serialized and never reused during a
+    // WASM session; renderer projection epochs remain separate UI-only tokens.
+    std::uint64_t next_async_task_id = 1;
     std::uint64_t history_revision = 0;
     // Test-visible counter makes the no-PresetBundle history boundary
     // executable: history restores must use the minimal mutable frame below.
