@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
 import { inflateRawSync } from 'node:zlib';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, exportGcode, getSliceResult, resultTarget } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -198,6 +198,7 @@ check('add geometry to second plate', secondPlateModel.ok === true && secondPlat
       && secondPlateModel.plate_session.affected_plate_ids_after[0] === secondPlate.current_plate_id,
       JSON.stringify(secondPlateModel));
 const beforeExportSession = callJson('orc_get_plate_session_snapshot', [], []);
+const beforeExportMesh = callJson('orc_get_model_mesh', [], []);
 check('capture complete multi-plate session', beforeExportSession.ok === true && beforeExportSession.plates?.length === 2
       && beforeExportSession.instances?.some((instance) => instance.plate_id === beforeExportSession.plates[0].plate_id)
       && beforeExportSession.instances?.some((instance) => instance.plate_id === beforeExportSession.plates[1].plate_id),
@@ -209,7 +210,7 @@ const seededSlice = await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', oldCurrentPlateId, oldCurrentRevision]);
 check('materialize an old-session result before replacement', seededSlice.ok === true,
       JSON.stringify(seededSlice));
-const seededResult = callJson('orc_get_slice_result', [], []);
+const seededResult = getSliceResult(callJson, seededSlice.receipt);
 check('old-session result is publishable before replacement', seededResult.ok === true,
       JSON.stringify(seededResult));
 
@@ -228,9 +229,8 @@ if (exported.ok) {
   Module._free(corruptPtr);
   const afterCorruptStructure = callJson('orc_get_model_structure', [], []);
   const afterCorruptSession = callJson('orc_get_plate_session_snapshot', [], []);
-  const afterCorruptResult = callJson('orc_get_slice_result', [], []);
-  const staleOldExport = callJson('orc_export_gcode_plate', ['string', 'number'],
-                                  [oldCurrentPlateId, oldCurrentRevision]);
+  const afterCorruptResult = getSliceResult(callJson, seededSlice.receipt);
+  const staleOldExport = exportGcode(callJson, seededSlice.receipt);
   check('invalid replacement leaves only a fresh empty project session',
         corrupt.ok !== true && afterCorruptStructure.ok === true && afterCorruptStructure.objects?.length === 0
         && afterCorruptSession.ok === true && afterCorruptSession.plates?.length === 1
@@ -268,6 +268,17 @@ if (opts['check-geometry'] === 'true') {
   check('geometry-only cleanup keeps bridge callable',
         geometryFollowup.ok === true && geometryFollowup.objects?.length === 2,
         JSON.stringify(geometryFollowup));
+  const geometryMesh = callJson('orc_get_model_mesh', [], []);
+  const sourceOffsets = beforeExportMesh.objects?.map((entry) => entry.instance_transform?.offset) ?? [];
+  const importedOffsets = geometryMesh.objects?.map((entry) => entry.instance_transform?.offset) ?? [];
+  const sourceDelta = sourceOffsets.length >= 2
+    ? sourceOffsets[1].slice(0, 2).map((value, index) => value - sourceOffsets[0][index]) : [];
+  const importedDelta = importedOffsets.length >= 2
+    ? importedOffsets[1].slice(0, 2).map((value, index) => value - importedOffsets[0][index]) : [];
+  check('geometry-only import translates the group once and preserves relative XY layout',
+        sourceDelta.length === 2 && sourceDelta.some((value) => Math.abs(value) > 1e-6)
+        && importedDelta.every((value, index) => Math.abs(value - sourceDelta[index]) < 1e-6),
+        JSON.stringify({ sourceOffsets, importedOffsets, sourceDelta, importedDelta }));
   callJson('orc_clear_model', [], []);
 }
 
@@ -296,9 +307,11 @@ check('reload allocates fresh session-only IDs and empty input stamps',
 check('reload preserves plate membership', afterSession.instances?.some((instance) => instance.plate_id === afterSession.plates[0].plate_id)
       && afterSession.instances?.some((instance) => instance.plate_id === afterSession.plates[1].plate_id),
       JSON.stringify(afterSession.instances));
-const afterSlice = callJson('orc_get_slice_result', [], []);
+const afterSlice = getSliceResult(callJson,
+  resultTarget(afterSession.current_plate_id,
+    afterSession.input_revisions[afterSession.current_plate_id], 1));
 check('reload does not restore derived slice result', afterSlice.ok !== true
-      && /stale or unavailable/.test(afterSlice.error ?? ''), JSON.stringify(afterSlice));
+      && ['stale', 'unavailable'].includes(afterSlice.status), JSON.stringify(afterSlice));
 
 const after = callJson('orc_get_model_structure', [], []);
 const afterObject = after.objects?.[0];
@@ -313,7 +326,9 @@ const invalid = callJson('orc_load_project', ['pointer', 'number', 'number', 'st
 Module._free(invalidPtr);
 const afterInvalid = callJson('orc_get_model_structure', [], []);
 const afterInvalidSession = callJson('orc_get_plate_session_snapshot', [], []);
-const afterInvalidResult = callJson('orc_get_slice_result', [], []);
+const afterInvalidResult = getSliceResult(callJson,
+  resultTarget(afterInvalidSession.current_plate_id,
+    afterInvalidSession.input_revisions[afterInvalidSession.current_plate_id], 1));
 check('invalid bytes close the loaded project and retain the new empty baseline',
       invalid.ok !== true && afterInvalid.objects?.length === 0
       && afterInvalidSession.plates?.length === 1

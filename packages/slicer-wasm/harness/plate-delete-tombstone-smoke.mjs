@@ -6,7 +6,7 @@
 // survivor, and never exposes the deleted incarnation's completed result.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, exportGcode, getSliceResult, resultTarget } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -57,9 +57,9 @@ const targetInstances = beforeDelete.instances
 if (targetInstances.length === 0)
   throw new Error(`deletion target has no member models: ${JSON.stringify(beforeDelete.instances)}`);
 
-requireOk('slice deletion target', await callAsyncTask(callJson, 'orc_slice_plate',
+const targetSlice = requireOk('slice deletion target', await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', target, targetRevision]));
-requireOk('deletion target result starts publishable', callJson('orc_get_slice_result'));
+requireOk('deletion target result starts publishable', getSliceResult(callJson, targetSlice.receipt));
 
 const deleted = requireOk('delete active current plate',
   callJson('orc_delete_plate', ['string'], [target]));
@@ -71,11 +71,13 @@ if (!targetInstances.every((instanceId) => deleted.instances.some((instance) =>
   instance.parked === true && instance.unprintable === true)))
   throw new Error(`delete did not park target models immediately: ${JSON.stringify(deleted.instances)}`);
 
-const selectedResult = callJson('orc_get_slice_result');
-if (selectedResult.ok || !/stale|unavailable/.test(selectedResult.error ?? ''))
+const survivorSession = callJson('orc_get_plate_session_snapshot');
+const selectedResult = getSliceResult(callJson,
+  resultTarget(survivorSession.current_plate_id,
+    survivorSession.input_revisions[survivorSession.current_plate_id], 1));
+if (selectedResult.ok || !['stale', 'unavailable'].includes(selectedResult.status))
   throw new Error(`deleted result leaked onto survivor: ${JSON.stringify(selectedResult)}`);
-const deletedExport = callJson('orc_export_gcode_plate', ['string', 'number'],
-  [target, targetRevision]);
+const deletedExport = exportGcode(callJson, targetSlice.receipt);
 if (deletedExport.ok ||
     !/not found|not the current plate|stale|unavailable/.test(deletedExport.error ?? ''))
   throw new Error(`deleted receipt remained publishable: ${JSON.stringify(deletedExport)}`);

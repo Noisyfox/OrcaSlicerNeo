@@ -642,7 +642,8 @@ test('multi-plate Preview renders only the current plate in world coordinates', 
     await expect(page.getByTestId('viewport')).toHaveAttribute(
       'data-preview-projection-state', 'needs-slicing', { timeout: 30_000 },
     );
-    await expect(page.getByRole('status')).toHaveText('Needs slicing', { timeout: 30_000 });
+    await expect(page.getByTestId('viewport').getByRole('status'))
+      .toHaveText('Needs slicing', { timeout: 30_000 });
     await expect.poll(readToolpathBounds, { timeout: 30_000 }).toBeNull();
   });
   await phaseStep('plate 1: slice dispatch', 60_000, async () => {

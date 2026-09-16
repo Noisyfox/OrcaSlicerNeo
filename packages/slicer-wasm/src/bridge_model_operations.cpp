@@ -41,15 +41,7 @@ char* error_json(const std::string& message) {
     return dup_json(json{{"ok", false}, {"error", message}}.dump());
 }
 void invalidate_preview_source() {
-    auto& s = state();
     Neo::Bridge::PrimeTower::invalidate_projection_cache();
-    ++s.preview_result_id;
-    s.preview_gcode_path.clear();
-    s.preview_gcode_size = 0;
-    s.preview_gcode_line_ends.clear();
-    s.preview_text_available = false;
-    s.preview_plate_id.clear();
-    s.preview_plate_revision = 0;
 }
 void invalidate_transform_delta_candidate() {
     if (state().active_history_transaction &&
@@ -289,7 +281,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_model(const char* data, int len, const 
         }
         rebuild_plate_membership(true);
         // A model mutation makes any existing Print/G-code result stale.
-        state().print.clear();
         invalidate_preview_source();
         // Drift at the pinned SHA: Model has no instance accessor — instances
         // live per-object (ModelObject::instances, Model.hpp:385; Model itself
@@ -382,7 +373,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_shape(const char* type, const char* nam
                                                             -new_object->origin_translation.z()));
         new_object->ensure_on_bed();
         // A model mutation makes any existing Print/G-code result stale.
-        state().print.clear();
         invalidate_preview_source();
         size_t instance_count = 0;
         for (const ModelObject* o : state().model.objects)
@@ -410,7 +400,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clear_model() {
     try {
         invalidate_transform_delta_candidate();
         const auto affected_before = member_plate_ids();
-        state().print.clear();
         invalidate_preview_source();
         state().mesh_capture_cache.clear();
         state().mutable_object_capture_cache.clear();
@@ -448,7 +437,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_objects(const char* object_ids_json)
         for (const std::size_t id : *ids)
             state().model.delete_object(ObjectID(id));
         rebuild_plate_membership(true);
-        state().print.clear();
         invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-delete"},
                                                        json::array(), &affected_instances);
@@ -500,7 +488,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_delete_volumes(const char* volume_ids_json)
             obj->config.touch();
         }
         rebuild_plate_membership(true);
-        state().print.clear();
         invalidate_preview_source();
         const auto mutation = plate_mutation_snapshot(affected_before, {"model-delete"},
                                                        json::array(), &affected_instances);
@@ -531,7 +518,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_clone_objects(const char* object_ids_json) 
             ModelObject* clone = state().model.add_object(*obj);
             new_object_ids.push_back(clone->id().id);
         }
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
@@ -567,7 +553,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_objects(double from_obj_id, double 
             objs.erase(objs.begin() + static_cast<std::ptrdiff_t>(from_idx));
             objs.insert(objs.begin() + static_cast<std::ptrdiff_t>(target), from_obj);
         }
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
     } catch (const std::exception& e) {
@@ -604,7 +589,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_reorder_volumes(double object_id, double fr
             obj->config.touch();
         }
         obj->invalidate_bounding_box();
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}, {"objects", model_structure_json()}}.dump());
     } catch (const std::exception& e) {
@@ -645,7 +629,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_volume_to_parts(double volume_id, dou
             if (std::find(before_ids.begin(), before_ids.end(), v->id().id) == before_ids.end())
                 new_volume_ids.push_back(v->id().id);
 
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"parts", parts},
@@ -688,7 +671,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_split_object_to_objects(double object_id, d
         if (auto_drop != 0.0)
             state().model.adjust_min_z();
 
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
@@ -750,7 +732,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_merge_objects_to_multipart(const char* obje
         for (ModelObject* src : sources)
             model.delete_object(src);
 
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objectId", new_obj->id().id},
@@ -806,7 +787,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_instances_to_separate_objects(double object
             obj->delete_instance(i);
         obj->config.touch();
 
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"newObjectIds", new_object_ids},
@@ -839,7 +819,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_instance(double object_id) {
         ModelInstance* inst = obj->add_instance();
         inst->set_offset(Slic3r::Vec3d(base.x() + step, base.y(), base.z()));
         obj->config.touch();
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true},
                              {"objectId", obj->id().id},
@@ -866,7 +845,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_remove_instance(double object_id, double in
             if (obj->instances[i]->id().id == *iid) {
                 obj->delete_instance(i);
                 obj->config.touch();
-                state().print.clear();
                 invalidate_preview_source();
                 return dup_json(json{{"ok", true}}.dump());
             }
@@ -1225,7 +1203,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_object(double object_id, const char*
         obj->config.touch();
         // A rename does not change geometry, but it does change the object's
         // reported name; the existing Print/G-code is still considered stale.
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -1245,7 +1222,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_rename_volume(double volume_id, const char*
         if (vol == nullptr) return error_json("volume not found");
         vol->name = name_cstr;
         vol->get_object()->config.touch();
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -1274,7 +1250,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_volume_type(double volume_id, const cha
         // The type changes which volumes compose the print mesh; drop the cached
         // object bounds so a later getModelMesh / slice recomputes them.
         vol->get_object()->invalidate_bounding_box();
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -1300,7 +1275,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_object_printable(double object_id, doub
         for (auto& inst : obj->instances)
             inst->printable = value;
         obj->config.touch();
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {
@@ -1319,7 +1293,6 @@ EMSCRIPTEN_KEEPALIVE const char* orc_set_instance_printable(double instance_id, 
         if (inst == nullptr) return error_json("instance not found");
         inst->printable = printable != 0.0;
         inst->get_object()->config.touch();
-        state().print.clear();
         invalidate_preview_source();
         return dup_json(json{{"ok", true}}.dump());
     } catch (const std::exception& e) {

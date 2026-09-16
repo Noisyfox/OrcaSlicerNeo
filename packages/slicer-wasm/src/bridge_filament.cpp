@@ -1010,7 +1010,6 @@ json run_filament_mutation(const json& request, const char* label, Mutator mutat
             if (!history_committed) rollback_published();
             throw;
         }
-        state().print.clear();
         invalidate_preview_source();
         mutation["history_entry_delta"] = 1;
         mutation["revision_before"] = expected;
@@ -1160,7 +1159,6 @@ json run_filament_slot_mutation(const json& request, const char* label, const bo
                 return command_error("native_validation_failure", "history commit rejected filament mutation");
             }
             history_committed = true;
-            state().print.clear();
             invalidate_preview_source();
             mutation["history_entry_delta"] = 1;
             mutation["revision_before"] = expected;
@@ -1228,7 +1226,6 @@ const char* apply_remembered_filament_rack_command(const char* request_cstr, con
             HistoryMetadata::advance_history_epoch(state());
             const auto result = filament_snapshot_json();
             if (!result.value("ok", false)) throw std::runtime_error(result.value("error", "invalid remembered filament rack"));
-            state().print.clear();
             invalidate_preview_source();
             return duplicate_json(result.dump());
         } catch (...) {
@@ -1436,7 +1433,6 @@ json run_filament_assignment_mutation(const json& request, const char* label, Mu
             throw;
         }
         if (affected_plates.find(state().current_plate_id) != affected_plates.end()) {
-            state().print.clear();
             invalidate_preview_source();
         }
         mutation["history_entry_delta"] = 1;
@@ -1991,8 +1987,11 @@ json filament_session_snapshot_json()
     std::sort(parts.begin(), parts.end(), [](const Assignment& a, const Assignment& b) { return a.id < b.id; });
     std::sort(modifiers.begin(), modifiers.end(), [](const Assignment& a, const Assignment& b) { return a.id < b.id; });
 
+    std::uint64_t current_result_generation = 0;
+    if (const auto* entry = state().plate_runtime_registry.find(state().current_plate_id))
+        current_result_generation = entry->result_generation;
     json revisions = {{"session", state().history_revision}, {"project", state().history_revision},
-                      {"result", state().preview_result_id}, {"plates", plate_revisions_json()}};
+                      {"result", current_result_generation}, {"plates", plate_revisions_json()}};
     json routing = json::array();
     const std::array<std::pair<const char *, const char *>, 8> routing_keys = {{
         {"support-base", "support_filament"}, {"support-interface", "support_interface_filament"},

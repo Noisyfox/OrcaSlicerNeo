@@ -135,6 +135,29 @@ export async function refreshFilamentSession(
   return useFilamentSessionStore.getState().refresh(runtime, isCurrent, lease);
 }
 
+/** A model transform advances History and plate inputs but cannot change the
+ * filament rack, assignments, flushing values, or capabilities. Project the
+ * committed revision receipt onto the retained snapshot instead of paying for
+ * a full Worker snapshot read on the latency-critical pointer-release path. */
+export function projectFilamentHistoryRevision(
+  historyRevision: number,
+  plateInputRevisions?: Readonly<Record<string, number>>,
+): void {
+  if (!Number.isSafeInteger(historyRevision)) return;
+  const snapshot = useFilamentSessionStore.getState().snapshot;
+  if (!snapshot) return;
+  // These are optimistic-concurrency tokens, not renderable rack data. Keep
+  // the retained snapshot identity so every ModelMesh/FilamentRack subscriber
+  // is not synchronously rerendered for a value that none of them displays.
+  // All command builders read the token through getState() at dispatch time.
+  const revisions = snapshot.revisions as {
+    session: number; project: number; plates: Record<string, number>;
+  };
+  revisions.session = historyRevision;
+  revisions.project = historyRevision;
+  if (plateInputRevisions) revisions.plates = { ...plateInputRevisions };
+}
+
 export type FilamentMutationRequest =
   | FilamentSlotPresetRequest
   | FilamentSlotColourRequest

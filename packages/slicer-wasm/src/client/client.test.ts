@@ -1452,11 +1452,12 @@ describe('SlicerClient bridge contract', () => {
     const session = await c.getPlateSessionSnapshot();
     if (!session.ok) throw new Error(session.error);
     const target = { plateId: session.currentPlateId, inputRevision: session.inputRevisions?.[session.currentPlateId] ?? 0 };
-    await expect(c.slicePlate(target, {})).resolves.toMatchObject({ ok: true });
-    await expect(c.exportGcodePlate(target)).resolves.toMatchObject({ ok: true });
+    const sliced = await c.slicePlate(target, {});
+    expect(sliced.ok).toBe(true);
+    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ ok: true });
     const changed = await c.addPlate();
     if (!changed.ok) throw new Error(changed.error);
-    await expect(c.exportGcodePlate(target)).resolves.toMatchObject({ error: 'plate operation target is not the current plate' });
+    await expect(c.exportGcodePlate(sliced.receipt!)).resolves.toMatchObject({ error: 'plate operation target is not the current plate' });
   });
 
   it('rejects stale current-plate targets before slicing', async () => {
@@ -1468,6 +1469,21 @@ describe('SlicerClient bridge contract', () => {
     const changed = await c.addModel(new Uint8Array(4), 'stl');
     if (!changed.ok) throw new Error(changed.error);
     await expect(c.slicePlate(target, {})).resolves.toMatchObject({ error: 'plate operation target is stale' });
+  });
+
+  it('reorders by stable plate identity and advances only origin-changing stamps', async () => {
+    const c = makeClient();
+    await c.addPlate();
+    await c.addPlate();
+    const before = await c.getPlateSessionSnapshot();
+    if (!before.ok) throw new Error(before.error);
+    const [plateA, plateB, plateC] = before.plates.map((plate) => plate.plateId);
+    const reordered = await c.reorderPlates([plateC, plateB, plateA]);
+    if (!reordered.ok) throw new Error(reordered.error);
+    expect(reordered.plates.map((plate) => plate.plateId)).toEqual([plateC, plateB, plateA]);
+    expect(reordered.inputRevisions?.[plateA]).toBeGreaterThan(before.inputRevisions?.[plateA] ?? 0);
+    expect(reordered.inputRevisions?.[plateC]).toBeGreaterThan(before.inputRevisions?.[plateC] ?? 0);
+    expect(reordered.inputRevisions?.[plateB]).toBe(before.inputRevisions?.[plateB]);
   });
 
   it('threaded client publishes FIFO progress after a shared wake, never addFunction', async () => {
@@ -1649,11 +1665,17 @@ describe('SlicerClient bridge contract', () => {
     expect(r.metadata.sourceLineMapping?.available).toBe(true);
   });
 
-  it('exportGcode returns the MEMFS bytes', async () => {
+  it('exports the addressed completed generation from MEMFS', async () => {
     const c = makeClient();
-    const r = await c.exportGcode();
-    expect(r.ok).toBe(true);
-    expect(new TextDecoder().decode(r.bytes.slice(0, 6))).toBe('; mock');
+    await c.addModel(new Uint8Array(4), 'stl');
+    const sliced = await c.slice({});
+    const first = await c.exportGcodePlate(sliced.receipt!);
+    expect(first.ok).toBe(true);
+    expect(new TextDecoder().decode(first.bytes.slice(0, 6))).toBe('; mock');
+    first.bytes.fill(0);
+    const second = await c.exportGcodePlate(sliced.receipt!);
+    expect(second.ok).toBe(true);
+    expect(new TextDecoder().decode(second.bytes.slice(0, 6))).toBe('; mock');
   });
 
   it('loads BBS projects with typed compatibility and warning metadata', async () => {
@@ -1757,14 +1779,15 @@ describe('SlicerClient bridge contract', () => {
     const slice = await c.slice({});
     const result = await c.getSliceResult(slice.receipt!);
     const encoded = new TextEncoder().encode(sourceText);
-    const middle = await c.readTextChunk({ resultId: result.metadata.resultId, offset: 3, length: 5 });
+    const middle = await c.readTextChunk({ receipt: slice.receipt!, resultId: result.metadata.resultId, offset: 3, length: 5 });
     expect(middle.offset).toBe(2);
     expect(middle.text).toBe('注释');
     expect(middle.eof).toBe(false);
-    const tail = await c.readTextChunk({ resultId: result.metadata.resultId, offset: encoded.length - 1, length: 1 });
+    const tail = await c.readTextChunk({ receipt: slice.receipt!, resultId: result.metadata.resultId, offset: encoded.length - 1, length: 1 });
     expect(tail.text).toBe('\n');
-    await expect(c.readTextChunk({ resultId: 16, offset: 0, length: 1 })).rejects.toThrow('unavailable');
-    await expect(c.readTextChunk({ resultId: 17, offset: 0, length: 64 * 1024 + 1 })).rejects.toThrow('at most');
+    await expect(c.readTextChunk({ receipt: slice.receipt!, resultId: 16, offset: 0, length: 1 }))
+      .resolves.toMatchObject({ ok: false, text: '', eof: true });
+    await expect(c.readTextChunk({ receipt: slice.receipt!, resultId: 17, offset: 0, length: 64 * 1024 + 1 })).rejects.toThrow('at most');
   });
 
   it('bounds both UTF-8 alignment edges for a maximum-size request', async () => {
@@ -1780,6 +1803,7 @@ describe('SlicerClient bridge contract', () => {
     const slice = await c.slice({});
     const result = await c.getSliceResult(slice.receipt!);
     const chunk = await c.readTextChunk({
+      receipt: slice.receipt!,
       resultId: result.metadata.resultId,
       offset: 3,
       length: PREVIEW_TEXT_CHUNK_MAX_BYTES,
@@ -1800,9 +1824,9 @@ describe('SlicerClient bridge contract', () => {
     await c.addModel(new Uint8Array(4), 'stl');
     const slice = await c.slice({});
     const result = await c.getSliceResult(slice.receipt!);
-    const page = await c.readTextLines({ resultId: result.metadata.resultId, startLine: 3, lineCount: 1 });
+    const page = await c.readTextLines({ receipt: slice.receipt!, resultId: result.metadata.resultId, startLine: 3, lineCount: 1 });
     expect(page).toMatchObject({ startLine: 3, lineCount: 1, eof: true, text: 'G1 X2\n' });
-    await expect(c.readTextLines({ resultId: 19, startLine: 1, lineCount: 129 })).rejects.toThrow('1-128');
+    await expect(c.readTextLines({ receipt: slice.receipt!, resultId: 19, startLine: 1, lineCount: 129 })).rejects.toThrow('1-128');
   });
 
   it('cancel is safe', async () => {

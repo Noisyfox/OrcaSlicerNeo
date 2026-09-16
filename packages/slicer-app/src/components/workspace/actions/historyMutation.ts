@@ -10,7 +10,7 @@ import { usePlateSessionStore } from '../../../stores/usePlateSessionStore';
 import { useProjectStore } from '../../../stores/useProjectStore';
 import { useSettingsStore } from '../../../stores/useSettingsStore';
 import type { SceneInteractionController } from '../viewport/SceneInteractionController';
-import { refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
+import { projectFilamentHistoryRevision, refreshFilamentSession } from '../../../stores/useFilamentSessionStore';
 import { acquireProjectMutationLease, enqueueProjectMutationOperation } from '../../../history/projectMutationGate';
 import { projectHistoryStatus } from '../../../history/projectHistoryStatus';
 import { captureHistoryTransportDiagnostics, historyDiagnosticNow, historyRestorePath, useHistoryDiagnosticsStore } from '../../../history/historyDiagnostics';
@@ -158,6 +158,9 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
    * invalidated by an intervening Worker mutation without ever opening a
    * transaction for their obsolete draft. */
   preflight?: () => Promise<void> | void,
+  /** Transform-only fast path: the committed History/plate receipt advances
+   * filament revision tokens without rereading unchanged filament content. */
+  filamentProjection: 'snapshot' | 'history-revision' = 'snapshot',
 ): Promise<HistoryMutationResult<T>> {
   const queuedAt = historyDiagnosticNow();
   return enqueueHistoryOperation(async () => {
@@ -206,7 +209,14 @@ export function executeProjectHistoryTransaction<T extends MutationResponse>(
         };
       }
       if (response.status) projectHistoryStatus(response.status);
-      await refreshFilamentSession(runtime, undefined, lease);
+      if (filamentProjection === 'history-revision' && response.status) {
+        const plateSession = (response.result as MutationResponse & {
+          plateSession?: { inputRevisions?: Readonly<Record<string, number>> };
+        }).plateSession;
+        projectFilamentHistoryRevision(response.status.revision, plateSession?.inputRevisions);
+      } else {
+        await refreshFilamentSession(runtime, undefined, lease);
+      }
       await publish?.(response.result, response.status);
       return response;
     } finally {

@@ -27,6 +27,12 @@ function makeVolume(objectIdx: number, volumeIdx: number, instanceIdx: number): 
   return new GLVolume(buffer);
 }
 
+function selectedController(volumes: readonly GLVolume[]): SceneInteractionController {
+  const controller = new SceneInteractionController(() => volumes);
+  if (volumes[0]) controller.selectFromHit(volumes[0], false);
+  return controller;
+}
+
 const emptyProjection = {
   getModelStructure: vi.fn(async () => structureFor(glVolumeCollection.volumes)),
   getPlateSessionSnapshot: vi.fn(async () => ({
@@ -116,7 +122,7 @@ describe('TransformHistoryCoordinator', () => {
     };
     const volume = makeVolume(0, 0, 0);
     glVolumeCollection.replace([volume]);
-    const controller = new SceneInteractionController(() => [volume]);
+    const controller = selectedController([volume]);
     const history = new TransformHistoryCoordinator(runtime as never, controller);
     expect(history.begin('Move')).toBe(true);
     expect(runtime.runProjectHistoryTransaction).not.toHaveBeenCalled();
@@ -145,7 +151,7 @@ describe('TransformHistoryCoordinator', () => {
     };
     const volume = makeVolume(0, 0, 0);
     glVolumeCollection.replace([volume]);
-    const controller = new SceneInteractionController(() => [volume]);
+    const controller = selectedController([volume]);
     const history = new TransformHistoryCoordinator(runtime as never, controller);
     history.begin('Rotate');
     await history.abort();
@@ -173,7 +179,7 @@ describe('TransformHistoryCoordinator', () => {
     };
     const volume = makeVolume(0, 0, 0);
     glVolumeCollection.replace([volume]);
-    const controller = new SceneInteractionController(() => [volume]);
+    const controller = selectedController([volume]);
     const history = new TransformHistoryCoordinator(runtime as never, controller);
 
     history.begin('Move');
@@ -209,7 +215,7 @@ describe('TransformHistoryCoordinator', () => {
         return { result, status: { dirty: true, revision } as never };
       }),
     };
-    const history = new TransformHistoryCoordinator(runtime as never, new SceneInteractionController(() => [volume]));
+    const history = new TransformHistoryCoordinator(runtime as never, selectedController([volume]));
 
     history.begin('Move');
     volume.instanceTransform = { ...volume.instanceTransform, offset: [4, 0, 0] };
@@ -229,7 +235,7 @@ describe('TransformHistoryCoordinator', () => {
     )).toEqual([[4, 0, 0], [8, 0, 0]]);
   });
 
-  it('writes one final stable transform per rendered CompositeID on commit', async () => {
+  it('writes final transforms only for the selected CompositeIDs on commit', async () => {
     const volumes = [makeVolume(0, 0, 0), makeVolume(0, 1, 0), makeVolume(1, 0, 0)];
     glVolumeCollection.replace(volumes);
     const runtime = historyRuntime();
@@ -247,7 +253,7 @@ describe('TransformHistoryCoordinator', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(runtime.setModelTransforms).toHaveBeenCalledTimes(1);
     expect(runtime.setModelTransforms.mock.calls[0]?.[0]).toBe('tx-1');
-    expect(runtime.setModelTransforms.mock.calls[0]?.[1]).toEqual(volumes.map((volume) => ({
+    expect(runtime.setModelTransforms.mock.calls[0]?.[1]).toEqual(volumes.slice(0, 2).map((volume) => ({
       objectIdx: volume.buffer.objectIdx, volumeIdx: volume.buffer.volumeIdx, instanceIdx: volume.buffer.instanceIdx,
       instanceTransform: volume.instanceTransform, volumeTransform: volume.volumeTransform,
     })));
@@ -306,7 +312,7 @@ describe('TransformHistoryCoordinator', () => {
     };
     const volume = makeVolume(0, 0, 0);
     glVolumeCollection.replace([volume]);
-    const history = new TransformHistoryCoordinator(runtime as never, new SceneInteractionController(() => [volume]));
+    const history = new TransformHistoryCoordinator(runtime as never, selectedController([volume]));
 
     history.begin('Move');
     await history.commit();
@@ -317,7 +323,7 @@ describe('TransformHistoryCoordinator', () => {
     expect(useHistoryNavigationStore.getState().status?.undoEntries).toHaveLength(1);
   });
 
-  it('refreshes the filament revision before releasing the project fence', async () => {
+  it('projects the committed filament revision without a full snapshot read', async () => {
     const snapshots = [{ pending: 0, revision: 2 }];
     const runtime = {
       ...emptyProjection,
@@ -347,15 +353,21 @@ describe('TransformHistoryCoordinator', () => {
     };
     const volume = makeVolume(0, 0, 0);
     glVolumeCollection.replace([volume]);
-    const controller = new SceneInteractionController(() => [volume]);
+    const controller = selectedController([volume]);
     const history = new TransformHistoryCoordinator(runtime as never, controller);
+    useFilamentSessionStore.setState({ snapshot: {
+      ok: true, version: 1, slots: [], mappings: {}, flushing: {}, capabilities: {},
+      assignments: { objects: [], parts: [], modifiers: [] },
+      revisions: { session: 1, project: 1, result: 0, plates: {} },
+      status: { state: 'ready', error: null },
+    } as never });
 
     history.begin('Move');
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
     await history.commit();
 
-    expect(runtime.getFilamentSessionSnapshot).toHaveBeenCalledOnce();
-    expect(snapshots[0].pending).toBe(1);
+    expect(runtime.getFilamentSessionSnapshot).not.toHaveBeenCalled();
+    expect(snapshots[0].pending).toBe(0);
     expect(useFilamentSessionStore.getState().snapshot?.revisions.session).toBe(2);
     expect(useProjectStore.getState().projectMutationPendingCount).toBe(0);
   });
@@ -368,7 +380,7 @@ describe('TransformHistoryCoordinator', () => {
     const runtime = historyRuntime();
     runtime.setModelTransforms.mockResolvedValue({ ok: false, error: 'second target rejected' } as never);
     const history = new TransformHistoryCoordinator(runtime as never,
-      new SceneInteractionController(() => [volume]), onError, reconcile);
+      selectedController([volume]), onError, reconcile);
 
     history.begin('Move');
     await history.commit();
@@ -401,7 +413,7 @@ describe('TransformHistoryCoordinator', () => {
       runProjectHistoryTransaction: vi.fn(async () => ({ result: { ok: true }, status: { revision } })),
     };
     const history = new TransformHistoryCoordinator(runtime as never,
-      new SceneInteractionController(() => [volume]), undefined, reconcile);
+      selectedController([volume]), undefined, reconcile);
 
     expect(history.begin('Move')).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -438,7 +450,7 @@ describe('TransformHistoryCoordinator', () => {
       runProjectHistoryTransaction: vi.fn(async () => ({ result: { ok: true }, status: { revision: 1 } })),
     };
     const history = new TransformHistoryCoordinator(runtime as never,
-      new SceneInteractionController(() => [volume]), undefined, reconcile);
+      selectedController([volume]), undefined, reconcile);
 
     history.begin('Move');
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -470,7 +482,7 @@ describe('TransformHistoryCoordinator', () => {
     };
     const volume = makeVolume(0, 0, 0);
     glVolumeCollection.replace([volume]);
-    const history = new TransformHistoryCoordinator(runtime as never, new SceneInteractionController(() => [volume]), onError);
+    const history = new TransformHistoryCoordinator(runtime as never, selectedController([volume]), onError);
 
     history.begin('Move');
     await history.commit();

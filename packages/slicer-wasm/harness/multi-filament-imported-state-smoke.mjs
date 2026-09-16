@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { buildIndependentReader3mf } from './multi-filament-fixture-builder.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { readZipEntries, writeStoredZip } from './native-3mf-parser.mjs';
@@ -158,7 +158,7 @@ assert.ok(importedPlate, JSON.stringify(importedPlates));
 assert.match(JSON.stringify(importedPlate.settings), /2[, ]1/);
 const paintedSlice = await callAsyncTask(callJson, 'orc_slice', ['string'], ['{}']);
 assert.equal(paintedSlice.ok, true, JSON.stringify(paintedSlice));
-const paintedPreview = callJson('orc_get_slice_result');
+const paintedPreview = getSliceResult(callJson, paintedSlice.receipt);
 assert.equal(paintedPreview.ok, true, JSON.stringify(paintedPreview));
 const paintedCount = Number(paintedPreview.toolpath?.segment_count ?? 0);
 assert.ok(paintedCount > 0, JSON.stringify(paintedPreview));

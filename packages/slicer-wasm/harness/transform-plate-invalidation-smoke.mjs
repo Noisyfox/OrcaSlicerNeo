@@ -6,7 +6,7 @@
 // frame rather than intermediate renderer frames.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -29,7 +29,7 @@ function requireStatus(label, value) {
   return value;
 }
 function requireStale(label, value) {
-  if (value?.ok || !/stale|unavailable/.test(value?.error ?? ''))
+  if (value?.ok || !['stale', 'unavailable'].includes(value?.status))
     throw new Error(`${label}: expected stale/unavailable, got ${JSON.stringify(value)}`);
 }
 
@@ -63,13 +63,13 @@ requireStatus('commit B', callJson('orc_history_commit', ['string', 'string'],
 
 requireOk('select A', callJson('orc_select_plate', ['string'], [plateA]));
 let snapshot = callJson('orc_get_plate_session_snapshot');
-requireOk('slice A', await callAsyncTask(callJson, 'orc_slice_plate',
+let sliceA = requireOk('slice A', await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', plateA, snapshot.input_revisions[plateA]]));
 requireOk('select B', callJson('orc_select_plate', ['string'], [plateB]));
 snapshot = callJson('orc_get_plate_session_snapshot');
-requireOk('slice B', await callAsyncTask(callJson, 'orc_slice_plate',
+const sliceB = requireOk('slice B', await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', plateB, snapshot.input_revisions[plateB]]));
-requireOk('B result before Move', callJson('orc_get_slice_result'));
+requireOk('B result before Move', getSliceResult(callJson, sliceB.receipt));
 const beforeMoveStamps = stampMap();
 
 requireOk('select A for Move', callJson('orc_select_plate', ['string'], [plateA]));
@@ -95,34 +95,34 @@ if (!(afterMoveStamps[plateA] > beforeMoveStamps[plateA]) || afterMoveStamps[pla
 requireStatus('commit Move', callJson('orc_history_commit', ['string', 'string'],
   [move.transactionId, JSON.stringify(context)]));
 requireOk('select B after Move', callJson('orc_select_plate', ['string'], [plateB]));
-requireOk('B remains publishable after Move', callJson('orc_get_slice_result'));
+requireOk('B remains publishable after Move', getSliceResult(callJson, sliceB.receipt));
 requireOk('select A after Move', callJson('orc_select_plate', ['string'], [plateA]));
-requireStale('A presentation invalid after Move', callJson('orc_get_slice_result'));
+requireStale('A presentation invalid after Move', getSliceResult(callJson, sliceA.receipt));
 
 requireStatus('Undo Move', callJson('orc_history_undo'));
 const afterUndoStamps = stampMap();
 if (!(afterUndoStamps[plateA] > afterMoveStamps[plateA]) || afterUndoStamps[plateB] !== beforeMoveStamps[plateB])
   throw new Error(`Undo stamp scope failed: ${JSON.stringify({ afterMoveStamps, afterUndoStamps })}`);
 requireOk('select B after Undo', callJson('orc_select_plate', ['string'], [plateB]));
-requireOk('B remains publishable after Undo', callJson('orc_get_slice_result'));
+requireOk('B remains publishable after Undo', getSliceResult(callJson, sliceB.receipt));
 requireOk('select A after Undo', callJson('orc_select_plate', ['string'], [plateA]));
-requireStale('A presentation invalid after Undo', callJson('orc_get_slice_result'));
+requireStale('A presentation invalid after Undo', getSliceResult(callJson, sliceA.receipt));
 
 requireStatus('Redo Move', callJson('orc_history_redo'));
 const afterRedoStamps = stampMap();
 if (!(afterRedoStamps[plateA] > afterUndoStamps[plateA]) || afterRedoStamps[plateB] !== beforeMoveStamps[plateB])
   throw new Error(`Redo stamp scope failed: ${JSON.stringify({ afterUndoStamps, afterRedoStamps })}`);
 requireOk('select B after Redo', callJson('orc_select_plate', ['string'], [plateB]));
-requireOk('B remains publishable after Redo', callJson('orc_get_slice_result'));
+requireOk('B remains publishable after Redo', getSliceResult(callJson, sliceB.receipt));
 requireOk('select A after Redo', callJson('orc_select_plate', ['string'], [plateA]));
-requireStale('A presentation invalid after Redo', callJson('orc_get_slice_result'));
+requireStale('A presentation invalid after Redo', getSliceResult(callJson, sliceA.receipt));
 
 // An aborted transform must restore both the stamp and the previously valid
 // presentation lifecycle.  The native core allocation is retained throughout.
 snapshot = callJson('orc_get_plate_session_snapshot');
-requireOk('reslice A for abort proof', await callAsyncTask(callJson, 'orc_slice_plate',
+sliceA = requireOk('reslice A for abort proof', await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', plateA, snapshot.input_revisions[plateA]]));
-requireOk('A valid before abort', callJson('orc_get_slice_result'));
+requireOk('A valid before abort', getSliceResult(callJson, sliceA.receipt));
 const beforeAbortStamps = stampMap();
 const abortMove = requireOk('begin abort Move', callJson('orc_history_begin',
   ['string', 'string', 'string', 'string'], ['Move', 'project', JSON.stringify(context), '']));
@@ -140,6 +140,6 @@ requireOk('abort Move', callJson('orc_history_abort', ['string'], [abortMove.tra
 const afterAbortStamps = stampMap();
 if (afterAbortStamps[plateA] !== beforeAbortStamps[plateA] || afterAbortStamps[plateB] !== beforeAbortStamps[plateB])
   throw new Error(`abort stamp rollback failed: ${JSON.stringify({ beforeAbortStamps, afterAbortStamps })}`);
-requireOk('A presentation restored after abort', callJson('orc_get_slice_result'));
+requireOk('A presentation restored after abort', getSliceResult(callJson, sliceA.receipt));
 
 console.log('transform plate invalidation PASS');

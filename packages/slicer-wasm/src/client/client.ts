@@ -16,7 +16,7 @@ import type {
   ConfigurationStatus,
   ClearModelResult, ProjectCloseResult, ProjectClosedCallback,
   OptionMetadata, LoadModelResult, ProjectLoadMode, ProjectLoadResult, ProjectProgressCallback,
-  ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt,
+  ModelMeshResult, SliceResultStatus, ClientSliceResult, PlateOperationTarget, SliceResultReceipt, ResultReadStatus,
   ExportGcodeResult, ExportProjectResult, CancelResult, ModelObjectBuffer, DeleteObjectsResult,
   DeleteVolumesResult, CloneObjectsResult, ReorderStructureResult,
   ModelStructureResult, MutationResult, SplitVolumeResult, SplitObjectResult,
@@ -65,11 +65,13 @@ function normalizeSliceResultStatus(raw: unknown): SliceResultStatus {
   if (receipt !== undefined) {
     if (!isRecord(receipt) || typeof receipt.plate_id !== 'string' ||
         !Number.isSafeInteger(receipt.input_stamp) || Number(receipt.input_stamp) < 0 ||
+        typeof receipt.result_generation !== 'string' || !/^[1-9]\d*$/.test(receipt.result_generation) ||
         typeof receipt.slice_task_id !== 'string' || !/^\d+$/.test(receipt.slice_task_id))
       throw new Error('slice bridge returned an invalid result receipt');
     normalizedReceipt = {
       plateId: receipt.plate_id,
       inputStamp: Number(receipt.input_stamp),
+      resultGeneration: receipt.result_generation,
       sliceTaskId: receipt.slice_task_id,
     };
   }
@@ -1533,6 +1535,11 @@ export function createClient(
       return normalizePlateMutationResult(callProfiledJson(m, 'orc_add_plate', [], []));
     },
 
+    async reorderPlates(plateIds: string[]): Promise<PlateSessionMutationResult> {
+      const m = await module();
+      return normalizePlateMutationResult(callJson(m, 'orc_reorder_plates', ['string'], [JSON.stringify(plateIds)]));
+    },
+
     async deletePlate(plateId: string): Promise<PlateSessionMutationResult> {
       const m = await module();
       return normalizePlateMutationResult(callJson(m, 'orc_delete_plate', ['string'], [plateId]));
@@ -1947,9 +1954,15 @@ export function createClient(
 
     async getSliceResult(expectedReceipt: SliceResultReceipt): Promise<ClientSliceResult> {
       const m = await module();
-      const r = callJson(m, 'orc_get_slice_result', [], []) as {
+      const generation = Number(expectedReceipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        throw new Error('slice result receipt has an invalid generation');
+      const r = callJson(m, 'orc_get_slice_result', ['string', 'number', 'number'], [
+        expectedReceipt.plateId, expectedReceipt.inputStamp, generation,
+      ]) as {
         ok: boolean; error?: string; objects?: number; layers?: number; preview_version?: number;
-        receipt?: { plate_id?: string; input_stamp?: number; slice_task_id?: string };
+        status?: ResultReadStatus;
+        receipt?: { plate_id?: string; input_stamp?: number; result_generation?: string; slice_task_id?: string };
         metadata?: {
           result_id?: number; source_filename?: string;
           layer_ranges?: Array<{ id: number; z: number; first_segment: number; segment_count: number }>;
@@ -1983,21 +1996,24 @@ export function createClient(
         };
       };
       if (!r.ok) return {
-        ...r, status: r.error?.includes('stale or unavailable') ? 'unavailable' : 'failed',
+        ...r, status: r.status ?? 'failed',
         objects: 0, layers: 0,
       } as unknown as ClientSliceResult;
       const rawReceipt = r.receipt;
       if (!rawReceipt || typeof rawReceipt.plate_id !== 'string' ||
           !Number.isSafeInteger(rawReceipt.input_stamp) || rawReceipt.input_stamp! < 0 ||
+          typeof rawReceipt.result_generation !== 'string' || !/^[1-9]\d*$/.test(rawReceipt.result_generation) ||
           typeof rawReceipt.slice_task_id !== 'string' || !/^\d+$/.test(rawReceipt.slice_task_id))
         throw new Error('slice result bridge returned an invalid receipt');
       const receipt: SliceResultReceipt = {
         plateId: rawReceipt.plate_id,
         inputStamp: rawReceipt.input_stamp!,
+        resultGeneration: rawReceipt.result_generation,
         sliceTaskId: rawReceipt.slice_task_id,
       };
       if (receipt.plateId !== expectedReceipt.plateId ||
           receipt.inputStamp !== expectedReceipt.inputStamp ||
+          receipt.resultGeneration !== expectedReceipt.resultGeneration ||
           receipt.sliceTaskId !== expectedReceipt.sliceTaskId) {
         return {
           ok: false, status: 'stale', receipt, objects: 0, layers: 0,
@@ -2196,22 +2212,20 @@ export function createClient(
       };
     },
 
-    async exportGcode(): Promise<ExportGcodeResult> {
+    async exportGcodePlate(receipt: SliceResultReceipt): Promise<ExportGcodeResult> {
       const m = await module();
-      const r = callJson(m, 'orc_export_gcode', [], []) as { ok: boolean; path?: string; error?: string };
-      if (!r.ok) return r as ExportGcodeResult;
-      const bytes = m.FS.readFile('/out.gcode');
-      return { ok: true, path: r.path ?? '/out.gcode', bytes };
-    },
-
-    async exportGcodePlate(target: PlateOperationTarget): Promise<ExportGcodeResult> {
-      const m = await module();
-      const r = callJson(m, 'orc_export_gcode_plate', ['string', 'number'], [
-        target.plateId, target.inputRevision,
-      ]) as { ok: boolean; path?: string; error?: string };
-      if (!r.ok) return r as ExportGcodeResult;
-      const bytes = m.FS.readFile('/out.gcode');
-      return { ok: true, path: r.path ?? '/out.gcode', bytes };
+      const generation = Number(receipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        return { ok: false, path: '', bytes: new Uint8Array(0), error: 'invalid result generation' };
+      const r = callJson(m, 'orc_export_gcode_plate', ['string', 'number', 'number'], [
+        receipt.plateId, receipt.inputStamp, generation,
+      ]) as { ok: boolean; status?: ResultReadStatus; path?: string; error?: string };
+      if (!r.ok) return {
+        ok: false, status: r.status ?? 'failed', path: '', bytes: new Uint8Array(0), error: r.error,
+      };
+      const path = r.path ?? '';
+      const bytes = m.FS.readFile(path);
+      return { ok: true, path, bytes };
     },
 
     async exportProject(): Promise<ExportProjectResult> {
@@ -2246,7 +2260,12 @@ export function createClient(
           length > PREVIEW_TEXT_CHUNK_MAX_BYTES)
         throw new RangeError(`preview text chunk must be a safe range of at most ${PREVIEW_TEXT_CHUNK_MAX_BYTES} bytes`);
       const m = await module();
-      const r = callJson(m, 'orc_read_gcode_chunk', ['number', 'number', 'number'], [
+      const generation = Number(request.receipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        throw new RangeError('preview text receipt has an invalid generation');
+      const r = callJson(m, 'orc_read_gcode_chunk',
+        ['string', 'number', 'number', 'number', 'number', 'number'], [
+        request.receipt.plateId, request.receipt.inputStamp, generation,
         // The result id is intentionally read from the caller's completed
         // result metadata in the app. A zero id is rejected by the bridge.
         request.resultId,
@@ -2254,6 +2273,7 @@ export function createClient(
         length,
       ]) as {
         ok: boolean;
+        status?: ResultReadStatus;
         error?: string;
         offset?: number;
         length?: number;
@@ -2261,7 +2281,10 @@ export function createClient(
         bytes_ptr?: number;
         bytes_length?: number;
       };
-      if (!r.ok) throw new Error(r.error ?? 'preview text is unavailable');
+      if (!r.ok) return {
+        ok: false, status: r.status ?? 'failed', error: r.error,
+        offset, text: '', eof: true,
+      };
       const actualOffset = Number(r.offset);
       const byteLength = Number(r.bytes_length ?? r.length ?? 0);
       if (!Number.isSafeInteger(actualOffset) || actualOffset < 0 ||
@@ -2286,13 +2309,21 @@ export function createClient(
           !Number.isSafeInteger(lineCount) || lineCount < 1 || lineCount > PREVIEW_TEXT_LINES_MAX)
         throw new RangeError(`preview text page must contain 1-${PREVIEW_TEXT_LINES_MAX} lines`);
       const m = await module();
-      const r = callJson(m, 'orc_read_gcode_lines', ['number', 'number', 'number'], [
+      const generation = Number(request.receipt.resultGeneration);
+      if (!Number.isSafeInteger(generation) || generation < 1)
+        throw new RangeError('preview text receipt has an invalid generation');
+      const r = callJson(m, 'orc_read_gcode_lines',
+        ['string', 'number', 'number', 'number', 'number', 'number'], [
+        request.receipt.plateId, request.receipt.inputStamp, generation,
         request.resultId, startLine, lineCount,
       ]) as {
-        ok: boolean; error?: string; start_line?: number; line_count?: number;
+        ok: boolean; status?: ResultReadStatus; error?: string; start_line?: number; line_count?: number;
         eof?: boolean; bytes_ptr?: number; bytes_length?: number;
       };
-      if (!r.ok) throw new Error(r.error ?? 'preview text page is unavailable');
+      if (!r.ok) return {
+        ok: false, status: r.status ?? 'failed', error: r.error,
+        startLine, lineCount: 0, text: '', eof: true,
+      };
       const actualStart = Number(r.start_line);
       const actualCount = Number(r.line_count);
       const byteLength = Number(r.bytes_length ?? 0);
@@ -2332,6 +2363,10 @@ export function createClient(
     return callJson(m, 'orc_check_serial_admission', ['string'], [observedEpoch]) as Record<string, unknown>;
   });
   if (REAL_PROJECT_PROFILE_BUILD) {
+    (client as unknown as Record<string, () => Promise<unknown>>).realProjectProfileActiveSliceCount = async () => {
+      const m = await module();
+      return m.ccall('orc_real_project_profile_active_slice_count', 'number', [], []);
+    };
     (client as unknown as Record<string, () => Promise<unknown>>).takeRealProjectProfileSnapshot = async () => {
       const m = await module();
       const native = callJson(m, 'orc_take_real_project_profile_snapshot', [], []) as Record<string, unknown>;

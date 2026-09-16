@@ -520,6 +520,34 @@ context. It excludes global preset selection, global/system preferences, full
       collision/outside warnings; the checklist completed in 50.300 s and the
       licensed project run in 2m06s.
 
+### Milestone 18 — Per-Plate Print Architecture
+
+> **Status: delivered and qualified 2026-09-16.** The normative ownership,
+> lifecycle, concurrency, result-transport, history, and performance contract
+> is [`Per-Plate Print Architecture.md`](../spec/Per-Plate%20Print%20Architecture.md).
+> The living implementation and exact-u1 profile record is
+> [`2026-09-14-complex-project-interaction-performance.md`](2026-09-14-complex-project-interaction-performance.md).
+
+- [x] Replace the singleton bridge Print/result state with runtime-only stable
+      plate registry entries owning independent Print, result generation,
+      immutable G-code source, stamps, and tombstone/job lifetime.
+- [x] Make Slice/result/text/Export/Send receipt-scoped; separate the native
+      Slice terminal from transferable React projection publication and reject
+      every stale plate/input/generation/epoch payload.
+- [x] Reconcile the registry across plate mutations, history, project load,
+      geometry-only 3MF import, configuration fan-out, reorder, and active-job
+      deletion without serializing derived output or adding internal API
+      compatibility paths.
+- [x] Qualify fresh serial/threaded WASM, real registry/history/mailbox/Prime
+      Tower harnesses, all package tests/typechecks, visible Web Playwright,
+      visible Electron regression, and the exact non-mock u1 Electron profile.
+      Add Plate, ordinary Move, and active-slice Move reached visible Undo in
+      50.995 ms, 32.397 ms, and 92.925 ms respectively.
+- [x] Compile new test/profile branches out of production execution. Dedicated
+      native probes require `NEO_REAL_PROJECT_PROFILE`, renderer hooks use
+      Vite build-time branches, and restored production artifacts are scanned
+      for every profile ABI, call site, hook, and sentinel.
+
 ## G-code preview GPU streaming renderer (2026-09-02)
 
 The WebGL2 streaming/indexed-segment backend has passed functional, lifetime,

@@ -73,6 +73,13 @@ type BoundsProfile = {
   durationMs: number;
   centers: Array<[number, number, number]>;
 };
+type BedState = {
+  plateId?: string;
+  current: boolean;
+  outOfBounds: boolean;
+  position: [number, number, number];
+  bounds: { minX: number; maxX: number; minY: number; maxY: number };
+};
 
 const EXPECTED_PROJECT_PATH = 'E:\\OneDrive\\Dokumente\\3d打印\\模型\\奥德赛\\OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf';
 const PROJECT_PATH = resolve(process.env.ORCA_E2E_PRIME_TOWER_PROJECT?.trim() || EXPECTED_PROJECT_PATH);
@@ -221,12 +228,157 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
       (window as unknown as { __orcaE2e?: { selectionBoundsWorld?: () => Bounds } })
         .__orcaE2e?.selectionBoundsWorld?.() ?? null,
     );
+    const readBeds = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { bedPlateStates?: () => BedState[] } })
+        .__orcaE2e?.bedPlateStates?.() ?? [],
+    );
+    const readPlateCenters = (plateId: string) => page.evaluate((id) =>
+      (window as unknown as { __orcaE2e?: {
+        realProjectPlateModelWorldCenters?: (target: string) => Array<[number, number, number]>;
+      } }).__orcaE2e?.realProjectPlateModelWorldCenters?.(id) ?? [], plateId,
+    );
+    const readActiveSliceCount = () => page.evaluate(async () => Number(await
+      (window as unknown as { __orcaE2e?: { realProjectProfileActiveSliceCount?: () => Promise<unknown> } })
+        .__orcaE2e?.realProjectProfileActiveSliceCount?.() ?? -1),
+    );
+    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error('Prepare canvas has no visible bounds');
+    const project = (point: [number, number, number]) => page.evaluate((p) =>
+      (window as unknown as { __orcaE2e?: { projectWorldToScreen?: (q: [number, number, number]) => Point | null } })
+        .__orcaE2e?.projectWorldToScreen?.(p) ?? null, point,
+    );
+    const readSelectionCount = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { selectionInstanceCount?: () => number } })
+        .__orcaE2e?.selectionInstanceCount?.() ?? 0,
+    );
+    const readOwner = () => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.() ?? 'none',
+    );
+    const selectVisibleCenter = async (candidates: Array<[number, number, number]>): Promise<Point | null> => {
+      for (const center of candidates) {
+        const candidate = await project(center);
+        if (!candidate) continue;
+        for (const [dx, dy] of [[0, 0], [20, 0], [-20, 0], [0, 20], [0, -20]]) {
+          const x = candidate.x + dx;
+          const y = candidate.y + dy;
+          if (x < 0 || y < 0 || x > box.width || y > box.height) continue;
+          await page.mouse.click(box.x + x, box.y + y);
+          if (await readSelectionCount() > 0) return { x, y };
+        }
+      }
+      return null;
+    };
 
     await expect.poll(readCenters, { timeout: 300_000 }).not.toHaveLength(0);
     await takeNativeProfile();
     const baseline = await takeAttribution();
     expectAttribution(baseline, 11);
     expectCalls(baseline.native, []);
+
+    // Exercise the threaded acceptance boundary with the project's current
+    // real plate. The profile-only active-job probe makes this wait land after the
+    // synchronous apply/admission phase, while Print::process() is running on
+    // its detached pthread and the stateful Worker is available for edits.
+    const activeBed = (await readBeds()).find((bed) => bed.current);
+    if (!activeBed?.plateId) throw new Error('real project has no current rendered plate');
+    const populated = baseline.renderer.perPlate.find((plate) => plate.plateId === activeBed.plateId);
+    if (!populated || populated.volumeCount === 0)
+      throw new Error(`current real project plate ${activeBed.plateId} has no projected model`);
+    const activePlateCenters = await readPlateCenters(activeBed.plateId);
+    expect(activePlateCenters.length, 'target plate must contain projected model volumes').toBeGreaterThan(0);
+    const activeBeforeCenters = (await readCenters()).map((center) => [...center]);
+    const activeMoveBefore = await readDiagnostics();
+    if (!activeMoveBefore?.worker || !activeMoveBefore.client)
+      throw new Error('history diagnostics unavailable before active-slice Move');
+    await takeNativeProfile();
+    await takeAttribution();
+    await page.getByTestId('btn-slice').click();
+    await expect(page.getByTestId('slicer-status')).toHaveText('Slicing…', { timeout: 30_000 });
+    await expect.poll(readActiveSliceCount, {
+      message: 'profile must observe the detached native slice before editing',
+      timeout: 120_000,
+      intervals: [20],
+    }).toBe(1);
+    // Slice requests Preview immediately. Threaded mode keeps Prepare
+    // available, so return there before exercising an edit against the live
+    // detached job.
+    await page.locator('#app-tab-prepare').click();
+    const activeSelected = await page.evaluate((plateId) =>
+      (window as unknown as { __orcaE2e?: { realProjectSelectFirstModelOnPlate?: (id: string) => boolean } })
+        .__orcaE2e?.realProjectSelectFirstModelOnPlate?.(plateId) ?? false, activeBed.plateId);
+    expect(activeSelected, 'profile setup must select a real model on the active slice plate').toBe(true);
+    await expect.poll(() => page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: { realProjectProfileMutationPendingCount?: () => number } })
+        .__orcaE2e?.realProjectProfileMutationPendingCount?.() ?? -1), {
+      message: 'threaded edit must begin after the application mutation publication fence is idle',
+      timeout: 30_000,
+      intervals: [10],
+    }).toBe(0);
+    const activeMove = await page.evaluate(() =>
+      (window as unknown as { __orcaE2e?: {
+        realProjectMoveSelectedX?: (delta: number) => { moved: boolean; startedAt: number };
+      } }).__orcaE2e?.realProjectMoveSelectedX?.(5) ?? { moved: false, startedAt: 0 });
+    expect(activeMove.moved, 'profile setup must submit one real Move through the scene controller').toBe(true);
+    let activeUndoAt = 0;
+    await expect.poll(async () => {
+      const moved = (await readCenters()).some((center, index) =>
+        center.some((value, axis) => Math.abs(value - activeBeforeCenters[index][axis]) > 1e-6));
+      const undo = page.getByTestId('history-undo');
+      const done = moved && await undo.getAttribute('aria-label') === 'Undo Move' && await undo.isEnabled();
+      if (done && activeUndoAt === 0) activeUndoAt = await page.evaluate(() => performance.now());
+      return done;
+    }, { timeout: 120_000, intervals: [10] }).toBe(true);
+    const activeMoveAfter = await readDiagnostics();
+    if (!activeMoveAfter?.worker || !activeMoveAfter.client)
+      throw new Error('history diagnostics unavailable after active-slice Move');
+    const activeMoveVisibleMs = activeUndoAt - activeMove.startedAt;
+    const activeMoveNative = await takeNativeProfile();
+    const activeMoveMemory = await takeAttribution();
+    console.log('[active-slice-move-profile]', JSON.stringify({
+      visibleMs: activeMoveVisibleMs,
+      workerMutationMs: activeMoveAfter.worker.mutation.lastMs,
+      clientMutationMs: activeMoveAfter.client.mutation.lastMs,
+      appMutationMs: activeMoveAfter.app.mutation.lastMs,
+      operations: activeMoveNative.samples.map((sample) => ({
+        operation: sample.operation,
+        totalMs: sample.stagesMs.total,
+      })),
+      jsWasmOperations: activeMoveMemory.native.js_wasm_calls.map((sample) => ({
+        operation: sample.operation,
+        wallMs: sample.wallMs,
+        inputJsonBytes: sample.inputJsonBytes,
+        outputJsonBytes: sample.outputJsonBytes,
+      })),
+    }));
+    expect(activeMoveVisibleMs,
+      'an active threaded slice must not delay Move Undo publication beyond 100 ms').toBeLessThan(100);
+    await expect.poll(readActiveSliceCount, {
+      message: 'the obsolete slice must reach its terminal and release the global job slot',
+      timeout: 300_000,
+      intervals: [20],
+    }).toBe(0);
+    await expect(page.getByTestId('btn-export')).toBeDisabled();
+    await expect(page.getByTestId('slicer-status')).not.toHaveText('Sliced');
+    await expect(page.getByTestId('slicer-status')).not.toContainText('slice_busy');
+    expect(activeMoveNative.samples.map((sample) => sample.operation).filter((operation) =>
+      ['history_begin', 'set_model_transforms', 'history_commit'].includes(operation)))
+      .toEqual(['history_begin', 'set_model_transforms', 'history_commit']);
+    expect(activeMoveMemory.native.js_wasm_calls.map((sample) => sample.operation).filter((operation) =>
+      ['orc_history_begin', 'orc_set_model_transforms', 'orc_history_commit'].includes(operation)))
+      .toEqual(['orc_history_begin', 'orc_set_model_transforms', 'orc_history_commit']);
+    await page.getByTestId('history-undo').click();
+    await expect.poll(async () => {
+      const restored = await readCenters();
+      return restored.length === activeBeforeCenters.length && restored.every((center, index) =>
+        center.every((value, axis) => Math.abs(value - activeBeforeCenters[index][axis]) <= 1e-6));
+    }, { timeout: 30_000, intervals: [10] }).toBe(true);
+    await expect(page.getByTestId('history-redo')).toHaveAttribute('aria-label', 'Redo Move');
+    // The active-slice Undo is independently asserted above. Clear its native
+    // restore/projection samples so the following Add Plate attribution owns
+    // an exact operation window.
+    await takeNativeProfile();
+    await takeAttribution();
 
     // Add Plate: event dispatch to the enabled matching Undo entry.
     const addBefore = await readDiagnostics();
@@ -261,34 +413,8 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
 
     // Select a genuine rendered model through the canvas and perform one full
     // pointer gesture. The newly-added empty plate remains part of the state.
-    const canvas = page.getByTestId('viewport').locator('canvas[data-engine^="three.js"]');
-    const box = await canvas.boundingBox();
-    if (!box) throw new Error('Prepare canvas has no visible bounds');
-    const project = (point: [number, number, number]) => page.evaluate((p) =>
-      (window as unknown as { __orcaE2e?: { projectWorldToScreen?: (q: [number, number, number]) => Point | null } })
-        .__orcaE2e?.projectWorldToScreen?.(p) ?? null, point,
-    );
-    const readSelectionCount = () => page.evaluate(() =>
-      (window as unknown as { __orcaE2e?: { selectionInstanceCount?: () => number } })
-        .__orcaE2e?.selectionInstanceCount?.() ?? 0,
-    );
-    const readOwner = () => page.evaluate(() =>
-      (window as unknown as { __orcaE2e?: { pointerOwner?: () => string } }).__orcaE2e?.pointerOwner?.() ?? 'none',
-    );
     const centers = await readCenters();
-    let start: Point | null = null;
-    for (const center of centers) {
-      const candidate = await project(center);
-      if (!candidate) continue;
-      for (const [dx, dy] of [[0, 0], [20, 0], [-20, 0], [0, 20], [0, -20]]) {
-        const x = candidate.x + dx;
-        const y = candidate.y + dy;
-        if (x < 0 || y < 0 || x > box.width || y > box.height) continue;
-        await page.mouse.click(box.x + x, box.y + y);
-        if (await readSelectionCount() > 0) { start = { x, y }; break; }
-      }
-      if (start) break;
-    }
+    const start = await selectVisibleCenter(centers);
     expect(start, 'a real project model must be selectable through the visible canvas').not.toBeNull();
     const beforeMoveCenters = (await readCenters()).map((center) => [...center]);
     const beforeMoveBounds = await readBounds();
@@ -398,6 +524,17 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
         jsWasmCalls: moveMemory.native.js_wasm_calls,
         nativeStages: moveNative.samples,
       },
+      activeSliceMove: {
+        plateId: activeBed.plateId,
+        editCommitToVisibleUndoMs: activeMoveVisibleMs,
+        applicationMs: timingDelta(activeMoveBefore.app.mutation, activeMoveAfter.app.mutation,
+          'active-slice Move application'),
+        clientMs: timingDelta(activeMoveBefore.client.mutation, activeMoveAfter.client.mutation,
+          'active-slice Move client'),
+        workerMs: timingDelta(activeMoveBefore.worker.mutation, activeMoveAfter.worker.mutation,
+          'active-slice Move Worker'),
+        nativeStages: activeMoveNative.samples,
+      },
       undo: {
         clickToRestoredModelMs: restoredAt - undoClickAt,
         clientMs: timingDelta(undoBefore.client!.restore, undoAfter.client.restore, 'Undo client'),
@@ -406,10 +543,15 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
         nativeStages: undoNative.samples,
         application: {
           restoreMs: timingDelta(undoBefore.app.restore, undoAfter.app.restore, 'Undo application restore'),
-          projectionMs: timingDelta(undoBefore.app.projection, undoAfter.app.projection, 'Undo application projection'),
+          // Sparse Move Undo applies the retained transform receipt in-place;
+          // only a fallback restore rebuilds the full model projection.
+          projectionMs: optionalTimingDelta(undoBefore.app.projection, undoAfter.app.projection),
           filamentRefreshMs: timingDelta(undoBefore.app.filamentRefresh, undoAfter.app.filamentRefresh, 'Undo filament refresh'),
-          primeTowerProjectionReadMs: timingDelta(undoBefore.app.primeTowerProjectionRead,
-            undoAfter.app.primeTowerProjectionRead, 'Undo Prime Tower projection read'),
+          // A matching narrow Prime Tower restore receipt patches the retained
+          // projection without a Worker read; mismatches still measure the
+          // authoritative fallback read here.
+          primeTowerProjectionReadMs: optionalTimingDelta(undoBefore.app.primeTowerProjectionRead,
+            undoAfter.app.primeTowerProjectionRead),
           transformReceiptApplicationMs: optionalTimingDelta(undoBefore.app.transformReceiptApplication,
             undoAfter.app.transformReceiptApplication),
           selectionRestoreMs: optionalTimingDelta(undoBefore.app.selectionRestore,
@@ -442,6 +584,8 @@ test('profiles Add Plate, Move availability, and Undo restoration with complete 
     console.log('[real-project-interaction-profile-summary]', JSON.stringify({
       addPlateVisibleUndoMs: report.addPlate.clickToVisibleUndoMs,
       moveVisibleUndoMs: report.move.pointerUpToVisibleUndoMs,
+      activeSliceMoveVisibleUndoMs: report.activeSliceMove.editCommitToVisibleUndoMs,
+      activeSlicePlateId: report.activeSliceMove.plateId,
       undoRestoredModelMs: report.undo.clickToRestoredModelMs,
       undoProjectionMs: report.undo.application.projectionMs,
       undoTransformReceiptApplied: report.undo.application.transformReceiptApplied,

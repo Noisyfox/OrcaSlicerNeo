@@ -8,7 +8,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 
@@ -95,7 +95,7 @@ if (!positioned.ok) throw new Error(`model placement failed: ${JSON.stringify(po
 
 const sliced = await callAsyncTask(callJson, 'orc_slice', ['string'], [JSON.stringify(config)]);
 if (!sliced.ok) throw new Error(`slice failed: ${JSON.stringify(sliced)}`);
-const result = callJson('orc_get_slice_result', [], []);
+const result = getSliceResult(callJson, sliced.receipt);
 if (!result.ok || result.preview_version !== 2) {
   throw new Error(`preview result failed: ${JSON.stringify(result)}`);
 }

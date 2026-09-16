@@ -974,6 +974,94 @@ EMSCRIPTEN_KEEPALIVE const char* orc_add_plate()
     }
 }
 
+EMSCRIPTEN_KEEPALIVE const char* orc_reorder_plates(const char* plate_ids_json)
+{
+    try {
+        invalidate_transform_delta_candidate(state());
+        ensure_plate_session_state();
+        const json requested_json = json::parse(plate_ids_json ? plate_ids_json : "");
+        if (!requested_json.is_array() || requested_json.size() != state().plate_session_plates.size())
+            return error_json("plate order must contain every plate exactly once");
+
+        std::vector<std::string> requested;
+        std::set<std::string> unique;
+        requested.reserve(requested_json.size());
+        for (const auto& value : requested_json) {
+            if (!value.is_string()) return error_json("plate order must contain only plate IDs");
+            const auto id = value.get<std::string>();
+            if (find_plate(id) == nullptr || !unique.insert(id).second)
+                return error_json("plate order must contain every plate exactly once");
+            requested.push_back(id);
+        }
+
+        const auto old_plates = state().plate_session_plates;
+        std::map<std::string, BridgeState::PlateSessionPlate> old_by_id;
+        std::map<std::string, std::pair<double, double>> tower_by_id;
+        for (std::size_t index = 0; index < old_plates.size(); ++index) {
+            old_by_id.emplace(old_plates[index].id, old_plates[index]);
+            tower_by_id.emplace(old_plates[index].id, std::pair{
+                Neo::Bridge::PrimeTower::coordinate_value(state().presets.project_config, "wipe_tower_x", index, 15.),
+                Neo::Bridge::PrimeTower::coordinate_value(state().presets.project_config, "wipe_tower_y", index, 220.)});
+        }
+
+        const PlateBounds bounds = selected_plate_bounds();
+        const auto refs = plate_instance_refs();
+        const auto refs_by_id = index_plate_instance_refs(refs);
+        std::map<std::size_t, Vec3d> changed_instances;
+        std::set<std::string> changed_origin_plates;
+        std::map<std::string, std::uint64_t> next_revisions;
+        std::vector<BridgeState::PlateSessionPlate> reordered;
+        reordered.reserve(requested.size());
+        for (std::size_t index = 0; index < requested.size(); ++index) {
+            auto plate = old_by_id.at(requested[index]);
+            const Vec3d new_origin = plate_origin_for_index(
+                static_cast<int>(index), static_cast<int>(requested.size()), bounds);
+            const Vec3d delta = new_origin - plate.origin;
+            if (delta != Vec3d::Zero()) {
+                changed_origin_plates.insert(plate.id);
+                next_revisions.emplace(plate.id, allocate_plate_input_stamp(state()));
+                for (const auto& [instance_id, plate_id] : state().instance_plate_ids) {
+                    if (plate_id != plate.id) continue;
+                    const auto ref = refs_by_id.find(instance_id);
+                    if (ref == refs_by_id.end()) continue;
+                    translate_instance(*ref->second, delta);
+                    changed_instances[instance_id] = delta;
+                }
+            }
+            plate.display_index = static_cast<int>(index);
+            plate.origin = new_origin;
+            reordered.push_back(std::move(plate));
+        }
+
+        state().plate_session_plates = std::move(reordered);
+        for (std::size_t index = 0; index < requested.size(); ++index) {
+            const auto [x, y] = tower_by_id.at(requested[index]);
+            Neo::Bridge::PrimeTower::set_coordinate_settings(state().presets.project_config, index, x, y, 15., 220.);
+        }
+        state().project_config_overlay["project"]["wipe_tower_x"] =
+            state().presets.project_config.option("wipe_tower_x")->serialize();
+        state().project_config_overlay["project"]["wipe_tower_y"] =
+            state().presets.project_config.option("wipe_tower_y")->serialize();
+        for (const auto& [plate_id, revision] : next_revisions)
+            state().plate_input_revisions[plate_id] = revision;
+        Neo::Bridge::PrimeTower::invalidate_projection_cache(changed_origin_plates);
+        state().plate_runtime_registry.invalidate_presentations(changed_origin_plates);
+
+        json result = plate_session_snapshot_json(reflow_instance_transforms(changed_instances));
+        result["input_revisions"] = plate_revisions_json();
+        result["affected_plate_ids_before"] = plate_id_array(changed_origin_plates);
+        result["affected_plate_ids_after"] = plate_id_array(changed_origin_plates);
+        result["affected_plate_ids"] = plate_id_array(changed_origin_plates);
+        result["dirty_reasons"] = {"plate-structure"};
+        result["project_config_overlay"] = state().project_config_overlay;
+        return dup_json(result.dump());
+    } catch (const std::exception& e) {
+        return error_json(e.what());
+    } catch (...) {
+        return error_json("unknown C++ exception");
+    }
+}
+
 EMSCRIPTEN_KEEPALIVE const char* orc_delete_plate(const char* plate_id_cstr)
 {
     std::optional<Neo::Bridge::PlateRuntimeRegistry::LifecycleSnapshots> before_lifecycle;

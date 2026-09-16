@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -164,9 +164,7 @@ const thirdSlice = await callAsyncTask(callJson, 'orc_slice_plate',
   ['string', 'string', 'number'], ['{}', thirdPlate, thirdRevision]);
 assert.equal(thirdSlice.ok, true, JSON.stringify(thirdSlice));
 trace('third plate slice complete');
-assert.equal(callJson('orc_get_slice_result').ok, true);
-const previewBefore = callJson('orc_history_restore_diagnostics');
-assert.equal(previewBefore.previewPlateId, thirdPlate); assert.ok(previewBefore.previewResultId > 0);
+assert.equal(getSliceResult(callJson, thirdSlice.receipt).ok, true);
 assert.equal(callJson('orc_select_plate', ['string'], [secondPlate]).ok, true);
 const before = projectArray('wipe_tower_x'); const beforeY = projectArray('wipe_tower_y');
 const beforeRevision = session().input_revisions[secondPlate];
@@ -207,14 +205,14 @@ assert.equal(afterDiagnostics.fullPresetBundleCopyCount, beforeDiagnostics.fullP
 assert.equal(afterDiagnostics.currentDirectFrameKind, 'primeTower');
 assert.ok(afterDiagnostics.currentDirectFrameBytes > 0 && afterDiagnostics.currentDirectFrameBytes < 1024);
 assert.equal(afterDiagnostics.currentModelBytes, beforeDiagnostics.currentModelBytes);
-assert.equal(afterDiagnostics.previewPlateId, thirdPlate); assert.equal(afterDiagnostics.previewResultId, previewBefore.previewResultId);
+assert.equal(getSliceResult(callJson, thirdSlice.receipt).ok, true);
 assert.equal(callJson('orc_history_status').undoEntries.length, beforeHistory.undoEntries.length + 1);
 
 assert.equal(callJson('orc_history_undo').ok, true); assert.deepEqual(projectArray('wipe_tower_x'), before); assert.deepEqual(projectArray('wipe_tower_y'), beforeY);
-assert.equal(callJson('orc_history_restore_diagnostics').previewPlateId, thirdPlate);
+assert.equal(getSliceResult(callJson, thirdSlice.receipt).ok, true);
 trace('selected plate move undo/redo complete');
 assert.equal(callJson('orc_history_redo').ok, true); assert.deepEqual(projectArray('wipe_tower_x'), after); assert.deepEqual(projectArray('wipe_tower_y'), afterY);
-assert.equal(callJson('orc_history_restore_diagnostics').previewPlateId, thirdPlate);
+assert.equal(getSliceResult(callJson, thirdSlice.receipt).ok, true);
 
 // A narrow Prime Tower frame followed by an ordinary model mutation must not
 // bypass the target model restore. Exercise one-step navigation in both
@@ -290,15 +288,15 @@ trace('mixed history navigation complete');
 
 const targetRevision = session().input_revisions[secondPlate];
 trace('second plate slice starting');
-assert.equal((await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', secondPlate, targetRevision])).ok, true);
+const secondSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', secondPlate, targetRevision]);
+assert.equal(secondSlice.ok, true);
 trace('second plate slice complete');
-assert.equal(callJson('orc_get_slice_result').ok, true);
-assert.ok(callJson('orc_history_restore_diagnostics').previewResultId > 0);
+assert.equal(getSliceResult(callJson, secondSlice.receipt).ok, true);
 assert.equal(request('orc_move_prime_tower', { version: 1, plate_id: secondPlate, revision: targetRevision, x: 30, y: 30 }).ok, true);
-let invalid = callJson('orc_history_restore_diagnostics'); assert.equal(invalid.previewPlateId, ''); assert.equal(invalid.previewResultId, 0);
-assert.equal(callJson('orc_history_undo').ok, true); invalid = callJson('orc_history_restore_diagnostics'); assert.equal(invalid.previewPlateId, ''); assert.equal(invalid.previewResultId, 0);
-assert.equal(callJson('orc_history_redo').ok, true); invalid = callJson('orc_history_restore_diagnostics'); assert.equal(invalid.previewPlateId, ''); assert.equal(invalid.previewResultId, 0);
+let invalid = getSliceResult(callJson, secondSlice.receipt); assert.equal(invalid.ok, false); assert.equal(invalid.status, 'stale');
+assert.equal(callJson('orc_history_undo').ok, true); invalid = getSliceResult(callJson, secondSlice.receipt); assert.equal(invalid.ok, false); assert.equal(invalid.status, 'stale');
+assert.equal(callJson('orc_history_redo').ok, true); invalid = getSliceResult(callJson, secondSlice.receipt); assert.equal(invalid.ok, false); assert.equal(invalid.status, 'stale');
 
 assert.equal(callJson('orc_delete_plate', ['string'], [firstPlate]).ok, true);
 assert.equal(projectArray('wipe_tower_x').length, 2); assert.equal(projectArray('wipe_tower_y').length, 2);

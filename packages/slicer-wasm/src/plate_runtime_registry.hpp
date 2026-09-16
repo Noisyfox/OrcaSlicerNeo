@@ -33,6 +33,8 @@ public:
     };
 
     struct Entry {
+        ~Entry();
+
         std::string plate_id;
         std::uint64_t incarnation_id = 0;
         std::unique_ptr<Print> print;
@@ -50,6 +52,17 @@ public:
         // delayed projection payloads cannot impersonate a newer Slice for
         // the same unchanged input stamp.
         std::optional<std::uint64_t> completed_slice_task_id;
+        // Successful result generations are plate-local, monotonic, and
+        // runtime-only.  Every result-facing ABI validates this value in
+        // addition to the plate id and input stamp.
+        std::uint64_t result_generation = 0;
+        // The completed generation owns one immutable MEMFS G-code source.
+        // It is produced before the Slice terminal and reused by Preview,
+        // source-text reads, Export, and Send without another export pass.
+        std::string gcode_path;
+        std::size_t gcode_size = 0;
+        std::vector<std::size_t> gcode_line_ends;
+        bool gcode_text_available = false;
         bool native_core_materialized = false;
 
     private:
@@ -104,6 +117,11 @@ public:
         PresentationLifecycle presentation = PresentationLifecycle::Invalid;
         std::optional<std::uint64_t> completed_input_revision;
         std::optional<std::uint64_t> completed_slice_task_id;
+        std::uint64_t result_generation = 0;
+        std::string gcode_path;
+        std::size_t gcode_size = 0;
+        std::vector<std::size_t> gcode_line_ends;
+        bool gcode_text_available = false;
         bool native_core_materialized = false;
     };
     using LifecycleSnapshots = std::map<std::string, LifecycleSnapshot>;

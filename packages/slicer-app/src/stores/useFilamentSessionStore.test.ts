@@ -126,7 +126,7 @@ describe('filament session store lifecycle', () => {
     } };
     const cancel = vi.fn(async () => ({ ok: true }));
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-a', inputStamp: 1, sliceTaskId: '1' });
+    slicer.setPlateResult({ plateId: 'plate-a', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
     slicer.setActiveSliceTarget({ plateId: 'plate-a', inputRevision: 1 });
     slicer.setStatus('slicing');
     useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
@@ -140,8 +140,8 @@ describe('filament session store lifecycle', () => {
   it('retains an unaffected cached plate for an object-scoped mutation', async () => {
     const initial = snapshot(1); const newer = snapshot(2);
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-a', inputStamp: 1, sliceTaskId: '1' });
-    slicer.setPlateResult({ plateId: 'plate-b', inputStamp: 1, sliceTaskId: '2' });
+    slicer.setPlateResult({ plateId: 'plate-a', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    slicer.setPlateResult({ plateId: 'plate-b', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
     useFilamentSessionStore.setState({ snapshot: initial, rejected: null });
     await useFilamentSessionStore.getState().run({} as SlicerClient, async () => ({ ok: true, version: 1, result: {
       snapshot: newer,

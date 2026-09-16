@@ -12,6 +12,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <condition_variable>
@@ -93,14 +95,7 @@ void apply_overlay_to_config(Config& config, const json& values)
 
 void invalidate_preview_result_only()
 {
-    auto& bridge_state = state();
-    bridge_state.preview_result_id = 0;
-    bridge_state.preview_gcode_path.clear();
-    bridge_state.preview_gcode_size = 0;
-    bridge_state.preview_gcode_line_ends.clear();
-    bridge_state.preview_text_available = false;
-    bridge_state.preview_plate_id.clear();
-    bridge_state.preview_plate_revision = 0;
+    Neo::Bridge::PrimeTower::invalidate_projection_cache();
 }
 
 // Print::apply() reads ModelInstance::is_printable() while it builds its
@@ -323,14 +318,63 @@ std::uint64_t current_input_revision_for_plate(const std::string& plate_id)
 
 const char* result_unavailable_error()
 {
-    return error_json("plate slice result is stale or unavailable");
+    return dup_json(json{{"ok", false}, {"status", "unavailable"},
+                         {"error", "plate slice result is stale or unavailable"}}.dump());
+}
+
+const char* result_stale_error()
+{
+    return dup_json(json{{"ok", false}, {"status", "stale"},
+                         {"error", "plate slice result was superseded"}}.dump());
 }
 
 json projection_receipt(const PlateRuntimeRegistry::Entry& entry)
 {
     return json{{"plate_id", entry.plate_id},
                 {"input_stamp", entry.completed_input_revision.value_or(0)},
+                {"result_generation", std::to_string(entry.result_generation)},
                 {"slice_task_id", std::to_string(entry.completed_slice_task_id.value_or(0))}};
+}
+
+std::string generation_gcode_path(const PlateRuntimeRegistry::Entry& entry,
+                                  const std::uint64_t generation)
+{
+    std::string safe_id = entry.plate_id;
+    for (char& value : safe_id) {
+        const unsigned char byte = static_cast<unsigned char>(value);
+        if (!std::isalnum(byte) && value != '-' && value != '_') value = '_';
+    }
+    return "/plate-result-" + safe_id + "-" +
+           std::to_string(entry.incarnation_id) + "-" +
+           std::to_string(generation) + ".gcode";
+}
+
+void materialize_completed_generation(PlateRuntimeRegistry::Entry& entry)
+{
+    const std::uint64_t generation = entry.result_generation + 1;
+    const std::string path = generation_gcode_path(entry, generation);
+    entry.print->export_gcode(path, entry.gcode_result.get(), nullptr);
+
+    std::ifstream source(path, std::ios::binary | std::ios::ate);
+    if (!source.good()) {
+        std::remove(path.c_str());
+        throw std::runtime_error("completed slice G-code could not be opened");
+    }
+    const auto position = source.tellg();
+    if (position < 0) {
+        std::remove(path.c_str());
+        throw std::runtime_error("completed slice G-code size is unavailable");
+    }
+
+    const std::string previous_path = entry.gcode_path;
+    entry.gcode_path = path;
+    entry.gcode_size = static_cast<std::size_t>(position);
+    entry.gcode_line_ends.assign(entry.gcode_result->lines_ends.begin(),
+                                 entry.gcode_result->lines_ends.end());
+    entry.gcode_text_available = true;
+    entry.result_generation = generation;
+    if (!previous_path.empty() && previous_path != path)
+        std::remove(previous_path.c_str());
 }
 
 struct SliceTask {
@@ -408,6 +452,24 @@ std::pair<std::string, json> finalize_slice_task(
     }
 
     const std::uint64_t current_revision = current_input_revision_for_plate(task->plate_id);
+    if (current_revision != task->revision) {
+        registry.mark_process_failed(task->lease);
+        invalidate_preview_source();
+        release_active_slice_task(task);
+        return {"stale", json{{"error", "plate slice result is stale or unavailable"}}};
+    }
+    try {
+        materialize_completed_generation(task->lease.entry());
+    } catch (const std::bad_alloc&) {
+        registry.mark_process_failed(task->lease);
+        release_active_slice_task(task);
+        return {"out_of_memory", json{{"error", "out of memory while materializing plate result"},
+                                      {"plate_id", task->plate_id}, {"layer", "native-result"}}};
+    } catch (const std::exception& error) {
+        registry.mark_process_failed(task->lease);
+        release_active_slice_task(task);
+        return {"failed", json{{"error", error.what()}}};
+    }
     const bool live_completion = registry.mark_process_completed(
         task->lease, task->revision, current_revision);
     if (!live_completion || !registry.can_publish_completed_job(task->lease, current_revision)) {
@@ -417,8 +479,7 @@ std::pair<std::string, json> finalize_slice_task(
     }
 
     auto& entry = task->lease.entry();
-    state().preview_plate_id = task->plate_id;
-    state().preview_plate_revision = task->revision;
+    PlateRuntimeRegistry::mark_presentation_valid(entry, current_revision);
     json result{{"ok", true}, {"unrecognized_keys", task->unrecognized_keys},
                 {"warnings", task->warnings}, {"receipt", projection_receipt(entry)}};
     release_active_slice_task(task);
@@ -958,18 +1019,34 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_slice_plate(const char* config_j
 // once to the Worker client; that client copies each array and frees the
 // corresponding heap allocation immediately (the JSON itself is freed by the
 // normal callJson path).
-extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result(const char* plate_id,
+                                                        double input_stamp_number,
+                                                        double result_generation_number) {
     PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
     try {
         ensure_plate_session_state();
+        const auto valid_integer = [](double value) {
+            return std::isfinite(value) && value >= 0.0 && std::floor(value) == value &&
+                   value <= static_cast<double>(std::numeric_limits<std::uint64_t>::max());
+        };
+        if (plate_id == nullptr || !valid_integer(input_stamp_number) ||
+            !valid_integer(result_generation_number) || result_generation_number == 0.0)
+            return dup_json(json{{"ok", false}, {"status", "failed"},
+                                 {"error", "invalid result receipt"}}.dump());
+        const std::string target_plate_id = plate_id;
+        const auto expected_stamp = static_cast<std::uint64_t>(input_stamp_number);
+        const auto expected_generation = static_cast<std::uint64_t>(result_generation_number);
         std::string target_error;
-        runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
+        runtime_entry = runtime_entry_for_plate(target_plate_id, target_error);
         if (runtime_entry == nullptr)
-            return error_json(target_error);
+            return dup_json(json{{"ok", false}, {"status", "unavailable"},
+                                 {"error", target_error}}.dump());
         auto& print = *runtime_entry->print;
-        const auto current_revision = current_input_revision_for_plate(state().current_plate_id);
-        if (!PlateRuntimeRegistry::can_materialize_result(*runtime_entry, current_revision)) {
-            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
+        const auto current_revision = current_input_revision_for_plate(target_plate_id);
+        if (current_revision != expected_stamp ||
+            runtime_entry->result_generation != expected_generation)
+            return result_stale_error();
+        if (!PlateRuntimeRegistry::is_publishable(*runtime_entry, current_revision)) {
             return result_unavailable_error();
         }
         if (print.objects().empty()) {
@@ -981,8 +1058,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                 {"extrusion_role_ptr", 0}, {"extruder_id_ptr", 0},
                                 {"color_print_id_ptr", 0}, {"width_ptr", 0}, {"height_ptr", 0},
                                 {"metrics", json::object()}};
-            PlateRuntimeRegistry::mark_presentation_valid(*runtime_entry, current_revision);
             return dup_json(json{{"ok", true}, {"preview_version", 2},
+                                 {"status", "ok"},
                                  {"receipt", projection_receipt(*runtime_entry)},
                                  {"objects", 0}, {"layers", 0},
                                  {"metadata", json{{"result_id", 0}, {"layer_ranges", json::array()},
@@ -991,25 +1068,10 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
                                  {"toolpath", std::move(empty_toolpath)}}.dump());
         }
 
-        // Orca's Print::export_gcode configures GCode with the selected plate
-        // origin before emission. Passing a result sink keeps the native
-        // GCodeProcessorResult while /out.gcode remains printer-local for
-        // export/send. GCodeProcessor's MoveVertex already adds that same
-        // origin to its rendering positions; the bridge therefore publishes
-        // those positions unchanged as world-space preview coordinates.
-        print.export_gcode("/out.gcode", runtime_entry->gcode_result.get(), nullptr);
+        // Slice completion already produced this plate generation's immutable
+        // G-code and GCodeProcessorResult. Projection is a read-only conversion
+        // and must never rerun Print::export_gcode().
         auto& gcode_result = *runtime_entry->gcode_result;
-        {
-            auto& bridge_state = state();
-            bridge_state.preview_result_id = gcode_result.id;
-            bridge_state.preview_gcode_path = "/out.gcode";
-            std::ifstream source(bridge_state.preview_gcode_path, std::ios::binary | std::ios::ate);
-            bridge_state.preview_text_available = source.good();
-            bridge_state.preview_gcode_size = source.good()
-                ? static_cast<std::size_t>(source.tellg())
-                : 0;
-            bridge_state.preview_gcode_line_ends.assign(gcode_result.lines_ends.begin(), gcode_result.lines_ends.end());
-        }
         auto tp = bridge::build_toolpath(gcode_result);
         const auto analysis = bridge::build_preview_analysis(gcode_result, tp);
         // Layer count = max layer id present in the toolpath + 1. The gcode
@@ -1095,7 +1157,7 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         const std::uintptr_t ts = ptr(tp.starts);
         const std::uintptr_t te = ptr(tp.ends);
 
-        json out{{"ok", true}, {"preview_version", 2},
+        json out{{"ok", true}, {"status", "ok"}, {"preview_version", 2},
                  {"receipt", projection_receipt(*runtime_entry)},
                  {"objects", print.objects().size()}, {"layers", layers}};
         out["metadata"] = {
@@ -1107,8 +1169,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
             // is available for a future chunked text API.
             {"source_line_mapping", json{{"available", !gcode_result.lines_ends.empty()},
                                            {"line_count", gcode_result.lines_ends.size()}}},
-            {"source_text", json{{"available", state().preview_text_available},
-                                  {"byte_length", state().preview_gcode_size}}},
+            {"source_text", json{{"available", runtime_entry->gcode_text_available},
+                                  {"byte_length", runtime_entry->gcode_size}}},
         };
         if (!extruder_palette.empty()) out["metadata"]["extruder_palette"] = std::move(extruder_palette);
         json summary = json::object();
@@ -1152,14 +1214,12 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
         tp.fan_speeds.release(); tp.temperatures.release(); tp.pressure_advances.release();
         tp.accelerations.release(); tp.jerks.release(); tp.times.release();
         tp.layer_durations.release();
-        PlateRuntimeRegistry::mark_presentation_valid(
-            *runtime_entry, current_input_revision_for_plate(state().current_plate_id));
         return dup_json(out.dump());
     } catch (const std::exception& e) {
         // Projection construction is presentation-only work. A failed copy or
         // allocation may be retried from the retained native core result and
         // must not revoke Export eligibility or mutate registry ownership.
-        return error_json(e.what());
+        return dup_json(json{{"ok", false}, {"status", "failed"}, {"error", e.what()}}.dump());
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
@@ -1173,32 +1233,44 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_slice_result() {
 // complete text. `offset` and `length` are doubles at the Emscripten ABI so
 // wasm32/wasm64 callers share one signature; both are validated as exact,
 // non-negative integers before conversion.
-extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_id_number,
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(const char* plate_id,
+                                                      double input_stamp_number,
+                                                      double result_generation_number,
+                                                      double result_id_number,
                                                       double offset_number,
                                                       double length_number) {
     try {
         constexpr std::size_t max_chunk_bytes = 64 * 1024;
         constexpr std::size_t max_alignment_overrun_bytes = 3;
         constexpr std::size_t max_response_bytes = max_chunk_bytes + max_alignment_overrun_bytes * 2;
-        auto& bridge_state = state();
         const auto valid_integer = [](double value) {
             return std::isfinite(value) && value >= 0.0 &&
                    std::floor(value) == value &&
                    value <= static_cast<double>(std::numeric_limits<std::size_t>::max());
         };
-        if (!valid_integer(result_id_number) || !valid_integer(offset_number) ||
+        if (plate_id == nullptr || !valid_integer(input_stamp_number) ||
+            !valid_integer(result_generation_number) || result_generation_number == 0.0 ||
+            !valid_integer(result_id_number) || !valid_integer(offset_number) ||
             !valid_integer(length_number))
             return dup_json(json{{"ok", false}, {"error", "invalid chunk range"}}.dump());
 
         if (result_id_number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()))
             return dup_json(json{{"ok", false}, {"error", "invalid result id"}}.dump());
         const auto result_id = static_cast<std::uint32_t>(result_id_number);
+        const auto input_stamp = static_cast<std::uint64_t>(input_stamp_number);
+        const auto result_generation = static_cast<std::uint64_t>(result_generation_number);
         const auto requested_offset = static_cast<std::size_t>(offset_number);
         const auto requested_length = static_cast<std::size_t>(length_number);
-        if (result_id == 0 || result_id != bridge_state.preview_result_id ||
-            !bridge_state.preview_text_available)
-            return dup_json(json{{"ok", false}, {"error", "preview text is unavailable"}}.dump());
-        if (requested_length > max_chunk_bytes || requested_offset > bridge_state.preview_gcode_size)
+        auto* entry = state().plate_runtime_registry.find(plate_id);
+        const auto current_revision = current_input_revision_for_plate(plate_id);
+        if (entry == nullptr) return result_unavailable_error();
+        if (current_revision != input_stamp || entry->result_generation != result_generation ||
+            result_id == 0 || result_id != entry->gcode_result->id)
+            return result_stale_error();
+        if (!PlateRuntimeRegistry::is_publishable(*entry, current_revision) ||
+            !entry->gcode_text_available)
+            return result_unavailable_error();
+        if (requested_length > max_chunk_bytes || requested_offset > entry->gcode_size)
             return dup_json(json{{"ok", false}, {"error", "chunk range is outside the preview text"}}.dump());
 
         // Align the returned bytes to UTF-8 code-point boundaries. A caller
@@ -1206,9 +1278,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_i
         // virtualized line viewport), so include up to three preceding bytes
         // and up to three continuation bytes after the requested range.
         std::size_t actual_offset = requested_offset;
-        std::size_t actual_end = std::min(bridge_state.preview_gcode_size,
+        std::size_t actual_end = std::min(entry->gcode_size,
                                           requested_offset + requested_length);
-        std::ifstream source(bridge_state.preview_gcode_path, std::ios::binary);
+        std::ifstream source(entry->gcode_path, std::ios::binary);
         if (!source.good())
             return dup_json(json{{"ok", false}, {"error", "preview text could not be opened"}}.dump());
         auto read_byte = [&](std::size_t position, unsigned char& value) {
@@ -1226,9 +1298,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_i
                    (byte & 0xc0u) == 0x80u)
                 --actual_offset, ++continuation_bytes;
         }
-        if (requested_length > 0 && actual_end < bridge_state.preview_gcode_size) {
+        if (requested_length > 0 && actual_end < entry->gcode_size) {
             unsigned char byte = 0;
-            while (actual_end < bridge_state.preview_gcode_size &&
+            while (actual_end < entry->gcode_size &&
                    actual_end < requested_offset + requested_length + max_alignment_overrun_bytes &&
                    read_byte(actual_end, byte) && (byte & 0xc0u) == 0x80u)
                 ++actual_end;
@@ -1246,9 +1318,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_i
                 return dup_json(json{{"ok", false}, {"error", "preview text read failed"}}.dump());
             }
         }
-        return dup_json(json{{"ok", true}, {"result_id", bridge_state.preview_result_id},
+        return dup_json(json{{"ok", true}, {"status", "ok"}, {"result_id", entry->gcode_result->id},
                              {"offset", actual_offset}, {"length", byte_count},
-                             {"eof", actual_end >= bridge_state.preview_gcode_size},
+                             {"eof", actual_end >= entry->gcode_size},
                              {"bytes_ptr", reinterpret_cast<std::uintptr_t>(bytes)},
                              {"bytes_length", byte_count}}.dump());
     } catch (const std::exception& e) {
@@ -1261,39 +1333,51 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_chunk(double result_i
 // Read a seekable bounded page of complete source lines. The line-end table
 // stays in the bridge's current result; only the requested bytes cross the
 // seam, so late-line inspection never walks or copies the preceding file.
-extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(double result_id_number,
+extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(const char* plate_id,
+                                                      double input_stamp_number,
+                                                      double result_generation_number,
+                                                      double result_id_number,
                                                       double start_line_number,
                                                       double line_count_number) {
     try {
         constexpr std::size_t max_line_count = 128;
         constexpr std::size_t max_page_bytes = 64 * 1024;
-        auto& bridge_state = state();
         const auto valid_integer = [](double value) {
             return std::isfinite(value) && value >= 0.0 &&
                    std::floor(value) == value &&
                    value <= static_cast<double>(std::numeric_limits<std::size_t>::max());
         };
-        if (!valid_integer(result_id_number) || !valid_integer(start_line_number) ||
+        if (plate_id == nullptr || !valid_integer(input_stamp_number) ||
+            !valid_integer(result_generation_number) || result_generation_number == 0.0 ||
+            !valid_integer(result_id_number) || !valid_integer(start_line_number) ||
             !valid_integer(line_count_number) ||
             result_id_number > static_cast<double>(std::numeric_limits<std::uint32_t>::max()))
             return dup_json(json{{"ok", false}, {"error", "invalid source line page"}}.dump());
         const auto result_id = static_cast<std::uint32_t>(result_id_number);
+        const auto input_stamp = static_cast<std::uint64_t>(input_stamp_number);
+        const auto result_generation = static_cast<std::uint64_t>(result_generation_number);
         const auto start_line = static_cast<std::size_t>(start_line_number);
         const auto line_count = static_cast<std::size_t>(line_count_number);
-        if (result_id == 0 || result_id != bridge_state.preview_result_id ||
-            !bridge_state.preview_text_available)
-            return dup_json(json{{"ok", false}, {"error", "preview text is unavailable"}}.dump());
+        auto* entry = state().plate_runtime_registry.find(plate_id);
+        const auto current_revision = current_input_revision_for_plate(plate_id);
+        if (entry == nullptr) return result_unavailable_error();
+        if (current_revision != input_stamp || entry->result_generation != result_generation ||
+            result_id == 0 || result_id != entry->gcode_result->id)
+            return result_stale_error();
+        if (!PlateRuntimeRegistry::is_publishable(*entry, current_revision) ||
+            !entry->gcode_text_available)
+            return result_unavailable_error();
         if (line_count == 0 || line_count > max_line_count ||
-            start_line == 0 || start_line > bridge_state.preview_gcode_line_ends.size())
+            start_line == 0 || start_line > entry->gcode_line_ends.size())
             return dup_json(json{{"ok", false}, {"error", "source line page is outside the preview"}}.dump());
-        const auto end_line = std::min(bridge_state.preview_gcode_line_ends.size(),
+        const auto end_line = std::min(entry->gcode_line_ends.size(),
                                       start_line + line_count - 1);
-        const auto start_byte = start_line == 1 ? 0 : bridge_state.preview_gcode_line_ends[start_line - 2];
-        const auto end_byte = bridge_state.preview_gcode_line_ends[end_line - 1];
-        if (start_byte > end_byte || end_byte > bridge_state.preview_gcode_size ||
+        const auto start_byte = start_line == 1 ? 0 : entry->gcode_line_ends[start_line - 2];
+        const auto end_byte = entry->gcode_line_ends[end_line - 1];
+        if (start_byte > end_byte || end_byte > entry->gcode_size ||
             end_byte - start_byte > max_page_bytes)
             return dup_json(json{{"ok", false}, {"error", "source line page exceeds byte bound"}}.dump());
-        std::ifstream source(bridge_state.preview_gcode_path, std::ios::binary);
+        std::ifstream source(entry->gcode_path, std::ios::binary);
         if (!source.good())
             return dup_json(json{{"ok", false}, {"error", "preview text could not be opened"}}.dump());
         const auto byte_count = end_byte - start_byte;
@@ -1306,9 +1390,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(double result_i
                 return dup_json(json{{"ok", false}, {"error", "preview text read failed"}}.dump());
             }
         }
-        return dup_json(json{{"ok", true}, {"result_id", bridge_state.preview_result_id},
+        return dup_json(json{{"ok", true}, {"status", "ok"}, {"result_id", entry->gcode_result->id},
                              {"start_line", start_line}, {"line_count", end_line - start_line + 1},
-                             {"eof", end_line == bridge_state.preview_gcode_line_ends.size()},
+                             {"eof", end_line == entry->gcode_line_ends.size()},
                              {"bytes_ptr", reinterpret_cast<std::uintptr_t>(bytes)},
                              {"bytes_length", byte_count}}.dump());
     } catch (const std::exception& e) {
@@ -1319,74 +1403,51 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_read_gcode_lines(double result_i
 }
 
 const char* export_gcode_for_target(const std::string& plate_id,
-                                    const std::uint64_t revision) {
-    PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
+                                    const std::uint64_t revision,
+                                    const std::uint64_t result_generation) {
     try {
+        if (plate_id != state().current_plate_id)
+            return result_unavailable_error();
         std::string target_error;
-        if (!validate_plate_operation_target(plate_id, revision, target_error))
-            return error_json(target_error);
-        runtime_entry = runtime_entry_for_plate(plate_id, target_error);
+        auto* runtime_entry = runtime_entry_for_plate(plate_id, target_error);
         if (runtime_entry == nullptr)
-            return error_json(target_error);
+            return result_unavailable_error();
         const auto current_revision = current_input_revision_for_plate(plate_id);
-        if (!PlateRuntimeRegistry::can_materialize_result(
-                *runtime_entry, current_revision))
+        if (current_revision != revision || runtime_entry->result_generation != result_generation)
+            return result_stale_error();
+        if (!PlateRuntimeRegistry::is_publishable(*runtime_entry, current_revision))
             return result_unavailable_error();
         if (!runtime_entry->completed_input_revision.has_value() ||
-            *runtime_entry->completed_input_revision != revision)
+            *runtime_entry->completed_input_revision != revision ||
+            runtime_entry->gcode_path.empty())
             return result_unavailable_error();
-        const std::string path = "/out.gcode";
-        runtime_entry->print->export_gcode(path, nullptr, nullptr);
-        PlateRuntimeRegistry::mark_presentation_valid(*runtime_entry, current_revision);
-        return dup_json(json{{"ok", true}, {"path", path}}.dump());
+        return dup_json(json{{"ok", true}, {"status", "ok"},
+                             {"path", runtime_entry->gcode_path},
+                             {"receipt", projection_receipt(*runtime_entry)}}.dump());
     } catch (const std::exception& e) {
-        if (runtime_entry != nullptr)
-            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
-        return error_json(e.what());
+        return dup_json(json{{"ok", false}, {"status", "failed"}, {"error", e.what()}}.dump());
     } catch (...) {
         // Non-std throw (M4 probe caught one escaping a partial-install
         // init): never let a C++ exception cross the extern "C" seam.
-        if (runtime_entry != nullptr)
-            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
-        return error_json("unknown C++ exception");
-    }
-}
-
-extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode() {
-    PlateRuntimeRegistry::Entry* runtime_entry = nullptr;
-    try {
-        ensure_plate_session_state();
-        std::string target_error;
-        runtime_entry = runtime_entry_for_plate(state().current_plate_id, target_error);
-        if (runtime_entry == nullptr)
-            return error_json(target_error);
-        const auto current_revision = current_input_revision_for_plate(state().current_plate_id);
-        if (!PlateRuntimeRegistry::can_materialize_result(*runtime_entry, current_revision))
-            return result_unavailable_error();
-        const std::string path = "/out.gcode";
-        runtime_entry->print->export_gcode(path, nullptr, nullptr);
-        PlateRuntimeRegistry::mark_presentation_valid(*runtime_entry, current_revision);
-        return dup_json(json{{"ok", true}, {"path", path}}.dump());
-    } catch (const std::exception& e) {
-        if (runtime_entry != nullptr)
-            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
-        return error_json(e.what());
-    } catch (...) {
-        if (runtime_entry != nullptr)
-            PlateRuntimeRegistry::mark_presentation_invalid(*runtime_entry);
-        return error_json("unknown C++ exception");
+        return dup_json(json{{"ok", false}, {"status", "failed"},
+                             {"error", "unknown C++ exception"}}.dump());
     }
 }
 
 extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_export_gcode_plate(const char* plate_id,
-                                                         double revision_number) {
+                                                         double revision_number,
+                                                         double result_generation_number) {
     try {
         if (!plate_id || !std::isfinite(revision_number) || revision_number < 0.0 ||
             std::floor(revision_number) != revision_number ||
-            revision_number > static_cast<double>(std::numeric_limits<std::uint64_t>::max()))
+            revision_number > static_cast<double>(std::numeric_limits<std::uint64_t>::max()) ||
+            !std::isfinite(result_generation_number) || result_generation_number <= 0.0 ||
+            std::floor(result_generation_number) != result_generation_number ||
+            result_generation_number > static_cast<double>(std::numeric_limits<std::uint64_t>::max()))
             return error_json("invalid plate operation target");
         return export_gcode_for_target(plate_id,
-                                       static_cast<std::uint64_t>(revision_number));
+                                       static_cast<std::uint64_t>(revision_number),
+                                       static_cast<std::uint64_t>(result_generation_number));
     } catch (const std::exception& e) {
         return error_json(e.what());
     } catch (...) {
@@ -1438,5 +1499,16 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* orc_get_threading_info() {
                          {"serial_terminal_epoch", std::to_string(g_serial_terminal_epoch)}}.dump());
 #endif
 }
+
+#ifdef NEO_REAL_PROJECT_PROFILE
+// Dedicated-profile builds use this narrow probe to place the active-slice
+// interaction measurement after Print::apply() has returned to the stateful
+// Worker and the detached process thread owns the job. Production builds do
+// not contain this symbol or its mutex read.
+extern "C" EMSCRIPTEN_KEEPALIVE int orc_real_project_profile_active_slice_count() {
+    std::lock_guard<std::mutex> lock(g_slice_job_mutex);
+    return g_active_slice_task ? 1 : 0;
+}
+#endif
 
 } // namespace Slic3r::Neo::Bridge::SlicingPipeline

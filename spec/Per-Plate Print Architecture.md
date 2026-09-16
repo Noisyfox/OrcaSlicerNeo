@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-15
 
-**Status:** Approved — implementation basis as of 2026-09-15.
+**Status:** Delivered and qualified 2026-09-16.
 
 **Scope:** Replace Neo's single reusable `BridgeState::print` with a headless,
 per-plate print/result architecture equivalent in ownership and lifecycle to
@@ -989,5 +989,32 @@ time alone is insufficient.
 All high-impact groups for the first FFF delivery are closed: runtime
 ownership, input/configuration scope, project compatibility, history,
 plate-lifecycle scope, task cancellation, result transport, and real-project
-performance acceptance. The specification remains Draft until whole-spec
-approval; no implementation may begin before that approval.
+performance acceptance. The implementation was qualified on 2026-09-16 with
+fresh serial and threaded WASM builds, the real-WASM registry, history,
+mailbox, lifecycle, Prime Tower, and project harnesses, all affected package
+tests and typechecks, visible serial/threaded Web Playwright runs, visible
+Electron regression coverage, and the exact non-mock u1.3mf Electron profile.
+
+The delivered runtime has no singleton `BridgeState::print` or singleton
+preview-result owner. Each stable plate registry entry owns its `Print`,
+`GCodeProcessorResult`, immutable generation-scoped G-code source, input and
+presentation stamps, and tombstone/job lifetime. Result reads, source-text
+reads, Export, and Send validate the complete plate/input/generation receipt.
+History restores input state and reconciles the registry without serializing
+or retaining derived slice payloads. Explicit Slice invalidates only the
+transferable renderer projection before executing the normal native pipeline.
+
+The final visible exact-u1 acceptance measured 50.995 ms from Add Plate
+dispatch to visible Undo, 32.397 ms for an ordinary Move, 65.254 ms from Undo
+click to restored model, and 92.925 ms from a Move affecting an active
+threaded slice to visible Undo. The active-slice Move consisted of 46.960 ms
+in the Worker, 47.310 ms at the client boundary, and 50.670 ms in the
+application; its native `history_begin`, `set_model_transforms`, and
+`history_commit` calls were 7.435 ms, 4.865 ms, and 13.860 ms respectively.
+The stale active result was discarded and never became exportable.
+
+Test and profile instrumentation introduced for this work is compile-time
+excluded from production execution. The dedicated build uses
+`NEO_REAL_PROJECT_PROFILE` and Vite build-time branches; the acceptance runner
+restores normal artifacts and scans the production WASM and Electron bundles
+for every profile ABI, hook, call site, and sentinel before succeeding.

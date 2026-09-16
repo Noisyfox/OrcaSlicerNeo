@@ -25,14 +25,14 @@ describe('sliceModel result boundary', () => {
 
   it('publishes a lightweight receipt and releases the global job before projection or export', async () => {
     const unaffectedTarget = { plateId: 'plate-2', inputRevision: 4 };
-    useSlicerStore.getState().setPlateResult({ plateId: 'plate-2', inputStamp: 4, sliceTaskId: 'old' });
+    useSlicerStore.getState().setPlateResult({ plateId: 'plate-2', inputStamp: 4, resultGeneration: '1', sliceTaskId: 'old' });
     useSlicerStore.getState().setSliceTarget(unaffectedTarget);
     useSlicerStore.getState().setStatus('done');
     useSlicerStore.getState().setProgress(100);
     usePlateSessionStore.getState().setSnapshot(plate1);
 
     const getPlateSessionSnapshot = vi.fn().mockResolvedValue(plate1);
-    const receipt = { plateId: 'plate-1', inputStamp: 1, sliceTaskId: '17' };
+    const receipt = { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '17' };
     const slicePlate = vi.fn(async () => ({ ok: true as const, unrecognized_keys: [], receipt }));
     const runtime = {
       setModelTransform: vi.fn(async () => ({ ok: true })),
@@ -59,7 +59,7 @@ describe('sliceModel result boundary', () => {
   });
 
   it('exports the current retained native result without renderer-owned G-code bytes', async () => {
-    const receipt = { plateId: 'plate-1', inputStamp: 1, sliceTaskId: '23' };
+    const receipt = { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '23' };
     usePlateSessionStore.getState().setSnapshot(plate1);
     useSlicerStore.getState().setPlateResult(receipt);
     useSlicerStore.getState().activatePlateResult('plate-1', 1);
@@ -73,7 +73,7 @@ describe('sliceModel result boundary', () => {
 
     await exportGcode(platform);
 
-    expect(exportGcodePlate).toHaveBeenCalledWith({ plateId: 'plate-1', inputRevision: 1 });
+    expect(exportGcodePlate).toHaveBeenCalledWith(receipt);
     expect(save).toHaveBeenCalledWith('output.gcode', bytes);
     expect(useSlicerStore.getState().resultExported).toBe(true);
   });

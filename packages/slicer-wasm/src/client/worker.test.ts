@@ -102,7 +102,8 @@ describe('worker protocol', () => {
       .resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.slice({ layer_height: '0.3' }))
       .resolves.toMatchObject({ error: 'slice_busy' });
-    await expect(workerClient.exportGcode()).resolves.toMatchObject({ error: 'slice_busy' });
+    await expect(workerClient.exportGcodePlate({ plateId: 'plate-1', inputStamp: 0,
+      resultGeneration: '1', sliceTaskId: '1' })).resolves.toMatchObject({ error: 'slice_busy' });
     await expect(workerClient.cancel()).resolves.toMatchObject({ error: 'slice_busy' });
 
     const requests = transport.posted.filter((message) => message.type === 'request');

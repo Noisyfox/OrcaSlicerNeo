@@ -63,10 +63,9 @@ struct BridgeState {
     AppConfig profile_config;
     PresetBundle presets;
     Model       model;
-    Print       print;
-    // FFF per-plate native ownership.  Selected-plate slice/result/export/
-    // cancel operations resolve this registry; the legacy single Print stays
-    // in place for untouched mutation/history paths until their later steps.
+    // FFF per-plate native ownership. Selected-plate slice/result/export/
+    // cancel operations resolve this registry; no singleton Print or result
+    // owner remains in BridgeState.
     PlateRuntimeRegistry plate_runtime_registry;
     // Project-owned overrides are kept in the Worker/WASM session. React only
     // receives a render projection and never becomes their source of truth.
@@ -134,19 +133,6 @@ struct BridgeState {
     std::uint64_t full_preset_bundle_copy_count = 0;
     std::size_t next_filament_colour_index = 0;
     bool history_disabled = false;
-    // The current completed preview owns the exported G-code in MEMFS. Keep
-    // only its identity and file metadata here: full source text must never
-    // be copied into the initial preview JSON or retained as a second string.
-    std::uint32_t preview_result_id = 0;
-    std::string preview_gcode_path;
-    std::size_t preview_gcode_size = 0;
-    std::vector<std::size_t> preview_gcode_line_ends;
-    bool preview_text_available = false;
-    // These fields identify only the current transferable renderer projection.
-    // Durable native slice cores and their generation identities live in the
-    // per-plate runtime registry.
-    std::string preview_plate_id;
-    std::uint64_t preview_plate_revision = 0;
     // Runtime-only identity for the headless plate session. These records are
     // deliberately independent from native plate_index values and are never
     // persisted. Membership is derived from the live Model, not maintained by

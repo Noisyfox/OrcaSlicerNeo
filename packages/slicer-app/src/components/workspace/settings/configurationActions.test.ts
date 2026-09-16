@@ -92,8 +92,8 @@ describe('commitSharedConfigurationMutation', () => {
 
   it('invalidates only the native affected plate for a scoped model override', async () => {
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, sliceTaskId: '1' });
-    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, sliceTaskId: '2' });
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
     const setOverride = vi.fn(async () => ({
       ok: true as const,
       overlay: { project: {}, objects: { '42': { layer_height: '0.15' } }, parts: {}, plates: {} },
@@ -106,8 +106,8 @@ describe('commitSharedConfigurationMutation', () => {
 
   it('treats an explicit empty native affected set as a scoped no-op', () => {
     const slicer = useSlicerStore.getState();
-    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, sliceTaskId: '1' });
-    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, sliceTaskId: '2' });
+    slicer.setPlateResult({ plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' });
+    slicer.setPlateResult({ plateId: 'plate-2', inputStamp: 1, resultGeneration: '1', sliceTaskId: '2' });
 
     invalidateAfterSharedConfigurationMutation([]);
 

@@ -134,6 +134,9 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
           durationMs: number;
           centers: Array<[number, number, number]>;
         };
+        realProjectPlateModelWorldCenters?: (plateId: string) => Array<[number, number, number]>;
+        realProjectSelectFirstModelOnPlate?: (plateId: string) => boolean;
+        realProjectMoveSelectedX?: (delta: number) => { moved: boolean; startedAt: number };
       };
     };
     const projectPoint = (p: THREE.Vector3) => {
@@ -264,6 +267,32 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
         };
       },
       ...(import.meta.env.VITE_REAL_PROJECT_PROFILE === '1' ? {
+        realProjectPlateModelWorldCenters: (plateId: string) => {
+          const instancePlates = new Map((plateSession?.instances ?? []).map((instance) =>
+            [`${instance.objectIndex}:${instance.instanceIndex}`, instance.plateId]));
+          return glVolumes.filter((volume) =>
+            instancePlates.get(`${volume.buffer.objectIdx}:${volume.buffer.instanceIdx}`) === plateId)
+            .map((volume) => {
+              const center = volume.getWorldBounds().getCenter(new THREE.Vector3());
+              return [center.x, center.y, center.z] as [number, number, number];
+            });
+        },
+        realProjectSelectFirstModelOnPlate: (plateId: string) => {
+          const instancePlates = new Map((plateSession?.instances ?? []).map((instance) =>
+            [`${instance.objectIndex}:${instance.instanceIndex}`, instance.plateId]));
+          const volume = glVolumes.find((candidate) =>
+            instancePlates.get(`${candidate.buffer.objectIdx}:${candidate.buffer.instanceIdx}`) === plateId);
+          sceneInteraction.clearSelection();
+          return Boolean(volume && sceneInteraction.selectFromHit(volume, false));
+        },
+        realProjectMoveSelectedX: (delta: number) => {
+          const startedAt = performance.now();
+          return {
+            moved: Number.isFinite(delta) &&
+              sceneInteraction.moveSelectionBy(new THREE.Vector3(delta, 0, 0)),
+            startedAt,
+          };
+        },
         realProjectModelWorldCentersProfile: () => {
           const startedAt = performance.now();
           const centers = previewVolumes.map((volume) => {
@@ -333,6 +362,9 @@ function SceneContents({ activeTab, controller, wipeTowerVolumes, glVolumes, too
             previewToolpathWorldBounds: _toolpathBounds,
             realProjectModelWorldCentersProfile: _realProjectBounds,
             realProjectRendererMemorySnapshot: _realProjectMemory,
+            realProjectPlateModelWorldCenters: _realProjectPlateModelWorldCenters,
+            realProjectSelectFirstModelOnPlate: _realProjectSelectFirstModelOnPlate,
+            realProjectMoveSelectedX: _realProjectMoveSelectedX,
             ...rest
           } = w.__orcaE2e;
           w.__orcaE2e = rest;

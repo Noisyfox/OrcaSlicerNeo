@@ -7,6 +7,7 @@
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { argv } from 'node:process';
+import { exportGcode, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory, validateGcode } from './run-slice.mjs';
 
@@ -587,7 +588,7 @@ check('slice FIFO carries ordered progress and terminal',
       JSON.stringify(sliceTaskMessages.slice(-3)));
 
 // 7. slice result stats
-const result = callJson('orc_get_slice_result', [], []);
+const result = getSliceResult(callJson, sliced.receipt);
 check('orc_get_slice_result layers > 0', result.ok === true && result.layers > 0,
       JSON.stringify(result));
 
@@ -662,9 +663,9 @@ if (mm2.objects?.length === 1) {
 }
 
 // 8. export gcode (MEMFS) + validate
-const exported = callJson('orc_export_gcode', [], []);
+const exported = exportGcode(callJson, sliced.receipt);
 check('orc_export_gcode ok', exported.ok === true, JSON.stringify(exported));
-const gcode = validateGcode(Module.FS.readFile('/out.gcode'));
+const gcode = validateGcode(Module.FS.readFile(exported.path));
 check('gcode valid', gcode.ok, JSON.stringify(gcode));
 
 // 9. The runtime admits exactly one global slice. In the threaded build the
@@ -710,7 +711,7 @@ if (threading.threaded) {
         replacementResult.ok === true
         && replacementResult.receipt?.slice_task_id === replacement.task_id,
         JSON.stringify(replacementResult));
-  const replacementResultView = callJson('orc_get_slice_result', [], []);
+  const replacementResultView = getSliceResult(callJson, replacementResult.receipt);
   check('cancelled task never overwrites the replacement result',
         replacementResultView.ok === true
         && replacementResultView.receipt?.slice_task_id === replacement.task_id,
@@ -755,7 +756,7 @@ check('re-slice after progress cleanup ok', resliced.ok === true, JSON.stringify
 check('unknown key reported', Array.isArray(resliced.unrecognized_keys)
       && resliced.unrecognized_keys.includes('temperature'),
       `unrecognized_keys=${JSON.stringify(resliced.unrecognized_keys)}`);
-const result2 = callJson('orc_get_slice_result', [], []);
+const result2 = getSliceResult(callJson, resliced.receipt);
 check('re-slice actually re-ran', result2.ok === true && result2.layers > 0 && result2.layers !== result.layers,
       `layers=${result2.layers} (first slice: ${result2.layers})`);
 
@@ -830,7 +831,10 @@ check('slice error surfaces the real message, not the bare category',
     const S = await callSlice('orc_slice', ['string'], [JSON.stringify(configJson)]);
     check('split parts slice to valid G-code', S.ok === true, JSON.stringify(S));
     if (S.ok) {
-      const g = validateGcode(Module.FS.readFile('/out.gcode'));
+      const splitExport = exportGcode(callJson, S.receipt);
+      check('split parts result export remains receipt-scoped',
+            splitExport.ok === true, JSON.stringify(splitExport));
+      const g = validateGcode(Module.FS.readFile(splitExport.path));
       check('split parts G-code valid', g.ok, JSON.stringify(g));
     }
   } else {
@@ -990,7 +994,7 @@ check('slice error surfaces the real message, not the bare category',
         loaded.ok === true && positioned.ok === true, JSON.stringify({ loaded, positioned }));
   const sliced = await callSlice('orc_slice', ['string'], ['{}']);
   check('P1P cube slices successfully', sliced.ok === true, JSON.stringify(sliced));
-  const result = callJson('orc_get_slice_result', [], []);
+  const result = getSliceResult(callJson, sliced.receipt);
   check('P1P cube produces a non-empty preview',
         result.ok === true && result.layers > 0 && result.toolpath?.segment_count > 0,
         JSON.stringify(result).slice(0, 200));

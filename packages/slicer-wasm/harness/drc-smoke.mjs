@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { argv } from 'node:process';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, exportGcode } from './async-task-mailbox.mjs';
 import { loadModuleFactory, validateGcode } from './run-slice.mjs';
 
 const [moduleArg, fixtureDirArg, profileRootArg] = argv.slice(2);
@@ -190,8 +190,8 @@ const config = {
 const sliced = await callAsyncTask(callJson, 'orc_slice', ['string'], [JSON.stringify(config)]);
 check('DRC model slices successfully', sliceInput.ok === true && sliced.ok === true, JSON.stringify(sliced));
 if (sliced.ok) {
-  const exported = callJson('orc_export_gcode', [], []);
-  const gcode = validateGcode(Module.FS.readFile('/out.gcode'));
+  const exported = exportGcode(callJson, sliced.receipt);
+  const gcode = validateGcode(Module.FS.readFile(exported.path));
   check('DRC model exports non-empty G-code', exported.ok === true && gcode.ok, JSON.stringify(gcode));
 }
 

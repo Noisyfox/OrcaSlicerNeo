@@ -1040,7 +1040,7 @@ json restore_prime_tower_frame(const Runtime& runtime, const Neo::History::Resto
     // invalidates the target plate if it is the currently retained result;
     // an unrelated plate's real result is left untouched.
     state().plate_runtime_registry.invalidate_presentations({frame.plate_id});
-    if (state().preview_plate_id == frame.plate_id) {
+    if (state().current_plate_id == frame.plate_id) {
         // This is deliberately after commit_restore but cannot throw: the
         // history cursor must not advance without the target result becoming
         // invalid, and cleanup must not report a failure after publication.
@@ -1850,9 +1850,13 @@ json restore_diagnostics_json(const BridgeState& state)
                current.direct_frame->kind == History::RestoreState::DirectFrame::Kind::Transform ? "transform" : "filament")
             : "none";
     }
-    out["previewPlateId"] = state.preview_plate_id;
-    out["previewPlateRevision"] = state.preview_plate_revision;
-    out["previewResultId"] = state.preview_result_id;
+    const auto revision = state.plate_input_revisions.find(state.current_plate_id);
+    const auto* entry = state.plate_runtime_registry.find(state.current_plate_id);
+    const bool publishable = revision != state.plate_input_revisions.end() && entry != nullptr &&
+        PlateRuntimeRegistry::is_publishable(*entry, revision->second);
+    out["previewPlateId"] = publishable ? state.current_plate_id : std::string{};
+    out["previewPlateRevision"] = publishable ? revision->second : 0;
+    out["previewResultId"] = publishable ? entry->result_generation : 0;
     return out;
 }
 

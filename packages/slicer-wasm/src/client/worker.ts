@@ -64,7 +64,7 @@ const restrictedWhileSerialSlicing = new Set([
   'splitVolumeToParts', 'splitObjectToObjects', 'mergeObjectsToMultipart',
   'separateInstances', 'addInstance', 'removeInstance', 'renameObject',
   'renameVolume', 'setVolumeType', 'setObjectPrintable', 'setInstancePrintable',
-  'slice', 'slicePlate', 'exportGcode', 'exportGcodePlate', 'exportProject', 'cancel',
+  'slice', 'slicePlate', 'exportGcodePlate', 'exportProject', 'cancel',
 ]);
 
 function historyNow(): number {

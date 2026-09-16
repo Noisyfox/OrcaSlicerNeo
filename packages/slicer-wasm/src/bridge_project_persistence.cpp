@@ -113,9 +113,6 @@ json close_project_session()
     // empty session. The project-load replacement boundary intentionally does
     // not keep the old registry alive while the new archive is parsed.
     bridge_state.plate_runtime_registry.clear();
-    bridge_state.print.clear();
-    if (!bridge_state.preview_gcode_path.empty())
-        std::remove(bridge_state.preview_gcode_path.c_str());
     invalidate_preview_source();
 
     bridge_state.model = Model{};
@@ -771,6 +768,30 @@ static const char* orc_load_project_impl(const char* data, int len,
                     geometry_current_plate->origin.y() + (geometry_bounds.min_y + geometry_bounds.max_y) * 0.5,
                     geometry_current_plate->origin.z())
             : Vec3d::Zero();
+        Vec3d geometry_translation = Vec3d::Zero();
+        if (geometry_only) {
+            bool has_geometry_bounds = false;
+            Vec3d imported_min = Vec3d::Zero();
+            Vec3d imported_max = Vec3d::Zero();
+            for (const ModelObject* object : imported.objects) {
+                if (object->instances.empty()) continue;
+                const BoundingBoxf3& box = object->bounding_box_exact();
+                if (!box.defined) continue;
+                if (!has_geometry_bounds) {
+                    imported_min = box.min;
+                    imported_max = box.max;
+                    has_geometry_bounds = true;
+                } else {
+                    imported_min = imported_min.cwiseMin(box.min);
+                    imported_max = imported_max.cwiseMax(box.max);
+                }
+            }
+            if (has_geometry_bounds) {
+                const Vec3d imported_center = (imported_min + imported_max) * 0.5;
+                geometry_translation = Vec3d(geometry_center.x() - imported_center.x(),
+                                             geometry_center.y() - imported_center.y(), 0.0);
+            }
+        }
         std::map<std::size_t, Vec3d> geometry_added_instances;
         if (geometry_only) {
             for (ModelObject* object : imported.objects) {
@@ -887,9 +908,8 @@ static const char* orc_load_project_impl(const char* data, int len,
             for (const ModelObject* object : imported.objects) {
                 ModelObject* added = append_model_object_geometry(state().model, *object);
                 for (ModelInstance* instance : added->instances) {
-                    const auto offset = instance->get_offset();
-                    instance->set_offset(Vec3d(geometry_center.x(), geometry_center.y(), offset.z()));
-                    geometry_added_instances[instance->id().id] = Vec3d::Zero();
+                    instance->set_offset(instance->get_offset() + geometry_translation);
+                    geometry_added_instances[instance->id().id] = geometry_translation;
                 }
             }
         } else {
@@ -994,7 +1014,6 @@ static const char* orc_load_project_impl(const char* data, int len,
             }
             if (!committed) throw Slic3r::RuntimeError("project commit did not publish");
         }
-        state().print.clear();
         invalidate_preview_source();
         if (geometry_only) {
             rebuild_plate_membership(true);

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, exportGcode as exportScopedGcode } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -33,10 +33,10 @@ function revisions() {
   const current = session();
   return Object.fromEntries(current.plates.map((plate) => [plate.plate_id, current.input_revisions[plate.plate_id]]));
 }
-function exportGcode(plateId, revision) {
-  const result = callJson('orc_export_gcode_plate', ['string', 'number'], [plateId, revision]);
+function exportGcode(receipt) {
+  const result = exportScopedGcode(callJson, receipt);
   assert.equal(result.ok, true, JSON.stringify(result));
-  return Buffer.from(Module.FS.readFile('/out.gcode')).toString('utf8');
+  return Buffer.from(Module.FS.readFile(result.path)).toString('utf8');
 }
 
 assert.equal(callJson('orc_init', ['string'], ['{"log_level":"error"}']).ok, true);
@@ -97,24 +97,27 @@ assert.equal(moved.ok, true, JSON.stringify(moved));
 plateRevision = revisions();
 
 assert.equal(callJson('orc_select_plate', ['string'], [firstPlate]).ok, true);
-assert.equal((await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', firstPlate, plateRevision[firstPlate]])).ok, true);
-const firstGcode = exportGcode(firstPlate, plateRevision[firstPlate]);
+const firstSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', firstPlate, plateRevision[firstPlate]]);
+assert.equal(firstSlice.ok, true);
+const firstGcode = exportGcode(firstSlice.receipt);
 assert.match(firstGcode, /X30\.500\s+Y40\.500/, 'plate 1 tower position missing from G-code');
 assert.doesNotMatch(firstGcode, /X130\.500\s+Y140\.500/, 'plate 1 used plate 2 tower position');
 
 assert.equal(callJson('orc_select_plate', ['string'], [secondPlate]).ok, true);
-assert.equal((await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', secondPlate, plateRevision[secondPlate]])).ok, true);
-const secondGcode = exportGcode(secondPlate, plateRevision[secondPlate]);
+const secondSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', secondPlate, plateRevision[secondPlate]]);
+assert.equal(secondSlice.ok, true);
+const secondGcode = exportGcode(secondSlice.receipt);
 assert.match(secondGcode, /X130\.500\s+Y140\.500/, 'plate 2 tower position missing from G-code');
 assert.doesNotMatch(secondGcode, /X30\.500\s+Y40\.500/, 'plate 2 used plate 1 tower position');
 
 assert.equal(callJson('orc_select_plate', ['string'], [firstPlate]).ok, true);
 const finalRevision = revisions()[firstPlate];
-assert.equal((await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
-  ['{}', firstPlate, finalRevision])).ok, true);
-const firstAgain = exportGcode(firstPlate, finalRevision);
+const finalSlice = await callAsyncTask(callJson, 'orc_slice_plate', ['string', 'string', 'number'],
+  ['{}', firstPlate, finalRevision]);
+assert.equal(finalSlice.ok, true);
+const firstAgain = exportGcode(finalSlice.receipt);
 assert.match(firstAgain, /X30\.500\s+Y40\.500/, '切回 plate 1 后 tower position leaked');
 
 console.log(JSON.stringify({ ok: true, firstPlate, secondPlate,

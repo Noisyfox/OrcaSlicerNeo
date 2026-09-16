@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { argv } from 'node:process';
 import { resolve } from 'node:path';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -42,7 +42,7 @@ const primary = callJson('orc_add_shape', ['string', 'string'], ['Cube', 'Primar
 assert.equal(primary.ok, true, JSON.stringify(primary));
 const oneSlotSlice = await callAsyncTask(callJson, 'orc_slice', ['string'], ['{}']);
 assert.equal(oneSlotSlice.ok, true, JSON.stringify(oneSlotSlice));
-const oneSlotPreview = callJson('orc_get_slice_result');
+const oneSlotPreview = getSliceResult(callJson, oneSlotSlice.receipt);
 assert.equal(oneSlotPreview.ok, true, JSON.stringify(oneSlotPreview));
 const oneSlotCount = Number(oneSlotPreview.toolpath?.segment_count ?? 0);
 const oneSlotTools = [...new Set(new Uint8Array(readBytes(oneSlotPreview.toolpath.extruder_id_ptr, oneSlotCount)))];
@@ -108,7 +108,7 @@ assert.equal(sliced.error,
 // or bypass decision is introduced by the multi-filament integration.
 const validForPreview = await callAsyncTask(callJson, 'orc_slice', ['string'], ['{}']);
 assert.equal(validForPreview.ok, true, JSON.stringify(validForPreview));
-const preview = callJson('orc_get_slice_result');
+const preview = getSliceResult(callJson, validForPreview.receipt);
 assert.equal(preview.ok, true, JSON.stringify(preview));
 assert.equal(preview.preview_version, 2, JSON.stringify(preview));
 const count = Number(preview.toolpath?.segment_count ?? 0);

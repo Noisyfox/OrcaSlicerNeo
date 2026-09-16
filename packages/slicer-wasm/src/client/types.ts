@@ -648,6 +648,8 @@ export interface PlateOperationTarget {
 export interface SliceResultReceipt {
   readonly plateId: string;
   readonly inputStamp: number;
+  /** Plate-local successful generation, carried as decimal text. */
+  readonly resultGeneration: string;
   readonly sliceTaskId: string;
 }
 
@@ -703,11 +705,15 @@ export type PreviewSourceKind = 'slice-result' | 'external-gcode';
 export interface PreviewTextChunkRequest {
   /** Completed preview result identity; stale results are rejected by bridge. */
   resultId: number;
+  receipt: SliceResultReceipt;
   offset: number;
   length: number;
 }
 
 export interface PreviewTextChunk {
+  ok?: boolean;
+  status?: ResultReadStatus;
+  error?: string;
   offset: number;
   text: string;
   eof: boolean;
@@ -716,11 +722,15 @@ export interface PreviewTextChunk {
 /** Bounded, seekable source-text page addressed by 1-based source lines. */
 export interface PreviewTextLinesRequest {
   resultId: number;
+  receipt: SliceResultReceipt;
   startLine: number;
   lineCount: number;
 }
 
 export interface PreviewTextLines {
+  ok?: boolean;
+  status?: ResultReadStatus;
+  error?: string;
   startLine: number;
   lineCount: number;
   text: string;
@@ -805,6 +815,7 @@ export interface ClientSliceResult {
 
 export interface ExportGcodeResult {
   ok: boolean;
+  status?: ResultReadStatus;
   path: string;
   bytes: Uint8Array;
   error?: string;
@@ -1128,6 +1139,7 @@ export interface SlicerClient {
   /** Select an existing plate by its opaque runtime identity. */
   selectPlate(plateId: string): Promise<PlateSelectionResult>;
   addPlate(): Promise<PlateSessionMutationResult>;
+  reorderPlates(plateIds: string[]): Promise<PlateSessionMutationResult>;
   deletePlate(plateId: string): Promise<PlateSessionMutationResult>;
   recomputePlateMembership(): Promise<PlateSessionMutationResult>;
   /** Advance every existing plate for a committed shared configuration edit. */
@@ -1215,9 +1227,8 @@ export interface SlicerClient {
   readTextChunk(request: PreviewTextChunkRequest): Promise<PreviewTextChunk>;
   /** Read a bounded, seekable source-text page from the current result. */
   readTextLines(request: PreviewTextLinesRequest): Promise<PreviewTextLines>;
-  exportGcode(): Promise<ExportGcodeResult>;
   /** Export only the captured current plate's completed result. */
-  exportGcodePlate(target: PlateOperationTarget): Promise<ExportGcodeResult>;
+  exportGcodePlate(receipt: SliceResultReceipt): Promise<ExportGcodeResult>;
   /** Export the complete active plate session as a native-compatible BBS 3MF archive. */
   exportProject(): Promise<ExportProjectResult>;
   cancel(): Promise<CancelResult>;

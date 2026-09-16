@@ -306,7 +306,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
   let sliced = false;
   let slicedPlateId = '';
   let slicedPlateRevision = 0;
-  const sliceReceipts = new Map<string, { inputStamp: number; sliceTaskId: string }>();
+  const sliceReceipts = new Map<string, { inputStamp: number; resultGeneration: string; sliceTaskId: string }>();
   let plateSessionSequence = 0;
   let plateSessionId = '';
   let plateIds: string[] = [];
@@ -931,10 +931,18 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     sliced = true;
     slicedPlateId = plateId;
     slicedPlateRevision = revision;
-    const receipt = { inputStamp: revision, sliceTaskId: taskId };
+    const priorGeneration = Number(sliceReceipts.get(plateId)?.resultGeneration ?? '0');
+    const receipt = { inputStamp: revision, resultGeneration: String(priorGeneration + 1), sliceTaskId: taskId };
     sliceReceipts.set(plateId, receipt);
+    const gcode = fixture.sourceText ?? [
+      '; mock gcode (unit-test fixture)', 'G21', 'G90',
+      'G1 X0 Y0 Z0.2 F1200', 'G1 X20 Y0 E1.0', 'M104 S0', '',
+    ].join('\n');
+    previewSourceBytes = new TextEncoder().encode(gcode);
+    files.set(`/plate-result-${plateId}-${receipt.resultGeneration}.gcode`, previewSourceBytes);
     const result = { ok: true, unrecognized_keys: [], warnings: [...sliceWarnings], receipt: {
-      plate_id: plateId, input_stamp: receipt.inputStamp, slice_task_id: receipt.sliceTaskId,
+      plate_id: plateId, input_stamp: receipt.inputStamp,
+      result_generation: receipt.resultGeneration, slice_task_id: receipt.sliceTaskId,
     } };
     publishTaskMessage(taskId, { type: 'task-terminal', kind: 'slice', plate_id: plateId,
       entry_incarnation: '1', terminal: 'completed', result });
@@ -1378,6 +1386,24 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       result.instance_transforms = changed;
       result.project_config_overlay = overlayProjection();
       return result;
+    },
+    orc_reorder_plates(plateIdsJson: string) {
+      let requested: unknown;
+      try { requested = JSON.parse(plateIdsJson); } catch { return { error: 'plate order must contain every plate exactly once' }; }
+      if (!Array.isArray(requested) || requested.length !== plateIds.length ||
+          requested.some((id) => typeof id !== 'string') || new Set(requested).size !== plateIds.length ||
+          requested.some((id) => !plateIds.includes(id)))
+        return { error: 'plate order must contain every plate exactly once' };
+      const oldOrigins = new Map(plateIds.map((id, index) => [id, plateOrigins[index]]));
+      plateIds = [...requested] as string[];
+      plateOrigins = plateIds.map((id, index) => {
+        const next = plateOrigin(index, plateIds.length);
+        const before = oldOrigins.get(id)!;
+        if (before.some((value, axis) => value !== next[axis]))
+          plateInputRevisions[id] = (plateInputRevisions[id] ?? 0) + 1;
+        return next;
+      });
+      return plateSessionSnapshot(true);
     },
     orc_delete_plate(plateId: string) {
       if (plateIds.length <= 1) return { error: 'at least one plate must remain' };
@@ -1980,11 +2006,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_slice_plate(_config: string, plateId: string, revision: number) {
       return runMockSlice(plateId, revision);
     },
-    orc_get_slice_result() {
-      const receipt = sliceReceipts.get(currentPlateId);
-      if (!receipt || receipt.inputStamp !== (plateInputRevisions[currentPlateId] ?? 0) ||
-          (!sliced && slicedPlateId === currentPlateId))
-        return { error: 'plate slice result is stale or unavailable' };
+    orc_get_slice_result(plateId: string, inputStamp: number, resultGeneration: number) {
+      const receipt = sliceReceipts.get(plateId);
+      if (!receipt || receipt.inputStamp !== inputStamp ||
+          receipt.inputStamp !== (plateInputRevisions[plateId] ?? 0) ||
+          receipt.resultGeneration !== String(resultGeneration) ||
+          (!sliced && slicedPlateId === plateId))
+        return { ok: false, status: 'unavailable', error: 'plate slice result is stale or unavailable' };
       const n = fixture.toolpathVertices;
       const allocF32 = (values: number[]) => {
         const ptr = malloc(values.length * 4);
@@ -2038,7 +2066,8 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       }).filter((x) => x.segment_count > 0);
       return {
         ok: true, preview_version: 2,
-        receipt: { plate_id: currentPlateId, input_stamp: receipt.inputStamp, slice_task_id: receipt.sliceTaskId },
+        receipt: { plate_id: plateId, input_stamp: receipt.inputStamp,
+          result_generation: receipt.resultGeneration, slice_task_id: receipt.sliceTaskId },
         objects: objectTransforms.length,
         layers: fixture.layers,
         metadata: {
@@ -2079,25 +2108,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         },
       };
     },
-    orc_export_gcode() {
-      const gcode = fixture.sourceText ?? [
-        '; mock gcode (unit-test fixture)',
-        'G21', 'G90',
-        'G1 X0 Y0 Z0.2 F1200',
-        'G1 X20 Y0 E1.0',
-        'M104 S0', '',
-      ].join('\n');
-      previewSourceBytes = new TextEncoder().encode(gcode);
-      files.set('/out.gcode', previewSourceBytes);
-      return { ok: true, path: '/out.gcode' };
-    },
-    orc_export_gcode_plate(plateId: string, revision: number) {
+    orc_export_gcode_plate(plateId: string, revision: number, resultGeneration: number) {
       if (plateId !== currentPlateId) return { error: 'plate operation target is not the current plate' };
       if (revision !== (plateInputRevisions[plateId] ?? 0)) return { error: 'plate operation target is stale' };
       const receipt = sliceReceipts.get(plateId);
-      if (!receipt || receipt.inputStamp !== revision)
+      if (!receipt || receipt.inputStamp !== revision || receipt.resultGeneration !== String(resultGeneration))
         return { error: 'plate slice result is stale or unavailable' };
-      return bridge.orc_export_gcode();
+      const path = `/plate-result-${plateId}-${receipt.resultGeneration}.gcode`;
+      return { ok: true, path };
     },
     orc_export_project() {
       if (!modelLoaded) return { error: 'no model loaded' };
@@ -2113,8 +2131,13 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         bytes_length: archive.length, objects: objectTransforms.length, plate_count: 1,
       };
     },
-    orc_read_gcode_chunk(resultId: number, offset: number, length: number) {
+    orc_read_gcode_chunk(plateId: string, inputStamp: number, resultGeneration: number,
+        resultId: number, offset: number, length: number) {
       const maxChunkBytes = 64 * 1024;
+      const receipt = sliceReceipts.get(plateId);
+      if (!receipt || receipt.inputStamp !== inputStamp ||
+          receipt.resultGeneration !== String(resultGeneration))
+        return { ok: false, error: 'preview text is unavailable' };
       if (!Number.isSafeInteger(resultId) || resultId !== (fixture.resultId ?? 1))
         return { ok: false, error: 'preview text is unavailable' };
       if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) ||
@@ -2148,9 +2171,14 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
         bytes_ptr: ptr, bytes_length: bytes.length,
       };
     },
-    orc_read_gcode_lines(resultId: number, startLine: number, lineCount: number) {
+    orc_read_gcode_lines(plateId: string, inputStamp: number, resultGeneration: number,
+        resultId: number, startLine: number, lineCount: number) {
       const maxLineCount = 128;
       const maxPageBytes = 64 * 1024;
+      const receipt = sliceReceipts.get(plateId);
+      if (!receipt || receipt.inputStamp !== inputStamp ||
+          receipt.resultGeneration !== String(resultGeneration))
+        return { ok: false, error: 'preview text is unavailable' };
       if (!Number.isSafeInteger(resultId) || resultId !== (fixture.resultId ?? 1))
         return { ok: false, error: 'preview text is unavailable' };
       if (!Number.isSafeInteger(startLine) || startLine < 1 ||
@@ -2226,6 +2254,7 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_reset_plate_session: { ret: 'number', args: [] },
     orc_select_plate: { ret: 'number', args: ['string'] },
     orc_add_plate: { ret: 'number', args: [] },
+    orc_reorder_plates: { ret: 'number', args: ['string'] },
     orc_delete_plate: { ret: 'number', args: ['string'] },
     orc_recompute_plate_membership: { ret: 'number', args: [] },
     orc_mark_shared_configuration_mutation: { ret: 'number', args: [] },
@@ -2260,12 +2289,11 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
     orc_check_serial_admission: { ret: 'number', args: ['string'] },
     orc_slice: { ret: 'number', args: ['string'] },
     orc_slice_plate: { ret: 'number', args: ['string', 'string', 'number'] },
-    orc_get_slice_result: { ret: 'number', args: [] },
-    orc_export_gcode: { ret: 'number', args: [] },
-    orc_export_gcode_plate: { ret: 'number', args: ['string', 'number'] },
+    orc_get_slice_result: { ret: 'number', args: ['string', 'number', 'number'] },
+    orc_export_gcode_plate: { ret: 'number', args: ['string', 'number', 'number'] },
     orc_export_project: { ret: 'number', args: [] },
-    orc_read_gcode_chunk: { ret: 'number', args: ['number', 'number', 'number'] },
-    orc_read_gcode_lines: { ret: 'number', args: ['number', 'number', 'number'] },
+    orc_read_gcode_chunk: { ret: 'number', args: ['string', 'number', 'number', 'number', 'number', 'number'] },
+    orc_read_gcode_lines: { ret: 'number', args: ['string', 'number', 'number', 'number', 'number', 'number'] },
     orc_cancel: { ret: 'number', args: [] },
   };
 
@@ -2302,7 +2330,10 @@ export function createMockModule(opts: MockModuleOptions = {}): MockModule {
       readFile(path: string) {
         const f = files.get(path);
         if (!f) throw new Error(`ENOENT: ${path}`);
-        return f;
+        // Match Emscripten FS.readFile: callers receive an owned snapshot.
+        // Returning the stored view lets a host transfer detach the mock's
+        // canonical file, making a second export fail unlike real MEMFS.
+        return f.slice();
       },
     },
     _freedPointers: freedPointers,

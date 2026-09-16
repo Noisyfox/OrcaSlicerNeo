@@ -30,6 +30,7 @@ export interface ToolpathGeometry {
   source?: ClientSliceResult['toolpath'];
   /** The plate-owned local G-code used by the source-text inspector. */
   sourceTextBytes?: Uint8Array;
+  receipt: SliceResultReceipt;
   metadata?: PreviewMetadata;
   dispose: () => void;
 }
@@ -43,7 +44,8 @@ interface ProjectedResult {
 
 function sameReceipt(left: SliceResultReceipt | undefined, right: SliceResultReceipt | undefined): boolean {
   return left !== undefined && right !== undefined && left.plateId === right.plateId &&
-    left.inputStamp === right.inputStamp && left.sliceTaskId === right.sliceTaskId;
+    left.inputStamp === right.inputStamp && left.resultGeneration === right.resultGeneration &&
+    left.sliceTaskId === right.sliceTaskId;
 }
 
 export function useSliceResult(enabled = true) {
@@ -128,7 +130,7 @@ export function useSliceResult(enabled = true) {
     })();
     return () => { cancelled = true; };
   }, [currentPlateId, expectedReceipt?.inputStamp, expectedReceipt?.plateId,
-    enabled, expectedReceipt?.sliceTaskId, resetPreviewState, setLayers, setMaxLayer,
+    enabled, expectedReceipt?.resultGeneration, expectedReceipt?.sliceTaskId, resetPreviewState, setLayers, setMaxLayer,
     setLayer, setPreviewBounds, status]);
 
   const result = projection && sameReceipt(projection.receipt, expectedReceipt) &&
@@ -161,6 +163,7 @@ export function useSliceResult(enabled = true) {
       ...(result.metadata.extruderPalette ? { extruderPalette: result.metadata.extruderPalette } : {}),
       ...(result.metadata.analysis ? { analysis: result.metadata.analysis } : {}),
       source,
+      receipt: result.receipt!,
       metadata: result.metadata,
       // The source buffers are owned by the slice result and released by the
       // runtime. The renderer owns and disposes only its GPU resources.

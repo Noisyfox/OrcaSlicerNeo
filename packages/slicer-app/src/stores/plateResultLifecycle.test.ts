@@ -4,7 +4,7 @@ import { useSlicerStore } from './useSlicerStore';
 import { applyPlateResultMutation } from './plateResultLifecycle';
 
 const receipt = (plateId: string, inputStamp: number, sliceTaskId = `${plateId}-${inputStamp}`): SliceResultReceipt =>
-  ({ plateId, inputStamp, sliceTaskId });
+  ({ plateId, inputStamp, resultGeneration: '1', sliceTaskId });
 
 describe('per-plate result lifecycle', () => {
   beforeEach(() => useSlicerStore.getState().invalidateSliceResult());

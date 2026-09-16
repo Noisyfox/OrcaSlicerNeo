@@ -19,3 +19,27 @@ export async function awaitAsyncTask(callJson, accepted, timeoutMs = 120_000) {
 export async function callAsyncTask(callJson, name, argTypes, args, timeoutMs) {
   return awaitAsyncTask(callJson, callJson(name, argTypes, args), timeoutMs);
 }
+
+export function resultTarget(plateId, inputStamp, resultGeneration) {
+  return {
+    plate_id: plateId,
+    input_stamp: Number(inputStamp),
+    result_generation: String(resultGeneration),
+  };
+}
+
+export function getSliceResult(callJson, receipt) {
+  return callJson('orc_get_slice_result', ['string', 'number', 'number'], [
+    receipt.plate_id,
+    Number(receipt.input_stamp),
+    Number(receipt.result_generation),
+  ]);
+}
+
+export function exportGcode(callJson, receipt) {
+  return callJson('orc_export_gcode_plate', ['string', 'number', 'number'], [
+    receipt.plate_id,
+    Number(receipt.input_stamp),
+    Number(receipt.result_generation),
+  ]);
+}

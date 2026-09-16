@@ -383,7 +383,7 @@ if(NEO_PROJECT_HISTORY_TEST)
   target_compile_definitions(plate_runtime_registry_test PRIVATE NEO_PROJECT_HISTORY_TEST=1)
   target_compile_options(plate_runtime_registry_test PRIVATE -fexceptions)
   target_link_options(plate_runtime_registry_test PRIVATE -m64 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0
-    -sUSE_FREETYPE=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
+    -sUSE_FREETYPE=1 -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sASSERTIONS=1)
   target_link_libraries(plate_runtime_registry_test PRIVATE slic3r_core deps_core "${DRACO_ARCHIVE}")
 
   add_executable(project_history_core_test

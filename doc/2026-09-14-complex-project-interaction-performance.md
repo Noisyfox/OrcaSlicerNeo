@@ -1,11 +1,10 @@
 # Complex Project Interaction Performance
 
 Date: 2026-09-14
-Status: Implemented with object/mesh reuse, Add Plate delta history, sparse
-Move delta history, renderer-local adjacent Move restore projection, validated
-retained plate/session delta publication and narrow wipe-tower projection
-refresh, plus bounded Prime Tower projection profiling and runtime per-plate
-projection caching
+Status: Delivered and qualified 2026-09-16, including the approved per-plate
+Print architecture, object/mesh reuse, incremental plate history, sparse Move
+history, renderer-local adjacent Move restore, bounded Prime Tower projection,
+and the exact-u1 visible real-WASM performance gate
 Scope: Prepare-viewport object transforms and multi-plate structural commands.
 
 ## Problem
@@ -16,9 +15,10 @@ used by the desktop plate-switch performance coverage.
 
 ## Accepted Behaviour
 
-- A completed object gesture submits the complete renderer CompositeID
-  snapshot and recomputes membership globally. This keeps rapid consecutive
-  gestures and Worker history snapshots identical.
+- A completed object gesture submits only the selected renderer CompositeIDs
+  and their final transforms. The Worker transaction remains authoritative;
+  all selected parts of the same object are included, while unrelated complex-
+  project volumes no longer cross the JS/WASM seam or enter transform capture.
 - Adjacent direct Move Undo/Redo consumes a validated native transform receipt
   in the renderer, reusing the retained GL volumes and stable-ID structure.
   The normalized native target context is validated against the retained
@@ -358,9 +358,91 @@ native compile and still stages the real artifact, builds the profiled
 renderer, runs the visible test, restores production artifacts, and executes
 both inclusion/exclusion scans.
 
+## Per-Plate Print Architecture Final Qualification
+
+The approved [`Per-Plate Print Architecture`](../spec/Per-Plate%20Print%20Architecture.md)
+is delivered as one FFF-only path. `BridgeState` no longer owns a singleton
+`Print` or preview-result record. Each stable runtime plate entry owns its
+`Print`, `GCodeProcessorResult`, generation-scoped immutable MEMFS G-code
+source, input/presentation stamps, and job/tombstone lifetime. Slice applies
+the authoritative world-space model directly to the selected plate's Print;
+result projection, source-text paging, Export, and Send all require the same
+plate/input/generation receipt. History captures inputs only and reconciles
+the runtime registry; it never serializes a Print, G-code, or projection.
+
+The final code/test audit found no remaining implementation gap against
+specification sections 2.1–2.19. The requirements-to-evidence map is:
+
+| Spec | Production boundary and acceptance evidence |
+| --- | --- |
+| 2.1 | `PlateRuntimeRegistry::Entry` owns each plate's Print, result, generation, file, stamps, and lease state; `plate-local-slice-smoke.mjs` proves independent retained results. |
+| 2.2 | `orc_slice` resolves only the selected registry entry and always runs its normal task/result terminal; `multi-filament-slice-plate-index-smoke.mjs` proves direct world-model plate context and current-plate processing. |
+| 2.3 | `project-roundtrip.mjs` proves fresh session IDs/entries, close-before-load failure semantics, no restored runtime result, and collective-centre geometry-only import; persistence contains no runtime identity. |
+| 2.4 | Registry presentation state is distinct from core ownership; `config-scope-invalidation-smoke.mjs` and `transform-plate-invalidation-smoke.mjs` prove local/shared stamp fan-out, failed-edit preservation, and explicit stale/unavailable results. |
+| 2.5 | Input invalidation retains core objects and G-code until replacement/destruction; the exact-u1 profile attributes heap, shared mesh, per-plate structure/derived cache, React, and GPU bytes without eviction. |
+| 2.6 | `orc_add_plate` gates reflow on the column transition and `orc_reorder_plates` preserves origin-stable entries; the exact-u1 Add Plate profile and `plate-reorder-smoke.mjs` prove sparse invalidation and no eager Print apply. Duplicate Plate remains absent. |
+| 2.7 | Delete parks instances and registry retirement retains only the leased incarnation; `plate-delete-tombstone-smoke.mjs` proves active deletion, stale result rejection, distinct Undo incarnation, and terminal release. |
+| 2.8 | Plate-local tower coordinates move only with affected origins; the Prime Tower Step 13, projection, and Move harnesses prove targeted cache invalidation and zero prepare-time Print fallback for supported inputs. |
+| 2.9 | `history-plate-runtime-smoke.mjs` and `history-smoke.mjs` prove input-only history, sparse one-entry Move/plate receipts, registry reconciliation, and no restored derived result. |
+| 2.10 | Full restore validates/stages first, reconciles exact stable plate IDs, and destroys absent entries; the history/runtime harness covers add/delete/restore and failed atomic restoration. |
+| 2.11 | Input stamps and task/incarnation checks gate every history/slice publication; transform invalidation and tombstone harnesses prove no stale output and no authoritative-Model deletion tombstone. |
+| 2.12 | `useSliceResult` retains one current projection and receipt/epoch-checks delivery; visible serial/threaded Web multi-plate Preview tests prove release, needs-slicing state, retained native revisit, and projection-terminal separation. |
+| 2.13 | `plate-local-slice-smoke.mjs`, `sliceActions.test.ts`, and Send dialog tests prove selected-current Slice/Export/Send, generation-addressed immutable MEMFS reuse, active-job export lock, and input-only save behavior. |
+| 2.14 | Runtime and bridge serial gates keep selected/active/preview identities locked in serial, while threaded selection and editing remain responsive; Worker tests and visible multi-plate host tests cover both projections. |
+| 2.15 | `bridge-smoke.mjs` proves detached pthread processing, shared-state responsiveness, asynchronous cancellation, pool reporting, and serial epoch rejection; `async-task-mailbox.mjs` proves global IDs and ordered no-overwrite FIFO delivery. |
+| 2.16 | The bridge smoke proves one global job, last explicit replacement wins, edits create no replacement, and ordinary result handling still runs; feasibility terminals are produced only after apply inside the task. |
+| 2.17 | The same real-WASM job coverage proves serial Cancel rejection, threaded nonblocking Cancel, retained Print ownership, terminal completion, and no partial/stale publication. |
+| 2.18 | Real bridge/Worker tests cover serial busy and stale epoch admission, replacement/progress identity, explicit projection invalidation, lifecycle tombstones, and result terminals; the visible exact-u1 case proves active-slice edit plus Undo under 100 ms. |
+| 2.19 | The visible non-mock exact-u1 profile records complete renderer/client/Worker/JS-WASM/native timings, operation counts, memory attribution, and the no-reflow Add Plate, Move, Undo, and active-slice Move fences. |
+
+The delivery also closes the renderer-result boundary. An admitted explicit
+Slice immediately clears only the transferable React projection, retains the
+native core for incremental processing, executes the complete native Slice
+pipeline, publishes the global Slice terminal before any delayed renderer
+projection, and rejects late payloads by plate, input stamp, generation, and
+local presentation epoch. Reordering preserves only origin-stable entries;
+deleting an actively sliced plate tombstones that incarnation until its job
+terminates; Undo creates a distinct live incarnation.
+
+The final visible exact-u1 Electron run used
+`OddseyHelmetFinalParts+(2)wholemorecolor-u1.3mf` (45,586,816 bytes, 11 native
+plates) with `VITE_USE_MOCK=0`. Its current measurements supersede earlier
+baselines in this document:
+
+| Acceptance boundary | Time |
+| --- | ---: |
+| Add Plate dispatch to visible `Undo Add Plate` | 50.995 ms |
+| Ordinary Move dispatch to visible `Undo Move` | 32.397 ms |
+| Undo click to restored model | 65.254 ms |
+| Active-threaded-slice Move to visible Undo | 92.925 ms |
+| Active-slice Move Worker / client / application | 46.960 / 47.310 / 50.670 ms |
+| Native history begin / transform / commit | 7.435 / 4.865 / 13.860 ms |
+
+The active-slice case performs the production transform/history mutation while
+a detached pthread owns the Slice job. The matching Undo appears below the
+100 ms gate, the old result fails its stamp/publication proof, and Export does
+not expose it. Transform capture sends only the selected CompositeIDs. Its
+history transaction projects the returned filament/history revision without a
+full filament snapshot read, and the application subscribes only to shell-
+rendered project fields so internal mutation-fence updates do not rerender the
+whole application.
+
+The final memory attribution was a 1,985,937,408-byte WASM heap, 13,251,872
+history bytes, 57,317,544 shared source-mesh bytes, 44,432 per-plate structural
+bytes, 504,840 per-plate derived bytes, 57,317,544 React typed-array bytes,
+and 76,412,856 estimated GPU bytes. No derived cache was automatically
+evicted.
+
+The acceptance runner always opens a visible Electron window. Both Web
+Playwright configurations also hard-code visible operation. Production does
+not execute even a profile-feature guard: native probes are compiled only
+under `NEO_REAL_PROJECT_PROFILE`, renderer hooks use Vite compile-time
+branches, and the restored production WASM/Electron artifacts pass the
+sentinel and call-site exclusion scan.
+
 ## Verification
 
-- `pnpm --filter @orca/slicer-wasm test` — 152 tests passed.
+- `pnpm --filter @orca/slicer-wasm test` — 153 tests passed.
 - `pnpm --filter @orca/slicer-wasm typecheck` — passed.
 - `pnpm --filter @orca/slicer-runtime test` — 34 tests passed.
 - `pnpm --filter @orca/slicer-runtime typecheck` — passed.
@@ -370,6 +452,8 @@ both inclusion/exclusion scans.
   structural-overlay publication and bounded Move receipt proof/fallback
   cases.
 - `pnpm --filter @orca/slicer-app typecheck` — passed.
+- `pnpm --filter @orca/web test` — 27 tests passed.
+- `pnpm --filter @orca/web typecheck` — passed.
 - `cmd /c scripts\build-windows.bat quick --variant both` — threaded and
   serial WASM artifacts built and validated.
 - `node packages/slicer-wasm/harness/history-smoke.mjs` against serial and
@@ -420,6 +504,15 @@ both inclusion/exclusion scans.
   `VITE_USE_MOCK=0`, ran one headed/visible exact-u1 acceptance test, restored
   the normal threaded artifact, rebuilt the production Electron renderer, and
   verified that production retained no profile sentinel or call site.
+- `$env:VITE_USE_MOCK='0'; pnpm --filter @orca/web test:e2e:threaded` — six
+  visible real-WASM Playwright tests passed.
+- `$env:VITE_USE_MOCK='0'; pnpm --filter @orca/web test:e2e:serial` — six
+  visible real-WASM Playwright tests passed.
+- `$env:ORCA_E2E_VISIBLE='1'; pnpm --filter @orca/desktop test:e2e` — the full
+  visible Electron regression suite passed.
+- `node scripts/verify-real-project-profile-exclusion.mjs` — restored
+  production WASM and Electron bundles contain no dedicated profile ABI, hook,
+  call site, or sentinel.
 - `git diff --check` — passed.
 
 Do not treat a build under `packages/slicer-wasm/.work` or

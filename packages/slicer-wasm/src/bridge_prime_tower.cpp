@@ -1232,10 +1232,9 @@ json move_position_json(const char* request_cstr)
     // Publication is now complete. These operations are scalar/clear-only and
     // intentionally live outside the rollback scope so a post-publish path
     // cannot report failure after history has advanced.
-    if (state().preview_plate_id == plate_id) {
+    if (state().current_plate_id == plate_id) {
         // This is the post-publication path. Keep it non-throwing so a native
         // cleanup failure cannot report an error after history has advanced.
-        try { state().print.clear(); } catch (...) {}
         try { Neo::Bridge::SlicingPipeline::invalidate_preview_result_only(); } catch (...) {}
     }
     response["result"]["history_status"] = HistoryMetadata::history_status_json(state());

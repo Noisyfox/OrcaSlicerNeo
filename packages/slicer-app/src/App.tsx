@@ -1,6 +1,7 @@
 // packages/slicer-app/src/App.tsx (boot effect: app config load → worker
 // client init → atomic preset snapshot → option metadata → settings store)
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { AppShell } from './components/layout/AppShell';
 import { TitleBar } from './components/layout/TitleBar';
 import { Toolbar } from './components/layout/Toolbar';
@@ -65,7 +66,19 @@ export default function App() {
   const progress = useSlicerStore((s) => s.progress);
   const slicerError = useSlicerStore((s) => s.error);
   const resultExported = useSlicerStore((s) => s.resultExported);
-  const projectState = useProjectStore((s) => s);
+  // The high-level shell does not render the internal mutation-fence counter
+  // or plate revision map. Selecting the entire store made every transform
+  // lease acquisition/release synchronously rerender the full application.
+  const projectState = useProjectStore(useShallow((s) => ({
+    projectName: s.projectName,
+    location: s.location,
+    hasContent: s.hasContent,
+    dirty: s.dirty,
+    scope: s.scope,
+    flattenedMultiPlate: s.flattenedMultiPlate,
+    notices: s.notices,
+    operation: s.operation,
+  })));
   const [boot, setBoot] = useState<'starting' | 'ready' | 'failed'>('starting');
   const [bootError, setBootError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('home');
@@ -331,6 +344,8 @@ export default function App() {
         };
         takeNativePerformanceProfile?: () => Promise<unknown>;
         takeRealProjectProfileSnapshot?: () => Promise<unknown>;
+        realProjectProfileActiveSliceCount?: () => Promise<unknown>;
+        realProjectProfileMutationPendingCount?: () => number;
       };
     };
     w.__orcaE2e = {
@@ -347,6 +362,10 @@ export default function App() {
       takeNativePerformanceProfile: () => platform.runtime.takeNativePerformanceProfile?.() ??
         Promise.resolve({ version: 1, samples: [] }),
       ...(import.meta.env.VITE_REAL_PROJECT_PROFILE === '1' ? {
+        realProjectProfileMutationPendingCount: () => useProjectStore.getState().projectMutationPendingCount,
+        realProjectProfileActiveSliceCount: () =>
+          (platform.runtime as unknown as { realProjectProfileActiveSliceCount(): Promise<unknown> })
+            .realProjectProfileActiveSliceCount(),
         takeRealProjectProfileSnapshot: () =>
           (platform.runtime as unknown as { takeRealProjectProfileSnapshot(): Promise<unknown> })
             .takeRealProjectProfileSnapshot(),
@@ -357,7 +376,9 @@ export default function App() {
       if (import.meta.env.VITE_REAL_PROJECT_PROFILE === '1') {
         const { projectLoadEvidence: _projectLoadEvidence,
           takeNativePerformanceProfile: _takeNativePerformanceProfile,
-          takeRealProjectProfileSnapshot: _takeRealProjectProfileSnapshot, ...rest } = w.__orcaE2e;
+          takeRealProjectProfileSnapshot: _takeRealProjectProfileSnapshot,
+          realProjectProfileMutationPendingCount: _realProjectProfileMutationPendingCount,
+          realProjectProfileActiveSliceCount: _realProjectProfileActiveSliceCount, ...rest } = w.__orcaE2e;
         w.__orcaE2e = rest;
       } else {
         const { projectLoadEvidence: _projectLoadEvidence,

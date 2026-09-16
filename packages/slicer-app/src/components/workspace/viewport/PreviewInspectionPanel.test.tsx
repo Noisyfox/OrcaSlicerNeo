@@ -7,6 +7,7 @@ import { PreviewInspectionPanel, formatPreviewTime } from './PreviewInspectionPa
 import type { ToolpathGeometry } from './useSliceResult';
 
 const data: ToolpathGeometry = {
+  receipt: { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '1' },
   segmentCount: 3,
   palette: [{ id: 0, name: 'Perimeter', color: [220, 50, 50] }],
   layerIds: Uint32Array.from([0, 0, 1]),

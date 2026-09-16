@@ -6,7 +6,7 @@
 // plates. Undo/Redo and abort preserve the same scope and monotonic stamps.
 import { resolve } from 'node:path';
 import { argv } from 'node:process';
-import { callAsyncTask } from './async-task-mailbox.mjs';
+import { callAsyncTask, getSliceResult } from './async-task-mailbox.mjs';
 import { createNodeProfileSource, installProfilePackages } from './profile-installer.mjs';
 import { loadModuleFactory } from './run-slice.mjs';
 
@@ -29,7 +29,7 @@ function requireStatus(label, value) {
   return value;
 }
 function requireStale(label, value) {
-  if (value?.ok || !/stale|unavailable/.test(value?.error ?? ''))
+  if (value?.ok || !['stale', 'unavailable'].includes(value?.status))
     throw new Error(`${label}: expected stale/unavailable, got ${JSON.stringify(value)}`);
 }
 function sameJson(left, right) {
@@ -47,16 +47,18 @@ const commit = (label, tx) => requireStatus(`commit ${label}`, callJson('orc_his
 const setOverride = (scope, id, key, value) => callJson('orc_set_project_config_override',
   ['string', 'string', 'string', 'string'], [scope, id ?? '', key, value]);
 const select = (plateId) => requireOk(`select ${plateId}`, callJson('orc_select_plate', ['string'], [plateId]));
+const receipts = new Map();
 const result = (plateId) => {
   select(plateId);
-  return callJson('orc_get_slice_result');
+  return getSliceResult(callJson, receipts.get(plateId));
 };
 const slice = async (plateId) => {
   select(plateId);
   const revision = stamps()[plateId];
-  requireOk(`slice ${plateId}`, await callAsyncTask(callJson, 'orc_slice_plate',
+  const sliced = requireOk(`slice ${plateId}`, await callAsyncTask(callJson, 'orc_slice_plate',
     ['string', 'string', 'number'], ['{}', plateId, revision]));
-  requireOk(`materialize ${plateId}`, callJson('orc_get_slice_result'));
+  receipts.set(plateId, sliced.receipt);
+  requireOk(`materialize ${plateId}`, getSliceResult(callJson, sliced.receipt));
 };
 function expectScope(label, before, after, changed, unchanged) {
   for (const plateId of changed)

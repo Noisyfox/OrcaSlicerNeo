@@ -20,7 +20,7 @@ function PreviewProbe({ enabled = true, onToolpath }: {
   return <output data-testid="projection-status">{projectionStatus}</output>;
 }
 
-const receipt = { plateId: 'plate-1', inputStamp: 1, sliceTaskId: '17' };
+const receipt = { plateId: 'plate-1', inputStamp: 1, resultGeneration: '1', sliceTaskId: '17' };
 
 function arcSliceResult(resultReceipt = receipt, finalX = 4): ClientSliceResult {
   return {
@@ -206,7 +206,7 @@ describe('useSliceResult', () => {
 
   it('discards a delayed old-plate payload after a newer Preview activation', async () => {
     const oldReceipt = receipt;
-    const newReceipt = { plateId: 'plate-2', inputStamp: 3, sliceTaskId: '18' };
+    const newReceipt = { plateId: 'plate-2', inputStamp: 3, resultGeneration: '1', sliceTaskId: '18' };
     let resolveOld!: (result: ClientSliceResult) => void;
     const oldPayload = new Promise<ClientSliceResult>((resolve) => { resolveOld = resolve; });
     const runtime = {

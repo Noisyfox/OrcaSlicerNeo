@@ -3,10 +3,16 @@
 // ----------------------------------------------------------------
 #include "plate_runtime_registry.hpp"
 
+#include <cstdio>
 #include <stdexcept>
 #include <unordered_set>
 
 namespace Slic3r::Neo::Bridge {
+
+PlateRuntimeRegistry::Entry::~Entry()
+{
+    if (!gcode_path.empty()) std::remove(gcode_path.c_str());
+}
 
 PlateRuntimeRegistry::JobLease::JobLease(PlateRuntimeRegistry& owner,
                                          std::shared_ptr<Entry> entry,
@@ -272,6 +278,8 @@ PlateRuntimeRegistry::LifecycleSnapshots PlateRuntimeRegistry::capture_lifecycle
         snapshots.emplace(plate_id, LifecycleSnapshot{
             entry->print.get(), entry->gcode_result.get(), entry->presentation,
             entry->completed_input_revision, entry->completed_slice_task_id,
+            entry->result_generation, entry->gcode_path, entry->gcode_size,
+            entry->gcode_line_ends, entry->gcode_text_available,
             entry->native_core_materialized});
     return snapshots;
 }
@@ -291,6 +299,11 @@ void PlateRuntimeRegistry::restore_lifecycle(const LifecycleSnapshots& snapshots
         entry->presentation = snapshot.presentation;
         entry->completed_input_revision = snapshot.completed_input_revision;
         entry->completed_slice_task_id = snapshot.completed_slice_task_id;
+        entry->result_generation = snapshot.result_generation;
+        entry->gcode_path = snapshot.gcode_path;
+        entry->gcode_size = snapshot.gcode_size;
+        entry->gcode_line_ends = snapshot.gcode_line_ends;
+        entry->gcode_text_available = snapshot.gcode_text_available;
         entry->native_core_materialized = snapshot.native_core_materialized;
     }
 }

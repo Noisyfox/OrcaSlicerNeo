@@ -356,12 +356,14 @@ export function GcodeTextWindow({ data, onClose }: { data: ToolpathGeometry; onC
     try {
       const request: PreviewTextLinesRequest = {
         resultId: data.metadata?.resultId ?? 0,
+        receipt: data.receipt,
         startLine,
         lineCount: Math.min(PAGE_LINES, lineCount - startLine + 1),
       };
       const page = data.sourceTextBytes
         ? readCachedTextLines(data.sourceTextBytes, startLine, request.lineCount)
         : await platform.runtime.readTextLines(request);
+      if (page.ok === false) return;
       if (cacheGenerationRef.current === generation) {
         cacheRef.current.set(pageNumber, { startLine: page.startLine, lines: pageLines(page), eof: page.eof });
         while (cacheRef.current.size > MAX_CACHED_PAGES) {
