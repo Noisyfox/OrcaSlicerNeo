@@ -815,3 +815,37 @@ Save only marks the current logical timestamp as its checkpoint and never
 forces lazy topmost serialization. History menu entries carry explicit before
 and after timestamps, so both directional menus load their selected target in
 one restore rather than traversing sparse adjacent receipts.
+
+### Stage 2 execution record — stable native identity in the full restore path
+
+- The existing full `ModelState` capture now retains the ordered native
+  `ModelInstance` IDs beside each object's native object and volume identities.
+  Staging validates the archived `ModelObject` identity, rematerializes volumes,
+  and then uses the Neo-owned `InstanceIdentityGraph` across the complete model
+  graph so every `ModelInstance` regains its retained native ID after
+  `add_instance()`.
+- Mutable-object cache reuse, equality, object-version intervals, restore data,
+  and deterministic accounting include the retained instance-ID vector. A
+  change in any object, volume, or instance identity therefore cannot reuse or
+  merge an incompatible object record.
+- Plate-session validation now requires its complete stable instance-ID set to
+  equal the staged model's set and requires each saved structural position to
+  carry the same ID. Restore binds membership, parked, and out-of-bounds state
+  directly by those retained IDs instead of mapping to freshly allocated
+  identities.
+- The serial and threaded real-WASM harnesses pass the exact Add Cube → Move →
+  Undo twice → Redo twice sequence with object, volume, and instance IDs checked
+  after both Redos. The same harness restores a two-object/three-instance model
+  with exact plate membership and exports unchanged painted triangles after a
+  full restore. The standalone C++ integration also checks support, seam, MMU,
+  and fuzzy-skin facet data; the history/mesh/identity targets pass in both
+  variants, as do all 158 slicer-wasm tests and the complete workspace unit
+  suite.
+- A real-WASM Electron production build passed the reported sequence in a
+  visible headed Playwright run with no restore or stale-identity error. The
+  affected slicer-wasm and desktop typechecks pass. The repository-wide
+  typecheck remains blocked in the unchanged `@orca/platform-contract` package
+  because its TypeScript configuration does not declare `ImportMeta.env`.
+- This stage does not begin the timestamped history-core migration. The pinned
+  C++ submodule remains untouched with its pre-existing dirty state, and root
+  acceptance is intentionally not recorded here.

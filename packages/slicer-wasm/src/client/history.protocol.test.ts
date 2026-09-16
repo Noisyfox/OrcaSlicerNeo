@@ -139,6 +139,11 @@ describe('Worker-owned project history protocol', () => {
     const editingContext = context('plate-session-1-plate-1');
     await client.runProjectHistoryTransaction('Add Cube', 'project', editingContext,
       async () => client.addShape('Cube'), editingContext);
+    const stableIds = (await client.getModelStructure()).objects.map((object) => ({
+      objectId: object.id,
+      volumeIds: object.volumes.map((volume) => volume.id),
+      instanceIds: object.instances.map((instance) => instance.id),
+    }));
     const move = await client.beginHistory('Move', 'project', editingContext);
     const moved = {
       offset: [25, 0, 0] as [number, number, number],
@@ -156,8 +161,17 @@ describe('Worker-owned project history protocol', () => {
     expect((await client.undoHistory()).ok).toBe(true);
     expect((await client.getModelStructure()).objects).toHaveLength(0);
     expect((await client.redoHistory()).ok).toBe(true);
-    expect((await client.getModelStructure()).objects).toHaveLength(1);
+    expect((await client.getModelStructure()).objects.map((object) => ({
+      objectId: object.id,
+      volumeIds: object.volumes.map((volume) => volume.id),
+      instanceIds: object.instances.map((instance) => instance.id),
+    }))).toEqual(stableIds);
     expect((await client.redoHistory()).ok).toBe(true);
+    expect((await client.getModelStructure()).objects.map((object) => ({
+      objectId: object.id,
+      volumeIds: object.volumes.map((volume) => volume.id),
+      instanceIds: object.instances.map((instance) => instance.id),
+    }))).toEqual(stableIds);
     expect((await client.getModelMesh()).objects[0]?.instanceTransform.offset[0]).toBe(25);
   });
 

@@ -30,6 +30,10 @@ struct MutableObject {
     // ModelVolume's native undo archive omits ObjectBase. Retain the ordered
     // IDs separately so restore can reapply them after materialization.
     std::vector<ObjectID> volume_ids;
+    // ModelInstance's native undo archive also omits ObjectBase. Preserve the
+    // ordered native IDs so the bridge can reapply them after add_instance()
+    // materializes the complete object graph.
+    std::vector<ObjectID> instance_ids;
 };
 
 // Immutable mesh data is shared by identity and can be discarded from the
@@ -139,7 +143,7 @@ struct ResourceDiagnostics {
 struct ResourceAccounting {
     static constexpr std::size_t kImplAllocationBytes = 256;
     static constexpr std::size_t kStoredEntryBytes = 512;
-    static constexpr std::size_t kMutableObjectSlotBytes = 64;
+    static constexpr std::size_t kMutableObjectSlotBytes = 96;
     static constexpr std::size_t kImmutableMeshSlotBytes = 128;
     static constexpr std::size_t kObjectIntervalSlotBytes = 32;
     static constexpr std::size_t kSharedBlobAllocationBytes = 64;

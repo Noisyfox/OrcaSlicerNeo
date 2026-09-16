@@ -20,6 +20,11 @@ function writeBytes(bytes) {
   Module.HEAPU8.set(bytes, ptr);
   return ptr;
 }
+function readAndFree(ptr, length) {
+  const bytes = Module.HEAPU8.slice(Number(ptr), Number(ptr) + Number(length));
+  Module._free(Number(ptr));
+  return bytes;
+}
 function historyCheck(label, condition, detail = '') {
   if (!condition) throw new Error(`${label}${detail ? `: ${detail}` : ''}`);
   console.log(`history PASS ${label}`);
@@ -37,14 +42,24 @@ function sessionShape(snapshot) {
       plate_id: plate.plate_id, display_index: plate.display_index, origin: plate.origin,
       name: plate.name, locked: plate.locked, settings: plate.settings,
       opaque_metadata: plate.opaque_metadata, future_metadata: plate.future_metadata,
+      instance_ids: [...(plate.instance_ids ?? [])].sort((a, b) => a - b),
+      out_of_bounds_instance_ids: [...(plate.out_of_bounds_instance_ids ?? [])].sort((a, b) => a - b),
       instance_keys: plateMembers(plate.instance_ids ?? []),
       out_of_bounds_keys: plateMembers(plate.out_of_bounds_instance_ids ?? []),
     })),
     instances: [...records.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => ({
-      key, object_id: item.object_id, plate_id: item.plate_id, member: item.member, parked: item.parked,
+      key, instance_id: item.instance_id, object_id: item.object_id,
+      plate_id: item.plate_id, member: item.member, parked: item.parked,
       out_of_bounds: item.out_of_bounds,
     })),
   };
+}
+function modelIdentity(structure) {
+  return (structure.objects ?? []).map((object) => ({
+    object_id: object.id,
+    volume_ids: (object.volumes ?? []).map((volume) => volume.id),
+    instance_ids: (object.instances ?? []).map((instance) => instance.id),
+  }));
 }
 function stableSessionShape(snapshot) {
   const shape = sessionShape(snapshot);
@@ -91,6 +106,7 @@ const freshAddCommit = callJson('orc_history_commit', ['string', 'string'],
 if (!freshAddCommit.canUndo) throw new Error(`fresh Cube commit failed: ${JSON.stringify(freshAddCommit)}`);
 const freshBeforeMove = callJson('orc_get_model_mesh', [], []);
 const freshBeforeMoveStructure = callJson('orc_get_model_structure', [], []);
+const freshStableIds = modelIdentity(freshBeforeMoveStructure);
 const freshMoveTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Move', 'project', JSON.stringify(context), '']);
 if (!freshMoveTx.ok || typeof freshMoveTx.transactionId !== 'string') throw new Error(JSON.stringify(freshMoveTx));
@@ -141,13 +157,19 @@ const freshCubeUndo = callJson('orc_history_undo', [], []);
 historyCheck('second Undo removes the fresh-project Cube', freshCubeUndo.ok === true &&
   callJson('orc_get_model_structure', [], []).objects.length === 0, JSON.stringify(freshCubeUndo));
 const freshCubeRedo = callJson('orc_history_redo', [], []);
-historyCheck('first Redo fully restores the fresh-project Cube', freshCubeRedo.ok === true &&
-  callJson('orc_get_model_structure', [], []).objects.length === 1, JSON.stringify(freshCubeRedo));
+const freshCubeRedoStructure = callJson('orc_get_model_structure', [], []);
+historyCheck('first Redo fully restores the fresh-project Cube with exact native IDs',
+  freshCubeRedo.ok === true &&
+  JSON.stringify(modelIdentity(freshCubeRedoStructure)) === JSON.stringify(freshStableIds),
+  JSON.stringify({ freshCubeRedo, expected: freshStableIds, actual: modelIdentity(freshCubeRedoStructure) }));
 const freshMoveRedo = callJson('orc_history_redo', [], []);
 const freshMoveRedoMesh = callJson('orc_get_model_mesh', [], []);
-historyCheck('second Redo rebases and reapplies the Move receipt', freshMoveRedo.ok === true &&
-  freshMoveRedoMesh.objects?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0],
-  JSON.stringify({ freshMoveRedo, freshMoveRedoMesh }));
+const freshMoveRedoStructure = callJson('orc_get_model_structure', [], []);
+historyCheck('second Redo reapplies Move with exact native IDs', freshMoveRedo.ok === true &&
+  freshMoveRedoMesh.objects?.[0]?.instance_transform?.offset?.[0] === freshMove.offset[0] &&
+  JSON.stringify(modelIdentity(freshMoveRedoStructure)) === JSON.stringify(freshStableIds),
+  JSON.stringify({ freshMoveRedo, freshMoveRedoMesh, expected: freshStableIds,
+    actual: modelIdentity(freshMoveRedoStructure) }));
 const freshMoveJumpUndo = callJson('orc_history_jump', ['string', 'string'], [freshMoveId, 'undo']);
 historyCheck('adjacent Undo jump rebases the rematerialized Move target', freshMoveJumpUndo.ok === true &&
   callJson('orc_get_model_mesh', [], []).objects?.[0]?.instance_transform?.offset?.[0] ===
@@ -435,17 +457,28 @@ const atomicBefore = callJson('orc_get_model_mesh', [], []);
 const atomicTx = callJson('orc_history_begin', ['string', 'string', 'string', 'string'],
   ['Atomic multi-object Move', 'project', JSON.stringify(context), '']);
 if (!atomicTx.ok || typeof atomicTx.transactionId !== 'string') throw new Error(JSON.stringify(atomicTx));
-const atomicTransforms = atomicBefore.objects.slice(0, 2).map((entry, index) => ({
-  objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
-  instanceTransform: { ...entry.instance_transform,
-    offset: [entry.instance_transform.offset[0] + (index + 1) * 11, entry.instance_transform.offset[1], entry.instance_transform.offset[2]] },
-  volumeTransform: entry.volume_transform,
-}));
+const atomicTransforms = atomicBefore.objects.slice(0, 2).map((entry, index) => {
+  const instanceTransform = cloneTransform(entry.instance_transform);
+  delete instanceTransform.matrix;
+  instanceTransform.offset[0] += (index + 1) * 11;
+  return {
+    objectIdx: entry.object_idx, volumeIdx: entry.volume_idx, instanceIdx: entry.instance_idx,
+    instanceTransform,
+    volumeTransform: entry.volume_transform,
+  };
+});
 const atomicMoved = callJson('orc_set_model_transforms', ['string', 'string'],
   [atomicTx.transactionId, JSON.stringify(atomicTransforms)]);
 historyCheck('atomic multi-object transform receipt', atomicMoved.ok === true && Array.isArray(atomicMoved.instance_transforms));
+const atomicAfter = callJson('orc_get_model_mesh', [], []);
+historyCheck('atomic multi-object transform changes both live targets',
+  atomicAfter.objects.slice(0, 2).every((entry, index) =>
+    entry.instance_transform.offset[0] === atomicTransforms[index].instanceTransform.offset[0]),
+  JSON.stringify({ atomicBefore, atomicTransforms, atomicAfter }));
 const atomicCommit = callJson('orc_history_commit', ['string', 'string'], [atomicTx.transactionId, JSON.stringify(context)]);
-historyCheck('atomic multi-object transform commits one history entry', atomicCommit.undoEntries.filter((entry) => entry.label === 'Atomic multi-object Move').length === 1);
+historyCheck('atomic multi-object transform commits one history entry',
+  atomicCommit.undoEntries?.filter((entry) => entry.label === 'Atomic multi-object Move').length === 1,
+  JSON.stringify(atomicCommit));
 const atomicUndo = callJson('orc_history_undo', [], []);
 historyCheck('atomic multi-object transform undo', atomicUndo.ok === true &&
   callJson('orc_get_model_mesh', [], []).objects.slice(0, 2).every((entry, index) =>
@@ -500,6 +533,19 @@ const fixtureArchive = await readFile(resolve(repoRoot,
 // interoperability fixture.  Change only the in-memory fixture copy so the
 // history baseline contains a real imported locked plate.
 const fixtureEntries = readZipEntries(fixtureArchive);
+const fixturePaintStates = ['4', '8', '4', '8', '4', '8', '4', '8', '4', '8', '4', '8'];
+const fixtureModelEntry = fixtureEntries.find((entry) => entry.name === '3D/3dmodel.model');
+if (!fixtureModelEntry) throw new Error('native history fixture is missing 3D/3dmodel.model');
+let paintedTriangle = 0;
+const fixtureModelText = new TextDecoder().decode(fixtureModelEntry.content);
+fixtureModelEntry.content = new TextEncoder().encode(fixtureModelText.replace(
+  /<triangle\b[^>]*\/>/g,
+  (source) => paintedTriangle < fixturePaintStates.length
+    ? source.replace('/>', ` paint_color="${fixturePaintStates[paintedTriangle++]}"/>`)
+    : source,
+));
+historyCheck('paint the native structural history fixture',
+  paintedTriangle === fixturePaintStates.length, `painted=${paintedTriangle}`);
 const fixtureMetadata = {
   schema: 'org.orcaslicerneo.plate-session', version: 1, current_plate_index: 0,
   plates: [
@@ -521,6 +567,21 @@ historyCheck('load locked multi-plate fixture', loadedFixture.ok === true && loa
 let fixtureSession = callJson('orc_get_plate_session_snapshot', [], []);
 const lockedPlateId = fixtureSession.plates.find((plate) => plate.locked)?.plate_id;
 historyCheck('fixture retains locked plate state', typeof lockedPlateId === 'string', JSON.stringify(fixtureSession));
+const importedFixtureStructure = callJson('orc_get_model_structure', [], []);
+const multiInstanceObjectId = importedFixtureStructure.objects?.[0]?.id;
+const addedFixtureInstance = callJson('orc_add_instance', ['number'], [multiInstanceObjectId]);
+historyCheck('add a second instance to the first imported object',
+  addedFixtureInstance.ok === true && Number.isSafeInteger(addedFixtureInstance.instanceId),
+  JSON.stringify({ importedFixtureStructure, addedFixtureInstance }));
+fixtureSession = callJson('orc_recompute_plate_membership', [], []);
+const multiInstanceStructure = callJson('orc_get_model_structure', [], []);
+historyCheck('multi-object fixture has stable multi-instance plate membership',
+  multiInstanceStructure.objects?.length === 2 &&
+  multiInstanceStructure.objects[0].instances?.length === 2 &&
+  fixtureSession.instances?.length === 3 &&
+  fixtureSession.instances.every((instance) => Number.isSafeInteger(instance.instance_id) &&
+    instance.instance_id > 0 && (instance.member || instance.parked)),
+  JSON.stringify({ multiInstanceStructure, fixtureSession }));
 
 const fixturePlateOne = fixtureSession.plates[0].plate_id;
 const fixturePlateTwo = fixtureSession.plates[1].plate_id;
@@ -562,6 +623,7 @@ const resetFixtureHistory = callJson('orc_history_reset', ['string'], [JSON.stri
 historyCheck('establish structural fixture history baseline',
   resetFixtureHistory.canUndo === false, JSON.stringify(resetFixtureHistory));
 let structuralBaseline = callJson('orc_get_plate_session_snapshot', [], []);
+const structuralBaselineIdentity = modelIdentity(callJson('orc_get_model_structure', [], []));
 assertLiveSessionIntegrity(structuralBaseline, 'structural baseline');
 function coordinateArraysMatchPlateCount(session) {
   const overlay = callJson('orc_get_project_config_overlay');
@@ -655,6 +717,15 @@ commitHistory('Delete Plate', deleteTransaction);
 const deleteUndo = callJson('orc_history_undo', [], []);
 historyCheck('Delete Plate undo succeeds', deleteUndo.ok === true, JSON.stringify(deleteUndo));
 const deleteUndoSession = restoreAndCompare('Delete Plate undo', structuralBaseline);
+historyCheck('multi-instance multi-object restore preserves complete native IDs and plate memberships',
+  JSON.stringify(modelIdentity(callJson('orc_get_model_structure', [], []))) ===
+    JSON.stringify(structuralBaselineIdentity) &&
+  JSON.stringify(stableSessionShape(deleteUndoSession)) ===
+    JSON.stringify(stableSessionShape(structuralBaseline)),
+  JSON.stringify({ expectedIdentity: structuralBaselineIdentity,
+    actualIdentity: modelIdentity(callJson('orc_get_model_structure', [], [])),
+    expectedSession: stableSessionShape(structuralBaseline),
+    actualSession: stableSessionShape(deleteUndoSession) }));
 historyCheck('Delete Plate undo restores coordinate arrays to three plates',
   coordinateArraysMatchPlateCount(deleteUndoSession));
 historyCheck('Delete Plate undo restores coordinate identity order',
@@ -663,6 +734,21 @@ historyCheck('Delete Plate undo restores current plate and member flags',
   deleteUndoSession.current_plate_id === fixturePlateThree &&
   deleteUndoSession.instances.some((item) => item.object_index === 2 && item.plate_id === fixturePlateTwo && !item.parked) &&
   deleteUndoSession.instances.some((item) => item.object_index === 3 && item.plate_id === fixturePlateThree && item.out_of_bounds));
+const paintedRestoreExport = callJson('orc_export_project', [], []);
+historyCheck('painted history restore exports a native project',
+  paintedRestoreExport.ok === true && paintedRestoreExport.bytes_ptr > 0 &&
+  paintedRestoreExport.bytes_length > 0, JSON.stringify(paintedRestoreExport));
+const paintedRestoreBytes = readAndFree(
+  paintedRestoreExport.bytes_ptr, paintedRestoreExport.bytes_length);
+const paintedRestoreModel = readZipEntries(paintedRestoreBytes)
+  .find((entry) => entry.name === '3D/3dmodel.model');
+const restoredPaintStates = paintedRestoreModel
+  ? [...new TextDecoder().decode(paintedRestoreModel.content).matchAll(/paint_color="([^"]+)"/g)]
+    .map((match) => match[1])
+  : [];
+historyCheck('painting survives full bridge history restore',
+  JSON.stringify(restoredPaintStates) === JSON.stringify(fixturePaintStates),
+  JSON.stringify({ expected: fixturePaintStates, actual: restoredPaintStates }));
 const deleteRedo = callJson('orc_history_redo', [], []);
 historyCheck('Delete Plate redo succeeds', deleteRedo.ok === true, JSON.stringify(deleteRedo));
 const deleteRedoSession = restoreAndCompare('Delete Plate redo', deleteAfter);

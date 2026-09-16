@@ -633,7 +633,7 @@ test('undoes the first Cube added after an empty-scene Add Plate', async () => {
   }
 });
 
-test('redoes a moved Cube after undoing both Move and Add Cube', async () => {
+test('redoes a moved Cube after undoing both Move and Add Cube without stale identity errors', async () => {
   const { app } = await launchApp();
   try {
     const page = await app.firstWindow();
@@ -671,11 +671,14 @@ test('redoes a moved Cube after undoing both Move and Add Cube', async () => {
     await redo.click();
     await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
     await expect(redo).toHaveAttribute('aria-label', 'Redo Move');
+    await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
     await redo.click();
     await expect(page.getByTestId('history-restore-error')).toHaveCount(0);
+    await expect(page.getByText(/stale.*identity|identity.*stale/i)).toHaveCount(0);
     await expect(objectRows).toHaveCount(1, { timeout: 30_000 });
     await objectRows.first().click();
-    await page.getByTestId('gizmo-btn-move').click();
+    const moveButton = page.getByTestId('gizmo-btn-move');
+    if (await moveButton.getAttribute('aria-pressed') !== 'true') await moveButton.click();
     await expect(page.getByTestId('move-x')).toHaveValue(movedX);
   } finally {
     await app.close();

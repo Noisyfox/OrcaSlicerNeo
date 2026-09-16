@@ -43,6 +43,15 @@ static RestoreState restore_state(const Slic3r::Neo::History::ModelState& model)
 int main()
 {
     Model original = model_with_cube(20.0);
+    ModelObject* original_object = original.objects.front();
+    ModelVolume* original_volume = original_object->volumes.front();
+    original_volume->supported_facets.set_triangle_from_string(0, "1C");
+    original_volume->seam_facets.set_triangle_from_string(1, "2");
+    original_volume->mmu_segmentation_facets.set_triangle_from_string(2, "3A");
+    original_volume->fuzzy_skin_facets.set_triangle_from_string(3, "4");
+    const ObjectID original_object_id = original_object->id();
+    const ObjectID original_volume_id = original_volume->id();
+    const ObjectID original_instance_id = original_object->instances.front()->id();
     MeshCaptureCache cache;
     const auto first = capture_model_state(original, cache);
     const auto second = capture_model_state(original, cache);
@@ -54,6 +63,11 @@ int main()
     CHECK(first.immutable_meshes.front().deferred == nullptr);
     CHECK(first.immutable_meshes.front().native != nullptr);
     CHECK(first.immutable_meshes.front().native == second.immutable_meshes.front().native);
+    CHECK(first.mutable_objects.front().id == original_object_id.id);
+    CHECK(first.mutable_objects.front().volume_ids ==
+          std::vector<Slic3r::Neo::History::ObjectID>{original_volume_id.id});
+    CHECK(first.mutable_objects.front().instance_ids ==
+          std::vector<Slic3r::Neo::History::ObjectID>{original_instance_id.id});
 
     const auto recaptured = capture_model_state(original, cache);
     CHECK(model_state_equal(first, recaptured));
@@ -62,8 +76,19 @@ int main()
     CHECK(model_state_equal(first, capture_model_state(original, cache)));
     CHECK(cache.serialized_mesh_count() == 1);
     Model restored_original = stage_model(original, restore_state(first));
+    CHECK(restored_original.objects.front()->id() == original_object_id);
+    CHECK(restored_original.objects.front()->volumes.front()->id() == original_volume_id);
+    CHECK(restored_original.objects.front()->instances.front()->id() == original_instance_id);
     CHECK(restored_original.objects.front()->volumes.front()->get_mesh_shared_ptr().get() ==
           first.immutable_meshes.front().native.get());
+    CHECK(restored_original.objects.front()->volumes.front()->supported_facets.equals(
+          original_volume->supported_facets));
+    CHECK(restored_original.objects.front()->volumes.front()->seam_facets.equals(
+          original_volume->seam_facets));
+    CHECK(restored_original.objects.front()->volumes.front()->mmu_segmentation_facets.equals(
+          original_volume->mmu_segmentation_facets));
+    CHECK(restored_original.objects.front()->volumes.front()->fuzzy_skin_facets.equals(
+          original_volume->fuzzy_skin_facets));
     MeshCaptureCache restore_cache;
     CHECK(model_state_equal(first, capture_model_state(restored_original, restore_cache)));
 
@@ -146,6 +171,7 @@ int main()
     // complete object record remains in every ModelState; only the Cereal work
     // is skipped for an unchanged live object.
     Model objects = model_with_cube(10.0);
+    objects.objects.front()->add_instance();
     ModelObject* second_object = objects.add_object();
     second_object->add_instance();
     second_object->add_volume(TriangleMesh(its_make_cube(12.0, 12.0, 12.0)));
@@ -157,6 +183,8 @@ int main()
     CHECK(object_cache.reused_object_count() == 2);
     CHECK(object_first.mutable_objects[0].data == object_second.mutable_objects[0].data);
     CHECK(object_first.mutable_objects[1].data == object_second.mutable_objects[1].data);
+    CHECK(object_first.mutable_objects[0].instance_ids.size() == 2);
+    CHECK(object_first.mutable_objects[1].instance_ids.size() == 1);
 
     // Touching only one object archives only that object. A zero timestamp is
     // explicitly rejected by the cache, because it is not reliable enough to
@@ -168,7 +196,7 @@ int main()
     CHECK(object_cache.reused_object_count() == 3);
     CHECK(object_third.mutable_objects[0].data != object_second.mutable_objects[0].data);
     CHECK(object_third.mutable_objects[1].data == object_second.mutable_objects[1].data);
-    CHECK(object_cache.find(objects.objects[0]->id().id, 0, {}, {}) == nullptr);
+    CHECK(object_cache.find(objects.objects[0]->id().id, 0, {}, {}, {}) == nullptr);
 
     // Removing a live object drops its entry before the next capture, so a
     // later add cannot reuse a stale record even if its payload happens to be
@@ -203,6 +231,12 @@ int main()
     CHECK(history.undo(restored_state));
     Model restored_third = stage_model(objects, restored_state);
     CHECK(model_state_equal(object_third, capture_model_state(restored_third, object_mesh_cache)));
+    CHECK(restored_third.objects[0]->instances[0]->id().id ==
+          object_third.mutable_objects[0].instance_ids[0]);
+    CHECK(restored_third.objects[0]->instances[1]->id().id ==
+          object_third.mutable_objects[0].instance_ids[1]);
+    CHECK(restored_third.objects[1]->instances[0]->id().id ==
+          object_third.mutable_objects[1].instance_ids[0]);
     CHECK(history.undo(restored_state));
     Model restored_first = stage_model(objects, restored_state);
     CHECK(model_state_equal(object_first, capture_model_state(restored_first, object_mesh_cache)));

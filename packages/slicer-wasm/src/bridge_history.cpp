@@ -26,6 +26,7 @@
 #include "bridge_project_overlay.hpp"
 #include "bridge_prime_tower.hpp"
 #include "bridge_slicing_pipeline.hpp"
+#include "history/InstanceIdentity.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
 
@@ -146,7 +147,8 @@ void validate_history_plate_session(const json& session, const Model& model)
         const auto instance_index = instance["instance_index"].get<std::size_t>();
         if (!saved_instances.emplace(saved_id, std::make_pair(object_index, instance_index)).second ||
             !saved_positions.emplace(object_index, instance_index).second ||
-            object_index >= model.objects.size() || instance_index >= model.objects[object_index]->instances.size())
+            object_index >= model.objects.size() || instance_index >= model.objects[object_index]->instances.size() ||
+            model.objects[object_index]->instances[instance_index]->id().id != saved_id)
             throw std::runtime_error("history instance membership does not match model");
         const std::string plate_id = instance["plate_id"].get<std::string>();
         if (plate_id.empty() != !instance["member"].get<bool>() ||
@@ -157,7 +159,9 @@ void validate_history_plate_session(const json& session, const Model& model)
         if (!plate_id.empty()) membership_ids.insert(saved_id);
         if (instance["out_of_bounds"].get<bool>()) out_of_bounds_ids.insert(saved_id);
     }
-    if (saved_instances.size() != model_instance_ids.size())
+    std::set<std::size_t> saved_instance_ids;
+    for (const auto& saved : saved_instances) saved_instance_ids.insert(saved.first);
+    if (saved_instance_ids != model_instance_ids)
         throw std::runtime_error("history plate session is missing model instances");
 
     std::set<std::size_t> listed_members;
@@ -226,9 +230,7 @@ void restore_history_plate_session(const json& session, const Model& restored_mo
     state().plate_out_of_bounds_ids.clear();
     state().parked_instance_ids.clear();
     for (const auto& instance : session["instances"]) {
-        const auto object_index = instance["object_index"].get<std::size_t>();
-        const auto instance_index = instance["instance_index"].get<std::size_t>();
-        const auto restored_id = restored_model.objects[object_index]->instances[instance_index]->id().id;
+        const auto restored_id = instance["instance_id"].get<std::size_t>();
         const std::string plate_id = instance["plate_id"].get<std::string>();
         if (!plate_id.empty()) state().instance_plate_ids[restored_id] = plate_id;
         if (instance["parked"].get<bool>()) state().parked_instance_ids.insert(restored_id);
@@ -1431,6 +1433,7 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
     // shared immutable mesh records. No complete-model archive is retained as
     // a per-entry equality or restore payload.
     result.mutable_objects.reserve(model.objects.size());
+    InstanceIdentityGraph instance_identity_graph;
     std::set<Neo::History::ObjectID> live_object_ids;
     const double object_collection_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     for (const auto* object : model.objects) live_object_ids.insert(object->id().id);
@@ -1446,10 +1449,16 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
             volume_ids.push_back(volume->id().id);
             object_meshes.push_back(volume->get_mesh_shared_ptr());
         }
+        const InstanceIDs captured_instance_ids = instance_identity_graph.capture(*object);
+        std::vector<Neo::History::ObjectID> instance_ids;
+        instance_ids.reserve(captured_instance_ids.size());
+        for (const ::Slic3r::ObjectID id : captured_instance_ids)
+            instance_ids.push_back(id.id);
         // ModelObject derives from ObjectBase (whose timestamp is zero); use
         // the mutable object configuration timestamp as the Orca gate.
         const auto timestamp = static_cast<const ModelConfig&>(object->config).timestamp();
-        const auto* cached = object_cache.find(object->id().id, timestamp, object_meshes, volume_ids);
+        const auto* cached = object_cache.find(
+            object->id().id, timestamp, object_meshes, volume_ids, instance_ids);
         if (timings) timings->collection_cache_ms += Neo::Bridge::Performance::now_ms() - object_iteration_started_at;
         const double mutable_archive_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
         Bytes object_bytes;
@@ -1463,10 +1472,12 @@ ModelState capture_model_state(const Model& model, MeshCaptureCache& mesh_cache,
             const std::string encoded = stream.str();
             object_bytes.assign(encoded.begin(), encoded.end());
             object_cache.insert(object->id().id, timestamp,
-                                std::make_shared<const Bytes>(object_bytes), object_meshes, volume_ids);
+                                std::make_shared<const Bytes>(object_bytes), object_meshes,
+                                volume_ids, instance_ids);
         }
         result.mutable_objects.push_back({
-            object->id().id, timestamp, std::move(object_bytes), std::move(volume_ids)});
+            object->id().id, timestamp, std::move(object_bytes), std::move(volume_ids),
+            std::move(instance_ids)});
         if (timings) timings->mutable_object_archive_ms += Neo::Bridge::Performance::now_ms() - mutable_archive_started_at;
     }
     const double immutable_result_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
@@ -1517,6 +1528,7 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
     const double mutable_started_at = timings ? Neo::Bridge::Performance::now_ms() : 0.0;
     Model rebuilt_model = model_template;
     rebuilt_model.clear_objects();
+    InstanceIdentityGraph instance_identity_graph;
     for (const auto& object : restored.model.mutable_objects) {
         if (object.data.empty()) throw std::runtime_error("history object data is unavailable");
         std::string bytes(object.data.begin(), object.data.end());
@@ -1524,6 +1536,8 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
         ModelObject* native_object = rebuilt_model.add_object();
         NeoHistoryInputArchive archive(archive_context, stream);
         archive(*native_object);
+        if (object.id == 0 || native_object->id().id != object.id)
+            throw std::runtime_error("history object identity is unavailable");
 
         const std::size_t decoded_volume_count = native_object->volumes.size();
         if (object.volume_ids.size() != decoded_volume_count ||
@@ -1562,28 +1576,11 @@ Model stage_model(const Model& model_template, const RestoreState& restored,
             id_reader(cereal::base_class<ObjectBase>(materialized));
         }
 
-        // Native ModelInstance deserialization intentionally constructs with
-        // an invalid ObjectID because Orca restores into an existing object
-        // graph. Neo stages a fresh Model instead, so materialize each decoded
-        // instance through ModelObject::add_instance() to allocate a valid
-        // runtime identity before the plate-session membership map is applied.
-        const std::size_t decoded_instance_count = native_object->instances.size();
-        for (std::size_t index = 0; index < decoded_instance_count; ++index) {
-            ModelInstance* decoded = native_object->instances[index];
-            ModelInstance* materialized = native_object->add_instance();
-            materialized->set_transformation(decoded->get_transformation());
-            if (decoded->is_assemble_initialized())
-                materialized->set_assemble_transformation(decoded->get_assemble_transformation());
-            materialized->set_offset_to_assembly(decoded->get_offset_to_assembly());
-            materialized->print_volume_state = decoded->print_volume_state;
-            materialized->printable = decoded->printable;
-            materialized->auto_drop = decoded->auto_drop;
-            materialized->use_loaded_id_for_label = decoded->use_loaded_id_for_label;
-            materialized->arrange_order = decoded->arrange_order;
-            materialized->loaded_id = decoded->loaded_id;
-        }
-        for (std::size_t index = 0; index < decoded_instance_count; ++index)
-            native_object->delete_instance(0);
+        InstanceIDs instance_ids;
+        instance_ids.reserve(object.instance_ids.size());
+        for (const Neo::History::ObjectID id : object.instance_ids)
+            instance_ids.emplace_back(id);
+        instance_identity_graph.restore(*native_object, instance_ids);
     }
     if (timings)
         timings->model_staging_deserialization_ms += Neo::Bridge::Performance::now_ms() - mutable_started_at;
@@ -1599,7 +1596,7 @@ bool model_state_equal(const ModelState& lhs, const ModelState& rhs)
         const auto& left = lhs.mutable_objects[index];
         const auto& right = rhs.mutable_objects[index];
         if (left.id != right.id || left.timestamp != right.timestamp || left.data != right.data ||
-            left.volume_ids != right.volume_ids)
+            left.volume_ids != right.volume_ids || left.instance_ids != right.instance_ids)
             return false;
     }
     for (std::size_t index = 0; index < lhs.immutable_meshes.size(); ++index) {
